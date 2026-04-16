@@ -160,10 +160,18 @@ export function deriveEcdsaCapabilityState(args: {
   record: WarmSessionEcdsaCapabilityState['record'];
   auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
+  emailOtpAuthContext?: WarmSessionEcdsaCapabilityState['emailOtpAuthContext'];
 }): WarmSessionEcdsaCapabilityState['state'] {
   if (!args.record) return 'missing';
   if (args.record.thresholdSessionKind === 'jwt' && (!args.auth || !args.auth.thresholdSessionJwt)) {
     return 'auth_missing';
+  }
+  if (
+    args.record.source === 'email_otp' &&
+    args.emailOtpAuthContext?.retention === 'single_use' &&
+    Number(args.emailOtpAuthContext.consumedAtMs) > 0
+  ) {
+    return 'prf_missing';
   }
   if (!args.prfClaim) return 'prf_missing';
   if (args.prfClaim.state === 'unavailable') return 'prf_unavailable';

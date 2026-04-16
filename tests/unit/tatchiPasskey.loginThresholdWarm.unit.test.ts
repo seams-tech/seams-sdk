@@ -577,8 +577,9 @@ test.describe('unlock threshold warm-session requirements', () => {
         string,
         unknown
       >;
-      expect(unlockOptionsBody.user_id).toBe('alice.testnet');
-      expect(unlockOptionsBody.rp_id).toBe('example.localhost');
+      expect(unlockOptionsBody.unlockBackend).toBe('passkey');
+      expect(unlockOptionsBody.userId).toBe('alice.testnet');
+      expect(unlockOptionsBody.rpId).toBe('example.localhost');
 
       const exchangeBody = JSON.parse(String(captured[1]!.init?.body || '{}')) as Record<
         string,
@@ -592,6 +593,100 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(
         ((credential.response || {}) as Record<string, unknown>).clientExtensionResults,
       ).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('uses app session JWT for existing-key ECDSA warm-up after session exchange', async () => {
+    const originalFetch = globalThis.fetch;
+    let bootstrapCalls = 0;
+    let bootstrapArgs: Record<string, unknown> | null = null;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === 'https://relay.example/session/exchange') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              session: { kind: 'app_session_v1', userId: 'alice.testnet' },
+              jwt: 'app-jwt-oidc-1',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: false, message: 'not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      const context = createBaseContext({
+        signingEngine: {
+          getThresholdEcdsaSessionRecordForSigning: (_args: { chain: 'tempo' | 'evm' }) => ({
+            ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+            thresholdSessionId: 'canonical-ecdsa-session-1',
+          }),
+          bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
+            bootstrapCalls += 1;
+            bootstrapArgs = args;
+            return {
+              thresholdEcdsaKeyRef: {
+                type: 'threshold-ecdsa-secp256k1',
+                userId: 'alice.testnet',
+                relayerUrl: 'https://relay.example',
+                ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+                backendBinding: {
+                  relayerKeyId: 'rk-1',
+                  clientVerifyingShareB64u: 'AQ',
+                },
+                participantIds: [1, 2],
+                thresholdSessionKind: 'jwt',
+                thresholdSessionId: 'session-1',
+                thresholdSessionJwt: 'jwt-ecdsa',
+              },
+              keygen: {
+                ok: true,
+                ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+                relayerKeyId: 'rk-1',
+                clientVerifyingShareB64u: 'AQ',
+                participantIds: [1, 2],
+              },
+              session: {
+                ok: true,
+                sessionId: 'session-1',
+                jwt: 'jwt-ecdsa',
+                remainingUses: 3,
+                expiresAtMs: Date.now() + 60_000,
+                clientVerifyingShareB64u: 'AQ',
+              },
+            };
+          },
+        },
+      });
+
+      const result = await withMockedMostRecentProjection(
+        async () =>
+          await unlock(context, ACCOUNT_ID, {
+            session: {
+              kind: 'jwt',
+              exchange: {
+                type: 'oidc_jwt',
+                token: 'oidc-token-1',
+              },
+            },
+          }),
+        { includeThresholdEcdsaProfiles: true },
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.jwt).toBe('app-jwt-oidc-1');
+      expect(bootstrapCalls).toBe(2);
+      expect(String(bootstrapArgs?.authorizationJwt || '')).toBe('app-jwt-oidc-1');
+      expect(String(bootstrapArgs?.clientRootShare32B64u || '')).toBe(
+        ECDSA_CLIENT_ROOT_SHARE32_B64U,
+      );
+      expect(String(bootstrapArgs?.ecdsaThresholdKeyId || '')).toBe(ECDSA_THRESHOLD_KEY_ID);
     } finally {
       globalThis.fetch = originalFetch;
     }

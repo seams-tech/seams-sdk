@@ -9,8 +9,6 @@ import {
 import { cacheSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
-  collectAuthenticationCredentialForChallengeB64u,
-  getPrfFirstB64uFromCredential,
   type ThresholdIndexedDbPort,
   type WarmSessionMaterialWriter,
   type ThresholdWebAuthnPromptPort,
@@ -31,6 +29,7 @@ import {
   prepareThresholdEcdsaHssClientRequestWasm,
   prepareThresholdEcdsaHssSessionWasm,
 } from '../../signers/wasm/hssClientSignerWasm';
+import { resolveThresholdEcdsaClientRootShare } from './thresholdClientSecretSource';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 
@@ -40,6 +39,11 @@ function generateKeygenSessionId(): string {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `tecdsa-keygen-${id}`;
+}
+
+function zeroizeBytes(bytes?: Uint8Array | null): void {
+  if (!(bytes instanceof Uint8Array)) return;
+  bytes.fill(0);
 }
 
 export async function bootstrapEcdsaSession(args: {
@@ -96,7 +100,7 @@ export async function bootstrapEcdsaSession(args: {
   const bootstrapAuthorizationJwt = String(args.bootstrapAuthorizationJwt || '').trim();
   const requestedSessionId = String(args.sessionId || '').trim();
   const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
-  let providedClientRootShare32B64u = String(args.clientRootShare32B64u || '').trim();
+  const providedClientRootShare32B64u = String(args.clientRootShare32B64u || '').trim();
   const useAuthorizationBootstrap = bootstrapAuthorizationJwt.length > 0;
   if (useAuthorizationBootstrap && !providedClientRootShare32B64u) {
     return {
@@ -107,50 +111,30 @@ export async function bootstrapEcdsaSession(args: {
         : 'Missing threshold-ecdsa clientRootShare32B64u for authorization bootstrap; reconnect session priming and retry (missing sessionId)',
     };
   }
-  let credential: Awaited<ReturnType<typeof collectAuthenticationCredentialForChallengeB64u>> | null =
-    null;
-  let prfFirstB64u: string | null = null;
-  if (!useAuthorizationBootstrap) {
-    const challengeB64u = await computeThresholdEcdsaKeygenIntentDigest({
-      userId,
-      rpId,
-      keygenSessionId,
-    });
-    credential = await collectAuthenticationCredentialForChallengeB64u({
-      indexedDB: args.indexedDB,
-      touchIdPrompt: args.touchIdPrompt,
-      nearAccountId: userId,
-      challengeB64u,
-    });
-
-    prfFirstB64u = getPrfFirstB64uFromCredential(credential);
-    if (!prfFirstB64u) {
-      return {
-        ok: false,
-        code: 'unsupported',
-        message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
-      };
-    }
-  }
+  let credential: unknown = null;
+  let yClient32Le: Uint8Array | null = null;
 
   try {
-    const yClient32LeB64u = prfFirstB64u || providedClientRootShare32B64u;
-    if (!yClient32LeB64u) {
-      return {
-        ok: false,
-        code: 'invalid_args',
-        message:
-          'Missing threshold-ecdsa client root share for bootstrap; reconnect with WebAuthn or provide canonical session material',
-      };
+    const challengeB64u = !useAuthorizationBootstrap
+      ? await computeThresholdEcdsaKeygenIntentDigest({
+          userId,
+          rpId,
+          keygenSessionId,
+        })
+      : undefined;
+    const resolvedClientRootShare = await resolveThresholdEcdsaClientRootShare({
+      indexedDB: args.indexedDB,
+      touchIdPrompt: args.touchIdPrompt,
+      userId,
+      challengeB64u,
+      providedClientRootShare32B64u,
+    });
+    if (!resolvedClientRootShare.ok) {
+      return resolvedClientRootShare;
     }
-    const yClient32Le = base64UrlDecode(yClient32LeB64u);
-    if (yClient32Le.length !== 32) {
-      return {
-        ok: false,
-        code: 'invalid_args',
-        message: 'threshold-ecdsa clientRootShare32B64u must decode to 32 bytes',
-      };
-    }
+    credential = resolvedClientRootShare.credential || null;
+    const yClient32LeB64u = resolvedClientRootShare.clientRootShare32B64u;
+    yClient32Le = base64UrlDecode(yClient32LeB64u);
 
     const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
       ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
@@ -158,9 +142,8 @@ export async function bootstrapEcdsaSession(args: {
     });
     const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
     const sessionId = requestedSessionId || generateThresholdSessionId();
-    const webauthnAuthentication = credential || undefined;
+    const webauthnAuthentication = useAuthorizationBootstrap ? undefined : (credential as any);
     const authorizationJwt = useAuthorizationBootstrap ? bootstrapAuthorizationJwt : undefined;
-
     const prepare = await thresholdEcdsaHssPrepare(args.relayerUrl, {
       userId,
       rpId,
@@ -356,7 +339,7 @@ export async function bootstrapEcdsaSession(args: {
       ? Math.floor(Number(bootstrap.expiresAtMs))
       : Date.now() + ttlMs;
 
-    const cachedClientRootShare32B64u = prfFirstB64u || providedClientRootShare32B64u;
+    const cachedClientRootShare32B64u = yClient32LeB64u;
     const prfFirstCache = args.prfFirstCache;
     if (prfFirstCache && cachedClientRootShare32B64u) {
       await cacheSigningSessionPrfFirstBestEffort(prfFirstCache, {
@@ -416,5 +399,7 @@ export async function bootstrapEcdsaSession(args: {
         : e || 'bootstrap failed',
     );
     return { ok: false, code: 'internal', message: msg };
+  } finally {
+    zeroizeBytes(yClient32Le);
   }
 }

@@ -44,17 +44,18 @@ const delegateEnvironmentId = 'proj_delegate:prod';
 
 function validLoginOptionsBody(overrides?: Partial<any>): any {
   return {
-    user_id: 'bob.testnet',
-    rp_id: 'example.localhost',
+    unlockBackend: 'passkey',
+    userId: 'bob.testnet',
+    rpId: 'example.localhost',
     ...overrides,
   };
 }
 
 function validLoginVerifyBody(overrides?: Partial<any>): any {
   return {
-    sessionKind: 'jwt',
+    unlockBackend: 'passkey',
     challengeId: 'challenge-123',
-    webauthn_authentication: { ok: true, ...(overrides?.webauthn_authentication || {}) },
+    webauthnAuthentication: { ok: true, ...(overrides?.webauthnAuthentication || {}) },
     ...overrides,
   };
 }
@@ -2892,6 +2893,39 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.status).toBe(200);
       expect(res.json?.ok).toBe(true);
       expect(res.json?.challengeId).toBe('wallet-unlock-cid-1');
+      expect(res.json?.unlockBackend).toBe('passkey');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /wallet/unlock/challenge: email_otp backend returns unlock challenge', async () => {
+    const service = makeFakeAuthService({
+      createEmailOtpUnlockChallenge: async () => ({
+        ok: true,
+        walletId: 'bob.testnet',
+        challengeId: 'otp-unlock-cid-1',
+        challengeB64u: 'otp-unlock-challenge',
+        expiresAtMs: 456,
+        unlockKeyVersion: 'email-otp-unlock-v1',
+      }),
+    });
+    const router = createRelayRouter(service, {});
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/wallet/unlock/challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          unlockBackend: 'email_otp',
+          walletId: 'bob.testnet',
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.ok).toBe(true);
+      expect(res.json?.challengeId).toBe('otp-unlock-cid-1');
+      expect(res.json?.unlockBackend).toBe('email_otp');
+      expect(res.json?.unlockKeyVersion).toBe('email-otp-unlock-v1');
     } finally {
       await srv.close();
     }
@@ -2917,8 +2951,45 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.status).toBe(200);
       expect(res.json?.ok).toBe(true);
       expect(res.json?.unlocked).toBe(true);
+      expect(res.json?.unlockBackend).toBe('passkey');
       expect(res.json?.userId).toBe('bob.testnet');
       expect(res.json?.jwt).toBeUndefined();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /wallet/unlock/verify: verified email_otp proof returns unlocked', async () => {
+    const service = makeFakeAuthService({
+      verifyEmailOtpUnlockProof: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'bob.testnet',
+        walletId: 'bob.testnet',
+        unlockKeyVersion: 'email-otp-unlock-v1',
+      }),
+    });
+    const router = createRelayRouter(service, {});
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/wallet/unlock/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          unlockBackend: 'email_otp',
+          walletId: 'bob.testnet',
+          challengeId: 'otp-unlock-cid-1',
+          unlockProof: {
+            publicKey: 'pubkey-b64u',
+            signature: 'signature-b64u',
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.ok).toBe(true);
+      expect(res.json?.unlocked).toBe(true);
+      expect(res.json?.unlockBackend).toBe('email_otp');
+      expect(res.json?.userId).toBe('bob.testnet');
     } finally {
       await srv.close();
     }
@@ -3095,6 +3166,7 @@ test.describe('relayer router (express) – P0', () => {
         'session.revoked',
         'wallet.locked',
       ]);
+      expect(dispatched[0]?.payload?.unlockBackend).toBe('passkey');
       expect(dispatched[0]?.payload?.userId).toBe('bob.testnet');
       expect(dispatched[1]?.payload?.userId).toBe('bob.testnet');
       expect(dispatched[2]?.payload?.userId).toBe('bob.testnet');

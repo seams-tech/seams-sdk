@@ -1,28 +1,41 @@
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 
-export type Shamir3PassCipherInput = {
-  ciphertextB64u: string;
-  exponentB64u: string;
-  shamirPrimeB64u: string;
-};
-
-export type Shamir3PassClientKeypair = {
-  shamirPrimeB64u: string;
-  clientEncryptExponentB64u: string;
-  clientDecryptExponentB64u: string;
+export type Shamir3PassClientKeyHandle = {
+  keyHandle: string;
 };
 
 export interface Shamir3PassRuntime {
-  generateClientKeypair(args: { shamirPrimeB64u: string }): Promise<Shamir3PassClientKeypair>;
-  addClientSeal(input: Shamir3PassCipherInput): Promise<string>;
-  removeClientSeal(input: Shamir3PassCipherInput): Promise<string>;
+  createClientKeyHandle(args: { shamirPrimeB64u: string }): Promise<Shamir3PassClientKeyHandle>;
+  destroyClientKeyHandle(args: { keyHandle: string }): Promise<void>;
+  addClientSealWithKeyHandle(input: {
+    ciphertextB64u: string;
+    keyHandle: string;
+  }): Promise<string>;
+  addClientSealBytesWithKeyHandle?(input: {
+    ciphertext: Uint8Array;
+    keyHandle: string;
+  }): Promise<string>;
+  removeClientSealWithKeyHandle(input: {
+    ciphertextB64u: string;
+    keyHandle: string;
+  }): Promise<string>;
+  removeClientSealWithKeyHandleToBytes?(input: {
+    ciphertextB64u: string;
+    keyHandle: string;
+  }): Promise<Uint8Array>;
 }
 
 let runtimeSingletonPromise: Promise<Shamir3PassRuntime> | null = null;
 let shamirWorkerSingleton: Worker | null = null;
 let requestCounter = 0;
 
-type Shamir3PassWorkerRequestType = 'generateClientKeypair' | 'addClientSeal' | 'removeClientSeal';
+type Shamir3PassWorkerRequestType =
+  | 'createClientKeyHandle'
+  | 'destroyClientKeyHandle'
+  | 'addClientSealWithKeyHandle'
+  | 'addClientSealBytesWithKeyHandle'
+  | 'removeClientSealWithKeyHandle'
+  | 'removeClientSealWithKeyHandleToBytes';
 type Shamir3PassWorkerRequest = {
   id: string;
   type: Shamir3PassWorkerRequestType;
@@ -60,20 +73,12 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-function normalizeClientKeypair(value: unknown): Shamir3PassClientKeypair {
+function normalizeClientKeyHandle(value: unknown): Shamir3PassClientKeyHandle {
   if (!isObjectRecord(value)) {
-    throw new Error('Invalid Shamir3Pass keypair response');
+    throw new Error('Invalid Shamir3Pass key handle response');
   }
   return {
-    shamirPrimeB64u: normalizeNonEmptyString(value.shamirPrimeB64u, 'shamirPrimeB64u'),
-    clientEncryptExponentB64u: normalizeNonEmptyString(
-      value.clientEncryptExponentB64u,
-      'clientEncryptExponentB64u',
-    ),
-    clientDecryptExponentB64u: normalizeNonEmptyString(
-      value.clientDecryptExponentB64u,
-      'clientDecryptExponentB64u',
-    ),
+    keyHandle: normalizeNonEmptyString(value.keyHandle, 'keyHandle'),
   };
 }
 
@@ -174,6 +179,7 @@ function getOrCreateShamirWorker(): Worker {
 function sendWorkerRequest(
   type: Shamir3PassWorkerRequestType,
   payload: Record<string, unknown>,
+  transfer?: Transferable[],
 ): Promise<unknown> {
   const requestId = nextRequestId();
   const worker = getOrCreateShamirWorker();
@@ -196,7 +202,7 @@ function sendWorkerRequest(
     };
 
     try {
-      worker.postMessage(request);
+      worker.postMessage(request, transfer || []);
     } catch (error: unknown) {
       const pending = pendingByRequestId.get(requestId);
       if (pending) {
@@ -210,30 +216,57 @@ function sendWorkerRequest(
 
 function createShamir3PassRuntime(): Shamir3PassRuntime {
   return {
-    generateClientKeypair: async ({ shamirPrimeB64u }) =>
-      normalizeClientKeypair(
-        await sendWorkerRequest('generateClientKeypair', {
+    createClientKeyHandle: async ({ shamirPrimeB64u }) =>
+      normalizeClientKeyHandle(
+        await sendWorkerRequest('createClientKeyHandle', {
           shamirPrimeB64u,
         }),
       ),
-    addClientSeal: async ({ ciphertextB64u, exponentB64u, shamirPrimeB64u }) =>
+    destroyClientKeyHandle: async ({ keyHandle }) => {
+      await sendWorkerRequest('destroyClientKeyHandle', {
+        keyHandle,
+      });
+    },
+    addClientSealWithKeyHandle: async ({ ciphertextB64u, keyHandle }) =>
       normalizeNonEmptyString(
-        await sendWorkerRequest('addClientSeal', {
+        await sendWorkerRequest('addClientSealWithKeyHandle', {
           ciphertextB64u,
-          exponentB64u,
-          shamirPrimeB64u,
+          keyHandle,
         }),
         'ciphertextB64u',
       ),
-    removeClientSeal: async ({ ciphertextB64u, exponentB64u, shamirPrimeB64u }) =>
+    addClientSealBytesWithKeyHandle: async ({ ciphertext, keyHandle }) => {
+      const ciphertextCopy = ciphertext.slice();
+      return normalizeNonEmptyString(
+        await sendWorkerRequest(
+          'addClientSealBytesWithKeyHandle',
+          {
+            ciphertext: ciphertextCopy.buffer,
+            keyHandle,
+          },
+          [ciphertextCopy.buffer],
+        ),
+        'ciphertextB64u',
+      );
+    },
+    removeClientSealWithKeyHandle: async ({ ciphertextB64u, keyHandle }) =>
       normalizeNonEmptyString(
-        await sendWorkerRequest('removeClientSeal', {
+        await sendWorkerRequest('removeClientSealWithKeyHandle', {
           ciphertextB64u,
-          exponentB64u,
-          shamirPrimeB64u,
+          keyHandle,
         }),
         'ciphertextB64u',
       ),
+    removeClientSealWithKeyHandleToBytes: async ({ ciphertextB64u, keyHandle }) => {
+      const result = await sendWorkerRequest('removeClientSealWithKeyHandleToBytes', {
+        ciphertextB64u,
+        keyHandle,
+      });
+      if (!(result instanceof ArrayBuffer)) {
+        throw new Error('ciphertext bytes response must be an ArrayBuffer');
+      }
+      return new Uint8Array(result);
+    },
   };
 }
 

@@ -31,6 +31,18 @@ fn decode_positive_operand(input: &str, label: &str) -> Result<num_bigint::BigUi
     Ok(value)
 }
 
+fn decode_positive_operand_bytes(mut input: Vec<u8>, label: &str) -> Result<BigUint, JsValue> {
+    if input.is_empty() {
+        return Err(js_error(format!("{label} must decode to integer > 0")));
+    }
+    let value = BigUint::from_bytes_be(&input);
+    input.fill(0);
+    if value == 0u8.into() {
+        return Err(js_error(format!("{label} must decode to integer > 0")));
+    }
+    Ok(value)
+}
+
 fn gcd(mut a: BigUint, mut b: BigUint) -> BigUint {
     while b != BigUint::zero() {
         let remainder = &a % &b;
@@ -162,6 +174,24 @@ pub fn shamir3pass_add_lock(
 }
 
 #[wasm_bindgen]
+pub fn shamir3pass_add_lock_bytes(
+    ciphertext: Vec<u8>,
+    exponent_b64u: String,
+    shamir_prime_b64u: String,
+) -> Result<String, JsValue> {
+    let protocol = parse_protocol(&shamir_prime_b64u)?;
+    let ciphertext = decode_positive_operand_bytes(ciphertext, "ciphertext")?;
+    if &ciphertext >= protocol.p() {
+        return Err(js_error(
+            "ciphertext must decode to integer in range (0, p)",
+        ));
+    }
+    let exponent = decode_positive_operand(&exponent_b64u, "exponentB64u")?;
+    let output = protocol.add_lock(&ciphertext, &exponent);
+    Ok(encode_biguint_b64u(&output))
+}
+
+#[wasm_bindgen]
 pub fn shamir3pass_remove_lock(
     ciphertext_b64u: String,
     exponent_b64u: String,
@@ -177,4 +207,22 @@ pub fn shamir3pass_remove_lock(
     let exponent = decode_positive_operand(&exponent_b64u, "exponentB64u")?;
     let output = protocol.remove_lock(&ciphertext, &exponent);
     Ok(encode_biguint_b64u(&output))
+}
+
+#[wasm_bindgen]
+pub fn shamir3pass_remove_lock_to_bytes(
+    ciphertext_b64u: String,
+    exponent_b64u: String,
+    shamir_prime_b64u: String,
+) -> Result<Vec<u8>, JsValue> {
+    let protocol = parse_protocol(&shamir_prime_b64u)?;
+    let ciphertext = decode_positive_operand(&ciphertext_b64u, "ciphertextB64u")?;
+    if &ciphertext >= protocol.p() {
+        return Err(js_error(
+            "ciphertextB64u must decode to integer in range (0, p)",
+        ));
+    }
+    let exponent = decode_positive_operand(&exponent_b64u, "exponentB64u")?;
+    let output = protocol.remove_lock(&ciphertext, &exponent);
+    Ok(output.to_bytes_be())
 }

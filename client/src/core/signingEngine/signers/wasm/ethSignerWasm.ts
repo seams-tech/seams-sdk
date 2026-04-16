@@ -63,6 +63,11 @@ function toWasmTx(tx: Eip1559UnsignedTx): Eip1559TxWasmJson {
 const ETH_SIGNER_WORKER_KIND = 'ethSigner' as const;
 const ETH_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
+function zeroizeBytes(bytes?: Uint8Array | null): void {
+  if (!(bytes instanceof Uint8Array)) return;
+  bytes.fill(0);
+}
+
 export async function computeEip1559TxHashWasm(
   tx: Eip1559UnsignedTx,
   workerCtx: WorkerOperationContext,
@@ -118,6 +123,33 @@ export async function signSecp256k1RecoverableWasm(args: {
   return new Uint8Array(ab);
 }
 
+export async function secp256k1PrivateKey32ToPublicKey33Wasm(args: {
+  privateKey32: Uint8Array;
+  workerCtx: WorkerOperationContext;
+}): Promise<Uint8Array> {
+  if (!(args.privateKey32 instanceof Uint8Array) || args.privateKey32.length !== 32) {
+    throw new Error('privateKey32 must be 32 bytes');
+  }
+  const privateKey32 = args.privateKey32.slice().buffer;
+  const ab = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: ETH_SIGNER_WORKER_KIND,
+    request: {
+      type: 'secp256k1PrivateKey32ToPublicKey33',
+      payload: { privateKey32 },
+      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
+      transfer: [privateKey32],
+    },
+  });
+  const publicKey33 = new Uint8Array(ab);
+  if (publicKey33.length !== 33) {
+    throw new Error(
+      `secp256k1PrivateKey32ToPublicKey33 expected 33-byte output (got ${publicKey33.length})`,
+    );
+  }
+  return publicKey33;
+}
+
 export async function deriveSecp256k1KeypairFromPrfSecondWasm(args: {
   prfSecondB64u: string;
   nearAccountId: string;
@@ -133,46 +165,53 @@ export async function deriveSecp256k1KeypairFromPrfSecondWasm(args: {
     throw new Error('Invalid PRF.second: empty after base64url decode');
   }
   const prfSecondCopy = prfSecond.slice();
-
-  const raw = await executeWorkerOperation({
-    ctx: args.workerCtx,
-    kind: ETH_SIGNER_WORKER_KIND,
-    request: {
-      type: 'deriveSecp256k1KeypairFromPrfSecond',
-      payload: {
-        prfSecond: prfSecondCopy.buffer,
-        nearAccountId,
+  try {
+    const raw = await executeWorkerOperation({
+      ctx: args.workerCtx,
+      kind: ETH_SIGNER_WORKER_KIND,
+      request: {
+        type: 'deriveSecp256k1KeypairFromPrfSecond',
+        payload: {
+          prfSecond: prfSecondCopy.buffer,
+          nearAccountId,
+        },
+        timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
+        transfer: [prfSecondCopy.buffer],
       },
-      timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
-      transfer: [prfSecondCopy.buffer],
-    },
-  });
+    });
 
-  const privateKey32 = new Uint8Array(raw.privateKey32);
-  const publicKey33 = new Uint8Array(raw.publicKey33);
-  const ethereumAddress20 = new Uint8Array(raw.ethereumAddress20);
+    const privateKey32 = new Uint8Array(raw.privateKey32);
+    const publicKey33 = new Uint8Array(raw.publicKey33);
+    const ethereumAddress20 = new Uint8Array(raw.ethereumAddress20);
 
-  if (privateKey32.length !== 32) {
-    throw new Error(
-      `deriveSecp256k1KeypairFromPrfSecond expected 32-byte private key (got ${privateKey32.length})`,
-    );
-  }
-  if (publicKey33.length !== 33) {
-    throw new Error(
-      `deriveSecp256k1KeypairFromPrfSecond expected 33-byte public key (got ${publicKey33.length})`,
-    );
-  }
-  if (ethereumAddress20.length !== 20) {
-    throw new Error(
-      `deriveSecp256k1KeypairFromPrfSecond expected 20-byte ethereum address (got ${ethereumAddress20.length})`,
-    );
-  }
+    try {
+      if (privateKey32.length !== 32) {
+        throw new Error(
+          `deriveSecp256k1KeypairFromPrfSecond expected 32-byte private key (got ${privateKey32.length})`,
+        );
+      }
+      if (publicKey33.length !== 33) {
+        throw new Error(
+          `deriveSecp256k1KeypairFromPrfSecond expected 33-byte public key (got ${publicKey33.length})`,
+        );
+      }
+      if (ethereumAddress20.length !== 20) {
+        throw new Error(
+          `deriveSecp256k1KeypairFromPrfSecond expected 20-byte ethereum address (got ${ethereumAddress20.length})`,
+        );
+      }
 
-  return {
-    privateKeyHex: bytesToHex(privateKey32),
-    publicKeyHex: bytesToHex(publicKey33),
-    ethereumAddress: bytesToHex(ethereumAddress20),
-  };
+      return {
+        privateKeyHex: bytesToHex(privateKey32),
+        publicKeyHex: bytesToHex(publicKey33),
+        ethereumAddress: bytesToHex(ethereumAddress20),
+      };
+    } finally {
+      zeroizeBytes(privateKey32);
+    }
+  } finally {
+    zeroizeBytes(prfSecond);
+  }
 }
 
 export async function mapAdditiveShareToThresholdSignaturesShare2pWasm(args: {

@@ -25,7 +25,10 @@ import {
 } from '../api/session/signingSessionState';
 import type { TempoSigningDeps } from '../api/tempoSigning';
 import type { ThresholdEd25519LifecycleDeps } from '../api/thresholdLifecycle/thresholdEd25519Lifecycle';
-import { getStoredThresholdEd25519SessionRecordForAccount } from '../api/thresholdLifecycle/thresholdSessionStore';
+import {
+  getStoredThresholdEd25519SessionRecordForAccount,
+  type ThresholdEcdsaEmailOtpAuthContext,
+} from '../api/thresholdLifecycle/thresholdSessionStore';
 import type { ThresholdSessionActivationDeps } from '../api/thresholdLifecycle/thresholdSessionActivation';
 import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
 import {
@@ -72,6 +75,25 @@ export type CreateOrchestrationDependencyBundleArgs = {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
   }) => ThresholdEcdsaSecp256k1KeyRef;
+  getThresholdEcdsaSessionRecordForSigning: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+  }) => {
+    relayerUrl: string;
+    ecdsaThresholdKeyId: string;
+    participantIds: number[];
+    source: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
+    thresholdSessionId: string;
+    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
+  };
+  markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+  }) => void;
+  clearThresholdEcdsaSessionRecordForLane: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+  }) => void;
   provisionThresholdEcdsaSession: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
@@ -185,6 +207,12 @@ export function createOrchestrationDependencyBundle(
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       getThresholdEcdsaKeyRefForSigning: ({ nearAccountId, chain }) =>
         args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain }),
+      getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
+        args.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
+      markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({ nearAccountId, chain }) =>
+        args.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({ nearAccountId, chain }),
+      clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain }) =>
+        args.clearThresholdEcdsaSessionRecordForLane({ nearAccountId, chain }),
       provisionThresholdEcdsaSession: ({ nearAccountId, chain }) =>
         args.provisionThresholdEcdsaSession({ nearAccountId, chain }),
       withThresholdEcdsaCommitQueue: (queueArgs) => args.withThresholdEcdsaCommitQueue(queueArgs),

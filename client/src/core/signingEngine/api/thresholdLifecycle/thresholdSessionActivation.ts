@@ -11,13 +11,17 @@ import {
   type ThresholdEcdsaSessionBootstrapResult,
 } from '../../orchestration/thresholdActivation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './thresholdEcdsaBootstrapPersistence';
-import type { ThresholdEcdsaSessionStoreSource } from './thresholdSessionStore';
+import type {
+  ThresholdEcdsaEmailOtpAuthContext,
+  ThresholdEcdsaSessionStoreSource,
+} from './thresholdSessionStore';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 
 export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
   chain?: ThresholdEcdsaActivationChain;
   source?: ThresholdEcdsaSessionStoreSource;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
@@ -58,6 +62,7 @@ export type ThresholdSessionActivationDeps = {
     chain: ThresholdEcdsaActivationChain;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: ThresholdEcdsaSessionStoreSource;
+    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   }) => void;
 };
 
@@ -145,6 +150,7 @@ export async function bootstrapEcdsaSessionValue(
     chain,
     bootstrap: canonicalBootstrap,
     source: args.source || 'manual-bootstrap',
+    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
   });
   return canonicalBootstrap;
 }

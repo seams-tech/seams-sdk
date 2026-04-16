@@ -92,6 +92,50 @@ test.describe('WarmSessionManager capability resolution', () => {
     expect(auth?.thresholdSessionJwt).toBeUndefined();
   });
 
+  test('surfaces explicit Email OTP auth context on warm ECDSA capability state', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'email-otp-auth-state.testnet',
+      chain: 'evm',
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        policy: 'per_operation',
+        retention: 'single_use',
+        reason: 'login',
+        authMethod: 'email_otp',
+        stepUpRequired: true,
+      },
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'email-otp-auth-state.testnet',
+        chain: 'evm',
+        ecdsaThresholdKeyId: 'ek-email-otp',
+        sessionId: 'ecdsa-email-otp-session',
+        sessionJwt: 'jwt:ecdsa-email-otp-session',
+      }),
+    });
+
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({
+        [evmRecord.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: evmRecord.remainingUses || 1,
+          expiresAtMs: evmRecord.expiresAtMs || Date.now() + 60_000,
+        },
+      }),
+    });
+
+    const warmSession = await manager.getWarmSession('email-otp-auth-state.testnet');
+    expect(warmSession.capabilities.ecdsa.evm.emailOtpAuthContext).toEqual({
+      policy: 'per_operation',
+      retention: 'single_use',
+      reason: 'login',
+      authMethod: 'email_otp',
+      stepUpRequired: true,
+    });
+  });
+
   test('bootstrap request resolution only inherits session auth from a warm primary ECDSA capability', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

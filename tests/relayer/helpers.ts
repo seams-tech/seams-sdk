@@ -177,6 +177,11 @@ export function makeFakeAuthService(
     getRelayerAccount: AuthService['getRelayerAccount'];
     createWebAuthnLoginOptions: AuthService['createWebAuthnLoginOptions'];
     verifyWebAuthnLogin: AuthService['verifyWebAuthnLogin'];
+    createEmailOtpUnlockChallenge: AuthService['createEmailOtpUnlockChallenge'];
+    verifyEmailOtpUnlockProof: AuthService['verifyEmailOtpUnlockProof'];
+    createEmailOtpChallenge: AuthService['createEmailOtpChallenge'];
+    verifyEmailOtpChallenge: AuthService['verifyEmailOtpChallenge'];
+    readEmailOtpOutboxEntry: AuthService['readEmailOtpOutboxEntry'];
     createWebAuthnSyncAccountOptions: AuthService['createWebAuthnSyncAccountOptions'];
     verifyWebAuthnSyncAccount: AuthService['verifyWebAuthnSyncAccount'];
     createAccountAndRegisterUser: AuthService['createAccountAndRegisterUser'];
@@ -187,6 +192,7 @@ export function makeFakeAuthService(
     verifyOidcJwtExchange: AuthService['verifyOidcJwtExchange'];
     isGoogleOidcConfigured: AuthService['isGoogleOidcConfigured'];
     verifyGoogleLogin: AuthService['verifyGoogleLogin'];
+    markEmailOtpStrongAuthSatisfied: AuthService['markEmailOtpStrongAuthSatisfied'];
     prepareEmailRecovery: AuthService['prepareEmailRecovery'];
     prepareLinkDevice: AuthService['prepareLinkDevice'];
     getRecoverySession: AuthService['getRecoverySession'];
@@ -221,6 +227,26 @@ export function makeFakeAuthService(
         code: 'not_implemented',
         message: 'not implemented',
       })),
+    createEmailOtpUnlockChallenge:
+      overrides.createEmailOtpUnlockChallenge ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    verifyEmailOtpUnlockProof:
+      overrides.verifyEmailOtpUnlockProof ||
+      (async () => ({
+        ok: false,
+        verified: false,
+        code: 'not_implemented',
+        message: 'not implemented',
+      })),
+    createEmailOtpChallenge:
+      overrides.createEmailOtpChallenge ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    verifyEmailOtpChallenge:
+      overrides.verifyEmailOtpChallenge ||
+      (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    readEmailOtpOutboxEntry:
+      overrides.readEmailOtpOutboxEntry ||
+      (async () => ({ ok: false, code: 'not_found', message: 'not found' })),
     createWebAuthnSyncAccountOptions:
       overrides.createWebAuthnSyncAccountOptions ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
@@ -261,6 +287,8 @@ export function makeFakeAuthService(
         code: 'not_implemented',
         message: 'not implemented',
       })),
+    markEmailOtpStrongAuthSatisfied:
+      overrides.markEmailOtpStrongAuthSatisfied || (async () => ({ ok: true })),
     prepareEmailRecovery:
       overrides.prepareEmailRecovery ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),

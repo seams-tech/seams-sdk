@@ -117,6 +117,7 @@ export const PasskeyAuthMenu: React.FC<PasskeyAuthMenuProps> = (props) => {
       style={props.style}
       defaultMode={props.defaultMode}
       headings={props.headings}
+      emailOtpAuthPolicy={props.emailOtpAuthPolicy}
     />
   );
 

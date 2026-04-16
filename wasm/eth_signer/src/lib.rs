@@ -141,6 +141,19 @@ pub fn sign_secp256k1_recoverable(
 }
 
 #[wasm_bindgen]
+pub fn verify_secp256k1_recoverable_signature_against_public_key_33(
+    digest32: Vec<u8>,
+    signature65: Vec<u8>,
+    public_key33: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    secp256k1_sign::verify_secp256k1_recoverable_signature_against_public_key_33(
+        digest32,
+        signature65,
+        public_key33,
+    )
+}
+
+#[wasm_bindgen]
 pub fn derive_secp256k1_keypair_from_prf_second(
     prf_second: Vec<u8>,
     near_account_id: String,

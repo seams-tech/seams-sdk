@@ -16,6 +16,7 @@ import {
   clearAllThresholdEcdsaSessionRecords,
   upsertStoredThresholdEd25519SessionRecord,
   upsertThresholdEcdsaSessionFromBootstrap,
+  type ThresholdEcdsaEmailOtpAuthContext,
   type ThresholdEcdsaSessionStoreDeps,
   type ThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
@@ -171,7 +172,8 @@ export function seedEcdsaWarmSessionRecord(
   args: {
     nearAccountId: string;
     chain: ThresholdEcdsaActivationChain;
-    source?: 'login' | 'registration' | 'manual-bootstrap';
+    source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
+    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
     bootstrap?: ThresholdEcdsaSessionBootstrapResult;
     signingSessionSeal?: {
       keyVersion?: string;
@@ -189,6 +191,7 @@ export function seedEcdsaWarmSessionRecord(
         chain: args.chain,
       }),
     source: args.source || 'login',
+    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     ...(args.signingSessionSeal ? { signingSessionSeal: args.signingSessionSeal } : {}),
   });
 }

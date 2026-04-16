@@ -2,13 +2,16 @@ import React from 'react';
 import { ChromeIcon, AppleIcon, AtSignIcon } from './icons';
 
 export type SocialLoginHandlers = {
-  google?: () => string;
-  x?: () => string;
-  apple?: () => string;
+  google?: () => string | void | Promise<string | void>;
+  x?: () => string | void | Promise<string | void>;
+  apple?: () => string | void | Promise<string | void>;
 };
 
 export interface SocialProvidersProps {
   socialLogin?: SocialLoginHandlers;
+  providers?: Array<keyof SocialLoginHandlers>;
+  disabled?: boolean;
+  onProviderClick?: (provider: keyof SocialLoginHandlers) => void;
 }
 
 const iconByKey: Record<
@@ -20,61 +23,37 @@ const iconByKey: Record<
   apple: { Icon: AppleIcon, label: 'Apple' },
 };
 
-/*
- * Not implemented
- */
-export const SocialProviders: React.FC<SocialProvidersProps> = ({ socialLogin }) => {
-  return null;
-  // const entries = Object.entries(socialLogin || {}) as [
-  //   keyof SocialLoginHandlers,
-  //   (() => string) | undefined,
-  // ][];
-  // const enabled = entries.filter(([, fn]) => typeof fn === 'function');
-  // if (!enabled.length) return null;
-  // return (
-  //   <div>
-  //     <div className="w3a-social-row">
-  //       {enabled.map(([key, fn]) => {
-  //         const { Icon, label } = iconByKey[key];
-  //         return (
-  //           <button
-  //             key={key}
-  //             className="w3a-social-btn"
-  //             title={label}
-  //             onClick={() => {
-  //               try {
-  //                 const result = fn?.();
-  //                 if (result) {
-  //                   // Placeholder: later this can feed into register/login flows
-  //                   // eslint-disable-next-line no-console
-  //                   console.log(`[socialLogin:${String(key)}]`, result);
-  //                 }
-  //               } catch (e) {
-  //                 // eslint-disable-next-line no-console
-  //                 console.error(`[socialLogin:${String(key)}] error`, e);
-  //               }
-  //             }}
-  //           >
-  //             <Icon size={22} style={{ display: 'block' }} />
-  //           </button>
-  //         );
-  //       })}
-  //     </div>
-  //     <div
-  //       className="w3a-social-disclaimer"
-  //       aria-live="polite"
-  //       style={{
-  //         marginTop: 8,
-  //         fontSize: 12,
-  //         lineHeight: 1.4,
-  //         opacity: 0.8,
-  //         textAlign: 'center',
-  //       }}
-  //     >
-  //       Social login is not implemented
-  //     </div>
-  //   </div>
-  // );
+export const SocialProviders: React.FC<SocialProvidersProps> = ({
+  socialLogin,
+  providers,
+  disabled = false,
+  onProviderClick,
+}) => {
+  const enabledProviders = (providers || (Object.keys(iconByKey) as Array<keyof SocialLoginHandlers>))
+    .filter((provider) => typeof socialLogin?.[provider] === 'function');
+  if (!enabledProviders.length) return null;
+
+  return (
+    <div className="w3a-auth-method-stack w3a-social-stack">
+      {enabledProviders.map((provider) => {
+        const { Icon, label } = iconByKey[provider];
+        const buttonLabel =
+          provider === 'google' ? 'Continue with Google' : `Continue with ${label}`;
+        return (
+          <button
+            key={provider}
+            type="button"
+            className="w3a-auth-method-btn w3a-auth-method-btn-secondary"
+            onClick={() => onProviderClick?.(provider)}
+            disabled={disabled}
+          >
+            <Icon size={18} style={{ display: 'block' }} />
+            {buttonLabel}
+          </button>
+        );
+      })}
+    </div>
+  );
 };
 
 export default SocialProviders;

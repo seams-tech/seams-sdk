@@ -44,17 +44,18 @@ const delegateEnvironmentId = 'proj_delegate:prod';
 
 function validLoginOptionsBody(overrides?: Partial<any>): any {
   return {
-    user_id: 'bob.testnet',
-    rp_id: 'example.localhost',
+    unlockBackend: 'passkey',
+    userId: 'bob.testnet',
+    rpId: 'example.localhost',
     ...overrides,
   };
 }
 
 function validLoginVerifyBody(overrides?: Partial<any>): any {
   return {
-    sessionKind: 'jwt',
+    unlockBackend: 'passkey',
     challengeId: 'challenge-123',
-    webauthn_authentication: { ok: true, ...(overrides?.webauthn_authentication || {}) },
+    webauthnAuthentication: { ok: true, ...(overrides?.webauthnAuthentication || {}) },
     ...overrides,
   };
 }
@@ -3024,6 +3025,39 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(200);
     expect(res.json?.ok).toBe(true);
     expect(res.json?.challengeId).toBe('wallet-unlock-cid-cf-1');
+    expect(res.json?.unlockBackend).toBe('passkey');
+  });
+
+  test('POST /wallet/unlock/challenge: email_otp backend returns unlock challenge', async () => {
+    const service = makeFakeAuthService({
+      createEmailOtpUnlockChallenge: async () => ({
+        ok: true,
+        walletId: 'bob.testnet',
+        challengeId: 'otp-unlock-cid-cf-1',
+        challengeB64u: 'otp-unlock-challenge-cf',
+        expiresAtMs: 789,
+        unlockKeyVersion: 'email-otp-unlock-v1',
+      }),
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/unlock/challenge',
+      origin: 'https://example.localhost',
+      body: {
+        unlockBackend: 'email_otp',
+        walletId: 'bob.testnet',
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json?.ok).toBe(true);
+    expect(res.json?.challengeId).toBe('otp-unlock-cid-cf-1');
+    expect(res.json?.unlockBackend).toBe('email_otp');
+    expect(res.json?.unlockKeyVersion).toBe('email-otp-unlock-v1');
   });
 
   test('POST /wallet/unlock/verify: verified passkey assertion returns unlocked', async () => {
@@ -3049,8 +3083,45 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(200);
     expect(res.json?.ok).toBe(true);
     expect(res.json?.unlocked).toBe(true);
+    expect(res.json?.unlockBackend).toBe('passkey');
     expect(res.json?.userId).toBe('bob.testnet');
     expect(res.json?.jwt).toBeUndefined();
+  });
+
+  test('POST /wallet/unlock/verify: verified email_otp proof returns unlocked', async () => {
+    const service = makeFakeAuthService({
+      verifyEmailOtpUnlockProof: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'bob.testnet',
+        walletId: 'bob.testnet',
+        unlockKeyVersion: 'email-otp-unlock-v1',
+      }),
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/unlock/verify',
+      origin: 'https://example.localhost',
+      body: {
+        unlockBackend: 'email_otp',
+        walletId: 'bob.testnet',
+        challengeId: 'otp-unlock-cid-cf-1',
+        unlockProof: {
+          publicKey: 'pubkey-b64u',
+          signature: 'signature-b64u',
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json?.ok).toBe(true);
+    expect(res.json?.unlocked).toBe(true);
+    expect(res.json?.unlockBackend).toBe('email_otp');
+    expect(res.json?.userId).toBe('bob.testnet');
   });
 
   test('GET /wallet/state: valid app session reports unlocked state', async () => {
@@ -3236,6 +3307,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       'session.revoked',
       'wallet.locked',
     ]);
+    expect(dispatched[0]?.payload?.unlockBackend).toBe('passkey');
     expect(dispatched[0]?.payload?.userId).toBe('bob.testnet');
     expect(dispatched[1]?.payload?.userId).toBe('bob.testnet');
     expect(dispatched[2]?.payload?.userId).toBe('bob.testnet');

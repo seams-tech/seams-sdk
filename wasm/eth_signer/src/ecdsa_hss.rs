@@ -1,10 +1,10 @@
+use base64ct::{Base64UrlUnpadded, Encoding};
 use ecdsa_hss::{
     bootstrap_evm_threshold_v1, complete_presign_roundtrip_v1, derive_additive_shares_v1,
     derive_canonical_secret_v1, encode_context_v1, export_evm_threshold_v1, EcdsaHssContextV1,
     EvmThresholdBootstrapRequestV1, EvmThresholdExportRequestV1, EvmThresholdSigningOperationV1,
     RootShareInputsV1, ServerEvalOperationV1,
 };
-use base64ct::{Base64UrlUnpadded, Encoding};
 use js_sys::Date;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -243,8 +243,10 @@ pub fn threshold_ecdsa_hss_prepare_server_session(_payload: JsValue) -> Result<J
 pub fn threshold_ecdsa_hss_prepare_server_ceremony(payload: JsValue) -> Result<JsValue, JsValue> {
     let parsed: EcdsaHssPrepareServerCeremonyInputJs =
         serde_wasm_bindgen::from_value(payload).map_err(|err| js_invalid_input_err(err))?;
-    let session: ThresholdEcdsaHssPreparedServerSessionWire =
-        decode_state_blob(&parsed.prepared_server_session_b64u, "preparedServerSessionB64u")?;
+    let session: ThresholdEcdsaHssPreparedServerSessionWire = decode_state_blob(
+        &parsed.prepared_server_session_b64u,
+        "preparedServerSessionB64u",
+    )?;
     let assist: ThresholdEcdsaHssServerAssistInitWire =
         decode_state_blob(&parsed.server_assist_init_b64u, "serverAssistInitB64u")?;
     let client_request: ThresholdEcdsaHssClientEvalRequestWire =
@@ -274,8 +276,10 @@ pub fn threshold_ecdsa_hss_prepare_server_ceremony(payload: JsValue) -> Result<J
 pub fn threshold_ecdsa_hss_finalize_server_report(payload: JsValue) -> Result<JsValue, JsValue> {
     let parsed: EcdsaHssFinalizeServerReportInputJs =
         serde_wasm_bindgen::from_value(payload).map_err(|err| js_invalid_input_err(err))?;
-    let session: ThresholdEcdsaHssPreparedServerSessionWire =
-        decode_state_blob(&parsed.prepared_server_session_b64u, "preparedServerSessionB64u")?;
+    let session: ThresholdEcdsaHssPreparedServerSessionWire = decode_state_blob(
+        &parsed.prepared_server_session_b64u,
+        "preparedServerSessionB64u",
+    )?;
     let client_request: ThresholdEcdsaHssClientEvalRequestWire =
         decode_state_blob(&parsed.client_eval_request_b64u, "clientEvalRequestB64u")?;
     let server_eval_response: ThresholdEcdsaHssServerEvalResponseWire =
@@ -313,10 +317,14 @@ pub fn threshold_ecdsa_hss_finalize_server_report(payload: JsValue) -> Result<Js
 pub fn threshold_ecdsa_hss_open_server_output(payload: JsValue) -> Result<JsValue, JsValue> {
     let parsed: EcdsaHssOpenServerOutputInputJs =
         serde_wasm_bindgen::from_value(payload).map_err(|err| js_invalid_input_err(err))?;
-    let session: ThresholdEcdsaHssPreparedServerSessionWire =
-        decode_state_blob(&parsed.prepared_server_session_b64u, "preparedServerSessionB64u")?;
-    let output: ThresholdEcdsaHssServerOutputWire =
-        decode_state_blob(&parsed.server_output_message_b64u, "serverOutputMessageB64u")?;
+    let session: ThresholdEcdsaHssPreparedServerSessionWire = decode_state_blob(
+        &parsed.prepared_server_session_b64u,
+        "preparedServerSessionB64u",
+    )?;
+    let output: ThresholdEcdsaHssServerOutputWire = decode_state_blob(
+        &parsed.server_output_message_b64u,
+        "serverOutputMessageB64u",
+    )?;
     if output.context_binding != session.context_binding {
         return Err(js_invalid_input_err(
             "serverOutputMessageB64u did not match preparedServerSessionB64u",
@@ -463,8 +471,12 @@ fn compute_ecdsa_context_binding(
     Ok(Sha256::digest(encode_context_v1(context)?).into())
 }
 
-fn decode_state_blob<T: for<'de> Deserialize<'de>>(value: &str, field_name: &str) -> Result<T, JsValue> {
-    let bytes = base64_url_decode(value).map_err(|e| js_invalid_input_err(format!("Invalid {field_name}: {e}")))?;
+fn decode_state_blob<T: for<'de> Deserialize<'de>>(
+    value: &str,
+    field_name: &str,
+) -> Result<T, JsValue> {
+    let bytes = base64_url_decode(value)
+        .map_err(|e| js_invalid_input_err(format!("Invalid {field_name}: {e}")))?;
     bincode::deserialize::<T>(&bytes)
         .map_err(|e| js_invalid_input_err(format!("Invalid {field_name}: {e}")))
 }

@@ -1,7 +1,37 @@
 import type { Router as ExpressRouter } from 'express';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../relay';
 import { emitRelayWebhookEvent } from '../../relayWebhooks';
+import { resolveSourceIpFromExpressRequest } from '../../relayApiKeyAuth';
 import type { ExpressRelayContext } from '../createRelayRouter';
+
+type WalletUnlockBackend = 'passkey' | 'email_otp';
+type WalletEmailOtpChannel = 'email_otp';
+
+function parseWalletUnlockBackend(raw: unknown): WalletUnlockBackend | null {
+  const value = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (value === 'passkey' || value === 'email_otp') return value;
+  return null;
+}
+
+function parseWalletEmailOtpChannel(raw: unknown): WalletEmailOtpChannel | null {
+  const value = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (value === 'email_otp') return value;
+  return null;
+}
+
+function emailOtpStatusCode(code: string | undefined): number {
+  if (code === 'internal') return 500;
+  if (code === 'not_configured') return 503;
+  if (code === 'rate_limited') return 429;
+  if (code === 'stronger_auth_required') return 403;
+  return 400;
+}
 
 export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   const hasBearerSessionSignal = (
@@ -62,6 +92,66 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         exchangeType: input.exchangeType || 'unknown',
         sessionKind: input.sessionKind || 'jwt',
       },
+    });
+  };
+
+  const emitEmailOtpWebhookEvent = async (input: {
+    eventType: string;
+    claims?: Record<string, unknown> | null;
+    userId: string;
+    walletId?: string;
+    eventId?: string;
+    payload?: Record<string, unknown>;
+  }): Promise<void> => {
+    await emitRelayWebhookEvent({
+      logger: ctx.logger,
+      webhooks: ctx.opts.relayWebhooks,
+      eventType: input.eventType,
+      claims: input.claims || undefined,
+      userId: input.userId,
+      ...(input.eventId ? { eventId: input.eventId } : {}),
+      payload: {
+        ...(input.walletId ? { walletId: input.walletId } : {}),
+        ...(input.payload || {}),
+      },
+    });
+  };
+
+  const emitEmailOtpFailureWebhookEvents = async (input: {
+    claims?: Record<string, unknown> | null;
+    userId: string;
+    walletId: string;
+    source: 'enroll_verify' | 'challenge' | 'verify' | 'unlock_verify';
+    code: string;
+    message: string;
+    challengeId?: string;
+    otpChannel?: WalletEmailOtpChannel;
+    lockedUntilMs?: number;
+  }): Promise<void> => {
+    const payload = {
+      source: input.source,
+      code: input.code,
+      message: input.message,
+      ...(input.challengeId ? { challengeId: input.challengeId } : {}),
+      ...(input.otpChannel ? { otpChannel: input.otpChannel } : {}),
+      ...(typeof input.lockedUntilMs === 'number' ? { lockedUntilMs: input.lockedUntilMs } : {}),
+    };
+    await emitEmailOtpWebhookEvent({
+      eventType: 'wallet.email_otp.failed',
+      claims: input.claims,
+      userId: input.userId,
+      walletId: input.walletId,
+      ...(input.challengeId ? { eventId: input.challengeId } : {}),
+      payload,
+    });
+    if (input.code !== 'otp_locked_out' && input.code !== 'otp_attempts_exhausted') return;
+    await emitEmailOtpWebhookEvent({
+      eventType: 'wallet.email_otp.locked',
+      claims: input.claims,
+      userId: input.userId,
+      walletId: input.walletId,
+      ...(input.challengeId ? { eventId: input.challengeId } : {}),
+      payload,
     });
   };
 
@@ -134,6 +224,11 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       };
     }
     return { ok: true, claims, userId, appSessionVersion };
+  };
+
+  const hashAppSessionClaims = async (claims: Record<string, unknown>): Promise<string> => {
+    const json = alphabetizeStringify(claims);
+    return base64UrlEncode(await sha256BytesUtf8(json));
   };
 
   const maybeEmitWarmExpiredFromValidationFailure = async (input: {
@@ -447,6 +542,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         },
       });
       if (provider === 'passkey') {
+        await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: userId });
         await emitRelayWebhookEvent({
           logger: ctx.logger,
           webhooks: ctx.opts.relayWebhooks,
@@ -582,7 +678,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
     }
   });
 
-  // Wallet: unlock challenge (passkey challenge issuance)
+  // Wallet: unlock challenge (backend-neutral route)
   router.post('/wallet/unlock/challenge', async (req: any, res: any) => {
     try {
       if (!req?.body) {
@@ -591,14 +687,35 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
           .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
         return;
       }
-      const result = await ctx.service.createWebAuthnLoginOptions(req.body);
-      res.status(result.ok ? 200 : result.code === 'internal' ? 500 : 400).json(result);
+      const body = req.body;
+      const unlockBackend = parseWalletUnlockBackend(body.unlockBackend);
+      if (!unlockBackend) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'unlockBackend is required' });
+        return;
+      }
+      const result =
+        unlockBackend === 'passkey'
+          ? await ctx.service.createWebAuthnLoginOptions({
+              userId: body.userId,
+              rpId: body.rpId,
+              ttlMs: body.ttlMs,
+            })
+          : await ctx.service.createEmailOtpUnlockChallenge({
+              walletId: body.walletId,
+              ttlMs: body.ttlMs,
+            });
+      res.status(result.ok ? 200 : result.code === 'internal' ? 500 : 400).json({
+        ...result,
+        unlockBackend,
+      });
     } catch (e: any) {
       res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
-  // Wallet: unlock verify (passkey assertion)
+  // Wallet: unlock verify (backend-neutral route)
   router.post('/wallet/unlock/verify', async (req: any, res: any) => {
     try {
       if (!req?.body) {
@@ -608,32 +725,64 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         return;
       }
       const body = req.body;
-      const challengeId = String(body.challengeId ?? body.challenge_id ?? '').trim();
+      const unlockBackend = parseWalletUnlockBackend(body.unlockBackend);
+      if (!unlockBackend) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'unlockBackend is required' });
+        return;
+      }
+      const challengeId = String(body.challengeId || '').trim();
       if (!challengeId) {
         res
           .status(400)
           .json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
         return;
       }
-      if (!body.webauthn_authentication || typeof body.webauthn_authentication !== 'object') {
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'webauthn_authentication is required',
-        });
+      const result =
+        unlockBackend === 'passkey'
+          ? await (async () => {
+              if (!body.webauthnAuthentication || typeof body.webauthnAuthentication !== 'object') {
+                return {
+                  ok: false,
+                  verified: false,
+                  code: 'invalid_body',
+                  message: 'webauthnAuthentication is required',
+                } as const;
+              }
+              const originRaw = req.headers?.origin ?? req.headers?.Origin;
+              const origin =
+                typeof originRaw === 'string' ? originRaw.trim() || undefined : undefined;
+              return ctx.service.verifyWebAuthnLogin({
+                challengeId,
+                webauthn_authentication: body.webauthnAuthentication,
+                expected_origin: origin,
+              });
+            })()
+          : await ctx.service.verifyEmailOtpUnlockProof({
+              walletId: body.walletId,
+              challengeId,
+              unlockProof: body.unlockProof,
+            });
+      if (!result.ok || !result.verified) {
+        if (unlockBackend === 'email_otp') {
+          const walletId = String(body.walletId || '').trim();
+          if (walletId) {
+            await emitEmailOtpFailureWebhookEvents({
+              userId: walletId,
+              walletId,
+              source: 'unlock_verify',
+              code: String(result.code || 'unlock_verify_failed'),
+              message: String(result.message || 'Email OTP unlock verification failed'),
+              challengeId,
+            });
+          }
+        }
+        res.status(result.code === 'internal' ? 500 : 400).json({ ...result, unlockBackend });
         return;
       }
-
-      const originRaw = req.headers?.origin ?? req.headers?.Origin;
-      const origin = typeof originRaw === 'string' ? originRaw.trim() || undefined : undefined;
-      const result = await ctx.service.verifyWebAuthnLogin({
-        challengeId,
-        webauthn_authentication: body.webauthn_authentication,
-        expected_origin: origin,
-      });
-      if (!result.ok || !result.verified) {
-        res.status(result.code === 'internal' ? 500 : 400).json(result);
-        return;
+      if (unlockBackend === 'passkey') {
+        await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: result.userId });
       }
       await emitRelayWebhookEvent({
         logger: ctx.logger,
@@ -643,18 +792,710 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         eventId: challengeId,
         payload: {
           unlocked: true,
-          method: 'passkey',
+          unlockBackend,
           challengeId,
         },
       });
+      if (unlockBackend === 'email_otp') {
+        const recoveredWalletId = String((result as { walletId?: unknown }).walletId || body.walletId || '').trim();
+        const recoveredUserId = String(result.userId || recoveredWalletId).trim();
+        await emitEmailOtpWebhookEvent({
+          eventType: 'wallet.email_otp.logged_in',
+          userId: recoveredUserId,
+          ...(recoveredWalletId ? { walletId: recoveredWalletId } : {}),
+          eventId: challengeId,
+          payload: {
+            otpChannel: 'email_otp',
+            unlockBackend,
+            challengeId,
+          },
+        });
+      }
 
       res.status(200).json({
         ok: true,
         unlocked: true,
+        unlockBackend,
         ...(result.userId ? { userId: result.userId } : {}),
       });
     } catch (e: any) {
       res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+    }
+  });
+
+  router.post('/wallet/email-otp/enroll/challenge', async (req: any, res: any) => {
+    try {
+      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        return;
+      }
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.enroll.challenge',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+
+      const body = req.body;
+      const walletId = String(body.walletId || '').trim();
+      if (!walletId) {
+        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
+        return;
+      }
+      if (walletId !== validated.userId) {
+        res.status(403).json({
+          ok: false,
+          code: 'wallet_identity_mismatch',
+          message: 'walletId must match the current app session subject',
+        });
+        return;
+      }
+      const otpChannel = parseWalletEmailOtpChannel(body.otpChannel);
+      if (!otpChannel) {
+        res.status(400).json({
+          ok: false,
+          code: 'invalid_body',
+          message: 'otpChannel must be email_otp',
+        });
+        return;
+      }
+      const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
+      if (!strongAuthGate.ok) {
+        res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
+        return;
+      }
+      if (strongAuthGate.required) {
+        res.status(403).json({
+          ok: false,
+          code: 'stronger_auth_required',
+          message: 'Passkey authentication is required before modifying Email OTP enrollment',
+          ...(strongAuthGate.lastEmailOtpLoginAtMs
+            ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
+            : {}),
+          ...(strongAuthGate.lastStrongAuthAtMs
+            ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
+            : {}),
+        });
+        return;
+      }
+      const email =
+        typeof validated.claims.email === 'string' ? validated.claims.email.trim().toLowerCase() : '';
+      const sessionHash = await hashAppSessionClaims(validated.claims);
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const result = await ctx.service.createEmailOtpEnrollmentChallenge({
+        userId: validated.userId,
+        walletId,
+        orgId: (validated.claims as any).orgId,
+        email,
+        otpChannel: otpChannel,
+        sessionHash,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+      });
+      res.status(result.ok ? 200 : emailOtpStatusCode(result.code)).json(
+        result.ok
+          ? {
+              ok: true,
+              challenge: {
+                challengeId: result.challenge.challengeId,
+                issuedAt: new Date(result.challenge.issuedAtMs).toISOString(),
+                expiresAt: new Date(result.challenge.expiresAtMs).toISOString(),
+                userId: result.challenge.userId,
+                walletId: result.challenge.walletId,
+                ...(result.challenge.orgId ? { orgId: result.challenge.orgId } : {}),
+                sessionHash: result.challenge.sessionHash,
+                appSessionVersion: result.challenge.appSessionVersion,
+                otpChannel: result.challenge.otpChannel,
+                action: result.challenge.action,
+              },
+              delivery: result.delivery,
+            }
+          : result,
+      );
+    } catch (e: any) {
+      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+    }
+  });
+
+  router.post('/wallet/email-otp/enroll/seal', async (req: any, res: any) => {
+    try {
+      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        return;
+      }
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.enroll.seal',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+      const body = req.body;
+      const walletId = String(body.walletId || '').trim();
+      if (!walletId) {
+        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
+        return;
+      }
+      if (walletId !== validated.userId) {
+        res.status(403).json({
+          ok: false,
+          code: 'wallet_identity_mismatch',
+          message: 'walletId must match the current app session subject',
+        });
+        return;
+      }
+      const wrappedCiphertext = String(body.wrappedCiphertext || '').trim();
+      if (!wrappedCiphertext) {
+        res.status(400).json({
+          ok: false,
+          code: 'invalid_body',
+          message: 'wrappedCiphertext is required',
+        });
+        return;
+      }
+      const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
+      if (!strongAuthGate.ok) {
+        res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
+        return;
+      }
+      if (strongAuthGate.required) {
+        res.status(403).json({
+          ok: false,
+          code: 'stronger_auth_required',
+          message: 'Passkey authentication is required before modifying Email OTP enrollment',
+          ...(strongAuthGate.lastEmailOtpLoginAtMs
+            ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
+            : {}),
+          ...(strongAuthGate.lastStrongAuthAtMs
+            ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
+            : {}),
+        });
+        return;
+      }
+      const result = await ctx.service.applyEmailOtpServerSeal({
+        wrappedCiphertext,
+      });
+      res.status(result.ok ? 200 : emailOtpStatusCode(result.code)).json(
+        result.ok
+          ? {
+              ok: true,
+              walletId,
+              ciphertext: result.ciphertext,
+              emailOtpKeyVersion: result.emailOtpKeyVersion,
+            }
+          : result,
+      );
+    } catch (e: any) {
+      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+    }
+  });
+
+  router.post('/wallet/email-otp/enroll/verify', async (req: any, res: any) => {
+    try {
+      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        return;
+      }
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.enroll.verify',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+
+      const body = req.body;
+      const walletId = String(body.walletId || '').trim();
+      if (!walletId) {
+        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
+        return;
+      }
+      if (walletId !== validated.userId) {
+        res.status(403).json({
+          ok: false,
+          code: 'wallet_identity_mismatch',
+          message: 'walletId must match the current app session subject',
+        });
+        return;
+      }
+      const challengeId = String(body.challengeId || '').trim();
+      if (!challengeId) {
+        res.status(400).json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
+        return;
+      }
+      const otpCode = String(body.otpCode || '').trim();
+      if (!otpCode) {
+        res.status(400).json({ ok: false, code: 'invalid_body', message: 'otpCode is required' });
+        return;
+      }
+      const otpChannel = parseWalletEmailOtpChannel(body.otpChannel);
+      if (!otpChannel) {
+        res.status(400).json({
+          ok: false,
+          code: 'invalid_body',
+          message: 'otpChannel must be email_otp',
+        });
+        return;
+      }
+      const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
+      if (!strongAuthGate.ok) {
+        res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
+        return;
+      }
+      if (strongAuthGate.required) {
+        res.status(403).json({
+          ok: false,
+          code: 'stronger_auth_required',
+          message: 'Passkey authentication is required before modifying Email OTP enrollment',
+          ...(strongAuthGate.lastEmailOtpLoginAtMs
+            ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
+            : {}),
+          ...(strongAuthGate.lastStrongAuthAtMs
+            ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
+            : {}),
+        });
+        return;
+      }
+      const sessionHash = await hashAppSessionClaims(validated.claims);
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const result = await ctx.service.verifyEmailOtpEnrollment({
+        userId: validated.userId,
+        walletId,
+        orgId: (validated.claims as any).orgId,
+        enrollmentDeviceId: (validated.claims as any).deviceId,
+        challengeId,
+        otpCode,
+        otpChannel: otpChannel,
+        sessionHash,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+        emailOtpEscrowBlob: body.emailOtpEscrowBlob,
+        emailOtpKeyVersion: body.emailOtpKeyVersion,
+        unlockPublicKey: body.unlockPublicKey,
+        unlockKeyVersion: body.unlockKeyVersion,
+        thresholdEcdsaClientVerifyingShareB64u: body.thresholdEcdsaClientVerifyingShareB64u,
+      });
+      res.status(result.ok ? 200 : emailOtpStatusCode(result.code)).json(
+        result.ok
+          ? {
+              ok: true,
+              walletId: result.walletId,
+              otpChannel: result.otpChannel,
+              enrollment: {
+                createdAt: new Date(result.enrollment.createdAtMs).toISOString(),
+                updatedAt: new Date(result.enrollment.updatedAtMs).toISOString(),
+                emailOtpKeyVersion: result.enrollment.emailOtpKeyVersion,
+                unlockKeyVersion: result.enrollment.unlockKeyVersion,
+              },
+            }
+          : result,
+      );
+      if (result.ok) {
+        await emitEmailOtpWebhookEvent({
+          eventType: 'wallet.email_otp.enrolled',
+          claims: validated.claims,
+          userId: validated.userId,
+          walletId: result.walletId,
+          eventId: challengeId,
+          payload: {
+            otpChannel: result.otpChannel,
+            emailOtpKeyVersion: result.enrollment.emailOtpKeyVersion,
+            unlockKeyVersion: result.enrollment.unlockKeyVersion,
+          },
+        });
+      } else {
+        await emitEmailOtpFailureWebhookEvents({
+          claims: validated.claims,
+          userId: validated.userId,
+          walletId,
+          source: 'enroll_verify',
+          code: result.code,
+          message: result.message,
+          challengeId,
+          otpChannel: otpChannel,
+          lockedUntilMs:
+            typeof (result as { lockedUntilMs?: unknown }).lockedUntilMs === 'number'
+              ? Number((result as { lockedUntilMs?: unknown }).lockedUntilMs)
+              : undefined,
+        });
+      }
+    } catch (e: any) {
+      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+    }
+  });
+
+  router.post('/wallet/email-otp/challenge', async (req: any, res: any) => {
+    try {
+      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        return;
+      }
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.challenge',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+
+      const body = req.body;
+      const walletId = String(body.walletId || '').trim();
+      if (!walletId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
+        return;
+      }
+      if (walletId !== validated.userId) {
+        res.status(403).json({
+          ok: false,
+          code: 'wallet_identity_mismatch',
+          message: 'walletId must match the current app session subject',
+        });
+        return;
+      }
+      const otpChannel = parseWalletEmailOtpChannel(body.otpChannel);
+      if (!otpChannel) {
+        res.status(400).json({
+          ok: false,
+          code: 'invalid_body',
+          message: 'otpChannel must be email_otp',
+        });
+        return;
+      }
+      const email =
+        typeof validated.claims.email === 'string' ? validated.claims.email.trim().toLowerCase() : '';
+      const sessionHash = await hashAppSessionClaims(validated.claims);
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const result = await ctx.service.createEmailOtpChallenge({
+        userId: validated.userId,
+        walletId,
+        orgId: (validated.claims as any).orgId,
+        email,
+        otpChannel: otpChannel,
+        sessionHash,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+      });
+      res.status(result.ok ? 200 : emailOtpStatusCode(result.code)).json(
+        result.ok
+          ? {
+              ok: true,
+              challenge: {
+                challengeId: result.challenge.challengeId,
+                issuedAt: new Date(result.challenge.issuedAtMs).toISOString(),
+                expiresAt: new Date(result.challenge.expiresAtMs).toISOString(),
+                userId: result.challenge.userId,
+                walletId: result.challenge.walletId,
+                ...(result.challenge.orgId ? { orgId: result.challenge.orgId } : {}),
+                sessionHash: result.challenge.sessionHash,
+                appSessionVersion: result.challenge.appSessionVersion,
+                otpChannel: result.challenge.otpChannel,
+                action: result.challenge.action,
+              },
+              delivery: result.delivery,
+            }
+          : result,
+      );
+      if (!result.ok && result.code === 'otp_locked_out') {
+        await emitEmailOtpFailureWebhookEvents({
+          claims: validated.claims,
+          userId: validated.userId,
+          walletId,
+          source: 'challenge',
+          code: result.code,
+          message: result.message,
+          otpChannel: otpChannel,
+          lockedUntilMs:
+            typeof (result as { lockedUntilMs?: unknown }).lockedUntilMs === 'number'
+              ? Number((result as { lockedUntilMs?: unknown }).lockedUntilMs)
+              : undefined,
+        });
+      }
+    } catch (e: any) {
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+    }
+  });
+
+  router.post('/wallet/email-otp/verify', async (req: any, res: any) => {
+    try {
+      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        return;
+      }
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.verify',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+
+      const body = req.body;
+      const walletId = String(body.walletId || '').trim();
+      if (!walletId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
+        return;
+      }
+      if (walletId !== validated.userId) {
+        res.status(403).json({
+          ok: false,
+          code: 'wallet_identity_mismatch',
+          message: 'walletId must match the current app session subject',
+        });
+        return;
+      }
+      const challengeId = String(body.challengeId || '').trim();
+      if (!challengeId) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
+        return;
+      }
+      const otpCode = String(body.otpCode || '').trim();
+      if (!otpCode) {
+        res.status(400).json({ ok: false, code: 'invalid_body', message: 'otpCode is required' });
+        return;
+      }
+      const otpChannel = parseWalletEmailOtpChannel(body.otpChannel);
+      if (!otpChannel) {
+        res.status(400).json({
+          ok: false,
+          code: 'invalid_body',
+          message: 'otpChannel must be email_otp',
+        });
+        return;
+      }
+      const sessionHash = await hashAppSessionClaims(validated.claims);
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const result = await ctx.service.verifyEmailOtpChallenge({
+        userId: validated.userId,
+        walletId,
+        orgId: (validated.claims as any).orgId,
+        challengeId,
+        otpCode,
+        otpChannel: otpChannel,
+        sessionHash,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+      });
+      if (result.ok) {
+        const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId });
+        if (!enrollment.ok) {
+          res.status(emailOtpStatusCode(enrollment.code)).json(enrollment);
+          return;
+        }
+        res.status(200).json({
+          ok: true,
+          challengeId: result.challengeId,
+          loginGrant: result.loginGrant,
+          grantExpiresAt: new Date(result.grantExpiresAtMs).toISOString(),
+          otpChannel: result.otpChannel,
+          emailOtpEscrowBlob: enrollment.enrollment.emailOtpEscrowBlob,
+        });
+      } else {
+        res.status(emailOtpStatusCode(result.code)).json(result);
+      }
+      if (!result.ok) {
+        await emitEmailOtpFailureWebhookEvents({
+          claims: validated.claims,
+          userId: validated.userId,
+          walletId,
+          source: 'verify',
+          code: result.code,
+          message: result.message,
+          challengeId,
+          otpChannel: otpChannel,
+          lockedUntilMs:
+            typeof (result as { lockedUntilMs?: unknown }).lockedUntilMs === 'number'
+              ? Number((result as { lockedUntilMs?: unknown }).lockedUntilMs)
+              : undefined,
+        });
+      }
+    } catch (e: any) {
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+    }
+  });
+
+  router.post('/wallet/email-otp/unseal', async (req: any, res: any) => {
+    try {
+      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
+        return;
+      }
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.unseal',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+
+      const body = req.body;
+      const loginGrant = String(body.loginGrant || '').trim();
+      if (!loginGrant) {
+        res.status(400).json({
+          ok: false,
+          code: 'invalid_body',
+          message: 'loginGrant is required',
+        });
+        return;
+      }
+      const wrappedCiphertext = String(body.wrappedCiphertext || '').trim();
+      if (!wrappedCiphertext) {
+        res.status(400).json({
+          ok: false,
+          code: 'invalid_body',
+          message: 'wrappedCiphertext is required',
+        });
+        return;
+      }
+
+      const sessionHash = await hashAppSessionClaims(validated.claims);
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const grant = await ctx.service.consumeEmailOtpGrant({
+        loginGrant: loginGrant,
+        userId: validated.userId,
+        walletId: validated.userId,
+        orgId: (validated.claims as any).orgId,
+        otpChannel: 'email_otp',
+        sessionHash,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+      });
+      if (!grant.ok) {
+        res.status(emailOtpStatusCode(grant.code)).json(grant);
+        return;
+      }
+
+      const result = await ctx.service.removeEmailOtpServerSeal({
+        wrappedCiphertext,
+      });
+      if (!result.ok) {
+        res.status(emailOtpStatusCode(result.code)).json(result);
+        return;
+      }
+      const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId: validated.userId });
+      const currentDeviceId =
+        typeof (validated.claims as any).deviceId === 'string'
+          ? String((validated.claims as any).deviceId).trim()
+          : '';
+      const enrolledDeviceId =
+        enrollment.ok && typeof enrollment.enrollment.enrollmentDeviceId === 'string'
+          ? String(enrollment.enrollment.enrollmentDeviceId).trim()
+          : '';
+      if (
+        currentDeviceId &&
+        enrolledDeviceId &&
+        currentDeviceId !== enrolledDeviceId
+      ) {
+        await emitEmailOtpWebhookEvent({
+          eventType: 'wallet.email_otp.new_device',
+          claims: validated.claims,
+          userId: validated.userId,
+          walletId: validated.userId,
+          eventId: grant.challengeId,
+          payload: {
+            otpChannel: grant.otpChannel,
+            challengeId: grant.challengeId,
+            enrolledDeviceId,
+            currentDeviceId,
+          },
+        });
+      }
+
+      res.status(200).json({
+        ok: true,
+        ciphertext: result.ciphertext,
+        emailOtpKeyVersion: result.emailOtpKeyVersion,
+      });
+    } catch (e: any) {
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+    }
+  });
+
+  router.get('/wallet/email-otp/dev/otp-outbox', async (req: any, res: any) => {
+    try {
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.dev_outbox',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+      const challengeId = String(req?.query?.challengeId || '').trim();
+      const walletId = String(req?.query?.walletId || validated.userId).trim();
+      if (walletId !== validated.userId) {
+        res.status(403).json({
+          ok: false,
+          code: 'wallet_identity_mismatch',
+          message: 'walletId must match the current app session subject',
+        });
+        return;
+      }
+      const result = await ctx.service.readEmailOtpOutboxEntry({
+        challengeId,
+        userId: validated.userId,
+        walletId,
+      });
+      res.status(result.ok ? 200 : result.code === 'internal' ? 500 : result.code === 'not_found' ? 404 : 400).json(
+        result.ok
+          ? {
+              ok: true,
+              challengeId: result.challengeId,
+              walletId: result.walletId,
+              userId: result.userId,
+              otpChannel: result.otpChannel,
+              emailHint: result.emailHint,
+              otpCode: result.otpCode,
+              expiresAt: new Date(result.expiresAtMs).toISOString(),
+            }
+          : result,
+      );
+    } catch (e: any) {
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 

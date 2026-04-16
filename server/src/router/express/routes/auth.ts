@@ -220,6 +220,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
       if (!sess) return;
       const stepUpOk = await requirePasskeyStepUp(req, res, { userId: sess.userId });
       if (!stepUpOk) return;
+      await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
 
       const body = req.body || {};
       const provider = String(body.provider || '').trim();
@@ -278,6 +279,7 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
       if (!sess) return;
       const stepUpOk = await requirePasskeyStepUp(req, res, { userId: sess.userId });
       if (!stepUpOk) return;
+      await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
 
       const body = req.body || {};
       const subject = String(body.subject || '').trim();

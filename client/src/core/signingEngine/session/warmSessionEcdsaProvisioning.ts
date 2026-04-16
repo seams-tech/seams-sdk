@@ -88,7 +88,7 @@ export function getPrimaryAndSecondaryEcdsaCapabilities(args: {
 export function buildReusableEcdsaBootstrapResult(args: {
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
   capability: WarmSessionEcdsaCapabilityState;
-  source: 'login' | 'registration' | 'manual-bootstrap';
+  source: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
 }): ThresholdEcdsaSessionBootstrapResult | null {
   const record = args.capability.record;
   const auth = args.capability.auth;

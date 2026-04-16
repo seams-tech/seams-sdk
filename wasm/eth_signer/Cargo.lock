@@ -348,6 +348,7 @@ dependencies = [
  "signer-platform-web",
  "threshold-signatures",
  "wasm-bindgen",
+ "zeroize",
 ]
 
 [[package]]

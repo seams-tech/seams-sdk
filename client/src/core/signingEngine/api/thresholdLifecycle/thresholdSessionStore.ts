@@ -5,6 +5,7 @@ import {
   normalizePositiveInteger,
 } from '@shared/utils/normalize';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
 import { normalizeThresholdEcdsaSessionKind } from './normalization';
 import type {
   EcdsaThresholdKeyId,
@@ -23,7 +24,20 @@ import {
 
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
 
-export type ThresholdEcdsaSessionStoreSource = 'login' | 'registration' | 'manual-bootstrap';
+export type ThresholdEcdsaSessionStoreSource =
+  | 'login'
+  | 'registration'
+  | 'manual-bootstrap'
+  | 'email_otp';
+
+export type ThresholdEcdsaEmailOtpAuthContext = {
+  policy: EmailOtpAuthPolicy;
+  retention: 'session' | 'single_use';
+  reason: 'login' | 'sign';
+  authMethod: 'email_otp';
+  stepUpRequired: boolean;
+  consumedAtMs?: number;
+};
 
 export type ThresholdEcdsaSessionRecord = {
   nearAccountId: AccountId;
@@ -45,6 +59,7 @@ export type ThresholdEcdsaSessionRecord = {
   thresholdEcdsaPublicKeyB64u?: string;
   ethereumAddress?: string;
   relayerVerifyingShareB64u?: string;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   updatedAtMs: number;
   source: ThresholdEcdsaSessionStoreSource;
 };
@@ -418,7 +433,10 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     parseThresholdRuntimeSnapshotScopeFromJwt(thresholdSessionJwt);
   const sourceRaw = String(obj.source || '').trim();
   const source: ThresholdEcdsaSessionStoreSource =
-    sourceRaw === 'login' || sourceRaw === 'registration' || sourceRaw === 'manual-bootstrap'
+    sourceRaw === 'login' ||
+    sourceRaw === 'registration' ||
+    sourceRaw === 'manual-bootstrap' ||
+    sourceRaw === 'email_otp'
       ? sourceRaw
       : 'manual-bootstrap';
   const updatedAtMs = normalizeInteger(obj.updatedAtMs) || Date.now();
@@ -427,6 +445,10 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(obj.thresholdEcdsaPublicKeyB64u);
   const ethereumAddress = normalizeOptionalNonEmptyString(obj.ethereumAddress);
   const relayerVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.relayerVerifyingShareB64u);
+  const emailOtpAuthContext =
+    source === 'email_otp'
+      ? normalizeThresholdEcdsaEmailOtpAuthContext(obj.emailOtpAuthContext)
+      : null;
 
   if (
     !relayerUrl ||
@@ -463,8 +485,36 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
     ...(ethereumAddress ? { ethereumAddress } : {}),
     ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
+    ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
     updatedAtMs,
     source,
+  };
+}
+
+function normalizeThresholdEcdsaEmailOtpAuthContext(
+  value: unknown,
+): ThresholdEcdsaEmailOtpAuthContext {
+  const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const policyRaw = String(obj.policy || '').trim().toLowerCase();
+  const policy: EmailOtpAuthPolicy =
+    policyRaw === 'per_operation' ? 'per_operation' : 'session';
+  const retentionRaw = String(obj.retention || '').trim().toLowerCase();
+  const retention: 'session' | 'single_use' =
+    retentionRaw === 'single_use'
+      ? 'single_use'
+      : policy === 'per_operation'
+        ? 'single_use'
+        : 'session';
+  const reasonRaw = String(obj.reason || '').trim().toLowerCase();
+  const reason: 'login' | 'sign' = reasonRaw === 'sign' ? 'sign' : 'login';
+  const consumedAtMs = normalizePositiveInteger(obj.consumedAtMs);
+  return {
+    policy,
+    retention,
+    reason,
+    authMethod: 'email_otp',
+    stepUpRequired: obj.stepUpRequired === false ? false : true,
+    ...(consumedAtMs ? { consumedAtMs } : {}),
   };
 }
 
@@ -686,6 +736,7 @@ function buildEcdsaRecordFromBootstrap(args: {
   chain: ThresholdEcdsaActivationChain;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   source: ThresholdEcdsaSessionStoreSource;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   nowMs: number;
   signingSessionSeal?: {
     keyVersion?: string;
@@ -745,6 +796,7 @@ function buildEcdsaRecordFromBootstrap(args: {
     thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
     ethereumAddress: keyRef.ethereumAddress,
     relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
+    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     updatedAtMs: args.nowMs,
     source: args.source,
   });
@@ -770,6 +822,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
     chain: ThresholdEcdsaActivationChain;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: ThresholdEcdsaSessionStoreSource;
+    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
     signingSessionSeal?: {
       keyVersion?: string;
       shamirPrimeB64u?: string;
@@ -782,6 +835,7 @@ export function upsertThresholdEcdsaSessionFromBootstrap(
     chain: args.chain,
     bootstrap: args.bootstrap,
     source: args.source,
+    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     nowMs,
     ...(args.signingSessionSeal ? { signingSessionSeal: args.signingSessionSeal } : {}),
   });
@@ -960,6 +1014,84 @@ export function clearThresholdEcdsaSessionRecordForAccount(
       });
     }
   }
+}
+
+export function clearThresholdEcdsaSessionRecordForLane(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  },
+): void {
+  const accountId = toAccountId(args.nearAccountId);
+  const laneKeysToClear: string[] = [];
+  for (const [laneKey, record] of deps.recordsByLane.entries()) {
+    if (String(record.nearAccountId) !== String(accountId)) continue;
+    if (record.chain !== args.chain) continue;
+    laneKeysToClear.push(laneKey);
+  }
+  for (const laneKey of laneKeysToClear) {
+    deps.recordsByLane.delete(laneKey);
+    deps.exportArtifactsByLane?.delete(laneKey);
+  }
+  const storage = getEcdsaSessionStorageSafe();
+  if (storage) {
+    const laneKeys = readStorageIndex(storage, ECDSA_STORAGE_INDEX_KEY);
+    for (const laneKey of laneKeys) {
+      const parsedLane = parseThresholdEcdsaSessionLaneKey(laneKey);
+      if (!parsedLane) continue;
+      if (String(parsedLane.nearAccountId) !== String(accountId)) continue;
+      if (parsedLane.chain !== args.chain) continue;
+      clearStoredRecord({
+        storage,
+        storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+        storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
+        storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
+        recordKey: laneKey,
+      });
+    }
+  }
+}
+
+export function markThresholdEcdsaEmailOtpSessionConsumedForAccount(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  },
+): ThresholdEcdsaSessionRecord | null {
+  const accountId = toAccountId(args.nearAccountId);
+  const nowMs = Math.max(0, Math.floor((deps.now || Date.now)()));
+  let updatedRecord: ThresholdEcdsaSessionRecord | null = null;
+  const storage = getEcdsaSessionStorageSafe();
+
+  for (const [laneKey, record] of deps.recordsByLane.entries()) {
+    if (String(record.nearAccountId) !== String(accountId)) continue;
+    if (record.source !== 'email_otp' || !record.emailOtpAuthContext) continue;
+    const nextRecord: ThresholdEcdsaSessionRecord = {
+      ...record,
+      emailOtpAuthContext: {
+        ...record.emailOtpAuthContext,
+        consumedAtMs: nowMs,
+      },
+      updatedAtMs: nowMs,
+    };
+    deps.recordsByLane.set(laneKey, nextRecord);
+    if (storage) {
+      writeStoredRecord({
+        storage,
+        storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+        storageIndexKey: ECDSA_STORAGE_INDEX_KEY,
+        storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
+        recordKey: laneKey,
+        record: nextRecord,
+        thresholdSessionId: nextRecord.thresholdSessionId,
+      });
+    }
+    updatedRecord = nextRecord;
+  }
+
+  return updatedRecord;
 }
 
 export function clearAllThresholdEcdsaSessionRecords(deps: ThresholdEcdsaSessionStoreDeps): void {

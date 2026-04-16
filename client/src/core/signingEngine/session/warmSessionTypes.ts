@@ -1,5 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type {
+  ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionJwtSource,
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
@@ -46,6 +47,7 @@ export type WarmSessionEcdsaCapabilityState = {
   record: ThresholdEcdsaSessionRecord | null;
   auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
   state: 'missing' | 'ready' | 'auth_missing' | 'prf_missing' | 'prf_unavailable';
 };
 
@@ -72,6 +74,7 @@ function assertCapabilityStateInvariant(args: {
   const record = capability.record;
   const auth = capability.auth;
   const prfClaim = capability.prfClaim;
+  const emailOtpAuthContext = 'emailOtpAuthContext' in capability ? capability.emailOtpAuthContext : null;
   const sessionId = String(record?.thresholdSessionId || '').trim();
 
   if (!record) {
@@ -88,6 +91,11 @@ function assertCapabilityStateInvariant(args: {
     if (prfClaim) {
       throw new Error(
         `[WarmSessionManager] invalid ${args.label} capability: missing record cannot have warm-session status`,
+      );
+    }
+    if (emailOtpAuthContext) {
+      throw new Error(
+        `[WarmSessionManager] invalid ${args.label} capability: missing record cannot have email-otp auth context`,
       );
     }
     return;
@@ -145,10 +153,27 @@ function assertCapabilityStateInvariant(args: {
     }
   }
 
+  if (record.source === 'email_otp' && !emailOtpAuthContext) {
+    throw new Error(
+      `[WarmSessionManager] invalid ${args.label} capability: email_otp record requires explicit email-otp auth context`,
+    );
+  }
+  if (record.source !== 'email_otp' && emailOtpAuthContext) {
+    throw new Error(
+      `[WarmSessionManager] invalid ${args.label} capability: non-email_otp record cannot carry email-otp auth context`,
+    );
+  }
+
   const requiresJwt = record.thresholdSessionKind === 'jwt';
   const hasJwt = Boolean(String(auth?.thresholdSessionJwt || '').trim());
+  const emailOtpSingleUseConsumed =
+    record.source === 'email_otp' &&
+    emailOtpAuthContext?.retention === 'single_use' &&
+    Number(emailOtpAuthContext.consumedAtMs) > 0;
   const expectedState = !auth || (requiresJwt && !hasJwt)
     ? 'auth_missing'
+    : emailOtpSingleUseConsumed
+      ? 'prf_missing'
     : !prfClaim
       ? 'prf_missing'
       : prfClaim.state === 'unavailable'

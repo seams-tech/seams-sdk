@@ -17,6 +17,7 @@ import initEthSignerWasm, {
   sha256_bytes,
   sign_secp256k1_recoverable,
   validate_secp256k1_public_key_33,
+  verify_secp256k1_recoverable_signature_against_public_key_33,
 } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
 import type { InitInput } from '../../../../wasm/eth_signer/pkg/eth_signer.js';
 
@@ -201,6 +202,24 @@ export async function signSecp256k1Recoverable(
   await ensureEthSignerWasm();
   const out = sign_secp256k1_recoverable(digest32, privateKey32) as Uint8Array;
   return checkedBytes('sign_secp256k1_recoverable output', out, 65);
+}
+
+export async function verifySecp256k1RecoverableSignatureAgainstPublicKey33(
+  digest32: Uint8Array,
+  signature65: Uint8Array,
+  publicKey33: Uint8Array,
+): Promise<Uint8Array> {
+  await ensureEthSignerWasm();
+  const out = verify_secp256k1_recoverable_signature_against_public_key_33(
+    digest32,
+    signature65,
+    publicKey33,
+  ) as Uint8Array;
+  return checkedBytes(
+    'verify_secp256k1_recoverable_signature_against_public_key_33 output',
+    out,
+    33,
+  );
 }
 
 export async function encodeEip1559SignedTxFromSignature65(input: {

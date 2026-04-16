@@ -1,5 +1,6 @@
 use js_sys::{Array, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
+use zeroize::Zeroize;
 
 use crate::errors::js_core_err;
 
@@ -40,7 +41,7 @@ impl ThresholdEcdsaPresignSession {
         participant_ids: Vec<u32>,
         me: u32,
         threshold: u32,
-        private_share32: Vec<u8>,
+        mut private_share32: Vec<u8>,
         public_key_sec1: Vec<u8>,
     ) -> Result<ThresholdEcdsaPresignSession, JsValue> {
         let inner = signer_platform_web::threshold_ecdsa::ThresholdEcdsaPresignSession::new(
@@ -49,8 +50,9 @@ impl ThresholdEcdsaPresignSession {
             threshold,
             private_share32.as_slice(),
             public_key_sec1.as_slice(),
-        )
-        .map_err(js_core_err)?;
+        );
+        private_share32.zeroize();
+        let inner = inner.map_err(js_core_err)?;
 
         Ok(Self { inner })
     }
@@ -94,12 +96,12 @@ pub fn threshold_ecdsa_compute_signature_share(
     me: u32,
     public_key_sec1: Vec<u8>,
     presign_big_r_sec1: Vec<u8>,
-    presign_k_share32: Vec<u8>,
-    presign_sigma_share32: Vec<u8>,
-    digest32: Vec<u8>,
-    entropy32: Vec<u8>,
+    mut presign_k_share32: Vec<u8>,
+    mut presign_sigma_share32: Vec<u8>,
+    mut digest32: Vec<u8>,
+    mut entropy32: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {
-    signer_platform_web::threshold_ecdsa::threshold_ecdsa_compute_signature_share(
+    let result = signer_platform_web::threshold_ecdsa::threshold_ecdsa_compute_signature_share(
         participant_ids.as_slice(),
         me,
         public_key_sec1.as_slice(),
@@ -109,7 +111,12 @@ pub fn threshold_ecdsa_compute_signature_share(
         digest32.as_slice(),
         entropy32.as_slice(),
     )
-    .map_err(js_core_err)
+    .map_err(js_core_err);
+    presign_k_share32.zeroize();
+    presign_sigma_share32.zeroize();
+    digest32.zeroize();
+    entropy32.zeroize();
+    result
 }
 
 pub fn threshold_ecdsa_finalize_signature(
@@ -117,13 +124,13 @@ pub fn threshold_ecdsa_finalize_signature(
     relayer_id: u32,
     public_key_sec1: Vec<u8>,
     presign_big_r_sec1: Vec<u8>,
-    relayer_k_share32: Vec<u8>,
-    relayer_sigma_share32: Vec<u8>,
-    digest32: Vec<u8>,
-    entropy32: Vec<u8>,
-    client_signature_share32: Vec<u8>,
+    mut relayer_k_share32: Vec<u8>,
+    mut relayer_sigma_share32: Vec<u8>,
+    mut digest32: Vec<u8>,
+    mut entropy32: Vec<u8>,
+    mut client_signature_share32: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {
-    signer_platform_web::threshold_ecdsa::threshold_ecdsa_finalize_signature(
+    let result = signer_platform_web::threshold_ecdsa::threshold_ecdsa_finalize_signature(
         participant_ids.as_slice(),
         relayer_id,
         public_key_sec1.as_slice(),
@@ -134,5 +141,11 @@ pub fn threshold_ecdsa_finalize_signature(
         entropy32.as_slice(),
         client_signature_share32.as_slice(),
     )
-    .map_err(js_core_err)
+    .map_err(js_core_err);
+    relayer_k_share32.zeroize();
+    relayer_sigma_share32.zeroize();
+    digest32.zeroize();
+    entropy32.zeroize();
+    client_signature_share32.zeroize();
+    result
 }

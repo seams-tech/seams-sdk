@@ -931,6 +931,11 @@ export interface ThresholdEcdsaHssPrepareRequest {
    */
   ed25519SessionClaims?: Record<string, unknown>;
   /**
+   * Internal relay field: optional validated app-session claims extracted from
+   * bearer/cookie transport by the route layer.
+   */
+  appSessionClaims?: Record<string, unknown>;
+  /**
    * Internal relay field: optional validated threshold-ecdsa session claims
    * extracted from bearer/cookie transport by the route layer.
    */

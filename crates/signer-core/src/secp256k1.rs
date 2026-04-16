@@ -1,5 +1,5 @@
 use hkdf::Hkdf;
-use k256::ecdsa::{RecoveryId, SigningKey};
+use k256::ecdsa::{RecoveryId, Signature, SigningKey, VerifyingKey};
 use k256::elliptic_curve::bigint::U512;
 use k256::elliptic_curve::ops::{Invert, Reduce};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
@@ -320,6 +320,37 @@ pub fn sign_secp256k1_recoverable(digest32: &[u8], private_key32: &[u8]) -> Core
     Ok(out)
 }
 
+pub fn verify_secp256k1_recoverable_signature_against_public_key_33(
+    digest32: &[u8],
+    signature65: &[u8],
+    public_key33: &[u8],
+) -> CoreResult<Vec<u8>> {
+    if digest32.len() != 32 {
+        return Err(SignerCoreError::invalid_length("digest32 must be 32 bytes"));
+    }
+    if signature65.len() != 65 {
+        return Err(SignerCoreError::invalid_length("signature65 must be 65 bytes"));
+    }
+
+    let expected_vk = VerifyingKey::from_sec1_bytes(public_key33)
+        .map_err(|_| SignerCoreError::decode_error("invalid compressed secp256k1 public key"))?;
+    let signature = Signature::from_slice(&signature65[0..64])
+        .map_err(|_| SignerCoreError::decode_error("invalid secp256k1 signature scalars"))?;
+    let recid = RecoveryId::from_byte(signature65[64])
+        .ok_or_else(|| SignerCoreError::decode_error("invalid secp256k1 recovery id"))?;
+    let recovered = VerifyingKey::recover_from_prehash(digest32, &signature, recid)
+        .map_err(|_| SignerCoreError::crypto_error("secp256k1 signature recovery failed"))?;
+
+    let recovered_bytes = recovered.to_encoded_point(true);
+    let expected_bytes = expected_vk.to_encoded_point(true);
+    if recovered_bytes.as_bytes() != expected_bytes.as_bytes() {
+        return Err(SignerCoreError::crypto_error(
+            "recovered secp256k1 public key did not match expected key",
+        ));
+    }
+    Ok(recovered_bytes.as_bytes().to_vec())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -422,6 +453,28 @@ mod tests {
             expected,
             "recovered key must match signer key",
         );
+    }
+
+    #[test]
+    fn verify_recoverable_signature_against_public_key_33_roundtrips() {
+        let mut sk_bytes = [0u8; 32];
+        sk_bytes[31] = 7;
+        let mut digest = [0u8; 32];
+        digest[0] = 1;
+        digest[31] = 9;
+
+        let signature65 =
+            sign_secp256k1_recoverable(digest.as_slice(), sk_bytes.as_slice()).expect("sign");
+        let public_key33 =
+            secp256k1_private_key_32_to_public_key_33(&sk_bytes).expect("derive public key");
+
+        let verified = verify_secp256k1_recoverable_signature_against_public_key_33(
+            digest.as_slice(),
+            signature65.as_slice(),
+            public_key33.as_slice(),
+        )
+        .expect("verify");
+        assert_eq!(verified, public_key33);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import { toTrimmedString } from '@shared/utils/validation';
 import type {
+  EmailOtpAuthPolicy,
   SigningSessionPersistenceMode,
   TatchiConfigsInput,
   TatchiConfigsReadonly,
@@ -41,6 +42,21 @@ function resolveSigningSessionPersistenceMode(args: {
   if (raw === 'sealed_refresh_v1') return 'sealed_refresh_v1';
   throw new Error(
     `[configPresets] Invalid config: signingSessionPersistenceMode (${raw}); expected "none" or "sealed_refresh_v1"`,
+  );
+}
+
+function resolveEmailOtpAuthPolicy(args: {
+  value: unknown;
+  fallback: EmailOtpAuthPolicy;
+}): EmailOtpAuthPolicy {
+  const raw = String(args.value || '')
+    .trim()
+    .toLowerCase();
+  if (!raw) return args.fallback;
+  if (raw === 'session') return 'session';
+  if (raw === 'per_operation') return 'per_operation';
+  throw new Error(
+    `[configPresets] Invalid config: emailOtpAuthPolicy (${raw}); expected "session" or "per_operation"`,
   );
 }
 
@@ -189,6 +205,10 @@ export function buildConfigsFromDefaults(args: {
     value: overrides.signingSessionPersistenceMode,
     fallback: defaults.signing.sessionPersistenceMode,
   });
+  const emailOtpAuthPolicy = resolveEmailOtpAuthPolicy({
+    value: overrides.emailOtpAuthPolicy,
+    fallback: defaults.signing.emailOtp.authPolicy,
+  });
   const signingSessionSeal = resolveSigningSessionSeal({
     mode: signingSessionPersistenceMode,
     overrides,
@@ -310,6 +330,9 @@ export function buildConfigsFromDefaults(args: {
         remainingUses:
           overrides.signingSessionDefaults?.remainingUses ??
           defaults.signing.sessionDefaults.remainingUses,
+      },
+      emailOtp: {
+        authPolicy: emailOtpAuthPolicy,
       },
       sessionPersistenceMode: signingSessionPersistenceMode,
       sessionSeal: signingSessionSeal,

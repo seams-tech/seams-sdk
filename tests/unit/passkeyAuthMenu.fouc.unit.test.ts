@@ -4,6 +4,7 @@ import { setupBasicPasskeyTest } from '../setup';
 const IMPORT_PATHS = {
   provider: '/sdk/esm/react/context/TatchiPasskeyProvider.js',
   passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
+  authMenuTypes: '/sdk/esm/react/components/PasskeyAuthMenu/authMenuTypes.js',
   reactStyles: '/sdk/esm/react/styles/styles.css',
 } as const;
 
@@ -125,5 +126,78 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
 
     expect(remount.hadSkeletonAtFirstFrame).toBe(false);
     expect(remount.hasClientMenuAtFirstFrame).toBe(true);
+  });
+
+  test('login mode shows passkey, Email OTP, and Google methods without legacy email recovery CTA', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        await new Promise<void>((resolve, reject) => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = paths.reactStyles;
+          link.addEventListener('load', () => resolve());
+          link.addEventListener('error', () =>
+            reject(new Error(`Failed to load: ${paths.reactStyles}`)),
+          );
+          document.head.appendChild(link);
+        });
+
+        const mount = document.createElement('div');
+        mount.id = 'pam2-login-methods-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://relay-server.localhost' },
+          iframeWallet: { walletOrigin: '' },
+        };
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(
+            React.createElement(
+              Provider,
+              { config },
+              React.createElement(PasskeyAuthMenu, {
+                defaultMode: AuthMenuMode.Login,
+                onEmailOtpLogin: () => undefined,
+                socialLogin: {
+                  google: () => 'alice',
+                },
+              }),
+            ),
+          );
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-login-methods-mount');
+    await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
+    await mount.getByRole('button', { name: 'Login' }).click();
+    await expect(mount.getByRole('button', { name: 'Continue with Passkey' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Continue with Email OTP' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
+    await expect(
+      mount.getByText(
+        'Email OTP is a convenience login. Passkey is more secure, and OTP remains warm only until session expiry or logout.',
+      ),
+    ).toBeVisible();
+    await expect(mount.getByText('Recover Account with Email')).toHaveCount(0);
   });
 });

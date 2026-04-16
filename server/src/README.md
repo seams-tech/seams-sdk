@@ -242,6 +242,9 @@ const prfSessionSeal = createPrfSessionSealRoutesOptions({
     currentKeyVersion: 'kek-s-2026-02',
     keys: [{
       keyVersion: 'kek-s-2026-02',
+      // Development/test bootstrap only.
+      // Production should load the active seal key material from a KMS/HSM boundary
+      // and keep only the selected key version in ordinary app config.
       shamirPrimeB64u: process.env.SHAMIR_P_B64U!,
       serverEncryptExponentB64u: process.env.SHAMIR_E_S_B64U!,
       serverDecryptExponentB64u: process.env.SHAMIR_D_S_B64U!,

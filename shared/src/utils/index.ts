@@ -7,6 +7,7 @@ export * from './near';
 export * from './digests';
 export * from './theme';
 export * from './keccak';
+export * from './emailOtpDerivation';
 export * from './recoveryDomain';
 export * from './recoveryEmail';
 export * from './undeployedSmartAccountSignerSet';

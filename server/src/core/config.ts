@@ -163,6 +163,10 @@ function normalizeThresholdEd25519KeyStoreConfig(
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_AUTH_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_SESSION_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_KEYSTORE_PREFIX) ||
+    toOptionalTrimmedString(c.PRF_SESSION_SEAL_KEY_VERSION) ||
+    toOptionalTrimmedString(c.SHAMIR_P_B64U) ||
+    toOptionalTrimmedString(c.SHAMIR_E_S_B64U) ||
+    toOptionalTrimmedString(c.SHAMIR_D_S_B64U) ||
     // Explicit store config (kind-shaped)
     toOptionalTrimmedString(c.kind) ||
     toOptionalTrimmedString(c.url) ||

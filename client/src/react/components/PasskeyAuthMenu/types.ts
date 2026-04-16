@@ -1,12 +1,12 @@
 import React from 'react';
 import type { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
+import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
 import {
   AuthMenuMode,
   AuthMenuModeMap,
   type AuthMenuModeLabel,
   type AuthMenuHeadings,
 } from './authMenuTypes';
-import type { EmailRecoverySSEEvent } from '@/core/types/sdkSentEvents';
 
 export { AuthMenuMode, AuthMenuModeMap };
 export type { AuthMenuModeLabel, AuthMenuHeadings };
@@ -18,6 +18,10 @@ export interface PasskeyAuthMenuProps {
   onRegister?: () => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onSyncAccount?: () => void | Promise<unknown>;
+  /** Return a Promise to keep the waiting screen visible until the Email OTP flow completes. */
+  onEmailOtpLogin?: (args: { policy: EmailOtpAuthPolicy }) => void | Promise<unknown>;
+  /** App-selected Email OTP retention policy exposed through the auth menu. */
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   /** Display SDK progress event messages under the waiting screen. */
   showSDKEvents?: boolean;
   /**
@@ -33,11 +37,6 @@ export interface PasskeyAuthMenuProps {
     /** Called when the user manually cancels the link-device flow */
     onCancelled?: () => void;
   };
-  /** Optional callbacks for the email recovery flow */
-  emailRecoveryOptions?: {
-    onEvent?: (event: EmailRecoverySSEEvent) => void;
-    onError?: (error: Error) => void;
-  };
   /** Optional custom header element rendered when not waiting */
   header?: React.ReactElement;
   defaultMode?: AuthMenuMode;
@@ -48,15 +47,11 @@ export interface PasskeyAuthMenuProps {
   /**
    * Optional social login hooks. Provide a function per provider that returns
    * the derived username (e.g., email/handle) after the external auth flow.
-   * If omitted or all undefined, the social row is hidden.
-   *
-   * Note: Social login integration is not yet implemented. The UI will
-   * display provider buttons and a disclaimer for now, but no auth flow
-   * is wired. This is a placeholder for future work.
+   * If omitted or all undefined, the social buttons are hidden.
    */
   socialLogin?: {
-    google?: () => string;
-    x?: () => string;
-    apple?: () => string;
+    google?: () => string | void | Promise<string | void>;
+    x?: () => string | void | Promise<string | void>;
+    apple?: () => string | void | Promise<string | void>;
   };
 }

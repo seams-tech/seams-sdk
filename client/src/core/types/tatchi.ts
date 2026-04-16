@@ -7,6 +7,7 @@ import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
 
 export type SigningSessionPersistenceMode = 'none' | 'sealed_refresh_v1';
+export type EmailOtpAuthPolicy = 'session' | 'per_operation';
 
 export interface SigningSessionSealConfigInput {
   keyVersion?: string;
@@ -55,6 +56,7 @@ export interface SigningSessionSealConfig {
  *     remainingUses?: number;
  *   };
  *   signingSessionPersistenceMode?: 'none' | 'sealed_refresh_v1';
+ *   emailOtpAuthPolicy?: 'session' | 'per_operation';
  *   signingSessionSeal?: {
  *     keyVersion?: string;
  *     shamirPrimeB64u?: string;
@@ -168,6 +170,13 @@ export interface TatchiConfigsInput {
    * - `sealed_refresh_v1`: sealed refresh persistence via worker + server PRF seal module.
    */
   signingSessionPersistenceMode?: SigningSessionPersistenceMode;
+  /**
+   * Email OTP auth retention policy.
+   *
+   * - `session`: recover once after OTP and keep warm signing material in memory until expiry/logout.
+   * - `per_operation`: recover on demand, use once, and discard immediately after the operation.
+   */
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   /**
    * Optional seal transport hints for `sealed_refresh_v1`.
    *
@@ -668,6 +677,10 @@ export interface TatchiSigningSessionDefaults {
   remainingUses: number;
 }
 
+export interface TatchiEmailOtpConfig {
+  authPolicy: EmailOtpAuthPolicy;
+}
+
 export interface TatchiThresholdEcdsaConfig {
   presignPool: ThresholdEcdsaPresignPoolPolicy;
   provisioningDefaults: EcdsaSignerProvisioningDefaults;
@@ -675,6 +688,7 @@ export interface TatchiThresholdEcdsaConfig {
 
 export interface TatchiSigningConfig {
   sessionDefaults: TatchiSigningSessionDefaults;
+  emailOtp: TatchiEmailOtpConfig;
   sessionPersistenceMode: SigningSessionPersistenceMode;
   sessionSeal: SigningSessionSealConfig;
   thresholdEcdsa: TatchiThresholdEcdsaConfig;

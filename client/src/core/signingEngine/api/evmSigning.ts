@@ -19,6 +19,7 @@ import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import { resolveThresholdEcdsaCommitQueueKey } from './thresholdLifecycle/thresholdEcdsaCommitQueue';
+import type { ThresholdEcdsaEmailOtpAuthContext } from './thresholdLifecycle/thresholdSessionStore';
 import { emitNonceLifecycleMetric } from './evmNonceLifecycleMetrics';
 import {
   deriveSmartAccountDeploymentTargetFromSigningRequest,
@@ -29,6 +30,7 @@ import type {
   TouchConfirmContextPort,
   TouchConfirmSigningPort,
   TouchConfirmSecureConfirmationPort,
+  WarmSessionMaterialClearer,
   WarmSessionStatusReader,
 } from '../touchConfirm';
 import type { SignerWorkerManagerContext } from '../workerManager';
@@ -39,6 +41,7 @@ import {
 } from '../orchestration/smartAccountDeployment';
 import { assertThresholdSigningSessionReady } from '../orchestration/shared/thresholdSigningSessionPlanner';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
+import { clearThresholdEcdsaClientPresignaturesForLane } from '../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { createWarmSessionManager } from '../session/WarmSessionManager';
 
 export type EvmFamilySigningDeps = {
@@ -59,6 +62,25 @@ export type EvmFamilySigningDeps = {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
   }) => ThresholdEcdsaSecp256k1KeyRef;
+  getThresholdEcdsaSessionRecordForSigning: (args: {
+    nearAccountId: string;
+    chain: 'tempo' | 'evm';
+  }) => {
+    relayerUrl: string;
+    ecdsaThresholdKeyId: string;
+    participantIds: number[];
+    source: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
+    thresholdSessionId: string;
+    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
+  };
+  markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
+    nearAccountId: string;
+    chain: 'tempo' | 'evm';
+  }) => void;
+  clearThresholdEcdsaSessionRecordForLane: (args: {
+    nearAccountId: string;
+    chain: 'tempo' | 'evm';
+  }) => void;
   provisionThresholdEcdsaSession: (args: {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
@@ -66,7 +88,8 @@ export type EvmFamilySigningDeps = {
   touchConfirm: TouchConfirmContextPort &
     TouchConfirmSigningPort &
     TouchConfirmSecureConfirmationPort &
-    WarmSessionStatusReader;
+    WarmSessionStatusReader &
+    Partial<WarmSessionMaterialClearer>;
 };
 
 type EvmFamilyLifecycleEvent = {
@@ -491,6 +514,21 @@ async function ensureThresholdEcdsaKeyRefReady(args: {
 
   const warmSessionManager = createWarmSessionManager({
     touchConfirm: args.deps.touchConfirm,
+    clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) => {
+      const record = args.deps.getThresholdEcdsaSessionRecordForSigning({
+        nearAccountId: String(nearAccountId),
+        chain,
+      });
+      clearThresholdEcdsaClientPresignaturesForLane({
+        relayerUrl: record.relayerUrl,
+        ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+        participantIds: record.participantIds,
+      });
+    },
+    clearThresholdEcdsaSessionRecordForLane: args.deps.clearThresholdEcdsaSessionRecordForLane,
+    markThresholdEcdsaEmailOtpSessionConsumedForAccount:
+      args.deps.markThresholdEcdsaEmailOtpSessionConsumedForAccount,
+    getThresholdEcdsaSessionRecordForSigning: args.deps.getThresholdEcdsaSessionRecordForSigning,
     getThresholdEcdsaKeyRefForSigning: args.deps.getThresholdEcdsaKeyRefForSigning,
     provisionThresholdEcdsaSession: args.deps.provisionThresholdEcdsaSession,
   });
@@ -1188,6 +1226,21 @@ export async function signEvmFamily(
   const ctx = deps.touchConfirm.getContext();
   const warmSessionManager = createWarmSessionManager({
     touchConfirm: deps.touchConfirm,
+    clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) => {
+      const record = deps.getThresholdEcdsaSessionRecordForSigning({
+        nearAccountId: String(nearAccountId),
+        chain,
+      });
+      clearThresholdEcdsaClientPresignaturesForLane({
+        relayerUrl: record.relayerUrl,
+        ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+        participantIds: record.participantIds,
+      });
+    },
+    clearThresholdEcdsaSessionRecordForLane: deps.clearThresholdEcdsaSessionRecordForLane,
+    markThresholdEcdsaEmailOtpSessionConsumedForAccount:
+      deps.markThresholdEcdsaEmailOtpSessionConsumedForAccount,
+    getThresholdEcdsaSessionRecordForSigning: deps.getThresholdEcdsaSessionRecordForSigning,
     getThresholdEcdsaKeyRefForSigning: deps.getThresholdEcdsaKeyRefForSigning,
     provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
   });
@@ -1292,6 +1345,15 @@ export async function signEvmFamily(
       : {}),
   };
 
+  if (args.request.senderSignatureAlgorithm === 'secp256k1') {
+    await warmSessionManager.assertEcdsaOperationAllowed({
+      nearAccountId: args.nearAccountId,
+      chain: args.request.chain,
+      operationLabel: `${args.request.chain} signing`,
+      thresholdSessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
+    });
+  }
+
   if (args.request.chain === 'evm') {
     const signEvmWithTouchConfirm = await loadSignEvmWithTouchConfirm();
     const request = args.request;
@@ -1318,6 +1380,11 @@ export async function signEvmFamily(
           deps.evmNonceManager.markBroadcastRejected(reservation);
         },
       } as unknown);
+      await warmSessionManager.applyEcdsaPostSignPolicy({
+        nearAccountId: args.nearAccountId,
+        chain: 'evm',
+        thresholdSessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
+      });
       return result;
     } catch (error: unknown) {
       throw mapToRetryableNonceStateError({
@@ -1348,6 +1415,11 @@ export async function signEvmFamily(
         deps.evmNonceManager.markBroadcastRejected(reservation);
       },
     } as unknown);
+    await warmSessionManager.applyEcdsaPostSignPolicy({
+      nearAccountId: args.nearAccountId,
+      chain: 'tempo',
+      thresholdSessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
+    });
     return result;
   } catch (error: unknown) {
     throw mapToRetryableNonceStateError({

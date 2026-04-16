@@ -43,6 +43,10 @@ export interface EthSignerWorkerOperationMap {
     payload: { digest32: ArrayBuffer; privateKey32: ArrayBuffer };
     result: ArrayBuffer;
   };
+  secp256k1PrivateKey32ToPublicKey33: {
+    payload: { privateKey32: ArrayBuffer };
+    result: ArrayBuffer;
+  };
   deriveSecp256k1KeypairFromPrfSecond: {
     payload: { prfSecond: ArrayBuffer; nearAccountId: string };
     result: {

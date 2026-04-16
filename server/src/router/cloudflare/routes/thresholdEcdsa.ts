@@ -13,6 +13,7 @@ import type {
   ThresholdEcdsaSignInitRequest,
 } from '../../../core/types';
 import {
+  parseAppSessionClaims,
   parseThresholdEcdsaSessionClaims,
   parseThresholdEd25519SessionClaims,
 } from '../../../core/ThresholdService/validation';
@@ -163,17 +164,29 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     }
     const reqBody = (body || {}) as ThresholdEcdsaHssPrepareRequest;
     const session = ctx.opts.session;
+    let appSessionClaims: ReturnType<typeof parseAppSessionClaims> = null;
     let ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims> = null;
     let ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims> = null;
     if (session) {
       const parsedSession = await session.parse(Object.fromEntries(ctx.request.headers.entries()));
       if (parsedSession.ok) {
+        appSessionClaims = parseAppSessionClaims(parsedSession.claims);
+        if (appSessionClaims) {
+          const validated = await ctx.service.validateAppSessionVersion({
+            userId: appSessionClaims.sub,
+            appSessionVersion: appSessionClaims.appSessionVersion,
+          });
+          if (!validated.ok) {
+            appSessionClaims = null;
+          }
+        }
         ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
         ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
       }
     }
     const request: ThresholdEcdsaHssPrepareRequest = {
       ...reqBody,
+      appSessionClaims: appSessionClaims || undefined,
       ed25519SessionClaims: ed25519SessionClaims || undefined,
       ecdsaSessionClaims: ecdsaSessionClaims || undefined,
     };

@@ -720,6 +720,63 @@ export function parseThresholdEd25519SessionClaims(
   return out;
 }
 
+export type AppSessionClaims = {
+  sub: string;
+  kind: 'app_session_v1';
+  appSessionVersion: string;
+  runtimeSnapshotScope?: {
+    orgId: string;
+    environmentId: string;
+    projectId?: string;
+  };
+  iat?: number;
+  exp?: number;
+  nbf?: number;
+};
+
+export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
+  if (!isObject(raw)) return null;
+  const kind = toOptionalString(raw.kind);
+  if (kind !== 'app_session_v1') return null;
+  const sub = toOptionalString(raw.sub);
+  const appSessionVersion = toOptionalString(raw.appSessionVersion);
+  if (!sub || !appSessionVersion) return null;
+  const out: AppSessionClaims = {
+    sub,
+    kind,
+    appSessionVersion,
+  };
+  const runtimeSnapshotScopeRaw = (raw as { runtimeSnapshotScope?: unknown }).runtimeSnapshotScope;
+  if (runtimeSnapshotScopeRaw !== undefined) {
+    const runtimeSnapshotScope = parseRuntimeSnapshotScope(runtimeSnapshotScopeRaw);
+    if (!runtimeSnapshotScope) return null;
+    out.runtimeSnapshotScope = runtimeSnapshotScope;
+  }
+
+  const iat = (raw as { iat?: unknown }).iat;
+  if (iat !== undefined) {
+    const v = Number(iat);
+    if (!Number.isFinite(v)) return null;
+    out.iat = v;
+  }
+
+  const exp = (raw as { exp?: unknown }).exp;
+  if (exp !== undefined) {
+    const v = Number(exp);
+    if (!Number.isFinite(v)) return null;
+    out.exp = v;
+  }
+
+  const nbf = (raw as { nbf?: unknown }).nbf;
+  if (nbf !== undefined) {
+    const v = Number(nbf);
+    if (!Number.isFinite(v)) return null;
+    out.nbf = v;
+  }
+
+  return out;
+}
+
 export type ThresholdEcdsaSessionClaims = {
   sub: string;
   kind: 'threshold_ecdsa_session_v1';

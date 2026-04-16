@@ -5,6 +5,7 @@ import init, {
   encode_eip1559_signed_tx_from_signature65,
   init_eth_signer,
   map_additive_share_to_threshold_signatures_share_2p,
+  secp256k1_private_key_32_to_public_key_33,
   sign_secp256k1_recoverable,
   ThresholdEcdsaPresignSession,
   threshold_ecdsa_compute_signature_share,
@@ -26,6 +27,11 @@ type EthSignerWorkerRequest =
       id: string;
       type: 'signSecp256k1Recoverable';
       payload: { digest32: unknown; privateKey32: unknown };
+    }
+  | {
+      id: string;
+      type: 'secp256k1PrivateKey32ToPublicKey33';
+      payload: { privateKey32: unknown };
     }
   | {
       id: string;
@@ -148,6 +154,11 @@ function toU8(v: unknown): Uint8Array {
   throw new Error('expected bytes');
 }
 
+function zeroizeBytes(bytes?: Uint8Array | null): void {
+  if (!(bytes instanceof Uint8Array)) return;
+  bytes.fill(0);
+}
+
 function postToMainThread(message: unknown, transfer?: Transferable[]): void {
   const workerSelf = self as unknown as {
     postMessage: (message: unknown, transfer?: Transferable[]) => void;
@@ -234,11 +245,13 @@ function pollPresignSession(
 
   const presignature97 = session.take_presignature_97();
   freePresignSession(sessionId);
+  const presignature97Buffer = presignature97.slice().buffer;
+  zeroizeBytes(presignature97);
   return {
     stage: 'done',
     event: 'presign_done',
     outgoingMessages,
-    presignature97: presignature97.slice().buffer,
+    presignature97: presignature97Buffer,
   };
 }
 
@@ -285,58 +298,82 @@ self.addEventListener('message', async (event: MessageEvent) => {
         return;
       }
       case 'signSecp256k1Recoverable': {
-        const out = sign_secp256k1_recoverable(
-          toU8(msg.payload.digest32),
-          toU8(msg.payload.privateKey32),
-        ) as Uint8Array;
-        const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
-        return;
+        const digest32 = toU8(msg.payload.digest32);
+        const privateKey32 = toU8(msg.payload.privateKey32);
+        try {
+          const out = sign_secp256k1_recoverable(digest32, privateKey32) as Uint8Array;
+          const ab = out.slice().buffer;
+          zeroizeBytes(out);
+          postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+          return;
+        } finally {
+          zeroizeBytes(digest32);
+          zeroizeBytes(privateKey32);
+        }
+      }
+      case 'secp256k1PrivateKey32ToPublicKey33': {
+        const privateKey32 = toU8(msg.payload.privateKey32);
+        try {
+          const out = secp256k1_private_key_32_to_public_key_33(privateKey32) as Uint8Array;
+          const ab = out.slice().buffer;
+          zeroizeBytes(out);
+          postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+          return;
+        } finally {
+          zeroizeBytes(privateKey32);
+        }
       }
       case 'deriveSecp256k1KeypairFromPrfSecond': {
         const prfSecond = toU8(msg.payload.prfSecond);
         const nearAccountId = String(msg.payload.nearAccountId || '').trim();
-        const out = derive_secp256k1_keypair_from_prf_second(
-          prfSecond,
-          nearAccountId,
-        ) as Uint8Array;
-        if (out.length !== 85) {
-          throw new Error(
-            `derive_secp256k1_keypair_from_prf_second must return 85 bytes (got ${out.length})`,
-          );
-        }
-        const privateKey32 = out.slice(0, 32).buffer;
-        const publicKey33 = out.slice(32, 65).buffer;
-        const ethereumAddress20 = out.slice(65, 85).buffer;
-        postToMainThread(
-          {
-            id: msg.id,
-            ok: true,
-            result: {
-              privateKey32,
-              publicKey33,
-              ethereumAddress20,
+        try {
+          const out = derive_secp256k1_keypair_from_prf_second(prfSecond, nearAccountId) as Uint8Array;
+          if (out.length !== 85) {
+            throw new Error(
+              `derive_secp256k1_keypair_from_prf_second must return 85 bytes (got ${out.length})`,
+            );
+          }
+          const privateKey32 = out.slice(0, 32).buffer;
+          const publicKey33 = out.slice(32, 65).buffer;
+          const ethereumAddress20 = out.slice(65, 85).buffer;
+          zeroizeBytes(out);
+          postToMainThread(
+            {
+              id: msg.id,
+              ok: true,
+              result: {
+                privateKey32,
+                publicKey33,
+                ethereumAddress20,
+              },
             },
-          },
-          [privateKey32, publicKey33, ethereumAddress20],
-        );
-        return;
+            [privateKey32, publicKey33, ethereumAddress20],
+          );
+          return;
+        } finally {
+          zeroizeBytes(prfSecond);
+        }
       }
       case 'mapAdditiveShareToThresholdSignaturesShare2p': {
         const additiveShare32 = toU8(msg.payload.additiveShare32);
         const participantId = Number(msg.payload.participantId);
-        const out = map_additive_share_to_threshold_signatures_share_2p(
-          additiveShare32,
-          participantId,
-        ) as Uint8Array;
-        if (out.length !== 32) {
-          throw new Error(
-            `map_additive_share_to_threshold_signatures_share_2p must return 32 bytes (got ${out.length})`,
-          );
+        try {
+          const out = map_additive_share_to_threshold_signatures_share_2p(
+            additiveShare32,
+            participantId,
+          ) as Uint8Array;
+          if (out.length !== 32) {
+            throw new Error(
+              `map_additive_share_to_threshold_signatures_share_2p must return 32 bytes (got ${out.length})`,
+            );
+          }
+          const ab = out.slice().buffer;
+          zeroizeBytes(out);
+          postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+          return;
+        } finally {
+          zeroizeBytes(additiveShare32);
         }
-        const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
-        return;
       }
       case 'validateSecp256k1PublicKey33': {
         const publicKey33 = toU8(msg.payload.publicKey33);
@@ -389,21 +426,24 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const threshold = Number(msg.payload.threshold);
         const clientThresholdSigningShare32 = toU8(msg.payload.clientThresholdSigningShare32);
         const groupPublicKey33 = toU8(msg.payload.groupPublicKey33);
+        try {
+          const session = new ThresholdEcdsaPresignSession(
+            new Uint32Array(participantIds),
+            clientParticipantId,
+            threshold,
+            clientThresholdSigningShare32,
+            groupPublicKey33,
+          );
+          thresholdEcdsaPresignSessions.set(sessionId, session);
 
-        const session = new ThresholdEcdsaPresignSession(
-          new Uint32Array(participantIds),
-          clientParticipantId,
-          threshold,
-          clientThresholdSigningShare32,
-          groupPublicKey33,
-        );
-        thresholdEcdsaPresignSessions.set(sessionId, session);
-
-        const progress = pollPresignSession(sessionId, session);
-        const transferables = [...progress.outgoingMessages];
-        if (progress.presignature97) transferables.push(progress.presignature97);
-        postToMainThread({ id: msg.id, ok: true, result: progress }, transferables);
-        return;
+          const progress = pollPresignSession(sessionId, session);
+          const transferables = [...progress.outgoingMessages];
+          if (progress.presignature97) transferables.push(progress.presignature97);
+          postToMainThread({ id: msg.id, ok: true, result: progress }, transferables);
+          return;
+        } finally {
+          zeroizeBytes(clientThresholdSigningShare32);
+        }
       }
       case 'thresholdEcdsaPresignSessionStep': {
         const sessionId = String(msg.payload.sessionId || '').trim();
@@ -450,23 +490,37 @@ self.addEventListener('message', async (event: MessageEvent) => {
         return;
       }
       case 'thresholdEcdsaComputeSignatureShare': {
-        const out = threshold_ecdsa_compute_signature_share(
-          new Uint32Array(
-            (Array.isArray(msg.payload.participantIds) ? msg.payload.participantIds : []).map((v) =>
-              Number(v),
+        const groupPublicKey33 = toU8(msg.payload.groupPublicKey33);
+        const presignBigR33 = toU8(msg.payload.presignBigR33);
+        const presignKShare32 = toU8(msg.payload.presignKShare32);
+        const presignSigmaShare32 = toU8(msg.payload.presignSigmaShare32);
+        const digest32 = toU8(msg.payload.digest32);
+        const entropy32 = toU8(msg.payload.entropy32);
+        try {
+          const out = threshold_ecdsa_compute_signature_share(
+            new Uint32Array(
+              (Array.isArray(msg.payload.participantIds) ? msg.payload.participantIds : []).map((v) =>
+                Number(v),
+              ),
             ),
-          ),
-          Number(msg.payload.clientParticipantId),
-          toU8(msg.payload.groupPublicKey33),
-          toU8(msg.payload.presignBigR33),
-          toU8(msg.payload.presignKShare32),
-          toU8(msg.payload.presignSigmaShare32),
-          toU8(msg.payload.digest32),
-          toU8(msg.payload.entropy32),
-        ) as Uint8Array;
-        const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
-        return;
+            Number(msg.payload.clientParticipantId),
+            groupPublicKey33,
+            presignBigR33,
+            presignKShare32,
+            presignSigmaShare32,
+            digest32,
+            entropy32,
+          ) as Uint8Array;
+          const ab = out.slice().buffer;
+          zeroizeBytes(out);
+          postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+          return;
+        } finally {
+          zeroizeBytes(presignKShare32);
+          zeroizeBytes(presignSigmaShare32);
+          zeroizeBytes(digest32);
+          zeroizeBytes(entropy32);
+        }
       }
       default: {
         throw new Error(

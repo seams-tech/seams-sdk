@@ -1,5 +1,7 @@
 import React from 'react';
+import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
 import { ArrowLeftIcon, MailIcon } from './ui/icons';
+import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';
 import { PasskeyAuthMenuThemeScope } from './themeScope';
 import { useTheme } from '../theme';
@@ -13,13 +15,16 @@ export interface PasskeyAuthMenuSkeletonProps {
   defaultMode?: AuthMenuMode;
   /** Best-effort to match the hydrated UI headings. */
   headings?: AuthMenuHeadings;
+  /** Best-effort to match the hydrated UI Email OTP retention policy. */
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
 }
 
 export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
   HTMLDivElement,
   PasskeyAuthMenuSkeletonProps
->(({ className, style, defaultMode, headings }, ref) => {
+>(({ className, style, defaultMode, headings, emailOtpAuthPolicy }, ref) => {
   const mode = typeof defaultMode === 'number' ? defaultMode : AuthMenuMode.Register;
+  const resolvedEmailOtpAuthPolicy: EmailOtpAuthPolicy = emailOtpAuthPolicy || 'session';
   const title = getModeTitle(mode, headings ?? null);
   const placeholder =
     mode === AuthMenuMode.Register
@@ -29,7 +34,7 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
         : 'Enter your username';
   const segHelpText =
     mode === AuthMenuMode.Login
-      ? 'Sign in with your passkey'
+      ? 'Choose a login method'
       : mode === AuthMenuMode.Sync
         ? 'Sync account (iCloud/Chrome sync)'
         : 'Create a new account';
@@ -49,7 +54,6 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
       data-mode={mode}
       data-waiting="false"
       data-scan-device="false"
-      data-email-recovery="false"
     >
       <div className="w3a-content-switcher">
         <button aria-label="Back" type="button" className="w3a-back-button" disabled>
@@ -138,21 +142,64 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
                 </div>
               </div>
 
-              <div className="w3a-scan-device-row">
-                <div className="w3a-section-divider">
-                  <span className="w3a-section-divider-text">Already have an account?</span>
+              {(mode === AuthMenuMode.Login || mode === AuthMenuMode.Register) && (
+                <div className="w3a-auth-methods">
+                  <div className="w3a-auth-method-stack">
+                    {mode === AuthMenuMode.Login && (
+                      <>
+                        <button className="w3a-auth-method-btn w3a-auth-method-btn-primary" disabled>
+                          Continue with Passkey
+                        </button>
+                        <button
+                          className="w3a-auth-method-btn w3a-auth-method-btn-secondary"
+                          disabled
+                        >
+                          <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
+                          Continue with Email OTP
+                        </button>
+                        <SocialProviders
+                          socialLogin={{ google: () => undefined }}
+                          providers={['google']}
+                          disabled
+                        />
+                      </>
+                    )}
+                    {mode === AuthMenuMode.Register && (
+                      <>
+                        <button className="w3a-auth-method-btn w3a-auth-method-btn-primary" disabled>
+                          Create with Passkey
+                        </button>
+                        <SocialProviders
+                          socialLogin={{ google: () => undefined }}
+                          providers={['google']}
+                          disabled
+                        />
+                      </>
+                    )}
+                  </div>
+                  {mode === AuthMenuMode.Login && (
+                    <div className="w3a-auth-method-note" aria-live="polite">
+                      {resolvedEmailOtpAuthPolicy === 'per_operation'
+                        ? 'Email OTP is a convenience login. Passkey is more secure, and OTP will be required for each operation.'
+                        : 'Email OTP is a convenience login. Passkey is more secure, and OTP remains warm only until session expiry or logout.'}
+                    </div>
+                  )}
                 </div>
-                <div className="w3a-secondary-actions">
-                  <button className="w3a-link-device-btn" disabled>
-                    <QRCodeIcon width={18} height={18} strokeWidth={2} />
-                    Scan and Link Device
-                  </button>
-                  <button className="w3a-link-device-btn" disabled>
-                    <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
-                    Recover Account with Email
-                  </button>
+              )}
+
+              {mode === AuthMenuMode.Login && (
+                <div className="w3a-scan-device-row">
+                  <div className="w3a-section-divider">
+                    <span className="w3a-section-divider-text">Other options</span>
+                  </div>
+                  <div className="w3a-secondary-actions">
+                    <button className="w3a-link-device-btn" disabled>
+                      <QRCodeIcon width={18} height={18} strokeWidth={2} />
+                      Scan and Link Device
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

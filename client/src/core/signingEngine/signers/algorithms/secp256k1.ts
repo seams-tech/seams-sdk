@@ -15,9 +15,15 @@ import {
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId } from '../../session/WarmSessionManager';
+import { readWarmSessionCapabilityRecordsForAccount } from '../../session/warmSessionStore';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 type EcdsaSessionChain = 'tempo' | 'evm';
+
+function zeroizeBytes(bytes?: Uint8Array | null): void {
+  if (!(bytes instanceof Uint8Array)) return;
+  bytes.fill(0);
+}
 
 function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessionChain | null {
   const label = String(labelRaw || '')
@@ -27,6 +33,22 @@ function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessi
   if (label === 'tempo' || label.startsWith('tempo:')) return 'tempo';
   if (label === 'evm' || label.startsWith('evm:')) return 'evm';
   return null;
+}
+
+function findConsumedSingleUseEmailOtpRecordForAccount(
+  nearAccountIdRaw: unknown,
+): { chain: EcdsaSessionChain } | null {
+  const accountId = String(nearAccountIdRaw || '').trim();
+  if (!accountId) return null;
+  const records = readWarmSessionCapabilityRecordsForAccount(accountId).ecdsa;
+  const consumedRecord = [records.evm, records.tempo].find(
+    (record) =>
+      record?.source === 'email_otp' &&
+      record.emailOtpAuthContext?.retention === 'single_use' &&
+      Number(record.emailOtpAuthContext?.consumedAtMs) > 0,
+  );
+  if (!consumedRecord) return null;
+  return { chain: consumedRecord.chain };
 }
 
 export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
@@ -131,6 +153,13 @@ export class Secp256k1Engine implements Signer {
         resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(keyRefThresholdSessionId);
       const canonicalRecord = resolvedAuthMaterial?.record || null;
       const requestChain = inferThresholdEcdsaSessionChainFromLabel(req.label);
+      const consumedSingleUseEmailOtpRecord =
+        findConsumedSingleUseEmailOtpRecordForAccount(keyRef.userId);
+      if (consumedSingleUseEmailOtpRecord) {
+        throw new Error(
+          `[SigningEngine] ${requestChain || consumedSingleUseEmailOtpRecord.chain} signing requires fresh Email OTP verification with per_operation policy`,
+        );
+      }
       const canonicalRecordMatchesKeyRefLane =
         !!canonicalRecord &&
         String(canonicalRecord.nearAccountId || '') === String(keyRef.userId || '') &&
@@ -217,97 +246,102 @@ export class Secp256k1Engine implements Signer {
           '[multichain] Missing backend clientAdditiveShare32B64u for threshold-ecdsa signing; reconnect threshold session',
         );
       }
-      let clientSigningShare32: Uint8Array;
+      let clientSigningShare32: Uint8Array | null = null;
       try {
-        clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
-      } catch {
-        throw new Error(
-          '[multichain] backend clientAdditiveShare32B64u must be valid base64url; reconnect threshold session',
-        );
-      }
-      if (clientSigningShare32.length !== 32) {
-        throw new Error(
-          '[multichain] backend clientAdditiveShare32B64u must decode to 32 bytes; reconnect threshold session',
-        );
-      }
+        try {
+          clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
+        } catch {
+          throw new Error(
+            '[multichain] backend clientAdditiveShare32B64u must be valid base64url; reconnect threshold session',
+          );
+        }
+        if (clientSigningShare32.length !== 32) {
+          throw new Error(
+            '[multichain] backend clientAdditiveShare32B64u must decode to 32 bytes; reconnect threshold session',
+          );
+        }
 
-      const refillBaseArgs = {
-        relayerUrl: keyRef.relayerUrl,
-        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        participantIds,
-        clientSigningShare32,
-        thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
-        relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
-        sessionKind,
-        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
-        workerCtx: this.workerCtx,
-      };
-      const presignPoolDepthAtCommitStart = getThresholdEcdsaClientPresignaturePoolDepth({
-        relayerUrl: keyRef.relayerUrl,
-        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
-        participantIds,
-      });
-      const presignRefillScheduledAtCommitStart =
-        presignPoolDepthAtCommitStart > 0
-          ? scheduleThresholdEcdsaClientPresignaturePoolRefill({
-              ...refillBaseArgs,
-              poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
-              targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-              triggerIfDepthAtOrBelow: effectiveThresholdEcdsaPresignPoolPolicy.lowWatermark,
-            })
-          : {
-              scheduled: false,
-              reason: 'cold_start_pool_empty' as const,
-              depth: presignPoolDepthAtCommitStart,
-              targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-            };
-      try {
-        this.onThresholdEcdsaPresignRefillScheduled?.({
-          trigger: 'commit_start',
-          result: presignRefillScheduledAtCommitStart,
+        const refillBaseArgs = {
+          relayerUrl: keyRef.relayerUrl,
+          ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          participantIds,
+          thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
+          relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
+          sessionKind,
+          ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+          workerCtx: this.workerCtx,
+        };
+        const presignPoolDepthAtCommitStart = getThresholdEcdsaClientPresignaturePoolDepth({
+          relayerUrl: keyRef.relayerUrl,
+          ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
+          participantIds,
         });
-      } catch {}
+        const presignRefillScheduledAtCommitStart =
+          presignPoolDepthAtCommitStart > 0
+            ? scheduleThresholdEcdsaClientPresignaturePoolRefill({
+                ...refillBaseArgs,
+                clientSigningShare32: clientSigningShare32.slice(),
+                poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
+                targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+                triggerIfDepthAtOrBelow: effectiveThresholdEcdsaPresignPoolPolicy.lowWatermark,
+              })
+            : {
+                scheduled: false,
+                reason: 'cold_start_pool_empty' as const,
+                depth: presignPoolDepthAtCommitStart,
+                targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+              };
+        try {
+          this.onThresholdEcdsaPresignRefillScheduled?.({
+            trigger: 'commit_start',
+            result: presignRefillScheduledAtCommitStart,
+          });
+        } catch {}
 
-      const signed = await signThresholdEcdsaDigestWithPool({
-        relayerUrl: keyRef.relayerUrl,
-        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
-        relayerKeyId,
-        clientVerifyingShareB64u,
-        mpcSessionId: authorized.mpcSessionId,
-        signingDigest32: req.digest32,
-        clientSigningShare32,
-        participantIds,
-        thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
-        relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
-        sessionKind,
-        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
-        workerCtx: this.workerCtx,
-      });
-      if (!signed.ok) {
-        throw new Error(
-          signed.message || signed.code || '[multichain] threshold-ecdsa signing failed',
-        );
-      }
-
-      const presignRefillScheduledPostSign = scheduleThresholdEcdsaClientPresignaturePoolRefill({
-        ...refillBaseArgs,
-        poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
-        targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
-        triggerIfDepthAtOrBelow: Math.max(
-          0,
-          effectiveThresholdEcdsaPresignPoolPolicy.targetDepth - 1,
-        ),
-      });
-      try {
-        this.onThresholdEcdsaPresignRefillScheduled?.({
-          trigger: 'post_sign_success',
-          result: presignRefillScheduledPostSign,
+        const signed = await signThresholdEcdsaDigestWithPool({
+          relayerUrl: keyRef.relayerUrl,
+          ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
+          relayerKeyId,
+          clientVerifyingShareB64u,
+          mpcSessionId: authorized.mpcSessionId,
+          signingDigest32: req.digest32,
+          clientSigningShare32: clientSigningShare32.slice(),
+          participantIds,
+          thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
+          relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
+          sessionKind,
+          ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+          workerCtx: this.workerCtx,
         });
-      } catch {}
+        if (!signed.ok) {
+          throw new Error(
+            signed.message || signed.code || '[multichain] threshold-ecdsa signing failed',
+          );
+        }
 
-      return signed.signature65;
+        const presignRefillScheduledPostSign = scheduleThresholdEcdsaClientPresignaturePoolRefill({
+          ...refillBaseArgs,
+          clientSigningShare32: clientSigningShare32.slice(),
+          poolPolicy: effectiveThresholdEcdsaPresignPoolPolicy,
+          targetDepth: effectiveThresholdEcdsaPresignPoolPolicy.targetDepth,
+          triggerIfDepthAtOrBelow: Math.max(
+            0,
+            effectiveThresholdEcdsaPresignPoolPolicy.targetDepth - 1,
+          ),
+        });
+        try {
+          this.onThresholdEcdsaPresignRefillScheduled?.({
+            trigger: 'post_sign_success',
+            result: presignRefillScheduledPostSign,
+          });
+        } catch {}
+
+        return signed.signature65;
+      } finally {
+        zeroizeBytes(clientSigningShare32);
+      }
     };
 
     if (this.enqueueThresholdEcdsaCommit) {

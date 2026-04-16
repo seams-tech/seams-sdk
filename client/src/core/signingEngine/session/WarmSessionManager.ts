@@ -9,6 +9,7 @@ import type {
   WarmSessionStatusReader,
 } from '../touchConfirm';
 import type {
+  ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEd25519SessionStoreSource,
   ThresholdEcdsaSessionStoreSource,
   ThresholdSessionSealTransportAuthMaterial,
@@ -80,13 +81,32 @@ export type WarmSessionManagerDeps = {
       WarmSessionStatusReader &
         WarmSessionStatusBatchReader &
         WarmSessionMaterialClaimer &
-        WarmSessionSealPersister,
+        WarmSessionSealPersister & {
+          clearWarmSessionMaterial(args: { sessionId: string }): Promise<void>;
+        },
       | 'getWarmSessionStatus'
       | 'getWarmSessionStatuses'
       | 'claimWarmSessionMaterial'
       | 'sealAndPersistWarmSessionMaterial'
+      | 'clearWarmSessionMaterial'
     >
   >;
+  clearThresholdEcdsaSessionRecordForLane?: (args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  }) => void;
+  markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  }) => void;
+  clearThresholdEcdsaSigningArtifactsForLane?: (args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  }) => void | Promise<void>;
+  getThresholdEcdsaSessionRecordForSigning?: (args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  }) => WarmSessionEcdsaPolicyRecordHint | null;
   signingSessionSeal?: {
     keyVersion?: string;
     shamirPrimeB64u?: string;
@@ -155,6 +175,7 @@ export type EnsureWarmEcdsaCapabilityReadyResult = {
 export type ResolveWarmEcdsaBootstrapRequestArgs = {
   nearAccountId: AccountId | string;
   chain: ThresholdEcdsaActivationChain;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
@@ -167,6 +188,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
 export type WarmEcdsaBootstrapRequest = {
   nearAccountId: AccountId;
   chain: ThresholdEcdsaActivationChain;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
@@ -195,6 +217,13 @@ export type WarmSessionEd25519SigningAuthPlan = {
   sessionId: string;
   signingAuthMode: SigningAuthMode;
   warmSessionReady: boolean;
+};
+
+export type WarmSessionSensitiveOperationPolicy = 'inherit' | 'per_operation' | 'passkey';
+type WarmSessionEcdsaPolicyRecordHint = {
+  source: ThresholdEcdsaSessionStoreSource;
+  thresholdSessionId: string;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
 };
 
 export const THRESHOLD_SESSION_MISSING_ERROR =
@@ -299,6 +328,18 @@ export type WarmSessionManager = {
     required?: boolean;
     errorContext?: string;
   }) => Promise<void>;
+  applyEcdsaPostSignPolicy: (args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    thresholdSessionId?: string;
+  }) => Promise<void>;
+  assertEcdsaOperationAllowed: (args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    operationLabel: string;
+    thresholdSessionId?: string;
+    sensitivePolicy?: WarmSessionSensitiveOperationPolicy;
+  }) => Promise<void>;
   resolveEcdsaSealTransportByThresholdSessionId: (
     thresholdSessionId: string,
   ) => ThresholdSessionSealTransportAuthMaterial | null;
@@ -328,6 +369,94 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     ].join('::');
   }
 
+  async function clearEcdsaWarmCapabilityBestEffort(args: {
+    nearAccountId: AccountId;
+    chain: ThresholdEcdsaActivationChain;
+    thresholdSessionId?: string;
+  }): Promise<void> {
+    const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+    if (typeof deps.clearThresholdEcdsaSigningArtifactsForLane === 'function') {
+      await Promise.resolve(
+        deps.clearThresholdEcdsaSigningArtifactsForLane({
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+        }),
+      ).catch(() => undefined);
+    }
+    deps.clearThresholdEcdsaSessionRecordForLane?.({
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+    });
+    if (thresholdSessionId && typeof deps.touchConfirm?.clearWarmSessionMaterial === 'function') {
+      await deps.touchConfirm
+        .clearWarmSessionMaterial({ sessionId: thresholdSessionId })
+        .catch(() => undefined);
+    }
+  }
+
+  async function clearEcdsaEphemeralMaterialBestEffort(args: {
+    nearAccountId: AccountId;
+    chain: ThresholdEcdsaActivationChain;
+    thresholdSessionId?: string;
+  }): Promise<void> {
+    const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+    if (typeof deps.clearThresholdEcdsaSigningArtifactsForLane === 'function') {
+      await Promise.resolve(
+        deps.clearThresholdEcdsaSigningArtifactsForLane({
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+        }),
+      ).catch(() => undefined);
+    }
+    if (thresholdSessionId && typeof deps.touchConfirm?.clearWarmSessionMaterial === 'function') {
+      await deps.touchConfirm
+        .clearWarmSessionMaterial({ sessionId: thresholdSessionId })
+        .catch(() => undefined);
+    }
+  }
+
+  function shouldInvalidateEmailOtpCapability(args: {
+    record: WarmSessionEcdsaPolicyRecordHint | null;
+    prfClaim: WarmSessionEcdsaCapabilityState['prfClaim'];
+  }): boolean {
+    if (args.record?.source !== 'email_otp') return false;
+    const state = args.prfClaim?.state;
+    if (
+      args.record.emailOtpAuthContext?.retention === 'single_use' &&
+      (state === 'missing' || state === 'expired' || state === 'exhausted')
+    ) {
+      return false;
+    }
+    return state === 'missing' || state === 'expired' || state === 'exhausted';
+  }
+
+  function formatEmailOtpSensitiveOperationError(args: {
+    operationLabel: string;
+    mode: 'passkey' | 'per_operation';
+  }): Error {
+    if (args.mode === 'per_operation') {
+      return new Error(
+        `[SigningEngine] ${args.operationLabel} requires fresh Email OTP verification with per_operation policy`,
+      );
+    }
+    return new Error(
+      `[SigningEngine] ${args.operationLabel} requires fresh passkey authentication after Email OTP login`,
+    );
+  }
+
+  function resolveCurrentEcdsaRecord(args: {
+    nearAccountId: AccountId;
+    chain: ThresholdEcdsaActivationChain;
+  }): WarmSessionEcdsaPolicyRecordHint | null {
+    if (typeof deps.getThresholdEcdsaSessionRecordForSigning === 'function') {
+      try {
+        const record = deps.getThresholdEcdsaSessionRecordForSigning(args);
+        if (record) return record;
+      } catch {}
+    }
+    return readWarmSessionCapabilityRecordsForAccount(args.nearAccountId).ecdsa[args.chain];
+  }
+
   return {
     async getWarmSession(nearAccountId: AccountId | string): Promise<WarmSessionEnvelope> {
       const accountId = toAccountId(nearAccountId);
@@ -351,6 +480,33 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         claimsBySessionId.get(String(records.ecdsa.evm?.thresholdSessionId || '').trim()) || null;
       const tempoClaim =
         claimsBySessionId.get(String(records.ecdsa.tempo?.thresholdSessionId || '').trim()) || null;
+      const invalidateEvmCapability = shouldInvalidateEmailOtpCapability({
+        record: records.ecdsa.evm,
+        prfClaim: evmClaim,
+      });
+      const invalidateTempoCapability = shouldInvalidateEmailOtpCapability({
+        record: records.ecdsa.tempo,
+        prfClaim: tempoClaim,
+      });
+
+      if (invalidateEvmCapability || invalidateTempoCapability) {
+        await Promise.all([
+          invalidateEvmCapability
+            ? clearEcdsaWarmCapabilityBestEffort({
+                nearAccountId: accountId,
+                chain: 'evm',
+                thresholdSessionId: records.ecdsa.evm?.thresholdSessionId,
+              })
+            : Promise.resolve(),
+          invalidateTempoCapability
+            ? clearEcdsaWarmCapabilityBestEffort({
+                nearAccountId: accountId,
+                chain: 'tempo',
+                thresholdSessionId: records.ecdsa.tempo?.thresholdSessionId,
+              })
+            : Promise.resolve(),
+        ]);
+      }
 
       return assertWarmSessionEnvelopeInvariant({
         accountId,
@@ -370,25 +526,41 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
             evm: {
               capability: 'ecdsa',
               chain: 'evm',
-              record: records.ecdsa.evm,
-              auth: evmAuth,
-              prfClaim: evmClaim,
+              record: invalidateEvmCapability ? null : records.ecdsa.evm,
+              auth: invalidateEvmCapability ? null : evmAuth,
+              prfClaim: invalidateEvmCapability ? null : evmClaim,
+              ...(invalidateEvmCapability
+                ? {}
+                : records.ecdsa.evm?.emailOtpAuthContext
+                  ? { emailOtpAuthContext: records.ecdsa.evm.emailOtpAuthContext }
+                  : {}),
               state: deriveEcdsaCapabilityState({
-                record: records.ecdsa.evm,
-                auth: evmAuth,
-                prfClaim: evmClaim,
+                record: invalidateEvmCapability ? null : records.ecdsa.evm,
+                auth: invalidateEvmCapability ? null : evmAuth,
+                prfClaim: invalidateEvmCapability ? null : evmClaim,
+                emailOtpAuthContext: invalidateEvmCapability
+                  ? null
+                  : records.ecdsa.evm?.emailOtpAuthContext || null,
               }),
             },
             tempo: {
               capability: 'ecdsa',
               chain: 'tempo',
-              record: records.ecdsa.tempo,
-              auth: tempoAuth,
-              prfClaim: tempoClaim,
+              record: invalidateTempoCapability ? null : records.ecdsa.tempo,
+              auth: invalidateTempoCapability ? null : tempoAuth,
+              prfClaim: invalidateTempoCapability ? null : tempoClaim,
+              ...(invalidateTempoCapability
+                ? {}
+                : records.ecdsa.tempo?.emailOtpAuthContext
+                  ? { emailOtpAuthContext: records.ecdsa.tempo.emailOtpAuthContext }
+                : {}),
               state: deriveEcdsaCapabilityState({
-                record: records.ecdsa.tempo,
-                auth: tempoAuth,
-                prfClaim: tempoClaim,
+                record: invalidateTempoCapability ? null : records.ecdsa.tempo,
+                auth: invalidateTempoCapability ? null : tempoAuth,
+                prfClaim: invalidateTempoCapability ? null : tempoClaim,
+                emailOtpAuthContext: invalidateTempoCapability
+                  ? null
+                  : records.ecdsa.tempo?.emailOtpAuthContext || null,
               }),
             },
           },
@@ -529,6 +701,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       return {
         nearAccountId,
         chain: args.chain,
+        ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
         ...(explicitRelayerUrl
           ? { relayerUrl: explicitRelayerUrl }
           : toOptionalNonEmptyString(preferredMetadataCapability?.record?.relayerUrl)
@@ -785,6 +958,38 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         );
       }
 
+      const reconnectRecord = resolveCurrentEcdsaRecord({
+        nearAccountId,
+        chain: args.chain,
+      });
+      const secondaryRecord = getPrimaryAndSecondaryEcdsaCapabilities({
+        warmSession,
+        chain: args.chain,
+      }).secondary.record;
+      const secondaryEmailOtpRecord =
+        secondaryRecord?.source === 'email_otp' ? secondaryRecord : null;
+      if (
+        reconnectRecord?.source === 'email_otp' &&
+        reconnectRecord.emailOtpAuthContext?.retention === 'single_use'
+      ) {
+        throw formatEmailOtpSensitiveOperationError({
+          operationLabel: `${args.chain} signing`,
+          mode: 'per_operation',
+        });
+      }
+      if (
+        !reconnectRecord &&
+        secondaryEmailOtpRecord?.emailOtpAuthContext?.retention === 'single_use' &&
+        Number(secondaryEmailOtpRecord.emailOtpAuthContext.consumedAtMs) > 0
+      ) {
+        throw formatEmailOtpSensitiveOperationError({
+          operationLabel: `${args.chain} signing`,
+          mode: 'per_operation',
+        });
+      }
+      const inheritedEmailOtpRecord =
+        reconnectRecord?.source === 'email_otp' ? reconnectRecord : secondaryEmailOtpRecord;
+
       const inflightKey = buildEcdsaCapabilityInflightKey({
         nearAccountId,
         chain: args.chain,
@@ -797,7 +1002,10 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
           const provisioned = await this.provisionEcdsaCapability({
             nearAccountId,
             chain: args.chain,
-            source: 'manual-bootstrap',
+            source: inheritedEmailOtpRecord ? 'email_otp' : 'manual-bootstrap',
+            ...(inheritedEmailOtpRecord?.emailOtpAuthContext
+              ? { emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext }
+              : {}),
             beforeProvision: args.beforeReconnect,
             assertNotCancelled: args.assertNotCancelled,
           });
@@ -980,9 +1188,12 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       chain: ThresholdEcdsaActivationChain;
       thresholdSessionId?: string;
     }): Promise<SigningSessionStatus | null> {
+      const accountId = toAccountId(args.nearAccountId);
       const expectedThresholdSessionId = String(args.thresholdSessionId || '').trim();
-      const record =
-        readWarmSessionCapabilityRecordsForAccount(toAccountId(args.nearAccountId)).ecdsa[args.chain];
+      const record = resolveCurrentEcdsaRecord({
+        nearAccountId: accountId,
+        chain: args.chain,
+      });
       const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
       if (!normalizedThresholdSessionId) return null;
       if (expectedThresholdSessionId && expectedThresholdSessionId !== normalizedThresholdSessionId) {
@@ -992,6 +1203,13 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         };
       }
       const claim = await readWarmSessionClaim(deps.touchConfirm, normalizedThresholdSessionId);
+      if (shouldInvalidateEmailOtpCapability({ record, prfClaim: claim })) {
+        await clearEcdsaWarmCapabilityBestEffort({
+          nearAccountId: accountId,
+          chain: args.chain,
+          thresholdSessionId: normalizedThresholdSessionId,
+        });
+      }
       return toSigningSessionStatus({
         sessionId: normalizedThresholdSessionId,
         claim,
@@ -1022,6 +1240,129 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         resolveSealTransport: (thresholdSessionId) =>
           this.resolveEcdsaSealTransportByThresholdSessionId(thresholdSessionId),
       });
+    },
+
+    async applyEcdsaPostSignPolicy(args: {
+      nearAccountId: AccountId | string;
+      chain: ThresholdEcdsaActivationChain;
+      thresholdSessionId?: string;
+    }): Promise<void> {
+      const accountId = toAccountId(args.nearAccountId);
+      const record = resolveCurrentEcdsaRecord({
+        nearAccountId: accountId,
+        chain: args.chain,
+      });
+      const warmSession = await this.getWarmSession(accountId);
+      const secondaryRecord = getPrimaryAndSecondaryEcdsaCapabilities({
+        warmSession,
+        chain: args.chain,
+      }).secondary.record;
+      const effectiveEmailOtpRecord =
+        record?.source === 'email_otp'
+          ? record
+          : secondaryRecord?.source === 'email_otp'
+            ? secondaryRecord
+            : null;
+      const effectiveEmailOtpRecordChain: ThresholdEcdsaActivationChain | null =
+        record?.source === 'email_otp'
+          ? args.chain
+          : secondaryRecord?.source === 'email_otp'
+            ? args.chain === 'tempo'
+              ? 'evm'
+              : 'tempo'
+            : null;
+      if (!effectiveEmailOtpRecord) return;
+      if (args.thresholdSessionId && record?.source === 'email_otp') {
+        const expectedThresholdSessionId = String(args.thresholdSessionId || '').trim();
+        const actualThresholdSessionId = String(record.thresholdSessionId || '').trim();
+        if (
+          expectedThresholdSessionId &&
+          actualThresholdSessionId &&
+          expectedThresholdSessionId !== actualThresholdSessionId
+        ) {
+          return;
+        }
+      }
+      if (effectiveEmailOtpRecord.emailOtpAuthContext?.retention !== 'single_use') return;
+      deps.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({
+        nearAccountId: accountId,
+        chain: args.chain,
+      });
+      await clearEcdsaEphemeralMaterialBestEffort({
+        nearAccountId: accountId,
+        chain: args.chain,
+        thresholdSessionId: String(record?.thresholdSessionId || args.thresholdSessionId || '').trim(),
+      });
+      if (
+        effectiveEmailOtpRecordChain !== args.chain ||
+        String(effectiveEmailOtpRecord.thresholdSessionId || '').trim() !==
+          String(record?.thresholdSessionId || args.thresholdSessionId || '').trim()
+      ) {
+        await clearEcdsaEphemeralMaterialBestEffort({
+          nearAccountId: accountId,
+          chain: effectiveEmailOtpRecordChain || args.chain,
+          thresholdSessionId: effectiveEmailOtpRecord.thresholdSessionId,
+        });
+      }
+    },
+
+    async assertEcdsaOperationAllowed(args: {
+      nearAccountId: AccountId | string;
+      chain: ThresholdEcdsaActivationChain;
+      operationLabel: string;
+      thresholdSessionId?: string;
+      sensitivePolicy?: WarmSessionSensitiveOperationPolicy;
+    }): Promise<void> {
+      const accountId = toAccountId(args.nearAccountId);
+      const record = resolveCurrentEcdsaRecord({
+        nearAccountId: accountId,
+        chain: args.chain,
+      });
+      const secondaryRecord = getPrimaryAndSecondaryEcdsaCapabilities({
+        warmSession: await this.getWarmSession(accountId),
+        chain: args.chain,
+      }).secondary.record;
+      const effectiveRecord =
+        record?.source === 'email_otp'
+          ? record
+          : secondaryRecord?.source === 'email_otp'
+            ? secondaryRecord
+            : null;
+      if (!effectiveRecord) return;
+      const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+      const actualThresholdSessionId = String(effectiveRecord.thresholdSessionId || '').trim();
+      if (
+        thresholdSessionId &&
+        actualThresholdSessionId &&
+        thresholdSessionId !== actualThresholdSessionId
+      ) {
+        return;
+      }
+      if (
+        effectiveRecord.emailOtpAuthContext?.retention === 'single_use' &&
+        Number(effectiveRecord.emailOtpAuthContext.consumedAtMs) > 0
+      ) {
+        throw formatEmailOtpSensitiveOperationError({
+          operationLabel: args.operationLabel,
+          mode: 'per_operation',
+        });
+      }
+      const sensitivePolicy = args.sensitivePolicy || 'inherit';
+      if (sensitivePolicy === 'inherit') return;
+      if (sensitivePolicy === 'per_operation') {
+        if (effectiveRecord.emailOtpAuthContext?.retention === 'single_use') return;
+        throw formatEmailOtpSensitiveOperationError({
+          operationLabel: args.operationLabel,
+          mode: 'per_operation',
+        });
+      }
+      const stepUpRequired = effectiveRecord.emailOtpAuthContext?.stepUpRequired !== false;
+      if (stepUpRequired) {
+        throw formatEmailOtpSensitiveOperationError({
+          operationLabel: args.operationLabel,
+          mode: 'passkey',
+        });
+      }
     },
 
     resolveEcdsaSealTransportByThresholdSessionId(

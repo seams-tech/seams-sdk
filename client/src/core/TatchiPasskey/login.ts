@@ -144,7 +144,10 @@ export async function unlock(
       );
     };
 
-    const maybeWarmThresholdSigningSessions = async (deviceNumber: number): Promise<void> => {
+    const maybeWarmThresholdSigningSessions = async (args: {
+      deviceNumber: number;
+      appSessionJwt?: string;
+    }): Promise<void> => {
       if (!requireThresholdWarmup) return;
 
       const relayerUrl = String(context.configs?.network.relayer?.url || '').trim();
@@ -165,11 +168,11 @@ export async function unlock(
           accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
         },
         nearAccountId,
-        deviceNumber,
+        args.deviceNumber,
       ).catch(() => null);
       if (!thresholdKeyMaterial) {
         throw new Error(
-          `[login] threshold warm-up requires threshold key material for ${nearAccountId} device ${deviceNumber}`,
+          `[login] threshold warm-up requires threshold key material for ${nearAccountId} device ${args.deviceNumber}`,
         );
       }
 
@@ -207,6 +210,7 @@ export async function unlock(
         ...(managedRuntimeScopeBootstrap ? { managedRuntimeScopeBootstrap } : {}),
         signersToWarm,
         preferredEd25519SessionId,
+        appSessionJwt: args.appSessionJwt,
       });
 
       const warmStatus = await signingEngine
@@ -284,8 +288,9 @@ export async function unlock(
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                user_id: String(nearAccountId),
-                rp_id: rpId,
+                unlockBackend: 'passkey',
+                userId: String(nearAccountId),
+                rpId,
               }),
             },
           );
@@ -358,7 +363,10 @@ export async function unlock(
         }
 
         if (requireThresholdWarmup) {
-          await maybeWarmThresholdSigningSessions(baseDeviceNumber);
+          await maybeWarmThresholdSigningSessions({
+            deviceNumber: baseDeviceNumber,
+            appSessionJwt: exchanged.jwt,
+          });
         }
         await persistSuccessfulLoginState(baseDeviceNumber);
         if (loginCredential) {
@@ -420,7 +428,9 @@ export async function unlock(
     }
 
     if (requireThresholdWarmup) {
-      await maybeWarmThresholdSigningSessions(baseDeviceNumber);
+      await maybeWarmThresholdSigningSessions({
+        deviceNumber: baseDeviceNumber,
+      });
     }
 
     await persistSuccessfulLoginState(baseDeviceNumber);
@@ -602,6 +612,7 @@ async function primeThresholdLoginWarmSigners(args: {
   managedRuntimeScopeBootstrap?: ManagedThresholdRuntimeScopeBootstrap;
   signersToWarm?: ThresholdLoginWarmSigner[];
   preferredEd25519SessionId?: string;
+  appSessionJwt?: string;
 }): Promise<void> {
   const signersToWarm = buildThresholdLoginWarmSignerSelection(args.signersToWarm);
   const warmState: {
@@ -679,6 +690,10 @@ async function primeThresholdLoginWarmSigners(args: {
       dependencies: ['ed25519'],
       run: async () => {
         try {
+          const appSessionJwt = String(args.appSessionJwt || '').trim();
+          const useAppSessionBootstrapJwt =
+            !!appSessionJwt && !!String(args.canonicalEcdsaContext.ecdsaThresholdKeyId || '').trim();
+          const ecdsaAuthorizationJwt = useAppSessionBootstrapJwt ? appSessionJwt : warmState.jwt;
           for (const chain of ['tempo', 'evm'] as const) {
             await args.signingEngine.bootstrapEcdsaSession({
               nearAccountId: args.nearAccountId,
@@ -694,7 +709,7 @@ async function primeThresholdLoginWarmSigners(args: {
               remainingUses: args.remainingUses,
               sessionId: warmState.sessionId,
               clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
-              authorizationJwt: warmState.jwt,
+              authorizationJwt: ecdsaAuthorizationJwt,
             });
           }
         } catch (error: unknown) {

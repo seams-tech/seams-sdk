@@ -429,6 +429,20 @@ async function mintThresholdEd25519SessionJwt(args: {
   });
 }
 
+async function mintAppSessionJwt(args: {
+  service: ReturnType<typeof makeAuthServiceForThreshold>['service'];
+  session: ReturnType<typeof makeJwtSessionAdapter>;
+  userId: string;
+}): Promise<string> {
+  const version = await args.service.getOrCreateAppSessionVersion({ userId: args.userId });
+  expect(version.ok).toBe(true);
+  expect(String(version.ok ? version.appSessionVersion : '')).toBeTruthy();
+  return await args.session.signJwt(args.userId, {
+    kind: 'app_session_v1',
+    appSessionVersion: version.ok ? version.appSessionVersion : '',
+  });
+}
+
 async function deriveLocalThresholdBootstrap(args: {
   userId: string;
   relayerKeyId: string;
@@ -1148,12 +1162,10 @@ test.describe('threshold-ecdsa harness signature verification', () => {
 
       (threshold as any).secp256k1MasterSecretB64u = '';
 
-      const secondEd25519Jwt = await mintThresholdEd25519SessionJwt({
+      const appSessionJwt = await mintAppSessionJwt({
+        service,
         session,
         userId,
-        rpId,
-        sessionId: `ed25519-second-${Date.now()}`,
-        participantIds,
       });
 
       const resumedBootstrap = await stagedSessionBootstrapThresholdEcdsa({
@@ -1163,7 +1175,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         clientRootShare32B64u,
         sessionId: `ecdsa-second-${Date.now()}`,
         participantIds,
-        authorizationJwt: secondEd25519Jwt,
+        authorizationJwt: appSessionJwt,
         ecdsaThresholdKeyId,
       });
       expect(resumedBootstrap.status, resumedBootstrap.text).toBe(200);

@@ -1,7 +1,9 @@
 import React from 'react';
 import type { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
+import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
 import type { PasskeyAuthMenuRuntime } from '../adapters/tatchi';
 import { AuthMenuMode, type PasskeyAuthMenuProps } from '../types';
+import type { SocialLoginHandlers } from '../ui/SocialProviders';
 import { usePasskeyAuthMenuForceInitialRegister } from '../hydrationContext';
 import { useAuthMenuMode } from './mode';
 import { getProceedEligibility } from './proceedEligibility';
@@ -18,11 +20,11 @@ export interface PasskeyAuthMenuController {
   title: { title: string; subtitle: string };
   waiting: boolean;
   showScanDevice: boolean;
-  showEmailRecovery: boolean;
   currentValue: string;
   postfixText?: string;
   isUsingExistingAccount?: boolean;
   secure: boolean;
+  emailOtpAuthPolicy: EmailOtpAuthPolicy;
   canShowContinue: boolean;
   canSubmit: boolean;
   onSegmentChange: (next: AuthMenuMode) => void;
@@ -30,8 +32,8 @@ export interface PasskeyAuthMenuController {
   onProceed: () => void;
   onResetToStart: () => void;
   openScanDevice: () => void;
-  openEmailRecovery: () => void;
-  closeEmailRecovery: () => void;
+  onEmailOtpLogin: () => void;
+  onSocialLogin: (provider: keyof SocialLoginHandlers) => void;
   closeLinkDeviceView: (reason: 'user' | 'flow') => void;
   linkDevice: PasskeyAuthMenuLinkDeviceController;
 }
@@ -39,11 +41,20 @@ export interface PasskeyAuthMenuController {
 export function usePasskeyAuthMenuController(
   props: Pick<
     PasskeyAuthMenuProps,
-    'onLogin' | 'onRegister' | 'onSyncAccount' | 'defaultMode' | 'headings' | 'linkDeviceOptions'
+    | 'onLogin'
+    | 'onRegister'
+    | 'onSyncAccount'
+    | 'onEmailOtpLogin'
+    | 'emailOtpAuthPolicy'
+    | 'defaultMode'
+    | 'headings'
+    | 'linkDeviceOptions'
+    | 'socialLogin'
   >,
   runtime: PasskeyAuthMenuRuntime,
 ): PasskeyAuthMenuController {
   const secure = typeof window !== 'undefined' ? window.isSecureContext : true;
+  const emailOtpAuthPolicy: EmailOtpAuthPolicy = props.emailOtpAuthPolicy || 'session';
   const currentValue = runtime.inputUsername;
   const setCurrentValue = runtime.setInputUsername;
   const forceInitialRegister = usePasskeyAuthMenuForceInitialRegister();
@@ -113,7 +124,6 @@ export function usePasskeyAuthMenuController(
 
   const [waiting, setWaiting] = React.useState(false);
   const [showScanDevice, setShowScanDevice] = React.useState(false);
-  const [showEmailRecovery, setShowEmailRecovery] = React.useState(false);
 
   // If the user is attempting to register but we discover the account already exists,
   // automatically switch them to the Login tab.
@@ -189,7 +199,6 @@ export function usePasskeyAuthMenuController(
     } else {
       setShowScanDevice(false);
     }
-    setShowEmailRecovery(false);
     lastUserSelectedModeRef.current = null;
     resetToDefault();
     setCurrentValue('');
@@ -239,19 +248,42 @@ export function usePasskeyAuthMenuController(
   ]);
 
   const openScanDevice = React.useCallback(() => {
-    setShowEmailRecovery(false);
     setShowScanDevice(true);
   }, []);
 
-  const openEmailRecovery = React.useCallback(() => {
-    stopLinkDeviceFlow();
-    setShowScanDevice(false);
-    setShowEmailRecovery(true);
-  }, [stopLinkDeviceFlow]);
+  const onEmailOtpLogin = React.useCallback(() => {
+    if (mode !== AuthMenuMode.Login) return;
+    if (!props.onEmailOtpLogin) return;
+    setWaiting(true);
+    void (async () => {
+      try {
+        await props.onEmailOtpLogin?.({ policy: emailOtpAuthPolicy });
+      } finally {
+        setWaiting(false);
+      }
+    })();
+  }, [emailOtpAuthPolicy, mode, props.onEmailOtpLogin]);
 
-  const closeEmailRecovery = React.useCallback(() => {
-    setShowEmailRecovery(false);
-  }, []);
+  const onSocialLogin = React.useCallback(
+    (provider: keyof SocialLoginHandlers) => {
+      const handler = props.socialLogin?.[provider];
+      if (typeof handler !== 'function') return;
+      setWaiting(true);
+      void (async () => {
+        try {
+          const result = await handler();
+          const username = typeof result === 'string' ? result.trim() : '';
+          if (username) {
+            setCurrentValue(username);
+            await runtime.refreshLoginState(username).catch(() => {});
+          }
+        } finally {
+          setWaiting(false);
+        }
+      })();
+    },
+    [props.socialLogin, runtime, setCurrentValue],
+  );
 
   const linkDevice: PasskeyAuthMenuLinkDeviceController = React.useMemo(
     () => ({
@@ -268,11 +300,11 @@ export function usePasskeyAuthMenuController(
     title,
     waiting,
     showScanDevice,
-    showEmailRecovery,
     currentValue,
     postfixText: runtime.displayPostfix,
     isUsingExistingAccount: runtime.isUsingExistingAccount,
     secure,
+    emailOtpAuthPolicy,
     canShowContinue,
     canSubmit,
     onSegmentChange,
@@ -280,8 +312,8 @@ export function usePasskeyAuthMenuController(
     onProceed,
     onResetToStart,
     openScanDevice,
-    openEmailRecovery,
-    closeEmailRecovery,
+    onEmailOtpLogin,
+    onSocialLogin,
     closeLinkDeviceView,
     linkDevice,
   };

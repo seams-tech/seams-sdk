@@ -72,6 +72,11 @@ export type ThresholdEcdsaLoginPrefillDeps = {
     | ThresholdEcdsaPresignPoolPolicy;
 };
 
+function zeroizeBytes(bytes?: Uint8Array | null): void {
+  if (!(bytes instanceof Uint8Array)) return;
+  bytes.fill(0);
+}
+
 function isWarmSessionActive(
   status: SigningSessionStatus | null,
 ): status is SigningSessionStatus & { status: 'active'; remainingUses: number } {
@@ -194,7 +199,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       };
     }
 
-    let clientSigningShare32: Uint8Array;
+    let clientSigningShare32: Uint8Array | null = null;
     const remainingUsesAfterDispense = remainingUsesBefore;
     if (!clientAdditiveShare32B64u) {
       return {
@@ -223,41 +228,45 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
       };
     }
 
-    const schedule = scheduleThresholdEcdsaClientPresignaturePoolRefill({
-      relayerUrl,
-      ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
-      relayerKeyId,
-      clientVerifyingShareB64u,
-      participantIds,
-      clientSigningShare32,
-      thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
-      relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
-      sessionKind,
-      ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
-      workerCtx: deps.getSignerWorkerContext(),
-      poolPolicy: policy,
-      targetDepth: LOGIN_PREFILL_TARGET_DEPTH,
-      triggerIfDepthAtOrBelow: LOGIN_PREFILL_TRIGGER_DEPTH,
-    });
+    try {
+      const schedule = scheduleThresholdEcdsaClientPresignaturePoolRefill({
+        relayerUrl,
+        ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        participantIds,
+        clientSigningShare32: clientSigningShare32.slice(),
+        thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
+        relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
+        sessionKind,
+        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+        workerCtx: deps.getSignerWorkerContext(),
+        poolPolicy: policy,
+        targetDepth: LOGIN_PREFILL_TARGET_DEPTH,
+        triggerIfDepthAtOrBelow: LOGIN_PREFILL_TRIGGER_DEPTH,
+      });
 
-    if (!schedule.scheduled) {
+      if (!schedule.scheduled) {
+        return {
+          status: 'skipped',
+          reason: 'refill_not_scheduled',
+          thresholdSessionId,
+          remainingUses: remainingUsesAfterDispense,
+          schedule,
+        };
+      }
+
       return {
-        status: 'skipped',
-        reason: 'refill_not_scheduled',
+        status: 'scheduled',
+        reason: 'scheduled',
         thresholdSessionId,
-        remainingUses: remainingUsesAfterDispense,
+        remainingUsesBeforeDispense: remainingUsesBefore,
+        remainingUsesAfterDispense,
         schedule,
       };
+    } finally {
+      zeroizeBytes(clientSigningShare32);
     }
-
-    return {
-      status: 'scheduled',
-      reason: 'scheduled',
-      thresholdSessionId,
-      remainingUsesBeforeDispense: remainingUsesBefore,
-      remainingUsesAfterDispense,
-      schedule,
-    };
   } catch (error: unknown) {
     return {
       status: 'failed',

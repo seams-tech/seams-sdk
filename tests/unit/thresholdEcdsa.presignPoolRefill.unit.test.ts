@@ -3,6 +3,7 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   clearAllThresholdEcdsaClientPresignatures,
+  clearThresholdEcdsaClientPresignaturesForLane,
   getThresholdEcdsaClientPresignaturePoolDepth,
   refillThresholdEcdsaClientPresignaturePool,
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
@@ -46,6 +47,7 @@ const SIGNATURE_65 = (() => {
 })();
 // Backend bridge field only. Public identity is ecdsaThresholdKeyId/group key/address.
 const BACKEND_CLIENT_VERIFYING_SHARE_B64U = base64UrlEncode(CLIENT_VERIFYING_SHARE_33);
+const BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U = base64UrlEncode(CLIENT_SIGNING_SHARE_32);
 const GROUP_PUBLIC_KEY_B64U = base64UrlEncode(GROUP_PUBLIC_KEY_33);
 const PRESIGN_BIG_R_B64U = base64UrlEncode(PRESIGN_BIG_R_33);
 const SIGNATURE_65_B64U = base64UrlEncode(SIGNATURE_65);
@@ -84,7 +86,15 @@ function makeWorkerCtx(args: {
         return new Uint8Array(payload.publicKey33 as ArrayBuffer).slice().buffer as any;
       }
       if (type === 'mapAdditiveShareToThresholdSignaturesShare2p') {
-        return new Uint8Array(payload.additiveShare32 as ArrayBuffer).slice().buffer as any;
+        const additiveShare32 = new Uint8Array(payload.additiveShare32 as ArrayBuffer);
+        const expectedShare32 = args.clientSigningShare32;
+        const matches =
+          additiveShare32.length === expectedShare32.length &&
+          additiveShare32.every((value, index) => value === expectedShare32[index]);
+        if (!matches) {
+          throw new Error('client signing share mismatch');
+        }
+        return additiveShare32.slice().buffer as any;
       }
       if (type === 'thresholdEcdsaPresignSessionInit') {
         return {
@@ -283,6 +293,10 @@ async function waitForPredicate(predicate: () => boolean, timeoutMs = 1_000): Pr
   throw new Error('Timed out waiting for predicate');
 }
 
+function expectZeroedBytes(bytes: Uint8Array): void {
+  expect(Array.from(bytes).every((value) => value === 0)).toBe(true);
+}
+
 test.describe('threshold ECDSA presign pool refill behavior', () => {
   test.beforeEach(async () => {
     clearAllThresholdEcdsaClientPresignatures();
@@ -295,7 +309,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       PRESIGN_SIGMA_SHARE_32,
     ]);
     const workerCtx = makeWorkerCtx({
-      clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
       clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
       presignature97,
       clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
@@ -309,21 +323,23 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
-        clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
         thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie' as const,
         workerCtx,
       };
 
       const refill1 = await refillThresholdEcdsaClientPresignaturePool(refillInput);
-      const refill2 = await refillThresholdEcdsaClientPresignaturePool(refillInput);
+      const refill2 = await refillThresholdEcdsaClientPresignaturePool({
+        ...refillInput,
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
+      });
       expect(refill1.ok).toBe(true);
       expect(refill2.ok).toBe(true);
       expect(
         getThresholdEcdsaClientPresignaturePoolDepth({
           relayerUrl: RELAYER_URL,
           ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
-          relayerKeyId: BACKEND_RELAYER_KEY_ID,
           participantIds: PARTICIPANT_IDS,
         }),
       ).toBe(2);
@@ -334,7 +350,6 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       relayerKeyId: BACKEND_RELAYER_KEY_ID,
       clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         signingDigest32: DIGEST_32,
-        clientSigningShare32: CLIENT_SIGNING_SHARE_32,
         participantIds: PARTICIPANT_IDS,
         thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie' as const,
@@ -343,10 +358,12 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       const signed1 = await signThresholdEcdsaDigestWithPool({
         ...signArgsBase,
         mpcSessionId: 'mpc-1',
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
       });
       const signed2 = await signThresholdEcdsaDigestWithPool({
         ...signArgsBase,
         mpcSessionId: 'mpc-2',
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
       });
 
       expect(signed1.ok).toBe(true);
@@ -360,7 +377,116 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
     }
   });
 
-  test('commit-start refill skips cold-start empty pool to avoid duplicate inline presign', async () => {
+  test('lane-scoped clear drops pooled presignatures immediately', async () => {
+    const presignature97 = concatBytes([
+      PRESIGN_BIG_R_33,
+      PRESIGN_K_SHARE_32,
+      PRESIGN_SIGMA_SHARE_32,
+    ]);
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignature97,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock();
+
+    try {
+      const refill = await refillThresholdEcdsaClientPresignaturePool({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        participantIds: PARTICIPANT_IDS,
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        sessionKind: 'cookie',
+        workerCtx,
+      });
+      expect(refill.ok).toBe(true);
+      expect(
+        getThresholdEcdsaClientPresignaturePoolDepth({
+          relayerUrl: RELAYER_URL,
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          participantIds: PARTICIPANT_IDS,
+        }),
+      ).toBe(1);
+
+      clearThresholdEcdsaClientPresignaturesForLane({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        participantIds: PARTICIPANT_IDS,
+      });
+
+      expect(
+        getThresholdEcdsaClientPresignaturePoolDepth({
+          relayerUrl: RELAYER_URL,
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          participantIds: PARTICIPANT_IDS,
+        }),
+      ).toBe(0);
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('lane-scoped clear prevents an in-flight refill from repopulating the pool', async () => {
+    const presignature97 = concatBytes([
+      PRESIGN_BIG_R_33,
+      PRESIGN_K_SHARE_32,
+      PRESIGN_SIGMA_SHARE_32,
+    ]);
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignature97,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock({ presignInitDelayMs: 50 });
+
+    try {
+      const scheduled = scheduleThresholdEcdsaClientPresignaturePoolRefill({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        participantIds: PARTICIPANT_IDS,
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        sessionKind: 'cookie',
+        workerCtx,
+        poolPolicy: {
+          enabled: true,
+          targetDepth: 1,
+          lowWatermark: 0,
+          maxRefillInFlight: 1,
+          refillAttemptTimeoutMs: 250,
+        },
+      });
+      expect(scheduled.scheduled).toBe(true);
+
+      clearThresholdEcdsaClientPresignaturesForLane({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        participantIds: PARTICIPANT_IDS,
+      });
+
+      await waitForPredicate(() => fetchMock.counters.presignInit > 0);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(
+        getThresholdEcdsaClientPresignaturePoolDepth({
+          relayerUrl: RELAYER_URL,
+          ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          participantIds: PARTICIPANT_IDS,
+        }),
+      ).toBe(0);
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('direct refill zeroizes its owned client signing share after completion', async () => {
     const presignature97 = concatBytes([
       PRESIGN_BIG_R_33,
       PRESIGN_K_SHARE_32,
@@ -368,6 +494,184 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
     ]);
     const workerCtx = makeWorkerCtx({
       clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignature97,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock();
+    const ownedClientSigningShare32 = CLIENT_SIGNING_SHARE_32.slice();
+
+    try {
+      const refill = await refillThresholdEcdsaClientPresignaturePool({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        participantIds: PARTICIPANT_IDS,
+        clientSigningShare32: ownedClientSigningShare32,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        sessionKind: 'cookie',
+        workerCtx,
+      });
+      expect(refill.ok).toBe(true);
+      expectZeroedBytes(ownedClientSigningShare32);
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('scheduled refill zeroizes its owned client signing share after invalidation', async () => {
+    const presignature97 = concatBytes([
+      PRESIGN_BIG_R_33,
+      PRESIGN_K_SHARE_32,
+      PRESIGN_SIGMA_SHARE_32,
+    ]);
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignature97,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock({ presignInitDelayMs: 50 });
+    const ownedClientSigningShare32 = CLIENT_SIGNING_SHARE_32.slice();
+
+    try {
+      const scheduled = scheduleThresholdEcdsaClientPresignaturePoolRefill({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        participantIds: PARTICIPANT_IDS,
+        clientSigningShare32: ownedClientSigningShare32,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        sessionKind: 'cookie',
+        workerCtx,
+        poolPolicy: {
+          enabled: true,
+          targetDepth: 1,
+          lowWatermark: 0,
+          maxRefillInFlight: 1,
+          refillAttemptTimeoutMs: 250,
+        },
+      });
+      expect(scheduled.scheduled).toBe(true);
+
+      clearThresholdEcdsaClientPresignaturesForLane({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        participantIds: PARTICIPANT_IDS,
+      });
+
+      await waitForPredicate(() => fetchMock.counters.presignInit > 0);
+      await waitForPredicate(() =>
+        Array.from(ownedClientSigningShare32).every((value) => value === 0),
+      );
+      expectZeroedBytes(ownedClientSigningShare32);
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('foreground sign zeroizes its owned client signing share after completion', async () => {
+    const presignature97 = concatBytes([
+      PRESIGN_BIG_R_33,
+      PRESIGN_K_SHARE_32,
+      PRESIGN_SIGMA_SHARE_32,
+    ]);
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignature97,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock();
+    const ownedClientSigningShare32 = CLIENT_SIGNING_SHARE_32.slice();
+
+    try {
+      const signed = await signThresholdEcdsaDigestWithPool({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        mpcSessionId: 'mpc-owned-share-zeroize',
+        signingDigest32: DIGEST_32,
+        clientSigningShare32: ownedClientSigningShare32,
+        participantIds: PARTICIPANT_IDS,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        sessionKind: 'cookie',
+        workerCtx,
+      });
+      expect(signed.ok).toBe(true);
+      expectZeroedBytes(ownedClientSigningShare32);
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('foreground sign rejects reuse of a zeroized stale client signing share buffer', async () => {
+    const presignature97 = concatBytes([
+      PRESIGN_BIG_R_33,
+      PRESIGN_K_SHARE_32,
+      PRESIGN_SIGMA_SHARE_32,
+    ]);
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
+      presignature97,
+      clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
+    });
+    const fetchMock = installThresholdEcdsaFetchMock();
+    const ownedClientSigningShare32 = CLIENT_SIGNING_SHARE_32.slice();
+
+    try {
+      const first = await signThresholdEcdsaDigestWithPool({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        mpcSessionId: 'mpc-stale-share-first',
+        signingDigest32: DIGEST_32,
+        clientSigningShare32: ownedClientSigningShare32,
+        participantIds: PARTICIPANT_IDS,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        sessionKind: 'cookie',
+        workerCtx,
+      });
+      expect(first.ok).toBe(true);
+      expectZeroedBytes(ownedClientSigningShare32);
+
+      const second = await signThresholdEcdsaDigestWithPool({
+        relayerUrl: RELAYER_URL,
+        ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+        relayerKeyId: BACKEND_RELAYER_KEY_ID,
+        clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+        mpcSessionId: 'mpc-stale-share-second',
+        signingDigest32: DIGEST_32,
+        clientSigningShare32: ownedClientSigningShare32,
+        participantIds: PARTICIPANT_IDS,
+        thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
+        sessionKind: 'cookie',
+        workerCtx,
+      });
+      expect(second.ok).toBe(false);
+      if (second.ok) {
+        throw new Error('expected stale zeroized client signing share reuse to fail');
+      }
+      expect(second.message).toContain('client signing share mismatch');
+      expectZeroedBytes(ownedClientSigningShare32);
+    } finally {
+      fetchMock.restore();
+    }
+  });
+
+  test('commit-start refill skips cold-start empty pool to avoid duplicate inline presign', async () => {
+    const presignature97 = concatBytes([
+      PRESIGN_BIG_R_33,
+      PRESIGN_K_SHARE_32,
+      PRESIGN_SIGMA_SHARE_32,
+    ]);
+    const workerCtx = makeWorkerCtx({
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
       clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
       presignature97,
       clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
@@ -416,6 +720,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           backendBinding: {
             relayerKeyId: BACKEND_RELAYER_KEY_ID,
             clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+            clientAdditiveShare32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
           },
           participantIds: PARTICIPANT_IDS,
           thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
@@ -446,7 +751,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       PRESIGN_SIGMA_SHARE_32,
     ]);
     const workerCtx = makeWorkerCtx({
-      clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
       clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
       presignature97,
       clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
@@ -463,7 +768,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
-        clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
         thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie',
         workerCtx,
@@ -510,6 +815,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           backendBinding: {
             relayerKeyId: BACKEND_RELAYER_KEY_ID,
             clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+            clientAdditiveShare32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
           },
           participantIds: PARTICIPANT_IDS,
           thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
@@ -541,7 +847,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       PRESIGN_SIGMA_SHARE_32,
     ]);
     const workerCtx = makeWorkerCtx({
-      clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
       clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
       presignature97,
       clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
@@ -557,7 +863,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         relayerKeyId: BACKEND_RELAYER_KEY_ID,
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         participantIds: PARTICIPANT_IDS,
-        clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
         thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie',
         workerCtx,
@@ -578,7 +884,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
         mpcSessionId: 'mpc-foreground-reuse',
         signingDigest32: DIGEST_32,
-        clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+        clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
         participantIds: PARTICIPANT_IDS,
         thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
         sessionKind: 'cookie',
@@ -602,7 +908,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
       PRESIGN_SIGMA_SHARE_32,
     ]);
     const workerCtx = makeWorkerCtx({
-      clientSigningShare32: CLIENT_SIGNING_SHARE_32,
+      clientSigningShare32: CLIENT_SIGNING_SHARE_32.slice(),
       clientVerifyingShare33: CLIENT_VERIFYING_SHARE_33,
       presignature97,
       clientSignatureShare32: CLIENT_SIGNATURE_SHARE_32,
@@ -638,6 +944,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           backendBinding: {
             relayerKeyId: BACKEND_RELAYER_KEY_ID,
             clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+            clientAdditiveShare32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
           },
           participantIds: PARTICIPANT_IDS,
           thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,

@@ -743,50 +743,54 @@ async function runPrfSessionSealAndPersist(args: {
   const task = (async (): Promise<OkSealResult | ErrResult> => {
     try {
       const runtime = await getShamir3PassRuntime();
-      const clientKeypair = await runtime.generateClientKeypair({ shamirPrimeB64u });
-      const clientEncryptedCiphertext = await runtime.addClientSeal({
-        ciphertextB64u: entry.prfFirstB64u,
-        exponentB64u: clientKeypair.clientEncryptExponentB64u,
-        shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
-      });
+      const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
+      try {
+        const clientEncryptedCiphertext = await runtime.addClientSealWithKeyHandle({
+          ciphertextB64u: entry.prfFirstB64u,
+          keyHandle: clientKeyHandle.keyHandle,
+        });
 
-      const applied = await callPrfSessionSealRoute({
-        operation: 'apply-server-seal',
-        transport: args.transport,
-        thresholdSessionId: sessionId,
-        ciphertext: clientEncryptedCiphertext,
-        keyVersion: args.transport.keyVersion,
-      });
-      if (!applied.ok) return applied;
+        const applied = await callPrfSessionSealRoute({
+          operation: 'apply-server-seal',
+          transport: args.transport,
+          thresholdSessionId: sessionId,
+          ciphertext: clientEncryptedCiphertext,
+          keyVersion: args.transport.keyVersion,
+        });
+        if (!applied.ok) return applied;
 
-      const sealedPrfFirstB64u = await runtime.removeClientSeal({
-        ciphertextB64u: applied.ciphertext,
-        exponentB64u: clientKeypair.clientDecryptExponentB64u,
-        shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
-      });
-      const policy = resolvePolicyFromServerAndLocal({
-        localRemainingUses: entry.remainingUses,
-        localExpiresAtMs: entry.expiresAtMs,
-        serverRemainingUses: applied.remainingUses,
-        serverExpiresAtMs: applied.expiresAtMs,
-      });
-      if (!policy.ok) {
-        prfFirstSessionCache.delete(sessionId);
-        return policy;
+        const sealedPrfFirstB64u = await runtime.removeClientSealWithKeyHandle({
+          ciphertextB64u: applied.ciphertext,
+          keyHandle: clientKeyHandle.keyHandle,
+        });
+        const policy = resolvePolicyFromServerAndLocal({
+          localRemainingUses: entry.remainingUses,
+          localExpiresAtMs: entry.expiresAtMs,
+          serverRemainingUses: applied.remainingUses,
+          serverExpiresAtMs: applied.expiresAtMs,
+        });
+        if (!policy.ok) {
+          prfFirstSessionCache.delete(sessionId);
+          return policy;
+        }
+        prfFirstSessionCache.set(sessionId, {
+          prfFirstB64u: entry.prfFirstB64u,
+          remainingUses: policy.remainingUses,
+          expiresAtMs: policy.expiresAtMs,
+        });
+        const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
+        return {
+          ok: true,
+          sealedPrfFirstB64u,
+          ...(keyVersion ? { keyVersion } : {}),
+          remainingUses: policy.remainingUses,
+          expiresAtMs: policy.expiresAtMs,
+        };
+      } finally {
+        await runtime.destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle }).catch(
+          () => undefined,
+        );
       }
-      prfFirstSessionCache.set(sessionId, {
-        prfFirstB64u: entry.prfFirstB64u,
-        remainingUses: policy.remainingUses,
-        expiresAtMs: policy.expiresAtMs,
-      });
-      const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
-      return {
-        ok: true,
-        sealedPrfFirstB64u,
-        ...(keyVersion ? { keyVersion } : {}),
-        remainingUses: policy.remainingUses,
-        expiresAtMs: policy.expiresAtMs,
-      };
     } catch (error: unknown) {
       return {
         ok: false,
@@ -853,41 +857,45 @@ async function runPrfSessionRehydrate(args: {
   const task = (async (): Promise<OkResult | ErrResult> => {
     try {
       const runtime = await getShamir3PassRuntime();
-      const clientKeypair = await runtime.generateClientKeypair({ shamirPrimeB64u });
-      const clientEncryptedCiphertext = await runtime.addClientSeal({
-        ciphertextB64u: sealedPrfFirstB64u,
-        exponentB64u: clientKeypair.clientEncryptExponentB64u,
-        shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
-      });
+      const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
+      try {
+        const clientEncryptedCiphertext = await runtime.addClientSealWithKeyHandle({
+          ciphertextB64u: sealedPrfFirstB64u,
+          keyHandle: clientKeyHandle.keyHandle,
+        });
 
-      const removed = await callPrfSessionSealRoute({
-        operation: 'remove-server-seal',
-        transport: args.transport,
-        thresholdSessionId: sessionId,
-        ciphertext: clientEncryptedCiphertext,
-        keyVersion: normalizeOptionalNonEmptyString(args.keyVersion) || args.transport.keyVersion,
-      });
-      if (!removed.ok) return removed;
+        const removed = await callPrfSessionSealRoute({
+          operation: 'remove-server-seal',
+          transport: args.transport,
+          thresholdSessionId: sessionId,
+          ciphertext: clientEncryptedCiphertext,
+          keyVersion: normalizeOptionalNonEmptyString(args.keyVersion) || args.transport.keyVersion,
+        });
+        if (!removed.ok) return removed;
 
-      const prfFirstB64u = await runtime.removeClientSeal({
-        ciphertextB64u: removed.ciphertext,
-        exponentB64u: clientKeypair.clientDecryptExponentB64u,
-        shamirPrimeB64u: clientKeypair.shamirPrimeB64u,
-      });
-      const policy = resolvePolicyFromServerAndLocal({
-        localRemainingUses,
-        localExpiresAtMs,
-        serverRemainingUses: removed.remainingUses,
-        serverExpiresAtMs: removed.expiresAtMs,
-      });
-      if (!policy.ok) return policy;
+        const prfFirstB64u = await runtime.removeClientSealWithKeyHandle({
+          ciphertextB64u: removed.ciphertext,
+          keyHandle: clientKeyHandle.keyHandle,
+        });
+        const policy = resolvePolicyFromServerAndLocal({
+          localRemainingUses,
+          localExpiresAtMs,
+          serverRemainingUses: removed.remainingUses,
+          serverExpiresAtMs: removed.expiresAtMs,
+        });
+        if (!policy.ok) return policy;
 
-      prfFirstSessionCache.set(sessionId, {
-        prfFirstB64u,
-        remainingUses: policy.remainingUses,
-        expiresAtMs: policy.expiresAtMs,
-      });
-      return policy;
+        prfFirstSessionCache.set(sessionId, {
+          prfFirstB64u,
+          remainingUses: policy.remainingUses,
+          expiresAtMs: policy.expiresAtMs,
+        });
+        return policy;
+      } finally {
+        await runtime.destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle }).catch(
+          () => undefined,
+        );
+      }
     } catch (error: unknown) {
       return {
         ok: false,

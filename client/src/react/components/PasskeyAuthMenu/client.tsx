@@ -3,7 +3,7 @@ import { ArrowLeftIcon, MailIcon } from './ui/icons';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { PasskeyInput } from './ui/PasskeyInput';
 import { ContentSwitcher } from './ui/ContentSwitcher';
-import { EmailRecoverySlide } from './ui/EmailRecoverySlide';
+import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';
 import { AuthMenuMode, type PasskeyAuthMenuProps } from './types';
 import { usePasskeyAuthMenuRuntime } from './adapters/tatchi';
@@ -24,8 +24,9 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   onLogin,
   onRegister,
   onSyncAccount,
+  onEmailOtpLogin,
+  emailOtpAuthPolicy,
   linkDeviceOptions,
-  emailRecoveryOptions,
   header,
   defaultMode,
   style,
@@ -56,9 +57,12 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       onLogin: onLoginWithSDKEvents,
       onRegister: onRegisterWithSDKEvents,
       onSyncAccount: onSyncWithSDKEvents,
+      onEmailOtpLogin,
+      emailOtpAuthPolicy,
       defaultMode,
       headings,
       linkDeviceOptions,
+      socialLogin,
     },
     runtime,
   );
@@ -102,7 +106,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       data-mode={controller.mode}
       data-waiting={controller.waiting}
       data-scan-device={controller.showScanDevice}
-      data-email-recovery={controller.showEmailRecovery}
       style={rootStyle}
     >
       <ContentSwitcher
@@ -112,20 +115,16 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
             ? 'Creating passkey wallet…'
             : controller.mode === AuthMenuMode.Sync
               ? 'Syncing account…'
-              : 'Waiting for Passkey…'
+              : 'Signing in…'
         }
         waitingSDKEventsText={waitingSDKEventsText}
         backButton={
           <button
             aria-label="Back"
             onClick={() => {
-              if (controller.showEmailRecovery) {
-                controller.closeEmailRecovery();
-                return;
-              }
               controller.onResetToStart();
             }}
-            className={`w3a-back-button${controller.waiting || controller.showScanDevice || controller.showEmailRecovery ? ' is-visible' : ''}`}
+            className={`w3a-back-button${controller.waiting || controller.showScanDevice ? ' is-visible' : ''}`}
           >
             <ArrowLeftIcon size={18} strokeWidth={2.25} style={{ display: 'block' }} />
           </button>
@@ -146,15 +145,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               onError={controller.linkDevice.onError}
             />
           </React.Suspense>
-        }
-        showEmailRecovery={controller.showEmailRecovery}
-        emailRecoveryElement={
-          <EmailRecoverySlide
-            tatchiPasskey={runtime.tatchiPasskey}
-            accountId={runtime.targetAccountId}
-            refreshLoginState={runtime.refreshLoginState}
-            emailRecoveryOptions={emailRecoveryOptions}
-          />
         }
       >
         <div className="w3a-header">
@@ -199,40 +189,94 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
 
         <div className="w3a-seg-help-row">
           <div className="w3a-seg-help" aria-live="polite">
-            {controller.mode === AuthMenuMode.Login && 'Sign in with your passkey'}
+            {controller.mode === AuthMenuMode.Login && 'Choose a login method'}
             {controller.mode === AuthMenuMode.Register && 'Create a new account'}
             {controller.mode === AuthMenuMode.Sync && 'Sync account (iCloud/Chrome sync)'}
           </div>
         </div>
 
-        <div className="w3a-scan-device-row">
-          <div className="w3a-section-divider">
-            <span className="w3a-section-divider-text">Already have an account?</span>
+        {(controller.mode === AuthMenuMode.Login || controller.mode === AuthMenuMode.Register) && (
+          <div className="w3a-auth-methods">
+            <div className="w3a-auth-method-stack">
+              {controller.mode === AuthMenuMode.Login && (
+                <>
+                  <button
+                    type="button"
+                    onClick={controller.onProceed}
+                    className="w3a-auth-method-btn w3a-auth-method-btn-primary"
+                    disabled={!controller.canSubmit || controller.waiting}
+                  >
+                    Continue with Passkey
+                  </button>
+                  <button
+                    type="button"
+                    onClick={controller.onEmailOtpLogin}
+                    className="w3a-auth-method-btn w3a-auth-method-btn-secondary"
+                    disabled={!onEmailOtpLogin || controller.waiting}
+                  >
+                    <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
+                    Continue with Email OTP
+                  </button>
+                  <SocialProviders
+                    socialLogin={socialLogin}
+                    providers={['google']}
+                    disabled={controller.waiting}
+                    onProviderClick={controller.onSocialLogin}
+                  />
+                </>
+              )}
+
+              {controller.mode === AuthMenuMode.Register && (
+                <>
+                  <button
+                    type="button"
+                    onClick={controller.onProceed}
+                    className="w3a-auth-method-btn w3a-auth-method-btn-primary"
+                    disabled={!controller.canSubmit || controller.waiting}
+                  >
+                    Create with Passkey
+                  </button>
+                  <SocialProviders
+                    socialLogin={socialLogin}
+                    providers={['google']}
+                    disabled={controller.waiting}
+                    onProviderClick={controller.onSocialLogin}
+                  />
+                </>
+              )}
+            </div>
+            {controller.mode === AuthMenuMode.Login && (
+              <div className="w3a-auth-method-note" aria-live="polite">
+                {controller.emailOtpAuthPolicy === 'per_operation'
+                  ? 'Email OTP is a convenience login. Passkey is more secure, and OTP will be required for each operation.'
+                  : 'Email OTP is a convenience login. Passkey is more secure, and OTP remains warm only until session expiry or logout.'}
+              </div>
+            )}
           </div>
-          <div className="w3a-secondary-actions">
-            <button
-              type="button"
-              onClick={() => {
-                controller.openScanDevice();
-              }}
-              onPointerEnter={prefetchQRCode}
-              onFocus={prefetchQRCode}
-              onTouchStart={prefetchQRCode}
-              className="w3a-link-device-btn"
-            >
-              <QRCodeIcon width={18} height={18} strokeWidth={2} />
-              Scan and Link Device
-            </button>
-            <button
-              type="button"
-              onClick={controller.openEmailRecovery}
-              className="w3a-link-device-btn"
-            >
-              <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
-              Recover Account with Email
-            </button>
+        )}
+
+        {controller.mode === AuthMenuMode.Login && (
+          <div className="w3a-scan-device-row">
+            <div className="w3a-section-divider">
+              <span className="w3a-section-divider-text">Other options</span>
+            </div>
+            <div className="w3a-secondary-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  controller.openScanDevice();
+                }}
+                onPointerEnter={prefetchQRCode}
+                onFocus={prefetchQRCode}
+                onTouchStart={prefetchQRCode}
+                className="w3a-link-device-btn"
+              >
+                <QRCodeIcon width={18} height={18} strokeWidth={2} />
+                Scan and Link Device
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </ContentSwitcher>
     </div>
   );

@@ -54,18 +54,63 @@ function toSerializableError(
 export class TempoSigner implements TempoSignerCapability {
   private readonly getContext: ChainSignerDeps['getContext'];
   private readonly walletIframe: ChainSignerDeps['walletIframe'];
+  private readonly consumedSingleUseEmailOtpSessionIdByAccount = new Map<string, string>();
 
   constructor(deps: ChainSignerDeps) {
     this.getContext = deps.getContext;
     this.walletIframe = deps.walletIframe;
   }
 
+  private readCurrentSingleUseEmailOtpSessionId(nearAccountId: string): string | null {
+    const signingEngine = this.getContext().signingEngine;
+    for (const chain of ['tempo', 'evm'] as const) {
+      try {
+        const record = signingEngine.getThresholdEcdsaSessionRecordForSigning({
+          nearAccountId,
+          chain,
+        });
+        if (
+          record.source === 'email_otp' &&
+          record.emailOtpAuthContext?.retention === 'single_use'
+        ) {
+          const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+          if (thresholdSessionId) return thresholdSessionId;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
   async signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
+    const signingEngine = this.getContext().signingEngine;
+    const requiresThresholdEcdsaPolicyCheck =
+      args.request.senderSignatureAlgorithm === 'secp256k1';
+    const normalizedAccountId = String(args.nearAccountId || '').trim();
+    let activeSingleUseSessionId = '';
+    if (requiresThresholdEcdsaPolicyCheck) {
+      const consumedSessionId =
+        this.consumedSingleUseEmailOtpSessionIdByAccount.get(normalizedAccountId) || '';
+      activeSingleUseSessionId =
+        this.readCurrentSingleUseEmailOtpSessionId(normalizedAccountId) || '';
+      if (consumedSessionId) {
+        if (!activeSingleUseSessionId || consumedSessionId === activeSingleUseSessionId) {
+          throw new Error(
+            `[SigningEngine] ${args.request.chain} signing requires fresh Email OTP verification with per_operation policy`,
+          );
+        }
+        this.consumedSingleUseEmailOtpSessionIdByAccount.delete(normalizedAccountId);
+      }
+      await signingEngine.assertThresholdEcdsaOperationAllowed({
+        nearAccountId: args.nearAccountId,
+        chain: args.request.chain,
+        operationLabel: `${args.request.chain} signing`,
+      });
+    }
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
       nearAccountId: args.nearAccountId,
       remote: async (router) => {
-        return await router.signTempo({
+        const result = await router.signTempo({
           nearAccountId: args.nearAccountId,
           request: args.request,
           options: {
@@ -73,18 +118,44 @@ export class TempoSigner implements TempoSignerCapability {
             onEvent: args.options?.onEvent,
           },
         });
+        if (requiresThresholdEcdsaPolicyCheck) {
+          await signingEngine.applyThresholdEcdsaPostSignPolicy({
+            nearAccountId: args.nearAccountId,
+            chain: args.request.chain,
+          });
+          if (activeSingleUseSessionId) {
+            this.consumedSingleUseEmailOtpSessionIdByAccount.set(
+              normalizedAccountId,
+              activeSingleUseSessionId,
+            );
+          }
+        }
+        return result;
       },
       onRemoteError: async (error) => {
         throw toError(error);
       },
       local: async () => {
-        return await this.getContext().signingEngine.signTempo({
+        const result = await signingEngine.signTempo({
           nearAccountId: args.nearAccountId,
           request: args.request,
           confirmationConfigOverride: args.options?.confirmationConfig,
           shouldAbort: args.options?.shouldAbort,
           onEvent: args.options?.onEvent,
         });
+        if (requiresThresholdEcdsaPolicyCheck) {
+          await signingEngine.applyThresholdEcdsaPostSignPolicy({
+            nearAccountId: args.nearAccountId,
+            chain: args.request.chain,
+          });
+          if (activeSingleUseSessionId) {
+            this.consumedSingleUseEmailOtpSessionIdByAccount.set(
+              normalizedAccountId,
+              activeSingleUseSessionId,
+            );
+          }
+        }
+        return result;
       },
     });
   }

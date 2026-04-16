@@ -108,6 +108,7 @@ import {
   extractAuthorizeSigningPublicKey,
   isObject,
   normalizeByteArray32,
+  parseAppSessionClaims,
   parseThresholdEcdsaSessionClaims,
   parseThresholdEd25519SessionClaims,
   type ThresholdEd25519SessionClaims,
@@ -200,6 +201,7 @@ type ThresholdEcdsaHssCeremonyRecord = {
   sessionKind?: 'jwt' | 'cookie';
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
   ed25519SessionClaims?: Record<string, unknown>;
+  appSessionClaims?: Record<string, unknown>;
   ecdsaSessionClaims?: Record<string, unknown>;
   requestMessageB64u?: string;
   responseMessageB64u?: string;
@@ -2273,6 +2275,47 @@ export class ThresholdSigningService {
     };
   }
 
+  private async parseCompressedSecp256k1PublicKeyB64u(input: {
+    value: string;
+    fieldName: string;
+  }): Promise<ParseResult<string>> {
+    let publicKey33: Uint8Array;
+    try {
+      publicKey33 = base64UrlDecode(input.value);
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `${input.fieldName} must be valid base64url`,
+      };
+    }
+    if (publicKey33.length !== 33) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `${input.fieldName} must decode to 33 bytes (compressed secp256k1 pubkey)`,
+      };
+    }
+    try {
+      await validateSecp256k1PublicKey33(publicKey33);
+    } catch (e: unknown) {
+      const runtimeMessage = errorMessage(e);
+      if (isEthSignerWasmRuntimeError(runtimeMessage)) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: runtimeMessage || 'eth_signer WASM runtime error',
+        };
+      }
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `${input.fieldName} is not a valid secp256k1 public key`,
+      };
+    }
+    return { ok: true, value: input.value };
+  }
+
   private async ecdsaMintSessionWithoutWebAuthn(input: {
     relayerKeyId: string;
     clientVerifyingShareB64u: string;
@@ -2294,39 +2337,12 @@ export class ThresholdSigningService {
       policyParticipantIds,
     } = input;
 
-    let clientVerifyingShareBytes: Uint8Array;
-    try {
-      clientVerifyingShareBytes = base64UrlDecode(clientVerifyingShareB64u);
-    } catch {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'clientVerifyingShareB64u must be valid base64url',
-      };
-    }
-    if (clientVerifyingShareBytes.length !== 33) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'clientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
-      };
-    }
-    try {
-      await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
-    } catch (e: unknown) {
-      const runtimeMessage = errorMessage(e);
-      if (isEthSignerWasmRuntimeError(runtimeMessage)) {
-        return {
-          ok: false,
-          code: 'internal',
-          message: runtimeMessage || 'eth_signer WASM runtime error',
-        };
-      }
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'clientVerifyingShareB64u is not a valid secp256k1 public key',
-      };
+    const parsedClientVerifyingShare = await this.parseCompressedSecp256k1PublicKeyB64u({
+      value: clientVerifyingShareB64u,
+      fieldName: 'clientVerifyingShareB64u',
+    });
+    if (!parsedClientVerifyingShare.ok) {
+      return parsedClientVerifyingShare;
     }
 
     const { ttlMs, remainingUses } = this.clampSessionPolicy({
@@ -2437,27 +2453,64 @@ export class ThresholdSigningService {
         }
       }
       if (operation === 'session_bootstrap') {
-        if (
-          !request.ed25519SessionClaims ||
-          typeof request.ed25519SessionClaims !== 'object' ||
-          Array.isArray(request.ed25519SessionClaims)
-        ) {
-          return {
-            ok: false,
-            code: 'unauthorized',
-            message: 'session_bootstrap requires an authenticated threshold-ed25519 session',
-          };
-        }
         const ecdsaThresholdKeyId = toOptionalTrimmedString(request.ecdsaThresholdKeyId);
-        const ed25519Claims = parseThresholdEd25519SessionClaims(request.ed25519SessionClaims);
-        if (!ed25519Claims) {
+        const ed25519Claims = request.ed25519SessionClaims
+          ? parseThresholdEd25519SessionClaims(request.ed25519SessionClaims)
+          : null;
+        const appSessionClaims = request.appSessionClaims
+          ? parseAppSessionClaims(request.appSessionClaims)
+          : null;
+        const sameParticipants = (expected: number[], actual: number[]): boolean =>
+          expected.length === actual.length && expected.every((value, index) => value === actual[index]);
+        const requestedPolicyParticipantIds = normalizeThresholdEd25519ParticipantIds(
+          (request.sessionPolicy as Record<string, unknown> | undefined)?.participantIds,
+        );
+
+        if (!ed25519Claims && !appSessionClaims) {
           return {
             ok: false,
             code: 'unauthorized',
-            message: 'Invalid threshold-ed25519 session claims',
+            message:
+              'session_bootstrap requires an authenticated threshold-ed25519 session or app session',
           };
         }
-        if (ecdsaThresholdKeyId) {
+
+        if (ed25519Claims) {
+          if (ecdsaThresholdKeyId) {
+            const integratedKey = await this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
+            if (!integratedKey) {
+              return {
+                ok: false,
+                code: 'unauthorized',
+                message: 'ecdsaThresholdKeyId is not active on this server',
+              };
+            }
+            if (
+              integratedKey.userId !== ed25519Claims.sub ||
+              integratedKey.rpId !== ed25519Claims.rpId
+            ) {
+              return {
+                ok: false,
+                code: 'unauthorized',
+                message: 'ecdsaThresholdKeyId does not match threshold session scope',
+              };
+            }
+            if (!sameParticipants(integratedKey.participantIds, ed25519Claims.participantIds)) {
+              return {
+                ok: false,
+                code: 'unauthorized',
+                message: 'ecdsaThresholdKeyId does not match threshold session participant set',
+              };
+            }
+          }
+        } else if (appSessionClaims) {
+          if (!ecdsaThresholdKeyId) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'session_bootstrap with app session requires ecdsaThresholdKeyId',
+            };
+          }
           const integratedKey = await this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
           if (!integratedKey) {
             return {
@@ -2466,26 +2519,25 @@ export class ThresholdSigningService {
               message: 'ecdsaThresholdKeyId is not active on this server',
             };
           }
-          if (
-            integratedKey.userId !== ed25519Claims.sub ||
-            integratedKey.rpId !== ed25519Claims.rpId
-          ) {
+          if (appSessionClaims.sub !== userId || integratedKey.userId !== appSessionClaims.sub) {
             return {
               ok: false,
               code: 'unauthorized',
-              message: 'ecdsaThresholdKeyId does not match threshold session scope',
+              message: 'app session does not match requested userId',
             };
           }
-          const sameParticipants =
-            integratedKey.participantIds.length === ed25519Claims.participantIds.length &&
-            integratedKey.participantIds.every(
-              (value, index) => value === ed25519Claims.participantIds[index],
-            );
-          if (!sameParticipants) {
+          if (integratedKey.rpId !== rpId) {
             return {
               ok: false,
               code: 'unauthorized',
-              message: 'ecdsaThresholdKeyId does not match threshold session participant set',
+              message: 'ecdsaThresholdKeyId does not match requested rpId',
+            };
+          }
+          if (!requestedPolicyParticipantIds || !sameParticipants(integratedKey.participantIds, requestedPolicyParticipantIds)) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'session_bootstrap app-session path requires sessionPolicy.participantIds to match the active ECDSA signer set',
             };
           }
         }
@@ -2621,6 +2673,7 @@ export class ThresholdSigningService {
           ? { webauthnAuthentication: request.webauthn_authentication }
           : {}),
         ...(request.ed25519SessionClaims ? { ed25519SessionClaims: request.ed25519SessionClaims } : {}),
+        ...(request.appSessionClaims ? { appSessionClaims: request.appSessionClaims } : {}),
         ...(request.ecdsaSessionClaims ? { ecdsaSessionClaims: request.ecdsaSessionClaims } : {}),
       });
       const ceremonyRecord = this.ecdsaHssCeremonyStore.get(ceremonyId);

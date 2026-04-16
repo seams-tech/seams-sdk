@@ -248,6 +248,7 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
     const origin = String(ctx.request.headers.get('origin') || '').trim() || undefined;
     const stepUp = await requirePasskeyStepUp(body, { userId: sess.userId, origin });
     if (!stepUp.ok) return stepUp.response;
+    await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
 
     if (ctx.pathname === '/auth/link') {
       const provider = String((body as any).provider || '').trim();
