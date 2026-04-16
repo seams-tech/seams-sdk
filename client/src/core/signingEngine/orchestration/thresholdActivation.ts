@@ -79,6 +79,7 @@ export type ActivateEcdsaSessionRequest = {
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
+  clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   authorizationJwt?: string;
   ttlMs?: number;
@@ -103,6 +104,7 @@ export async function activateEcdsaSession(
     sessionId:
       String(args.sessionId || '').trim() ||
       deps.getOrCreateActiveThresholdEcdsaSessionId(nearAccountId, args.chain),
+    clientRootShare32: args.clientRootShare32,
     clientRootShare32B64u: args.clientRootShare32B64u,
     bootstrapAuthorizationJwt: args.authorizationJwt,
     ttlMs: args.ttlMs,

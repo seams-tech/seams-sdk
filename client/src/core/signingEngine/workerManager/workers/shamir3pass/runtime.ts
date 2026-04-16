@@ -11,7 +11,7 @@ export interface Shamir3PassRuntime {
     ciphertextB64u: string;
     keyHandle: string;
   }): Promise<string>;
-  addClientSealBytesWithKeyHandle?(input: {
+  addClientSealBytesWithKeyHandle(input: {
     ciphertext: Uint8Array;
     keyHandle: string;
   }): Promise<string>;
@@ -19,7 +19,7 @@ export interface Shamir3PassRuntime {
     ciphertextB64u: string;
     keyHandle: string;
   }): Promise<string>;
-  removeClientSealWithKeyHandleToBytes?(input: {
+  removeClientSealWithKeyHandleToBytes(input: {
     ciphertextB64u: string;
     keyHandle: string;
   }): Promise<Uint8Array>;

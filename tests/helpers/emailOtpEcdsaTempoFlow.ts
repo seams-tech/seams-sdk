@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { deriveEmailOtpEcdsaClientRootShare32B64u } from '@shared/utils/emailOtpDerivation';
+import { deriveEmailOtpEcdsaClientRootShare32B64u } from './emailOtpDerivation';
 import {
   createInMemoryJwtSessionAdapter,
   installCreateAccountAndRegisterUserMock,
@@ -89,9 +89,6 @@ export type EmailOtpEcdsaTempoFlowResult = {
   otpCounters?: {
     enrollChallengeCount: number;
     loginChallengeCount: number;
-  };
-  debug?: {
-    enrolledClientRootShare32B64u?: string;
   };
   firstSign?: {
     ok: boolean;
@@ -265,6 +262,19 @@ export async function runEmailOtpEcdsaTempoFlow(
   options: EmailOtpEcdsaTempoFlowOptions,
 ): Promise<EmailOtpEcdsaTempoFlowResult> {
   return await page.evaluate(async (input) => {
+    const decodeBase64UrlToBytes = (value: string): Uint8Array => {
+      const normalized = String(value || '').trim();
+      if (!normalized) return new Uint8Array();
+      const base64 = normalized.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64 + '='.repeat((4 - (base64.length % 4 || 4)) % 4);
+      const binary = globalThis.atob(padded);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return bytes;
+    };
+
     const sdkMod = await import('/sdk/esm/index.js');
     const { TatchiPasskey } = sdkMod as any;
 
@@ -284,8 +294,6 @@ export async function runEmailOtpEcdsaTempoFlow(
     const otpState = {
       enrollChallengeCount: 0,
       loginChallengeCount: 0,
-      latestEnrollOtpCode: '',
-      latestLoginOtpCode: '',
     };
 
     const relayerUrl = String(input.relayerUrl || '').trim();
@@ -297,7 +305,6 @@ export async function runEmailOtpEcdsaTempoFlow(
       ? input.participantIds.map((value) => Number(value)).filter(Number.isFinite)
       : [];
     const clientSecretB64u = String(input.clientSecretB64u || '').trim();
-    let enrolledClientRootShare32B64u = '';
 
     if (!ecdsaThresholdKeyId || participantIds.length === 0) {
       return {
@@ -307,72 +314,71 @@ export async function runEmailOtpEcdsaTempoFlow(
       };
     }
 
-    const withOtpOutbox = async (
-      response: Response,
-      challengeUrl: string,
-      appSessionJwt: string,
-      walletId: string,
-      target: 'enroll' | 'login',
-    ): Promise<Response> => {
+    const joinUrl = (base: string, path: string): string =>
+      `${String(base || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
+
+    const requestEmailOtpChallengeWithOutbox = async (args: {
+      route: '/wallet/email-otp/enroll/challenge' | '/wallet/email-otp/challenge';
+      appSessionJwt: string;
+      walletId: string;
+      target: 'enroll' | 'login';
+    }): Promise<{ challengeId: string; otpCode: string }> => {
+      const response = await fetch(joinUrl(relayerUrl, args.route), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(args.appSessionJwt ? { Authorization: `Bearer ${args.appSessionJwt}` } : {}),
+        },
+        body: JSON.stringify({
+          walletId: args.walletId,
+          otpChannel: 'email_otp',
+        }),
+      });
       const text = await response.text();
+      if (!response.ok) {
+        throw new Error(`${args.route} failed: ${text || response.status}`);
+      }
       const json = text ? JSON.parse(text) : null;
       const challengeId = String(json?.challenge?.challengeId || '').trim();
-      if (challengeId) {
-        const outbox = await fetch(
-          `${challengeUrl}/wallet/email-otp/dev/otp-outbox?challengeId=${encodeURIComponent(challengeId)}&walletId=${encodeURIComponent(walletId)}`,
-          {
-            headers: appSessionJwt ? { Authorization: `Bearer ${appSessionJwt}` } : undefined,
-          },
-        );
-        const outboxJson = await outbox.json().catch(() => ({}));
-        const otpCode = String(outboxJson?.otpCode || '').trim();
-        if (target === 'enroll') {
-          otpState.enrollChallengeCount += 1;
-          otpState.latestEnrollOtpCode = otpCode;
-        } else {
-          otpState.loginChallengeCount += 1;
-          otpState.latestLoginOtpCode = otpCode;
-        }
+      if (!challengeId) {
+        throw new Error(`${args.route} did not return challengeId`);
       }
-      return new Response(text, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
+      const outbox = await fetch(
+        `${joinUrl(relayerUrl, '/wallet/email-otp/dev/otp-outbox')}?challengeId=${encodeURIComponent(challengeId)}&walletId=${encodeURIComponent(args.walletId)}`,
+        {
+          headers: args.appSessionJwt
+            ? { Authorization: `Bearer ${args.appSessionJwt}` }
+            : undefined,
+        },
+      );
+      const outboxJson = await outbox.json().catch(() => ({}));
+      const otpCode = String(outboxJson?.otpCode || '').trim();
+      if (!otpCode) {
+        throw new Error(`missing Email OTP test outbox entry for ${challengeId}`);
+      }
+      if (args.target === 'enroll') {
+        otpState.enrollChallengeCount += 1;
+      } else {
+        otpState.loginChallengeCount += 1;
+      }
+      return { challengeId, otpCode };
+    };
+
+    const requestEnrollmentOtp = async () =>
+      await requestEmailOtpChallengeWithOutbox({
+        route: '/wallet/email-otp/enroll/challenge',
+        appSessionJwt: enrollAppSessionJwt,
+        walletId: accountId,
+        target: 'enroll',
       });
-    };
 
-    const fetchImpl: typeof fetch = async (requestInput, init) => {
-      const url = String(typeof requestInput === 'string' ? requestInput : requestInput.url || '');
-      const nextInit: RequestInit = { ...(init || {}) };
-
-      if (
-        url.endsWith('/wallet/email-otp/enroll/verify') &&
-        typeof nextInit.body === 'string' &&
-        otpState.latestEnrollOtpCode
-      ) {
-        const body = JSON.parse(nextInit.body);
-        nextInit.body = JSON.stringify({ ...body, otpCode: otpState.latestEnrollOtpCode });
-      }
-
-      if (
-        url.endsWith('/wallet/email-otp/verify') &&
-        typeof nextInit.body === 'string' &&
-        otpState.latestLoginOtpCode
-      ) {
-        const body = JSON.parse(nextInit.body);
-        nextInit.body = JSON.stringify({ ...body, otpCode: otpState.latestLoginOtpCode });
-      }
-
-      const response = await fetch(requestInput, nextInit);
-
-      if (url.endsWith('/wallet/email-otp/enroll/challenge')) {
-        return await withOtpOutbox(response, relayerUrl, enrollAppSessionJwt, accountId, 'enroll');
-      }
-      if (url.endsWith('/wallet/email-otp/challenge')) {
-        return await withOtpOutbox(response, relayerUrl, loginAppSessionJwt, accountId, 'login');
-      }
-      return response;
-    };
+    const requestLoginOtp = async () =>
+      await requestEmailOtpChallengeWithOutbox({
+        route: '/wallet/email-otp/challenge',
+        appSessionJwt: loginAppSessionJwt,
+        walletId: accountId,
+        target: 'login',
+      });
 
     const pm = new TatchiPasskey({
       nearNetwork: 'testnet',
@@ -456,14 +462,14 @@ export async function runEmailOtpEcdsaTempoFlow(
 
     try {
       const signingEngine = pm.getContext().signingEngine as any;
+      const enrollmentOtp = await requestEnrollmentOtp();
       const enrolled = await signingEngine.enrollEmailOtpInternal({
         nearAccountId: accountId,
-        otpCode: 'placeholder-not-used-by-fetch-wrapper',
+        challengeId: enrollmentOtp.challengeId,
+        otpCode: enrollmentOtp.otpCode,
         appSessionJwt: enrollAppSessionJwt,
-        ...(clientSecretB64u ? { clientSecretB64u } : {}),
-        fetchImpl,
+        ...(clientSecretB64u ? { clientSecret32: decodeBase64UrlToBytes(clientSecretB64u) } : {}),
       });
-      enrolledClientRootShare32B64u = String(enrolled?.clientRootShare32B64u || '');
 
       const originalBootstrapEcdsaSession = signingEngine.bootstrapEcdsaSession?.bind(signingEngine);
       try {
@@ -520,17 +526,18 @@ export async function runEmailOtpEcdsaTempoFlow(
 
       await signingEngine.clearWarmSigningSessions(accountId).catch(() => undefined);
 
+      const loginOtp = await requestLoginOtp();
       const loggedIn = await signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         nearAccountId: accountId,
         chain: 'tempo',
         emailOtpAuthPolicy,
-        otpCode: 'placeholder-not-used-by-fetch-wrapper',
+        challengeId: loginOtp.challengeId,
+        otpCode: loginOtp.otpCode,
         appSessionJwt: loginAppSessionJwt,
         authorizationJwt: loginAppSessionJwt,
         ecdsaThresholdKeyId,
         participantIds,
         sessionKind: 'jwt',
-        fetchImpl,
       });
 
       const firstSignResult = await (async () => {
@@ -610,9 +617,6 @@ export async function runEmailOtpEcdsaTempoFlow(
           enrollChallengeCount: otpState.enrollChallengeCount,
           loginChallengeCount: otpState.loginChallengeCount,
         },
-        debug: {
-          enrolledClientRootShare32B64u,
-        },
         firstSign: firstSignResult,
         ...(secondSignResult ? { secondSign: secondSignResult } : {}),
       };
@@ -620,9 +624,6 @@ export async function runEmailOtpEcdsaTempoFlow(
       return {
         ok: false,
         accountId,
-        ...(enrolledClientRootShare32B64u
-          ? { debug: { enrolledClientRootShare32B64u } }
-          : {}),
         error:
           error && typeof error === 'object' && 'message' in error
             ? String((error as { message?: unknown }).message || '')

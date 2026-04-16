@@ -11,11 +11,9 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   deriveEmailOtpEcdsaClientRootShare32B64u,
   deriveEmailOtpUnlockAuthSeed,
-} from '@shared/utils/emailOtpDerivation';
+} from '../helpers/emailOtpDerivation';
 import {
   enrollEmailOtpWallet,
-  loginWithEmailOtpAndUnlockWallet,
-  loginWithEmailOtpAndBootstrapEcdsaCapability,
 } from '@/core/TatchiPasskey/emailOtp';
 import { callCf, makeCfCtx, makeSessionAdapter, startExpressRouter, fetchJson } from './helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
@@ -139,21 +137,6 @@ function removeClientSeal(ciphertextB64u: string): string {
   );
 }
 
-function createHandleShamirRuntime() {
-  return {
-    createClientKeyHandle: async () => ({ keyHandle: 'kh-relayer' }),
-    destroyClientKeyHandle: async () => undefined,
-    addClientSealWithKeyHandle: async ({ ciphertextB64u }: { ciphertextB64u: string }) =>
-      addClientSeal(ciphertextB64u),
-    addClientSealBytesWithKeyHandle: async ({ ciphertext }: { ciphertext: Uint8Array }) =>
-      addClientSeal(base64UrlEncode(ciphertext)),
-    removeClientSealWithKeyHandle: async ({ ciphertextB64u }: { ciphertextB64u: string }) =>
-      removeClientSeal(ciphertextB64u),
-    removeClientSealWithKeyHandleToBytes: async ({ ciphertextB64u }: { ciphertextB64u: string }) =>
-      base64UrlDecode(removeClientSeal(ciphertextB64u)),
-  };
-}
-
 function addServerSeal(ciphertextB64u: string): string {
   const runtime = createPrfSessionSealShamir3PassBigIntRuntime();
   return String(
@@ -202,6 +185,312 @@ function createCloudflareFetchImpl(
   }) as typeof fetch;
 }
 
+async function requestEmailOtpWithOutbox(args: {
+  fetchImpl: typeof fetch;
+  relayUrl: string;
+  route: '/wallet/email-otp/enroll/challenge' | '/wallet/email-otp/challenge';
+  service: AuthService;
+  appSessionJwt: string;
+  walletId?: string;
+  userId?: string;
+}): Promise<{ challengeId: string; otpCode: string }> {
+  const walletId = String(args.walletId || 'alice.testnet').trim() || 'alice.testnet';
+  const userId = String(args.userId || walletId).trim() || walletId;
+  const response = await args.fetchImpl(`${args.relayUrl}${args.route}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.appSessionJwt}`,
+    },
+    body: JSON.stringify({
+      walletId,
+      otpChannel: 'email_otp',
+    }),
+  });
+  const text = await response.text();
+  expect(response.status, text).toBe(200);
+  const json = text ? JSON.parse(text) : null;
+  const challengeId = String(json?.challenge?.challengeId || '').trim();
+  expect(challengeId).toBeTruthy();
+  const outbox = await args.service.readEmailOtpOutboxEntry({
+    challengeId,
+    userId,
+    walletId,
+  });
+  expect(outbox.ok).toBe(true);
+  if (!outbox.ok) throw new Error(outbox.error || 'missing Email OTP outbox entry');
+  return { challengeId, otpCode: outbox.otpCode };
+}
+
+async function postWorkerJson(args: {
+  fetchImpl: typeof fetch;
+  relayUrl: string;
+  path: string;
+  appSessionJwt?: string;
+  body: Record<string, unknown>;
+}): Promise<Record<string, any>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (args.appSessionJwt) headers.Authorization = `Bearer ${args.appSessionJwt}`;
+  const response = await args.fetchImpl(`${args.relayUrl}${args.path}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(args.body),
+  });
+  const text = await response.text();
+  expect(response.status, text).toBe(200);
+  return text ? JSON.parse(text) : {};
+}
+
+function createEmailOtpRouteWorkerCtx(args: {
+  fetchImpl: typeof fetch;
+  relayUrl: string;
+}) {
+  const loginWithEmailOtp = async (payload: Record<string, any>) => {
+    const walletId = String(payload.walletId || '').trim();
+    const userId = String(payload.userId || walletId).trim() || walletId;
+    const challengeId = String(payload.challengeId || '').trim();
+    const verified = await postWorkerJson({
+      fetchImpl: args.fetchImpl,
+      relayUrl: args.relayUrl,
+      path: '/wallet/email-otp/verify',
+      appSessionJwt: payload.appSessionJwt,
+      body: {
+        walletId,
+        challengeId,
+        otpCode: String(payload.otpCode || ''),
+        otpChannel: 'email_otp',
+      },
+    });
+    const wrappedCiphertext = addClientSeal(String(verified.emailOtpEscrowBlob || ''));
+    const unsealed = await postWorkerJson({
+      fetchImpl: args.fetchImpl,
+      relayUrl: args.relayUrl,
+      path: '/wallet/email-otp/unseal',
+      appSessionJwt: payload.appSessionJwt,
+      body: {
+        loginGrant: String(verified.loginGrant || ''),
+        wrappedCiphertext,
+      },
+    });
+    const clientSecretB64u = removeClientSeal(String(unsealed.ciphertext || ''));
+    const unlockSeed = await deriveEmailOtpUnlockAuthSeed({
+      clientSecretB64u,
+      walletId,
+    });
+    const unlockPublicKeyB64u = base64UrlEncode(await secp256k1PrivateKey32ToPublicKey33(unlockSeed));
+    const unlockChallenge = await postWorkerJson({
+      fetchImpl: args.fetchImpl,
+      relayUrl: args.relayUrl,
+      path: '/wallet/unlock/challenge',
+      body: {
+        unlockBackend: 'email_otp',
+        walletId,
+      },
+    });
+    const unlockChallengeB64u = String(unlockChallenge.challengeB64u || '');
+    const unlockSignatureB64u = base64UrlEncode(
+      await signSecp256k1Recoverable(base64UrlDecode(unlockChallengeB64u), unlockSeed),
+    );
+    await postWorkerJson({
+      fetchImpl: args.fetchImpl,
+      relayUrl: args.relayUrl,
+      path: '/wallet/unlock/verify',
+      body: {
+        unlockBackend: 'email_otp',
+        walletId,
+        challengeId: String(unlockChallenge.challengeId || ''),
+        unlockProof: {
+          publicKey: unlockPublicKeyB64u,
+          signature: unlockSignatureB64u,
+        },
+      },
+    });
+    const clientRootShare32B64u = await deriveEmailOtpEcdsaClientRootShare32B64u({
+      clientSecretB64u,
+      walletId,
+      userId,
+    });
+    return {
+      clientRootShare32B64u,
+      loginGrant: String(verified.loginGrant || ''),
+      challengeId,
+      emailOtpKeyVersion: String(unsealed.emailOtpKeyVersion || ''),
+      unlockChallengeId: String(unlockChallenge.challengeId || ''),
+      unlockChallengeB64u,
+      unlockPublicKeyB64u,
+      unlockSignatureB64u,
+    };
+  };
+
+  return {
+    requestWorkerOperation: async ({ request }: any) => {
+      const payload = request.payload || {};
+      if (request.type === 'enrollEmailOtpWallet') {
+        const walletId = String(payload.walletId || '').trim();
+        const userId = String(payload.userId || walletId).trim() || walletId;
+        const clientSecret32 =
+          payload.clientSecret32 instanceof ArrayBuffer
+            ? new Uint8Array(payload.clientSecret32)
+            : Uint8Array.from({ length: 32 }, () => 7);
+        const clientSecretB64u = base64UrlEncode(clientSecret32);
+        const enrollSeal = await postWorkerJson({
+          fetchImpl: args.fetchImpl,
+          relayUrl: args.relayUrl,
+          path: '/wallet/email-otp/enroll/seal',
+          appSessionJwt: payload.appSessionJwt,
+          body: {
+            walletId,
+            wrappedCiphertext: addClientSeal(clientSecretB64u),
+          },
+        });
+        const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.ciphertext || ''));
+        const clientRootShare32B64u = await deriveEmailOtpEcdsaClientRootShare32B64u({
+          clientSecretB64u,
+          walletId,
+          userId,
+        });
+        const unlockPublicKeyB64u = base64UrlEncode(
+          await secp256k1PrivateKey32ToPublicKey33(
+            await deriveEmailOtpUnlockAuthSeed({ clientSecretB64u, walletId }),
+          ),
+        );
+        const thresholdEcdsaClientVerifyingShareB64u = base64UrlEncode(
+          await secp256k1PrivateKey32ToPublicKey33(base64UrlDecode(clientRootShare32B64u)),
+        );
+        await postWorkerJson({
+          fetchImpl: args.fetchImpl,
+          relayUrl: args.relayUrl,
+          path: '/wallet/email-otp/enroll/verify',
+          appSessionJwt: payload.appSessionJwt,
+          body: {
+            walletId,
+            challengeId: String(payload.challengeId || ''),
+            otpCode: String(payload.otpCode || ''),
+            otpChannel: 'email_otp',
+            emailOtpEscrowBlob,
+            emailOtpKeyVersion: String(enrollSeal.emailOtpKeyVersion || ''),
+            unlockPublicKey: unlockPublicKeyB64u,
+            unlockKeyVersion: 'email-otp-unlock-v1',
+            thresholdEcdsaClientVerifyingShareB64u,
+          },
+        });
+        return {
+          clientRootShare32B64u,
+          thresholdEcdsaClientVerifyingShareB64u,
+          challengeId: String(payload.challengeId || ''),
+          otpChannel: 'email_otp',
+          emailOtpKeyVersion: String(enrollSeal.emailOtpKeyVersion || ''),
+          unlockPublicKeyB64u,
+          unlockKeyVersion: 'email-otp-unlock-v1',
+        };
+      }
+      if (request.type === 'testRecoverEmailOtpWithRouteWorker') {
+        return await loginWithEmailOtp(payload);
+      }
+      if (request.type === 'testPrepareEmailOtpEcdsaBootstrapWithRouteWorker') {
+        const recovered = await loginWithEmailOtp(payload);
+        return {
+          loginGrant: recovered.loginGrant,
+          challengeId: recovered.challengeId,
+          emailOtpKeyVersion: recovered.emailOtpKeyVersion,
+          unlockChallengeId: recovered.unlockChallengeId,
+          unlockChallengeB64u: recovered.unlockChallengeB64u,
+          unlockPublicKeyB64u: recovered.unlockPublicKeyB64u,
+          unlockSignatureB64u: recovered.unlockSignatureB64u,
+          clientRootShare32: base64UrlDecode(recovered.clientRootShare32B64u).buffer.slice(0),
+        };
+      }
+      throw new Error(`Unexpected worker operation: ${request.type}`);
+    },
+  };
+}
+
+async function recoverEmailOtpWithRouteWorker(args: {
+  fetchImpl: typeof fetch;
+  relayUrl: string;
+  walletId: string;
+  challengeId: string;
+  otpCode: string;
+  appSessionJwt: string;
+}) {
+  return await createEmailOtpRouteWorkerCtx({
+    fetchImpl: args.fetchImpl,
+    relayUrl: args.relayUrl,
+  }).requestWorkerOperation({
+    request: {
+      type: 'testRecoverEmailOtpWithRouteWorker',
+      payload: {
+        relayUrl: args.relayUrl,
+        walletId: args.walletId,
+        challengeId: args.challengeId,
+        otpCode: args.otpCode,
+        shamirPrimeB64u: SHAMIR_PRIME_B64U,
+        appSessionJwt: args.appSessionJwt,
+      },
+    },
+  });
+}
+
+async function bootstrapEmailOtpViaRouteWorker(args: {
+  fetchImpl: typeof fetch;
+  relayUrl: string;
+  walletId: string;
+  challengeId: string;
+  otpCode: string;
+  appSessionJwt: string;
+  authorizationJwt: string;
+  sessionId: string;
+  ecdsaThresholdKeyId: string;
+  participantIds: number[];
+  sessionKind: 'jwt' | 'cookie';
+  bootstrapEcdsaSession: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
+}) {
+  const prepared = await createEmailOtpRouteWorkerCtx({
+    fetchImpl: args.fetchImpl,
+    relayUrl: args.relayUrl,
+  }).requestWorkerOperation({
+    request: {
+      type: 'testPrepareEmailOtpEcdsaBootstrapWithRouteWorker',
+      payload: {
+        relayUrl: args.relayUrl,
+        walletId: args.walletId,
+        challengeId: args.challengeId,
+        otpCode: args.otpCode,
+        shamirPrimeB64u: SHAMIR_PRIME_B64U,
+        appSessionJwt: args.appSessionJwt,
+      },
+    },
+  });
+  const clientRootShare32 = new Uint8Array(prepared.clientRootShare32);
+  try {
+    const bootstrap = await args.bootstrapEcdsaSession({
+      nearAccountId: args.walletId,
+      chain: 'evm',
+      relayerUrl: args.relayUrl,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+      participantIds: args.participantIds,
+      sessionKind: args.sessionKind,
+      sessionId: args.sessionId,
+      authorizationJwt: args.authorizationJwt,
+      clientRootShare32,
+    });
+    return {
+      recovery: {
+        loginGrant: prepared.loginGrant,
+        challengeId: prepared.challengeId,
+        emailOtpKeyVersion: prepared.emailOtpKeyVersion,
+        unlockChallengeId: prepared.unlockChallengeId,
+        unlockChallengeB64u: prepared.unlockChallengeB64u,
+        unlockPublicKeyB64u: prepared.unlockPublicKeyB64u,
+        unlockSignatureB64u: prepared.unlockSignatureB64u,
+      },
+      bootstrap,
+    };
+  } finally {
+    clientRootShare32.fill(0);
+  }
+}
+
 test.describe('Email OTP bootstrap integration', () => {
   test('Cloudflare adapter preserves helper-driven Email OTP enrollment and bootstrap flows', async () => {
     const service = makeService();
@@ -237,135 +526,55 @@ test.describe('Email OTP bootstrap integration', () => {
       userId: 'alice.testnet',
     });
 
-    let latestEnrollOtpCode = '';
-    const enrollFetchImpl: typeof fetch = async (input, init) => {
-      const url = String(typeof input === 'string' ? input : input.url || '');
-      const nextInit = { ...(init || {}) };
-      if (
-        url.endsWith('/wallet/email-otp/enroll/verify') &&
-        nextInit.body &&
-        typeof nextInit.body === 'string' &&
-        latestEnrollOtpCode
-      ) {
-        const body = JSON.parse(nextInit.body);
-        nextInit.body = JSON.stringify({ ...body, otpCode: latestEnrollOtpCode });
-      }
-      const response = await cfFetch(input, nextInit);
-      if (!url.endsWith('/wallet/email-otp/enroll/challenge')) return response;
-      const text = await response.text();
-      const json = text ? JSON.parse(text) : null;
-      const challengeId = String(json?.challenge?.challengeId || '');
-      if (challengeId) {
-        const enrollOutbox = await service.readEmailOtpOutboxEntry({
-          challengeId,
-          userId: 'alice.testnet',
-          walletId: 'alice.testnet',
-        });
-        if (enrollOutbox.ok) latestEnrollOtpCode = enrollOutbox.otpCode;
-      }
-      return new Response(text, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
-    };
-
+    const enrollOtp = await requestEmailOtpWithOutbox({
+      fetchImpl: cfFetch,
+      relayUrl,
+      route: '/wallet/email-otp/enroll/challenge',
+      service,
+      appSessionJwt: 'app-session-enroll',
+    });
     const enrolled = await enrollEmailOtpWallet({
       relayUrl,
       walletId: 'alice.testnet',
-      otpCode: 'placeholder-not-used-by-test-fetch-wrapper',
+      challengeId: enrollOtp.challengeId,
+      otpCode: enrollOtp.otpCode,
       shamirPrimeB64u: SHAMIR_PRIME_B64U,
       appSessionJwt: 'app-session-enroll',
-      clientSecretB64u: plaintextSecretB64u,
-      fetchImpl: enrollFetchImpl,
-      shamirRuntime: createHandleShamirRuntime(),
-      workerCtx: {
-        requestWorkerOperation: async ({ request }: any) => {
-          if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-            return (
-              await secp256k1PrivateKey32ToPublicKey33(
-                new Uint8Array(request.payload.privateKey32),
-              )
-            ).buffer.slice(0);
-          }
-          throw new Error(`Unexpected worker operation: ${request.type}`);
-        },
-      },
+      clientSecret32: base64UrlDecode(plaintextSecretB64u),
+      workerCtx: createEmailOtpRouteWorkerCtx({ fetchImpl: cfFetch, relayUrl }),
     });
 
     const rotatedVersion = await service.rotateAppSessionVersion({ userId: 'alice.testnet' });
     expect(rotatedVersion.ok).toBe(true);
     recoveryAppSessionVersion = (rotatedVersion as { appSessionVersion: string }).appSessionVersion;
 
-    let latestRecoveryOtpCode = '';
-    const recoveryFetchImpl: typeof fetch = async (input, init) => {
-      const url = String(typeof input === 'string' ? input : input.url || '');
-      const nextInit = { ...(init || {}) };
-      if (
-        url.endsWith('/wallet/email-otp/verify') &&
-        nextInit.body &&
-        typeof nextInit.body === 'string' &&
-        latestRecoveryOtpCode
-      ) {
-        const body = JSON.parse(nextInit.body);
-        nextInit.body = JSON.stringify({ ...body, otpCode: latestRecoveryOtpCode });
-      }
-      const response = await cfFetch(input, nextInit);
-      if (!url.endsWith('/wallet/email-otp/challenge')) return response;
-      const text = await response.text();
-      const json = text ? JSON.parse(text) : null;
-      const challengeId = String(json?.challenge?.challengeId || '');
-      if (challengeId) {
-        const recoveryOutbox = await service.readEmailOtpOutboxEntry({
-          challengeId,
-          userId: 'alice.testnet',
-          walletId: 'alice.testnet',
-        });
-        if (recoveryOutbox.ok) latestRecoveryOtpCode = recoveryOutbox.otpCode;
-      }
-      return new Response(text, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
-    };
-
+    const recoveryOtp = await requestEmailOtpWithOutbox({
+      fetchImpl: cfFetch,
+      relayUrl,
+      route: '/wallet/email-otp/challenge',
+      service,
+      appSessionJwt: 'app-session-recover',
+    });
     const bootstrapCalls: Array<Record<string, unknown>> = [];
-    const result = await loginWithEmailOtpAndBootstrapEcdsaCapability({
+    const result = await bootstrapEmailOtpViaRouteWorker({
+      fetchImpl: cfFetch,
       relayUrl,
       walletId: 'alice.testnet',
-      otpCode: 'placeholder-not-used-by-test-fetch-wrapper',
-      shamirPrimeB64u: SHAMIR_PRIME_B64U,
+      challengeId: recoveryOtp.challengeId,
+      otpCode: recoveryOtp.otpCode,
       appSessionJwt: 'app-session-recover',
       authorizationJwt: 'bootstrap-auth-jwt',
       sessionId: 'ecdsa-session-cf-1',
       ecdsaThresholdKeyId: 'ecdsa-key-cf-1',
       participantIds: [1, 2],
       sessionKind: 'jwt',
-      fetchImpl: recoveryFetchImpl,
-      workerCtx: {
-        requestWorkerOperation: async ({ request }: any) => {
-          if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-            return (
-              await secp256k1PrivateKey32ToPublicKey33(
-                new Uint8Array(request.payload.privateKey32),
-              )
-            ).buffer.slice(0);
-          }
-          if (request.type === 'signSecp256k1Recoverable') {
-            return (
-              await signSecp256k1Recoverable(
-                new Uint8Array(request.payload.digest32),
-                new Uint8Array(request.payload.privateKey32),
-              )
-            ).buffer.slice(0);
-          }
-          throw new Error(`Unexpected worker operation: ${request.type}`);
-        },
-      },
-      shamirRuntime: createHandleShamirRuntime(),
       bootstrapEcdsaSession: async (args) => {
-        bootstrapCalls.push({ ...args });
+        bootstrapCalls.push({
+          ...args,
+          ...(args.clientRootShare32 instanceof Uint8Array
+            ? { clientRootShare32: Uint8Array.from(args.clientRootShare32) }
+            : {}),
+        });
         return {
           thresholdEcdsaKeyRef: {
             type: 'threshold-ecdsa-secp256k1',
@@ -413,7 +622,7 @@ test.describe('Email OTP bootstrap integration', () => {
       sessionKind: 'jwt',
       sessionId: 'ecdsa-session-cf-1',
       authorizationJwt: 'bootstrap-auth-jwt',
-      clientRootShare32B64u: expectedClientRootShare32B64u,
+      clientRootShare32: base64UrlDecode(expectedClientRootShare32B64u),
     });
   });
 
@@ -450,127 +659,42 @@ test.describe('Email OTP bootstrap integration', () => {
         userId: 'alice.testnet',
       });
 
-      let latestEnrollOtpCode = '';
-      const enrollFetchImpl: typeof fetch = async (input, init) => {
-        const url = String(typeof input === 'string' ? input : input.url || '');
-        const nextInit = { ...(init || {}) };
-        if (
-          url.endsWith('/wallet/email-otp/enroll/verify') &&
-          nextInit.body &&
-          typeof nextInit.body === 'string' &&
-          latestEnrollOtpCode
-        ) {
-          const body = JSON.parse(nextInit.body);
-          nextInit.body = JSON.stringify({ ...body, otpCode: latestEnrollOtpCode });
-        }
-        const response = await fetch(input, nextInit);
-        if (!url.endsWith('/wallet/email-otp/enroll/challenge')) return response;
-        const text = await response.text();
-        const json = text ? JSON.parse(text) : null;
-        const challengeId = String(json?.challenge?.challengeId || '');
-        if (challengeId) {
-          const enrollOutbox = await service.readEmailOtpOutboxEntry({
-            challengeId,
-            userId: 'alice.testnet',
-            walletId: 'alice.testnet',
-          });
-          if (enrollOutbox.ok) latestEnrollOtpCode = enrollOutbox.otpCode;
-        }
-        return new Response(text, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        });
-      };
-
+      const enrollOtp = await requestEmailOtpWithOutbox({
+        fetchImpl: fetch,
+        relayUrl: srv.baseUrl,
+        route: '/wallet/email-otp/enroll/challenge',
+        service,
+        appSessionJwt: 'app-session-enroll',
+      });
       const enrolled = await enrollEmailOtpWallet({
         relayUrl: srv.baseUrl,
         walletId: 'alice.testnet',
-        otpCode: 'placeholder-not-used-by-test-fetch-wrapper',
+        challengeId: enrollOtp.challengeId,
+        otpCode: enrollOtp.otpCode,
         shamirPrimeB64u: SHAMIR_PRIME_B64U,
         appSessionJwt: 'app-session-enroll',
-        clientSecretB64u: plaintextSecretB64u,
-        fetchImpl: enrollFetchImpl,
-        shamirRuntime: createHandleShamirRuntime(),
-        workerCtx: {
-          requestWorkerOperation: async ({ request }: any) => {
-            if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-              return (
-                await secp256k1PrivateKey32ToPublicKey33(
-                  new Uint8Array(request.payload.privateKey32),
-                )
-              ).buffer.slice(0);
-            }
-            throw new Error(`Unexpected worker operation: ${request.type}`);
-          },
-        },
+        clientSecret32: base64UrlDecode(plaintextSecretB64u),
+        workerCtx: createEmailOtpRouteWorkerCtx({ fetchImpl: fetch, relayUrl: srv.baseUrl }),
       });
 
       const rotatedVersion = await service.rotateAppSessionVersion({ userId: 'alice.testnet' });
       expect(rotatedVersion.ok).toBe(true);
       recoveryAppSessionVersion = (rotatedVersion as { appSessionVersion: string }).appSessionVersion;
 
-      let latestRecoveryOtpCode = '';
-      const recoveryFetchImpl: typeof fetch = async (input, init) => {
-        const url = String(typeof input === 'string' ? input : input.url || '');
-        const nextInit = { ...(init || {}) };
-        if (
-          url.endsWith('/wallet/email-otp/verify') &&
-          nextInit.body &&
-          typeof nextInit.body === 'string' &&
-          latestRecoveryOtpCode
-        ) {
-          const body = JSON.parse(nextInit.body);
-          nextInit.body = JSON.stringify({ ...body, otpCode: latestRecoveryOtpCode });
-        }
-        const response = await fetch(input, nextInit);
-        if (!url.endsWith('/wallet/email-otp/challenge')) return response;
-        const text = await response.text();
-        const json = text ? JSON.parse(text) : null;
-        const challengeId = String(json?.challenge?.challengeId || '');
-        if (challengeId) {
-          const recoveryOutbox = await service.readEmailOtpOutboxEntry({
-            challengeId,
-            userId: 'alice.testnet',
-            walletId: 'alice.testnet',
-          });
-          if (recoveryOutbox.ok) latestRecoveryOtpCode = recoveryOutbox.otpCode;
-        }
-        return new Response(text, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        });
-      };
-
-      const recovered = await loginWithEmailOtpAndUnlockWallet({
+      const recoveryOtp = await requestEmailOtpWithOutbox({
+        fetchImpl: fetch,
+        relayUrl: srv.baseUrl,
+        route: '/wallet/email-otp/challenge',
+        service,
+        appSessionJwt: 'app-session-recover',
+      });
+      const recovered = await recoverEmailOtpWithRouteWorker({
+        fetchImpl: fetch,
         relayUrl: srv.baseUrl,
         walletId: 'alice.testnet',
-        otpCode: 'placeholder-not-used-by-test-fetch-wrapper',
-        shamirPrimeB64u: SHAMIR_PRIME_B64U,
+        challengeId: recoveryOtp.challengeId,
+        otpCode: recoveryOtp.otpCode,
         appSessionJwt: 'app-session-recover',
-        fetchImpl: recoveryFetchImpl,
-        shamirRuntime: createHandleShamirRuntime(),
-        workerCtx: {
-          requestWorkerOperation: async ({ request }: any) => {
-            if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-              return (
-                await secp256k1PrivateKey32ToPublicKey33(
-                  new Uint8Array(request.payload.privateKey32),
-                )
-              ).buffer.slice(0);
-            }
-            if (request.type === 'signSecp256k1Recoverable') {
-              return (
-                await signSecp256k1Recoverable(
-                  new Uint8Array(request.payload.digest32),
-                  new Uint8Array(request.payload.privateKey32),
-                )
-              ).buffer.slice(0);
-            }
-            throw new Error(`Unexpected worker operation: ${request.type}`);
-          },
-        },
       });
 
       expect('clientSecretB64u' in recovered).toBe(false);
@@ -617,73 +741,25 @@ test.describe('Email OTP bootstrap integration', () => {
         await secp256k1PrivateKey32ToPublicKey33(base64UrlDecode(expectedClientRootShare32B64u)),
       );
 
-      let latestEnrollOtpCode = '';
-      const fetchImpl: typeof fetch = async (input, init) => {
-        const url = String(typeof input === 'string' ? input : input.url || '');
-        const nextInit = { ...(init || {}) };
-        if (
-          url.endsWith('/wallet/email-otp/enroll/verify') &&
-          nextInit.body &&
-          typeof nextInit.body === 'string' &&
-          latestEnrollOtpCode
-        ) {
-          const body = JSON.parse(nextInit.body);
-          nextInit.body = JSON.stringify({
-            ...body,
-            otpCode: latestEnrollOtpCode,
-          });
-        }
-
-        const response = await fetch(input, nextInit);
-        if (!url.endsWith('/wallet/email-otp/enroll/challenge')) {
-          return response;
-        }
-
-        const text = await response.text();
-        const json = text ? JSON.parse(text) : null;
-        const challengeId = String(json?.challenge?.challengeId || '');
-        if (challengeId) {
-          const enrollOutbox = await service.readEmailOtpOutboxEntry({
-            challengeId,
-            userId: 'alice.testnet',
-            walletId: 'alice.testnet',
-          });
-          if (enrollOutbox.ok) {
-            latestEnrollOtpCode = enrollOutbox.otpCode;
-          }
-        }
-        return new Response(text, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        });
-      };
-
+      const enrollOtp = await requestEmailOtpWithOutbox({
+        fetchImpl: fetch,
+        relayUrl: srv.baseUrl,
+        route: '/wallet/email-otp/enroll/challenge',
+        service,
+        appSessionJwt: 'app-session',
+      });
       const result = await enrollEmailOtpWallet({
         relayUrl: srv.baseUrl,
         walletId: 'alice.testnet',
-        otpCode: 'placeholder-not-used-by-test-fetch-wrapper',
+        challengeId: enrollOtp.challengeId,
+        otpCode: enrollOtp.otpCode,
         shamirPrimeB64u: SHAMIR_PRIME_B64U,
         appSessionJwt: 'app-session',
-        clientSecretB64u: plaintextSecretB64u,
-        fetchImpl,
-        shamirRuntime: createHandleShamirRuntime(),
-        workerCtx: {
-          requestWorkerOperation: async ({ request }: any) => {
-            if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-              return (
-                await secp256k1PrivateKey32ToPublicKey33(
-                  new Uint8Array(request.payload.privateKey32),
-                )
-              ).buffer.slice(0);
-            }
-            throw new Error(`Unexpected worker operation: ${request.type}`);
-          },
-        },
+        clientSecret32: base64UrlDecode(plaintextSecretB64u),
+        workerCtx: createEmailOtpRouteWorkerCtx({ fetchImpl: fetch, relayUrl: srv.baseUrl }),
       });
 
       expect('clientSecretB64u' in result).toBe(false);
-      expect(result.clientRootShare32B64u).toBe(expectedClientRootShare32B64u);
       expect(result.unlockPublicKeyB64u).toBe(expectedUnlockPublicKeyB64u);
       expect(result.thresholdEcdsaClientVerifyingShareB64u).toBe(
         expectedThresholdEcdsaClientVerifyingShareB64u,
@@ -786,82 +862,32 @@ test.describe('Email OTP bootstrap integration', () => {
       expect(enrollVerify.status).toBe(200);
 
       const bootstrapCalls: Array<Record<string, unknown>> = [];
-      let latestRecoveryOtpCode = '';
-      const fetchImpl: typeof fetch = async (input, init) => {
-        const url = String(typeof input === 'string' ? input : input.url || '');
-        const nextInit = { ...(init || {}) };
-        if (
-          url.endsWith('/wallet/email-otp/verify') &&
-          nextInit.body &&
-          typeof nextInit.body === 'string' &&
-          latestRecoveryOtpCode
-        ) {
-          const body = JSON.parse(nextInit.body);
-          nextInit.body = JSON.stringify({
-            ...body,
-            otpCode: latestRecoveryOtpCode,
-          });
-        }
-
-        const response = await fetch(input, nextInit);
-        if (!url.endsWith('/wallet/email-otp/challenge')) {
-          return response;
-        }
-
-        const text = await response.text();
-        const json = text ? JSON.parse(text) : null;
-        const challengeId = String(json?.challenge?.challengeId || '');
-        if (challengeId) {
-          const recoveryOutbox = await service.readEmailOtpOutboxEntry({
-            challengeId,
-            userId: 'alice.testnet',
-            walletId: 'alice.testnet',
-          });
-          if (recoveryOutbox.ok) {
-            latestRecoveryOtpCode = recoveryOutbox.otpCode;
-          }
-        }
-        return new Response(text, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        });
-      };
-      const result = await loginWithEmailOtpAndBootstrapEcdsaCapability({
+      const recoveryOtp = await requestEmailOtpWithOutbox({
+        fetchImpl: fetch,
+        relayUrl: srv.baseUrl,
+        route: '/wallet/email-otp/challenge',
+        service,
+        appSessionJwt: 'app-session',
+      });
+      const result = await bootstrapEmailOtpViaRouteWorker({
+        fetchImpl: fetch,
         relayUrl: srv.baseUrl,
         walletId: 'alice.testnet',
-        otpCode: 'placeholder-not-used-by-test-fetch-wrapper',
-        shamirPrimeB64u: SHAMIR_PRIME_B64U,
+        challengeId: recoveryOtp.challengeId,
+        otpCode: recoveryOtp.otpCode,
         appSessionJwt: 'app-session',
         authorizationJwt: 'bootstrap-auth-jwt',
         sessionId: 'ecdsa-session-otp-1',
         ecdsaThresholdKeyId: 'ecdsa-key-otp-1',
         participantIds: [1, 2],
         sessionKind: 'jwt',
-        fetchImpl,
-        workerCtx: {
-          requestWorkerOperation: async ({ request }: any) => {
-            if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-              return (
-                await secp256k1PrivateKey32ToPublicKey33(
-                  new Uint8Array(request.payload.privateKey32),
-                )
-              ).buffer.slice(0);
-            }
-            if (request.type === 'signSecp256k1Recoverable') {
-              return (
-                await signSecp256k1Recoverable(
-                  new Uint8Array(request.payload.digest32),
-                  new Uint8Array(request.payload.privateKey32),
-                )
-              ).buffer.slice(0);
-            }
-            throw new Error(`Unexpected worker operation: ${request.type}`);
-          },
-        },
-        shamirRuntime: createHandleShamirRuntime(),
         bootstrapEcdsaSession: async (args) => {
-          bootstrapCalls.push({ ...args });
+          bootstrapCalls.push({
+            ...args,
+            ...(args.clientRootShare32 instanceof Uint8Array
+              ? { clientRootShare32: Uint8Array.from(args.clientRootShare32) }
+              : {}),
+          });
           return {
             thresholdEcdsaKeyRef: {
               type: 'threshold-ecdsa-secp256k1',
@@ -908,7 +934,7 @@ test.describe('Email OTP bootstrap integration', () => {
         sessionKind: 'jwt',
         sessionId: 'ecdsa-session-otp-1',
         authorizationJwt: 'bootstrap-auth-jwt',
-        clientRootShare32B64u: expectedClientRootShare32B64u,
+        clientRootShare32: base64UrlDecode(expectedClientRootShare32B64u),
       });
     } finally {
       await srv.close();

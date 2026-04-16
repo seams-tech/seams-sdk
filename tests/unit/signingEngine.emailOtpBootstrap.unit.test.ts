@@ -1,379 +1,271 @@
 import { expect, test } from '@playwright/test';
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
-import {
-  deriveEmailOtpEcdsaClientRootShare32B64u,
-  deriveEmailOtpUnlockAuthSeed,
-} from '@shared/utils/emailOtpDerivation';
+import { base64UrlDecode } from '@shared/utils/encoders';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';
 
-function createHandleShamirRuntime(args?: {
-  keyHandle?: string;
-  onAddString?: (args: { ciphertextB64u: string; keyHandle: string }) => string | Promise<string>;
-  onAddBytes?: (args: { ciphertext: Uint8Array; keyHandle: string }) => string | Promise<string>;
-  onRemoveString?: (args: {
-    ciphertextB64u: string;
-    keyHandle: string;
-  }) => string | Promise<string>;
-  onRemoveBytes?: (args: {
-    ciphertextB64u: string;
-    keyHandle: string;
-  }) => Uint8Array | Promise<Uint8Array>;
+function makeWorkerBootstrap(args?: {
+  walletId?: string;
+  sessionId?: string;
+  remainingUses?: number;
 }) {
-  const keyHandle = args?.keyHandle || 'kh-test';
+  const walletId = args?.walletId || 'alice.testnet';
+  const sessionId = args?.sessionId || 'ecdsa-session-worker';
   return {
-    createClientKeyHandle: async () => ({ keyHandle }),
-    destroyClientKeyHandle: async () => undefined,
-    addClientSealWithKeyHandle: async (input: {
-      ciphertextB64u: string;
-      keyHandle: string;
-    }) => await (args?.onAddString?.(input) ?? 'wrapped-ciphertext-b64u'),
-    ...(args?.onAddBytes
-      ? {
-          addClientSealBytesWithKeyHandle: async (input: {
-            ciphertext: Uint8Array;
-            keyHandle: string;
-          }) => await args.onAddBytes(input),
-        }
-      : {}),
-    removeClientSealWithKeyHandle: async (input: {
-      ciphertextB64u: string;
-      keyHandle: string;
-    }) => await (args?.onRemoveString?.(input) ?? 'escrow-blob-b64u'),
-    ...(args?.onRemoveBytes
-      ? {
-          removeClientSealWithKeyHandleToBytes: async (input: {
-            ciphertextB64u: string;
-            keyHandle: string;
-          }) => await args.onRemoveBytes(input),
-        }
-      : {}),
+    thresholdEcdsaKeyRef: {
+      type: 'threshold-ecdsa-secp256k1' as const,
+      userId: walletId,
+      relayerUrl: 'https://relay.example',
+      ecdsaThresholdKeyId: 'ecdsa-key-worker',
+      backendBinding: {
+        relayerKeyId: 'rk-worker',
+        clientVerifyingShareB64u: 'AQ',
+        clientAdditiveShare32B64u: 'Ag',
+      },
+      participantIds: [1, 2],
+      thresholdSessionKind: 'jwt' as const,
+      thresholdSessionId: sessionId,
+      thresholdSessionJwt: 'jwt-worker',
+    },
+    keygen: {
+      ok: true,
+      keygenSessionId: 'keygen-worker',
+      rpId: 'example.localhost',
+      ecdsaThresholdKeyId: 'ecdsa-key-worker',
+      relayerKeyId: 'rk-worker',
+      clientVerifyingShareB64u: 'AQ',
+      clientAdditiveShare32B64u: 'Ag',
+      participantIds: [1, 2],
+    },
+    session: {
+      ok: true,
+      sessionId,
+      jwt: 'jwt-worker',
+      remainingUses: args?.remainingUses ?? 7,
+      expiresAtMs: Date.now() + 60_000,
+      clientVerifyingShareB64u: 'AQ',
+    },
   };
 }
 
-function createEmailOtpTestFetch(args: {
-  unlockChallengeB64u: string;
-}): typeof fetch {
-  return async (input) => {
-    const url = String(input);
-    if (url.endsWith('/wallet/email-otp/challenge')) {
-      return new Response(JSON.stringify({ ok: true, challenge: { challengeId: 'rc-1' } }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/wallet/email-otp/verify')) {
-      return new Response(JSON.stringify({ ok: true, loginGrant: 'grant-1', emailOtpEscrowBlob: 'escrow-b64u' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (url.endsWith('/wallet/email-otp/unseal')) {
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          ciphertext: 'client-ciphertext-b64u',
-          emailOtpKeyVersion: 'email-otp-kv-1',
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
-    if (url.endsWith('/wallet/unlock/challenge')) {
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          challengeId: 'wu-1',
-          challengeB64u: args.unlockChallengeB64u,
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
-    }
-    if (url.endsWith('/wallet/unlock/verify')) {
-      return new Response(JSON.stringify({ ok: true, unlocked: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    throw new Error(`Unexpected fetch URL: ${url}`);
+function makeEngine(args: {
+  requestWorkerOperation: (input: { kind: string; request: any }) => Promise<any>;
+  authPolicy?: 'session' | 'per_operation';
+  rpId?: string;
+  warmReady?: boolean;
+}) {
+  const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+  const engineAny = engine as any;
+  const persistCalls: Array<Record<string, unknown>> = [];
+  const upsertCalls: Array<Record<string, unknown>> = [];
+  const readyChecks: Array<Record<string, unknown>> = [];
+
+  engineAny.tatchiPasskeyConfigs = {
+    network: {
+      relayer: {
+        url: 'https://relay.example',
+      },
+    },
+    signing: {
+      emailOtp: {
+        authPolicy: args.authPolicy || 'session',
+      },
+      sessionSeal: {
+        shamirPrimeB64u: 'prime-b64u',
+      },
+    },
   };
+  engineAny.touchIdPrompt = {
+    getRpId: () => args.rpId ?? 'example.localhost',
+  };
+  engineAny.touchConfirm = {};
+  engineAny.thresholdEcdsaBootstrapQueueByAccount = new Map();
+  engineAny.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap = async () => undefined;
+  engineAny.orchestrationDeps = {
+    thresholdSessionActivationDeps: {
+      getSignerWorkerContext: () => ({
+        requestWorkerOperation: args.requestWorkerOperation,
+      }),
+    },
+  };
+  engineAny.bootstrapEcdsaSession = async () => {
+    throw new Error('main-thread Email OTP bootstrap fallback must not run');
+  };
+  engineAny.persistThresholdEcdsaBootstrapChainAccount = async (callArgs: Record<string, unknown>) => {
+    persistCalls.push(callArgs);
+  };
+  engineAny.upsertThresholdEcdsaSessionFromBootstrap = (callArgs: Record<string, unknown>) => {
+    upsertCalls.push(callArgs);
+  };
+  engineAny.assertWarmThresholdEcdsaCapabilityReady = async (callArgs: {
+    nearAccountId: string;
+    chain: 'evm' | 'tempo';
+  }) => {
+    readyChecks.push({ ...callArgs });
+    if (args.warmReady === false) {
+      throw new Error(
+        `[SigningEngine] Email OTP bootstrap did not reach warm-session ready state for ${callArgs.nearAccountId} (${callArgs.chain}, state=prf_missing)`,
+      );
+    }
+    const policy = args.authPolicy || 'session';
+    const emailOtpAuthContext = {
+      policy,
+      retention: policy === 'per_operation' ? 'single_use' : 'session',
+      reason: 'login',
+      authMethod: 'email_otp',
+      stepUpRequired: true,
+    };
+    return {
+      capability: 'ecdsa',
+      chain: callArgs.chain,
+      record: {
+        nearAccountId: callArgs.nearAccountId,
+        thresholdSessionId: 'ecdsa-session-worker',
+        thresholdSessionKind: 'jwt',
+        source: 'email_otp',
+        emailOtpAuthContext,
+      },
+      auth: {
+        capability: 'ecdsa',
+        chain: callArgs.chain,
+        record: {
+          nearAccountId: callArgs.nearAccountId,
+          thresholdSessionId: 'ecdsa-session-worker',
+          thresholdSessionKind: 'jwt',
+          source: 'email_otp',
+          emailOtpAuthContext,
+        },
+        thresholdSessionJwt: 'jwt-worker',
+        thresholdSessionJwtSource: 'app-session',
+      },
+      prfClaim: {
+        state: 'warm',
+        sessionId: 'ecdsa-session-worker',
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: policy === 'per_operation' ? 1 : 7,
+      },
+      emailOtpAuthContext,
+      state: 'ready',
+    };
+  };
+
+  return { engine, persistCalls, upsertCalls, readyChecks };
 }
 
 test.describe('SigningEngine Email OTP bootstrap runtime', () => {
-  test('enrollment bridge uses config defaults and worker context for Email OTP enrollment', async () => {
+  test('enrollment bridge dispatches secret-bearing enrollment to the Email OTP worker', async () => {
     const walletId = 'alice.testnet';
-    const clientSecretB64u = base64UrlEncode(
-      Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 61)),
-    );
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
-    const engineAny = engine as any;
-    const expectedClientRootShare32B64u = await deriveEmailOtpEcdsaClientRootShare32B64u({
-      clientSecretB64u,
-      walletId,
-      userId: walletId,
+    const workerRequests: Array<Record<string, any>> = [];
+    const clientSecret32 = base64UrlDecode('AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE');
+    const { engine } = makeEngine({
+      requestWorkerOperation: async ({ kind, request }) => {
+        workerRequests.push({ kind, request });
+        expect(kind).toBe('emailOtp');
+        expect(request.type).toBe('enrollEmailOtpWallet');
+        return {
+          thresholdEcdsaClientVerifyingShareB64u: 'verifier-worker',
+          challengeId: 'enroll-1',
+          otpChannel: 'email_otp',
+          emailOtpKeyVersion: 'email-otp-kv-1',
+          unlockPublicKeyB64u: 'unlock-public-key-worker',
+          unlockKeyVersion: 'email-otp-unlock-v1',
+        };
+      },
     });
-    const expectedUnlockPrivateKey32 = await deriveEmailOtpUnlockAuthSeed({
-      clientSecretB64u,
-      walletId,
-    });
-    const workerCtx = {
-      requestWorkerOperation: async ({ request }: any) => {
-        if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-          const privateKey32 = Array.from(new Uint8Array(request.payload.privateKey32));
-          if (privateKey32.join(',') === Array.from(expectedUnlockPrivateKey32).join(',')) {
-            return Uint8Array.from([0x02, ...new Uint8Array(32).fill(0x33)]).buffer.slice(0);
-          }
-          expect(privateKey32).toEqual(
-            Array.from(base64UrlDecode(expectedClientRootShare32B64u)),
-          );
-          return Uint8Array.from([0x03, ...new Uint8Array(32).fill(0x44)]).buffer.slice(0);
-        }
-        throw new Error(`Unexpected worker operation: ${request.type}`);
-      },
-    };
-
-    engineAny.tatchiPasskeyConfigs = {
-      network: {
-        relayer: {
-          url: 'https://relay.example',
-        },
-      },
-      signing: {
-        emailOtp: {
-          authPolicy: 'session',
-        },
-        sessionSeal: {
-          shamirPrimeB64u: 'prime-b64u',
-        },
-      },
-    };
-    engineAny.orchestrationDeps = {
-      thresholdSessionActivationDeps: {
-        getSignerWorkerContext: () => workerCtx,
-      },
-    };
 
     const result = await engine.enrollEmailOtpInternal({
       nearAccountId: walletId,
+      challengeId: 'enroll-1',
       otpCode: '123456',
       appSessionJwt: 'app-session-jwt',
-      clientSecretB64u,
-      fetchImpl: async (input) => {
-        const url = String(input);
-        if (url.endsWith('/wallet/email-otp/enroll/challenge')) {
-          return new Response(JSON.stringify({ ok: true, challenge: { challengeId: 'enroll-1' } }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
-        }
-        if (url.endsWith('/wallet/email-otp/enroll/seal')) {
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              ciphertext: 'client-ciphertext-b64u',
-              emailOtpKeyVersion: 'email-otp-kv-1',
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          );
-        }
-        if (url.endsWith('/wallet/email-otp/enroll/verify')) {
-          return new Response(
-            JSON.stringify({
-              ok: true,
-              walletId,
-              otpChannel: 'email_otp',
-              enrollment: {
-                createdAt: new Date(0).toISOString(),
-                updatedAt: new Date(0).toISOString(),
-                emailOtpKeyVersion: 'email-otp-kv-1',
-                unlockKeyVersion: 'email-otp-unlock-v1',
-              },
-            }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          );
-        }
-        throw new Error(`Unexpected fetch URL: ${url}`);
-      },
-      shamirRuntime: createHandleShamirRuntime({
-        keyHandle: 'kh-enroll',
-        onAddBytes: async () => 'wrapped-ciphertext-b64u',
-        onRemoveString: async () => 'escrow-blob-b64u',
-      }),
+      clientSecret32,
     });
 
+    expect(workerRequests).toHaveLength(1);
+    expect(workerRequests[0]?.request).toMatchObject({
+      type: 'enrollEmailOtpWallet',
+      payload: {
+        relayUrl: 'https://relay.example',
+        walletId,
+        userId: walletId,
+        challengeId: 'enroll-1',
+        otpCode: '123456',
+        shamirPrimeB64u: 'prime-b64u',
+        appSessionJwt: 'app-session-jwt',
+        otpChannel: 'email_otp',
+      },
+    });
+    expect(workerRequests[0]?.request.payload.clientSecret32).toBeInstanceOf(ArrayBuffer);
     expect(result.challengeId).toBe('enroll-1');
     expect(result.emailOtpKeyVersion).toBe('email-otp-kv-1');
     expect(result.unlockKeyVersion).toBe('email-otp-unlock-v1');
-    expect(result.clientRootShare32B64u).toBe(expectedClientRootShare32B64u);
   });
 
-  test('routes recovered OTP client share through canonical bootstrap and asserts ready state', async () => {
+  test('default Email OTP login completes ECDSA authorization bootstrap inside the Email OTP worker', async () => {
     const walletId = 'alice.testnet';
-    const recoveredClientSecretB64u = base64UrlEncode(
-      Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 21)),
-    );
-    const expectedClientRootShare32B64u = await deriveEmailOtpEcdsaClientRootShare32B64u({
-      clientSecretB64u: recoveredClientSecretB64u,
-      walletId,
-      userId: walletId,
+    const workerRequests: Array<Record<string, any>> = [];
+    const { engine, persistCalls, upsertCalls, readyChecks } = makeEngine({
+      requestWorkerOperation: async ({ kind, request }) => {
+        workerRequests.push({ kind, request });
+        expect(kind).toBe('emailOtp');
+        expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
+        return {
+          recovery: {
+            loginGrant: 'grant-worker',
+            challengeId: 'challenge-worker',
+            emailOtpKeyVersion: 'email-otp-kv-worker',
+            unlockChallengeId: 'unlock-worker',
+            unlockChallengeB64u: 'unlock-b64u',
+            unlockPublicKeyB64u: 'unlock-pub',
+            unlockSignatureB64u: 'unlock-sig',
+          },
+          bootstrap: makeWorkerBootstrap({ walletId, sessionId: 'ecdsa-session-worker' }),
+        };
+      },
     });
-    const bootstrapCalls: Array<Record<string, unknown>> = [];
-    const readyChecks: Array<Record<string, unknown>> = [];
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
-    const engineAny = engine as any;
-
-    engineAny.tatchiPasskeyConfigs = {
-      network: {
-        relayer: {
-          url: 'https://relay.example',
-        },
-      },
-      signing: {
-        emailOtp: {
-          authPolicy: 'session',
-        },
-        sessionSeal: {
-          shamirPrimeB64u: 'prime-b64u',
-        },
-      },
-    };
-    engineAny.orchestrationDeps = {
-      thresholdSessionActivationDeps: {
-        getSignerWorkerContext: () => ({
-          requestWorkerOperation: async ({ request }: any) => {
-            if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-              return Uint8Array.from([0x02, ...new Uint8Array(32).fill(0x44)]).buffer.slice(0);
-            }
-            if (request.type === 'signSecp256k1Recoverable') {
-              return Uint8Array.from([
-                ...new Uint8Array(32).fill(0x55),
-                ...new Uint8Array(32).fill(0x66),
-                0x01,
-              ]).buffer.slice(0);
-            }
-            throw new Error(`Unexpected worker operation: ${request.type}`);
-          },
-        }),
-      },
-    };
-    engineAny.bootstrapEcdsaSession = async (args: Record<string, unknown>) => {
-      bootstrapCalls.push({ ...args });
-      return {
-        thresholdEcdsaKeyRef: {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: walletId,
-          relayerUrl: 'https://relay.example',
-          ecdsaThresholdKeyId: 'ecdsa-key-1',
-          backendBinding: {
-            relayerKeyId: 'rk-1',
-            clientVerifyingShareB64u: 'AQ',
-          },
-          participantIds: [1, 2],
-          thresholdSessionKind: 'jwt',
-          thresholdSessionId: 'ecdsa-session-1',
-          thresholdSessionJwt: 'jwt-ecdsa',
-        },
-        keygen: {
-          ok: true,
-          keygenSessionId: 'keygen-1',
-          rpId: 'example.localhost',
-          clientVerifyingShareB64u: 'AQ',
-          clientAdditiveShare32B64u: 'AQ',
-          relayerKeyId: 'rk-1',
-          thresholdEcdsaPublicKeyB64u: 'AQ',
-          ethereumAddress: '0x1111111111111111111111111111111111111111',
-          relayerVerifyingShareB64u: 'AQ',
-          participantIds: [1, 2],
-        },
-        session: {
-          ok: true,
-          sessionId: 'ecdsa-session-1',
-          jwt: 'jwt-ecdsa',
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-          clientVerifyingShareB64u: 'AQ',
-        },
-      };
-    };
-    engineAny.assertWarmThresholdEcdsaCapabilityReady = async (args: {
-      nearAccountId: string;
-      chain: 'evm' | 'tempo';
-    }) => {
-      readyChecks.push({ ...args });
-      return {
-        capability: 'ecdsa',
-        chain: args.chain,
-        record: {
-          nearAccountId: args.nearAccountId,
-          thresholdSessionId: 'ecdsa-session-1',
-          thresholdSessionKind: 'jwt',
-          source: 'email_otp',
-          emailOtpAuthContext: {
-            policy: 'session',
-            retention: 'session',
-            reason: 'login',
-            authMethod: 'email_otp',
-            stepUpRequired: true,
-          },
-        },
-        auth: {
-          capability: 'ecdsa',
-          chain: args.chain,
-          record: {
-            nearAccountId: args.nearAccountId,
-            thresholdSessionId: 'ecdsa-session-1',
-            thresholdSessionKind: 'jwt',
-            source: 'email_otp',
-            emailOtpAuthContext: {
-              policy: 'session',
-              retention: 'session',
-              reason: 'login',
-              authMethod: 'email_otp',
-              stepUpRequired: true,
-            },
-          },
-          thresholdSessionJwt: 'jwt-ecdsa',
-          thresholdSessionJwtSource: 'app-session',
-        },
-        prfClaim: {
-          state: 'warm',
-          sessionId: 'ecdsa-session-1',
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 3,
-        },
-        emailOtpAuthContext: {
-          policy: 'session',
-          retention: 'session',
-          reason: 'login',
-          authMethod: 'email_otp',
-          stepUpRequired: true,
-        },
-        state: 'ready',
-      };
-    };
 
     const result = await engine.loginWithEmailOtpEcdsaCapabilityInternal({
       nearAccountId: walletId,
       chain: 'evm',
+      challengeId: 'preissued-rc-worker',
       otpCode: '123456',
       appSessionJwt: 'app-session-jwt',
       authorizationJwt: 'bootstrap-auth-jwt',
-      ecdsaThresholdKeyId: 'ecdsa-key-1',
+      ecdsaThresholdKeyId: 'ecdsa-key-worker',
       participantIds: [1, 2],
       sessionKind: 'jwt',
-      sessionId: 'ecdsa-session-1',
-      fetchImpl: createEmailOtpTestFetch({
-        unlockChallengeB64u: base64UrlEncode(new Uint8Array(32).fill(0x77)),
-      }),
-      shamirRuntime: createHandleShamirRuntime({
-        keyHandle: 'kh-login',
-        onAddString: async () => 'wrapped-ciphertext-b64u',
-        onRemoveString: async () => recoveredClientSecretB64u,
-      }),
+      sessionId: 'ecdsa-session-worker',
+      ttlMs: 120_000,
+      remainingUses: 7,
     });
 
-    expect(bootstrapCalls).toHaveLength(1);
-    expect(bootstrapCalls[0]).toEqual({
+    expect(workerRequests).toHaveLength(1);
+    expect(workerRequests[0]?.request).toMatchObject({
+      type: 'loginWithEmailOtpAndBootstrapEcdsaSession',
+      timeoutMs: 60_000,
+      payload: {
+        relayUrl: 'https://relay.example',
+        walletId,
+        userId: walletId,
+        challengeId: 'preissued-rc-worker',
+        otpCode: '123456',
+        shamirPrimeB64u: 'prime-b64u',
+        appSessionJwt: 'app-session-jwt',
+        otpChannel: 'email_otp',
+        rpId: 'example.localhost',
+        ecdsaThresholdKeyId: 'ecdsa-key-worker',
+        participantIds: [1, 2],
+        sessionKind: 'jwt',
+        sessionId: 'ecdsa-session-worker',
+        authorizationJwt: 'bootstrap-auth-jwt',
+        ttlMs: 120_000,
+        remainingUses: 7,
+      },
+    });
+    expect(persistCalls).toHaveLength(1);
+    expect(upsertCalls).toHaveLength(1);
+    expect(upsertCalls[0]).toMatchObject({
       nearAccountId: walletId,
       chain: 'evm',
+      source: 'email_otp',
       emailOtpAuthContext: {
         policy: 'session',
         retention: 'session',
@@ -381,101 +273,34 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         authMethod: 'email_otp',
         stepUpRequired: true,
       },
-      relayerUrl: 'https://relay.example',
-      ecdsaThresholdKeyId: 'ecdsa-key-1',
-      participantIds: [1, 2],
-      sessionKind: 'jwt',
-      sessionId: 'ecdsa-session-1',
-      authorizationJwt: 'bootstrap-auth-jwt',
-      clientRootShare32B64u: expectedClientRootShare32B64u,
-      source: 'email_otp',
     });
     expect(readyChecks).toEqual([{ nearAccountId: walletId, chain: 'evm' }]);
     expect('clientRootShare32B64u' in result.recovery).toBe(false);
-    expect(result.bootstrap.thresholdEcdsaKeyRef.thresholdSessionId).toBe('ecdsa-session-1');
+    expect(result.recovery.loginGrant).toBe('grant-worker');
+    expect(result.bootstrap.thresholdEcdsaKeyRef.thresholdSessionId).toBe('ecdsa-session-worker');
     expect(result.warmCapability.state).toBe('ready');
   });
 
   test('fails when Email OTP bootstrap does not reach warm-session ready state', async () => {
     const walletId = 'alice.testnet';
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
-    const engineAny = engine as any;
-
-    engineAny.tatchiPasskeyConfigs = {
-      network: {
-        relayer: {
-          url: 'https://relay.example',
-        },
-      },
-      signing: {
-        emailOtp: {
-          authPolicy: 'session',
-        },
-        sessionSeal: {
-          shamirPrimeB64u: 'prime-b64u',
-        },
-      },
-    };
-    engineAny.orchestrationDeps = {
-      thresholdSessionActivationDeps: {
-        getSignerWorkerContext: () => ({
-          requestWorkerOperation: async ({ request }: any) => {
-            if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-              return Uint8Array.from([0x02, ...new Uint8Array(32).fill(0x44)]).buffer.slice(0);
-            }
-            if (request.type === 'signSecp256k1Recoverable') {
-              return Uint8Array.from([
-                ...new Uint8Array(32).fill(0x55),
-                ...new Uint8Array(32).fill(0x66),
-                0x01,
-              ]).buffer.slice(0);
-            }
-            throw new Error(`Unexpected worker operation: ${request.type}`);
+    const { engine } = makeEngine({
+      warmReady: false,
+      requestWorkerOperation: async ({ request }) => {
+        expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
+        return {
+          recovery: {
+            loginGrant: 'grant-worker',
+            challengeId: 'challenge-worker',
+            emailOtpKeyVersion: 'email-otp-kv-worker',
+            unlockChallengeId: 'unlock-worker',
+            unlockChallengeB64u: 'unlock-b64u',
+            unlockPublicKeyB64u: 'unlock-pub',
+            unlockSignatureB64u: 'unlock-sig',
           },
-        }),
-      },
-    };
-    engineAny.bootstrapEcdsaSession = async () => ({
-      thresholdEcdsaKeyRef: {
-        type: 'threshold-ecdsa-secp256k1',
-        userId: walletId,
-        relayerUrl: 'https://relay.example',
-        ecdsaThresholdKeyId: 'ecdsa-key-1',
-        backendBinding: {
-          relayerKeyId: 'rk-1',
-          clientVerifyingShareB64u: 'AQ',
-        },
-        participantIds: [1, 2],
-        thresholdSessionKind: 'jwt',
-        thresholdSessionId: 'ecdsa-session-1',
-        thresholdSessionJwt: 'jwt-ecdsa',
-      },
-      keygen: {
-        ok: true,
-        keygenSessionId: 'keygen-1',
-        rpId: 'example.localhost',
-        clientVerifyingShareB64u: 'AQ',
-        clientAdditiveShare32B64u: 'AQ',
-        relayerKeyId: 'rk-1',
-        thresholdEcdsaPublicKeyB64u: 'AQ',
-        ethereumAddress: '0x1111111111111111111111111111111111111111',
-        relayerVerifyingShareB64u: 'AQ',
-        participantIds: [1, 2],
-      },
-      session: {
-        ok: true,
-        sessionId: 'ecdsa-session-1',
-        jwt: 'jwt-ecdsa',
-        remainingUses: 3,
-        expiresAtMs: Date.now() + 60_000,
-        clientVerifyingShareB64u: 'AQ',
+          bootstrap: makeWorkerBootstrap({ walletId }),
+        };
       },
     });
-    engineAny.assertWarmThresholdEcdsaCapabilityReady = async () => {
-      throw new Error(
-        '[SigningEngine] Email OTP bootstrap did not reach warm-session ready state for alice.testnet (evm, state=prf_missing)',
-      );
-    };
 
     await expect(
       engine.loginWithEmailOtpEcdsaCapabilityInternal({
@@ -488,15 +313,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         participantIds: [1, 2],
         sessionKind: 'jwt',
         sessionId: 'ecdsa-session-1',
-        fetchImpl: createEmailOtpTestFetch({
-          unlockChallengeB64u: base64UrlEncode(new Uint8Array(32).fill(0x77)),
-        }),
-        shamirRuntime: createHandleShamirRuntime({
-          keyHandle: 'kh-error',
-          onAddString: async () => 'wrapped-ciphertext-b64u',
-          onRemoveString: async () =>
-            base64UrlEncode(Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 9))),
-        }),
       }),
     ).rejects.toThrow('did not reach warm-session ready state');
   });
@@ -515,20 +331,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       engineAny.exportThresholdEcdsaKeyWithAuthorization({
         nearAccountId: walletId,
         chain: 'evm',
-        keyRef: {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: walletId,
-          relayerUrl: 'https://relay.example',
-          ecdsaThresholdKeyId: 'ecdsa-key-1',
-          backendBinding: {
-            relayerKeyId: 'rk-1',
-            clientVerifyingShareB64u: 'AQ',
-          },
-          participantIds: [1, 2],
-          thresholdSessionKind: 'jwt',
-          thresholdSessionId: 'ecdsa-session-1',
-          thresholdSessionJwt: 'jwt-ecdsa',
-        },
+        keyRef: makeWorkerBootstrap({ walletId }).thresholdEcdsaKeyRef,
         options: {},
       }),
     ).rejects.toThrow(
@@ -538,98 +341,35 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
   test('uses per-operation Email OTP policy metadata and defaults remainingUses to 1', async () => {
     const walletId = 'alice.testnet';
-    const recoveredClientSecretB64u = base64UrlEncode(
-      Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 31)),
-    );
-    const bootstrapCalls: Array<Record<string, unknown>> = [];
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
-    const engineAny = engine as any;
+    const workerRequests: Array<Record<string, any>> = [];
+    const { engine, upsertCalls } = makeEngine({
+      authPolicy: 'per_operation',
+      requestWorkerOperation: async ({ kind, request }) => {
+        workerRequests.push({ kind, request });
+        return {
+          recovery: {
+            loginGrant: 'grant-worker',
+            challengeId: 'challenge-worker',
+            emailOtpKeyVersion: 'email-otp-kv-worker',
+            unlockChallengeId: 'unlock-worker',
+            unlockChallengeB64u: 'unlock-b64u',
+            unlockPublicKeyB64u: 'unlock-pub',
+            unlockSignatureB64u: 'unlock-sig',
+          },
+          bootstrap: makeWorkerBootstrap({ walletId, remainingUses: 1 }),
+        };
+      },
+    });
 
-    engineAny.tatchiPasskeyConfigs = {
-      network: {
-        relayer: {
-          url: 'https://relay.example',
-        },
-      },
-      signing: {
-        emailOtp: {
-          authPolicy: 'session',
-        },
-        sessionSeal: {
-          shamirPrimeB64u: 'prime-b64u',
-        },
-      },
-    };
-    engineAny.orchestrationDeps = {
-      thresholdSessionActivationDeps: {
-        getSignerWorkerContext: () => ({
-          requestWorkerOperation: async ({ request }: any) => {
-            if (request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-              return Uint8Array.from([0x02, ...new Uint8Array(32).fill(0x44)]).buffer.slice(0);
-            }
-            if (request.type === 'signSecp256k1Recoverable') {
-              return Uint8Array.from([
-                ...new Uint8Array(32).fill(0x55),
-                ...new Uint8Array(32).fill(0x66),
-                0x01,
-              ]).buffer.slice(0);
-            }
-            throw new Error(`Unexpected worker operation: ${request.type}`);
-          },
-        }),
-      },
-    };
-    engineAny.bootstrapEcdsaSession = async (args: Record<string, unknown>) => {
-      bootstrapCalls.push({ ...args });
-      return {
-        thresholdEcdsaKeyRef: {
-          type: 'threshold-ecdsa-secp256k1',
-          userId: walletId,
-          relayerUrl: 'https://relay.example',
-          ecdsaThresholdKeyId: 'ecdsa-key-1',
-          backendBinding: {
-            relayerKeyId: 'rk-1',
-            clientVerifyingShareB64u: 'AQ',
-          },
-          participantIds: [1, 2],
-          thresholdSessionKind: 'jwt',
-          thresholdSessionId: 'ecdsa-session-1',
-          thresholdSessionJwt: 'jwt-ecdsa',
-        },
-        keygen: {
-          ok: true,
-          relayerKeyId: 'rk-1',
-          clientVerifyingShareB64u: 'AQ',
-          participantIds: [1, 2],
-        },
-        session: {
-          ok: true,
-          sessionId: 'ecdsa-session-1',
-          jwt: 'jwt-ecdsa',
-          remainingUses: 1,
-          expiresAtMs: Date.now() + 60_000,
-          clientVerifyingShareB64u: 'AQ',
-        },
-      };
-    };
-    engineAny.assertWarmThresholdEcdsaCapabilityReady = async () => ({
-      capability: 'ecdsa',
-      chain: 'evm',
-      record: {
-        nearAccountId: walletId,
-        thresholdSessionId: 'ecdsa-session-1',
-        thresholdSessionKind: 'jwt',
-        source: 'email_otp',
-        emailOtpAuthContext: {
-          policy: 'per_operation',
-          retention: 'single_use',
-          reason: 'login',
-          authMethod: 'email_otp',
-          stepUpRequired: true,
-        },
-      },
-      auth: null,
-      prfClaim: null,
+    await engine.loginWithEmailOtpEcdsaCapabilityInternal({
+      nearAccountId: walletId,
+      otpCode: '123456',
+      emailOtpAuthPolicy: 'per_operation',
+      authorizationJwt: 'bootstrap-auth-jwt',
+    });
+
+    expect(workerRequests[0]?.request.payload.remainingUses).toBe(1);
+    expect(upsertCalls[0]).toMatchObject({
       emailOtpAuthContext: {
         policy: 'per_operation',
         retention: 'single_use',
@@ -637,30 +377,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         authMethod: 'email_otp',
         stepUpRequired: true,
       },
-      state: 'ready',
     });
-
-    await engine.loginWithEmailOtpEcdsaCapabilityInternal({
-      nearAccountId: walletId,
-      otpCode: '123456',
-      emailOtpAuthPolicy: 'per_operation',
-      fetchImpl: createEmailOtpTestFetch({
-        unlockChallengeB64u: base64UrlEncode(new Uint8Array(32).fill(0x77)),
-      }),
-      shamirRuntime: createHandleShamirRuntime({
-        keyHandle: 'kh-policy',
-        onAddString: async () => 'wrapped-ciphertext-b64u',
-        onRemoveString: async () => recoveredClientSecretB64u,
-      }),
-    });
-
-    expect(bootstrapCalls[0]?.emailOtpAuthContext).toEqual({
-      policy: 'per_operation',
-      retention: 'single_use',
-      reason: 'login',
-      authMethod: 'email_otp',
-      stepUpRequired: true,
-    });
-    expect(bootstrapCalls[0]?.remainingUses).toBe(1);
   });
 });

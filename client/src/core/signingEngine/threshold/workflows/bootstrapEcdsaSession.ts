@@ -1,5 +1,5 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { base64UrlDecode } from '@shared/utils/base64';
+import { base64UrlEncode } from '@shared/utils/base64';
 import { computeThresholdEcdsaKeygenIntentDigest } from '@/utils/intentDigest';
 import {
   thresholdEcdsaHssFinalize,
@@ -56,6 +56,7 @@ export async function bootstrapEcdsaSession(args: {
   participantIds?: number[];
   sessionKind?: EcdsaSessionKind;
   sessionId?: string;
+  clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   bootstrapAuthorizationJwt?: string;
   ttlMs?: number;
@@ -100,15 +101,17 @@ export async function bootstrapEcdsaSession(args: {
   const bootstrapAuthorizationJwt = String(args.bootstrapAuthorizationJwt || '').trim();
   const requestedSessionId = String(args.sessionId || '').trim();
   const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
+  const providedClientRootShare32 =
+    args.clientRootShare32 instanceof Uint8Array ? args.clientRootShare32 : undefined;
   const providedClientRootShare32B64u = String(args.clientRootShare32B64u || '').trim();
   const useAuthorizationBootstrap = bootstrapAuthorizationJwt.length > 0;
-  if (useAuthorizationBootstrap && !providedClientRootShare32B64u) {
+  if (useAuthorizationBootstrap && !providedClientRootShare32 && !providedClientRootShare32B64u) {
     return {
       ok: false,
       code: 'invalid_args',
       message: requestedSessionId
-        ? 'Missing threshold-ecdsa clientRootShare32B64u for authorization bootstrap; reconnect session priming and retry'
-        : 'Missing threshold-ecdsa clientRootShare32B64u for authorization bootstrap; reconnect session priming and retry (missing sessionId)',
+        ? 'Missing threshold-ecdsa client root share for authorization bootstrap; reconnect session priming and retry'
+        : 'Missing threshold-ecdsa client root share for authorization bootstrap; reconnect session priming and retry (missing sessionId)',
     };
   }
   let credential: unknown = null;
@@ -127,14 +130,15 @@ export async function bootstrapEcdsaSession(args: {
       touchIdPrompt: args.touchIdPrompt,
       userId,
       challengeB64u,
+      providedClientRootShare32,
       providedClientRootShare32B64u,
     });
     if (!resolvedClientRootShare.ok) {
       return resolvedClientRootShare;
     }
     credential = resolvedClientRootShare.credential || null;
-    const yClient32LeB64u = resolvedClientRootShare.clientRootShare32B64u;
-    yClient32Le = base64UrlDecode(yClient32LeB64u);
+    const clientRootShare32 = resolvedClientRootShare.clientRootShare32;
+    yClient32Le = clientRootShare32;
 
     const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
       ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
@@ -196,7 +200,7 @@ export async function bootstrapEcdsaSession(args: {
           keyPurpose: 'evm-signing',
           keyVersion: 'v1',
         },
-        clientRootShare32B64u: yClient32LeB64u,
+        clientRootShare32,
         workerCtx: args.workerCtx,
       });
     } catch (error) {
@@ -215,7 +219,7 @@ export async function bootstrapEcdsaSession(args: {
       clientRequest = await prepareThresholdEcdsaHssClientRequestWasm({
         evaluatorDriverStateB64u: preparedClientSession.evaluatorDriverStateB64u,
         serverAssistInitMessageB64u: serverAssistInitB64u,
-        clientRootShare32B64u: yClient32LeB64u,
+        clientRootShare32,
         workerCtx: args.workerCtx,
       });
     } catch (error) {
@@ -339,7 +343,7 @@ export async function bootstrapEcdsaSession(args: {
       ? Math.floor(Number(bootstrap.expiresAtMs))
       : Date.now() + ttlMs;
 
-    const cachedClientRootShare32B64u = yClient32LeB64u;
+    const cachedClientRootShare32B64u = base64UrlEncode(clientRootShare32);
     const prfFirstCache = args.prfFirstCache;
     if (prfFirstCache && cachedClientRootShare32B64u) {
       await cacheSigningSessionPrfFirstBestEffort(prfFirstCache, {

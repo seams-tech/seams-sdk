@@ -6,39 +6,68 @@ import {
   type ThresholdWebAuthnPromptPort,
 } from '../webauthn';
 
+function cloneFixed32Bytes(value: Uint8Array, label: string): Uint8Array {
+  if (value.length !== 32) {
+    throw new Error(`${label} must be 32 bytes`);
+  }
+  return Uint8Array.from(value);
+}
+
 export async function resolveThresholdEcdsaClientRootShare(args: {
   indexedDB: ThresholdIndexedDbPort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   userId: string;
   challengeB64u?: string;
+  providedClientRootShare32?: Uint8Array;
   providedClientRootShare32B64u?: string;
 }): Promise<
   | {
       ok: true;
-      clientRootShare32B64u: string;
+      clientRootShare32: Uint8Array;
       credential?: Awaited<ReturnType<typeof collectAuthenticationCredentialForChallengeB64u>>;
     }
   | { ok: false; code: string; message: string }
 > {
+  if (args.providedClientRootShare32 instanceof Uint8Array) {
+    try {
+      return {
+        ok: true,
+        clientRootShare32: cloneFixed32Bytes(
+          args.providedClientRootShare32,
+          'threshold-ecdsa clientRootShare32',
+        ),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message:
+          error instanceof Error
+            ? error.message
+            : 'threshold-ecdsa clientRootShare32 must be 32 bytes',
+      };
+    }
+  }
+
   const providedClientRootShare32B64u = String(args.providedClientRootShare32B64u || '').trim();
   if (providedClientRootShare32B64u) {
+    let decoded: Uint8Array | null = null;
     try {
-      const decoded = base64UrlDecode(providedClientRootShare32B64u);
-      if (decoded.length !== 32) {
-        return {
-          ok: false,
-          code: 'invalid_args',
-          message: 'threshold-ecdsa clientRootShare32B64u must decode to 32 bytes',
-        };
-      }
+      decoded = base64UrlDecode(providedClientRootShare32B64u);
+      return {
+        ok: true,
+        clientRootShare32: cloneFixed32Bytes(decoded, 'threshold-ecdsa clientRootShare32B64u'),
+      };
     } catch {
       return {
         ok: false,
         code: 'invalid_args',
-        message: 'threshold-ecdsa clientRootShare32B64u must be valid base64url',
+        message:
+          'threshold-ecdsa client root share must be 32 bytes supplied as base64url or raw bytes',
       };
+    } finally {
+      decoded?.fill(0);
     }
-    return { ok: true, clientRootShare32B64u: providedClientRootShare32B64u };
   }
 
   const challengeB64u = String(args.challengeB64u || '').trim();
@@ -65,9 +94,10 @@ export async function resolveThresholdEcdsaClientRootShare(args: {
       message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
     };
   }
+  const clientRootShare32 = base64UrlDecode(prfFirstB64u);
   return {
     ok: true,
-    clientRootShare32B64u: prfFirstB64u,
+    clientRootShare32,
     credential,
   };
 }

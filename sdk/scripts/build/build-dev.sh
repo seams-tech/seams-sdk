@@ -100,6 +100,16 @@ else
 fi
 popd >/dev/null
 
+print_step "Building WASM Email OTP runtime (dev)..."
+pushd "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME" >/dev/null
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name email_otp_runtime --dev --no-opt; then
+  print_success "WASM Email OTP runtime built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
+else
+  print_error "WASM Email OTP runtime build failed"
+  exit 1
+fi
+popd >/dev/null
+
 print_step "Optimizing wasm-pack metadata for tree-shaking..."
 if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg"; then
   print_success "WASM package metadata optimized"
@@ -125,6 +135,11 @@ if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOUR
   print_success "Shamir3Pass runtime WASM package metadata optimized"
 else
   print_warning "Failed to optimize Shamir3Pass runtime WASM package metadata"
+fi
+if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg" 2>/dev/null; then
+  print_success "Email OTP runtime WASM package metadata optimized"
+else
+  print_warning "Failed to optimize Email OTP runtime WASM package metadata"
 fi
 
 print_step "Building TypeScript..."
@@ -163,6 +178,7 @@ print_step "Bundling workers with Bun (dev, no minify)..."
 if "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/near-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/hss-client.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/passkey-confirm.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
+  && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/email-otp.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/shamir3pass.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/eth-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/tempo-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]'; then
@@ -180,6 +196,8 @@ if cp "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer_bg.wasm" "$BUILD_WORKERS
 if cp "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm" "$BUILD_WORKERS/tempo_signer.wasm" 2>/dev/null; then print_success "tempo_signer.wasm copied"; else print_warning "tempo_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js" "$BUILD_WORKERS/shamir3pass_runtime.js" 2>/dev/null; then print_success "shamir3pass_runtime.js copied"; else print_warning "shamir3pass_runtime.js not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm" "$BUILD_WORKERS/shamir3pass_runtime_bg.wasm" 2>/dev/null; then print_success "shamir3pass_runtime_bg.wasm copied"; else print_warning "shamir3pass_runtime_bg.wasm not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js" "$BUILD_WORKERS/email_otp_runtime.js" 2>/dev/null; then print_success "email_otp_runtime.js copied"; else print_warning "email_otp_runtime.js not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm" "$BUILD_WORKERS/email_otp_runtime_bg.wasm" 2>/dev/null; then print_success "email_otp_runtime_bg.wasm copied"; else print_warning "email_otp_runtime_bg.wasm not found"; fi
 
 print_step "Copying server HSS WASM binary into dist/esm..."
 SERVER_HSS_WASM_DIR="$BUILD_ESM/server/wasm/near_signer/pkg-server"

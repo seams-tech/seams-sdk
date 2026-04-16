@@ -95,6 +95,34 @@ export type ThresholdEcdsaHssClientFinalizeEnvelope = {
   clientEvalFinalizeB64u: string;
 };
 
+function buildThresholdEcdsaClientRootSharePayload(args: {
+  clientRootShare32?: Uint8Array;
+  clientRootShare32B64u?: string;
+}): { clientRootShare32: Uint8Array } | { clientRootShare32B64u: string } {
+  if (args.clientRootShare32 instanceof Uint8Array) {
+    if (args.clientRootShare32.length !== 32) {
+      throw new Error('clientRootShare32 must be 32 bytes');
+    }
+    return {
+      clientRootShare32: Uint8Array.from(args.clientRootShare32),
+    };
+  }
+
+  const clientRootShare32B64u = String(args.clientRootShare32B64u || '').trim();
+  if (!clientRootShare32B64u) {
+    throw new Error('Missing clientRootShare32');
+  }
+  return { clientRootShare32B64u };
+}
+
+function zeroizeThresholdEcdsaClientRootSharePayload(
+  payload: { clientRootShare32: Uint8Array } | { clientRootShare32B64u: string },
+): void {
+  if ('clientRootShare32' in payload) {
+    payload.clientRootShare32.fill(0);
+  }
+}
+
 function normalizeParticipantIds(value: unknown): number[] {
   if (Array.isArray(value) || ArrayBuffer.isView(value)) {
     return Array.from(value as ArrayLike<number>, (entry) => Number(entry));
@@ -345,63 +373,75 @@ export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
 
 export async function prepareThresholdEcdsaHssSessionWasm(input: {
   context: ThresholdEcdsaHssCanonicalContext;
-  clientRootShare32B64u: string;
+  clientRootShare32?: Uint8Array;
+  clientRootShare32B64u?: string;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEcdsaHssPreparedSessionEnvelope> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
-    request: {
-      type: WorkerRequestType.PrepareThresholdEcdsaHssSession,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        nearAccountId: input.context.nearAccountId,
-        keyPurpose: input.context.keyPurpose,
-        keyVersion: input.context.keyVersion,
-        clientRootShare32B64u: input.clientRootShare32B64u,
+  const clientRootSharePayload = buildThresholdEcdsaClientRootSharePayload(input);
+  try {
+    const response = await executeWorkerOperation({
+      ctx: input.workerCtx,
+      kind: 'hssClient',
+      request: {
+        type: WorkerRequestType.PrepareThresholdEcdsaHssSession,
+        timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
+        payload: {
+          nearAccountId: input.context.nearAccountId,
+          keyPurpose: input.context.keyPurpose,
+          keyVersion: input.context.keyVersion,
+          ...clientRootSharePayload,
+        },
       },
-    },
-  });
+    });
 
-  if (response.type !== WorkerResponseType.PrepareThresholdEcdsaHssSessionSuccess) {
-    throw new Error('PrepareThresholdEcdsaHssSession failed');
+    if (response.type !== WorkerResponseType.PrepareThresholdEcdsaHssSessionSuccess) {
+      throw new Error('PrepareThresholdEcdsaHssSession failed');
+    }
+
+    const result = response.payload as WasmPrepareThresholdEcdsaHssSessionResult;
+    return {
+      contextBindingB64u: String(result.contextBindingB64u || '').trim(),
+      evaluatorDriverStateB64u: String(result.evaluatorDriverStateB64u || '').trim(),
+    };
+  } finally {
+    zeroizeThresholdEcdsaClientRootSharePayload(clientRootSharePayload);
   }
-
-  const result = response.payload as WasmPrepareThresholdEcdsaHssSessionResult;
-  return {
-    contextBindingB64u: String(result.contextBindingB64u || '').trim(),
-    evaluatorDriverStateB64u: String(result.evaluatorDriverStateB64u || '').trim(),
-  };
 }
 
 export async function prepareThresholdEcdsaHssClientRequestWasm(input: {
   evaluatorDriverStateB64u: string;
   serverAssistInitMessageB64u: string;
-  clientRootShare32B64u: string;
+  clientRootShare32?: Uint8Array;
+  clientRootShare32B64u?: string;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEcdsaHssClientRequestEnvelope> {
-  const response = await executeWorkerOperation({
-    ctx: input.workerCtx,
-    kind: 'hssClient',
-    request: {
-      type: WorkerRequestType.PrepareThresholdEcdsaHssClientRequest,
-      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
-      payload: {
-        evaluatorDriverStateB64u: input.evaluatorDriverStateB64u,
-        serverAssistInitMessageB64u: input.serverAssistInitMessageB64u,
-        clientRootShare32B64u: input.clientRootShare32B64u,
+  const clientRootSharePayload = buildThresholdEcdsaClientRootSharePayload(input);
+  try {
+    const response = await executeWorkerOperation({
+      ctx: input.workerCtx,
+      kind: 'hssClient',
+      request: {
+        type: WorkerRequestType.PrepareThresholdEcdsaHssClientRequest,
+        timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
+        payload: {
+          evaluatorDriverStateB64u: input.evaluatorDriverStateB64u,
+          serverAssistInitMessageB64u: input.serverAssistInitMessageB64u,
+          ...clientRootSharePayload,
+        },
       },
-    },
-  });
+    });
 
-  if (response.type !== WorkerResponseType.PrepareThresholdEcdsaHssClientRequestSuccess) {
-    throw new Error('PrepareThresholdEcdsaHssClientRequest failed');
+    if (response.type !== WorkerResponseType.PrepareThresholdEcdsaHssClientRequestSuccess) {
+      throw new Error('PrepareThresholdEcdsaHssClientRequest failed');
+    }
+
+    const result = response.payload as WasmPrepareThresholdEcdsaHssClientRequestResult;
+    return {
+      clientEvalRequestB64u: String(result.clientEvalRequestB64u || '').trim(),
+    };
+  } finally {
+    zeroizeThresholdEcdsaClientRootSharePayload(clientRootSharePayload);
   }
-
-  const result = response.payload as WasmPrepareThresholdEcdsaHssClientRequestResult;
-  return {
-    clientEvalRequestB64u: String(result.clientEvalRequestB64u || '').trim(),
-  };
 }
 
 export async function finalizeThresholdEcdsaHssClientRequestWasm(input: {

@@ -35,7 +35,10 @@ import type { RegistrationCredentialConfirmationPayload } from './workerManager/
 import type {
   TouchConfirmRuntimeBridgePort,
   WarmSessionMaterialClearAll,
+  WarmSessionClaimResult,
+  WarmSessionStatusResult,
 } from './touchConfirm/types';
+import type { WarmSessionStatusBatchResult } from '../types/secure-confirm-worker';
 import {
   UserConfirmationType,
   type ExportPrivateKeyDisplayEntry,
@@ -173,11 +176,7 @@ import {
   createOrchestrationDependencyBundle,
   type OrchestrationDependencyBundle,
 } from './bootstrap/orchestrationDependencyFactory';
-import {
-  enrollEmailOtpWallet,
-  loginWithEmailOtpAndBootstrapEcdsaCapability,
-} from '../TatchiPasskey/emailOtp';
-import type { Shamir3PassRuntime } from './workerManager/workers/shamir3pass/runtime';
+import { enrollEmailOtpWallet } from '../TatchiPasskey/emailOtp';
 
 export type {
   ThresholdEcdsaActivationChain,
@@ -185,6 +184,16 @@ export type {
 } from './orchestration/thresholdActivation';
 export type { NearSignIntentRequest, NearSignIntentResult } from './api/nearSigning';
 export type { ThresholdEcdsaLoginPrefillResult } from './api/thresholdLifecycle/thresholdEcdsaLoginPrefill';
+
+type EmailOtpBootstrapRecovery = {
+  loginGrant: string;
+  challengeId: string;
+  emailOtpKeyVersion: string;
+  unlockChallengeId: string;
+  unlockChallengeB64u: string;
+  unlockPublicKeyB64u: string;
+  unlockSignatureB64u: string;
+};
 
 function hasWarmSessionMaterialClearAll(
   value: unknown,
@@ -272,8 +281,8 @@ export class SigningEngine {
     this.touchIdPrompt = assembly.touchIdPrompt;
     this.userPreferencesManager = assembly.userPreferencesManager;
     this.nonceManager = assembly.nonceManager;
-    this.touchConfirm = assembly.touchConfirm;
     this.signerWorkerManager = assembly.signerWorkerManager;
+    this.touchConfirm = this.createWarmSessionAwareTouchConfirm(assembly.touchConfirm);
 
     this.orchestrationDeps = createOrchestrationDependencyBundle({
       tatchiPasskeyConfigs: this.tatchiPasskeyConfigs,
@@ -318,6 +327,143 @@ export class SigningEngine {
         this.touchConfirm.setWorkerBaseOrigin?.(origin);
       },
     });
+  }
+
+  private createWarmSessionAwareTouchConfirm(
+    base: TouchConfirmRuntimeBridgePort,
+  ): TouchConfirmRuntimeBridgePort {
+    const getWarmSessionStatus = async (args: {
+      sessionId: string;
+    }): Promise<WarmSessionStatusResult> => {
+      const primary = await base.getWarmSessionStatus(args);
+      if (primary.ok || primary.code !== 'not_found') return primary;
+      const secondary = await this.getEmailOtpWarmSessionStatus(args.sessionId);
+      return secondary.ok || secondary.code !== 'not_found' ? secondary : primary;
+    };
+
+    const getWarmSessionStatuses = async (args: {
+      sessionIds: string[];
+    }): Promise<WarmSessionStatusBatchResult> => {
+      const primary =
+        typeof base.getWarmSessionStatuses === 'function'
+          ? await base.getWarmSessionStatuses(args)
+          : {
+              results: await Promise.all(
+                args.sessionIds.map(async (sessionId) => ({
+                  sessionId,
+                  result: await base.getWarmSessionStatus({ sessionId }),
+                })),
+              ),
+            };
+      const results = await Promise.all(
+        primary.results.map(async (entry) => {
+          if (entry.result.ok || entry.result.code !== 'not_found') return entry;
+          const fallback = await this.getEmailOtpWarmSessionStatus(entry.sessionId);
+          return {
+            sessionId: entry.sessionId,
+            result: fallback.ok || fallback.code !== 'not_found' ? fallback : entry.result,
+          };
+        }),
+      );
+      return { results };
+    };
+
+    const claimWarmSessionMaterial = async (args: {
+      sessionId: string;
+      uses?: number;
+    }): Promise<WarmSessionClaimResult> => {
+      const primary = await base.claimWarmSessionMaterial(args);
+      if (primary.ok || primary.code !== 'not_found') return primary;
+      const secondary = await this.claimEmailOtpWarmSessionMaterial(args);
+      return secondary.ok || secondary.code !== 'not_found' ? secondary : primary;
+    };
+
+    const clearWarmSessionMaterial = async (args: { sessionId: string }): Promise<void> => {
+      await Promise.all([
+        base.clearWarmSessionMaterial(args).catch(() => undefined),
+        this.clearEmailOtpWarmSessionMaterial(args.sessionId).catch(() => undefined),
+      ]);
+    };
+
+    return new Proxy(base, {
+      get: (target, prop, receiver) => {
+        if (prop === 'getWarmSessionStatus') return getWarmSessionStatus;
+        if (prop === 'getWarmSessionStatuses') return getWarmSessionStatuses;
+        if (prop === 'claimWarmSessionMaterial') return claimWarmSessionMaterial;
+        if (prop === 'clearWarmSessionMaterial') return clearWarmSessionMaterial;
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as TouchConfirmRuntimeBridgePort;
+  }
+
+  private async getEmailOtpWarmSessionStatus(
+    sessionId: string,
+  ): Promise<WarmSessionStatusResult> {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) {
+      return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+    }
+    try {
+      return await this.signerWorkerManager.requestWorkerOperation({
+        kind: 'emailOtp',
+        request: {
+          type: 'getEmailOtpWarmSessionStatus',
+          timeoutMs: 5_000,
+          payload: { sessionId: normalizedSessionId },
+        },
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: error instanceof Error ? error.message : String(error || 'Email OTP worker error'),
+      };
+    }
+  }
+
+  private async claimEmailOtpWarmSessionMaterial(args: {
+    sessionId: string;
+    uses?: number;
+  }): Promise<WarmSessionClaimResult> {
+    const normalizedSessionId = String(args.sessionId || '').trim();
+    if (!normalizedSessionId) {
+      return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+    }
+    try {
+      return await this.signerWorkerManager.requestWorkerOperation({
+        kind: 'emailOtp',
+        request: {
+          type: 'claimEmailOtpWarmSessionMaterial',
+          timeoutMs: 5_000,
+          payload: {
+            sessionId: normalizedSessionId,
+            ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+          },
+        },
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: error instanceof Error ? error.message : String(error || 'Email OTP worker error'),
+      };
+    }
+  }
+
+  private async clearEmailOtpWarmSessionMaterial(sessionId: string): Promise<void> {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return;
+    await this.signerWorkerManager
+      .requestWorkerOperation({
+        kind: 'emailOtp',
+        request: {
+          type: 'clearEmailOtpWarmSessionMaterial',
+          timeoutMs: 5_000,
+          payload: { sessionId: normalizedSessionId },
+        },
+      })
+      .catch(() => undefined);
   }
 
   private async ensureSealedRefreshStartupParity(): Promise<void> {
@@ -1379,6 +1525,9 @@ export class SigningEngine {
           nearAccountId,
           chain,
           ...(provisionArgs.relayerUrl ? { relayerUrl: provisionArgs.relayerUrl } : {}),
+          ...(provisionArgs.clientRootShare32
+            ? { clientRootShare32: provisionArgs.clientRootShare32 }
+            : {}),
           ...(provisionArgs.clientRootShare32B64u
             ? { clientRootShare32B64u: provisionArgs.clientRootShare32B64u }
             : {}),
@@ -1409,6 +1558,7 @@ export class SigningEngine {
       sessionKind: args.sessionKind,
       sessionId: args.sessionId,
       authorizationJwt: args.authorizationJwt,
+      clientRootShare32: args.clientRootShare32,
       clientRootShare32B64u: args.clientRootShare32B64u,
       ttlMs: args.ttlMs,
       remainingUses: args.remainingUses,
@@ -1425,6 +1575,7 @@ export class SigningEngine {
     chain?: ThresholdEcdsaActivationChain;
     emailOtpAuthPolicy?: EmailOtpAuthPolicy;
     relayUrl?: string;
+    challengeId?: string;
     otpCode: string;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
@@ -1436,19 +1587,8 @@ export class SigningEngine {
     ttlMs?: number;
     remainingUses?: number;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
-    fetchImpl?: typeof fetch;
-    shamirRuntime?: Pick<
-      Shamir3PassRuntime,
-      | 'createClientKeyHandle'
-      | 'destroyClientKeyHandle'
-      | 'addClientSealWithKeyHandle'
-      | 'removeClientSealWithKeyHandle'
-      | 'removeClientSealWithKeyHandleToBytes'
-    >;
   }): Promise<{
-    recovery: Awaited<
-      ReturnType<typeof loginWithEmailOtpAndBootstrapEcdsaCapability>
-    >['recovery'];
+    recovery: EmailOtpBootstrapRecovery;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     warmCapability: WarmSessionEcdsaCapabilityState;
   }> {
@@ -1475,45 +1615,72 @@ export class SigningEngine {
     if (!shamirPrimeB64u) {
       throw new Error('Missing shamir prime for Email OTP runtime');
     }
+    const remainingUses =
+      typeof args.remainingUses === 'number'
+        ? args.remainingUses
+        : emailOtpAuthPolicy === 'per_operation'
+          ? 1
+          : undefined;
+    const workerCtx =
+      this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
+    const authorizationJwt = String(args.authorizationJwt || '').trim();
+    const rpId =
+      typeof (this.touchIdPrompt as { getRpId?: unknown } | undefined)?.getRpId === 'function'
+        ? String(this.touchIdPrompt.getRpId() || '').trim()
+        : '';
 
-    const result = await loginWithEmailOtpAndBootstrapEcdsaCapability({
-      relayUrl,
-      walletId: String(nearAccountId),
-      otpCode: args.otpCode,
-      shamirPrimeB64u,
-      appSessionJwt: args.appSessionJwt,
-      authorizationJwt: args.authorizationJwt,
-      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-      participantIds: args.participantIds,
-      sessionKind: args.sessionKind,
-      sessionId: args.sessionId,
-      ttlMs: args.ttlMs,
-      remainingUses:
-        typeof args.remainingUses === 'number'
-          ? args.remainingUses
-          : emailOtpAuthPolicy === 'per_operation'
-            ? 1
-            : undefined,
-      smartAccount: args.smartAccount,
-      emailOtpAuthContext,
+    if (!workerCtx) {
+      throw new Error('Email OTP login requires the dedicated emailOtp worker');
+    }
+    if (!authorizationJwt) {
+      throw new Error('Email OTP login requires an authorization JWT for ECDSA bootstrap');
+    }
+    if (!rpId) {
+      throw new Error('Email OTP login requires an RP ID for ECDSA bootstrap');
+    }
+    const workerResult = await workerCtx.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'loginWithEmailOtpAndBootstrapEcdsaSession',
+        timeoutMs: 60_000,
+        payload: {
+          relayUrl,
+          walletId: String(nearAccountId),
+          userId: String(nearAccountId),
+          ...(args.challengeId ? { challengeId: args.challengeId } : {}),
+          otpCode: args.otpCode,
+          shamirPrimeB64u,
+          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+          otpChannel: 'email_otp',
+          rpId,
+          ...(args.ecdsaThresholdKeyId ? { ecdsaThresholdKeyId: args.ecdsaThresholdKeyId } : {}),
+          ...(Array.isArray(args.participantIds) && args.participantIds.length > 0
+            ? { participantIds: args.participantIds }
+            : {}),
+          ...(args.sessionKind ? { sessionKind: args.sessionKind } : {}),
+          ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+          authorizationJwt,
+          ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
+          ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+        },
+      },
+    });
+    const bootstrap = await this.commitWorkerProvisionedThresholdEcdsaSession({
+      nearAccountId,
       chain,
-      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
-      ...(args.fetchImpl ? { fetchImpl: args.fetchImpl } : {}),
-      ...(args.shamirRuntime ? { shamirRuntime: args.shamirRuntime } : {}),
-      bootstrapEcdsaSession: async (bootstrapArgs) =>
-        await this.bootstrapEcdsaSession({
-          ...bootstrapArgs,
-          source: 'email_otp',
-          emailOtpAuthContext,
-        }),
+      bootstrap: workerResult.bootstrap,
+      source: 'email_otp',
+      emailOtpAuthContext,
+      smartAccount: args.smartAccount,
+      requiresSealPersistence: true,
     });
     const warmCapability = await this.assertWarmThresholdEcdsaCapabilityReady({
       nearAccountId,
       chain,
     });
     return {
-      recovery: result.recovery,
-      bootstrap: result.bootstrap,
+      recovery: workerResult.recovery,
+      bootstrap,
       warmCapability,
     };
   }
@@ -1526,18 +1693,10 @@ export class SigningEngine {
     nearAccountId: AccountId | string;
     otpCode: string;
     relayUrl?: string;
+    challengeId?: string;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
-    fetchImpl?: typeof fetch;
-    shamirRuntime?: Pick<
-      Shamir3PassRuntime,
-      | 'createClientKeyHandle'
-      | 'destroyClientKeyHandle'
-      | 'addClientSealWithKeyHandle'
-      | 'addClientSealBytesWithKeyHandle'
-      | 'removeClientSealWithKeyHandle'
-    >;
-    clientSecretB64u?: string;
+    clientSecret32?: Uint8Array;
     otpChannel?: 'email_otp';
   }): Promise<Awaited<ReturnType<typeof enrollEmailOtpWallet>>> {
     const nearAccountId = toAccountId(args.nearAccountId);
@@ -1557,16 +1716,13 @@ export class SigningEngine {
       relayUrl,
       walletId: String(nearAccountId),
       userId: String(nearAccountId),
+      challengeId: args.challengeId,
       otpCode: args.otpCode,
       shamirPrimeB64u,
       workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
       appSessionJwt: args.appSessionJwt,
       otpChannel: args.otpChannel,
-      ...(args.fetchImpl ? { fetchImpl: args.fetchImpl } : {}),
-      ...(args.shamirRuntime ? { shamirRuntime: args.shamirRuntime } : {}),
-      ...(String(args.clientSecretB64u || '').trim()
-        ? { clientSecretB64u: String(args.clientSecretB64u || '').trim() }
-        : {}),
+      ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
     });
   }
 
@@ -1631,6 +1787,77 @@ export class SigningEngine {
         });
       }
       return bootstrap;
+    });
+  }
+
+  private async commitWorkerProvisionedThresholdEcdsaSession(args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    source: ThresholdEcdsaSessionStoreSource;
+    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
+    smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+    requiresSealPersistence?: boolean;
+  }): Promise<ThresholdEcdsaSessionBootstrapResult> {
+    const nearAccountId = toAccountId(args.nearAccountId);
+    await this.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
+      nearAccountId,
+      chain: args.chain,
+      source: args.source,
+      emailOtpAuthContext: args.emailOtpAuthContext,
+      smartAccount: args.smartAccount,
+    });
+    return await this.withThresholdEcdsaBootstrapQueue(nearAccountId, async () => {
+      const ecdsaThresholdKeyId = String(
+        args.bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId || '',
+      ).trim();
+      if (!ecdsaThresholdKeyId) {
+        throw new Error(
+          '[SigningEngine] threshold-ecdsa bootstrap did not provide canonical ecdsaThresholdKeyId',
+        );
+      }
+      const canonicalBootstrap: ThresholdEcdsaSessionBootstrapResult = {
+        ...args.bootstrap,
+        thresholdEcdsaKeyRef: {
+          ...args.bootstrap.thresholdEcdsaKeyRef,
+          ecdsaThresholdKeyId,
+        },
+      };
+      await this.persistThresholdEcdsaBootstrapChainAccount({
+        nearAccountId,
+        chain: args.chain,
+        bootstrap: canonicalBootstrap,
+        smartAccount: args.smartAccount,
+      });
+      this.upsertThresholdEcdsaSessionFromBootstrap({
+        nearAccountId,
+        chain: args.chain,
+        bootstrap: canonicalBootstrap,
+        source: args.source,
+        ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
+      });
+      const thresholdSessionId = String(
+        canonicalBootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '',
+      ).trim();
+      if (thresholdSessionId) {
+        const warmSessionManager = createWarmSessionManager({
+          touchConfirm: this.touchConfirm,
+          clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) =>
+            this.clearThresholdEcdsaSigningArtifactsForLane({ nearAccountId, chain }),
+          clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain }) =>
+            this.clearThresholdEcdsaSessionRecordForLane({ nearAccountId, chain }),
+          getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
+            this.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
+          signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
+        });
+        await warmSessionManager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
+          chain: args.chain,
+          thresholdSessionId,
+          required: Boolean(args.requiresSealPersistence),
+          errorContext: 'threshold-ecdsa bootstrap seal persistence',
+        });
+      }
+      return canonicalBootstrap;
     });
   }
 

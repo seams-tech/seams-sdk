@@ -20,6 +20,7 @@ export const BUILD_PATHS = {
     WASM_ETH_SIGNER: '../wasm/eth_signer',
     WASM_TEMPO_SIGNER: '../wasm/tempo_signer',
     WASM_SHAMIR3PASS_RUNTIME: '../wasm/shamir3pass_runtime',
+    WASM_EMAIL_OTP_RUNTIME: '../wasm/email_otp_runtime',
     CRITICAL_DIRS: [
       '../client/src/core',
       '../client/src/react',
@@ -31,6 +32,7 @@ export const BUILD_PATHS = {
       '../wasm/eth_signer',
       '../wasm/tempo_signer',
       '../wasm/shamir3pass_runtime',
+      '../wasm/email_otp_runtime',
     ],
   },
 
@@ -48,6 +50,7 @@ export const BUILD_PATHS = {
     TOUCH_CONFIRM_WORKER: '/sdk/workers/passkey-confirm.worker.js',
     SIGNER_WORKER: '/sdk/workers/near-signer.worker.js',
     HSS_CLIENT_WORKER: '/sdk/workers/hss-client.worker.js',
+    EMAIL_OTP_WORKER: '/sdk/workers/email-otp.worker.js',
   },
 
   // Worker file names
@@ -55,11 +58,14 @@ export const BUILD_PATHS = {
     TOUCH_CONFIRM: 'passkey-confirm.worker.js',
     SIGNER: 'near-signer.worker.js',
     HSS_CLIENT: 'hss-client.worker.js',
+    EMAIL_OTP: 'email-otp.worker.js',
     SHAMIR3PASS: 'shamir3pass.worker.js',
     WASM_SIGNER_JS: 'wasm_signer_worker.js',
     WASM_SIGNER_WASM: 'wasm_signer_worker_bg.wasm',
     HSS_CLIENT_SIGNER_JS: 'hss_client_signer.js',
     HSS_CLIENT_SIGNER_WASM: 'hss_client_signer_bg.wasm',
+    EMAIL_OTP_RUNTIME_JS: 'email_otp_runtime.js',
+    EMAIL_OTP_RUNTIME_WASM: 'email_otp_runtime_bg.wasm',
   },
 
   // Test worker file paths (for test files)
@@ -67,11 +73,14 @@ export const BUILD_PATHS = {
     TOUCH_CONFIRM: '/sdk/workers/passkey-confirm.worker.js',
     SIGNER: '/sdk/workers/near-signer.worker.js',
     HSS_CLIENT: '/sdk/workers/hss-client.worker.js',
+    EMAIL_OTP: '/sdk/workers/email-otp.worker.js',
     SHAMIR3PASS: '/sdk/workers/shamir3pass.worker.js',
     WASM_SIGNER_JS: '/sdk/workers/wasm_signer_worker.js',
     WASM_SIGNER_WASM: '/sdk/workers/wasm_signer_worker_bg.wasm',
     HSS_CLIENT_SIGNER_JS: '/sdk/workers/hss_client_signer.js',
     HSS_CLIENT_SIGNER_WASM: '/sdk/workers/hss_client_signer_bg.wasm',
+    EMAIL_OTP_RUNTIME_JS: '/sdk/workers/email_otp_runtime.js',
+    EMAIL_OTP_RUNTIME_WASM: '/sdk/workers/email_otp_runtime_bg.wasm',
   },
 } as const;
 

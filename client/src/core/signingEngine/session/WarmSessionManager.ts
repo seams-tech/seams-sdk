@@ -182,6 +182,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   authorizationJwt?: string;
+  clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
 };
 
@@ -195,6 +196,7 @@ export type WarmEcdsaBootstrapRequest = {
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   authorizationJwt?: string;
+  clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
 };
 
@@ -228,6 +230,14 @@ type WarmSessionEcdsaPolicyRecordHint = {
 
 export const THRESHOLD_SESSION_MISSING_ERROR =
   '[chains] Missing threshold signingSessionId; reconnect threshold session before signing';
+
+function cloneOptionalFixed32Bytes(value: Uint8Array | undefined): Uint8Array | undefined {
+  if (!(value instanceof Uint8Array)) return undefined;
+  if (value.length !== 32) {
+    throw new Error('clientRootShare32 must be 32 bytes');
+  }
+  return value;
+}
 export const THRESHOLD_SESSION_EXHAUSTED_ERROR =
   '[chains] threshold signingSession is exhausted; reconnect threshold session before signing';
 export const THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR =
@@ -684,6 +694,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       const explicitAuthorizationJwt = toOptionalNonEmptyString(args.authorizationJwt);
       const explicitSessionId = toOptionalNonEmptyString(args.sessionId);
       const explicitThresholdKeyId = toOptionalNonEmptyString(args.ecdsaThresholdKeyId);
+      const explicitClientRootShare32 = cloneOptionalFixed32Bytes(args.clientRootShare32);
       const explicitClientRootShare32B64u = toOptionalNonEmptyString(args.clientRootShare32B64u);
       const preferredMetadataCapability = primaryCapability.record
         ? primaryCapability
@@ -746,6 +757,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
                 ).trim(),
               }
             : {}),
+        ...(explicitClientRootShare32 ? { clientRootShare32: explicitClientRootShare32 } : {}),
         ...(explicitClientRootShare32B64u
           ? { clientRootShare32B64u: explicitClientRootShare32B64u }
           : {}),
@@ -758,10 +770,17 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       const nearAccountId = toAccountId(args.nearAccountId);
       const beforeWarmSession = await this.getWarmSession(nearAccountId);
       const normalizedAuthorizationJwt = toOptionalNonEmptyString(args.authorizationJwt);
+      const normalizedClientRootShare32 =
+        args.clientRootShare32 instanceof Uint8Array ? args.clientRootShare32 : undefined;
       const normalizedClientRootShare32B64u = toOptionalNonEmptyString(args.clientRootShare32B64u);
       const normalizedSessionId = toOptionalNonEmptyString(args.sessionId);
 
-      if (!normalizedAuthorizationJwt && !normalizedClientRootShare32B64u && !normalizedSessionId) {
+      if (
+        !normalizedAuthorizationJwt &&
+        !normalizedClientRootShare32 &&
+        !normalizedClientRootShare32B64u &&
+        !normalizedSessionId
+      ) {
         const reusableBootstrap = await this.tryReuseReadyEcdsaBootstrap({
           nearAccountId,
           chain: args.chain,
@@ -781,9 +800,11 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         sessionKind: args.sessionKind,
         sessionId: args.sessionId,
         authorizationJwt: args.authorizationJwt,
+        clientRootShare32: args.clientRootShare32,
         clientRootShare32B64u: args.clientRootShare32B64u,
       });
       if (
+        !resolvedBootstrapRequest.clientRootShare32 &&
         !resolvedBootstrapRequest.clientRootShare32B64u &&
         resolvedBootstrapRequest.authorizationJwt &&
         resolvedBootstrapRequest.sessionId

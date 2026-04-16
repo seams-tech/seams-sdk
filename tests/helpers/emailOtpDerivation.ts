@@ -1,4 +1,4 @@
-import { base64UrlDecode, base64UrlEncode } from './encoders';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
 export const EMAIL_OTP_THRESHOLD_ROOT_SALT_V1 = 'tatchi/email-otp/root/v1';
 export const EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1 =

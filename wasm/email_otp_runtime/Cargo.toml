@@ -1,0 +1,27 @@
+[package]
+name = "email_otp_runtime"
+version = "0.1.0"
+edition = "2021"
+description = "WASM runtime for Email OTP signing-secret derivation"
+repository = "https://github.com/web3-authn/sdk"
+license = "Apache-2.0"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = true
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+hmac = "0.12"
+sha2 = "0.10"
+wasm-bindgen = "0.2"
+zeroize = "1.8"

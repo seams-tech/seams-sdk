@@ -15,6 +15,7 @@ import {
   type MultichainWorkerKind,
 } from '@/core/walletRuntimePaths/multichainWorkers';
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
+import { resolveEmailOtpWorkerUrl } from '@/core/walletRuntimePaths/emailOtpWorker';
 import { withSessionId } from './session';
 import type {
   HssWorkerOperationRequest,
@@ -87,13 +88,18 @@ type AnyWorkerOperationArgs =
   | HssWorkerOperationArgs
   | {
       [K in MultichainWorkerKind]: MultichainWorkerOperationArgs<K, MultichainOperationType<K>>;
-    }[MultichainWorkerKind];
+    }[MultichainWorkerKind]
+  | {
+      kind: 'emailOtp';
+      request: SignerWorkerOperationRequest<'emailOtp', SignerWorkerOperationType<'emailOtp'>>;
+    };
 
 const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
   'nearSigner',
   'hssClient',
   'ethSigner',
   'tempoSigner',
+  'emailOtp',
 ];
 const MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS = 20_000;
 
@@ -201,6 +207,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   ): Promise<
     | NearWorkerOperationResult<NearWorkerOperationType>
     | HssWorkerOperationResult<HssWorkerOperationType>
+    | SignerWorkerOperationResult<'emailOtp', SignerWorkerOperationType<'emailOtp'>>
     | MultichainWorkerOperationResult<
         MultichainWorkerKind,
         MultichainOperationType<MultichainWorkerKind>
@@ -213,9 +220,12 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       return await this.requestHssOperation(args.request);
     }
     if (args.kind === 'ethSigner') {
-      return await this.requestMultichainOperation('ethSigner', args.request);
+      return await this.requestRpcOperation('ethSigner', args.request);
     }
-    return await this.requestMultichainOperation('tempoSigner', args.request);
+    if (args.kind === 'tempoSigner') {
+      return await this.requestRpcOperation('tempoSigner', args.request);
+    }
+    return await this.requestRpcOperation('emailOtp', args.request);
   }
 
   private async requestNearOperation<T extends NearWorkerOperationType>({
@@ -345,13 +355,13 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     });
   }
 
-  private async requestMultichainOperation<
-    K extends MultichainWorkerKind,
-    T extends MultichainOperationType<K>,
+  private async requestRpcOperation<
+    K extends Extract<SignerWorkerKind, 'ethSigner' | 'tempoSigner' | 'emailOtp'>,
+    T extends SignerWorkerOperationType<K>,
   >(
     kind: K,
-    request: MultichainWorkerOperationRequest<K, T>,
-  ): Promise<MultichainWorkerOperationResult<K, T>> {
+    request: SignerWorkerOperationRequest<K, T>,
+  ): Promise<SignerWorkerOperationResult<K, T>> {
     const worker = this.getOrCreateWorker(kind);
     const requestId = makeId(kind);
     const parsedTimeoutMs = Math.floor(Number(request.timeoutMs));
@@ -360,7 +370,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
         ? parsedTimeoutMs
         : MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS;
 
-    return await new Promise<MultichainWorkerOperationResult<K, T>>((resolve, reject) => {
+    return await new Promise<SignerWorkerOperationResult<K, T>>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.rejectRequest(
           kind,
@@ -375,7 +385,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       }, timeoutMs);
 
       this.getPendingMap(kind).set(requestId, {
-        resolve: (value) => resolve(value as MultichainWorkerOperationResult<K, T>),
+        resolve: (value) => resolve(value as SignerWorkerOperationResult<K, T>),
         reject,
         timeoutId,
       });
@@ -441,6 +451,12 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
           type: SIGNER_WORKER_MANAGER_CONFIG.HSS_CLIENT_WORKER.TYPE,
           name: SIGNER_WORKER_MANAGER_CONFIG.HSS_CLIENT_WORKER.NAME,
         });
+      }
+      if (kind === 'emailOtp') {
+        const workerUrl = resolveEmailOtpWorkerUrl({
+          baseOrigin: this.workerBaseOrigin,
+        });
+        return new Worker(workerUrl, { type: 'module', name: 'email-otp-worker' });
       }
 
       const workerUrl = resolveMultichainWorkerUrl(kind, {

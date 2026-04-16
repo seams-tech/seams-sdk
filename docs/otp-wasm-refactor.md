@@ -1,6 +1,6 @@
 # OTP WASM Worker Refactor Plan
 
-Date updated: April 15, 2026
+Date updated: April 16, 2026
 
 ## Objective
 
@@ -16,7 +16,7 @@ After this refactor:
 
 ## Current Status
 
-This refactor has not started implementation yet.
+This refactor has started implementation.
 
 What is already complete:
 
@@ -27,20 +27,69 @@ What is already complete:
    - opaque worker-held `shamir3pass` key handles
    - stronger `WarmSessionManager` policy handling for Email OTP
 3. that hardening work is a prerequisite and design input for this refactor, but it is not the refactor itself
-4. the prerequisite core release-gate validation has been rerun successfully after the latest handle-only cleanup
-
-What is not started yet:
-
-1. there is no dedicated `emailOtp` worker
-2. Email OTP networking still lives on the main-thread orchestration side
-3. Email OTP login, unlock, enrollment, and bootstrap flows have not yet moved behind a dedicated worker boundary
-4. `wasm/email_otp_runtime` does not exist yet
+4. the prerequisite core release-gate validation has been rerun successfully after the latest dedicated-worker bootstrap-prep shift
+5. phase 1 worker scaffold is now in place:
+   - a dedicated `emailOtp` worker kind exists
+   - worker transport and request/response typing now recognize Email OTP operations
+   - a worker-owned Email OTP fetch helper exists with shared auth and error normalization
+   - the default runtime path now dispatches challenge and verify calls through the `emailOtp` worker
+   - SDK build outputs now bundle `email-otp.worker.js`
+6. the default Email OTP login-plus-unlock path now also runs inside the dedicated worker:
+   - the worker owns `shamir3pass` unseal for the standard login path
+   - the worker derives the unlock auth seed and client root share for the standard login path
+   - the worker fetches and signs `/wallet/unlock/challenge` and submits `/wallet/unlock/verify`
+   - the main thread no longer receives recovered `S` for the default login-plus-unlock flow
+7. the default Email OTP enrollment path now also runs inside the dedicated worker:
+   - the worker owns enrollment challenge, seal, and verify route composition for the standard enrollment path
+   - the worker derives the unlock public key and threshold verifying share for that path
+   - the worker performs the `shamir3pass` enrollment seal flow for that path
+   - the main thread no longer walks the enrollment secret through JS when the default runtime path is used
+8. the default Email OTP login-plus-bootstrap preparation path now also dispatches through the dedicated worker:
+   - the worker owns login, verify, `shamir3pass` unseal, client-root-share derivation, and unlock proof generation for the default bootstrap-prep path
+   - the worker returns sanitized bootstrap-prep metadata plus transferred `clientRootShare32` bytes
+   - the default runtime no longer routes bootstrap preparation through the older string-result unlock bridge
+9. the residual login-plus-bootstrap handoff is now byte-owned instead of string-backed:
+   - the main-thread bootstrap wrapper now consumes a transient `clientRootShare32` byte buffer once and zeroizes it in `finally`
+   - the HSS bootstrap worker/WASM boundary now accepts raw `clientRootShare32` bytes
+   - transient bootstrap-share buffers are zeroized after the bootstrap call returns
+10. the default internal Email OTP login bridge now runs the final ECDSA authorization-bootstrap ceremony inside the dedicated `emailOtp` worker:
+   - the worker performs login, verify, `shamir3pass` unseal, unlock proof generation, HSS prepare/respond/finalize, and bootstrap finalization for the default internal path
+   - the main thread receives sanitized recovery metadata plus final `ThresholdEcdsaSessionBootstrapResult`
+   - the main thread only commits persistence, session-store upsert, policy metadata, and warm-session lifecycle state
+11. `wasm/email_otp_runtime` now exists and owns the Email OTP HKDF derivation for the dedicated worker path:
+   - threshold root, ECDSA client root share, and unlock auth seed derivation are implemented in WASM
+   - worker-owned derivation no longer calls the shared JS HKDF helper for the default worker path
+   - owned WASM inputs and HKDF intermediates are zeroized before returning
+12. focused WASM derivation regression coverage now exists:
+   - the unit suite compares `email_otp_runtime` outputs against the canonical byte-oriented JS derivation helpers
+   - the suite rejects non-32-byte secrets at the WASM boundary
+   - the suite asserts WASM outputs are caller-owned buffers that can be zeroized without corrupting later derivations
+13. the default worker flow now supports the product-correct OTP challenge boundary:
+   - enrollment, login-plus-unlock, login-plus-bootstrap-prep, and full login-plus-bootstrap operations accept an already-issued `challengeId`
+   - the worker can verify the OTP against the challenge the user actually received instead of requiring a second freshly-created challenge
+   - focused unit coverage asserts preissued challenge consumption without a duplicate challenge request
+14. the production main-thread Email OTP secret-bearing compatibility paths have been deleted:
+   - `emailOtp.ts` is now a public facade for challenge, verify, and enrollment dispatch
+   - Email OTP login plus ECDSA bootstrap requires the dedicated `emailOtp` worker
+   - the previous main-thread login/unlock/bootstrap helpers are no longer exported
+15. public worker operations no longer return or accept caller-facing `clientRootShare32B64u` for Email OTP enrollment or login bootstrap:
+   - enrollment returns public verifier material only
+   - login bootstrap returns sanitized recovery metadata plus final bootstrap state
+16. `shamir3pass` byte-oriented seal/unseal entrypoints are now required by the Email OTP worker path
+17. the duplicate JS Email OTP derivation implementation has been moved out of production `shared/src` and into `tests/helpers` for parity tests only
 
 Concrete residuals confirmed by the latest audit:
 
-1. [emailOtp.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/emailOtp.ts) still owns main-thread secret-bearing route composition and unlock-proof orchestration
-2. [emailOtp.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/emailOtp.ts) still exposes string-secret compatibility/public helper entrypoints such as `completeEmailOtpUnlock(...clientSecretB64u)` and optional caller-supplied `clientSecretB64u` enrollment input
-3. [emailOtpDerivation.ts](/Users/pta/Dev/rust/simple-threshold-signer/shared/src/utils/emailOtpDerivation.ts) still performs the OTP HKDF derivation in JS rather than in worker-owned WASM
+1. [emailOtp.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/emailOtp.ts) no longer owns a production Email OTP secret-bearing login/unlock/bootstrap path:
+   - non-secret challenge and verify helpers may use direct fetch overrides for tests and simple public route calls
+   - enrollment dispatches secret-bearing work through the dedicated `emailOtp` worker
+   - login plus ECDSA bootstrap is worker-only
+2. the runtime public Email OTP helper surface no longer accepts or returns caller-facing secret strings:
+   - `completeEmailOtpUnlock(...clientSecretB64u)` has been deleted
+   - deterministic enrollment override now accepts byte-owned `clientSecret32` instead of `clientSecretB64u`
+3. [emailOtpDerivation.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/helpers/emailOtpDerivation.ts) now exists only as test/parity support:
+   - production code uses `wasm/email_otp_runtime` for Email OTP derivation
+   - `shared/src` no longer exports or contains the duplicate JS derivation helper
 
 ## Scope Split
 
@@ -248,10 +297,13 @@ Completed:
 
 ### Phase 1: Add worker transport and runtime scaffold
 
+Completed:
+
 1. add new `emailOtp` worker kind
 2. add worker transport and request/response types
 3. add worker lifecycle, initialization, timeout, and error handling
 4. add worker-side fetch helper with consistent auth and error normalization
+5. route default-runtime challenge and verify calls through the new worker
 
 Done criteria:
 
@@ -260,30 +312,43 @@ Done criteria:
 
 ### Phase 2: Move `shamir3pass` ownership into OTP worker
 
+Completed for the default login-plus-unlock flow:
+
 1. initialize `shamir3pass_runtime` inside the OTP worker
-2. remove direct Email OTP runtime dependence on main-thread `getShamir3PassRuntime()`
-3. perform wrap and unwrap entirely in worker-owned flow
-4. keep wrapped and unwrapped intermediate values inside the worker
+2. perform wrap and unwrap entirely in worker-owned flow for the standard login path
+3. keep wrapped and unwrapped intermediate values inside the worker for that path
+4. stop returning recovered `S` from the worker to the main thread in the standard login path
+
+No remaining Phase 2 implementation work.
 
 Done criteria:
 
-1. Email OTP runtime no longer unwraps secret `S` through main-thread helper code
-2. `clientSecretB64u` is not returned from worker to main thread
+1. default Email OTP login flow no longer unwraps secret `S` through main-thread helper code
+2. recovered `S` is not returned from worker to main thread for the default login flow
 
 ### Phase 3: Move OTP derivation into WASM
+
+Completed for the default worker path:
 
 1. add `email_otp_runtime` crate
 2. port tuple encoding and HKDF derivation logic from JS helper code
 3. expose byte-oriented derivation APIs
 4. add zeroization on success and error paths
 5. make worker use WASM derivation instead of JS shared derivation helpers
+6. add focused direct WASM parity and owned-buffer regression coverage
+
+Completed cleanup:
+
+1. the shared JS derivation helper has been quarantined into `tests/helpers` for parity tests only
 
 Done criteria:
 
-1. Email OTP derivation is no longer performed by main-thread JS helper code in runtime path
+1. default Email OTP worker runtime no longer performs derivation through main-thread JS helper code
 2. worker owns derivation of unlock auth seed and client root share
 
 ### Phase 4: Move unlock proof generation fully into worker
+
+Completed for the default login-plus-unlock flow:
 
 1. derive unlock private key in worker-owned runtime
 2. call secp256k1 pubkey derivation in worker
@@ -292,12 +357,16 @@ Done criteria:
 5. submit unlock verify in worker
 6. return only sanitized unlock result
 
+No remaining Phase 4 implementation work.
+
 Done criteria:
 
-1. main thread no longer assembles unlock proof flow from secret-bearing inputs
-2. unlock key material never leaves worker-owned runtime
+1. default login flow no longer assembles unlock proof flow on the main thread
+2. default login flow keeps unlock key material inside worker-owned runtime
 
 ### Phase 5: Move enrollment flow fully into worker
+
+Completed for the default enrollment flow:
 
 1. move enrollment challenge request into worker
 2. move seal request into worker
@@ -306,12 +375,27 @@ Done criteria:
 5. submit enrollment verify in worker
 6. return only final enrollment result
 
+No remaining Phase 5 implementation work.
+
 Done criteria:
 
-1. `enrollEmailOtpWallet` is reduced to a thin facade
-2. enrollment secret handling never occurs on main thread
+1. default `enrollEmailOtpWallet` is reduced to a thin facade
+2. default enrollment secret handling no longer occurs on the main thread
 
 ### Phase 6: Move login plus bootstrap flow behind worker boundary
+
+Completed:
+
+1. the default runtime now dispatches login plus bootstrap preparation through the dedicated `emailOtp` worker
+2. the worker returns transferred `clientRootShare32` bytes and sanitized recovery metadata rather than reusing the older string-backed login result
+3. the default internal Email OTP login bridge now dispatches the full authorization-bootstrap ceremony through the dedicated `emailOtp` worker when no test/compatibility overrides are present
+4. the worker now performs the ECDSA HSS prepare/respond/finalize sequence for the default internal Email OTP path
+5. the main thread commits only the final worker-returned bootstrap result into persistence, session-store state, policy metadata, and warm-session lifecycle checks
+
+Completed cleanup:
+
+1. the compatibility bootstrap-prep path has been deleted from the production runtime surface
+2. the main-thread facade now handles policy, routing, enrollment dispatch, and final non-secret commit logic
 
 Preferred target:
 
@@ -324,16 +408,18 @@ Preferred target:
 Two acceptable sub-phases:
 
 1. intermediate step
-   - worker returns derived bootstrap material if existing bootstrap path still requires it
+   - completed: worker returns derived bootstrap material if existing bootstrap path still requires it
 2. target step
-   - worker directly drives the OTP-specific bootstrap preparation path so main thread receives only final bootstrap outputs
+   - completed for the default internal bridge: worker directly drives the OTP-specific bootstrap path so main thread receives only final bootstrap outputs
 
 Done criteria:
 
-1. main thread no longer orchestrates login plus unlock plus bootstrap with secret-bearing intermediates
+1. default internal path no longer orchestrates login plus unlock plus bootstrap with secret-bearing intermediates on the main thread
 2. any temporary compatibility surface is explicitly marked and scheduled for removal
 
 ### Phase 7: Delete legacy main-thread OTP secret plumbing
+
+Completed:
 
 1. remove direct main-thread `shamir3pass` Email OTP runtime usage
 2. remove direct main-thread Email OTP derivation calls from runtime path
@@ -390,8 +476,8 @@ That means:
 
 ### Integration tests
 
-1. `loginWithEmailOtpAndUnlockWallet` still returns expected public outputs
-2. `loginWithEmailOtpAndBootstrapEcdsaCapability` still bootstraps correctly through worker path
+1. Email OTP login plus ECDSA bootstrap succeeds through `loginWithEmailOtpAndBootstrapEcdsaSession`
+2. worker-owned login/unlock/bootstrap result surfaces do not expose recovered `S` or caller-facing `clientRootShare32B64u`
 3. `enrollEmailOtpWallet` still uploads canonical public verifier material
 4. cookie and JWT session modes both work from worker-owned networking
 
@@ -440,16 +526,19 @@ Completed:
 
 1. write the OTP WASM-worker refactor plan
 2. finish the prerequisite core Email OTP hardening that this refactor will build on
+3. move the default Email OTP login-plus-bootstrap preparation subphase into the dedicated worker
+4. delete the remaining public string-secret Email OTP runtime entrypoints from the current JS runtime layer
+5. move the default internal Email OTP ECDSA authorization-bootstrap ceremony into the dedicated worker
+6. add focused unit coverage for the default worker-owned full-bootstrap dispatch and final main-thread commit boundary
+7. add `wasm/email_otp_runtime` and route default worker-owned Email OTP derivation through it
+8. add focused worker/WASM regression tests for direct derivation parity and caller-owned zeroization boundaries
+9. add preissued `challengeId` support to the worker-owned Email OTP login/enrollment/bootstrap APIs
+10. delete production main-thread Email OTP login/unlock/bootstrap compatibility helpers
+11. remove public Email OTP worker operations that returned transient bootstrap-share material
+12. require byte-oriented `shamir3pass` seal/unseal entrypoints for Email OTP worker flows
+13. move duplicate JS Email OTP derivation helpers out of production `shared/src` and into test-only parity support
+14. rerun focused unit, relayer, E2E, type-check, and prepared-SDK build validation after the cleanup
 
 Remaining:
 
-1. add `emailOtp` worker kind and transport plumbing
-2. add worker-owned fetch helper for OTP routes
-3. move `shamir3pass` Email OTP calls into OTP worker
-4. add `wasm/email_otp_runtime`
-5. move OTP derivation into `email_otp_runtime`
-6. move unlock proof flow into OTP worker
-7. move enrollment flow into OTP worker
-8. move login plus bootstrap flow into OTP worker boundary
-9. delete main-thread secret-bearing OTP orchestration
-10. add focused worker, WASM, and integration tests
+1. keep the focused Email OTP unit, relayer, E2E, and prepared-SDK build matrix as a standing release gate

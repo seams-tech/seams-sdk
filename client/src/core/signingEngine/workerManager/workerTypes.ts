@@ -5,6 +5,7 @@ import {
   WorkerRequestType,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -128,6 +129,127 @@ export interface TempoSignerWorkerOperationMap {
   };
 }
 
+export interface EmailOtpWorkerOperationMap {
+  requestEmailOtpChallenge: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      appSessionJwt?: string;
+      otpChannel?: 'email_otp';
+    };
+    result: {
+      challengeId: string;
+      otpChannel: 'email_otp';
+    };
+  };
+  requestEmailOtpEnrollmentChallenge: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      appSessionJwt?: string;
+      otpChannel?: 'email_otp';
+    };
+    result: {
+      challengeId: string;
+      otpChannel: 'email_otp';
+    };
+  };
+  enrollEmailOtpWallet: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId?: string;
+      challengeId?: string;
+      otpCode: string;
+      shamirPrimeB64u: string;
+      appSessionJwt?: string;
+      otpChannel?: 'email_otp';
+      clientSecret32?: ArrayBuffer;
+    };
+    result: {
+      thresholdEcdsaClientVerifyingShareB64u: string;
+      challengeId: string;
+      otpChannel: 'email_otp';
+      emailOtpKeyVersion: string;
+      unlockPublicKeyB64u: string;
+      unlockKeyVersion: string;
+    };
+  };
+  verifyEmailOtpCode: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      challengeId: string;
+      otpCode: string;
+      appSessionJwt?: string;
+      otpChannel?: 'email_otp';
+    };
+    result: {
+      loginGrant: string;
+      otpChannel: 'email_otp';
+      emailOtpEscrowBlob: string;
+    };
+  };
+  loginWithEmailOtpAndBootstrapEcdsaSession: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId?: string;
+      challengeId?: string;
+      otpCode: string;
+      shamirPrimeB64u: string;
+      appSessionJwt?: string;
+      otpChannel?: 'email_otp';
+      rpId: string;
+      ecdsaThresholdKeyId?: string;
+      participantIds?: number[];
+      sessionKind?: 'jwt' | 'cookie';
+      sessionId?: string;
+      authorizationJwt: string;
+      ttlMs?: number;
+      remainingUses?: number;
+    };
+    result: {
+      recovery: {
+        loginGrant: string;
+        challengeId: string;
+        emailOtpKeyVersion: string;
+        unlockChallengeId: string;
+        unlockChallengeB64u: string;
+        unlockPublicKeyB64u: string;
+        unlockSignatureB64u: string;
+      };
+      bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    };
+  };
+  getEmailOtpWarmSessionStatus: {
+    payload: {
+      sessionId: string;
+    };
+    result:
+      | { ok: true; remainingUses: number; expiresAtMs: number }
+      | { ok: false; code: string; message: string };
+  };
+  claimEmailOtpWarmSessionMaterial: {
+    payload: {
+      sessionId: string;
+      uses?: number;
+    };
+    result:
+      | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
+      | { ok: false; code: string; message: string };
+  };
+  clearEmailOtpWarmSessionMaterial: {
+    payload: {
+      sessionId: string;
+    };
+    result: {
+      ok: true;
+      cleared: true;
+    };
+  };
+}
+
 export interface MultichainSignerWorkerOperationMapByKind {
   ethSigner: EthSignerWorkerOperationMap;
   tempoSigner: TempoSignerWorkerOperationMap;
@@ -229,6 +351,7 @@ export interface SignerWorkerOperationMapByKind {
   hssClient: HssSignerWorkerOperationMap;
   ethSigner: EthSignerWorkerOperationMap;
   tempoSigner: TempoSignerWorkerOperationMap;
+  emailOtp: EmailOtpWorkerOperationMap;
 }
 
 export type SignerWorkerKind = keyof SignerWorkerOperationMapByKind;

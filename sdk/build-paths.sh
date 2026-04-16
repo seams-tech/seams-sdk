@@ -18,6 +18,7 @@ SOURCE_WASM_HSS_CLIENT_SIGNER="../wasm/hss_client_signer"
 SOURCE_WASM_ETH_SIGNER="../wasm/eth_signer"
 SOURCE_WASM_TEMPO_SIGNER="../wasm/tempo_signer"
 SOURCE_WASM_SHAMIR3PASS_RUNTIME="../wasm/shamir3pass_runtime"
+SOURCE_WASM_EMAIL_OTP_RUNTIME="../wasm/email_otp_runtime"
 
 # Critical directories for build freshness checking
 CRITICAL_DIRS=(
@@ -31,6 +32,7 @@ CRITICAL_DIRS=(
     "../wasm/eth_signer"
     "../wasm/tempo_signer"
     "../wasm/shamir3pass_runtime"
+    "../wasm/email_otp_runtime"
 )
 
 # Frontend deployment paths (used only for local dev/test copying)
@@ -60,6 +62,8 @@ WORKER_WASM_ETH_SIGNER_WASM="eth_signer.wasm"
 WORKER_WASM_TEMPO_SIGNER_WASM="tempo_signer.wasm"
 WORKER_SHAMIR3PASS_RUNTIME_JS="shamir3pass_runtime.js"
 WORKER_SHAMIR3PASS_RUNTIME_WASM="shamir3pass_runtime_bg.wasm"
+WORKER_EMAIL_OTP_RUNTIME_JS="email_otp_runtime.js"
+WORKER_EMAIL_OTP_RUNTIME_WASM="email_otp_runtime_bg.wasm"
 
 # Critical files to check for build freshness
 CRITICAL_FILES=(

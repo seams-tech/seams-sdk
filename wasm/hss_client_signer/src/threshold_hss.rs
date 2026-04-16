@@ -1,3 +1,4 @@
+use js_sys::{Reflect, Uint8Array};
 use crate::encoders::{base64_url_decode, base64_url_encode};
 use crate::js::{
     get_required_string, get_required_u16_vec, get_required_u32, object, set_string, set_u16_vec,
@@ -130,8 +131,7 @@ pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, 
 #[wasm_bindgen]
 pub fn threshold_ecdsa_hss_prepare_session(args: JsValue) -> Result<JsValue, JsValue> {
     let context = ecdsa_canonical_context_from_js(&args)?;
-    let client_root_share32_b64u = get_required_string(&args, "clientRootShare32B64u")?;
-    let y_client32_le = decode_fixed_32(&client_root_share32_b64u, "clientRootShare32B64u")?;
+    let y_client32_le = get_required_client_root_share32(&args)?;
     let context_binding = ecdsa_context_binding(&context)?;
     let state = ThresholdEcdsaHssClientSessionState {
         near_account_id: context.near_account_id,
@@ -160,17 +160,15 @@ pub fn threshold_ecdsa_hss_prepare_client_request(args: JsValue) -> Result<JsVal
     let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
     let server_assist_init_message_b64u =
         get_required_string(&args, "serverAssistInitMessageB64u")?;
-    let client_root_share32_b64u = get_required_string(&args, "clientRootShare32B64u")?;
 
     let state: ThresholdEcdsaHssClientSessionState = decode_state_blob(
         &evaluator_driver_state_b64u,
         "evaluatorDriverStateB64u",
     )?;
-    let expected_client_root_share32 =
-        decode_fixed_32(&client_root_share32_b64u, "clientRootShare32B64u")?;
+    let expected_client_root_share32 = get_required_client_root_share32(&args)?;
     if expected_client_root_share32 != state.y_client32_le {
         return Err(JsValue::from_str(
-            "clientRootShare32B64u did not match the prepared ECDSA HSS client session",
+            "clientRootShare32 did not match the prepared ECDSA HSS client session",
         ));
     }
     let server_assist_init: ThresholdEcdsaHssServerAssistInitWire = decode_state_blob(
@@ -235,6 +233,30 @@ fn canonical_context_from_js(args: &JsValue) -> Result<CanonicalContext, JsValue
         participant_ids: get_required_u16_vec(args, "participantIds")?,
         derivation_version: get_required_u32(args, "derivationVersion")?,
     })
+}
+
+fn get_required_client_root_share32(args: &JsValue) -> Result<[u8; 32], JsValue> {
+    let maybe_bytes = Reflect::get(args, &JsValue::from_str("clientRootShare32"))
+        .map_err(|_| JsValue::from_str("Invalid args: missing clientRootShare32"))?;
+    if !maybe_bytes.is_undefined() && !maybe_bytes.is_null() {
+        if !maybe_bytes.is_instance_of::<Uint8Array>() {
+            return Err(JsValue::from_str(
+                "Invalid args: clientRootShare32 must be a Uint8Array",
+            ));
+        }
+        let bytes = Uint8Array::new(&maybe_bytes);
+        if bytes.length() != 32 {
+            return Err(JsValue::from_str(
+                "Invalid args: clientRootShare32 must be 32 bytes",
+            ));
+        }
+        let mut out = [0u8; 32];
+        bytes.copy_to(&mut out);
+        return Ok(out);
+    }
+
+    let client_root_share32_b64u = get_required_string(args, "clientRootShare32B64u")?;
+    decode_fixed_32(&client_root_share32_b64u, "clientRootShare32B64u")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

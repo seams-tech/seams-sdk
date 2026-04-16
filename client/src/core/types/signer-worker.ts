@@ -174,7 +174,8 @@ export interface WasmPrepareThresholdEcdsaHssSessionRequest {
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
-  clientRootShare32B64u: string;
+  clientRootShare32?: Uint8Array;
+  clientRootShare32B64u?: string;
 }
 export interface WasmPrepareThresholdEcdsaHssSessionResult {
   nearAccountId: string;
@@ -186,7 +187,8 @@ export interface WasmPrepareThresholdEcdsaHssSessionResult {
 export interface WasmPrepareThresholdEcdsaHssClientRequestRequest {
   evaluatorDriverStateB64u: string;
   serverAssistInitMessageB64u: string;
-  clientRootShare32B64u: string;
+  clientRootShare32?: Uint8Array;
+  clientRootShare32B64u?: string;
 }
 export interface WasmPrepareThresholdEcdsaHssClientRequestResult {
   clientEvalRequestB64u: string;
