@@ -154,8 +154,13 @@ The two former broad trusted seams for:
 - the `{1,2}` backend share-mapping formula
 
 are no longer axiom-only. Those slices are now proved in the Verus model,
-leaving narrower trust only at the scalar-reduction/encoding and public-key
-primitive boundaries.
+leaving narrower trust only at the scalar-reduction and scalar-int-to-bytes
+encoding bridges, plus the public-key primitive boundary.
+
+The scalar-byte injectivity axiom is no longer part of the `ecdsa-hss` Verus
+slice. The remaining reduction/encoding seam is now also pinned by executable
+anti-drift checks over fixture scalars, boundary-domain scalars, and a
+generated digest corpus.
 
 ## Docs
 

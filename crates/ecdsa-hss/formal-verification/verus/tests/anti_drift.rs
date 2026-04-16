@@ -39,6 +39,29 @@ fn secp256k1_order() -> BigUint {
     BigUint::from_str_radix(SECP256K1_ORDER_HEX, 16).expect("parse secp256k1 order")
 }
 
+fn biguint_to_32_be(value: &BigUint) -> [u8; 32] {
+    let bytes = value.to_bytes_be();
+    assert!(bytes.len() <= 32, "value must fit into 32 bytes");
+    let mut out = [0u8; 32];
+    out[(32 - bytes.len())..].copy_from_slice(&bytes);
+    out
+}
+
+fn deterministic_digest(label: &str) -> [u8; 64] {
+    Sha512::digest(label.as_bytes()).into()
+}
+
+fn scalar_boundary_samples() -> Vec<[u8; 32]> {
+    let order = secp256k1_order();
+    vec![
+        biguint_to_32_be(&BigUint::from(1u8)),
+        biguint_to_32_be(&BigUint::from(2u8)),
+        biguint_to_32_be(&BigUint::from(3u8)),
+        biguint_to_32_be(&(&order - BigUint::from(2u8))),
+        biguint_to_32_be(&(&order - BigUint::from(1u8))),
+    ]
+}
+
 fn reduce_digest_formula(digest64: &[u8; 64]) -> [u8; 32] {
     let order = secp256k1_order();
     let one = BigUint::from(1u8);
@@ -275,6 +298,11 @@ fn anti_drift_k256_nonzero_reduction_matches_frozen_v1_formula() {
         *byte = idx as u8;
     }
     digests.push(ramp);
+    for idx in 0..64 {
+        digests.push(deterministic_digest(&format!(
+            "ecdsa-hss/fv/reduction-sample/{idx}"
+        )));
+    }
 
     for digest in digests {
         assert_eq!(reduce_digest_k256(&digest), reduce_digest_formula(&digest));
@@ -313,7 +341,11 @@ fn anti_drift_k256_nonzero_reduction_matches_frozen_v1_formula() {
 }
 
 #[test]
-fn anti_drift_scalar_byte_encoding_roundtrips_for_production_scalars() {
+fn anti_drift_scalar_byte_encoding_roundtrips_for_boundary_and_production_scalars() {
+    for bytes32 in scalar_boundary_samples() {
+        assert_eq!(nonzero_scalar_roundtrip_bytes(&bytes32), bytes32);
+    }
+
     let corpus = committed_fixture_corpus_file();
     for fixture in corpus.fixtures {
         for scalar_hex in [
@@ -326,5 +358,26 @@ fn anti_drift_scalar_byte_encoding_roundtrips_for_production_scalars() {
             let bytes32 = hex_to_array_32(scalar_hex);
             assert_eq!(nonzero_scalar_roundtrip_bytes(&bytes32), bytes32);
         }
+    }
+}
+
+#[test]
+fn anti_drift_scalar_parser_accepts_domain_boundaries_and_rejects_invalid_edges() {
+    for bytes32 in scalar_boundary_samples() {
+        SecretKey::from_slice(&bytes32).expect("boundary scalar must parse");
+    }
+
+    let order = secp256k1_order();
+    let invalid_samples = vec![
+        [0u8; 32],
+        biguint_to_32_be(&order),
+        [0xffu8; 32],
+    ];
+
+    for bytes32 in invalid_samples {
+        assert!(
+            SecretKey::from_slice(&bytes32).is_err(),
+            "invalid scalar boundary should be rejected"
+        );
     }
 }

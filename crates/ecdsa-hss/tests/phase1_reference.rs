@@ -112,6 +112,14 @@ fn assert_signing_session_roundtrip(
     assert_eq!(signature65.len(), 65);
 }
 
+fn biguint_to_32_be(value: &BigUint) -> [u8; 32] {
+    let bytes = value.to_bytes_be();
+    assert!(bytes.len() <= 32, "value must fit into 32 bytes");
+    let mut out = [0u8; 32];
+    out[(32 - bytes.len())..].copy_from_slice(&bytes);
+    out
+}
+
 #[test]
 fn encode_context_v1_matches_frozen_layout() {
     let context = EcdsaHssContextV1::new("alice.test.near", "evm-signing", "v1");
@@ -249,6 +257,46 @@ fn additive_share_derivation_rejects_group_order_scalar_input() {
     let err = derive_additive_shares_v1(&x32, &context)
         .expect_err("scalar equal to secp256k1 group order should fail");
     assert_eq!(err.code, SignerCoreErrorCode::InvalidInput);
+}
+
+#[test]
+fn additive_share_derivation_accepts_scalar_domain_boundaries() {
+    let context = EcdsaHssContextV1::new("boundary.test.near", "evm-signing", "v1");
+    let order = BigUint::from_str_radix(SECP256K1_ORDER_HEX, 16).expect("order");
+
+    for (label, x32) in [
+        ("scalar-one", biguint_to_32_be(&BigUint::from(1u8))),
+        ("scalar-order-minus-one", biguint_to_32_be(&(&order - BigUint::from(1u8)))),
+    ] {
+        let shares = derive_additive_shares_v1(&x32, &context)
+            .unwrap_or_else(|err| panic!("{label} should derive additive shares: {err}"));
+
+        let x = BigUint::from_bytes_be(&x32);
+        let x_client = BigUint::from_bytes_be(&shares.x_client32);
+        let x_relayer = BigUint::from_bytes_be(&shares.x_relayer32);
+
+        assert_ne!(shares.x_client32, [0u8; 32], "{label} client share must be non-zero");
+        assert_ne!(
+            shares.x_relayer32,
+            [0u8; 32],
+            "{label} relayer share must be non-zero"
+        );
+        assert_eq!(
+            (x_client + x_relayer) % &order,
+            x,
+            "{label} shares must reconstruct the scalar"
+        );
+        assert_eq!(
+            shares.threshold_public_key33.len(),
+            33,
+            "{label} threshold public key must stay compressed",
+        );
+        assert_eq!(
+            shares.threshold_ethereum_address20.len(),
+            20,
+            "{label} threshold address must stay 20 bytes",
+        );
+    }
 }
 
 #[test]

@@ -73,6 +73,9 @@ Status:
 - canonical-scalar domain goals are wired to the reduction output shape
 - scalar-range theorem now exists in the Verus model
 - this theorem currently depends on an explicit trusted axiom for scalar reduction
+- executable anti-drift now checks the production `k256` reduction against the
+  frozen modulo-`(n - 1) + 1` formula across fixtures, scalar-boundary
+  samples, and a generated digest corpus
 - committed-corpus parity checks cover scalar-range regression cases
 
 ## FV-ECDSA-HSS-003
@@ -100,7 +103,11 @@ Status:
 - additive reconstruction and non-zero-share theorems now exist in the Verus model
 - the relayer-share construction is now proved from the exact modular-subtraction model
 - the candidate-share path now follows the actual share-domain hash-reduction shape
-- the remaining trusted boundary on this slice is the scalar-reduction/selected-counter seam, plus scalar-byte encoding injectivity
+- the remaining trusted boundary on this slice is the
+  scalar-reduction/selected-counter seam, plus the scalar-int-to-bytes
+  encoding bridge
+- the former scalar-byte injectivity axiom has been removed; the retry and
+  relayer-share proofs now depend on integer-level distinctness instead
 - committed-corpus parity checks cover additive reconstruction and non-zero-share regressions
 
 ## FV-ECDSA-HSS-004
@@ -124,7 +131,8 @@ Status:
 - backend-domain acceptance theorem now exists in the Verus model
 - same-key preservation theorem now exists in the Verus model
 - the current `{1,2}` mapping formula is now proved from the real fixed lambdas and modular inverses
-- the remaining trusted boundary on this slice is scalar-byte encoding, not the mapper formula itself
+- the remaining trusted boundary on this slice is the scalar-int-to-bytes
+  encoding bridge, not the mapper formula itself
 
 ## FV-ECDSA-HSS-005
 
