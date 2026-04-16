@@ -135,6 +135,67 @@ This is stronger than the current model because it reduces accidental main-threa
 
 ## Target Architecture
 
+### Worker communication model
+
+The WASM modules do not communicate directly with each other. They are loaded by JS worker wrappers, and those wrappers communicate with `postMessage`.
+
+Current communication topology:
+
+```mermaid
+flowchart TD
+  Main["JS main thread<br/>WorkerTransport + WarmSessionManager"]
+
+  EmailWorker["emailOtp dedicated Worker<br/>owns OTP flow"]
+  ShamirWorker["shamir3pass dedicated Worker<br/>spawned by runtime wrapper"]
+  EthWasm["eth_signer WASM<br/>loaded inside emailOtp worker"]
+  HssWasm["hss_client_signer WASM<br/>loaded inside emailOtp worker"]
+  OtpWasm["email_otp_runtime WASM<br/>loaded inside emailOtp worker"]
+
+  EthWorker["ethSigner Worker<br/>used by non-OTP paths"]
+  HssWorker["hssClient Worker<br/>used by non-OTP paths"]
+  TempoWorker["tempoSigner Worker"]
+
+  Main <-->|"Worker.postMessage<br/>request id RPC"| EmailWorker
+  Main <-->|"Worker.postMessage"| EthWorker
+  Main <-->|"Worker.postMessage"| HssWorker
+  Main <-->|"Worker.postMessage"| TempoWorker
+
+  EmailWorker <-->|"direct Worker.postMessage<br/>nested worker"| ShamirWorker
+
+  EmailWorker --> EthWasm
+  EmailWorker --> HssWasm
+  EmailWorker --> OtpWasm
+```
+
+OTP secret-bearing sequence:
+
+```mermaid
+sequenceDiagram
+  participant Main as Main Thread
+  participant OTP as emailOtp Worker
+  participant S3P as shamir3pass Worker
+  participant WASM as email_otp_runtime / eth / HSS WASM
+
+  Main->>OTP: postMessage(loginWithEmailOtpAndBootstrapEcdsaSession)
+  OTP->>S3P: postMessage(createClientKeyHandle)
+  S3P-->>OTP: keyHandle
+  OTP->>S3P: postMessage(removeClientSealWithKeyHandleToBytes)
+  S3P-->>OTP: recovered S bytes
+  OTP->>WASM: derive client root share / unlock seed
+  OTP->>WASM: sign unlock / bootstrap ECDSA
+  OTP-->>Main: sanitized result + bootstrap metadata
+```
+
+Current rules:
+
+1. main thread to top-level workers uses `Worker.postMessage`
+2. `emailOtp` worker to `shamir3pass` worker uses direct nested `Worker.postMessage`
+3. `MessagePort` and `MessageChannel` are not used in the current OTP worker graph
+4. main thread does not relay `emailOtp` to `shamir3pass` traffic
+5. `eth_signer`, `hss_client_signer`, and `email_otp_runtime` are WASM modules loaded directly inside `emailOtp` worker for the OTP path, not separate worker hops
+6. recovered `S` crosses from `shamir3pass.worker` to `emailOtp.worker` as bytes, then derivation and bootstrap continue inside `emailOtp.worker`
+7. a future hardening step could collapse `shamir3pass` WASM directly into `emailOtp.worker` so recovered `S` does not cross even a worker-to-worker `postMessage` boundary
+
 ### New worker
 
 Add a dedicated worker kind:
