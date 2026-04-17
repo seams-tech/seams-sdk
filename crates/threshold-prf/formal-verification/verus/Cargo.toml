@@ -1,0 +1,26 @@
+[package]
+name = "threshold-prf-verus"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Standalone Verus abstract spec model for threshold-prf"
+
+[dependencies]
+vstd = "=0.0.0-2026-03-29-0113"
+
+[dev-dependencies]
+rand_chacha = "0.3"
+rand_core = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+threshold-prf = { path = "../.." }
+
+[lib]
+name = "threshold_prf_verus"
+path = "src/lib.rs"
+
+[package.metadata.verus]
+verify = true
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)'] }
