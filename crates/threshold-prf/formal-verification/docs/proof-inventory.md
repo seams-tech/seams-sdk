@@ -27,7 +27,7 @@ Target:
 - root scalar
 - share scalar
 - share ID
-- secret project-root share wire fields
+- secret signing-root share wire fields
 - partial wire fields
 - PRF output
 
@@ -35,10 +35,10 @@ Property:
 
 - fixed output width
 - explicit purpose/context inputs
-- non-zero project-root scalar domain
+- non-zero signing-root scalar domain
 - canonical share scalar domain, including zero share values
 - non-zero share IDs
-- fixed-width secret project-root share wires reject wrong width, invalid share
+- fixed-width secret signing-root share wires reject wrong width, invalid share
   IDs, and invalid share scalars
 - fixed-width partial wire context tag
 - malformed encodings rejected
@@ -153,7 +153,7 @@ Property:
 - vectors cover root generation, share splitting, direct reference evaluation,
   valid pairwise combination, server-SDK share-wire derivation, partial wire
   encoding, share refresh, and malformed-input rejection where practical,
-  including malformed server-SDK project-root share wires
+  including malformed server-SDK signing-root share wires
 
 Status:
 

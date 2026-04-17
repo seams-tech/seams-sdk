@@ -36,16 +36,16 @@ parallel legacy model.
 ## Phase 1: Domains And Encodings
 
 - [x] model abstract suite, purpose, and context identity
-- [x] model project-root scalar domain
-- [x] model project-root share scalar domain, including zero share values
+- [x] model signing-root scalar domain
+- [x] model signing-root share scalar domain, including zero share values
 - [x] model non-zero share IDs
 - [x] model fixed 32-byte PRF output
-- [x] model fixed 33-byte secret `ProjectRootShareWireV1`
+- [x] model fixed 33-byte secret `SigningRootShareWireV1`
 - [x] model `PrfPartialWireV1` as share ID, context tag, and compressed point
 - [x] pin canonical HSS context bytes through production anti-drift vectors
 - [x] prove malformed scalar encodings are rejected at the abstract model boundary
 - [x] prove zero root encodings are rejected while zero share encodings are accepted
-- [x] prove secret project-root share wire decode rejects wrong width, invalid
+- [x] prove secret signing-root share wire decode rejects wrong width, invalid
   share IDs, and invalid share scalars
 
 ## Phase 2: 2-of-3 Share Semantics

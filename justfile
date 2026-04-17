@@ -6,6 +6,7 @@ fv:
   just ed25519-hss-fv
   just ecdsa-hss-fv
   just signer-core-fv
+  just threshold-prf-fv
 
 # Run the full gated formal-verification path for `ed25519-hss`, including the Aeneas boundary check.
 ed25519-hss-fv:
@@ -72,3 +73,42 @@ signer-core-fv-verus:
 signer-core-fv:
   just signer-core-fv-parity
   just signer-core-fv-verus
+
+# Run the committed anti-drift tests for `threshold-prf`.
+threshold-prf-fv-parity:
+  cargo test -q --manifest-path crates/threshold-prf/formal-verification/verus/Cargo.toml --tests
+
+# Run the abstract threshold-prf Verus model.
+threshold-prf-fv-verus:
+  cargo verus verify --manifest-path crates/threshold-prf/formal-verification/verus/Cargo.toml
+
+# Run the current full formal-verification path for `threshold-prf`.
+threshold-prf-fv:
+  just threshold-prf-fv-parity
+  just threshold-prf-fv-verus
+  just threshold-prf-fv-privacy
+
+# Run the Lean privacy execution-state model for `threshold-prf`.
+threshold-prf-fv-privacy:
+  cd crates/threshold-prf/formal-verification/lean-privacy && $HOME/.elan/bin/lake build
+
+# Build the threshold-prf benchmark harness without running it.
+threshold-prf-bench-build:
+  cargo bench --manifest-path crates/threshold-prf/Cargo.toml --bench threshold_prf_baseline --no-run
+
+# Run the threshold-prf native benchmark suite.
+threshold-prf-bench:
+  cargo bench --manifest-path crates/threshold-prf/Cargo.toml --bench threshold_prf_baseline
+
+# Check the latest threshold-prf native Criterion results against guardrail thresholds.
+threshold-prf-bench-check:
+  cargo run --quiet --manifest-path crates/threshold-prf/Cargo.toml --example check_benchmark_thresholds
+
+# Run the threshold-prf native benchmark suite and enforce guardrail thresholds.
+threshold-prf-bench-gate:
+  just threshold-prf-bench
+  just threshold-prf-bench-check
+
+# Build and run the threshold-prf WASM benchmark harness under Node/V8.
+threshold-prf-wasm-bench:
+  node crates/threshold-prf/scripts/wasm-bench.mjs

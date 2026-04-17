@@ -52,7 +52,7 @@ else
   exit 1
 fi
 print_step "Building WASM signer worker for server HSS hot path (release)..."
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --features hss-server-exports; then
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --no-opt --features hss-server-exports; then
   print_success "Server HSS WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
 else
   print_error "Server HSS WASM signer build failed"
@@ -106,6 +106,16 @@ if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/
   print_success "WASM Email OTP runtime built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
 else
   print_error "WASM Email OTP runtime build failed"
+  exit 1
+fi
+popd >/dev/null
+
+print_step "Building threshold-prf WASM (release)..."
+pushd "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF" >/dev/null
+if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name threshold_prf --release; then
+  print_success "threshold-prf WASM built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
+else
+  print_error "threshold-prf WASM build failed"
   exit 1
 fi
 popd >/dev/null
@@ -166,6 +176,7 @@ if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.js" "$
 if cp "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime_bg.wasm" "$BUILD_WORKERS/shamir3pass_runtime_bg.wasm" 2>/dev/null; then print_success "shamir3pass_runtime_bg.wasm copied"; else print_warning "shamir3pass_runtime_bg.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js" "$BUILD_WORKERS/email_otp_runtime.js" 2>/dev/null; then print_success "email_otp_runtime.js copied"; else print_warning "email_otp_runtime.js not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm" "$BUILD_WORKERS/email_otp_runtime_bg.wasm" 2>/dev/null; then print_success "email_otp_runtime_bg.wasm copied"; else print_warning "email_otp_runtime_bg.wasm not found"; fi
+if cp "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm" "$BUILD_WORKERS/$WORKER_THRESHOLD_PRF_WASM" 2>/dev/null; then print_success "threshold_prf.wasm copied"; else print_warning "threshold_prf.wasm not found"; fi
 
 print_step "Copying server HSS WASM binary into dist/esm..."
 SERVER_HSS_WASM_DIR="$BUILD_ESM/server/wasm/near_signer/pkg-server"
@@ -174,6 +185,15 @@ if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg-server/wasm_signer_worker_bg.wasm" "$SE
   print_success "Server HSS WASM copied"
 else
   print_warning "Server HSS WASM not found"
+fi
+
+print_step "Copying server threshold-prf WASM binary into dist/esm..."
+SERVER_THRESHOLD_PRF_WASM_DIR="$BUILD_ESM/server/wasm/threshold_prf/pkg"
+mkdir -p "$SERVER_THRESHOLD_PRF_WASM_DIR"
+if cp "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf_bg.wasm" "$SERVER_THRESHOLD_PRF_WASM_DIR/" 2>/dev/null; then
+  print_success "Server threshold-prf WASM copied"
+else
+  print_warning "Server threshold-prf WASM not found"
 fi
 
 print_step "Copying browser HSS client WASM binary into dist/esm..."

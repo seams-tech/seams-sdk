@@ -36,7 +36,7 @@ Current status:
 - [x] output derivation explicitly carries suite, purpose, context, and point
   inputs in the model
 - [x] abstract DLEQ boundary model exists
-- [x] abstract secret project-root share wire boundary model exists
+- [x] abstract secret signing-root share wire boundary model exists
 - [x] current FV scope is accepted as sufficient for first Option A integration
 
 ## Phase 0: Scaffold
@@ -61,7 +61,7 @@ Current status:
 - [x] add abstract scalar, share, partial, context, purpose, and output models
 - [x] add an abstract `PrfPartialWireV1` model with share ID, context tag, and
   compressed point fields
-- [x] add an abstract `ProjectRootShareWireV1` model with share ID and canonical
+- [x] add an abstract `SigningRootShareWireV1` model with share ID and canonical
   share scalar fields
 - [x] avoid proving against placeholder formulas disconnected from the specs
 - [ ] mirror the production module layout under `verus/src/` after the Rust/FV
@@ -83,7 +83,7 @@ parity tests.
 - [x] prove zero root scalars are rejected
 - [x] prove zero share scalars are accepted when canonically encoded
 - [x] prove partial wire context tag width and presence
-- [x] prove secret project-root share wire width, share-ID, and scalar-domain
+- [x] prove secret signing-root share wire width, share-ID, and scalar-domain
   rejection behavior
 
 ## Phase 3: Shamir And Refresh Proofs
@@ -120,8 +120,8 @@ parity tests.
 - [x] add `PrfPartialWireV1` vectors
 - [x] add malformed-input rejection vectors where practical
 - [x] add anti-drift tests comparing production helpers to vectors
-- [x] add anti-drift coverage for server-SDK project-root share wire derivation
-- [x] add anti-drift coverage for malformed server-SDK project-root share wires
+- [x] add anti-drift coverage for server-SDK signing-root share wire derivation
+- [x] add anti-drift coverage for malformed server-SDK signing-root share wires
 
 ## Phase 6: DLEQ Boundary Proofs
 

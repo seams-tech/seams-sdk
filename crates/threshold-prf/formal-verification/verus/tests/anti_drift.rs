@@ -2,11 +2,11 @@ use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use serde::Deserialize;
 use threshold_prf::{
-    combine_partials, combine_verified_partials, derive_output_from_project_root_share_wires,
+    combine_partials, combine_verified_partials, derive_output_from_signing_root_share_wires,
     evaluate_direct_reference, evaluate_partial, evaluate_partial_with_dleq_proof,
-    generate_project_root, refresh_project_root_shares_2_of_3, split_project_root_2_of_3,
+    generate_signing_root, refresh_signing_root_shares_2_of_3, split_signing_root_2_of_3,
     verify_partial_dleq_proof, PrfContext, PrfDleqProofV1, PrfPartialWireV1, PrfPurpose,
-    ProjectRootShareCommitmentV1, ProjectRootShareWireV1, SuiteId, ThresholdPrfError,
+    SigningRootShareCommitmentV1, SigningRootShareWireV1, SuiteId, ThresholdPrfError,
 };
 
 #[derive(Debug, Deserialize)]
@@ -75,14 +75,14 @@ fn committed_protocol_vectors_match_production_helpers() {
         assert_vector_matches_production(vector);
         assert_invalid_cases_match_production(vector);
     }
-    assert_project_root_share_wire_rejections_match_production();
+    assert_signing_root_share_wire_rejections_match_production();
 }
 
 fn assert_vector_matches_production(vector: &ProtocolVector) {
     let mut root_rng = ChaCha20Rng::from_seed(decode_hex_32(&vector.root_seed_hex));
     let mut split_rng = ChaCha20Rng::from_seed(decode_hex_32(&vector.split_seed_hex));
-    let root = generate_project_root(&mut root_rng);
-    let shares = split_project_root_2_of_3(&root, &mut split_rng);
+    let root = generate_signing_root(&mut root_rng);
+    let shares = split_signing_root_2_of_3(&root, &mut split_rng);
     let context = vector_context(vector);
 
     assert_eq!(root.to_bytes(), decode_hex_32(&vector.root_scalar_hex));
@@ -92,7 +92,7 @@ fn assert_vector_matches_production(vector: &ProtocolVector) {
         assert_eq!(share.id().get(), share_vector.id);
         assert_eq!(share.to_bytes(), decode_hex_32(&share_vector.scalar_hex));
 
-        let share_wire = ProjectRootShareWireV1::from_share(share);
+        let share_wire = SigningRootShareWireV1::from_share(share);
         let share_wire_bytes = share_wire.to_bytes();
         assert_eq!(share_wire_bytes[0], share_vector.id);
         assert_eq!(
@@ -138,7 +138,7 @@ fn assert_vector_matches_production(vector: &ProtocolVector) {
         assert_eq!(decoded.id(), partial.id());
         assert_eq!(decoded.to_compressed(), partial.to_compressed());
 
-        let commitment = ProjectRootShareCommitmentV1::from_bytes(decode_hex_33(
+        let commitment = SigningRootShareCommitmentV1::from_bytes(decode_hex_33(
             &partial_vector.share_commitment_wire_hex,
         ))
         .unwrap();
@@ -173,10 +173,10 @@ fn assert_vector_matches_production(vector: &ProtocolVector) {
         let verified_combined =
             combine_verified_partials(&[verified_left, verified_right], &context).unwrap();
         let left_share_wire =
-            ProjectRootShareWireV1::from_share(&shares[vector_index(pairwise_output.ids[0])]);
+            SigningRootShareWireV1::from_share(&shares[vector_index(pairwise_output.ids[0])]);
         let right_share_wire =
-            ProjectRootShareWireV1::from_share(&shares[vector_index(pairwise_output.ids[1])]);
-        let share_wire_combined = derive_output_from_project_root_share_wires(
+            SigningRootShareWireV1::from_share(&shares[vector_index(pairwise_output.ids[1])]);
+        let share_wire_combined = derive_output_from_signing_root_share_wires(
             &[left_share_wire, right_share_wire],
             &context,
         )
@@ -194,7 +194,7 @@ fn assert_vector_matches_production(vector: &ProtocolVector) {
         shares[vector_index(vector.refresh_input_share_ids[0])].clone(),
         shares[vector_index(vector.refresh_input_share_ids[1])].clone(),
     ];
-    let refreshed = refresh_project_root_shares_2_of_3(&refresh_inputs, &mut refresh_rng).unwrap();
+    let refreshed = refresh_signing_root_shares_2_of_3(&refresh_inputs, &mut refresh_rng).unwrap();
 
     assert_eq!(vector.refreshed_shares.len(), 3);
     for share_vector in &vector.refreshed_shares {
@@ -252,24 +252,24 @@ fn assert_invalid_cases_match_production(vector: &ProtocolVector) {
     }
 }
 
-fn assert_project_root_share_wire_rejections_match_production() {
+fn assert_signing_root_share_wire_rejections_match_production() {
     assert_eq!(
-        ProjectRootShareWireV1::decode_slice(&[0u8; 32]).unwrap_err(),
+        SigningRootShareWireV1::decode_slice(&[0u8; 32]).unwrap_err(),
         ThresholdPrfError::InvalidShareEncoding
     );
 
-    let mut invalid_share_id_wire = [0u8; ProjectRootShareWireV1::LEN];
+    let mut invalid_share_id_wire = [0u8; SigningRootShareWireV1::LEN];
     invalid_share_id_wire[0] = 4;
     assert_eq!(
-        ProjectRootShareWireV1::decode(invalid_share_id_wire).unwrap_err(),
+        SigningRootShareWireV1::decode(invalid_share_id_wire).unwrap_err(),
         ThresholdPrfError::InvalidShareId
     );
 
-    let mut invalid_scalar_wire = [0u8; ProjectRootShareWireV1::LEN];
+    let mut invalid_scalar_wire = [0u8; SigningRootShareWireV1::LEN];
     invalid_scalar_wire[0] = 1;
     invalid_scalar_wire[1..].copy_from_slice(&[0xffu8; 32]);
     assert_eq!(
-        ProjectRootShareWireV1::decode(invalid_scalar_wire).unwrap_err(),
+        SigningRootShareWireV1::decode(invalid_scalar_wire).unwrap_err(),
         ThresholdPrfError::InvalidScalarEncoding
     );
 }

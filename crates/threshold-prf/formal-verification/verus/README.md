@@ -16,7 +16,7 @@ Current covered scope:
 - threshold partial-combine shape
 - direct-vs-threshold equivalence
 - partial wire context-tag validation
-- secret project-root share wire decode and Option A derivation boundary shape
+- secret signing-root share wire decode and Option A derivation boundary shape
 - abstract malformed scalar-encoding rejection
 - explicit output-derivation input tuple binding
 - abstract DLEQ commitment/proof boundary shape
@@ -32,7 +32,7 @@ Covered by anti-drift tests:
 
 - executable checks against committed vectors
 - share-refresh preservation
-- server-SDK project-root share wire derivation parity
+- server-SDK signing-root share wire derivation parity
 - malformed wire/input rejection parity
 
 Deferred from this track:

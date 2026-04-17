@@ -28,7 +28,7 @@ The current Verus track covers:
 
 - an abstract spec model for subset, Shamir, partial-combine, and wire-tag
   behavior
-- an abstract server-SDK `ProjectRootShareWireV1` decode and Option A
+- an abstract server-SDK `SigningRootShareWireV1` decode and Option A
   derivation boundary model
 - production anti-drift parity against the committed JSON vector corpus
 - a structural Lean privacy model proving that one-server mode is not a privacy
@@ -62,7 +62,7 @@ The first active proof slice is implemented in
 10. explicit output-derivation input tuple binding
 11. abstract DLEQ commitment/proof boundary model
 12. DLEQ-enforced verified-combine boundary model
-13. secret project-root share wire decode and Option A derivation boundary model
+13. secret signing-root share wire decode and Option A derivation boundary model
 
 Do not add placeholder proofs that are disconnected from production formulas.
 

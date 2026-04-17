@@ -36,6 +36,7 @@ handle_error() {
     echo "     - cd ../wasm/tempo_signer && cargo check"
     echo "     - cd ../wasm/shamir3pass_runtime && cargo check"
     echo "     - cd ../wasm/email_otp_runtime && cargo check"
+    echo "     - cd ../wasm/threshold_prf && cargo check"
     echo "  2. Verify wasm-pack is installed: wasm-pack --version"
     echo "  3. Check for WASM compilation errors in the output above"
     echo "  4. Ensure all Rust dependencies are properly declared"
@@ -107,7 +108,7 @@ run cargo check
 echo "Running wasm-pack build..."
 run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker "${WASM_PACK_PROFILE_ARGS[@]}"
 echo "Running server release wasm-pack build for near signer..."
-run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --features hss-server-exports
+run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --no-opt --features hss-server-exports
 popd >/dev/null
 
 echo "Building HSS client signer WASM..."
@@ -150,6 +151,14 @@ echo "Running wasm-pack build..."
 run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name email_otp_runtime "${WASM_PACK_PROFILE_ARGS[@]}"
 popd >/dev/null
 
+echo "Building threshold-prf WASM..."
+pushd "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF" >/dev/null
+echo "Running cargo check first..."
+run cargo check
+echo "Running wasm-pack build..."
+run with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name threshold_prf "${WASM_PACK_PROFILE_ARGS[@]}"
+popd >/dev/null
+
 # 2. Check if wasm-bindgen generated types exist
 SIGNER_TYPES="$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker.d.ts"
 HSS_CLIENT_SIGNER_TYPES="$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer.d.ts"
@@ -157,6 +166,7 @@ ETH_TYPES="$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/pkg/eth_signer.d.ts"
 TEMPO_TYPES="$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.d.ts"
 SHAMIR3PASS_TYPES="$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/pkg/shamir3pass_runtime.d.ts"
 EMAIL_OTP_TYPES="$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.d.ts"
+THRESHOLD_PRF_TYPES="$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg/threshold_prf.d.ts"
 
 if [ ! -f "$SIGNER_TYPES" ]; then
     echo "❌ Signer worker TypeScript definitions not found at $SIGNER_TYPES"
@@ -200,6 +210,13 @@ if [ ! -f "$EMAIL_OTP_TYPES" ]; then
     exit 1
 fi
 
+if [ ! -f "$THRESHOLD_PRF_TYPES" ]; then
+    echo "❌ threshold-prf TypeScript definitions not found at $THRESHOLD_PRF_TYPES"
+    echo "This usually means wasm-pack build failed for threshold-prf."
+    echo "Check the output above for compilation errors."
+    exit 1
+fi
+
 echo "✅ TypeScript definitions generated successfully by wasm-bindgen"
 
 # 3. Run type checking to ensure consistency
@@ -221,6 +238,7 @@ echo "  - $ETH_TYPES (Eth signer types from wasm-bindgen)"
 echo "  - $TEMPO_TYPES (Tempo signer types from wasm-bindgen)"
 echo "  - $SHAMIR3PASS_TYPES (Shamir3Pass runtime types from wasm-bindgen)"
 echo "  - $EMAIL_OTP_TYPES (Email OTP runtime types from wasm-bindgen)"
+echo "  - $THRESHOLD_PRF_TYPES (threshold-prf types from wasm-bindgen)"
 echo "  - Validated against existing TypeScript codebase"
 echo ""
 

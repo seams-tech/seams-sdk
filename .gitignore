@@ -42,9 +42,13 @@ wasm/tempo_signer/target
 wasm/shamir3pass_runtime/pkg
 wasm/shamir3pass_runtime/target
 wasm/email_otp_runtime/pkg
+wasm/threshold_prf/pkg
 wasm/email_otp_runtime/target
+wasm/threshold_prf/target
 wasm/hss_client_signer/target/
 crates/*/target
+crates/threshold-prf/wasm-bench/pkg
+crates/threshold-prf/wasm-bench/target
 crates/*/formal-verification/**/target
 crates/*/formal-verification/**/.lake
 crates/*/formal-verification/lean-boundary/tools/
