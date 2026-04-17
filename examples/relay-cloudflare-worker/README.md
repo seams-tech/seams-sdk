@@ -37,7 +37,7 @@ extra requirements and limitations compared to the Express example.
     - `RELAYER_PRIVATE_KEY`
     - `SHAMIR_P_B64U`, `SHAMIR_E_S_B64U`, `SHAMIR_D_S_B64U`
   - Optional:
-    - `THRESHOLD_ED25519_MASTER_SECRET_B64U` (enables 2-party threshold signing)
+    - `SIGNING_ROOT_SECRET_SHARE_KEK_B64U` (enables signing-root threshold signing when sealed shares are present)
 - **Worker vars** (non-secret) can be set in `wrangler.toml` `[vars]`, in the
   Cloudflare dashboard, or at deploy-time via `wrangler deploy --var ...`:
   - CORS allowlist (recommended to set explicitly if you use cookies):
@@ -92,9 +92,10 @@ extra requirements and limitations compared to the Express example.
 
 Threshold signing endpoints are enabled only when you provide:
 
-- `THRESHOLD_ED25519_MASTER_SECRET_B64U` (32 bytes, base64url) via `wrangler secret put`.
+- sealed signing-root shares in the threshold Durable Object
+- `SIGNING_ROOT_SECRET_SHARE_KEK_B64U` (32 bytes, base64url) via `wrangler secret put`
 
-You do **not** set this via `--var` (it’s a secret).
+You do **not** set the KEK via `--var` (it’s a secret).
 
 Cloudflare-native persistence
 
@@ -102,6 +103,8 @@ Cloudflare-native persistence
 - Configure the base key prefix in `wrangler.toml` (or dashboard):
   - `THRESHOLD_PREFIX` (e.g. `tatchi:prod:w3a`)
   - Optional: `THRESHOLD_ED25519_SHARE_MODE=derived` (recommended for serverless)
+  - Optional: `THRESHOLD_SIGNING_ROOT_OBJECT_NAME` (defaults to `threshold-signing-root-secrets`)
+  - Optional: `SIGNING_ROOT_SECRET_SHARE_CACHE_TTL_MS` (defaults to `30000`)
 
 ### Session configuration (optional)
 
@@ -201,10 +204,8 @@ Cookie mode and CORS
   advertises `Access-Control-Allow-Credentials: true` when echoing a specific `Origin`.
 - Set `EXPECTED_ORIGIN` (and/or `EXPECTED_WALLET_ORIGIN`) to explicit origins; avoid `*` when using cookies.
 - Your frontend can use either exchange mode:
-
   1. OIDC/BYO token exchange:
   - `POST /session/exchange` with `{ sessionKind, exchange: { type: 'oidc_jwt', token } }`
-
   2. One-step passkey assertion exchange:
   - `POST /wallet/unlock/challenge` to get `challengeId` + `challengeB64u`
   - collect WebAuthn assertion in client
@@ -253,10 +254,10 @@ Cookie mode and CORS
    pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SHAMIR_D_S_B64U --env production
    ```
 
-4. Optional: provision threshold signing secret (repeat per environment):
+4. Optional: provision threshold signing-root KEK (repeat per environment):
    ```bash
-   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put THRESHOLD_ED25519_MASTER_SECRET_B64U --env staging
-   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put THRESHOLD_ED25519_MASTER_SECRET_B64U --env production
+   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_ROOT_SECRET_SHARE_KEK_B64U --env staging
+   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_ROOT_SECRET_SHARE_KEK_B64U --env production
    ```
 5. Deploy:
    ```bash

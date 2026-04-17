@@ -3,6 +3,15 @@
 // This is exported from the SDK so Cloudflare Worker hosts can bind it directly
 // (by re-exporting from their Worker entrypoint) without vendoring the code.
 
+import { base64UrlEncode } from '@shared/utils/encoders';
+import {
+  computeSigningRootContextHashB64u,
+  parseSigningRootRecord,
+  signingRootRecordFromMigrationBundle,
+  type SigningRootRecord,
+  type SigningRootRecordResult,
+} from '../../../core/ThresholdService/signingRootRecords';
+
 type DurableObjectStorageLike = {
   get(key: string): Promise<unknown>;
   put(key: string, value: unknown, opts?: { expirationTtl?: number }): Promise<void>;
@@ -40,7 +49,11 @@ type DoReq =
       expectedVersion: number;
       value: unknown;
       ttlMs?: number;
-    };
+    }
+  | { op: 'signingRootPut'; record: unknown }
+  | { op: 'signingRootGet'; signingRootId: string; signingRootVersion: string }
+  | { op: 'signingRootDelete'; signingRootId: string; signingRootVersion: string }
+  | { op: 'signingRootStatus'; signingRootId: string; signingRootVersion: string };
 
 type AuthEntry = {
   record: {
@@ -58,6 +71,38 @@ type PresignSessionRecord = {
   expiresAtMs: number;
   version: number;
 };
+
+type SigningRootWireRecord = Omit<SigningRootRecord, 'sealedSigningRootSecretShares'> & {
+  sealedSigningRootSecretShares: Array<{
+    signingRootId: string;
+    signingRootVersion: string;
+    shareId: 1 | 2 | 3;
+    sealedShareB64u: string;
+    storageId?: string;
+    kekId?: string;
+  }>;
+};
+
+type SigningRootStatus = {
+  projectId: string;
+  envId: string;
+  signingRootId: string;
+  walletOrigin: string;
+  rpId: string;
+  signingRootVersion: string;
+  rootShareEpoch: number;
+  shareThreshold: 2;
+  shareCount: 3;
+  shareIds: number[];
+  derivationVersion: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+  source: SigningRootRecord['source'];
+  contextHashB64u: string;
+};
+
+const SIGNING_ROOT_RECORD_KEY_PREFIX = 'threshold-prf:signing-root-record:';
+const SIGNING_ROOT_SECRET_SHARE_KEY_PREFIX = 'threshold-prf:signing-root-secret:';
 
 function json(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {
@@ -77,6 +122,10 @@ function err(code: string, message: string): DoErr {
   return { ok: false, code, message };
 }
 
+function isDoErr(input: unknown): input is DoErr {
+  return isObject(input) && input.ok === false;
+}
+
 function toKey(input: unknown): string {
   const k = typeof input === 'string' ? input.trim() : '';
   return k;
@@ -91,6 +140,133 @@ function toTtlSeconds(ttlMs: unknown): number | null {
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function signingRootRecordKey(input: {
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+}): string {
+  return `${SIGNING_ROOT_RECORD_KEY_PREFIX}${input.signingRootId}\0${input.signingRootVersion}`;
+}
+
+function signingRootSecretShareIndexKey(input: {
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+}): string {
+  return `${SIGNING_ROOT_SECRET_SHARE_KEY_PREFIX}idx:${input.signingRootId}\0${input.signingRootVersion}`;
+}
+
+function signingRootSecretShareRecordKey(input: {
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+  readonly shareId: 1 | 2 | 3;
+}): string {
+  return `${SIGNING_ROOT_SECRET_SHARE_KEY_PREFIX}rec:${input.signingRootId}\0${input.signingRootVersion}\0${input.shareId}`;
+}
+
+function toSigningRootWireRecord(record: SigningRootRecord): SigningRootWireRecord {
+  return {
+    version: record.version,
+    projectId: record.projectId,
+    envId: record.envId,
+    signingRootId: record.signingRootId,
+    walletOrigin: record.walletOrigin,
+    rpId: record.rpId,
+    signingRootVersion: record.signingRootVersion,
+    rootShareEpoch: record.rootShareEpoch,
+    shareThreshold: record.shareThreshold,
+    shareCount: record.shareCount,
+    sealedSigningRootSecretShares: record.sealedSigningRootSecretShares.map((share) => ({
+      signingRootId: share.signingRootId,
+      signingRootVersion: share.signingRootVersion || record.signingRootVersion,
+      shareId: share.shareId,
+      sealedShareB64u: base64UrlEncode(share.sealedShare),
+      ...(share.storageId ? { storageId: share.storageId } : {}),
+      ...(share.kekId ? { kekId: share.kekId } : {}),
+    })),
+    derivationVersion: record.derivationVersion,
+    createdAtMs: record.createdAtMs,
+    updatedAtMs: record.updatedAtMs,
+    source: record.source,
+  };
+}
+
+async function signingRootStatus(record: SigningRootRecord): Promise<SigningRootStatus> {
+  return {
+    projectId: record.projectId,
+    envId: record.envId,
+    signingRootId: record.signingRootId,
+    walletOrigin: record.walletOrigin,
+    rpId: record.rpId,
+    signingRootVersion: record.signingRootVersion,
+    rootShareEpoch: record.rootShareEpoch,
+    shareThreshold: record.shareThreshold,
+    shareCount: record.shareCount,
+    shareIds: record.sealedSigningRootSecretShares.map((share) => share.shareId).sort(),
+    derivationVersion: record.derivationVersion,
+    createdAtMs: record.createdAtMs,
+    updatedAtMs: record.updatedAtMs,
+    source: record.source,
+    contextHashB64u: await computeSigningRootContextHashB64u(record),
+  };
+}
+
+function parseSigningRootPutRecord(raw: unknown): SigningRootRecordResult<SigningRootRecord> {
+  const record = parseSigningRootRecord(raw);
+  if (record.ok) return record;
+  return signingRootRecordFromMigrationBundle(raw);
+}
+
+async function readSigningRootRecord(
+  store: DurableObjectStorageLike,
+  input: { readonly signingRootId: string; readonly signingRootVersion: string },
+): Promise<SigningRootRecord | null | DoErr> {
+  const raw = await store.get(signingRootRecordKey(input));
+  if (raw === null || raw === undefined) return null;
+  const parsed = parseSigningRootRecord(raw);
+  if (!parsed.ok) return err('corrupt_signing_root_record', parsed.message);
+  return parsed.value;
+}
+
+async function writeSigningRootRecord(
+  store: DurableObjectStorageLike,
+  record: SigningRootRecord,
+): Promise<void> {
+  const wireRecord = toSigningRootWireRecord(record);
+  const signingRootId = record.signingRootId;
+  const signingRootVersion = record.signingRootVersion;
+
+  await store.put(signingRootRecordKey({ signingRootId, signingRootVersion }), wireRecord);
+  await store.put(
+    signingRootSecretShareIndexKey({ signingRootId, signingRootVersion }),
+    record.sealedSigningRootSecretShares.map((share) => share.shareId).sort(),
+  );
+  for (const share of record.sealedSigningRootSecretShares) {
+    await store.put(
+      signingRootSecretShareRecordKey({ signingRootId, signingRootVersion, shareId: share.shareId }),
+      {
+        signingRootId,
+        signingRootVersionKey: signingRootVersion,
+        shareId: share.shareId,
+        sealedShareB64u: base64UrlEncode(share.sealedShare),
+        ...(share.storageId ? { storageId: share.storageId } : {}),
+        ...(share.kekId ? { kekId: share.kekId } : {}),
+      },
+    );
+  }
+}
+
+async function deleteSigningRootRecord(
+  store: DurableObjectStorageLike,
+  input: { readonly signingRootId: string; readonly signingRootVersion: string },
+): Promise<void> {
+  await store.delete(signingRootRecordKey(input));
+  await store.delete(signingRootSecretShareIndexKey(input));
+  await Promise.all(
+    ([1, 2, 3] as const).map((shareId) =>
+      store.delete(signingRootSecretShareRecordKey({ ...input, shareId })),
+    ),
+  );
 }
 
 function parseAuthEntry(raw: unknown): AuthEntry | null {
@@ -135,7 +311,7 @@ async function withTxn<T>(
   return await fn(state.storage);
 }
 
-export class ThresholdEd25519StoreDurableObject {
+export class ThresholdStoreDurableObject {
   private readonly state: DurableObjectStateLike;
 
   constructor(state: DurableObjectStateLike, _env: unknown) {
@@ -191,6 +367,73 @@ export class ThresholdEd25519StoreDurableObject {
       });
       return json(ok(value));
     }
+
+    if (op === 'signingRootPut') {
+      const parsed = parseSigningRootPutRecord((req as { record?: unknown }).record);
+      if (!parsed.ok) return json(err(parsed.code, parsed.message));
+
+      const result = await withTxn(this.state, async (store) => {
+        await writeSigningRootRecord(store, parsed.value);
+        return await signingRootStatus(parsed.value);
+      });
+
+      return json(ok(result));
+    }
+
+    if (op === 'signingRootGet') {
+      const signingRootId = toKey((req as { signingRootId?: unknown }).signingRootId);
+      const signingRootVersion = toKey(
+        (req as { signingRootVersion?: unknown }).signingRootVersion,
+      );
+      if (!signingRootId) return json(err('invalid_body', 'Missing signingRootId'));
+      if (!signingRootVersion) return json(err('invalid_body', 'Missing signingRootVersion'));
+
+      const result: DoResp<SigningRootWireRecord | null> = await withTxn(
+        this.state,
+        async (store) => {
+          const record = await readSigningRootRecord(store, { signingRootId, signingRootVersion });
+          if (record === null) return ok(null);
+          if (isDoErr(record)) return record;
+          return ok(toSigningRootWireRecord(record));
+        },
+      );
+
+      return json(result);
+    }
+
+    if (op === 'signingRootStatus') {
+      const signingRootId = toKey((req as { signingRootId?: unknown }).signingRootId);
+      const signingRootVersion = toKey(
+        (req as { signingRootVersion?: unknown }).signingRootVersion,
+      );
+      if (!signingRootId) return json(err('invalid_body', 'Missing signingRootId'));
+      if (!signingRootVersion) return json(err('invalid_body', 'Missing signingRootVersion'));
+
+      const result: DoResp<SigningRootStatus | null> = await withTxn(this.state, async (store) => {
+        const record = await readSigningRootRecord(store, { signingRootId, signingRootVersion });
+        if (record === null) return ok(null);
+        if (isDoErr(record)) return record;
+        return ok(await signingRootStatus(record));
+      });
+
+      return json(result);
+    }
+
+    if (op === 'signingRootDelete') {
+      const signingRootId = toKey((req as { signingRootId?: unknown }).signingRootId);
+      const signingRootVersion = toKey(
+        (req as { signingRootVersion?: unknown }).signingRootVersion,
+      );
+      if (!signingRootId) return json(err('invalid_body', 'Missing signingRootId'));
+      if (!signingRootVersion) return json(err('invalid_body', 'Missing signingRootVersion'));
+
+      await withTxn(this.state, (store) =>
+        deleteSigningRootRecord(store, { signingRootId, signingRootVersion }),
+      );
+
+      return json(ok({ deleted: true }));
+    }
+
     if (op === 'authConsumeUseCount') {
       const key = toKey((req as { key?: unknown }).key);
       if (!key) return json(err('invalid_body', 'Missing key'));

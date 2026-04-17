@@ -22,7 +22,7 @@ export type {
   RelayBootstrapGrantIssueResult,
   RelayBootstrapTokenRecord,
   RelayBootstrapGrantBroker,
-  RelayRuntimeSnapshotScope,
+  RelayRuntimePolicyScope,
   RelayRuntimeSnapshotEnvelope,
   RelayRuntimeSnapshotConsumer,
 } from './relay';
@@ -685,6 +685,11 @@ export {
 
 export { createCloudflareRouter } from './cloudflare/createCloudflareRouter';
 export { createCloudflareConsoleRouter } from './cloudflare/createCloudflareConsoleRouter';
+export type { SelfHostedCloudflareSigningWorkerFactoryInput } from './cloudflare/createSelfHostedCloudflareSigningWorker';
+export {
+  createSelfHostedCloudflareSigningRouter,
+  createSelfHostedCloudflareSigningWorker,
+} from './cloudflare/createSelfHostedCloudflareSigningWorker';
 export type {
   ConsoleSsoProvisioningOptions,
   AppSessionConsoleAuthAdapterOptions,
@@ -695,4 +700,4 @@ export {
   createAppSessionConsoleAuthAdapter,
 } from './consoleAppSessionAuth';
 
-export { ThresholdEd25519StoreDurableObject } from './cloudflare/durableObjects/thresholdEd25519Store';
+export { ThresholdStoreDurableObject } from './cloudflare/durableObjects/thresholdStore';

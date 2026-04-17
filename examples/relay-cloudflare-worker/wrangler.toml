@@ -12,12 +12,12 @@ fallthrough = true
 # Durable Object for threshold session persistence (Cloudflare-native; required for prod threshold signing).
 [[durable_objects.bindings]]
 name = "THRESHOLD_STORE"
-class_name = "ThresholdEd25519StoreDurableObject"
+class_name = "ThresholdStoreDurableObject"
 
 [[migrations]]
 tag = "v2"
 # Cloudflare Free plan requires SQLite-backed Durable Objects.
-new_sqlite_classes = ["ThresholdEd25519StoreDurableObject"]
+new_sqlite_classes = ["ThresholdStoreDurableObject"]
 
 # Default inactive; add one or more cron schedules when enabling any cron-backed job.
 [triggers]
@@ -93,7 +93,7 @@ WEBHOOK_RETRY_MAX_BACKOFF_MS = "3600000"
 # Durable Object binding (explicit per-env to avoid any inheritance ambiguity).
 [[env.production.durable_objects.bindings]]
 name = "THRESHOLD_STORE"
-class_name = "ThresholdEd25519StoreDurableObject"
+class_name = "ThresholdStoreDurableObject"
 
 # Staging worker (separate Worker name + tighter CORS allowlist)
 [env.staging]
@@ -140,12 +140,13 @@ WEBHOOK_RETRY_MAX_BACKOFF_MS = "3600000"
 # Durable Object binding (explicit per-env to avoid any inheritance ambiguity).
 [[env.staging.durable_objects.bindings]]
 name = "THRESHOLD_STORE"
-class_name = "ThresholdEd25519StoreDurableObject"
+class_name = "ThresholdStoreDurableObject"
 
-# Optional: Threshold signing (2-party FROST).
+# Optional: Threshold signing.
 #
-# This Worker example enables threshold signing only when the master secret is provided:
-#   wrangler secret put THRESHOLD_ED25519_MASTER_SECRET_B64U
+# This Worker example enables signing-root threshold-prf derivation when sealed
+# signing-root shares are present in the Durable Object and a KEK is provided:
+#   wrangler secret put SIGNING_ROOT_SECRET_SHARE_KEK_B64U
 
 # Observability (Workers Logs). Requires appropriate Cloudflare plan.
 [observability]

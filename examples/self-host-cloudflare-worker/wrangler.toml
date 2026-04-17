@@ -1,0 +1,31 @@
+name = "tatchi-self-host-signing-worker"
+main = "src/worker.ts"
+compatibility_date = "2026-04-17"
+compatibility_flags = ["nodejs_compat"]
+
+[[durable_objects.bindings]]
+name = "THRESHOLD_STORE"
+class_name = "ThresholdStoreDurableObject"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ThresholdStoreDurableObject"]
+
+[vars]
+NETWORK_ID = "testnet"
+NEAR_RPC_URL = "https://rpc.testnet.near.org"
+EXPECTED_ORIGIN = "https://wallet.example.com"
+EXPECTED_WALLET_ORIGIN = "https://wallet.example.com"
+THRESHOLD_PREFIX = "self-host:"
+THRESHOLD_SIGNING_ROOT_OBJECT_NAME = "threshold-signing-root-secrets"
+SIGNING_ROOT_SECRET_SHARE_CACHE_TTL_MS = "30000"
+
+# Set these as Wrangler secrets, not checked-in vars:
+# - RELAYER_ACCOUNT_ID
+# - RELAYER_PRIVATE_KEY
+# - SIGNING_ROOT_SECRET_SHARE_KEK_B64U
+# - SELF_HOST_ADMIN_TOKEN
+#
+# Do not put k_org or plaintext signing-root shares in wrangler.toml.
+# Import the hosted signing-root share bundle through the authenticated
+# self-host import route.

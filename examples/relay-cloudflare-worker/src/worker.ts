@@ -1,8 +1,11 @@
 import {
   AuthService,
+  CloudflareDurableObjectSigningRootSecretStore,
+  createSigningRootSecretAesGcmDecryptAdapter,
   createPrfSessionSealOptions,
   createRorOptions,
-  type ThresholdEd25519KeyStoreConfigInput,
+  type SigningRootSecretShareKekResolutionInput,
+  type ThresholdStoreConfigInput,
 } from '@tatchi-xyz/sdk/server';
 import {
   createCloudflareEmailHandler,
@@ -20,7 +23,7 @@ import { createJwtSession } from './jwtSession';
 import { createWorkerCronObservabilityIngestion } from './observability';
 import { createWorkerScheduledHandler } from './scheduledHandler';
 
-export { ThresholdEd25519StoreDurableObject } from '@tatchi-xyz/sdk/server/router/cloudflare';
+export { ThresholdStoreDurableObject } from '@tatchi-xyz/sdk/server/router/cloudflare';
 
 type Env = RelayCloudflareWorkerEnv & {
   // base env vars
@@ -72,9 +75,11 @@ type Env = RelayCloudflareWorkerEnv & {
   GOOGLE_OIDC_HOSTED_DOMAINS?: string;
 
   // Threshold signing (optional)
-  THRESHOLD_ED25519_MASTER_SECRET_B64U?: string;
   THRESHOLD_ED25519_SHARE_MODE?: string;
   THRESHOLD_PREFIX?: string;
+  THRESHOLD_SIGNING_ROOT_OBJECT_NAME?: string;
+  SIGNING_ROOT_SECRET_SHARE_CACHE_TTL_MS?: string;
+  SIGNING_ROOT_SECRET_SHARE_KEK_B64U?: string;
 
   // Durable Object binding for threshold state
   THRESHOLD_STORE: {
@@ -83,14 +88,46 @@ type Env = RelayCloudflareWorkerEnv & {
   };
 };
 
-function createThresholdKeyStoreConfig(env: Env): ThresholdEd25519KeyStoreConfigInput {
+function base64UrlDecodeBytes(input: string): Uint8Array {
+  const normalized = input.trim().replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
+  const binary = atob(padded);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
+}
+
+function cacheTtlMs(env: Env): number {
+  const value = Number(env.SIGNING_ROOT_SECRET_SHARE_CACHE_TTL_MS || '30000');
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function createThresholdStoreConfig(env: Env): ThresholdStoreConfigInput {
+  const signingRootSecretStore = env.SIGNING_ROOT_SECRET_SHARE_KEK_B64U
+    ? new CloudflareDurableObjectSigningRootSecretStore({
+        namespace: env.THRESHOLD_STORE,
+        objectName: env.THRESHOLD_SIGNING_ROOT_OBJECT_NAME || 'threshold-signing-root-secrets',
+        cacheTtlMs: cacheTtlMs(env),
+      })
+    : undefined;
+
   return {
     kind: 'cloudflare-do' as const,
     namespace: env.THRESHOLD_STORE,
-    name: 'threshold-ed25519-store',
+    name: 'threshold-store',
     THRESHOLD_PREFIX: env.THRESHOLD_PREFIX,
     THRESHOLD_ED25519_SHARE_MODE: env.THRESHOLD_ED25519_SHARE_MODE,
-    THRESHOLD_ED25519_MASTER_SECRET_B64U: env.THRESHOLD_ED25519_MASTER_SECRET_B64U,
+    ...(signingRootSecretStore
+      ? {
+          signingRootSecretResolverAdapters: {
+            storageAdapter: signingRootSecretStore,
+            decryptAdapter: createSigningRootSecretAesGcmDecryptAdapter({
+              resolveKek: (_input: SigningRootSecretShareKekResolutionInput) =>
+                base64UrlDecodeBytes(env.SIGNING_ROOT_SECRET_SHARE_KEK_B64U || ''),
+            }),
+          },
+        }
+      : {}),
   };
 }
 
@@ -107,7 +144,7 @@ function createAuthService(env: Env): AuthService {
       GOOGLE_OIDC_CLIENT_IDS: env.GOOGLE_OIDC_CLIENT_IDS,
       GOOGLE_OIDC_HOSTED_DOMAINS: env.GOOGLE_OIDC_HOSTED_DOMAINS,
     },
-    thresholdEd25519KeyStore: createThresholdKeyStoreConfig(env),
+    thresholdStore: createThresholdStoreConfig(env),
     signerWasm: {
       moduleOrPath: signerWasmModule, // Pass WASM module for Cloudflare Workers
     },
@@ -138,7 +175,7 @@ export default {
       shamirPrimeB64u: env.SHAMIR_P_B64U,
       serverEncryptExponentB64u: env.SHAMIR_E_S_B64U,
       serverDecryptExponentB64u: env.SHAMIR_D_S_B64U,
-      thresholdKeyStoreConfig: createThresholdKeyStoreConfig(env),
+      thresholdStoreConfig: createThresholdStoreConfig(env),
     });
     const router = createCloudflareRouter(authService, {
       healthz: true,

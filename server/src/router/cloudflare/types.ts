@@ -40,7 +40,7 @@ export interface RelayCloudflareWorkerEnv {
   WEBHOOK_RETRY_MAX_BACKOFF_MS?: string;
 
   // Optional: Threshold signing (2-party FROST).
-  // The SDK enables `/threshold-ed25519/*` endpoints when `thresholdEd25519KeyStore` is configured.
+  // The SDK enables `/threshold-ed25519/*` endpoints when `thresholdStore` is configured.
 }
 
 export interface CfExecutionContext {

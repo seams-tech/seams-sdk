@@ -5,3 +5,4 @@ packages:
   - examples/tatchi-site
   - examples/tatchi-docs
   - examples/relay-cloudflare-worker
+  - examples/self-host-cloudflare-worker
