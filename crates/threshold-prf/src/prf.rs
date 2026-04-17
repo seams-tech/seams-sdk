@@ -338,7 +338,7 @@ fn partial_from_validated_wire_point(
     })
 }
 
-/// Evaluates the PRF directly from the project root.
+/// Evaluates the PRF directly from the signing root.
 ///
 /// This is a reference path for tests and vectors. Production signing should
 /// use `evaluate_partial` and `combine_partials`.
@@ -367,7 +367,7 @@ pub fn evaluate_partial(
 /// Derives the final PRF output from exactly two signing-root shares.
 ///
 /// This is the canonical single-runtime Option A helper. It performs threshold
-/// partial evaluation and combine without reconstructing the project root. The
+/// partial evaluation and combine without reconstructing the signing root. The
 /// direct signing-root path remains reference-only for tests, vectors, audits,
 /// and recovery checks.
 pub fn derive_output_from_signing_root_shares(

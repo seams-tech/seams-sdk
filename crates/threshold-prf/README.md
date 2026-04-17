@@ -5,7 +5,7 @@ signing-root shares.
 
 The crate is intentionally narrow:
 
-- generate a random project root
+- generate a random signing root
 - split it into 2-of-3 shares
 - encode and explicitly decode decrypted signing-root shares at the server SDK
   boundary

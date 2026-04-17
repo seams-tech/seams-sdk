@@ -175,7 +175,7 @@ where
     }
 }
 
-/// Splits a project root into fixed 2-of-3 Shamir shares.
+/// Splits a signing root into fixed 2-of-3 Shamir shares.
 pub fn split_signing_root_2_of_3<R>(root: &SigningRootScalar, rng: &mut R) -> [SigningRootShare; 3]
 where
     R: RngCore + CryptoRng,
@@ -201,7 +201,7 @@ where
     ]
 }
 
-/// Reconstructs the project root from exactly two distinct 2-of-3 shares.
+/// Reconstructs the signing root from exactly two distinct 2-of-3 shares.
 pub fn reconstruct_signing_root_2_of_3(
     shares: &[SigningRootShare],
 ) -> ThresholdPrfResult<SigningRootScalar> {
@@ -210,7 +210,7 @@ pub fn reconstruct_signing_root_2_of_3(
     SigningRootScalar::from_scalar((lambda_left * left.value) + (lambda_right * right.value))
 }
 
-/// Refreshes a 2-of-3 sharing of the same project root.
+/// Refreshes a 2-of-3 sharing of the same signing root.
 ///
 /// This prototype reconstructs the root before splitting again. A future
 /// distributed refresh can preserve the same public API while changing the

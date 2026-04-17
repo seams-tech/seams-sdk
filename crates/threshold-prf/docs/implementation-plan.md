@@ -11,7 +11,7 @@ The crate should answer one question before any integration work:
 
 Can the same canonical `y_relayer` be produced from either:
 
-- the direct reference path from reconstructed project root `k_org`
+- the direct reference path from reconstructed signing root `k_org`
 - Option A one-runtime threshold partial evaluation and combine
 - any valid 2-of-3 signing-root share subset
 
@@ -304,7 +304,7 @@ Minimum correctness tests:
 - unknown share IDs fail
 - one share cannot combine
 - share refresh preserves direct-equivalent output
-- different project roots produce different outputs for the same context
+- different signing roots produce different outputs for the same context
 - malformed scalar encodings fail
 - zero root scalars are rejected
 - zero share scalar encodings are accepted as valid Shamir shares
@@ -772,7 +772,7 @@ formal-verification coverage.
       share wires after derivation.
 - [x] Add provider-level server SDK tests for resolving signing-root shares and
       deriving ECDSA/Ed25519 HSS outputs from committed vectors.
-- [x] Add a storage/decrypt-backed `SigningRootShareProvider` factory over
+- [x] Add a storage/decrypt-backed `SigningRootShareResolver` factory over
       injected store and share-decrypt provider interfaces.
 - [x] Add concrete in-memory and Postgres signing-root stores that persist only
       sealed share bytes.
