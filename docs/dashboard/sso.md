@@ -7,7 +7,7 @@ Date updated: March 6, 2026
 Use Google SSO as the dashboard login path:
 
 1. Google sign-in -> ID token
-2. `POST /session/exchange` with `exchange.type=oidc_jwt`
+2. `POST /session/exchange` with `exchange.type=oidc_jwt` and `exchange.provider=google`
 3. relay issues `app_session_v1` cookie
 4. dashboard bootstraps auth via `GET /console/session`
 
@@ -22,7 +22,7 @@ This document is the canonical dashboard auth reference. Any dashboard auth beha
 
 ## Implemented
 
-- `/dashboard/login` Google sign-in flow is wired with `VITE_GOOGLE_OIDC_CLIENT_ID`.
+- `/dashboard/login` Google sign-in flow reads the public Google client ID from relay `/auth/google/options`.
 - Dashboard unauthenticated guard redirects to `/dashboard/login`.
 - Dashboard sign-out calls `POST /session/revoke` and clears local dashboard state.
 - Shared app-session console auth helper (`createAppSessionConsoleAuthAdapter`) is exported from both adaptors.
@@ -39,10 +39,6 @@ This document is the canonical dashboard auth reference. Any dashboard auth beha
 - Dashboard login wiring coverage for Google credential exchange and onboarding redirect.
 
 ## Configuration
-
-Frontend:
-
-- `VITE_GOOGLE_OIDC_CLIENT_ID`
 
 Server:
 

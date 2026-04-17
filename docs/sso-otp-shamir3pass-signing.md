@@ -374,15 +374,18 @@ This key is not used for threshold signing. It exists only to prove possession o
 Canonical Email OTP registration:
 
 1. user signs in with Google SSO
-2. server issues `app_session_v1`
-3. account is created for the Email OTP path
-4. Email OTP enrollment is completed
-5. client generates strong random secret `S`
-6. client seals `S` into server escrow `E_ks(S)` via `shamir3pass`
-7. client derives:
+2. server verifies the Google ID token against `GOOGLE_OIDC_CLIENT_ID` or `GOOGLE_OIDC_CLIENT_IDS`
+3. server issues `app_session_v1` with:
+   - `sub` as the app identity / Google OIDC subject mapping
+   - `walletId` as the server-resolved signing wallet id for this Google subject
+4. account key material is created for the Email OTP signing path
+5. Email OTP enrollment is completed
+6. client generates strong random secret `S`
+7. client seals `S` into server escrow `E_ks(S)` via `shamir3pass`
+8. client derives:
    - threshold ECDSA client verifying share when ECDSA threshold is enabled
    - unlock public key
-8. client uploads:
+9. client uploads:
    - server escrow blob `E_ks(S)`
    - enrolled derived threshold material
    - enrolled unlock public key
@@ -393,6 +396,16 @@ Registration therefore becomes:
 ```text
 Google SSO -> account creation -> Email OTP enrollment -> client-secret generation -> server escrow
 ```
+
+During registration, the client marks the OIDC exchange as `account_mode = register`. The server then creates a NEAR-valid, email-derived wallet id with the current millisecond timestamp to avoid clashes, for example:
+
+```text
+alice-example-com-1712345678901.testnet
+```
+
+The server persists a mapping from the Google provider subject to that wallet id. Later logins mark the exchange as `account_mode = login` and must reuse the persisted wallet id. The timestamp is registration-time uniqueness only; it must not generate a fresh wallet id on every login.
+
+If an OIDC exchange is not a Google Email OTP registration flow, the server may fall back to the generic OIDC id shape `g-<sha256(subject)[0..32]>.<network-suffix>`, where the suffix is `testnet` on testnet/dev and `near` on mainnet. The raw Google subject and raw email are never used directly as the signing wallet id.
 
 ## Login Flow
 
@@ -475,7 +488,10 @@ Policy:
 2. maximum OTP attempts default to 5
 3. lockout TTL defaults to 15 minutes after the configured maximum failed attempts for an enrolled wallet
 4. there is no resend route in v1; the client requests a fresh challenge instead
-5. `walletId` currently equals `userId` because the runtime binds login to `app_session_v1.sub`
+5. `userId` and `walletId` are intentionally distinct for Google SSO:
+   - `userId` is the app-session subject / Google OIDC subject mapping
+   - `walletId` is the persisted signing identity stored in `app_session_v1.walletId`
+   - Email OTP routes authorize requested `walletId` against the session `walletId` claim, falling back to `sub` only for non-OIDC/passkey sessions
 
 ### Email OTP auth grant
 
@@ -503,6 +519,16 @@ Policy:
 ## Enrollment Model
 
 Email OTP enrollment happens only after Google SSO app session issuance.
+
+Enrollment authorization:
+
+1. Google SSO Email OTP registration and re-enrollment are authorized by:
+   - a valid Google-SSO-backed `app_session_v1`
+   - `walletId` bound to the session `walletId` claim
+   - a fresh 6-digit Email OTP challenge for `action = wallet_email_otp_enroll`
+2. Google SSO Email OTP registration does not require passkey authentication.
+3. Google SSO Email OTP re-enrollment does not require passkey authentication, because Email OTP-only accounts may not have a passkey yet.
+4. passkey step-up applies when a non-Google/passkey session modifies an existing Email OTP enrollment after the wallet was last unlocked by Email OTP.
 
 Persisted server-side data:
 
@@ -655,7 +681,7 @@ The implementation must preserve these invariants:
 17. sensitive-operation overrides are now generalized through `WarmSessionManager` policy checks:
    - stronger operations can require fresh passkey authentication
    - stronger operations can require fresh Email OTP with `per_operation` policy
-18. `PasskeyAuthMenu` now exposes `emailOtpAuthPolicy` and forwards the chosen policy through the Email OTP login CTA
+18. `PasskeyAuthMenu` now exposes `emailOtpAuthPolicy` and treats Google SSO as the Email OTP entrypoint instead of showing a separate OTP CTA
 19. the former Email OTP bootstrap wrapper stopped returning `clientRootShare32B64u` before that wrapper was deleted
 20. best-effort local cleanup now zeroizes secret-derived byte buffers in the Email OTP unlock, enrollment, and threshold bootstrap paths when those buffers are materialized client-side
 21. transient Email OTP secret-source references were shortened before the dedicated-worker cutover:
@@ -766,6 +792,14 @@ The implementation must preserve these invariants:
    - `TatchiPasskey/emailOtp.ts` covers public challenge/verify helpers and worker-dispatched enrollment
    - `SigningEngine` covers worker-only login plus bootstrap
    - relayer integration covers the worker-owned bootstrap route shape without production main-thread helper exports
+51. React wallet-session readiness now treats active threshold-ECDSA Email OTP warm sessions as wallet-unlocked state:
+   - UI readiness is no longer Ed25519/passkey-session-only
+   - active Tempo or EVM threshold-ECDSA warm sessions can drive `loginState.isLoggedIn`
+   - focused coverage asserts an Email OTP ECDSA session can unlock UI without an Ed25519 operational public key
+52. `PasskeyAuthMenu` and the demo carousel now avoid the post-OTP blank protected page:
+   - prompt-backed Google SSO flows refresh SDK login state after successful OTP submit, not before OTP unlock completes
+   - the demo carousel advances to Transactions only from SDK `loginState.isLoggedIn`, not from an optimistic `onLoggedIn` shortcut
+   - the demo Email OTP submit path refreshes and verifies local wallet-session readiness before completing the unlock handoff
 
 ### Remaining Alignment Work
 
@@ -784,6 +818,72 @@ The latest focused audit leaves these concrete residuals:
 2. [emailOtpDerivation.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/helpers/emailOtpDerivation.ts) is test-only parity support:
    - production code no longer imports it
    - production shared exports no longer expose it
+
+### PasskeyAuthMenu UX redesign
+
+The current `PasskeyAuthMenu` UX is functionally wired but still confusing for first-time Google SSO registration.
+
+Observed confusion:
+
+1. the component can prefill an existing passkey account id
+2. the menu can land on `Login` first
+3. the prefilled passkey account id visually dominates the flow even when the user intends to register with Google SSO
+4. Google SSO registration is a different account-discovery path, but the current UI can make it look like it depends on the passkey account-id input
+5. Email OTP is an unlock/signing factor for Google SSO accounts, not a recovery-only path, so the UI should not frame it as account recovery in the main login/register flow
+
+The clean UX model should separate the user action from the auth method:
+
+1. action: `Register`, `Login`, `Sync`
+2. method: `Passkey`, `Google SSO + Email OTP`
+3. account-id input ownership: passkey-only unless the user explicitly selects a passkey flow
+4. Google SSO account identity: resolved from Google SSO and the server-side Google-subject-to-wallet mapping, not from the passkey account-id field
+
+Recommended first-pass redesign:
+
+1. Register mode
+   - primary CTA: `Create with Passkey`
+   - secondary CTA: `Register with Google SSO`
+   - hide or visually de-emphasize the passkey account-id input until the passkey method is active
+   - when Google SSO is selected, explain that the wallet account is created from the Google account and then unlocked with a 6-digit email code
+2. Login mode
+   - primary CTA: `Continue with Passkey`
+   - secondary CTA: `Sign in with Google SSO`
+   - any prefilled account id should be clearly scoped to the passkey CTA only
+   - Google SSO login should not appear to use or require the passkey account-id field
+   - if no Email OTP wallet is enrolled for the Google account, show a direct `Register with Google SSO` switch instead of a generic error-only state
+3. Sync mode
+   - keep device-linking and sync actions separate from Email OTP login/register copy
+   - do not show Email OTP as `Recover Account` in the primary login/register method set
+
+Product copy requirements:
+
+1. passkey remains recommended and stronger
+2. Google SSO plus Email OTP is lower-security convenience login/signing
+3. Email OTP copy should say `6-digit email code unlocks wallet signing`, not `recovery`, unless the user is in an explicit recovery surface
+4. the menu should never imply that a Google SSO registration will reuse the currently prefilled passkey account id
+
+#### PasskeyAuthMenu UX TODO
+
+1. audit current `PasskeyAuthMenu` state transitions for default mode, remembered account id, remembered auth method, and initial focus
+2. split UI state into explicit `actionMode` and `authMethod` concepts instead of allowing the account-id field and segmented control to imply method selection
+3. scope the account-id input to passkey flows only
+4. ensure Google SSO registration can be reached from `Register` mode without first interacting with a prefilled passkey account id
+5. ensure Google SSO login can be reached from `Login` mode without reading or submitting the passkey account-id field
+6. add a `Register with Google SSO` affordance when Google SSO login returns `Email OTP enrollment not found`
+7. remove `Recover Account with Email OTP` copy from the primary Email OTP login/register path; keep recovery wording only for explicit recovery flows
+8. update skeleton/loading states so they do not flash a passkey-prefilled login form before Google SSO registration UI is available
+9. add focused component tests for:
+   - first-load register mode shows both passkey creation and Google SSO registration clearly
+   - prefilled passkey account id does not affect Google SSO registration payloads
+   - Google SSO login-not-enrolled state offers a direct register switch
+   - Email OTP copy describes unlock/signing rather than recovery in the normal login path
+10. run the existing `PasskeyAuthMenu` FOUC and Email OTP bootstrap tests after the redesign
+11. after all other core, worker, and UI-readiness tasks are complete, replace the temporary timestamped Google SSO wallet-id registration behavior:
+    - detect an existing Google-subject-to-wallet mapping during Google SSO registration attempts
+    - automatically switch the user to the Google SSO login path instead of creating another Email OTP wallet for the same Google account
+    - remove timestamp suffixing from the default production Google SSO wallet-id format
+    - keep a development-only setting that can switch between timestamped and stable Google SSO wallet-id formats for regression testing
+    - add tests proving repeated Google SSO registration attempts do not create duplicate Email OTP accounts by default
 
 ### Core status
 
@@ -854,6 +954,53 @@ The current core OTP lifecycle work is complete enough that the remaining effort
    - `tests/relayer/email-otp.bootstrap-integration.test.ts`
    - `tests/relayer/email-otp.shamir3pass.test.ts`
 4. treat repo-wide type-check cleanup as a separate track because current non-OTP failures are outside the Email OTP core slice
+
+### Production hardening TODO
+
+The local/dev Email OTP signing flow is wired, but the following issues must be closed before treating the feature as production-ready.
+
+1. implement production Email OTP delivery:
+   - replace the current `email_provider` stub with a real provider-backed adapter
+   - keep `memory` and `log` delivery restricted to local development and tests
+   - add relayer-route and provider-adapter tests for successful send, provider failure, retry-safe error handling, and production-mode rejection of dev delivery modes
+2. enforce production server-seal-key posture:
+   - fail production startup if Email OTP server seal material is sourced only from plaintext `SHAMIR_E_S_B64U` or `SHAMIR_D_S_B64U` environment variables
+   - introduce a KMS/HSM/equivalent resolver for production Email OTP server seal material
+   - keep plaintext seal-key config available only for local development, tests, and temporary bootstrap environments
+   - add config tests proving production rejects plaintext seal-key-only configuration
+3. freeze first-release OTP format to exactly six decimal digits:
+   - remove configurable 6-8 digit `EMAIL_OTP_CODE_LENGTH` behavior from production code
+   - validate `otpCode` as `^[0-9]{6}$` at every server route and service verification boundary
+   - update tests so non-six-digit, non-decimal, empty, and whitespace-padded codes fail consistently
+4. stop storing plaintext OTP codes:
+   - store a verifier instead of `otpCode` in challenge records
+   - derive the verifier with a server-side pepper or equivalent keyed construction
+   - compare fixed-length verifier bytes with constant-time equality
+   - ensure failed-attempt accounting, lockout, challenge deletion, and dev outbox behavior still work without persisting plaintext OTP in the primary challenge store
+5. tighten OTP code generation:
+   - replace `byte % 10` generation with rejection sampling to avoid modulo bias
+   - keep the output as exactly six decimal digits
+   - add deterministic tests around format and statistical smoke tests around digit generation boundaries
+6. bind Email OTP records to the signing-root identity model:
+   - extend challenge, grant, enrollment, and unlock-challenge records with the final signing-root scope from `docs/tenant-id-refactor.md`
+   - bind verification and grant consumption to that scope in addition to `userId`, `walletId`, `orgId`, session hash, and app-session version
+   - add mismatch tests for cross-environment, cross-project, and stale-session attempts
+7. close or explicitly document worker-boundary secret-derived material exceptions:
+   - current worker-owned ECDSA sessions persist only opaque handles, which is correct
+   - remaining `clientRootShare32` or `prfFirstB64u` handoffs for Ed25519 paths must either move behind worker-owned opaque signing handles or be documented as temporary compatibility exceptions
+   - remaining transferred `clientSigningShare32` ECDSA handoffs to main thread must either move behind worker-owned signing or remain tightly scoped with transfer-list ownership, single-use policy enforcement, and immediate zeroization tests
+8. narrow the public Email OTP helper surface:
+   - avoid exposing `emailOtpEscrowBlob` to app/main-thread callers except through the worker-owned combined flow
+   - keep direct challenge and verify helpers limited to non-secret test or internal route usage where possible
+   - add tests proving the default SDK login/register flow does not expose recovered `S`, client-root-share material, or ECDSA additive share bytes to app-origin code
+9. validate enrollment material more strictly:
+   - enforce expected shape and size for `emailOtpEscrowBlob`
+   - validate `emailOtpKeyVersion`, `unlockPublicKey`, and optional ECDSA verifying share formats before persistence
+   - reject malformed escrow material before it reaches the enrollment store
+10. add lifecycle cleanup for persisted Email OTP artifacts:
+    - add periodic or request-path cleanup for expired challenges, expired grants, and expired unlock challenges
+    - add store tests proving expired artifacts cannot accumulate into reusable authorization state
+    - keep cleanup independent of successful verification so abandoned flows are handled safely
 
 ## Future Directions
 

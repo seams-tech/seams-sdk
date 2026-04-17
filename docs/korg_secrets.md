@@ -1,274 +1,355 @@
-# Availability-First MPC Custody: K Org Secrets Plan
+# Availability-First MPC Custody: Signing Root Secrets Plan
 
-Date updated: 2026-04-16
+Date updated: 2026-04-17
 
 ## Objective
 
-Redesign the `k_org` system around availability-first MPC custody: an
-availability-first deterministic tenant-root model that:
+Design the server-side signing-root custody model for availability-first MPC
+custody.
 
-- avoids per-wallet durable server secret state
-- avoids a separate per-wallet secret database and backup surface
-- keeps normal signing independent from Google Cloud KMS availability
-- prioritizes resilience against accidental data loss and Cloud KMS
-  misconfiguration
-- keeps the passkey-derived client share independent from server-root custody
-- supports later hardening without changing the derivation model
+The goals are:
 
-This document is a forward-looking design plan. Breaking changes are allowed.
+- avoid durable plaintext signing-root storage
+- avoid per-wallet durable server secret storage
+- avoid a deterministic platform `master_secret` that can rederive customer
+  roots after self-host migration
+- preserve wallet addresses when custody shares are refreshed
+- keep normal signing simple enough for a single Cloudflare Worker in Phase 1
+- leave a clean upgrade path to a two-server threshold-PRF model later
+
+This is a forward-looking design plan. Breaking package and API changes are
+allowed where they cleanly replace the current model.
 
 ## Decision
 
-We are choosing availability-first MPC custody: a deterministic tenant-root
-model with an explicit phased security posture.
+Use randomly generated signing roots.
 
-Phase 0 intentionally stores both plaintext `k_org` and wrapped `k_org` in
-Cloudflare Durable Objects.
+For each project:
 
-That means:
+1. Generate a random `signing_root_secret`, also called `k_org` in crypto
+   notation.
+2. Split it into 2-of-3 threshold shares.
+3. Discard the plaintext root after share creation and backup/export
+   ceremonies complete.
+4. Encrypt each root share as a `sealed_signing_root_secret_share`.
+5. Persist the sealed shares in a durable database such as Google Cloud SQL
+   for PostgreSQL, with metadata that can later split shares across stronger
+   failure domains.
+6. Let the Phase 1 Cloudflare signer request any two sealed shares, decrypt
+   them in memory, compute two threshold-PRF partials, combine them into
+   `y_relayer`, and sign.
+7. Later, upgrade to a two-server model where separate workers hold or unwrap
+   distinct root shares and use threshold-PRF partial evaluation.
 
-- there is no persisted per-wallet server secret
-- `k_org` is derived deterministically from a Google Cloud-held master
-  derivation key
-- `k_srv_wallet` is derived deterministically from `k_org`
-- Cloudflare is the hot-path source for existing projects
-- Google Cloud KMS is used only for project creation and recovery
-- the system can later move to wrapped-only durable storage without changing
-  wallet derivation semantics
+The canonical durable recovery material is the set of encrypted signing-root
+shares plus any customer backup package. There is no central platform
+`master_secret -> k_org` derivation step. If all recoverable root shares and
+customer backups are lost, the signing root is lost.
 
-This intentionally prefers signing availability and recoverability over keeping
-all tenant roots durably KMS-bound from day one.
+Phase 1 does not claim that Cloudflare runtime compromise cannot expose
+`k_org`. The claim is narrower:
+
+- plaintext `k_org` is not durably stored
+- a Cloudflare admin who can only read durable storage should see sealed shares,
+  not plaintext roots
+- the signer runtime may decrypt two root shares while performing an authorized
+  signing operation, which is enough material to reconstruct `k_org` even if the
+  canonical derivation path does not explicitly reconstruct it
+
+## Naming
+
+Use product-oriented names at API and storage boundaries. Use short crypto
+names only in specs and protocol internals.
+
+| Concept                      | Preferred Name              | Crypto/Internal Name |
+| ---------------------------- | --------------------------- | -------------------- |
+| Random signing root          | `signing_root_secret`       | `k_org`              |
+| Signing root version         | `signing_root_version`      | `k_org_version`      |
+| Shamir share of the root     | `signing_root_secret_share`        | `k_org_share_i`      |
+| Encrypted stored root share  | `sealed_signing_root_secret_share` | `enc(k_org_share_i)` |
+| Root share refresh counter   | `root_share_epoch`          | share epoch          |
+| Share wrapping key           | `share_wrapping_key`        | KEK                  |
+| Per-wallet server root input | `server_wallet_root_input`  | `y_relayer`          |
+| Per-wallet client root input | `client_wallet_root_input`  | `y_client`           |
+| Actual server signing share  | `server_signing_share`      | `x_relayer`          |
+| Actual client signing share  | `client_signing_share`      | `x_client`           |
+
+The important distinction:
+
+- `signing_root_secret` / `k_org` is the project-level root.
+- `server_wallet_root_input` / `y_relayer` is derived per wallet from `k_org`.
+- `server_signing_share` / `x_relayer` is the final server-side threshold
+  signing share or backend share material.
 
 ## Threat Model
 
-The system uses threshold signing with:
+The signing system uses threshold signing with:
 
-- a server-side signing share derived from `k_org`
-- a client-side signing share derived from passkey PRF material
+- a server-side contribution derived from `k_org`
+- a client-side contribution derived from passkey PRF material
 
-Compromise of the server derivation root is serious, but it is not by itself a
-complete wallet compromise. An attacker who obtains `k_org` can derive server
-shares, but still needs the user's client-side passkey share to produce
-signatures.
+Compromise of `k_org` is serious, but it is not by itself a complete wallet
+compromise. An attacker still needs the user's passkey-derived client
+contribution to sign.
 
-Loss or unavailability of the server derivation root is different. If the
-server cannot recover `k_org`, the server cannot produce its signing share, and
-users may be unable to access wallets.
+The Phase 1 design is primarily protecting against:
 
-For the current stage, the higher-priority catastrophic risk is:
+- accidental durable plaintext root exposure
+- company insiders reading plaintext roots through Cloudflare admin/storage
+  access
+- catastrophic loss of one root-share storage location
+- accidental loss of one encrypted root share
+- self-host migration that preserves wallet addresses
 
-- lost `k_org`
-- lost wrapped `k_org`
-- Google Cloud KMS key deletion or misconfiguration
-- Google Cloud KMS outage on the signing path
-- Cloudflare state loss without a recovery path
+The Phase 1 design does not fully protect against:
 
-The Phase 0 design is optimized for those risks.
+- malicious code deployed to the Cloudflare signer
+- Cloudflare runtime compromise during an authorized signing operation
+- a party that can unwrap or decrypt any two root shares and execute the signer
+
+Those risks are addressed later by stricter deployment controls, the two-server
+threshold-PRF model, and optional TEE hardening.
 
 ## Secret Hierarchy
 
-The model uses two Google Cloud-held platform keys, one tenant root, and one
-derived wallet secret.
-
-### 1. `master_kdf_key`
-
-A Google Cloud KMS MAC key, or equivalent Google Cloud-only derivation
-primitive.
-
-Responsibilities:
-
-- acts as the platform master derivation root
-- deterministically derives `k_org` for a project
-- is used only during project creation or recovery
-- is not placed in Cloudflare environment variables
-- is not used directly during normal signing
-
-Conceptually:
-
 ```text
-k_org = KDF(
-  key = master_kdf_key[master_kdf_key_version],
-  context = encode(
-    env,
-    project_id,
-    k_org_version,
-    derivation_version
-  )
-)
+signing_root_secret / k_org
+  -> server_wallet_root_input / y_relayer
+    -> server_signing_share / x_relayer
+      -> threshold signing with client contribution
 ```
 
-With Google Cloud KMS, this should be implemented as a Cloud KMS MAC-signing
-based KDF or behind a small Google Cloud provisioning service that owns the
-exact derivation procedure.
-
-### 2. `kek_key`
-
-A Google Cloud KMS symmetric encryption key.
-
-Responsibilities:
-
-- wraps `k_org` as `wrapped_k_org`
-- supports rewrap and future wrapped-only storage
-- is used only during project creation, recovery, or explicit rewrap
-- is not used directly during normal signing
-
-Conceptually:
+The durable storage hierarchy is:
 
 ```text
-wrapped_k_org = CloudKMS.Encrypt(
-  key = kek_key[kek_key_version],
-  plaintext = k_org,
-  additional_authenticated_data = encode(
-    env,
-    project_id,
-    k_org_version,
-    derivation_version
-  )
-)
+k_org
+  -> 2-of-3 signing_root_secret_shares
+    -> sealed_signing_root_secret_shares
+      -> durable storage locations
 ```
 
-### 3. `k_org[v]`
+```mermaid
+flowchart TD
+  RNG["CSPRNG"]
+  ROOT["signing_root_secret / k_org"]
+  SPLIT["2-of-3 Shamir split"]
 
-A project-scoped or tenant-scoped derivation root, versioned per project.
+  S1["signing_root_secret_share_1"]
+  S2["signing_root_secret_share_2"]
+  S3["signing_root_secret_share_3"]
 
-Responsibilities:
+  E1["sealed_signing_root_secret_share_1"]
+  E2["sealed_signing_root_secret_share_2"]
+  E3["sealed_signing_root_secret_share_3"]
 
-- acts as the server custody boundary for the project
-- deterministically derives per-wallet server secrets
-- can be reconstructed from Google Cloud during recovery
-- can be transferred to a customer during self-host migration
-- defines the active tenant-root version for new wallet enrollments
+  D1["durable storage 1"]
+  D2["durable storage 2"]
+  D3["durable storage 3"]
 
-In Phase 0, plaintext `k_org` is durably stored in Cloudflare Durable Objects.
-That is intentional.
+  RNG --> ROOT --> SPLIT
+  SPLIT --> S1 --> E1 --> D1
+  SPLIT --> S2 --> E2 --> D2
+  SPLIT --> S3 --> E3 --> D3
+```
 
-### 4. `k_srv_wallet`
+## Signing Root Creation
 
-A derived per-wallet server secret.
+Project creation uses an audited root ceremony.
 
-Responsibilities:
+1. Generate `signing_root_secret` using a CSPRNG.
+2. Assign `signing_root_version = 1`.
+3. Assign `root_share_epoch = 1`.
+4. Split the root with 2-of-3 Shamir secret sharing.
+5. Encrypt each root share under its configured `share_wrapping_key`.
+6. Persist the three sealed shares and metadata.
+7. Export the three root shares or a customer backup package to the customer.
+8. Require backup confirmation before the project can become production-active.
+9. Zeroize plaintext `signing_root_secret` and plaintext root shares from the
+   provisioning process.
 
-- acts as the wallet-specific server-side signing share input
-- is derived on demand from `k_org[v]`
-- is not durably persisted as standalone secret state
+The customer backup requirement is part of the tradeoff. Without a deterministic
+platform root, there is no platform-only rederive path if all root shares and
+customer backups are lost.
+
+This is intentional. Availability comes from redundant encrypted root shares,
+backup confirmation, storage isolation, and recovery drills, not from a central
+master secret that can recreate customer roots.
+
+## Phase 1 Storage Model
+
+Phase 1 uses one Cloudflare signer, but avoids durable plaintext `k_org`.
+
+Each project stores:
+
+- three `sealed_signing_root_secret_share` records
+- root metadata
+- wallet metadata
+- storage locator metadata
+- wrapping-key locator metadata
+
+The default durable store can be Google Cloud SQL for PostgreSQL. This keeps
+the recovery source explicit and backed up without introducing a separate
+per-wallet secret database. The stored values are encrypted root shares, never
+plaintext `k_org`.
+
+Do not store or depend on:
+
+- durable plaintext `signing_root_secret`
+- durable plaintext signing-root shares
+- a platform `master_secret` that can deterministically rederive `k_org`
+- per-wallet server signing secrets
+
+The sealed shares are the source of recovery. Wrapping keys and storage
+providers can be rotated, but rotation must preserve the underlying
+`signing_root_secret` unless an explicit wallet-key migration is intended.
+
+The initial storage layout can be:
+
+```text
+share 1: encrypted row or record in durable database
+share 2: encrypted row or record in durable database
+share 3: encrypted row or record in durable database plus customer/offline backup
+```
+
+For real isolation, the three shares should not all depend on one admin plane,
+one wrapping key, or one provider account.
+
+The minimum useful Phase 1 version can start with one durable database if
+operational simplicity matters, but the security claim must be narrower:
+
+- it reduces accidental plaintext storage exposure
+- it reduces catastrophic data-loss risk through database backups and customer
+  backup packages
+- it does not create strong independent custody domains until the shares,
+  wrapping keys, and admin planes are split
+
+## Phase 1 Signing Flow
+
+The single Cloudflare signer computes both threshold-PRF partials in one
+runtime.
+
+```text
+1. Receive an authorized signing request.
+2. Resolve wallet metadata.
+3. Fetch any two sealed signing-root shares.
+4. Unwrap or decrypt those shares.
+5. Compute one threshold-PRF partial per plaintext root share.
+6. Combine both partials into `server_wallet_root_input` / `y_relayer`.
+7. Run the existing threshold signing flow with the client contribution.
+8. Zeroize plaintext root shares, PRF partials, `y_relayer`, and derived server
+   material.
+```
+
+This is Option A: single-worker threshold-PRF. It uses the same derivation
+protocol as Option B, but both share partials are computed in one runtime. That
+runtime still sees enough plaintext share material to reconstruct `k_org`, so
+the security posture is close to reconstructing even though the canonical code
+path is partial evaluation and combine.
+
+It is intentionally simple. It does not split PRF partial evaluation across two
+workers in Phase 1 because a single runtime seeing two root shares can
+reconstruct `k_org` anyway. Splitting computation inside that same runtime would
+not materially change the runtime compromise boundary.
+
+```mermaid
+sequenceDiagram
+  participant User as User device / passkey
+  participant Worker as Cloudflare signer
+  participant S1 as share storage A
+  participant S2 as share storage B
+  participant Core as threshold signing core
+
+  User->>Worker: signing request
+  Worker->>S1: fetch sealed share
+  Worker->>S2: fetch sealed share
+  Worker->>Worker: decrypt shares
+  Worker->>Worker: compute PRF partials for both shares
+  Worker->>Core: combine partials into y_relayer
+  User->>Worker: client contribution
+  Worker->>Core: threshold sign with y_relayer + client contribution
+  Core-->>Worker: threshold signature
+  Worker-->>User: signature
+```
 
 ## Core Derivation Model
 
-The server-side wallet secret is derived locally from `k_org` and wallet
-context.
+Use `y_relayer` for the per-wallet server root input.
 
 Conceptually:
 
 ```text
-k_srv_wallet = HKDF(
-  ikm = k_org[v],
-  salt = "wallet-server-secret:v1",
-  info = encode(
-    env,
-    project_id,
-    user_id,
-    rp_id,
-    scheme_id,
-    key_purpose,
-    wallet_key_version,
-    k_org_version,
-    derivation_version
-  )
-)
+P = HashToGroup("signing-root-prf:v1", wallet_context)
+partial_i = [k_org_share_i] P
+partial_j = [k_org_share_j] P
+Z = lambda_i * partial_i + lambda_j * partial_j
+y_relayer = HashToBytes("y_relayer:v1", encode(Z), wallet_context)
 ```
 
-The exact encoding can vary, but the inputs must be explicit, stable,
-canonical, and unambiguous.
+The exact encoding must be canonical, versioned, and byte-stable across Rust,
+TypeScript, Workers, Node, and future TEE runtimes.
 
 The client side remains independent:
 
-- the client share comes from passkey PRF material
-- passkey registration is not tied to `k_org` custody
-- reusing the same passkey does not imply the same threshold public key if the
-  server-side root changes
+```text
+y_client = derive_from_passkey_prf(...)
+```
 
-## Phase 0 Architecture
+Then the protocol-specific HSS or threshold-key path combines the client and
+server root inputs into signing material.
 
-Phase 0 is the initial availability-first architecture.
+Use `y_relayer` in docs and APIs because that term is already aligned with the
+HSS codebase.
 
-### Project creation
+### Threshold-PRF Equivalence
 
-1. A customer creates a project.
-2. Cloudflare calls the Google Cloud provisioning path.
-3. Google Cloud derives `k_org` from `master_kdf_key`.
-4. Google Cloud wraps `k_org` with `kek_key` to produce `wrapped_k_org`.
-5. Cloudflare Durable Object stores plaintext `k_org`.
-6. Cloudflare Durable Object stores `wrapped_k_org`.
-7. Cloudflare Durable Object stores all derivation and key locator metadata.
+Do not use additive child derivation from root shares. A construction that lets
+servers locally derive additive child shares from `k_org_share_i` is tempting,
+but it is the wrong primitive if disclosure of one derived wallet input can
+reveal information about the signing root or make root-share compromise
+analysis harder.
 
-Google Cloud KMS is used only at this boundary.
+Use threshold-PRF partial evaluation for both Option A and Option B.
 
-### Signing
+```text
+Option A:
+  one worker computes partial_i and partial_j, then combines them
 
-1. Cloudflare loads plaintext `k_org` from Durable Object storage or memory.
-2. Cloudflare derives `k_srv_wallet` locally.
-3. Cloudflare participates in threshold signing with the user client share.
+Option B:
+  worker A computes partial_i
+  worker B computes partial_j
+  a combiner combines them
 
-Normal signing must not require a Google Cloud KMS call.
+Both:
+  y_relayer = HashToBytes("y_relayer:v1", encode(sum(lambda_i * partial_i)), wallet_context)
+```
 
-### Recovery
+The direct `k_org -> y_relayer` path is only a reference test path. Production
+signing should use share partials even in Option A so switching from one worker
+to two workers does not change derivation behavior or wallet identity.
 
-If one recovery artifact is missing, use another.
+Threshold-PRF is the canonical derivation for this plan. `signing_root_secret`
+and `signing_root_secret_share` generation are defined over the PRF group's scalar
+field, not as opaque 32-byte strings.
 
-- If in-memory `k_org` is missing, load plaintext `k_org` from Durable Object
-  storage.
-- If plaintext `k_org` is missing but `wrapped_k_org` exists, unwrap through
-  Google Cloud KMS.
-- If Cloudflare Durable Object state is lost, rederive `k_org` through Google
-  Cloud from `master_kdf_key`, rewrap it, and recreate the Durable Object
-  record.
-- If Google Cloud KMS is down, existing projects continue signing as long as
-  Cloudflare still has plaintext `k_org`.
+## Versioning Model
 
-Phase 0 therefore has redundant recovery paths:
+Every wallet must identify the root and derivation context that produced its
+server-side input.
 
-- plaintext `k_org` in Cloudflare Durable Object storage
-- `wrapped_k_org` in Cloudflare Durable Object storage
-- deterministic Google Cloud derivation from `master_kdf_key`
+Project metadata:
 
-## What Is Persisted
-
-Phase 0 persists project-level secret material and wallet metadata.
-
-Each project record should minimally include:
-
-- `env`
 - `project_id`
-- `k_org_version`
-- plaintext `k_org`
-- `wrapped_k_org`
-- Google Cloud project id
-- Google Cloud location
-- Cloud KMS key ring
-- `master_kdf_key_id`
-- `master_kdf_key_version`
-- `kek_key_id`
-- `kek_key_version`
-- derivation version
-- wrapping additional authenticated data version
+- `signing_root_version`
+- `root_share_epoch`
+- `derivation_version`
+- `threshold_scheme`
+- `share_threshold = 2`
+- `share_count = 3`
+- storage locator for each sealed root share
+- wrapping-key locator for each sealed root share
 - created and updated timestamps
 
-Cloud SQL for PostgreSQL is the Phase 0 control-plane database for dashboard
-and project metadata. The initial low-cost target is:
-
-- Cloud SQL for PostgreSQL
-- `db-f1-micro`
-- 20 GB SSD
-- single-zone
-- automated backups enabled
-- deletion protection enabled
-
-`db-f1-micro` is a low-cost shared-core Phase 0 choice, not the long-term
-production database shape. Cloud SQL should not be on the signing hot path.
-Existing project signing should continue from Cloudflare Durable Object state
-during Cloud SQL downtime.
-
-Each wallet record should minimally include:
+Wallet metadata:
 
 - `project_id`
 - `wallet_id`
@@ -277,630 +358,669 @@ Each wallet record should minimally include:
 - `scheme_id`
 - `key_purpose`
 - `wallet_key_version`
-- `k_org_version`
+- `signing_root_version`
+- `derivation_version`
 - threshold public key
 - address or chain-specific public identity
 - active or retired status
 - created and updated timestamps
 
-The system persists wallet metadata, not per-wallet server secret material.
+Meaning:
 
-## Security Boundary In Phase 0
-
-In Phase 0, Cloudflare Durable Object storage is custody-critical.
-
-Because plaintext `k_org` is durably stored in Cloudflare:
-
-- `wrapped_k_org` is not the primary steady-state protection boundary
-- `wrapped_k_org` is a recovery, migration, and future-hardening artifact
-- compromise of Cloudflare Durable Object storage can expose `k_org`
-- exposure of `k_org` alone still does not produce signatures without the
-  client passkey-derived share
-
-This is an intentional availability-first tradeoff.
-
-The design must not imply that `wrapped_k_org` makes Cloudflare durable storage
-non-sensitive while plaintext `k_org` is also stored there.
-
-## Versioning Model
-
-Every wallet must be explicitly bound to the tenant-root version that produced
-its server-side secret.
-
-Minimum required wallet metadata:
-
-- `project_id`
-- `wallet_id`
-- `wallet_key_version`
-- `k_org_version`
-- derivation version
-
-The system must always know:
-
-- which `k_org_version` produced the active wallet key
-- which wallet key version is currently active
-- which project root material is required to reconstruct that key
-- which derivation version encoded the inputs
-
-`k_org_version` must be part of the derivation context or an unambiguous lookup
-key into the derivation context.
+- `signing_root_version` changes only when the underlying root changes.
+- `root_share_epoch` changes when shares are proactively refreshed.
+- wrapping-key metadata changes when sealed shares are rewrapped.
+- `wallet_key_version` changes when a wallet key identity changes.
 
 ## Rotation Semantics
 
-The most important distinction is:
+There are three different operations. They must not be conflated.
 
-- rotating or rewrapping custody of the same logical secret
-- replacing that logical secret with a new one
+### Rewrap Root Shares
 
-Those are not the same operation.
-
-### Rotate `kek_key`
-
-`kek_key` rotation is operational.
-
-For each project:
-
-1. load plaintext `k_org` from Cloudflare, or unwrap existing `wrapped_k_org`
-2. encrypt the same `k_org` under the new `kek_key`
-3. store the new `wrapped_k_org`
-4. update `kek_key_id` and `kek_key_version`
-5. retire the old wrapping key after verification
+Rewrap means encrypting the same root shares under new wrapping keys.
 
 Result:
 
-- same `k_org`
-- same derived `k_srv_wallet`
-- same threshold public keys
-- same addresses
-- no tenant-visible migration
+- same `signing_root_secret`
+- same root shares, unless refresh also happens
+- same `y_relayer`
+- same wallet addresses
+- no user migration
 
-### Rotate `master_kdf_key`
+### Refresh Root Shares
 
-`master_kdf_key` rotation is operational for new projects, but not a way to
-magically rederive existing `k_org` values unless the old derivation key remains
-available or existing `k_org` values are already stored.
-
-For existing projects in Phase 0:
-
-- keep the existing `k_org`
-- optionally rewrap it under a new `kek_key`
-- update project metadata to record the historical `master_kdf_key_version`
-  that created it
-
-For new projects:
-
-- derive `k_org` from the new `master_kdf_key`
-- store the new `master_kdf_key_version`
-
-If Cloudflare loses all copies of `k_org` and `wrapped_k_org`, recovery depends
-on the historical `master_kdf_key_version` still being usable.
-
-Therefore, old `master_kdf_key` versions must not be destroyed while any
-project depends on them for disaster recovery.
-
-### Rotate custody of the same `k_org[v]`
-
-If the logical tenant root stays the same and only custody changes, then
-rotation is operational.
-
-Examples:
-
-- moving `k_org[v]` to a new wrapping key
-- moving `k_org[v]` to customer custody in self-host migration
-- changing where plaintext `k_org[v]` is stored
+Refresh means replacing the 2-of-3 shares while preserving the same underlying
+`signing_root_secret`.
 
 Result:
 
-- same `k_org[v]`
-- same derived `k_srv_wallet`
-- same threshold public keys
-- same addresses
+- same `signing_root_secret`
+- new `signing_root_secret_share_i` values
+- incremented `root_share_epoch`
+- same `y_relayer`
+- same wallet addresses
+- no passkey re-registration
 
-### Replace `k_org[v]` with `k_org[v+1]`
+This is the address-preserving "rotation" operation.
 
-If the logical tenant root changes, then derived wallet secrets change.
+```mermaid
+flowchart LR
+  A["k_org[v1]<br/>root_share_epoch n"]
+  B["share refresh<br/>same root"]
+  C["k_org[v1]<br/>root_share_epoch n+1"]
+  D["same y_relayer"]
+  E["same wallet addresses"]
 
-That means:
+  A --> B --> C --> D --> E
+```
 
-- derived `k_srv_wallet` changes
-- threshold public key changes
-- address changes unless a product abstraction absorbs the change
-- the operation is a wallet key migration, not an operational rotation
+### Replace Signing Root
 
-Use this only for:
+Replacing the signing root means creating `signing_root_secret[v+1]`.
 
-- suspected tenant-root compromise
-- tenant-root cryptographic retirement
-- intentional full rekeying
+Result:
 
-## Migration Semantics
+- new `signing_root_secret`
+- new `y_relayer`
+- new threshold public key
+- usually new wallet address
+- wallet-key migration required
 
-In this model, tenant-root replacement is wallet migration.
+Use this for root compromise or intentional full rekeying, not normal
+operational rotation.
 
-The rule is simple:
+## Share Refresh
 
-- if `k_org_version` stays the same, wallet identity stays the same
-- if `k_org_version` changes for a wallet, wallet identity changes
+For Shamir sharing, proactive refresh creates a new sharing of the same secret.
 
-A safe migration flow is:
+The protocol should:
 
-1. user authenticates with the current passkey
-2. the system derives the current client share from the same passkey PRF
-3. the system creates a new wallet key version under `k_org[v+1]`
-4. new wallet metadata is persisted with the new `wallet_key_version` and
-   `k_org_version`
-5. application state migrates to the new threshold identity
-6. old key material is retired after verification and safety windows
+1. authenticate the refresh operation
+2. reconstruct or reshare the same `signing_root_secret`
+3. generate a fresh 2-of-3 sharing
+4. seal each new root share under the active share wrapping key
+5. write all shares under a new `root_share_epoch`
+6. verify at least two new shares reconstruct the same root
+7. verify known wallet addresses still match
+8. delete old sealed shares after the new epoch is committed
 
-Using the same passkey does not imply the same threshold public key.
+In Phase 1, the single signer or provisioning service may reconstruct `k_org`
+during refresh. In later two-server or TEE models, refresh should become a
+distributed resharing protocol.
 
-It only means the client-side contribution can remain stable while the
-server-side contribution changes.
+## Recovery Model
+
+Recovery requires any two usable root shares, or the customer's backup.
+
+Recovery paths:
+
+- memory cache miss: fetch and decrypt two sealed shares
+- one storage location lost: recover from the other two shares
+- one wrapping key unavailable: recover from two other shares if their wrapping
+  keys are available
+- all hosted storage lost: recover from customer backup
+- customer self-host migration: export or reshare root shares to customer
+  infrastructure
+
+There is no deterministic platform `master_secret` recovery path.
+
+That is intentional. It improves post-migration trust semantics but requires
+customer backup and recovery drills.
+
+## Security Boundary In Phase 1
+
+Phase 1 protects durable storage better than the old plaintext-root model.
+
+If an employee only obtains Cloudflare storage/admin read access, they should
+not get plaintext `k_org`; they should get sealed shares.
+
+However, the Cloudflare signer is still custody-critical:
+
+- it can fetch two shares
+- it can decrypt or request unwrap for two shares
+- it can compute and combine threshold-PRF partials for those shares
+- it has enough plaintext share material to reconstruct `k_org`
+- malicious runtime code can exfiltrate `k_org`
+
+Therefore Phase 1 needs operational controls:
+
+- separate permissions for storage read, Worker deploy, and wrapping-key use
+- deploy approvals for signer code
+- audit logs for share reads and unwraps
+- rate limits and anomaly alerts for share reconstruction
+- no logging of root shares, `k_org`, `y_relayer`, or signing shares
+- short-lived in-memory plaintext with zeroization
+- customer backup confirmation before production activation
+
+## Phase 2 Two-Server Threshold-PRF Upgrade Path
+
+The next security upgrade is a two-server threshold-PRF model, pending
+prototype benchmarks.
+
+Target shape:
+
+```text
+Cloudflare worker A reads and decrypts encrypted root share A
+Cloudflare worker B reads and decrypts encrypted root share B
+worker A computes threshold-PRF partial A
+worker B computes threshold-PRF partial B
+combiner computes y_relayer from partial A and partial B
+existing ed25519-hss or ecdsa-hss flow consumes y_relayer
+```
+
+This avoids reconstructing `k_org` in one runtime. It does not, by itself,
+make current HSS flows consume `y_relayer` shares. Current HSS flows consume a
+full `y_relayer`. If we want no single process to observe `y_relayer`, that is
+a later HSS/MPC integration change.
+
+```mermaid
+flowchart TD
+  S1["sealed share A"]
+  S2["sealed share B"]
+  W1["worker A<br/>share A only"]
+  W2["worker B<br/>share B only"]
+  P1["PRF partial A"]
+  P2["PRF partial B"]
+  Y["y_relayer"]
+  HSS["ed25519-hss / ecdsa-hss"]
+
+  S1 --> W1 --> P1
+  S2 --> W2 --> P2
+  P1 --> Y
+  P2 --> Y
+  Y --> HSS
+```
+
+The Phase 1 data model must be compatible with this:
+
+- root shares are already separate objects
+- share wrapping keys can become node-specific
+- `root_share_epoch` already supports refresh
+- self-host migration can use share refresh or resharing
+
+TEE deployment can be added later as a stricter implementation of the same
+share boundaries.
 
 ## Self-Host Migration
 
-Self-host migration needs to be explicit about whether wallet identity must stay
-the same.
+Same-wallet self-host migration transfers custody of the same
+`signing_root_secret`.
 
-### Model A: same wallet identity
+Recommended flow:
 
-Transfer custody of the same logical `k_org[v]` to the customer.
+1. freeze new wallet enrollment for the project
+2. pin `signing_root_version`
+3. refresh or export root shares into a migration bundle
+4. customer imports the shares into self-host infrastructure
+5. customer verifies known wallet addresses
+6. hosted signer is disabled
+7. hosted root shares are deleted or retired
+8. deletion and disablement evidence is exported
 
 Result:
 
-- same tenant root
-- same derived `k_srv_wallet`
+- same `signing_root_secret`
+- same `y_relayer`
 - same threshold public keys
-- same addresses
-- vendor must delete its copy of `k_org[v]`
+- same wallet addresses
 
-This is the only way to keep the same wallet identity in a deterministic
-tenant-root model.
+If the customer wants a fresh root, that is wallet-key migration, not
+same-wallet self-host migration.
 
-### Model B: fresh customer-managed root
+## Customer Backup
 
-The customer starts using a new logical root under their custody.
+Customer backup is mandatory in the random-root model.
 
-Result:
+The backup package should include:
 
-- same passkey can still be used
-- derived server-side wallet secrets change
-- threshold public keys change
-- addresses change unless product abstractions absorb the change
+- the three signing root shares, or a customer-specific backup sharing
+- `project_id`
+- `signing_root_version`
+- `root_share_epoch`
+- derivation metadata
+- wallet inventory or address verification data
+- checksum or manifest digest
+- restore instructions
 
-This is a rekey migration, not a same-key custody transfer.
+The package must explain:
+
+- any two shares can reconstruct the signing root
+- losing all hosted shares and customer backup can make wallets unavailable
+- refreshing shares preserves addresses only because the underlying root stays
+  the same
 
 ## Compromise Response
 
-Compromise response depends on which layer is compromised.
-
-### Cloudflare Durable Object compromise
+### One Sealed Share Exposed
 
 Impact:
 
-- plaintext `k_org` may be exposed for affected projects
-- attacker can derive server-side wallet shares for affected projects
-- attacker still needs user client passkey shares to produce signatures
+- no plaintext `k_org` exposure by itself
+- rotate or rewrap the exposed share
+- consider root-share refresh
 
 Response:
 
-1. stop enrolling new wallets on affected roots
-2. rate-limit and monitor affected projects
-3. decide whether to migrate affected wallets to `k_org[v+1]`
-4. harden storage posture for affected projects, potentially moving them to a
-   later phase
+1. disable the affected storage or wrapping-key path
+2. refresh root shares if integrity is uncertain
+3. rewrap shares under new wrapping keys
+4. verify known wallet addresses still match
 
-This is serious, but not automatically an immediate one-shot drain if the
-attacker lacks the client-side passkey share.
-
-### `kek_key` compromise
+### Two Root Shares Exposed
 
 Impact:
 
-- wrapped tenant roots may be exposed if encrypted records were also exposed
-- in Phase 0, plaintext `k_org` already exists in Cloudflare, so `kek_key`
-  compromise is not the only relevant custody concern
+- `k_org` can be reconstructed
+- all wallets under that project are at elevated server-side risk
+- attacker still needs the client passkey contribution to sign
 
 Response:
 
-1. create a new `kek_key`
-2. rewrap all `k_org` values
-3. update key locator metadata
-4. investigate whether plaintext `k_org` was also exposed
+1. stop new wallet enrollment under the affected root
+2. increase signing monitoring and rate limits
+3. decide whether to migrate wallets to a new signing root
+4. for EVM smart accounts, use owner rotation where address continuity is
+   required
 
-This does not automatically force wallet key migration.
-
-### `master_kdf_key` compromise
+### Signer Runtime Compromise
 
 Impact:
 
-- attacker may derive `k_org` for any project context protected by that key
-- all projects derived from that key version are in scope
+- plaintext `k_org` may be exposed during signing or refresh
+- derived `y_relayer` values may be exposed
 
 Response:
 
-1. disable project creation with the compromised key
-2. create a new `master_kdf_key`
-3. derive new roots only from the new key
-4. evaluate whether existing projects need `k_org[v+1]` migration
-5. retain old key material only as long as required for recovery, if safe
+1. disable the signer deployment
+2. rotate deployment credentials and wrapping-key permissions
+3. inspect audit logs for share fetch and unwrap events
+4. decide whether signing-root replacement is required
+5. move affected projects to stricter TEE-backed custody if available
 
-If existing `k_org` values may be exposed, this becomes a tenant-root compromise
-for every affected project.
-
-### `k_org[v]` compromise
+### Customer Backup Loss
 
 Impact:
 
-- every wallet derived from that tenant root is at elevated risk
-- the attacker has the full server-side derivation root for that project
+- no immediate signing impact if hosted shares remain available
+- disaster recovery margin is reduced
 
 Response:
 
-1. create `k_org[v+1]`
-2. stop enrolling new wallets on `v`
-3. begin wallet-key migration from `v` to `v+1`
-4. monitor and rate-limit accounts that remain on `v`
-5. retire `v` only after migration completes
-
-Tenant-root compromise is serious, but it is not automatically an immediate
-drain if the attacker still lacks the client-side passkey share. That creates a
-response window, not a reason to delay migration.
+1. require customer to regenerate or download a new backup package
+2. optionally refresh root shares before issuing the new backup
+3. do not mark the project fully recoverable until backup confirmation is
+   complete
 
 ## Passkey Interaction
 
-The passkey-derived client share should remain independent from tenant-root
-rotation.
+Passkey registration is independent from root-share custody.
 
-That means:
+Operations that do not require passkey re-registration:
 
-- rotating `kek_key` must not require a new passkey
-- rotating `master_kdf_key` for new projects must not require a new passkey
-- transferring custody of the same `k_org[v]` must not require a new passkey
-- replacing `k_org[v]` with `k_org[v+1]` can still reuse the same passkey
+- share rewrap
+- share refresh
+- self-host transfer of the same signing root
+- moving to a two-server or TEE custody model with the same root
 
-Important limitation:
-
-- reusing the same passkey does not preserve threshold identity
-- if `k_org_version` changes, the server-side derived wallet secret changes
+Replacing `signing_root_secret` can reuse the same passkey-derived client input
+where protocol support exists, but it usually changes the threshold public key
+and wallet address.
 
 ## EVM Implication
 
 For EVM, a new threshold key usually means a new owner identity.
 
-That means:
+Therefore:
 
-- a plain EOA cannot transparently absorb tenant-root replacement
-- a smart account can absorb owner rotation while preserving the stable
-  user-facing account
-
-Product consequence:
-
-- if EVM migration without address change is required, smart-account owner
-  rotation is the intended seam
+- share refresh preserves EOA addresses
+- signing-root replacement usually changes EOA addresses
+- smart accounts can preserve account identity through owner rotation
 
 ## Implementation Phases
 
-### Phase 0. Availability-first bootstrap
+### Phase 1. Single Cloudflare Worker With Encrypted Root Shares
 
-Use this while the product has no or very few customers and availability risk is
-higher than Cloudflare durable-storage compromise risk.
+1. Generate random `signing_root_secret` at project creation.
+2. Split it into 2-of-3 signing root shares.
+3. Seal each share under a configured share wrapping key.
+4. Store sealed shares and metadata durably in a database such as Google Cloud
+   SQL for PostgreSQL.
+5. Require customer backup before production activation.
+6. Let one Cloudflare signer decrypt two shares in memory for signing.
+7. Compute and combine two threshold-PRF partials locally to derive
+   `y_relayer`.
+8. Feed `y_relayer` into the existing `ed25519-hss` or `ecdsa-hss` flow.
+9. Keep per-wallet server secrets out of durable storage.
+10. Add audit logs for share reads, unwraps, reconstruction, refresh, and
+    export.
 
-1. Create `master_kdf_key` in Google Cloud KMS or equivalent Google Cloud-only
-   provisioning service.
-2. Create `kek_key` in Google Cloud KMS.
-3. Create Cloud SQL for PostgreSQL `db-f1-micro` with 20 GB SSD for
-   control-plane metadata.
-4. On project creation, derive `k_org` through Google Cloud.
-5. On project creation, wrap `k_org` through Google Cloud.
-6. Store plaintext `k_org`, `wrapped_k_org`, and metadata in Cloudflare Durable
-   Objects.
-7. Store dashboard and project metadata in Cloud SQL.
-8. Derive `k_srv_wallet` locally during signing.
-9. Keep Google Cloud KMS and Cloud SQL out of the signing hot path.
+This is Option A: single-worker threshold-PRF. It is more performant and
+operationally simpler than a two-server distributed path. It is also less
+secure because one signer runtime observes two plaintext root shares, which is
+enough material to reconstruct `k_org`.
 
 Exit criteria:
 
-- project metadata and wallet metadata include explicit versions
-- recovery from either plaintext `k_org`, `wrapped_k_org`, or Google Cloud
-  derivation is tested
-- Cloud KMS key deletion is protected by IAM, alarms, and deletion waiting
-  periods
-- Cloud SQL deletion protection and automated backups are enabled
+- no plaintext `k_org` durable storage
+- any two shares recover the same root
+- one lost share does not break signing
+- customer backup restore is tested
+- known wallet addresses remain stable after share refresh
 
-### Phase 1. Formalize derivation and metadata
+### Phase 2. Two Cloudflare Worker Threshold-PRF Model
 
-1. Define the canonical encoding for `k_org` derivation context.
-2. Define the canonical HKDF input structure for `k_srv_wallet`.
-3. Add `k_org_version`, `wallet_key_version`, and derivation version to wallet
-   metadata.
-4. Add `master_kdf_key_version`, `kek_key_version`, and wrapping additional
-   authenticated data version to project metadata.
-5. Update docs and specs so the deterministic tenant-root model is the intended
-   architecture.
+This is Option B: distributed threshold-PRF derivation.
 
-### Phase 2. Operational recovery and rewrap tooling
+1. Complete the `threshold-prf` prototype.
+2. Benchmark direct reference evaluation, partial evaluation, and partial
+   combine.
+3. Continue only if latency and compute are low enough for signing-scale use.
+4. Give worker A access to one encrypted signing-root share.
+5. Give worker B access to another encrypted signing-root share.
+6. Each worker decrypts only its own share in memory.
+7. Each worker computes a threshold-PRF partial for the requested wallet
+   context.
+8. Combine the partials to derive the same `y_relayer` as Phase 1
+   single-worker threshold-PRF evaluation.
+9. Feed `y_relayer` into the existing `ed25519-hss` or `ecdsa-hss` flow.
 
-1. Implement recovery from plaintext `k_org`.
-2. Implement recovery from `wrapped_k_org`.
-3. Implement recovery from Google Cloud deterministic derivation.
-4. Implement `kek_key` rewrap.
-5. Add audit logging for project creation, recovery, unwrap, rewrap, and root
-   export.
+Important boundary:
 
-### Phase 3. Wrapped-only hardening option
+- current HSS flows consume full `y_relayer`
+- threshold-PRF partials avoid reconstructing `k_org`
+- they do not by themselves make `ed25519-hss` or `ecdsa-hss` consume
+  `y_relayer` shares
+- if we want no single process to observe `y_relayer`, that is a later HSS/MPC
+  integration change
 
-Move selected projects from Phase 0 to a stricter posture when needed.
+Exit criteria:
 
-1. Stop storing plaintext `k_org` durably for selected projects.
-2. Store only `wrapped_k_org` durably.
-3. Cache plaintext `k_org` in memory only.
-4. On cache miss, unwrap through Google Cloud KMS.
-5. Keep the same `k_org`, so wallet identities do not change.
+- Phase 2 output is byte-identical to Phase 1 output
+- wallet addresses do not change
+- benchmark results are recorded and acceptable
+- share partials are bound to context and purpose
+- DLEQ proofs or TEE attestation are specified before treating this as
+  malicious-server safe
 
-This is an operational hardening step, not a wallet migration.
+### Phase 3. Share Refresh And Self-Host Export
 
-### Phase 4. Tenant-root replacement migration
+1. Implement proactive root-share refresh.
+2. Implement share rewrap.
+3. Implement customer backup export.
+4. Implement self-host migration export.
+5. Add address verification before and after refresh/export.
+6. Add hosted-signing disablement and share deletion flows.
 
-1. Implement new-root wallet migration from `k_org[v]` to `k_org[v+1]`.
-2. Reuse the same passkey-derived client share where allowed.
-3. Add migration state tracking and rollback rules.
-4. For EVM, integrate owner-rotation handling where a stable account identity is
+### Phase 4. Independent Storage And Wrapping Boundaries
+
+1. Move shares into separate provider or account boundaries where practical.
+2. Use independent share wrapping keys.
+3. Separate permissions for signer deploy, storage read, and share unwrap.
+4. Add alerting for unusual share access patterns.
+
+### Phase 5. Two-TEE Server Model
+
+1. Provision two TEE signing nodes.
+2. Give each TEE node a distinct root-share custody path.
+3. Add remote attestation before share release.
+4. Move reconstruction into the attested boundary.
+5. Later evaluate distributed derivation or HSS/MPC signing so no single
+   non-TEE runtime observes `k_org`.
+
+### Phase 6. Project-Root Replacement
+
+1. Add explicit wallet-key migration to a new signing root.
+2. Reuse passkey-derived client input where supported.
+3. For EVM, use smart-account owner rotation where stable account identity is
    required.
 
-This phase is needed for compromise response and intentional full rekeying.
-
-### Phase 5. Self-host migration
-
-1. Add same-root custody transfer flow for customers who need continuity of
-   exact wallet identity.
-2. Add explicit rekey flow for customers who want fresh tenant roots under
-   self-host custody.
-3. Add deletion and attestation procedures for vendor-side retirement of tenant
-   roots after transfer.
-
-## High-Level Implementation Steps
-
-1. Set up Google Cloud control plane.
-   Create Cloud KMS keys for `master_kdf_key` and `kek_key`, create the low-cost
-   Cloud SQL PostgreSQL instance, and lock down IAM, audit logging, backups, and
-   deletion safeguards.
-
-2. Define canonical metadata and derivation specs.
-   Finalize the project root record, wallet metadata fields, derivation context
-   encoding, Cloud KMS additional authenticated data, and versioning model.
-
-3. Build the project provisioning path.
-   On project creation, call Google Cloud to derive `k_org`, wrap it as
-   `wrapped_k_org`, and return both values plus key locator metadata.
-
-4. Store project roots in Cloudflare Durable Objects.
-   Persist plaintext `k_org`, `wrapped_k_org`, and metadata in the Durable
-   Object, with in-memory caching for the normal signing path.
-
-5. Replace server-share derivation.
-   Move signing from environment-global master-secret derivation to
-   deterministic `k_org -> k_srv_wallet` derivation, without adding per-wallet
-   server secret storage.
-
-6. Keep Cloud SQL and Cloud KMS out of signing.
-   Store dashboard and project metadata in Cloud SQL, but ensure existing
-   project signing depends only on Cloudflare Durable Object state and local
-   derivation.
-
-7. Prove recovery paths.
-   Test recovery from missing memory cache, missing plaintext `k_org`, missing
-   Durable Object state, Google Cloud KMS outage, and Cloud SQL outage.
-
-8. Add hardening and migration paths later.
-   Add wrapped-only storage, tenant-root replacement, and self-host migration
-   only after the Phase 0 availability-first path is working and tested.
+Project-root replacement is not normal rotation. It is compromise response or
+intentional rekeying.
 
 ## Phased Todo List
 
-This todo list is the concrete execution plan. Each phase should remove or
-replace stale assumptions as it lands; do not leave deprecated parallel code
-paths behind.
+### Phase 1A. Data Model
 
-### Phase 0A. Google Cloud foundation
+- Define `SigningRootRecord`.
+- Define `SigningRootSecretShareRecord`.
+- Define `SealedSigningRootSecretShare`.
+- Define `root_share_epoch`.
+- Define share wrapping-key locator metadata.
+- Define durable database storage for encrypted signing-root shares, initially
+  Google Cloud SQL for PostgreSQL or equivalent.
+- Define wallet metadata that includes `signing_root_version` and
+  `derivation_version`.
+- Remove public docs that present deterministic `master_secret -> k_org` as the
+  target model.
+- Treat `sealed_signing_root_secret_share` records and customer backups as the only
+  durable recovery sources for `k_org`.
 
-- Create the Google Cloud project and choose the Phase 0 region.
-- Create a Cloud KMS key ring in that region.
-- Create `master_kdf_key` as a Cloud KMS MAC key.
-- Create `kek_key` as a Cloud KMS symmetric encryption key.
-- Create a service account for the project-provisioning path.
-- Grant the service account only the Cloud KMS permissions required for MAC
-  signing and encrypt/decrypt.
-- Enable Cloud KMS audit logs and alerts for key disable, destroy, IAM change,
-  encrypt, decrypt, and MAC-sign operations.
-- Configure key deletion safeguards and document the key recovery window.
-- Create Cloud SQL for PostgreSQL `db-f1-micro` with 20 GB SSD.
-- Enable Cloud SQL automated backups and deletion protection.
-- Store Cloud SQL connection details in deployment configuration without putting
-  `k_org`, `master_kdf_key`, or `kek_key` material in environment variables.
+### Phase 1B. Root Ceremony
 
-### Phase 0B. Canonical data model
+- Implement random root generation.
+- Implement 2-of-3 Shamir splitting.
+- Implement share sealing.
+- Implement customer backup package generation.
+- Implement root zeroization after provisioning.
+- Add tests proving any two shares reconstruct and one share does not.
+- Add recovery drills proving project creation, backup restore, and signing do
+  not depend on platform master-secret rederivation.
 
-- Define the canonical project root record schema.
-- Define the canonical wallet metadata schema.
-- Add explicit `project_id`, `k_org_version`, `wallet_key_version`, and
-  derivation version fields.
-- Add Google Cloud locator fields for project id, location, key ring,
-  `master_kdf_key_id`, `master_kdf_key_version`, `kek_key_id`, and
-  `kek_key_version`.
-- Add wrapping additional authenticated data version to project metadata.
-- Define `root_storage_mode = phase0_plaintext_and_wrapped`.
-- Remove any code or docs that imply an environment-global master secret is the
-  intended production interface.
+### Phase 1C. Cloudflare Signer Partial Evaluation
 
-### Phase 0C. Google Cloud provisioning service
+- Implement share resolution for a project through `SigningRootSecretResolver`
+  adapters.
+- Refactor the signing service to depend on a single
+  `SigningRootShareResolver.resolveSigningRootSharePair` abstraction:
 
-- Implement a project-provisioning service or endpoint that owns all Google
-  Cloud KMS calls.
-- Implement canonical encoding for `k_org` derivation input.
-- Implement `k_org` derivation using the Google Cloud KMS MAC key.
-- Feed the MAC output through the project-root KDF to produce the final
-  `k_org` bytes.
-- Implement canonical additional authenticated data for `wrapped_k_org`.
-- Implement `wrapped_k_org` creation using the Google Cloud KMS symmetric key.
-- Return only `k_org`, `wrapped_k_org`, and metadata needed by Cloudflare.
-- Add request authentication so Cloudflare cannot ask for arbitrary key
-  operations outside project creation and recovery.
-- Add audit logging for every derive, wrap, unwrap, and recovery operation.
+  ```ts
+  interface SigningRootShareResolver {
+    resolveSigningRootSharePair(input: {
+      signingRootId: string;
+      signingRootVersion?: string;
+      preferredShareIds?: readonly [1 | 2 | 3, 1 | 2 | 3];
+    }): Promise<readonly [Uint8Array, Uint8Array]>;
+  }
+  ```
 
-### Phase 0D. Cloudflare root storage
+- Support durable storage adapters for Cloudflare Durable Objects, Postgres,
+  and custom AWS/GCP Secret Manager record sources.
+- Support decrypt adapters for local AES-GCM KEK resolution, AWS KMS, GCP KMS,
+  and TEE-backed unwrap/decrypt flows.
+- Compute threshold-PRF partials from two plaintext root shares in one worker.
+- Combine partials into full `y_relayer`.
+- Feed `y_relayer` into the existing HSS/threshold signing path.
+- Zeroize root material after use.
+- Add redaction guards for logs and errors.
 
-- Create the Durable Object record for each project root.
-- Store plaintext `k_org`, `wrapped_k_org`, and all version metadata in the
-  Durable Object.
-- Add an in-memory `k_org` cache inside the Durable Object or signing
-  coordinator.
-- Ensure normal signing reads `k_org` from Durable Object state or memory only.
-- Ensure normal signing does not call Google Cloud KMS or Cloud SQL.
-- Add recovery code paths for missing in-memory `k_org`, missing plaintext
-  `k_org`, and missing Durable Object state.
-- Add explicit failure modes when all recovery paths are unavailable.
+### Phase 1C.0. Context Propagation Invariants
 
-### Phase 0E. Server-share derivation
+Tenant-root lookup is project-scoped. HSS signing context may still be
+org-scoped.
 
-- Define the canonical HKDF input structure for `k_srv_wallet`.
-- Include `env`, `project_id`, `user_id`, `rp_id`, `scheme_id`, `key_purpose`,
-  `wallet_key_version`, `k_org_version`, and derivation version.
-- Replace the current environment-global master-secret derivation path with
-  `k_org -> k_srv_wallet`.
-- Ensure the derived server secret feeds the existing threshold signing flow
-  without introducing persisted per-wallet server secrets.
-- Add tests proving the same `k_org` and wallet context reproduce the same
-  server share.
-- Add tests proving any derivation-context change that should change the wallet
-  identity actually changes the derived server share.
+This distinction must be explicit at every boundary:
 
-### Phase 0F. Control-plane persistence
+- `runtimeSnapshotScope.orgId` identifies the organization and binds HSS policy.
+- `runtimeSnapshotScope.projectId` identifies the signing-root custody scope.
+- `SigningRootShareResolver.resolveSigningRootSharePair({ projectId, ... })` must
+  receive a project id, not `context.orgId`.
+- Bootstrap-token and session principals must preserve `projectId` whenever the
+  route can reach signing-root derivation.
+- Fixed self-host resolvers may use their configured project id when the request
+  does not carry one, but hosted multi-customer resolvers must reject missing
+  project scope.
+- Omitted `rootVersion` means "use the fixed resolver root version" only for a
+  fixed self-host resolver; hosted resolvers should resolve the requested active
+  root version from authenticated project scope or explicit metadata.
 
-- Store dashboard, project, and wallet metadata in Cloud SQL.
-- Keep Cloud SQL out of the signing hot path.
-- Add idempotent project creation so repeated provisioning does not create
-  conflicting roots.
-- Add admin views or queries for project root metadata, wallet version metadata,
-  and recovery state.
-- Add backup restore drills for Cloud SQL metadata.
-- Add checks that Cloudflare Durable Object metadata and Cloud SQL metadata
-  agree for each project.
+Refactor guardrails:
 
-### Phase 0G. Recovery drills
+- `check-signing-root-refactor-boundaries` must fail if signing-root derivation
+  passes `context.orgId` as resolver `projectId`.
+- Tests must include at least one managed-registration path where
+  `orgId !== projectId`.
+- Tests must include fixed self-host paths where omitted `rootVersion` resolves
+  to the fixed root and explicit wrong `rootVersion` fails.
+- Public code must not reintroduce legacy root naming, legacy self-host root
+  routes, or threshold master-secret env-var surfaces.
 
-- Test recovery from missing in-memory `k_org`.
-- Test recovery from missing plaintext `k_org` when `wrapped_k_org` is present.
-- Test recovery from total Cloudflare Durable Object state loss using Google
-  Cloud deterministic derivation.
-- Test Google Cloud KMS outage behavior for existing projects.
-- Test Cloud SQL outage behavior for existing project signing.
-- Test accidental disablement of `kek_key` and `master_kdf_key` in staging.
-- Document manual break-glass recovery steps.
+### Phase 1C.1. Hosted And Self-Hosted Resolver Modes
 
-### Phase 1. Hardening without wallet migration
+- [x] Implement hosted multi-customer resolver composition:
+      `createHostedSigningRootShareResolver({ storageAdapter, decryptAdapter })`.
+- [x] Implement direct self-host resolver composition:
+      `createSelfHostedSigningRootShareResolver({ projectId, rootVersion, shares
+})`.
+- [x] Implement sealed self-host resolver composition:
+      `createSealedSelfHostedSigningRootShareResolver({ storageAdapter,
+decryptAdapter })`.
+- [x] Ensure hosted mode resolves `projectId` and `rootVersion` from
+      authenticated runtime/session scope.
+- [x] Ensure direct self-host mode validates a fixed `projectId`,
+      `rootVersion`, share ids, and canonical share-wire shape.
+- [x] Ensure sealed self-host mode lets the customer choose their own storage
+      and decrypt adapters.
+- [x] Add parity tests proving hosted mode, direct self-host mode, and sealed
+      self-host mode produce the same `y_relayer` for the same root shares and
+      wallet context.
+- [ ] Add failure tests for missing project scope, missing shares, duplicate
+      shares, invalid share ids, decrypt failures, and wrong root version.
+- [x] Document that direct self-host mode does not require a KEK env var.
+- [x] Document that local AES-GCM sealed-share mode uses
+      `SIGNING_ROOT_SECRET_SHARE_KEK_B64U`, while KMS/TEE modes should not expose
+      a raw KEK env var.
 
-- Add `kek_key` rewrap tooling.
-- Add support for `root_storage_mode = wrapped_only`.
-- Add migration from Phase 0 plaintext-and-wrapped storage to wrapped-only
-  storage for selected projects.
-- Keep the same `k_org` during wrapped-only hardening.
-- Cache plaintext `k_org` only in memory for wrapped-only projects.
-- Add cache-miss unwrap through Google Cloud KMS for wrapped-only projects.
-- Add monitoring for unexpected unwrap rates.
+### Phase 1C.2. Tenant-Root Secret Naming Cleanup
 
-### Phase 2. Tenant-root replacement
+- [x] Rename the public share wire/id surface to `SigningRootSecretShare`,
+      `SigningRootSecretShareWireV1`, and `SigningRootSecretShareId`.
+- [x] Rename sealed-share records to `SealedSigningRootSecretShare`.
+- [x] Rename source/decrypt/adapter types to `SigningRootSecretShareSource`,
+      `SigningRootSecretDecryptAdapter`, and `SigningRootSecretResolverAdapters`.
+- [x] Rename the adapter-backed sealed-share resolver to
+      `SigningRootSecretResolver`.
+- [x] Rename durable storage to `SigningRootSecretStore`.
+- [x] Rename share KEK plumbing to `SigningRootSecretShareKekResolver`.
+- [x] Rename built-in stores to `CloudflareDurableObjectSigningRootSecretStore`,
+      `PostgresSigningRootSecretStore`, and `InMemorySigningRootSecretStore`.
+- [x] Rename the local AES-GCM decrypt helper to
+      `createSigningRootSecretAesGcmDecryptAdapter`.
+- [x] Rename config fields to signing-root equivalents and remove legacy
+      root-share aliases in the same breaking cleanup.
+- [x] Use `SIGNING_ROOT_SECRET_SHARE_KEK_B64U` for local AES-GCM sealed-share
+      mode.
+- [x] Keep `master_secret` out of the new public API names.
 
-- Add the ability to create `k_org[v+1]` for an existing project.
-- Add wallet metadata for active and retired wallet key versions.
-- Implement wallet-key migration from `k_org[v]` to `k_org[v+1]`.
-- Reuse the same passkey-derived client share where supported.
-- Add product-level migration state and rollback rules.
-- For EVM, implement smart-account owner rotation before exposing migration as
-  a user-facing no-address-change flow.
+### Phase 1D. Recovery Drills
 
-### Phase 3. Self-host migration
+- Test memory cache miss.
+- Test loss of one sealed share.
+- Test loss of one storage location.
+- Test loss of one share wrapping key.
+- Test customer backup restore.
+- Test project activation blocked until backup confirmation.
 
-- Implement same-root export for customers who must preserve wallet identity.
-- Implement fresh-root migration for customers who want a clean custody break.
-- Add customer-side import validation for `k_org`, wrapped root material, and
-  derivation metadata.
-- Add vendor-side deletion and attestation procedures.
-- Add audit trail export for project root transfer.
+### Phase 2A. Threshold-PRF Prototype Gate
 
-## Migration From The Current Model
+- [x] Implement the `crates/threshold-prf` prototype.
+- [x] Prove one-worker 2-of-3 partial evaluation and two-worker 2-of-3 partial
+      evaluation produce the same `y_relayer`.
+- [x] Keep direct `k_org` evaluation as a reference test path only.
+- [x] Benchmark direct reference evaluation.
+- [x] Benchmark partial evaluation.
+- [x] Benchmark partial combine.
+- [x] Benchmark full 2-of-3 threshold evaluation.
+- [x] Decide whether native and local WASM proxy performance are good enough
+      for signing-scale use.
+- [x] Do not wire Phase 2 into signing until vectors and benchmark reports are
+      committed.
 
-The current implementation can migrate incrementally.
+### Phase 2B. Two-Worker Threshold-PRF Derivation
 
-### Existing wallets
+- Give worker A access to one encrypted signing-root share.
+- Give worker B access to another encrypted signing-root share.
+- Decrypt each share only in the owning worker memory.
+- Compute threshold-PRF partials for the requested wallet context.
+- Combine partials into full `y_relayer`.
+- Feed full `y_relayer` into the existing HSS flow.
+- Add tests proving Phase 1 one-worker partial mode and Phase 2 two-worker
+  partial mode preserve the same wallet addresses.
+- Defer HSS changes for shared `y_relayer` consumption unless we explicitly
+  choose a stronger no-single-`y_relayer` model later.
 
-For each existing wallet:
+### Phase 3A. Share Refresh
 
-1. identify the current direct derivation context
-2. define its current tenant root as `k_org[v1]`
-3. persist explicit metadata including `wallet_key_version = v1` and
-   `k_org_version = v1`
-4. keep the same derivation inputs so the threshold public key and address stay
-   unchanged
+- Implement root-share refresh for the same signing root.
+- Increment `root_share_epoch`.
+- Verify known wallet addresses after refresh.
+- Delete or retire old share epochs after commit.
+- Add rollback behavior for failed refresh.
 
-This does not require introducing persisted per-wallet server secrets.
+### Phase 3B. Self-Host Migration
 
-### New wallets
+- Export root shares and metadata to customer.
+- Support share refresh into customer custody.
+- Verify self-host worker derives the same wallet addresses.
+- Disable hosted signing.
+- Delete or retire hosted shares.
+- Export audit evidence.
 
-All new wallets should enroll directly on the deterministic tenant-root model.
+### Phase 4. Hardening
+
+- Move shares to independent storage boundaries.
+- Move share wrapping keys to independent custody boundaries.
+- Add stricter deploy controls around the signer.
+- Add anomaly detection for share access.
+- Add break-glass recovery runbooks.
+
+### Phase 5. Two-TEE Upgrade
+
+- Define TEE attestation requirements.
+- Bind share release to attested code identity.
+- Move reconstruction into TEE nodes.
+- Evaluate distributed derivation or HSS/MPC upgrade after the attested
+  reconstruction model is stable.
 
 ## Non-Goals
 
-- persisting standalone per-wallet server secrets
-- building a separate per-wallet secret database and backup system
-- requiring Google Cloud KMS or Cloud SQL for normal signing in Phase 0
-- pretending `wrapped_k_org` protects tenant roots while plaintext `k_org` is
-  also durably stored next to it
-- making tenant-root replacement transparent when that root directly determines
-  wallet identity
-- silently changing wallet key versions behind stable metadata
+- durable plaintext `k_org` storage
+- deterministic platform rederivation of customer roots
+- per-wallet durable server secret storage
+- pretending single-worker reconstruction protects against malicious signer code
+- distributed HSS derivation in Phase 1
+- transparent wallet identity preservation when the signing root is replaced
 
 ## Open Questions
 
-- Should `k_org` exist per project, per org, per environment, or per custody
-  domain?
-- Should customers be allowed to bring their own tenant root from day 0?
-- What is the exact canonical encoding for derivation context?
-- What deletion attestation is required after self-host custody transfer?
-- Do we need an offline disaster-recovery backup or escrow for
-  `master_kdf_key` material, given that non-exportable KMS keys reduce
-  recoverability if the Google Cloud project, key ring, or key is lost?
-- For EVM, which flows must support smart-account owner rotation before
-  root-replacement migration is exposed as a product feature?
+- Should the initial three sealed shares start in Google Cloud SQL for
+  PostgreSQL, or split across provider/account boundaries from day one?
+- Which share wrapping keys are acceptable for Phase 1?
+- Should the customer backup contain the hosted three shares or a distinct
+  customer backup sharing?
+- What backup confirmation UX is required before production activation?
+- What real Cloudflare Worker runtime overhead should we record before the
+  Worker integration target ships?
+- Which TEE provider and attestation model should Phase 5 target?
+- Do we want self-host migration to export raw shares, reshare into customer
+  nodes, or support both?
 
 ## Summary
 
-The redesigned model is:
+The target model is:
 
-- `master_kdf_key` deterministically derives `k_org[v]`
-- `kek_key` wraps `k_org[v]` as `wrapped_k_org`
-- Phase 0 stores both plaintext `k_org[v]` and `wrapped_k_org` in Cloudflare
-  Durable Objects
-- `k_org[v]` deterministically derives per-wallet `k_srv_wallet`
-- `k_srv_wallet` is derived on demand and not durably persisted
-
-That gives us the operational profile we want now:
-
-- no per-wallet secret database
-- no per-wallet secret backup burden
-- low-cost Cloud SQL control-plane storage
-- normal signing does not depend on Google Cloud KMS or Cloud SQL
-- Cloudflare can keep existing projects signing during Google Cloud KMS or Cloud
-  SQL outages
-- Google Cloud can recreate Cloudflare project root records after Cloudflare
-  state loss
-
-It also makes the tradeoff explicit:
-
-- Phase 0 prioritizes availability and recoverability over strict KMS-bound
-  custody
-- `kek_key` rotation is an operational rewrap
-- `master_kdf_key` rotation affects new project derivation and disaster
-  recovery semantics
-- transferring custody of the same `k_org[v]` preserves wallet identity
-- replacing `k_org[v]` with `k_org[v+1]` is wallet key migration
+- random `signing_root_secret` / `k_org`
+- 2-of-3 sealed signing-root shares
+- no durable plaintext `k_org`
+- no deterministic platform `master_secret`
+- customer backup required
+- Phase 1 single Cloudflare signer computes and combines two threshold-PRF
+  partials in one runtime
+- per-wallet server input is `y_relayer`, derived from `k_org`
+- Phase 2 two-worker threshold-PRF can derive the same `y_relayer` without
+  reconstructing `k_org` in one runtime, pending benchmark results
+- share refresh preserves wallet addresses
+- signing-root replacement changes wallet identity unless the product layer
+  absorbs it
+- later TEE deployment can reduce runtime exposure without changing the
+  root/share metadata model

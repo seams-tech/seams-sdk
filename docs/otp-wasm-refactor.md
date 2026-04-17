@@ -525,6 +525,62 @@ That means:
 1. main thread selects `session` vs `per_operation`
 2. worker decides whether to retain or discard worker-owned secret-bearing runtime state according to the selected policy and server bounds
 
+## Iframe-Origin Ownership Follow-up
+
+The current app-origin Email OTP path is acceptable as a temporary bridge, but the target wallet-iframe architecture should move Email OTP ownership into the wallet iframe origin.
+
+### Target ownership boundary
+
+The app origin should own only:
+
+1. product UI state
+2. Google SSO button rendering and visible auth-method selection
+3. OTP input collection
+4. app-level route transitions and status rendering
+5. sanitized success, failure, and wallet metadata display
+
+The wallet iframe origin should own:
+
+1. the `TatchiPasskey` runtime used for Email OTP
+2. the dedicated `emailOtp` worker and nested `shamir3pass` worker
+3. Email OTP challenge, verify, enrollment, unseal, and bootstrap route calls
+4. nonsecret wallet profile and account-projection persistence
+5. threshold-ECDSA session metadata and opaque worker-session handles
+6. `WarmSessionManager` lifecycle state for wallet signing capability when running in iframe mode
+7. all secret-bearing Email OTP runtime state
+
+### Rationale
+
+This removes the need for app-origin IndexedDB access in wallet-iframe mode.
+
+The app origin may still pass user-entered OTP values and public flow inputs to the wallet iframe, but it should not create a parallel SDK runtime that owns wallet metadata stores or Email OTP bootstrap state.
+
+### Todo list
+
+1. [x] Add wallet-iframe RPC methods for the current canonical SDK Email OTP operations: challenge request, enrollment challenge request, enrollment, login plus threshold-ECDSA bootstrap, and enrollment plus threshold-ECDSA bootstrap.
+2. [x] Route `tatchi.auth.*EmailOtp*` SDK calls through the wallet iframe client when wallet-iframe mode is enabled.
+3. [x] Keep OTP input in app-origin UI, but send the code only as a transient request payload to the wallet iframe.
+4. [x] Add focused iframe RPC regression coverage proving Email OTP auth calls cross the wallet-iframe boundary and do not include app-origin generated `clientSecret32` in the normal flow.
+5. [x] Route `PasskeyAuthMenu` Google SSO and Email OTP actions through only wallet-iframe-owned SDK calls when wallet-iframe mode is enabled.
+6. [x] Move Google OIDC session exchange for Email OTP into the wallet iframe boundary, or define a minimal signed OIDC-token handoff from app origin to iframe origin with no wallet-store ownership on the app side.
+7. [x] Store nonsecret Email OTP wallet metadata, account projections, and threshold session metadata only under the wallet iframe origin.
+8. [x] Ensure all worker-owned Email OTP sessions and opaque threshold handles are scoped to the wallet iframe runtime, not app-origin runtime instances.
+9. [x] Remove app-origin Email OTP uses of `PasskeyClientDB` and any app-origin threshold session persistence once iframe RPC coverage exists.
+10. [x] Delete the temporary app-origin metadata IndexedDB mode after no wallet-iframe Email OTP flow depends on app-origin profile/account metadata persistence.
+11. [x] Add tests proving wallet-iframe Email OTP registration, login, session-mode signing, and `per_operation` signing work with app-origin IndexedDB disabled.
+12. [x] Add a regression test proving the app origin never receives recovered `S`, `clientRootShare32`, `clientAdditiveShare32B64u`, or Email OTP-derived signing share material.
+13. [x] Add a reload test proving iframe-origin metadata can restore the nonsecret account view while requiring fresh OTP for any missing in-memory worker signing capability.
+14. [x] Remove the current app-origin bridge for wallet-iframe mode; direct non-iframe SDK Email OTP worker paths remain the direct-mode runtime, not a wallet-iframe fallback.
+
+### Done criteria
+
+1. wallet-iframe mode can complete Google SSO plus Email OTP registration without app-origin IndexedDB
+2. wallet-iframe mode can complete Google SSO plus Email OTP login without app-origin IndexedDB
+3. wallet-iframe mode can sign through Email OTP `session` and `per_operation` policies
+4. app-origin runtime never owns Email OTP wallet metadata stores or threshold session stores
+5. app-origin runtime never sees Email OTP secret-source material or secret-derived signing shares
+6. app-origin metadata IndexedDB mode is deleted
+
 ## Testing Plan
 
 ### Unit tests
@@ -599,7 +655,34 @@ Completed:
 12. require byte-oriented `shamir3pass` seal/unseal entrypoints for Email OTP worker flows
 13. move duplicate JS Email OTP derivation helpers out of production `shared/src` and into test-only parity support
 14. rerun focused unit, relayer, E2E, type-check, and prepared-SDK build validation after the cleanup
+15. close the UI login-state handoff for worker-owned Email OTP sessions:
+    - React wallet-session readiness accepts active threshold-ECDSA Email OTP warm sessions
+    - `PasskeyAuthMenu` refreshes SDK login state only after OTP submit succeeds
+    - the demo carousel no longer advances to protected transaction UI before SDK login state is authoritative
+16. begin iframe-origin Email OTP ownership:
+    - add wallet-iframe RPC messages, router methods, and host handlers for current Email OTP auth operations
+    - route app-origin `TatchiPasskey` Email OTP auth methods through the wallet iframe when enabled
+    - add focused iframe routing regression coverage
+17. move Google Email OTP session exchange behind the wallet-iframe SDK boundary:
+    - add wallet-iframe RPC for Google Email OTP `/session/exchange`
+    - expose `tatchi.auth.exchangeGoogleEmailOtpSession`
+    - update the demo `PasskeyAuthMenu` Google SSO flow to hand the Google id token to the SDK instead of calling `/session/exchange` directly from app-origin code
+18. delete app-origin IndexedDB persistence for wallet-iframe mode:
+    - app-origin `TatchiPasskey` configures IndexedDB as disabled in iframe mode
+    - nonsecret Email OTP account metadata and threshold-session metadata stay in the wallet-origin runtime
+    - app-origin no longer keeps a metadata-only IndexedDB bridge
+19. add focused wallet-iframe Email OTP ownership regression coverage:
+    - registration/enrollment, login, session-mode signing, and `per_operation` signing route through the wallet iframe with app-origin IndexedDB disabled
+    - app-origin iframe results strip recovered `S`, `clientRootShare32`, `clientAdditiveShare32B64u`, and other Email OTP-derived share material
+20. add wallet-iframe reload regression coverage:
+    - wallet-origin metadata restores the nonsecret account view
+    - in-memory Email OTP signing capability is not restored across reload without fresh OTP
 
 Remaining:
 
 1. keep the focused Email OTP unit, relayer, E2E, and prepared-SDK build matrix as a standing release gate
+2. close the remaining worker-boundary exceptions for secret-derived signing material:
+   - decide whether Ed25519 `clientRootShare32` or `prfFirstB64u` handoffs are temporary compatibility exceptions or must move behind worker-owned opaque signing handles
+   - decide whether transferred ECDSA `clientSigningShare32` handoffs to main thread are temporary compatibility exceptions or must move behind worker-owned signing
+   - if any exception remains, document the exact owner, transfer, single-use, and zeroization semantics in the Email OTP signing specs
+   - add tests proving app-origin iframe flows never receive recovered `S`, `clientRootShare32`, `clientAdditiveShare32B64u`, or equivalent secret-derived share strings

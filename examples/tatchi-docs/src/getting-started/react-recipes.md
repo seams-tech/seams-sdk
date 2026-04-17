@@ -274,10 +274,6 @@ export function PasskeySection() {
       onLogin={onLogin}
       onRegister={onRegister}
       onSyncAccount={onSyncAccount}
-      emailRecoveryOptions={{
-        onEvent: (event) => console.log('email-recovery event', event),
-        onError: (error) => console.error('email-recovery error', error),
-      }}
       linkDeviceOptions={{
         onEvent: onLinkDeviceEvent,
         onError: (error) => console.error('link-device error', error),
@@ -287,7 +283,7 @@ export function PasskeySection() {
 }
 ```
 
-`onSyncAccount` covers passkey-based account sync (e.g. iCloud/Google Password Manager passkey sync). Email-based recovery is built in to the menu via “Recover Account with Email” and emits events through `emailRecoveryOptions`.
+`onSyncAccount` covers passkey-based account sync (e.g. iCloud/Google Password Manager passkey sync). When Google SSO is configured, the menu presents it as the Email OTP signing path; Passkey remains the recommended stronger method.
 
 ## AccountMenuButton – account menu + device linking
 
