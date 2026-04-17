@@ -5,6 +5,8 @@ import {
   THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   normalizeThresholdEd25519ParticipantIds,
 } from '@shared/threshold/participants';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 export type ThresholdValidationOk = { ok: true };
 export type ThresholdValidationErr = { ok: false; code: string; message: string };
@@ -16,6 +18,49 @@ export function isObject(v: unknown): v is Record<string, unknown> {
 
 export function isValidNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
+}
+
+export type ParsedThresholdEcdsaSigningRootMetadata = {
+  signingRootId: string;
+  signingRootVersion?: string;
+  walletKeyVersion: string;
+  derivationVersion: number;
+};
+
+function hasThresholdEcdsaSigningRootMetadata(raw: Record<string, unknown>): boolean {
+  return (
+    raw.signingRootId !== undefined ||
+    raw.signingRootVersion !== undefined ||
+    raw.walletKeyVersion !== undefined ||
+    raw.derivationVersion !== undefined
+  );
+}
+
+function parseThresholdEcdsaSigningRootMetadataFields(
+  raw: Record<string, unknown>,
+): ParsedThresholdEcdsaSigningRootMetadata | null {
+  const signingRootId = toOptionalString(raw.signingRootId);
+  const signingRootVersion = toOptionalString(raw.signingRootVersion);
+  const walletKeyVersion = toOptionalString(raw.walletKeyVersion);
+  const derivationVersionRaw = raw.derivationVersion;
+  if (!signingRootId || !walletKeyVersion) return null;
+  if (!isValidNumber(derivationVersionRaw)) return null;
+  const derivationVersion = Math.floor(derivationVersionRaw);
+  if (derivationVersion < 1 || derivationVersion !== derivationVersionRaw) return null;
+  return {
+    signingRootId,
+    ...(signingRootVersion ? { signingRootVersion } : {}),
+    walletKeyVersion,
+    derivationVersion,
+  };
+}
+
+function parseOptionalThresholdEcdsaSigningRootMetadataFields(
+  raw: Record<string, unknown>,
+): { ok: true; value?: ParsedThresholdEcdsaSigningRootMetadata } | { ok: false } {
+  if (!hasThresholdEcdsaSigningRootMetadata(raw)) return { ok: true };
+  const value = parseThresholdEcdsaSigningRootMetadataFields(raw);
+  return value ? { ok: true, value } : { ok: false };
 }
 
 export function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
@@ -131,6 +176,10 @@ export type ParsedThresholdEcdsaIntegratedKeyRecord = {
   clientVerifyingShareB64u: string;
   thresholdEcdsaPublicKeyB64u: string;
   ethereumAddress: string;
+  signingRootId: string;
+  signingRootVersion?: string;
+  walletKeyVersion: string;
+  derivationVersion: number;
   participantIds: number[];
   relayerKeyId?: string;
   relayerVerifyingShareB64u?: string;
@@ -152,6 +201,7 @@ export function parseThresholdEcdsaIntegratedKeyRecord(
   const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
   const thresholdEcdsaPublicKeyB64u = toOptionalString(raw.thresholdEcdsaPublicKeyB64u);
   const ethereumAddress = toOptionalString(raw.ethereumAddress);
+  const signingRootMetadata = parseThresholdEcdsaSigningRootMetadataFields(raw);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const relayerVerifyingShareB64u = toOptionalString(raw.relayerVerifyingShareB64u);
@@ -167,6 +217,7 @@ export function parseThresholdEcdsaIntegratedKeyRecord(
     !clientVerifyingShareB64u ||
     !thresholdEcdsaPublicKeyB64u ||
     !ethereumAddress ||
+    !signingRootMetadata ||
     !participantIds ||
     !relayerRootShare32B64u ||
     !relayerBackendInputB64u ||
@@ -184,6 +235,7 @@ export function parseThresholdEcdsaIntegratedKeyRecord(
     clientVerifyingShareB64u,
     thresholdEcdsaPublicKeyB64u,
     ethereumAddress,
+    ...signingRootMetadata,
     participantIds,
     ...(relayerKeyId ? { relayerKeyId } : {}),
     ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
@@ -236,7 +288,7 @@ export type ParsedThresholdEd25519MpcSessionRecord = {
   rpId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
-};
+} & Partial<ParsedThresholdEcdsaSigningRootMetadata>;
 
 export function parseThresholdEd25519MpcSessionRecord(
   raw: unknown,
@@ -254,6 +306,8 @@ export function parseThresholdEd25519MpcSessionRecord(
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
+  const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
+  if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
   if (!relayerKeyId || !purpose || !intentDigestB64u || !signingDigestB64u || !userId || !rpId)
     return null;
@@ -268,6 +322,7 @@ export function parseThresholdEd25519MpcSessionRecord(
     rpId,
     ...(clientVerifyingShareB64u ? { clientVerifyingShareB64u } : {}),
     participantIds,
+    ...(signingRootMetadata.value ? signingRootMetadata.value : {}),
   };
 }
 
@@ -425,7 +480,7 @@ export type ParsedEd25519AuthSessionRecord = {
   userId: string;
   rpId: string;
   participantIds: number[];
-};
+} & Partial<ParsedThresholdEcdsaSigningRootMetadata>;
 
 export function parseEd25519AuthSessionRecord(raw: unknown): ParsedEd25519AuthSessionRecord | null {
   if (!isObject(raw)) return null;
@@ -436,9 +491,18 @@ export function parseEd25519AuthSessionRecord(raw: unknown): ParsedEd25519AuthSe
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds) || [
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
+  const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
+  if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
   if (!relayerKeyId || !userId || !rpId) return null;
-  return { expiresAtMs, relayerKeyId, userId, rpId, participantIds };
+  return {
+    expiresAtMs,
+    relayerKeyId,
+    userId,
+    rpId,
+    participantIds,
+    ...(signingRootMetadata.value ? signingRootMetadata.value : {}),
+  };
 }
 
 export type ParsedThresholdEcdsaSigningSessionRecord = {
@@ -455,7 +519,7 @@ export type ParsedThresholdEcdsaSigningSessionRecord = {
   presignatureId: string;
   entropyB64u: string;
   bigRB64u?: string;
-};
+} & ParsedThresholdEcdsaSigningRootMetadata;
 
 export function parseThresholdEcdsaSigningSessionRecord(
   raw: unknown,
@@ -476,6 +540,7 @@ export function parseThresholdEcdsaSigningSessionRecord(
   const presignatureId = toOptionalString(raw.presignatureId);
   const entropyB64u = toOptionalString(raw.entropyB64u);
   const bigRB64u = toOptionalString(raw.bigRB64u);
+  const signingRootMetadata = parseThresholdEcdsaSigningRootMetadataFields(raw);
   if (!isValidNumber(expiresAtMs)) return null;
   if (
     !mpcSessionId ||
@@ -487,7 +552,8 @@ export function parseThresholdEcdsaSigningSessionRecord(
     !rpId ||
     !clientVerifyingShareB64u ||
     !presignatureId ||
-    !entropyB64u
+    !entropyB64u ||
+    !signingRootMetadata
   ) {
     return null;
   }
@@ -504,6 +570,7 @@ export function parseThresholdEcdsaSigningSessionRecord(
     participantIds,
     presignatureId,
     entropyB64u,
+    ...signingRootMetadata,
     ...(bigRB64u ? { bigRB64u } : {}),
   };
 }
@@ -536,7 +603,7 @@ export type ParsedThresholdEcdsaPresignSessionRecord = {
   version: number;
   createdAtMs: number;
   updatedAtMs: number;
-};
+} & ParsedThresholdEcdsaSigningRootMetadata;
 
 export function parseThresholdEcdsaPresignSessionRecord(
   raw: unknown,
@@ -556,6 +623,7 @@ export function parseThresholdEcdsaPresignSessionRecord(
   const version = raw.version;
   const createdAtMs = raw.createdAtMs;
   const updatedAtMs = raw.updatedAtMs;
+  const signingRootMetadata = parseThresholdEcdsaSigningRootMetadataFields(raw);
 
   const stage: ParsedThresholdEcdsaPresignSessionStage | null =
     stageRaw === 'triples'
@@ -576,6 +644,7 @@ export function parseThresholdEcdsaPresignSessionRecord(
     !rpId ||
     !relayerKeyId ||
     !stage ||
+    !signingRootMetadata ||
     !isValidNumber(clientParticipantId) ||
     !isValidNumber(relayerParticipantId) ||
     !isValidNumber(version)
@@ -603,6 +672,7 @@ export function parseThresholdEcdsaPresignSessionRecord(
     version: versionInt,
     createdAtMs,
     updatedAtMs,
+    ...signingRootMetadata,
   };
 }
 
@@ -627,11 +697,7 @@ export type ThresholdEd25519SessionClaims = {
   sessionId: string;
   relayerKeyId: string;
   rpId: string;
-  runtimeSnapshotScope?: {
-    orgId: string;
-    environmentId: string;
-    projectId?: string;
-  };
+  runtimePolicyScope?: RuntimePolicyScope;
   /**
    * Server-enforced threshold session expiry (ms since epoch).
    * Relayer authorization validates expiry without a KV record fetch.
@@ -648,19 +714,14 @@ export type ThresholdEd25519SessionClaims = {
   nbf?: number;
 };
 
-function parseRuntimeSnapshotScope(
+function parseRuntimePolicyScope(
   raw: unknown,
-): { orgId: string; environmentId: string; projectId?: string } | null {
-  if (!isObject(raw)) return null;
-  const orgId = toOptionalString(raw.orgId);
-  const environmentId = toOptionalString(raw.environmentId);
-  if (!orgId || !environmentId) return null;
-  const projectId = toOptionalString(raw.projectId);
-  return {
-    orgId,
-    environmentId,
-    ...(projectId ? { projectId } : {}),
-  };
+): RuntimePolicyScope | null {
+  try {
+    return normalizeRuntimePolicyScope(raw as Record<string, unknown>);
+  } catch {
+    return null;
+  }
 }
 
 export function parseThresholdEd25519SessionClaims(
@@ -689,11 +750,11 @@ export function parseThresholdEd25519SessionClaims(
     thresholdExpiresAtMs,
     participantIds,
   };
-  const runtimeSnapshotScopeRaw = (raw as { runtimeSnapshotScope?: unknown }).runtimeSnapshotScope;
-  if (runtimeSnapshotScopeRaw !== undefined) {
-    const runtimeSnapshotScope = parseRuntimeSnapshotScope(runtimeSnapshotScopeRaw);
-    if (!runtimeSnapshotScope) return null;
-    out.runtimeSnapshotScope = runtimeSnapshotScope;
+  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
+  if (runtimePolicyScopeRaw !== undefined) {
+    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
+    if (!runtimePolicyScope) return null;
+    out.runtimePolicyScope = runtimePolicyScope;
   }
 
   const iat = (raw as { iat?: unknown }).iat;
@@ -724,11 +785,8 @@ export type AppSessionClaims = {
   sub: string;
   kind: 'app_session_v1';
   appSessionVersion: string;
-  runtimeSnapshotScope?: {
-    orgId: string;
-    environmentId: string;
-    projectId?: string;
-  };
+  walletId?: string;
+  runtimePolicyScope?: RuntimePolicyScope;
   iat?: number;
   exp?: number;
   nbf?: number;
@@ -746,11 +804,13 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
     kind,
     appSessionVersion,
   };
-  const runtimeSnapshotScopeRaw = (raw as { runtimeSnapshotScope?: unknown }).runtimeSnapshotScope;
-  if (runtimeSnapshotScopeRaw !== undefined) {
-    const runtimeSnapshotScope = parseRuntimeSnapshotScope(runtimeSnapshotScopeRaw);
-    if (!runtimeSnapshotScope) return null;
-    out.runtimeSnapshotScope = runtimeSnapshotScope;
+  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
+  if (walletId) out.walletId = walletId;
+  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
+  if (runtimePolicyScopeRaw !== undefined) {
+    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
+    if (!runtimePolicyScope) return null;
+    out.runtimePolicyScope = runtimePolicyScope;
   }
 
   const iat = (raw as { iat?: unknown }).iat;
@@ -783,11 +843,7 @@ export type ThresholdEcdsaSessionClaims = {
   sessionId: string;
   relayerKeyId: string;
   rpId: string;
-  runtimeSnapshotScope?: {
-    orgId: string;
-    environmentId: string;
-    projectId?: string;
-  };
+  runtimePolicyScope?: RuntimePolicyScope;
   /**
    * Server-enforced threshold session expiry (ms since epoch).
    * Authorization validates expiry without a KV record fetch.
@@ -828,11 +884,11 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     thresholdExpiresAtMs,
     participantIds,
   };
-  const runtimeSnapshotScopeRaw = (raw as { runtimeSnapshotScope?: unknown }).runtimeSnapshotScope;
-  if (runtimeSnapshotScopeRaw !== undefined) {
-    const runtimeSnapshotScope = parseRuntimeSnapshotScope(runtimeSnapshotScopeRaw);
-    if (!runtimeSnapshotScope) return null;
-    out.runtimeSnapshotScope = runtimeSnapshotScope;
+  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
+  if (runtimePolicyScopeRaw !== undefined) {
+    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
+    if (!runtimePolicyScope) return null;
+    out.runtimePolicyScope = runtimePolicyScope;
   }
 
   const iat = (raw as { iat?: unknown }).iat;

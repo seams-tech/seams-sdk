@@ -1,4 +1,3 @@
-import { base64UrlDecode } from '@shared/utils/encoders';
 import initEthSignerWasm, {
   add_secp256k1_public_keys_33,
   compute_eip1559_tx_hash,
@@ -8,7 +7,6 @@ import initEthSignerWasm, {
   threshold_ecdsa_hss_open_server_output,
   threshold_ecdsa_hss_prepare_server_ceremony,
   threshold_ecdsa_hss_prepare_server_session,
-  derive_threshold_secp256k1_relayer_share,
   encode_eip1559_signed_tx_from_signature65,
   init_eth_signer,
   map_additive_share_to_threshold_signatures_share_2p,
@@ -269,32 +267,6 @@ export async function mapAdditiveShareToThresholdSignaturesShare2p(input: {
   return checkedBytes('map_additive_share_to_threshold_signatures_share_2p output', out, 32);
 }
 
-export async function deriveThresholdSecp256k1RelayerShare(input: {
-  masterSecretB64u: string;
-  relayerKeyId: string;
-}): Promise<{
-  relayerSigningShare32: Uint8Array;
-  relayerVerifyingShare33: Uint8Array;
-}> {
-  const masterSecretB64u = String(input.masterSecretB64u || '').trim();
-  if (!masterSecretB64u) throw new Error('masterSecretB64u is required');
-  const relayerKeyId = String(input.relayerKeyId || '').trim();
-  if (!relayerKeyId) throw new Error('relayerKeyId is required');
-
-  await ensureEthSignerWasm();
-  const masterSecret = base64UrlDecode(masterSecretB64u);
-  const out = derive_threshold_secp256k1_relayer_share(masterSecret, relayerKeyId) as Uint8Array;
-  if (out.length !== 65) {
-    throw new Error(
-      `derive_threshold_secp256k1_relayer_share output must be 65 bytes (got ${out.length})`,
-    );
-  }
-  return {
-    relayerSigningShare32: out.slice(0, 32),
-    relayerVerifyingShare33: out.slice(32, 65),
-  };
-}
-
 export async function ecdsaHssBootstrapNonExportSign(input: {
   nearAccountId: string;
   keyPurpose: string;
@@ -330,12 +302,20 @@ export async function ecdsaHssBootstrapNonExportSign(input: {
     relayerThresholdPrivateShare32?: Uint8Array | number[];
     retryCounter?: number;
   };
-  const toBytes = (label: string, value: Uint8Array | number[] | undefined, len: number): Uint8Array =>
+  const toBytes = (
+    label: string,
+    value: Uint8Array | number[] | undefined,
+    len: number,
+  ): Uint8Array =>
     checkedBytes(label, value instanceof Uint8Array ? value : Uint8Array.from(value || []), len);
   return {
     groupPublicKey33: toBytes('ecdsa_hss groupPublicKey33', raw.groupPublicKey33, 33),
     ethereumAddress20: toBytes('ecdsa_hss ethereumAddress20', raw.ethereumAddress20, 20),
-    clientAdditiveShare32: toBytes('ecdsa_hss clientAdditiveShare32', raw.clientAdditiveShare32, 32),
+    clientAdditiveShare32: toBytes(
+      'ecdsa_hss clientAdditiveShare32',
+      raw.clientAdditiveShare32,
+      32,
+    ),
     clientPublicKey33: toBytes('ecdsa_hss clientPublicKey33', raw.clientPublicKey33, 33),
     relayerAdditiveShare32: toBytes(
       'ecdsa_hss relayerAdditiveShare32',
@@ -380,15 +360,15 @@ export async function ecdsaHssExplicitExport(input: {
     canonicalPublicKey33?: Uint8Array | number[];
     canonicalEthereumAddress20?: Uint8Array | number[];
   };
-  const toBytes = (label: string, value: Uint8Array | number[] | undefined, len: number): Uint8Array =>
+  const toBytes = (
+    label: string,
+    value: Uint8Array | number[] | undefined,
+    len: number,
+  ): Uint8Array =>
     checkedBytes(label, value instanceof Uint8Array ? value : Uint8Array.from(value || []), len);
   return {
     canonicalX32: toBytes('ecdsa_hss canonicalX32', raw.canonicalX32, 32),
-    canonicalPublicKey33: toBytes(
-      'ecdsa_hss canonicalPublicKey33',
-      raw.canonicalPublicKey33,
-      33,
-    ),
+    canonicalPublicKey33: toBytes('ecdsa_hss canonicalPublicKey33', raw.canonicalPublicKey33, 33),
     canonicalEthereumAddress20: toBytes(
       'ecdsa_hss canonicalEthereumAddress20',
       raw.canonicalEthereumAddress20,

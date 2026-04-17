@@ -1,7 +1,7 @@
 import type { NormalizedLogger } from '../../logger';
 import type {
   ThresholdEcdsaIntegratedKeyRecord,
-  ThresholdEd25519KeyStoreConfigInput,
+  ThresholdStoreConfigInput,
 } from '../../types';
 import {
   RedisTcpClient,
@@ -374,7 +374,7 @@ class PostgresThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegrat
 }
 
 export function createThresholdEd25519KeyStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): ThresholdEd25519KeyStore {
@@ -487,7 +487,7 @@ export function createThresholdEd25519KeyStore(input: {
 }
 
 export function createThresholdEcdsaKeyStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): ThresholdEcdsaIntegratedKeyStore {

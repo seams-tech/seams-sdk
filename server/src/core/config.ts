@@ -5,10 +5,7 @@ import type {
   OidcExchangeConfig,
   OidcExchangeIssuerConfig,
 } from './types';
-import {
-  THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
-  THRESHOLD_PREFIX_DEFAULT,
-} from './defaultConfigsServer';
+import { THRESHOLD_DO_OBJECT_NAME_DEFAULT, THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { toOptionalTrimmedString, toTrimmedString } from '@shared/utils/validation';
 
 export const AUTH_SERVICE_CONFIG_DEFAULTS = {
@@ -138,17 +135,15 @@ function normalizeOidcExchangeConfig(
   };
 }
 
-function normalizeThresholdEd25519KeyStoreConfig(
-  input: AuthServiceConfigInput['thresholdEd25519KeyStore'],
-): AuthServiceConfig['thresholdEd25519KeyStore'] | undefined {
+function normalizeThresholdStoreConfig(
+  input: AuthServiceConfigInput['thresholdStore'],
+): AuthServiceConfig['thresholdStore'] | undefined {
   if (!input) return undefined;
   if (typeof input !== 'object' || Array.isArray(input)) return undefined;
 
   const c = input as Record<string, unknown>;
   const anyProvided = Boolean(
     // Minimal (env-shaped)
-    toOptionalTrimmedString(c.THRESHOLD_ED25519_MASTER_SECRET_B64U) ||
-    toOptionalTrimmedString(c.THRESHOLD_SECP256K1_MASTER_SECRET_B64U) ||
     toOptionalTrimmedString(c.THRESHOLD_NODE_ROLE) ||
     toOptionalTrimmedString(c.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U) ||
     toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_COSIGNERS) ||
@@ -156,6 +151,7 @@ function normalizeThresholdEd25519KeyStoreConfig(
     toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_COSIGNER_T) ||
     toOptionalTrimmedString(c.THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID) ||
     toOptionalTrimmedString(c.THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID) ||
+    toOptionalTrimmedString(c.THRESHOLD_ED25519_SHARE_MODE) ||
     toOptionalTrimmedString(c.THRESHOLD_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ED25519_AUTH_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ED25519_SESSION_PREFIX) ||
@@ -167,6 +163,21 @@ function normalizeThresholdEd25519KeyStoreConfig(
     toOptionalTrimmedString(c.SHAMIR_P_B64U) ||
     toOptionalTrimmedString(c.SHAMIR_E_S_B64U) ||
     toOptionalTrimmedString(c.SHAMIR_D_S_B64U) ||
+    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_KIND) ||
+    toOptionalTrimmedString(c.prfSessionSealIdempotencyKind) ||
+    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL) ||
+    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN) ||
+    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL) ||
+    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL) ||
+    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE) ||
+    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) ||
+    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS) ||
+    toOptionalTrimmedString(c.prfSessionSealIdempotencyTtlMs) ||
+    c.signingRootShareResolver ||
+    c.signingRootSecretResolverAdapters ||
+    c.signingRootSecretStore ||
+    c.signingRootSecretDecryptAdapter ||
+    c.signingRootSecretShareKekResolver ||
     // Explicit store config (kind-shaped)
     toOptionalTrimmedString(c.kind) ||
     toOptionalTrimmedString(c.url) ||
@@ -187,7 +198,7 @@ function normalizeThresholdEd25519KeyStoreConfig(
   const kind = toOptionalTrimmedString(normalized.kind);
   if (kind === 'cloudflare-do') {
     const name = toOptionalTrimmedString(normalized.name);
-    if (!name) normalized.name = THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
+    if (!name) normalized.name = THRESHOLD_DO_OBJECT_NAME_DEFAULT;
 
     const thresholdPrefix = toOptionalTrimmedString(normalized.THRESHOLD_PREFIX);
     const anySpecificPrefix = Boolean(
@@ -198,10 +209,9 @@ function normalizeThresholdEd25519KeyStoreConfig(
     if (!thresholdPrefix && !anySpecificPrefix) {
       normalized.THRESHOLD_PREFIX = THRESHOLD_PREFIX_DEFAULT;
     }
-
   }
 
-  return normalized as AuthServiceConfig['thresholdEd25519KeyStore'];
+  return normalized as AuthServiceConfig['thresholdStore'];
 }
 
 export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServiceConfig {
@@ -218,9 +228,7 @@ export function createAuthServiceConfig(input: AuthServiceConfigInput): AuthServ
       toTrimmedString(input.createAccountAndRegisterGas) ||
       AUTH_SERVICE_CONFIG_DEFAULTS.createAccountAndRegisterGas,
     signerWasm: input.signerWasm,
-    thresholdEd25519KeyStore: normalizeThresholdEd25519KeyStoreConfig(
-      input.thresholdEd25519KeyStore,
-    ),
+    thresholdStore: normalizeThresholdStoreConfig(input.thresholdStore),
     logger: input.logger,
     googleOidc: normalizeGoogleOidcConfig(input.googleOidc),
     oidcExchange: normalizeOidcExchangeConfig(input.oidcExchange),

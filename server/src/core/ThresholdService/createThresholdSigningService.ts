@@ -1,5 +1,5 @@
 import type { AuthService } from '../AuthService';
-import type { ThresholdEd25519KeyStoreConfigInput } from '../types';
+import type { ThresholdStoreConfigInput } from '../types';
 import type { Logger } from '../logger';
 import { coerceLogger } from '../logger';
 import { ThresholdSigningService } from './ThresholdSigningService';
@@ -14,6 +14,8 @@ import {
   createThresholdEd25519SessionStore,
 } from './stores/SessionStore';
 import { isObject } from '@shared/utils/validation';
+import { createConfiguredSigningRootShareResolver } from './signingRootSecretConfig';
+import type { SigningRootShareResolver } from './signingRootShareResolver';
 
 function isNodeEnvironment(): boolean {
   const processObj = (globalThis as unknown as { process?: { versions?: { node?: string } } })
@@ -29,7 +31,8 @@ function isNodeEnvironment(): boolean {
 
 export function createThresholdSigningService(input: {
   authService: AuthService;
-  thresholdEd25519KeyStore?: ThresholdEd25519KeyStoreConfigInput | null;
+  thresholdStore?: ThresholdStoreConfigInput | null;
+  signingRootShareResolver?: SigningRootShareResolver | null;
   logger?: Logger | null;
   isNode?: boolean;
 }): ThresholdSigningService {
@@ -39,7 +42,7 @@ export function createThresholdSigningService(input: {
     ? (globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process
         ?.env
     : undefined;
-  const envFallback: ThresholdEd25519KeyStoreConfigInput | null = env
+  const envFallback: ThresholdStoreConfigInput | null = env
     ? {
         UPSTASH_REDIS_REST_URL: env.UPSTASH_REDIS_REST_URL,
         UPSTASH_REDIS_REST_TOKEN: env.UPSTASH_REDIS_REST_TOKEN,
@@ -55,8 +58,6 @@ export function createThresholdSigningService(input: {
         THRESHOLD_ECDSA_SIGNING_PREFIX: env.THRESHOLD_ECDSA_SIGNING_PREFIX,
         THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID: env.THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID,
         THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID: env.THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID,
-        THRESHOLD_ED25519_MASTER_SECRET_B64U: env.THRESHOLD_ED25519_MASTER_SECRET_B64U,
-        THRESHOLD_SECP256K1_MASTER_SECRET_B64U: env.THRESHOLD_SECP256K1_MASTER_SECRET_B64U,
         THRESHOLD_NODE_ROLE: env.THRESHOLD_NODE_ROLE,
         THRESHOLD_COORDINATOR_SHARED_SECRET_B64U: env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U,
         THRESHOLD_COORDINATOR_INSTANCE_ID: env.THRESHOLD_COORDINATOR_INSTANCE_ID,
@@ -79,12 +80,12 @@ export function createThresholdSigningService(input: {
   // Merge explicit config over env-derived defaults so callers can set
   // `kind: 'in-memory'` (etc) while still using env vars like THRESHOLD_NODE_ROLE.
   const config =
-    isObject(envFallback) && isObject(input.thresholdEd25519KeyStore)
+    isObject(envFallback) && isObject(input.thresholdStore)
       ? ({
           ...envFallback,
-          ...input.thresholdEd25519KeyStore,
-        } as ThresholdEd25519KeyStoreConfigInput)
-      : (input.thresholdEd25519KeyStore ?? envFallback);
+          ...input.thresholdStore,
+        } as ThresholdStoreConfigInput)
+      : (input.thresholdStore ?? envFallback);
 
   // Emit a single, non-sensitive config summary to help hosts confirm that threshold signing is wired up.
   try {
@@ -121,6 +122,8 @@ export function createThresholdSigningService(input: {
   const ecdsaSessionStore = createThresholdEcdsaSessionStore({ config, logger, isNode });
   const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({ config, logger, isNode });
   const ecdsaSigningStores = createThresholdEcdsaSigningStores({ config, logger, isNode });
+  const signingRootShareResolver =
+    input.signingRootShareResolver ?? createConfiguredSigningRootShareResolver(config);
 
   const ensureReady = async (): Promise<void> => {
     await input.authService.getRelayerAccount();
@@ -137,6 +140,7 @@ export function createThresholdSigningService(input: {
     ecdsaSigningSessionStore: ecdsaSigningStores.signingSessionStore,
     ecdsaPresignSessionStore: ecdsaSigningStores.presignSessionStore,
     ecdsaPresignaturePool: ecdsaSigningStores.presignaturePool,
+    signingRootShareResolver,
     config,
     ensureReady,
     ensureSignerWasm: ensureReady,

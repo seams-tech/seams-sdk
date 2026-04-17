@@ -6,6 +6,14 @@ import {
 } from '@/core/types/authenticatorOptions';
 import type { InitInput } from '../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import type { Logger } from './logger';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import type {
+  SigningRootSecretDecryptAdapter,
+  SigningRootSecretResolverAdapters,
+  SigningRootSecretShareSource,
+} from './ThresholdService/signingRootSecretResolverAdapters';
+import type { SigningRootSecretShareKekResolver } from './ThresholdService/signingRootSecretSealing';
+import type { SigningRootShareResolver } from './ThresholdService/signingRootShareResolver';
 
 /**
  * WASM Bindgen generates a `free` method and a `[Symbol.dispose]` method on all structs.
@@ -45,7 +53,7 @@ export interface SignerWasmConfig {
 }
 
 export interface ThresholdEd25519HssCanonicalContext {
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -231,6 +239,9 @@ export interface ThresholdEd25519HssFinalizeForRegistrationRequest {
   new_account_id: string;
   rp_id: string;
   ceremonyHandle: string;
+  account_provisioning?: {
+    mode: 'create_if_missing';
+  };
 }
 
 export type ThresholdEd25519HssFinalizeWithSessionResponse =
@@ -249,6 +260,11 @@ export type ThresholdEd25519HssFinalizeForRegistrationResponse =
       ok: true;
       publicKey: string;
       relayerKeyId: string;
+      accountProvisioning?: {
+        mode: 'create_if_missing';
+        status: 'created' | 'already_ready';
+        transactionHash?: string;
+      };
     }
   | {
       ok: false;
@@ -276,7 +292,7 @@ export interface CloudflareDurableObjectNamespaceLike {
   get(id: unknown): CloudflareDurableObjectStubLike;
 }
 
-export type ThresholdEd25519KeyStoreConfig =
+export type ThresholdStoreConfig =
   | { kind: 'in-memory' }
   | { kind: 'upstash-redis-rest'; url: string; token: string; keyPrefix?: string }
   | { kind: 'redis-tcp'; redisUrl: string; keyPrefix?: string }
@@ -289,7 +305,7 @@ export type ThresholdEd25519KeyStoreConfig =
        */
       namespace: CloudflareDurableObjectNamespaceLike;
       /**
-       * Optional DO instance name. Defaults to `threshold-ed25519-store`.
+       * Optional DO instance name. Defaults to `threshold-store`.
        * Use different names to isolate environments within the same Worker script.
        */
       name?: string;
@@ -300,7 +316,7 @@ export type ThresholdEd25519KeyStoreConfig =
  * - Upstash REST (Cloudflare-friendly): UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN
  * - Redis TCP (Node-only): REDIS_URL
  */
-export type ThresholdEd25519KeyStoreEnvInput = {
+export type ThresholdStoreEnvInput = {
   UPSTASH_REDIS_REST_URL?: string;
   UPSTASH_REDIS_REST_TOKEN?: string;
   REDIS_URL?: string;
@@ -321,6 +337,11 @@ export type ThresholdEd25519KeyStoreEnvInput = {
   THRESHOLD_ED25519_KEYSTORE_PREFIX?: string;
   THRESHOLD_ED25519_SESSION_PREFIX?: string;
   THRESHOLD_ED25519_AUTH_PREFIX?: string;
+  /**
+   * Ed25519 relayer-share source mode. This remains Ed25519-specific because
+   * it controls the Ed25519 threshold signing protocol, not the shared store.
+   */
+  THRESHOLD_ED25519_SHARE_MODE?: string;
   /**
    * Optional prefixes for threshold ECDSA key/session/auth storage.
    * Defaults derive from `THRESHOLD_PREFIX` with a `threshold-ecdsa:*` namespace when unset.
@@ -344,16 +365,6 @@ export type ThresholdEd25519KeyStoreEnvInput = {
    * Must be distinct from `THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID`.
    */
   THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID?: string;
-  /**
-   * 32-byte base64url master secret used to derive bootstrap-only Option B recovery shares
-   * and future stateless Ed25519 recovery export material.
-   */
-  THRESHOLD_ED25519_MASTER_SECRET_B64U?: string;
-  /**
-   * 32-byte base64url master secret used to deterministically derive relayer signing shares
-   * for secp256k1-based threshold schemes (e.g. threshold ECDSA).
-   */
-  THRESHOLD_SECP256K1_MASTER_SECRET_B64U?: string;
   /**
    * Threshold node role.
    * - "coordinator" (default): exposes `/threshold-ed25519/sign/*` and can fan out to cosigners when configured.
@@ -411,6 +422,32 @@ export type ThresholdEd25519KeyStoreEnvInput = {
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS?: string;
+  /** Optional PRF session-seal key metadata and Shamir 3-pass parameters. */
+  PRF_SESSION_SEAL_KEY_VERSION?: string;
+  SHAMIR_P_B64U?: string;
+  SHAMIR_E_S_B64U?: string;
+  SHAMIR_D_S_B64U?: string;
+  /** Optional PRF session-seal idempotency backend configuration. */
+  PRF_SESSION_SEAL_IDEMPOTENCY_KIND?: string;
+  PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL?: string;
+  PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN?: string;
+  PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL?: string;
+  PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL?: string;
+  PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE?: string;
+  PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX?: string;
+  PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS?: string;
+  prfSessionSealIdempotencyKind?: string;
+  prfSessionSealIdempotencyTtlMs?: string | number;
+  /**
+   * Core signing-root dependency for signing. Hosted deployments usually build
+   * this from storage/decrypt adapters. Direct self-host deployments can supply
+   * a resolver backed by imported signing-root shares and do not need a KEK env.
+   */
+  signingRootShareResolver?: SigningRootShareResolver;
+  signingRootSecretResolverAdapters?: SigningRootSecretResolverAdapters;
+  signingRootSecretStore?: SigningRootSecretShareSource;
+  signingRootSecretDecryptAdapter?: SigningRootSecretDecryptAdapter;
+  signingRootSecretShareKekResolver?: SigningRootSecretShareKekResolver;
 };
 
 /**
@@ -421,9 +458,9 @@ export type ThresholdEd25519KeyStoreEnvInput = {
  * - an explicit `kind` object, optionally augmented with env-shaped overrides
  *   (useful when wiring via code but still wanting env vars like THRESHOLD_NODE_ROLE).
  */
-export type ThresholdEd25519KeyStoreConfigInput =
-  | ThresholdEd25519KeyStoreEnvInput
-  | (ThresholdEd25519KeyStoreConfig & Partial<ThresholdEd25519KeyStoreEnvInput>);
+export type ThresholdStoreConfigInput =
+  | ThresholdStoreEnvInput
+  | (ThresholdStoreConfig & Partial<ThresholdStoreEnvInput>);
 
 export interface AuthServiceConfig {
   relayerAccount: string;
@@ -437,7 +474,7 @@ export interface AuthServiceConfig {
    * Optional persistence for relayer-held threshold signing shares.
    * Defaults to in-memory unless env-shaped config enables Redis/Upstash.
    */
-  thresholdEd25519KeyStore?: ThresholdEd25519KeyStoreConfigInput;
+  thresholdStore?: ThresholdStoreConfigInput;
   /**
    * Optional logger. When unset, the server SDK is silent (no `console.*`).
    * Pass `logger: console` to enable default logging.
@@ -507,7 +544,7 @@ export type AuthServiceConfigInput = Omit<
   | 'networkId'
   | 'accountInitialBalance'
   | 'createAccountAndRegisterGas'
-  | 'thresholdEd25519KeyStore'
+  | 'thresholdStore'
   | 'googleOidc'
   | 'oidcExchange'
 > & {
@@ -515,7 +552,7 @@ export type AuthServiceConfigInput = Omit<
   networkId?: string;
   accountInitialBalance?: string;
   createAccountAndRegisterGas?: string;
-  thresholdEd25519KeyStore?: ThresholdEd25519KeyStoreConfigInput;
+  thresholdStore?: ThresholdStoreConfigInput;
   googleOidc?: GoogleOidcConfigInput;
   oidcExchange?: OidcExchangeConfigInput;
 };
@@ -636,7 +673,7 @@ export interface CreateAccountAndRegisterResult {
       expiresAt?: string;
       participantIds?: number[];
       remainingUses?: number;
-      runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
       jwt?: string;
     };
   };
@@ -742,10 +779,13 @@ export interface VerifyAuthenticationResponse {
 // Threshold Ed25519 (2-party) APIs
 // ================================
 
-export type ThresholdRuntimeSnapshotScope = {
-  orgId: string;
-  environmentId: string;
-  projectId?: string;
+export type ThresholdRuntimePolicyScope = RuntimePolicyScope;
+
+export type ThresholdEcdsaSigningRootMetadata = {
+  signingRootId: string;
+  signingRootVersion?: string;
+  walletKeyVersion: string;
+  derivationVersion: number;
 };
 
 export type ThresholdRuntimeSnapshotExpectation = {
@@ -762,7 +802,7 @@ export type Ed25519SessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
   ttlMs: number;
@@ -773,7 +813,9 @@ export interface ThresholdEd25519SessionRequest {
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
   runtimeEnvironmentId?: string;
-  webauthn_authentication: WebAuthnAuthenticationCredential;
+  webauthn_authentication?: WebAuthnAuthenticationCredential;
+  appSessionClaims?: Record<string, unknown>;
+  ecdsaSessionClaims?: Record<string, unknown>;
   // Optional: whether to return JWT in JSON or set an HttpOnly cookie
   sessionKind?: 'jwt' | 'cookie';
 }
@@ -789,7 +831,7 @@ export interface ThresholdEd25519SessionResponse {
   /** Signer-set binding (sorted unique participant ids) when available. */
   participantIds?: number[];
   remainingUses?: number;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   jwt?: string;
 }
 
@@ -914,6 +956,7 @@ export type EcdsaThresholdKeyId = string;
 
 export type ThresholdEcdsaHssOperation =
   | 'registration_bootstrap'
+  | 'email_otp_bootstrap'
   | 'session_bootstrap'
   | 'explicit_key_export';
 
@@ -924,6 +967,7 @@ export interface ThresholdEcdsaHssPrepareRequest {
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   keygenSessionId?: string;
   sessionPolicy?: ThresholdEcdsaBootstrapSessionPolicy;
+  runtimeEnvironmentId?: string;
   webauthn_authentication?: WebAuthnAuthenticationCredential;
   /**
    * Internal relay field: optional validated threshold-ed25519 session claims
@@ -935,6 +979,16 @@ export interface ThresholdEcdsaHssPrepareRequest {
    * bearer/cookie transport by the route layer.
    */
   appSessionClaims?: Record<string, unknown>;
+  /**
+   * Internal relay field: validated Email OTP enrollment metadata extracted by
+   * the route layer for Email OTP-authorized threshold ECDSA bootstrap.
+   */
+  emailOtpEnrollmentClaims?: {
+    walletId: string;
+    userId: string;
+    otpChannel: 'email_otp';
+    thresholdEcdsaClientVerifyingShareB64u: string;
+  };
   /**
    * Internal relay field: optional validated threshold-ecdsa session claims
    * extracted from bearer/cookie transport by the route layer.
@@ -993,6 +1047,7 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   expiresAtMs?: number;
   expiresAt?: string;
   remainingUses?: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   jwt?: string;
   canonicalPublicKeyHex?: string;
   privateKeyHex?: string;
@@ -1008,6 +1063,10 @@ export interface ThresholdEcdsaIntegratedKeyRecord {
   clientVerifyingShareB64u: string;
   thresholdEcdsaPublicKeyB64u: string;
   ethereumAddress: string;
+  signingRootId: string;
+  signingRootVersion?: string;
+  walletKeyVersion: string;
+  derivationVersion: number;
   participantIds: number[];
   relayerKeyId?: string;
   relayerVerifyingShareB64u?: string;
@@ -1023,7 +1082,7 @@ export type EcdsaSessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
   ttlMs: number;
@@ -1035,7 +1094,7 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
   userId: string;
   rpId: string;
   sessionId: string;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
   ttlMs: number;

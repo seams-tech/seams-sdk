@@ -8,8 +8,8 @@
 export const THRESHOLD_NODE_ROLE_COORDINATOR = 'coordinator' as const;
 export const THRESHOLD_NODE_ROLE_DEFAULT = THRESHOLD_NODE_ROLE_COORDINATOR;
 
-// Threshold Ed25519 store defaults (Cloudflare Workers + Durable Objects).
-export const THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT = 'threshold-ed25519-store' as const;
+// Threshold store defaults (Cloudflare Workers + Durable Objects).
+export const THRESHOLD_DO_OBJECT_NAME_DEFAULT = 'threshold-store' as const;
 
 // Default base prefix for threshold keyspaces when a host does not specify any prefix variables.
 // This matches the SDK's legacy prefix defaults (w3a:threshold-ed25519:*).

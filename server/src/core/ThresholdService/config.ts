@@ -119,44 +119,6 @@ export function parseThresholdCoordinatorSharedSecretBytes(input: unknown): Uint
   return decoded;
 }
 
-export function validateThresholdSecp256k1MasterSecretB64u(input: unknown): string | null {
-  const masterSecretB64u = toOptionalTrimmedString(input);
-  if (!masterSecretB64u) return null;
-
-  let decoded: Uint8Array;
-  try {
-    decoded = base64UrlDecode(masterSecretB64u);
-  } catch {
-    throw new Error('THRESHOLD_SECP256K1_MASTER_SECRET_B64U must be valid base64url');
-  }
-
-  if (decoded.length !== 32) {
-    throw new Error(
-      `THRESHOLD_SECP256K1_MASTER_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`,
-    );
-  }
-  return masterSecretB64u;
-}
-
-export function validateThresholdEd25519MasterSecretB64u(input: unknown): string | null {
-  const masterSecretB64u = toOptionalTrimmedString(input);
-  if (!masterSecretB64u) return null;
-
-  let decoded: Uint8Array;
-  try {
-    decoded = base64UrlDecode(masterSecretB64u);
-  } catch {
-    throw new Error('THRESHOLD_ED25519_MASTER_SECRET_B64U must be valid base64url');
-  }
-
-  if (decoded.length !== 32) {
-    throw new Error(
-      `THRESHOLD_ED25519_MASTER_SECRET_B64U must decode to 32 bytes, got ${decoded.length}`,
-    );
-  }
-  return masterSecretB64u;
-}
-
 export function parseThresholdEd25519ParticipantIds2p(input: {
   THRESHOLD_ED25519_CLIENT_PARTICIPANT_ID?: unknown;
   THRESHOLD_ED25519_RELAYER_PARTICIPANT_ID?: unknown;

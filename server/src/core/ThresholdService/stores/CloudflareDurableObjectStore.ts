@@ -1,8 +1,6 @@
 import type { NormalizedLogger } from '../../logger';
-import type {
-  CloudflareDurableObjectNamespaceLike,
-  ThresholdEd25519KeyStoreConfigInput,
-} from '../../types';
+import type { CloudflareDurableObjectNamespaceLike, ThresholdStoreConfigInput } from '../../types';
+import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from '../../defaultConfigsServer';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   parseThresholdEcdsaIntegratedKeyRecord,
@@ -128,8 +126,7 @@ function resolveDoNamespaceFromConfig(
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
-    .THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_DO_NAMESPACE?: unknown }).THRESHOLD_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
@@ -417,9 +414,7 @@ export class CloudflareDurableObjectThresholdEd25519KeyStore implements Threshol
   }
 }
 
-export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore
-  implements ThresholdEcdsaIntegratedKeyStore
-{
+export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore implements ThresholdEcdsaIntegratedKeyStore {
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
 
@@ -444,10 +439,7 @@ export class CloudflareDurableObjectThresholdEcdsaIntegratedKeyStore
     return parseThresholdEcdsaIntegratedKeyRecord(resp.value);
   }
 
-  async put(
-    ecdsaThresholdKeyId: string,
-    record: ThresholdEcdsaIntegratedKeyRecord,
-  ): Promise<void> {
+  async put(ecdsaThresholdKeyId: string, record: ThresholdEcdsaIntegratedKeyRecord): Promise<void> {
     const id = toOptionalTrimmedString(ecdsaThresholdKeyId);
     if (!id) throw new Error('Missing ecdsaThresholdKeyId');
     const resp = await callDo<void>(this.stub, { op: 'set', key: this.key(id), value: record });
@@ -711,7 +703,7 @@ export class CloudflareDurableObjectThresholdEcdsaPresignaturePool implements Th
 }
 
 export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
 }): {
   keyStore: ThresholdEd25519KeyStore;
@@ -732,7 +724,7 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
   const objectName =
     toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
     toOptionalTrimmedString((config as { name?: unknown }).name) ||
-    'threshold-ed25519-store';
+    THRESHOLD_DO_OBJECT_NAME_DEFAULT;
 
   const authPrefix = computeAuthPrefix(config);
   const sessionPrefix = computeSessionPrefix(config);
@@ -762,7 +754,7 @@ export function createCloudflareDurableObjectThresholdEd25519Stores(input: {
 }
 
 export function createCloudflareDurableObjectThresholdEcdsaStores(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
 }): {
   keyStore: ThresholdEcdsaIntegratedKeyStore;

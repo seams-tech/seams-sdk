@@ -1,5 +1,8 @@
 import type { NormalizedLogger } from '../../logger';
-import type { ThresholdEd25519KeyStoreConfigInput } from '../../types';
+import type {
+  ThresholdEcdsaSigningRootMetadata,
+  ThresholdStoreConfigInput,
+} from '../../types';
 import { RedisTcpClient, UpstashRedisRestClient, redisGetdelJson, redisSetJson } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/postgres';
@@ -28,7 +31,7 @@ export type ThresholdEcdsaSigningSessionRecord = {
   presignatureId: string;
   entropyB64u: string;
   bigRB64u?: string;
-};
+} & ThresholdEcdsaSigningRootMetadata;
 
 export type ThresholdEcdsaPresignatureRelayerShareRecord = {
   relayerKeyId: string;
@@ -56,7 +59,7 @@ export type ThresholdEcdsaPresignSessionRecord = {
   version: number;
   createdAtMs: number;
   updatedAtMs: number;
-};
+} & ThresholdEcdsaSigningRootMetadata;
 
 export interface ThresholdEcdsaSigningSessionStore {
   putSigningSession(
@@ -1400,7 +1403,7 @@ class PostgresThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
 }
 
 export function createThresholdEcdsaSigningStores(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): {

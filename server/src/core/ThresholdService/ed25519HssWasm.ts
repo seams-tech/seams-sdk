@@ -7,7 +7,6 @@ import wasmSignerServerDefault, {
   threshold_ed25519_hss_prepare_server_ceremony as threshold_ed25519_hss_prepare_server_ceremony_server,
   threshold_ed25519_hss_release_prepared_server_session as threshold_ed25519_hss_release_prepared_server_session_server,
   threshold_ed25519_hss_release_staged_evaluator_artifact as threshold_ed25519_hss_release_staged_evaluator_artifact_server,
-  threshold_ed25519_hss_server_inputs as threshold_ed25519_hss_server_inputs_server,
   threshold_ed25519_hss_verifying_share_from_signing_share as threshold_ed25519_hss_verifying_share_from_signing_share_server,
   threshold_ed25519_recovery_keypair_from_seed as threshold_ed25519_recovery_keypair_from_seed_server,
 } from '../../../../wasm/near_signer/pkg-server/wasm_signer_worker.js';
@@ -26,7 +25,6 @@ import type {
   ThresholdEd25519HssSessionOperation,
   ThresholdEd25519HssStoredPreparedServerSession,
   ThresholdEd25519HssStoredServerInputs,
-  ThresholdEd25519HssServerInputs,
   ThresholdEd25519HssStoredStagedEvaluatorArtifact,
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
 } from '../types';
@@ -55,7 +53,7 @@ const NATIVE_MANIFEST_PATH_CANDIDATES = [
 const threshold_ed25519_hss_prepare_server_session_server = (
   wasmSignerServerModule as Record<string, unknown>
 ).threshold_ed25519_hss_prepare_server_session as (args: {
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -114,7 +112,9 @@ let thresholdEd25519HssNativeDriverPathPromise: Promise<string | null> | null = 
 
 function isThresholdEd25519HssNativeDriverDisabled(): boolean {
   if (!isNodeEnvironment()) return true;
-  const raw = String(process.env.THRESHOLD_ED25519_HSS_DISABLE_NATIVE_DRIVER || '').trim().toLowerCase();
+  const raw = String(process.env.THRESHOLD_ED25519_HSS_DISABLE_NATIVE_DRIVER || '')
+    .trim()
+    .toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
 }
 
@@ -166,7 +166,10 @@ async function newestPathMtimeMs(path: string): Promise<number> {
   return newest;
 }
 
-async function nativeDriverNeedsRebuild(binaryPath: string, manifestPath: string): Promise<boolean> {
+async function nativeDriverNeedsRebuild(
+  binaryPath: string,
+  manifestPath: string,
+): Promise<boolean> {
   const [{ stat }, pathMod] = await Promise.all([import('node:fs/promises'), import('node:path')]);
   let binaryMtimeMs = 0;
   try {
@@ -202,7 +205,10 @@ async function nativeDriverNeedsRebuild(binaryPath: string, manifestPath: string
 }
 
 async function buildNativeDriverFromManifest(manifestPath: string): Promise<string | null> {
-  const [{ spawn }, pathMod] = await Promise.all([import('node:child_process'), import('node:path')]);
+  const [{ spawn }, pathMod] = await Promise.all([
+    import('node:child_process'),
+    import('node:path'),
+  ]);
   const binaryPath = pathMod.join(
     pathMod.dirname(manifestPath),
     'target',
@@ -313,7 +319,9 @@ async function prepareThresholdEd25519HssServerCeremonyNative(input: {
   const { spawn } = await import('node:child_process');
   const payload = JSON.stringify({
     preparedServerSession: {
-      evaluatorDriverStateB64u: base64UrlEncode(input.preparedServerSession.evaluatorDriverStateBytes),
+      evaluatorDriverStateB64u: base64UrlEncode(
+        input.preparedServerSession.evaluatorDriverStateBytes,
+      ),
       garblerDriverStateB64u: base64UrlEncode(input.preparedServerSession.garblerDriverStateBytes),
     },
     clientRequest: {
@@ -386,51 +394,6 @@ function requireThresholdEd25519HssWasmReady(): void {
   }
 }
 
-export async function deriveThresholdEd25519HssServerInputs(input: {
-  masterSecretB64u: string;
-  context: ThresholdEd25519HssCanonicalContext;
-}): Promise<ThresholdEd25519HssCanonicalContext & ThresholdEd25519HssServerInputs> {
-  await ensureThresholdEd25519HssWasm();
-  requireThresholdEd25519HssWasmReady();
-
-  const result = threshold_ed25519_hss_server_inputs_server({
-    masterSecretB64u: input.masterSecretB64u,
-    orgId: input.context.orgId,
-    nearAccountId: input.context.nearAccountId,
-    keyPurpose: input.context.keyPurpose,
-    keyVersion: input.context.keyVersion,
-    participantIds: input.context.participantIds,
-    derivationVersion: input.context.derivationVersion,
-  }) as {
-    orgId: string;
-    nearAccountId: string;
-    keyPurpose: string;
-    keyVersion: string;
-    participantIds: number[];
-    derivationVersion: number;
-    contextBindingB64u: string;
-    yRelayerB64u: string;
-    tauRelayerB64u: string;
-  };
-
-  const participantIdsValue = (result as { participantIds?: ArrayLike<number> | number[] })
-    .participantIds;
-
-  return {
-    orgId: String(result.orgId || '').trim(),
-    nearAccountId: String(result.nearAccountId || '').trim(),
-    keyPurpose: String(result.keyPurpose || '').trim(),
-    keyVersion: String(result.keyVersion || '').trim(),
-    participantIds:
-      Array.isArray(participantIdsValue) || ArrayBuffer.isView(participantIdsValue)
-        ? Array.from(participantIdsValue, (value) => Number(value))
-        : [],
-    derivationVersion: Number(result.derivationVersion),
-    yRelayerB64u: String(result.yRelayerB64u || '').trim(),
-    tauRelayerB64u: String(result.tauRelayerB64u || '').trim(),
-  };
-}
-
 export async function prepareThresholdEd25519HssServerSession(input: {
   context: ThresholdEd25519HssCanonicalContext;
 }): Promise<ThresholdEd25519HssPreparedServerSessionEnvelope> {
@@ -438,7 +401,7 @@ export async function prepareThresholdEd25519HssServerSession(input: {
   requireThresholdEd25519HssWasmReady();
 
   const result = threshold_ed25519_hss_prepare_server_session_server({
-    orgId: input.context.orgId,
+    signingRootId: input.context.signingRootId,
     nearAccountId: input.context.nearAccountId,
     keyPurpose: input.context.keyPurpose,
     keyVersion: input.context.keyVersion,
@@ -591,7 +554,8 @@ export async function finalizeThresholdEd25519HssReport(input: {
     stagedEvaluatorArtifactHandle: String(
       input.evaluationResult.stagedEvaluatorArtifactHandle || '',
     ).trim(),
-    stagedEvaluatorArtifactBytes: input.evaluationResult.stagedEvaluatorArtifactBytes ?? new Uint8Array(),
+    stagedEvaluatorArtifactBytes:
+      input.evaluationResult.stagedEvaluatorArtifactBytes ?? new Uint8Array(),
   }) as {
     contextBindingB64u: string;
     evaluationReportJson: string;
@@ -664,7 +628,9 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   serverOutput: ThresholdEd25519HssOpenedServerOutput;
 }> {
-  const expectedBinding = String(input.expectedContextBindingB64u || input.preparedSession.contextBindingB64u || '').trim();
+  const expectedBinding = String(
+    input.expectedContextBindingB64u || input.preparedSession.contextBindingB64u || '',
+  ).trim();
   if (!expectedBinding) {
     throw new Error('[threshold-ed25519-hss] evaluation result context binding mismatch');
   }
@@ -693,7 +659,7 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
     finalizedReport: {
       contextBindingB64u: finalizedReport.contextBindingB64u,
       clientOutputMessageB64u: finalizedReport.clientOutputMessageB64u,
-      ...((input.operation === 'explicit_key_export' || input.operation === 'registration')
+      ...(input.operation === 'explicit_key_export' || input.operation === 'registration'
         ? { seedOutputMessageB64u: finalizedReport.seedOutputMessageB64u }
         : {}),
     },

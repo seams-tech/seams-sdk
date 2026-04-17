@@ -1,5 +1,8 @@
 import type { NormalizedLogger } from '../../logger';
-import type { ThresholdEd25519KeyStoreConfigInput } from '../../types';
+import type {
+  ThresholdEcdsaSigningRootMetadata,
+  ThresholdStoreConfigInput,
+} from '../../types';
 import { RedisTcpClient, UpstashRedisRestClient, redisGetJson, redisSetJson } from '../kv';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../../../storage/postgres';
@@ -22,7 +25,7 @@ export type Ed25519AuthSessionRecord = {
   userId: string;
   rpId: string;
   participantIds: number[];
-};
+} & Partial<ThresholdEcdsaSigningRootMetadata>;
 
 export type ThresholdEd25519AuthConsumeUsesResult =
   | { ok: true; remainingUses: number }
@@ -330,7 +333,7 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
 }
 
 export function createEd25519AuthSessionStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): Ed25519AuthSessionStore {
@@ -462,7 +465,7 @@ export function createEd25519AuthSessionStore(input: {
 }
 
 export function createEcdsaAuthSessionStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): Ed25519AuthSessionStore {

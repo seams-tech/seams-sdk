@@ -1,5 +1,8 @@
 import type { NormalizedLogger } from '../../logger';
-import type { ThresholdEd25519KeyStoreConfigInput } from '../../types';
+import type {
+  ThresholdEcdsaSigningRootMetadata,
+  ThresholdStoreConfigInput,
+} from '../../types';
 import {
   RedisTcpClient,
   UpstashRedisRestClient,
@@ -39,7 +42,7 @@ export type ThresholdEd25519MpcSessionRecord = {
   rpId: string;
   clientVerifyingShareB64u?: string;
   participantIds: number[];
-};
+} & Partial<ThresholdEcdsaSigningRootMetadata>;
 
 export type ThresholdEd25519SigningSessionRecord = {
   expiresAtMs: number;
@@ -438,7 +441,7 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
 }
 
 export function createThresholdEd25519SessionStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): ThresholdEd25519SessionStore {
@@ -582,7 +585,7 @@ export function createThresholdEd25519SessionStore(input: {
 }
 
 export function createThresholdEcdsaSessionStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): ThresholdEd25519SessionStore {
