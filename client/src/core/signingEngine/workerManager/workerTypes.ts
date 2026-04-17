@@ -6,6 +6,7 @@ import {
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
+import type { ThresholdRuntimePolicyScope } from '../threshold/session/sessionPolicy';
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -168,6 +169,7 @@ export interface EmailOtpWorkerOperationMap {
     };
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
+      thresholdEd25519PrfFirstB64u: string;
       challengeId: string;
       otpChannel: 'email_otp';
       emailOtpKeyVersion: string;
@@ -205,9 +207,10 @@ export interface EmailOtpWorkerOperationMap {
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
       sessionId?: string;
-      authorizationJwt: string;
+      authorizationJwt?: string;
       ttlMs?: number;
       remainingUses?: number;
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
     };
     result: {
       recovery: {
@@ -218,6 +221,41 @@ export interface EmailOtpWorkerOperationMap {
         unlockChallengeB64u: string;
         unlockPublicKeyB64u: string;
         unlockSignatureB64u: string;
+        thresholdEd25519PrfFirstB64u: string;
+      };
+      bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    };
+  };
+  enrollEmailOtpWalletAndBootstrapEcdsaSession: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId?: string;
+      challengeId?: string;
+      otpCode: string;
+      shamirPrimeB64u: string;
+      appSessionJwt?: string;
+      otpChannel?: 'email_otp';
+      clientSecret32?: ArrayBuffer;
+      rpId: string;
+      ecdsaThresholdKeyId?: string;
+      participantIds?: number[];
+      sessionKind?: 'jwt' | 'cookie';
+      sessionId?: string;
+      authorizationJwt?: string;
+      ttlMs?: number;
+      remainingUses?: number;
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    };
+    result: {
+      enrollment: {
+        thresholdEcdsaClientVerifyingShareB64u: string;
+        thresholdEd25519PrfFirstB64u: string;
+        challengeId: string;
+        otpChannel: 'email_otp';
+        emailOtpKeyVersion: string;
+        unlockPublicKeyB64u: string;
+        unlockKeyVersion: string;
       };
       bootstrap: ThresholdEcdsaSessionBootstrapResult;
     };
@@ -237,6 +275,14 @@ export interface EmailOtpWorkerOperationMap {
     };
     result:
       | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
+      | { ok: false; code: string; message: string };
+  };
+  claimEmailOtpEcdsaSigningShare: {
+    payload: {
+      sessionId: string;
+    };
+    result:
+      | { ok: true; clientSigningShare32: ArrayBuffer; remainingUses: number; expiresAtMs: number }
       | { ok: false; code: string; message: string };
   };
   clearEmailOtpWarmSessionMaterial: {

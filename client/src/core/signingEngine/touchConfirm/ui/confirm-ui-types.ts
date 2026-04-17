@@ -1,5 +1,9 @@
 import type { UserConfirmSecurityContext } from '@/core/types';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
+import type {
+  EmailOtpConfirmPrompt,
+  SigningAuthMode,
+} from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 
 export interface ConfirmUIElement {
   /** When true, host controls element removal (two-phase close). */
@@ -27,6 +31,8 @@ export type ConfirmUIUpdate = {
   errorMessage?: string;
   title?: string;
   body?: string;
+  signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
 };
 
 export interface ConfirmUIHandle {

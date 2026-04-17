@@ -1,10 +1,43 @@
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import type { WorkerOperationContext } from '../signingEngine/workerManager/executeWorkerOperation';
+import {
+  normalizeThresholdRuntimePolicyScope,
+  type ThresholdRuntimePolicyScope,
+} from '../signingEngine/threshold/session/sessionPolicy';
 
 type FetchLike = typeof fetch;
 type EmailOtpChannel = 'email_otp';
 
 type JsonObject = Record<string, unknown>;
+
+export class EmailOtpRouteError extends Error {
+  readonly code?: string;
+  readonly status: number;
+  readonly retryAfterMs?: number;
+  readonly resetAtMs?: number;
+
+  constructor(input: {
+    message: string;
+    status: number;
+    code?: unknown;
+    retryAfterMs?: unknown;
+    resetAtMs?: unknown;
+  }) {
+    super(input.message);
+    this.name = 'EmailOtpRouteError';
+    const code = readOptionalString(input.code);
+    if (code) this.code = code;
+    this.status = input.status;
+    const retryAfterMs = Number(input.retryAfterMs);
+    if (Number.isFinite(retryAfterMs) && retryAfterMs >= 0) {
+      this.retryAfterMs = Math.floor(retryAfterMs);
+    }
+    const resetAtMs = Number(input.resetAtMs);
+    if (Number.isFinite(resetAtMs) && resetAtMs >= 0) {
+      this.resetAtMs = Math.floor(resetAtMs);
+    }
+  }
+}
 
 export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
@@ -13,6 +46,17 @@ export type EmailOtpEnrollmentResult = {
   emailOtpKeyVersion: string;
   unlockPublicKeyB64u: string;
   unlockKeyVersion: string;
+};
+
+export type GoogleEmailOtpSessionExchangeResult = {
+  jwt?: string;
+  session: {
+    userId: string;
+    walletId: string;
+    email?: string;
+    name?: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  };
 };
 
 function requireFetchImpl(fetchImpl?: FetchLike): FetchLike {
@@ -63,9 +107,9 @@ function cloneFixed32Bytes(value: Uint8Array, label: string): Uint8Array {
   return Uint8Array.from(value);
 }
 
-function buildSessionHeaders(appSessionJwt?: string): HeadersInit {
+function buildAuthHeaders(args: { appSessionJwt?: string; publishableKey?: string }): HeadersInit {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = String(appSessionJwt || '').trim();
+  const token = String(args.appSessionJwt || args.publishableKey || '').trim();
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
@@ -74,12 +118,16 @@ async function postJson(args: {
   url: string;
   body: JsonObject;
   appSessionJwt?: string;
+  publishableKey?: string;
   fetchImpl?: FetchLike;
 }): Promise<JsonObject> {
   const fetchImpl = requireFetchImpl(args.fetchImpl);
   const response = await fetchImpl(args.url, {
     method: 'POST',
-    headers: buildSessionHeaders(args.appSessionJwt),
+    headers: buildAuthHeaders({
+      appSessionJwt: args.appSessionJwt,
+      publishableKey: args.publishableKey,
+    }),
     credentials: 'include',
     body: JSON.stringify(args.body),
   });
@@ -95,7 +143,13 @@ async function postJson(args: {
     const message =
       (typeof objectJson.message === 'string' && objectJson.message.trim()) ||
       `${args.url} failed (HTTP ${response.status})`;
-    throw new Error(message);
+    throw new EmailOtpRouteError({
+      message,
+      status: response.status,
+      code: objectJson.code,
+      retryAfterMs: objectJson.retryAfterMs,
+      resetAtMs: objectJson.resetAtMs,
+    });
   }
   return objectJson;
 }
@@ -239,6 +293,52 @@ export async function verifyEmailOtpCode(args: {
       response.emailOtpEscrowBlob,
       'wallet/email-otp/verify emailOtpEscrowBlob',
     ),
+  };
+}
+
+export async function exchangeGoogleEmailOtpSession(args: {
+  relayUrl: string;
+  idToken: string;
+  accountMode: 'register' | 'login';
+  sessionKind?: 'jwt' | 'cookie';
+  runtimeEnvironmentId?: string;
+  publishableKey?: string;
+  fetchImpl?: FetchLike;
+}): Promise<GoogleEmailOtpSessionExchangeResult> {
+  const sessionKind = args.sessionKind === 'jwt' ? 'jwt' : 'cookie';
+  const accountMode = args.accountMode === 'register' ? 'register' : 'login';
+  const runtimeEnvironmentId = String(args.runtimeEnvironmentId || '').trim();
+  const response = await postJson({
+    url: joinNormalizedUrl(args.relayUrl, '/session/exchange'),
+    fetchImpl: args.fetchImpl,
+    publishableKey: args.publishableKey,
+    body: {
+      session_kind: sessionKind,
+      ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
+      exchange: {
+        type: 'oidc_jwt',
+        provider: 'google',
+        account_mode: accountMode,
+        token: readString(args.idToken, 'idToken'),
+      },
+    },
+  });
+  const session = requireObjectJson(response.session, 'session/exchange session');
+  const userId = readString(session.userId, 'session/exchange session.userId');
+  const walletId = readOptionalString(session.walletId) || userId;
+  const jwt = readOptionalString(response.jwt);
+  const email = readOptionalString(session.email);
+  const name = readOptionalString(session.name);
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
+  return {
+    ...(jwt ? { jwt } : {}),
+    session: {
+      userId,
+      walletId,
+      ...(email ? { email } : {}),
+      ...(name ? { name } : {}),
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    },
   };
 }
 

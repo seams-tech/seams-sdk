@@ -20,7 +20,7 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '../orchestration/thresholdActivation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
-import type { ThresholdRuntimeSnapshotScope } from '../threshold/session/sessionPolicy';
+import type { ThresholdRuntimePolicyScope } from '../threshold/session/sessionPolicy';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
@@ -129,7 +129,7 @@ export type WarmSessionManagerDeps = {
 export type ProvisionWarmEd25519CapabilityArgs = {
   nearAccountId: AccountId | string;
   relayerKeyId: string;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
@@ -160,6 +160,11 @@ export type EnsureWarmEcdsaCapabilityReadyArgs = {
   nearAccountId: AccountId | string;
   chain: ThresholdEcdsaActivationChain;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimeScopeBootstrap?: {
+    environmentId: string;
+    publishableKey: string;
+  };
   usesNeeded?: number;
   beforeReconnect?: () => void | Promise<void>;
   assertNotCancelled?: () => void;
@@ -182,6 +187,11 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   authorizationJwt?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimeScopeBootstrap?: {
+    environmentId: string;
+    publishableKey: string;
+  };
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
 };
@@ -196,6 +206,11 @@ export type WarmEcdsaBootstrapRequest = {
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   authorizationJwt?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimeScopeBootstrap?: {
+    environmentId: string;
+    publishableKey: string;
+  };
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
 };
@@ -696,6 +711,15 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       const explicitThresholdKeyId = toOptionalNonEmptyString(args.ecdsaThresholdKeyId);
       const explicitClientRootShare32 = cloneOptionalFixed32Bytes(args.clientRootShare32);
       const explicitClientRootShare32B64u = toOptionalNonEmptyString(args.clientRootShare32B64u);
+      const explicitRuntimeScopeBootstrap =
+        args.runtimeScopeBootstrap &&
+        String(args.runtimeScopeBootstrap.environmentId || '').trim() &&
+        String(args.runtimeScopeBootstrap.publishableKey || '').trim()
+          ? {
+              environmentId: String(args.runtimeScopeBootstrap.environmentId || '').trim(),
+              publishableKey: String(args.runtimeScopeBootstrap.publishableKey || '').trim(),
+            }
+          : null;
       const preferredMetadataCapability = primaryCapability.record
         ? primaryCapability
         : secondaryCapability.record
@@ -757,6 +781,10 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
                 ).trim(),
               }
             : {}),
+        ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+        ...(explicitRuntimeScopeBootstrap
+          ? { runtimeScopeBootstrap: explicitRuntimeScopeBootstrap }
+          : {}),
         ...(explicitClientRootShare32 ? { clientRootShare32: explicitClientRootShare32 } : {}),
         ...(explicitClientRootShare32B64u
           ? { clientRootShare32B64u: explicitClientRootShare32B64u }
@@ -800,6 +828,8 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         sessionKind: args.sessionKind,
         sessionId: args.sessionId,
         authorizationJwt: args.authorizationJwt,
+        runtimePolicyScope: args.runtimePolicyScope,
+        runtimeScopeBootstrap: args.runtimeScopeBootstrap,
         clientRootShare32: args.clientRootShare32,
         clientRootShare32B64u: args.clientRootShare32B64u,
       });
@@ -1024,6 +1054,10 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
             nearAccountId,
             chain: args.chain,
             source: inheritedEmailOtpRecord ? 'email_otp' : 'manual-bootstrap',
+            ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+            ...(args.runtimeScopeBootstrap
+              ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap }
+              : {}),
             ...(inheritedEmailOtpRecord?.emailOtpAuthContext
               ? { emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext }
               : {}),

@@ -1,5 +1,7 @@
 import type {
+  EmailOtpConfirmPrompt,
   RegisterAccountPayload,
+  SigningAuthMode,
   UserConfirmRequest,
   SignIntentDigestPayload,
   SignNep413Payload,
@@ -111,6 +113,32 @@ export function getDisplayModel(request: UserConfirmRequest): TxDisplayModel | u
   }
   if (request.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
     return (request.payload as SignIntentDigestPayload).displayModel;
+  }
+  return undefined;
+}
+
+export function getSigningAuthMode(request: UserConfirmRequest): SigningAuthMode | undefined {
+  if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
+    return getSignTransactionPayload(request).signingAuthMode;
+  }
+  if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
+    return (request.payload as SignNep413Payload).signingAuthMode;
+  }
+  if (request.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
+    return (request.payload as SignIntentDigestPayload).signingAuthMode;
+  }
+  return undefined;
+}
+
+export function getEmailOtpPrompt(request: UserConfirmRequest): EmailOtpConfirmPrompt | undefined {
+  if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
+    return getSignTransactionPayload(request).emailOtpPrompt;
+  }
+  if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
+    return (request.payload as SignNep413Payload).emailOtpPrompt;
+  }
+  if (request.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
+    return (request.payload as SignIntentDigestPayload).emailOtpPrompt;
   }
   return undefined;
 }

@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
 import { toAccountId } from '@/core/types/accountIds';
 import type { LoginState, TatchiContextType } from '../types';
-import { isNearThresholdEd25519SessionReadyForUi } from './walletSessionReadiness';
+import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function useLoginStateRefresher(args: {
   tatchi: TatchiPasskey;
@@ -19,7 +19,7 @@ export function useLoginStateRefresher(args: {
           try {
             const session = await tatchi.auth.getWalletSession();
             const { login: st } = session;
-            if (isNearThresholdEd25519SessionReadyForUi({ session })) {
+            if (isWalletSessionReadyForUi({ session })) {
               setLoginState((prevState) => ({
                 ...prevState,
                 nearAccountId: st.nearAccountId,
@@ -35,7 +35,7 @@ export function useLoginStateRefresher(args: {
 
         const session = await tatchi.auth.getWalletSession(nearAccountId);
         const { login: ls } = session;
-        if (isNearThresholdEd25519SessionReadyForUi({ session })) {
+        if (isWalletSessionReadyForUi({ session })) {
           if (ls.nearAccountId) {
             try {
               tatchi.preferences.setCurrentUser(toAccountId(ls.nearAccountId));

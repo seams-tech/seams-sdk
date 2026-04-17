@@ -7,6 +7,7 @@ import {
   UserConfirmationType,
   type UserConfirmRequest,
   type SigningAuthMode,
+  type EmailOtpConfirmPrompt,
   type TransactionSummary,
   type SerializableCredential,
   type UserConfirmProgressEvent,
@@ -47,6 +48,7 @@ export interface OrchestrateSigningConfirmationBaseParams {
    * and PRF.first is cached in the UserConfirm worker; otherwise it uses `webauthn`.
    */
   signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
   /**
    * Optional base64url-encoded 32-byte digest to bind a relayer session policy into the WebAuthn challenge.
    * When provided, it is forwarded to UserConfirm for challenge construction and intent binding.
@@ -113,12 +115,16 @@ export interface SigningConfirmationResultWithTxContext {
   transactionContext: TransactionContext;
   intentDigest: string;
   credential?: SerializableCredential;
+  otpCode?: string;
+  emailOtpChallengeId?: string;
 }
 
 export interface SigningConfirmationResultIntentDigest {
   sessionId: string;
   intentDigest: string;
   credential?: SerializableCredential;
+  otpCode?: string;
+  emailOtpChallengeId?: string;
 }
 
 function normalizeIntentDigestForUi(value: unknown): string {
@@ -268,6 +274,7 @@ export async function orchestrateSigningConfirmation(
               ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
               : {}),
             ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+            ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
           },
           confirmationConfig: params.confirmationConfigOverride,
           intentDigest: PENDING_INTENT_DIGEST,
@@ -303,6 +310,7 @@ export async function orchestrateSigningConfirmation(
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
           ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+          ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
         intentDigest,
@@ -360,6 +368,7 @@ export async function orchestrateSigningConfirmation(
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
           ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+          ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
         intentDigest,
@@ -389,6 +398,7 @@ export async function orchestrateSigningConfirmation(
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
           ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+          ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
         intentDigest,
@@ -424,6 +434,7 @@ export async function orchestrateSigningConfirmation(
           challengeB64u,
           displayModel,
           ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+          ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
         ...(uiIntentDigest ? { intentDigest: uiIntentDigest } : {}),
@@ -448,6 +459,8 @@ export async function orchestrateSigningConfirmation(
       sessionId,
       intentDigest: decision.intentDigest || intentDigest,
       credential: decision.credential,
+      otpCode: decision.otpCode,
+      emailOtpChallengeId: decision.emailOtpChallengeId,
     };
   }
 
@@ -460,6 +473,8 @@ export async function orchestrateSigningConfirmation(
     transactionContext: decision.transactionContext,
     intentDigest: decision.intentDigest || intentDigest,
     credential: decision.credential,
+    otpCode: decision.otpCode,
+    emailOtpChallengeId: decision.emailOtpChallengeId,
   };
 }
 

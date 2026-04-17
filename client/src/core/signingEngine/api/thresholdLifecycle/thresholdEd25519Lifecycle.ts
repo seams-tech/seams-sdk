@@ -41,7 +41,7 @@ export type DeriveThresholdEd25519ClientVerifyingShareResult = {
 
 export type DeriveThresholdEd25519HssClientInputsResult = {
   success: boolean;
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -55,7 +55,7 @@ export type DeriveThresholdEd25519HssClientInputsResult = {
 
 export type PrepareThresholdEd25519HssClientCeremonyResult = {
   success: boolean;
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -136,7 +136,7 @@ function jsonBytes(value: unknown): number {
 function summarizePrepareRequestSize(args: {
   relayerKeyId: string;
   context: {
-    orgId: string;
+    signingRootId: string;
     nearAccountId: string;
     keyPurpose: string;
     keyVersion: string;
@@ -210,7 +210,7 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
   deps: ThresholdEd25519LifecycleDeps,
   args: {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-    orgId: string;
+    signingRootId: string;
     nearAccountId: AccountId | string;
     keyPurpose: string;
     keyVersion: string;
@@ -218,7 +218,7 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
     derivationVersion: number;
   },
 ): Promise<DeriveThresholdEd25519HssClientInputsResult> {
-  const orgId = String(args.orgId || '').trim();
+  const signingRootId = String(args.signingRootId || '').trim();
   const nearAccountId = toAccountId(args.nearAccountId);
   const keyPurpose = String(args.keyPurpose || '').trim();
   const keyVersion = String(args.keyVersion || '').trim();
@@ -232,7 +232,7 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
     const sessionId = deps.createSessionId('threshold-ed25519-hss-client-inputs');
     return await deps.signingKeyOps.deriveThresholdEd25519HssClientInputs({
       sessionId,
-      orgId,
+      signingRootId,
       nearAccountId,
       keyPurpose,
       keyVersion,
@@ -244,7 +244,7 @@ export async function deriveThresholdEd25519HssClientInputsFromCredential(
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
       success: false,
-      orgId,
+      signingRootId,
       nearAccountId,
       keyPurpose,
       keyVersion,
@@ -262,7 +262,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   deps: ThresholdEd25519LifecycleDeps,
   args: {
     credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-    orgId: string;
+    signingRootId: string;
     nearAccountId: AccountId | string;
     keyPurpose: string;
     keyVersion: string;
@@ -276,7 +276,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   if (!derived.success) {
     return {
       success: false,
-      orgId: derived.orgId,
+      signingRootId: derived.signingRootId,
       nearAccountId: derived.nearAccountId,
       keyPurpose: derived.keyPurpose,
       keyVersion: derived.keyVersion,
@@ -292,7 +292,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
   try {
     return {
       success: true,
-      orgId: derived.orgId,
+      signingRootId: derived.signingRootId,
       nearAccountId: derived.nearAccountId,
       keyPurpose: derived.keyPurpose,
       keyVersion: derived.keyVersion,
@@ -306,7 +306,7 @@ export async function prepareThresholdEd25519HssClientCeremonyFromCredential(
     const message = String((error as { message?: unknown })?.message ?? error);
     return {
       success: false,
-      orgId: derived.orgId,
+      signingRootId: derived.signingRootId,
       nearAccountId: derived.nearAccountId,
       keyPurpose: derived.keyPurpose,
       keyVersion: derived.keyVersion,

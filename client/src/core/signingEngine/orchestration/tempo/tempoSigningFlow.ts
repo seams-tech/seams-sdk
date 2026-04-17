@@ -63,6 +63,11 @@ export async function signTempoWithTouchConfirm(args: {
     reservation: ManagedNonceReservation;
   }>;
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void;
+  emailOtpSigning?: {
+    challengeId: string;
+    emailHint?: string;
+    complete: (otpCode: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  };
 }): Promise<TempoSignedResult> {
   const emitProgress = (event: {
     step: number;
@@ -91,11 +96,13 @@ export async function signTempoWithTouchConfirm(args: {
   } catch {}
   const needsWebAuthn = args.request.senderSignatureAlgorithm === 'webauthnP256';
   let thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
-  const signingAuthModePromise = resolveSigningAuthMode({
-    needsWebAuthn,
-    thresholdEcdsaKeyRef,
-    touchConfirm: args.touchConfirm,
-  });
+  const signingAuthModePromise = args.emailOtpSigning
+    ? Promise.resolve<'emailOtp'>('emailOtp')
+    : resolveSigningAuthMode({
+        needsWebAuthn,
+        thresholdEcdsaKeyRef,
+        touchConfirm: args.touchConfirm,
+      });
   let preparedRequest = args.request;
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
@@ -172,6 +179,18 @@ export async function signTempoWithTouchConfirm(args: {
       title,
       body,
       signingAuthMode,
+      ...(args.emailOtpSigning
+        ? {
+            emailOtpPrompt: {
+              challengeId: args.emailOtpSigning.challengeId,
+              ...(args.emailOtpSigning.emailHint
+                ? { emailHint: args.emailOtpSigning.emailHint }
+                : {}),
+              title: 'Confirm with Email OTP',
+              helperText: 'Enter the 6-digit code sent to your email to authorize this transaction.',
+            },
+          }
+        : {}),
       onProgress: args.onEvent,
       confirmationConfigOverride: args.confirmationConfigOverride,
     });
@@ -208,6 +227,15 @@ export async function signTempoWithTouchConfirm(args: {
       }
       throw new Error('[chains] missing threshold ECDSA keyRef for secp256k1 signing');
     };
+    if (args.emailOtpSigning) {
+      const otpCode = String(confirmation.otpCode || '').trim();
+      if (!/^\d{6}$/.test(otpCode)) {
+        throw new Error('[chains] missing Email OTP code from touchConfirm');
+      }
+      const refreshed = await args.emailOtpSigning.complete(otpCode);
+      thresholdEcdsaKeyRef = refreshed;
+      ensuredThresholdKeyRef = refreshed;
+    }
     const hasSecp256k1Request = intent.signRequests.some(
       (signReq) => signReq.algorithm === 'secp256k1',
     );

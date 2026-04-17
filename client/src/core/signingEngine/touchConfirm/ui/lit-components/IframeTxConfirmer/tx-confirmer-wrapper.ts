@@ -9,6 +9,10 @@ import { DrawerTxConfirmerElement } from './viewer-drawer';
 import { ModalTxConfirmElement } from './viewer-modal';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 import type { TransactionInputWasm } from '@/core/types';
+import type {
+  EmailOtpConfirmPrompt,
+  SigningAuthMode,
+} from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 
 const DEFAULT_VARIANT: Variant = 'modal';
 
@@ -26,6 +30,8 @@ export type TxConfirmerVariantElement = (ConfirmUIElement & HTMLElement) & {
   title?: string;
   confirmText?: string;
   cancelText?: string;
+  signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
   deferClose?: boolean;
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
@@ -54,6 +60,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     title: { type: String },
     confirmText: { type: String, attribute: 'confirm-text' },
     cancelText: { type: String, attribute: 'cancel-text' },
+    signingAuthMode: { type: String, attribute: 'signing-auth-mode' },
+    emailOtpPrompt: { attribute: false },
     deferClose: { type: Boolean, attribute: 'defer-close' },
     nearExplorerUrl: { type: String, attribute: 'near-explorer-url' },
     tempoExplorerUrl: { type: String, attribute: 'tempo-explorer-url' },
@@ -75,6 +83,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
   declare title: string;
   declare confirmText: string;
   declare cancelText: string;
+  declare signingAuthMode?: SigningAuthMode;
+  declare emailOtpPrompt?: EmailOtpConfirmPrompt;
   declare deferClose: boolean;
   declare nearExplorerUrl?: string;
   declare tempoExplorerUrl?: string;
@@ -139,6 +149,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
           .title=${this.title}
           .confirmText=${this.confirmText}
           .cancelText=${this.cancelText}
+          .signingAuthMode=${this.signingAuthMode}
+          .emailOtpPrompt=${this.emailOtpPrompt}
           .deferClose=${this.deferClose}
         ></w3a-drawer-tx-confirmer>
       `;
@@ -161,6 +173,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
         .title=${this.title}
         .confirmText=${this.confirmText}
         .cancelText=${this.cancelText}
+        .signingAuthMode=${this.signingAuthMode}
+        .emailOtpPrompt=${this.emailOtpPrompt}
         .deferClose=${this.deferClose}
       ></w3a-modal-tx-confirmer>
     `;
@@ -180,6 +194,8 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
     child.title = this.title;
     child.confirmText = this.confirmText;
     child.cancelText = this.cancelText;
+    child.signingAuthMode = this.signingAuthMode;
+    child.emailOtpPrompt = this.emailOtpPrompt;
     child.deferClose = this.deferClose;
     child.nearExplorerUrl = this.nearExplorerUrl;
     child.tempoExplorerUrl = this.tempoExplorerUrl;
@@ -264,8 +280,16 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
   private handleChildConfirm(event: Event): void {
     if (this.redispatchingEvent) return;
     const child = this.childRef.value;
-    const detail = (event as CustomEvent<{ confirmed?: boolean; error?: string }> | undefined)
-      ?.detail;
+    const detail = (
+      event as
+        | CustomEvent<{
+            confirmed?: boolean;
+            error?: string;
+            otpCode?: string;
+            emailOtpChallengeId?: string;
+          }>
+        | undefined
+    )?.detail;
     const confirmed = detail?.confirmed !== false;
     const error: string | undefined = typeof detail?.error === 'string' ? detail.error : undefined;
 
@@ -280,7 +304,13 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
         }
         this.dispatchEvent(
           new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
-            detail: { confirmed: true },
+            detail: {
+              confirmed: true,
+              ...(typeof detail?.otpCode === 'string' ? { otpCode: detail.otpCode } : {}),
+              ...(typeof detail?.emailOtpChallengeId === 'string'
+                ? { emailOtpChallengeId: detail.emailOtpChallengeId }
+                : {}),
+            },
             bubbles: true,
             composed: true,
           }),
@@ -292,12 +322,12 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
       this.syncChildProps();
       child?.close?.(false);
 
-      const detail: { confirmed: false; error?: string } = { confirmed: false };
-      if (typeof error === 'string') detail.error = error;
+      const cancelDetail: { confirmed: false; error?: string } = { confirmed: false };
+      if (typeof error === 'string') cancelDetail.error = error;
 
       this.dispatchEvent(
         new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, {
-          detail,
+          detail: cancelDetail,
           bubbles: true,
           composed: true,
         }),

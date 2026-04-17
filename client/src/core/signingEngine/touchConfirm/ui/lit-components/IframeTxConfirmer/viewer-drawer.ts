@@ -11,6 +11,10 @@ import type { TransactionInputWasm } from '@/core/types';
 import type { ThemeName } from '../../confirm-ui-types';
 import type { ConfirmUIElement } from '../../confirm-ui-types';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
+import type {
+  EmailOtpConfirmPrompt,
+  SigningAuthMode,
+} from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 
 /**
  * DrawerTxConfirmer: Drawer variant of the transaction confirmer
@@ -37,6 +41,10 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     nearExplorerUrl: { type: String, attribute: 'near-explorer-url' },
     tempoExplorerUrl: { type: String, attribute: 'tempo-explorer-url' },
     evmExplorerUrl: { type: String, attribute: 'evm-explorer-url' },
+    signingAuthMode: { type: String, attribute: 'signing-auth-mode' },
+    emailOtpPrompt: { attribute: false },
+    otpCode: { type: String, attribute: false },
+    otpError: { type: String, attribute: false },
   } as const;
 
   declare nearAccountId: string;
@@ -57,6 +65,10 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   declare tempoExplorerUrl?: string;
   declare evmExplorerUrl?: string;
   declare intentDigest?: string;
+  declare signingAuthMode?: SigningAuthMode;
+  declare emailOtpPrompt?: EmailOtpConfirmPrompt;
+  otpCode = '';
+  otpError = '';
 
   // Keep essential custom elements from being tree-shaken
   private _ensureDrawerDefinition = DrawerElement;
@@ -130,6 +142,42 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     if (chainId) return false;
     const blockHeight = String(this.securityContext?.blockHeight || '').trim();
     return this.loading && !blockHeight;
+  }
+
+  private _isEmailOtpMode(): boolean {
+    return this.signingAuthMode === 'emailOtp';
+  }
+
+  private _onOtpInput = (event: Event): void => {
+    const input = event.currentTarget as HTMLInputElement | null;
+    this.otpCode = String(input?.value || '').replace(/\D/g, '').slice(0, 6);
+    this.otpError = '';
+  };
+
+  private _renderEmailOtpPrompt() {
+    if (!this._isEmailOtpMode()) return '';
+    const helper =
+      String(this.emailOtpPrompt?.helperText || '').trim() ||
+      'Enter the 6-digit code sent to your email to authorize this transaction.';
+    return html`
+      <div class="email-otp-confirm">
+        <label class="email-otp-confirm__label" for="drawer-email-otp-confirm-code">Email code</label>
+        <input
+          id="drawer-email-otp-confirm-code"
+          class="email-otp-confirm__input"
+          inputmode="numeric"
+          autocomplete="one-time-code"
+          pattern="[0-9]*"
+          maxlength="6"
+          .value=${this.otpCode}
+          ?disabled=${this.loading}
+          @input=${this._onOtpInput}
+          aria-label="6-digit Email OTP code"
+        />
+        <div class="email-otp-confirm__helper">${helper}</div>
+        ${this.otpError ? html`<div class="email-otp-confirm__error">${this.otpError}</div>` : ''}
+      </div>
+    `;
   }
 
   constructor() {
@@ -246,6 +294,17 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
 
   private onContentConfirm = () => {
     if (this.loading) return;
+    if (this._isEmailOtpMode()) {
+      const code = String(this.otpCode || '').replace(/\D/g, '').slice(0, 6);
+      if (!/^\d{6}$/.test(code)) {
+        this.otpCode = code;
+        this.otpError = 'Enter the 6-digit Email OTP code.';
+        this.requestUpdate();
+        return;
+      }
+      this.otpCode = code;
+      this.otpError = '';
+    }
     this.loading = true;
     this.requestUpdate();
     // Bridge semantic event to canonical event
@@ -253,7 +312,13 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
       new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, {
         bubbles: true,
         composed: true,
-        detail: { confirmed: true },
+        detail: {
+          confirmed: true,
+          ...(this._isEmailOtpMode() ? { otpCode: this.otpCode } : {}),
+          ...(this._isEmailOtpMode() && this.emailOtpPrompt?.challengeId
+            ? { emailOtpChallengeId: this.emailOtpPrompt.challengeId }
+            : {}),
+        },
       }),
     );
   };
@@ -302,9 +367,16 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                   ? this.model.operations.length
                   : 0;
                 const isRegistration = operationCount === 0;
-                const fallback = isRegistration ? 'Register with Passkey' : 'Confirm with Passkey';
+                const fallback = this._isEmailOtpMode()
+                  ? 'Confirm with Email OTP'
+                  : isRegistration
+                    ? 'Register with Passkey'
+                    : 'Confirm with Passkey';
                 const titleText = (this.title || '').trim();
-                const heading = titleText || fallback;
+                const promptTitle = String(this.emailOtpPrompt?.title || '').trim();
+                const heading = this._isEmailOtpMode()
+                  ? promptTitle || fallback
+                  : titleText || fallback;
                 return html`<h2 class="drawer-title">${heading}</h2>`;
               })()}
             </div>
@@ -356,6 +428,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
             ${this.body && this.body.trim()
               ? html`<div class="confirmation-body">${this.body}</div>`
               : ''}
+            ${this._renderEmailOtpPrompt()}
           </div>
           <div class="section responsive-card responsive-card-center">
             <w3a-tx-confirm-content
@@ -372,7 +445,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               .loading=${this.loading}
               .errorMessage=${this.errorMessage || ''}
               .title=${this.title}
-              .confirmText=${this.confirmText}
+              .confirmText=${this._isEmailOtpMode() ? 'Verify code' : this.confirmText}
               .cancelText=${this.cancelText}
               @lit-confirm=${this.onContentConfirm}
               @lit-cancel=${this.onContentCancel}

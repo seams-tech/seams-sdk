@@ -24,7 +24,7 @@ import type {
   ThresholdEd25519HssFinalizeForRegistrationResponse,
 } from '@server/core/types';
 import type { Ed25519SessionPolicy } from '../../signingEngine/threshold/session/sessionPolicy';
-import type { ThresholdRuntimeSnapshotScope } from '../../signingEngine/threshold/session/sessionPolicy';
+import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { RegistrationErrorCode } from '../../types/tatchi';
@@ -284,7 +284,7 @@ function buildManagedClientContext(): { sdk: string; userAgentHint?: string } {
 type ManagedRegistrationFlowGrant = {
   token: string;
   expiresAt: string;
-  runtimeSnapshotScope: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   origin?: string;
   mode?: string;
 };
@@ -337,22 +337,22 @@ async function requestManagedRegistrationFlowGrant(args: {
     : null;
   const token = String((grant?.token as string) || '').trim();
   const orgId = String((grant?.orgId as string) || '').trim();
-  const environmentId = String((grant?.environmentId as string) || '').trim();
   const projectId = String((grant?.projectId as string) || '').trim();
+  const envId = String((grant?.envId as string) || '').trim();
   if (!token) {
     throw new Error('Managed bootstrap grant response did not include a bootstrap token');
   }
-  if (!orgId || !environmentId) {
+  if (!orgId || !projectId || !envId) {
     throw new Error('Managed bootstrap grant response did not include canonical runtime scope');
   }
 
   return {
     token,
     expiresAt: String((grant?.expiresAt as string) || '').trim(),
-    runtimeSnapshotScope: {
+    runtimePolicyScope: {
       orgId,
-      environmentId,
-      ...(projectId ? { projectId } : {}),
+      projectId,
+      envId,
     },
     ...(String((grant?.origin as string) || '').trim()
       ? { origin: String((grant?.origin as string) || '').trim() }
@@ -750,7 +750,7 @@ export type CreateAccountAndRegisterThresholdEd25519Response = {
     expiresAt?: string;
     participantIds?: number[];
     remainingUses?: number;
-    runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
     jwt?: string;
   };
 };
@@ -806,7 +806,7 @@ function normalizeThresholdEd25519RegistrationResult(
           expiresAt: thresholdEd25519.session.expiresAt,
           participantIds: thresholdEd25519.session.participantIds,
           remainingUses: thresholdEd25519.session.remainingUses,
-          runtimeSnapshotScope: thresholdEd25519.session.runtimeSnapshotScope,
+          runtimePolicyScope: thresholdEd25519.session.runtimePolicyScope,
           jwt: thresholdEd25519.session.jwt,
         }
       : undefined,

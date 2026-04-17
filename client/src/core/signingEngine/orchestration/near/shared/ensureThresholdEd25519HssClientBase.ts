@@ -4,6 +4,7 @@ import { runThresholdEd25519HssCeremonyWithSession } from '@/core/signingEngine/
 import {
   deriveThresholdEd25519HssClientInputsWasm,
 } from '@/core/signingEngine/signers/wasm/hssClientSignerWasm';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 export const THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE = 'near-ed25519-signing';
 export const THRESHOLD_ED25519_HSS_DERIVATION_VERSION = 1;
@@ -38,16 +39,19 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   }
 
   const hasCanonicalRuntimeScope = Boolean(
-    String(record?.runtimeSnapshotScope?.orgId || '').trim() &&
-    String(record?.runtimeSnapshotScope?.environmentId || '').trim(),
+    String(record?.runtimePolicyScope?.orgId || '').trim() &&
+    String(record?.runtimePolicyScope?.projectId || '').trim() &&
+    String(record?.runtimePolicyScope?.envId || '').trim(),
   );
-  const orgId = String(record?.runtimeSnapshotScope?.orgId || '').trim();
+  const signingRootId = record?.runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope).signingRootId
+    : '';
   const thresholdSessionJwt =
     String(args.thresholdSessionJwt || '').trim() ||
     String(record?.thresholdSessionJwt || '').trim();
-  if (hasCanonicalRuntimeScope && !orgId) {
+  if (hasCanonicalRuntimeScope && !signingRootId) {
     throw new Error(
-      'Threshold Ed25519 session is missing canonical Option A org scope for HSS reconstruction',
+      'Threshold Ed25519 session is missing canonical signing-root scope for HSS reconstruction',
     );
   }
   if (hasCanonicalRuntimeScope && !thresholdSessionJwt) {
@@ -55,7 +59,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
       'Threshold Ed25519 session is bound to canonical Option A scope but is missing threshold session JWT for HSS reconstruction',
     );
   }
-  if (!orgId || !thresholdSessionJwt) {
+  if (!signingRootId || !thresholdSessionJwt) {
     return undefined;
   }
 
@@ -66,7 +70,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   );
 
   const context = {
-    orgId,
+    signingRootId,
     nearAccountId: String(args.nearAccountId || '').trim(),
     keyPurpose,
     keyVersion: String(args.keyVersion || '').trim(),
@@ -80,7 +84,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   args.onProgress?.('Deriving threshold Ed25519 client inputs...');
   const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
     sessionId: `${thresholdSessionId}:hss-client-inputs`,
-    orgId: context.orgId,
+    signingRootId: context.signingRootId,
     nearAccountId: context.nearAccountId,
     keyPurpose: context.keyPurpose,
     keyVersion: context.keyVersion,

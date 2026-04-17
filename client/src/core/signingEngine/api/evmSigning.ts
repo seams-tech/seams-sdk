@@ -19,7 +19,7 @@ import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import { resolveThresholdEcdsaCommitQueueKey } from './thresholdLifecycle/thresholdEcdsaCommitQueue';
-import type { ThresholdEcdsaEmailOtpAuthContext } from './thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdEcdsaSessionRecord } from './thresholdLifecycle/thresholdSessionStore';
 import { emitNonceLifecycleMetric } from './evmNonceLifecycleMetrics';
 import {
   deriveSmartAccountDeploymentTargetFromSigningRequest,
@@ -43,6 +43,7 @@ import { assertThresholdSigningSessionReady } from '../orchestration/shared/thre
 import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
 import { clearThresholdEcdsaClientPresignaturesForLane } from '../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { createWarmSessionManager } from '../session/WarmSessionManager';
+import type { BootstrapEcdsaSessionArgs } from './thresholdLifecycle/thresholdSessionActivation';
 
 export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
@@ -65,14 +66,18 @@ export type EvmFamilySigningDeps = {
   getThresholdEcdsaSessionRecordForSigning: (args: {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
-  }) => {
-    relayerUrl: string;
-    ecdsaThresholdKeyId: string;
-    participantIds: number[];
-    source: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-    thresholdSessionId: string;
-    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
-  };
+  }) => ThresholdEcdsaSessionRecord;
+  requestEmailOtpChallengeForSigning?: (args: {
+    nearAccountId: string;
+    chain: 'tempo' | 'evm';
+  }) => Promise<{ challengeId: string; emailHint?: string }>;
+  loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
+    nearAccountId: string;
+    chain: 'tempo' | 'evm';
+    challengeId: string;
+    otpCode: string;
+    record: ThresholdEcdsaSessionRecord;
+  }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
@@ -81,10 +86,9 @@ export type EvmFamilySigningDeps = {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
   }) => void;
-  provisionThresholdEcdsaSession: (args: {
-    nearAccountId: string;
-    chain: 'tempo' | 'evm';
-  }) => Promise<ThresholdEcdsaSessionBootstrapResult>;
+  provisionThresholdEcdsaSession: (
+    args: BootstrapEcdsaSessionArgs,
+  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   touchConfirm: TouchConfirmContextPort &
     TouchConfirmSigningPort &
     TouchConfirmSecureConfirmationPort &
@@ -496,6 +500,80 @@ function tryGetThresholdEcdsaKeyRefForSigning(args: {
   }
 }
 
+function isEmailOtpPerOperationRecord(
+  record: ThresholdEcdsaSessionRecord | undefined,
+): record is ThresholdEcdsaSessionRecord {
+  return record?.source === 'email_otp' && record.emailOtpAuthContext?.retention === 'single_use';
+}
+
+async function prepareEmailOtpPerOperationSigning(args: {
+  deps: EvmFamilySigningDeps;
+  nearAccountId: string;
+  chain: 'tempo' | 'evm';
+  record: ThresholdEcdsaSessionRecord;
+  onEvent?: (event: {
+    step: number;
+    phase: string;
+    status: 'progress' | 'success' | 'error';
+    message?: string;
+    data?: unknown;
+  }) => void;
+}): Promise<{
+  challengeId: string;
+  emailHint?: string;
+  complete: (otpCode: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+}> {
+  if (
+    typeof args.deps.requestEmailOtpChallengeForSigning !== 'function' ||
+    typeof args.deps.loginWithEmailOtpEcdsaCapabilityForSigning !== 'function'
+  ) {
+    throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
+  }
+  args.onEvent?.({
+    step: 2,
+    phase: 'email-otp-challenge',
+    status: 'progress',
+    message: 'Sending Email OTP for transaction authorization',
+  });
+  const challenge = await args.deps.requestEmailOtpChallengeForSigning({
+    nearAccountId: args.nearAccountId,
+    chain: args.chain,
+  });
+  const challengeId = String(challenge.challengeId || '').trim();
+  if (!challengeId) {
+    throw new Error('[SigningEngine] Email OTP challenge response did not include challengeId');
+  }
+  args.onEvent?.({
+    step: 2,
+    phase: 'email-otp-challenge',
+    status: 'success',
+    message: 'Email OTP challenge ready',
+  });
+  return {
+    challengeId,
+    ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
+    complete: async (otpCode: string) =>
+      await args.deps.loginWithEmailOtpEcdsaCapabilityForSigning!({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+        challengeId,
+        otpCode,
+        record: args.record,
+      }),
+  };
+}
+
+function resolveManagedRuntimeScopeBootstrap(
+  configs: TatchiConfigsReadonly,
+): { environmentId: string; publishableKey: string } | undefined {
+  const registration = configs.registration;
+  if (registration.mode !== 'managed') return undefined;
+  const environmentId = String(registration.environmentId || '').trim();
+  const publishableKey = String(registration.publishableKey || '').trim();
+  if (!environmentId || !publishableKey) return undefined;
+  return { environmentId, publishableKey };
+}
+
 async function ensureThresholdEcdsaKeyRefReady(args: {
   deps: EvmFamilySigningDeps;
   nearAccountId: string;
@@ -544,6 +622,7 @@ async function ensureThresholdEcdsaKeyRefReady(args: {
     nearAccountId: args.nearAccountId,
     chain: args.chain,
     keyRef: resolvedKeyRef,
+    runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.tatchiPasskeyConfigs),
     usesNeeded: 1,
     beforeReconnect: async () => {
       try {
@@ -1206,7 +1285,12 @@ export async function signEvmFamily(
   }
 
   let thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
+  let thresholdEcdsaRecord: ThresholdEcdsaSessionRecord | undefined;
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
+    thresholdEcdsaRecord = deps.getThresholdEcdsaSessionRecordForSigning({
+      nearAccountId: args.nearAccountId,
+      chain: args.request.chain,
+    });
     thresholdEcdsaKeyRef =
       tryGetThresholdEcdsaKeyRefForSigning({
         deps,
@@ -1224,6 +1308,17 @@ export async function signEvmFamily(
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const ctx = deps.touchConfirm.getContext();
+  const emailOtpPerOperationSigning =
+    args.request.senderSignatureAlgorithm === 'secp256k1' &&
+    isEmailOtpPerOperationRecord(thresholdEcdsaRecord)
+      ? await prepareEmailOtpPerOperationSigning({
+          deps,
+          nearAccountId: args.nearAccountId,
+          chain: args.request.chain,
+          record: thresholdEcdsaRecord,
+          onEvent: args.onEvent,
+        })
+      : undefined;
   const warmSessionManager = createWarmSessionManager({
     touchConfirm: deps.touchConfirm,
     clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) => {
@@ -1326,6 +1421,7 @@ export async function signEvmFamily(
       webauthnP256: new WebAuthnP256Engine(signerWorkerCtx),
     },
     ...(thresholdEcdsaKeyRef ? { keyRefsByAlgorithm: { secp256k1: thresholdEcdsaKeyRef } } : {}),
+    ...(emailOtpPerOperationSigning ? { emailOtpSigning: emailOtpPerOperationSigning } : {}),
     confirmationConfigOverride: args.confirmationConfigOverride,
     ...(args.request.senderSignatureAlgorithm === 'secp256k1'
       ? {
@@ -1346,12 +1442,14 @@ export async function signEvmFamily(
   };
 
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
-    await warmSessionManager.assertEcdsaOperationAllowed({
-      nearAccountId: args.nearAccountId,
-      chain: args.request.chain,
-      operationLabel: `${args.request.chain} signing`,
-      thresholdSessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
-    });
+    if (!emailOtpPerOperationSigning) {
+      await warmSessionManager.assertEcdsaOperationAllowed({
+        nearAccountId: args.nearAccountId,
+        chain: args.request.chain,
+        operationLabel: `${args.request.chain} signing`,
+        thresholdSessionId: thresholdEcdsaKeyRef?.thresholdSessionId,
+      });
+    }
   }
 
   if (args.request.chain === 'evm') {

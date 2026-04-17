@@ -452,6 +452,15 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!res?.success) {
       throw new Error(String(res?.error || 'Failed to cache PRF.first for threshold session'));
     }
+    const parsed = parseWarmSessionStatusResult(res?.data);
+    if (!parsed) {
+      throw new Error('Warm-session cache returned an invalid response');
+    }
+    if (!parsed.ok) {
+      throw new Error(
+        `Warm-session cache failed (${parsed.code}): ${parsed.message}`,
+      );
+    }
     await this.ensureSealedRecordPersistedBestEffort(args.sessionId, args.transport || null);
   };
 

@@ -19,7 +19,7 @@ import {
 const HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 
 export type ThresholdEd25519HssCanonicalContext = {
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -132,7 +132,7 @@ function normalizeParticipantIds(value: unknown): number[] {
 
 export async function deriveThresholdEd25519HssClientInputsWasm(args: {
   sessionId: string;
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -141,7 +141,7 @@ export async function deriveThresholdEd25519HssClientInputsWasm(args: {
   prfFirstB64u: string;
   workerCtx: WorkerOperationContext;
 }): Promise<{
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -152,7 +152,7 @@ export async function deriveThresholdEd25519HssClientInputsWasm(args: {
   tauClientB64u: string;
 }> {
   const sessionId = String(args.sessionId || '').trim();
-  const orgId = String(args.orgId || '').trim();
+  const signingRootId = String(args.signingRootId || '').trim();
   const nearAccountId = String(args.nearAccountId || '').trim();
   const keyPurpose = String(args.keyPurpose || '').trim();
   const keyVersion = String(args.keyVersion || '').trim();
@@ -163,7 +163,7 @@ export async function deriveThresholdEd25519HssClientInputsWasm(args: {
   const derivationVersion = Number(args.derivationVersion);
 
   if (!sessionId) throw new Error('Missing sessionId');
-  if (!orgId) throw new Error('Missing orgId');
+  if (!signingRootId) throw new Error('Missing signingRootId');
   if (!nearAccountId) throw new Error('Missing nearAccountId');
   if (!keyPurpose) throw new Error('Missing keyPurpose');
   if (!keyVersion) throw new Error('Missing keyVersion');
@@ -180,7 +180,7 @@ export async function deriveThresholdEd25519HssClientInputsWasm(args: {
       type: WorkerRequestType.DeriveThresholdEd25519HssClientInputs,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        orgId,
+        signingRootId,
         nearAccountId,
         keyPurpose,
         keyVersion,
@@ -206,7 +206,7 @@ export async function deriveThresholdEd25519HssClientInputsWasm(args: {
   }
 
   return {
-    orgId: String(wasmResult?.orgId || orgId).trim(),
+    signingRootId: String(wasmResult?.signingRootId || signingRootId).trim(),
     nearAccountId: String(wasmResult?.nearAccountId || nearAccountId).trim(),
     keyPurpose: String(wasmResult?.keyPurpose || keyPurpose).trim(),
     keyVersion: String(wasmResult?.keyVersion || keyVersion).trim(),
@@ -229,7 +229,7 @@ export async function prepareThresholdEd25519HssSessionWasm(input: {
       type: WorkerRequestType.PrepareThresholdEd25519HssSession,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        orgId: input.context.orgId,
+        signingRootId: input.context.signingRootId,
         nearAccountId: input.context.nearAccountId,
         keyPurpose: input.context.keyPurpose,
         keyVersion: input.context.keyVersion,

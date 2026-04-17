@@ -82,6 +82,28 @@ export class TempoSigner implements TempoSignerCapability {
   }
 
   async signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      return await routeWalletIframeOrLocal({
+        walletIframe: this.walletIframe,
+        nearAccountId: args.nearAccountId,
+        remote: async (router) =>
+          await router.signTempo({
+            nearAccountId: args.nearAccountId,
+            request: args.request,
+            options: {
+              confirmationConfig: args.options?.confirmationConfig,
+              onEvent: args.options?.onEvent,
+            },
+          }),
+        onRemoteError: async (error) => {
+          throw toError(error);
+        },
+        local: async () => {
+          throw new Error('[TatchiPasskey] Wallet iframe routing unavailable for Tempo signing.');
+        },
+      });
+    }
+
     const signingEngine = this.getContext().signingEngine;
     const requiresThresholdEcdsaPolicyCheck =
       args.request.senderSignatureAlgorithm === 'secp256k1';
@@ -328,12 +350,23 @@ export class TempoSigner implements TempoSignerCapability {
         });
       },
       local: async () => {
-        return await this.getContext().signingEngine.bootstrapEcdsaSession({
+        const context = this.getContext();
+        const managedRegistration =
+          context.configs.registration.mode === 'managed' ? context.configs.registration : null;
+        return await context.signingEngine.bootstrapEcdsaSession({
           nearAccountId: toAccountId(args.nearAccountId),
           chain: options.chain,
           relayerUrl: options.relayerUrl,
           participantIds: options.participantIds,
           sessionKind: options.sessionKind,
+          ...(managedRegistration
+            ? {
+                runtimeScopeBootstrap: {
+                  environmentId: managedRegistration.environmentId,
+                  publishableKey: managedRegistration.publishableKey,
+                },
+              }
+            : {}),
           ttlMs: options.ttlMs,
           remainingUses: options.remainingUses,
           smartAccount: options.smartAccount ? { ...options.smartAccount } : undefined,

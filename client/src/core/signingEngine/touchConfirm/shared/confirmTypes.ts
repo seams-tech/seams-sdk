@@ -51,6 +51,8 @@ export interface UserConfirmDecision extends ForbiddenMainThreadSecrets {
   intentDigest?: string;
   confirmed: boolean;
   credential?: SerializableCredential; // Serialized WebAuthn credential
+  otpCode?: string;
+  emailOtpChallengeId?: string;
   transactionContext?: TransactionContext; // NEAR data fetched during confirmation
   // This is a private field used to close the confirmation modal
   _confirmHandle?: { close: (confirmed: boolean) => void };
@@ -112,7 +114,15 @@ export enum UserConfirmationType {
   SIGN_INTENT_DIGEST = 'signIntentDigest',
 }
 
-export type SigningAuthMode = 'webauthn' | 'warmSession';
+export type SigningAuthMode = 'webauthn' | 'warmSession' | 'emailOtp';
+
+export interface EmailOtpConfirmPrompt {
+  challengeId: string;
+  emailHint?: string;
+  title?: string;
+  body?: string;
+  helperText?: string;
+}
 
 // V2 summaries (render-oriented / UI hints)
 export interface TxSummary {
@@ -196,6 +206,7 @@ export interface SignTransactionPayload {
    * - `warmSession`: skip WebAuthn when a wallet-origin warm session is available (e.g. cached PRF.first).
    */
   signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 
 export interface RegisterAccountPayload {
@@ -252,6 +263,7 @@ export interface SignNep413Payload {
    * See `SignTransactionPayload.signingAuthMode`.
    */
   signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 
 export interface SignIntentDigestPayload {
@@ -262,6 +274,7 @@ export interface SignIntentDigestPayload {
   challengeB64u: string;
   displayModel?: TxDisplayModel;
   signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 
 // Type guards

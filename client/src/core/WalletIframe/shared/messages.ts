@@ -12,7 +12,8 @@ import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
 } from '../../signingEngine/signers/wasm/hssClientSignerWasm';
-import type { TatchiConfigsInput } from '../../types/tatchi';
+import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
+import type { EmailOtpAuthPolicy, TatchiConfigsInput } from '../../types/tatchi';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -26,6 +27,12 @@ export type ParentToChildType =
   | 'PM_UNLOCK'
   | 'PM_LOCK'
   | 'PM_GET_WALLET_SESSION'
+  | 'PM_REQUEST_EMAIL_OTP_CHALLENGE'
+  | 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'
+  | 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION'
+  | 'PM_ENROLL_EMAIL_OTP'
+  | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
+  | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SIGN_TXS_WITH_ACTIONS'
@@ -271,6 +278,50 @@ export interface PMGetWalletSessionPayload {
   nearAccountId?: string;
 }
 
+export interface PMEmailOtpChallengePayload {
+  nearAccountId: string;
+  relayUrl?: string;
+  appSessionJwt?: string;
+}
+
+export interface PMExchangeGoogleEmailOtpSessionPayload {
+  idToken: string;
+  accountMode: 'register' | 'login';
+  relayUrl?: string;
+  sessionKind?: 'jwt' | 'cookie';
+}
+
+export interface PMEnrollEmailOtpPayload {
+  nearAccountId: string;
+  otpCode: string;
+  relayUrl?: string;
+  challengeId?: string;
+  shamirPrimeB64u?: string;
+  appSessionJwt?: string;
+}
+
+export interface PMEmailOtpEcdsaCapabilityPayload {
+  nearAccountId: string;
+  chain?: 'tempo' | 'evm';
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  relayUrl?: string;
+  challengeId?: string;
+  otpCode: string;
+  shamirPrimeB64u?: string;
+  appSessionJwt?: string;
+  authorizationJwt?: string;
+  ecdsaThresholdKeyId?: string;
+  participantIds?: number[];
+  sessionKind?: 'jwt' | 'cookie';
+  sessionId?: string;
+  ttlMs?: number;
+  remainingUses?: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+}
+
+export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload
+  extends PMEmailOtpEcdsaCapabilityPayload {}
+
 export interface PMPrefillThresholdEcdsaPresignPoolPayload {
   nearAccountId: string;
   options?: {
@@ -363,6 +414,15 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>
   | RpcEnvelope<'PM_GET_WALLET_SESSION', PMGetWalletSessionPayload>
+  | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_CHALLENGE', PMEmailOtpChallengePayload>
+  | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE', PMEmailOtpChallengePayload>
+  | RpcEnvelope<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION', PMExchangeGoogleEmailOtpSessionPayload>
+  | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
+  | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
+  | RpcEnvelope<
+      'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
+      PMEmailOtpEcdsaEnrollmentCapabilityPayload
+    >
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SIGN_TXS_WITH_ACTIONS', PMSignTxsPayload>

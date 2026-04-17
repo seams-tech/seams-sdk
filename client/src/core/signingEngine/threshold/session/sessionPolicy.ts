@@ -1,14 +1,14 @@
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import {
+  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
+
+export type ThresholdRuntimePolicyScope = RuntimePolicyScope;
 
 export const THRESHOLD_SESSION_POLICY_VERSION = 'threshold_session_v1' as const;
-
-export type ThresholdRuntimeSnapshotScope = {
-  orgId: string;
-  environmentId: string;
-  projectId?: string;
-};
 
 function decodeBase64UrlUtf8(input: string): string | null {
   const normalized = String(input || '')
@@ -27,25 +27,19 @@ function decodeBase64UrlUtf8(input: string): string | null {
   return null;
 }
 
-export function normalizeThresholdRuntimeSnapshotScope(
+export function normalizeThresholdRuntimePolicyScope(
   value: unknown,
-): ThresholdRuntimeSnapshotScope | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const scope = value as Record<string, unknown>;
-  const orgId = String(scope.orgId || '').trim();
-  const environmentId = String(scope.environmentId || '').trim();
-  const projectId = String(scope.projectId || '').trim();
-  if (!orgId || !environmentId) return undefined;
-  return {
-    orgId,
-    environmentId,
-    ...(projectId ? { projectId } : {}),
-  };
+): ThresholdRuntimePolicyScope | undefined {
+  try {
+    return normalizeRuntimePolicyScope(value);
+  } catch {
+    return undefined;
+  }
 }
 
-export function parseThresholdRuntimeSnapshotScopeFromJwt(
+export function parseThresholdRuntimePolicyScopeFromJwt(
   jwtRaw: string | undefined,
-): ThresholdRuntimeSnapshotScope | undefined {
+): ThresholdRuntimePolicyScope | undefined {
   const jwt = String(jwtRaw || '').trim();
   if (!jwt) return undefined;
   const parts = jwt.split('.');
@@ -53,8 +47,8 @@ export function parseThresholdRuntimeSnapshotScopeFromJwt(
   const payloadJson = decodeBase64UrlUtf8(parts[1] || '');
   if (!payloadJson) return undefined;
   try {
-    const payload = JSON.parse(payloadJson) as { runtimeSnapshotScope?: unknown };
-    return normalizeThresholdRuntimeSnapshotScope(payload.runtimeSnapshotScope);
+    const payload = JSON.parse(payloadJson) as { runtimePolicyScope?: unknown };
+    return normalizeThresholdRuntimePolicyScope(payload.runtimePolicyScope);
   } catch {
     return undefined;
   }
@@ -66,7 +60,7 @@ export type Ed25519SessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /**
    * Optional signer set binding (participant ids).
    *
@@ -84,6 +78,7 @@ export type EcdsaSessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /**
    * Optional signer set binding (participant ids).
    *
@@ -150,7 +145,7 @@ export async function buildEd25519SessionPolicy(params: {
   nearAccountId: string;
   rpId: string;
   relayerKeyId: string;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionId?: string;
   ttlMs?: number;
@@ -166,14 +161,14 @@ export async function buildEd25519SessionPolicy(params: {
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
   });
   const participantIds = normalizeThresholdEd25519ParticipantIds(params.participantIds);
-  const runtimeSnapshotScope = normalizeThresholdRuntimeSnapshotScope(params.runtimeSnapshotScope);
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
   const policy: Ed25519SessionPolicy = {
     version: THRESHOLD_SESSION_POLICY_VERSION,
     nearAccountId: params.nearAccountId,
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,
     sessionId,
-    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs,
     remainingUses,
@@ -186,6 +181,7 @@ export async function buildEcdsaSessionPolicy(params: {
   userId: string;
   rpId: string;
   relayerKeyId: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionId?: string;
   ttlMs?: number;
@@ -201,12 +197,14 @@ export async function buildEcdsaSessionPolicy(params: {
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
   });
   const participantIds = normalizeThresholdEd25519ParticipantIds(params.participantIds);
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(params.runtimePolicyScope);
   const policy: EcdsaSessionPolicy = {
     version: THRESHOLD_SESSION_POLICY_VERSION,
     userId: params.userId,
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,
     sessionId,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs,
     remainingUses,

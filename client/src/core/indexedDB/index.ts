@@ -49,24 +49,31 @@ export type IndexedDBMode = 'app' | 'wallet' | 'disabled';
 
 const DB_CONFIG_BY_MODE: Record<
   IndexedDBMode,
-  { clientDbName: string; accountKeyMaterialDbName: string; disabled: boolean }
+  {
+    clientDbName: string;
+    accountKeyMaterialDbName: string;
+    clientDisabled: boolean;
+    accountKeyMaterialDisabled: boolean;
+  }
 > = {
   app: {
     clientDbName: 'PasskeyClientDB',
     accountKeyMaterialDbName: 'PasskeyAccountKeyMaterial',
-    disabled: false,
+    clientDisabled: false,
+    accountKeyMaterialDisabled: false,
   },
   wallet: {
     clientDbName: 'PasskeyClientDB',
     accountKeyMaterialDbName: 'PasskeyAccountKeyMaterial',
-    disabled: false,
+    clientDisabled: false,
+    accountKeyMaterialDisabled: false,
   },
-  // When running the SDK on the app origin with a wallet iframe configured, we disable IndexedDB entirely
-  // to ensure no SDK tables are created and nothing can accidentally persist there.
+  // Fully disables IndexedDB for runtimes that route all persistence elsewhere.
   disabled: {
     clientDbName: 'PasskeyClientDB',
     accountKeyMaterialDbName: 'PasskeyAccountKeyMaterial',
-    disabled: true,
+    clientDisabled: true,
+    accountKeyMaterialDisabled: true,
   },
 };
 
@@ -74,7 +81,8 @@ let configured: {
   mode: IndexedDBMode;
   clientDbName: string;
   accountKeyMaterialDbName: string;
-  disabled: boolean;
+  clientDisabled: boolean;
+  accountKeyMaterialDisabled: boolean;
 } | null = null;
 
 /**
@@ -84,6 +92,7 @@ let configured: {
  * - Wallet iframe host should use `mode: 'wallet'`.
  * - App origin should use `mode: 'disabled'` when wallet-iframe mode is enabled.
  * - Non-iframe apps should use `mode: 'app'`.
+ * - Headless/proxy runtimes that cannot touch IndexedDB should use `mode: 'disabled'`.
  */
 export function configureIndexedDB(args: { mode: IndexedDBMode }): {
   clientDbName: string;
@@ -99,7 +108,8 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): {
     const isSame =
       configured.clientDbName === next.clientDbName &&
       configured.accountKeyMaterialDbName === next.accountKeyMaterialDbName &&
-      configured.disabled === next.disabled;
+      configured.clientDisabled === next.clientDisabled &&
+      configured.accountKeyMaterialDisabled === next.accountKeyMaterialDisabled;
     if (!isSame) {
       console.warn(
         '[IndexedDBManager] configureIndexedDB called multiple times; ignoring subsequent configuration',
@@ -118,8 +128,8 @@ export function configureIndexedDB(args: { mode: IndexedDBMode }): {
   configured = { mode, ...next };
   passkeyClientDB.setDbName(next.clientDbName);
   accountKeyMaterialDB.setDbName(next.accountKeyMaterialDbName);
-  passkeyClientDB.setDisabled(next.disabled);
-  accountKeyMaterialDB.setDisabled(next.disabled);
+  passkeyClientDB.setDisabled(next.clientDisabled);
+  accountKeyMaterialDB.setDisabled(next.accountKeyMaterialDisabled);
   return {
     clientDbName: configured.clientDbName,
     accountKeyMaterialDbName: configured.accountKeyMaterialDbName,

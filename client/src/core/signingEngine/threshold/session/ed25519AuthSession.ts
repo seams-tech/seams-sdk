@@ -6,9 +6,9 @@ import {
 } from '@shared/utils/normalize';
 import {
   buildEd25519SessionPolicy,
-  parseThresholdRuntimeSnapshotScopeFromJwt,
+  parseThresholdRuntimePolicyScopeFromJwt,
   type Ed25519SessionPolicy,
-  type ThresholdRuntimeSnapshotScope,
+  type ThresholdRuntimePolicyScope,
 } from './sessionPolicy';
 import type { Ed25519SessionKind } from './ed25519SessionTypes';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
@@ -99,7 +99,7 @@ export async function buildAndCacheEd25519AuthSession(args: {
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionKind?: Ed25519SessionKind;
   sessionId: string;
@@ -132,15 +132,15 @@ export async function buildAndCacheEd25519AuthSession(args: {
     return remainingUses;
   })();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds) || undefined;
-  const runtimeSnapshotScope =
-    args.runtimeSnapshotScope ||
-    parseThresholdRuntimeSnapshotScopeFromJwt(String(args.jwt || '').trim());
+  const runtimePolicyScope =
+    args.runtimePolicyScope ||
+    parseThresholdRuntimePolicyScopeFromJwt(String(args.jwt || '').trim());
 
   const { policy, policyJson, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
     nearAccountId: String(args.nearAccountId || '').trim(),
     rpId: String(args.rpId || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
-    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     participantIds,
     sessionId,
     ttlMs: policyTtlMs,
@@ -169,7 +169,7 @@ export async function buildAndCacheEd25519AuthSession(args: {
     rpId: String(args.rpId || '').trim(),
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
-    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     participantIds,
     sessionKind: entry.sessionKind,
     sessionId,
@@ -277,7 +277,7 @@ export async function resolveEd25519AuthSessionBySessionId(
       rpId: String(record.rpId || '').trim(),
       relayerUrl: String(record.relayerUrl || '').trim(),
       relayerKeyId: String(record.relayerKeyId || '').trim(),
-      ...(record.runtimeSnapshotScope ? { runtimeSnapshotScope: record.runtimeSnapshotScope } : {}),
+      ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
       participantIds: record.participantIds,
       sessionKind: recordSessionKind,
       sessionId: String(record.thresholdSessionId || '').trim(),
@@ -328,7 +328,7 @@ export async function mintEd25519AuthSession(args: {
   sessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   jwt?: string;
   code?: string;
   message?: string;
@@ -358,7 +358,7 @@ export async function mintEd25519AuthSession(args: {
     sessionId: string;
     expiresAt: string;
     remainingUses: number;
-    runtimeSnapshotScope: ThresholdRuntimeSnapshotScope;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
     jwt: string;
     code: string;
     message: string;
@@ -405,7 +405,7 @@ export async function mintEd25519AuthSession(args: {
       sessionId: data.sessionId,
       expiresAtMs,
       remainingUses: data.remainingUses,
-      ...(data.runtimeSnapshotScope ? { runtimeSnapshotScope: data.runtimeSnapshotScope } : {}),
+      ...(data.runtimePolicyScope ? { runtimePolicyScope: data.runtimePolicyScope } : {}),
       jwt: data.jwt,
       ...(data.code ? { code: data.code } : {}),
       ...(data.message ? { message: data.message } : {}),

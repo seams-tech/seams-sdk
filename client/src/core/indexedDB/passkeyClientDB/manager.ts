@@ -531,18 +531,17 @@ export class PasskeyClientDBManager {
   async upsertProfile(input: UpsertProfileInput): Promise<ProfileRecord> {
     const profileId = toTrimmedString(input.profileId || '');
     if (!profileId) throw new Error('PasskeyClientDB: profileId is required');
-    if (!input.passkeyCredential?.rawId) {
-      throw new Error('PasskeyClientDB: passkeyCredential.rawId is required');
-    }
     const db = await this.getDB();
     const now = Date.now();
     const existing = (await db.get(DB_CONFIG.profilesStore, profileId)) as
       | ProfileRecord
       | undefined;
+    const passkeyCredential =
+      input.passkeyCredential?.rawId ? input.passkeyCredential : existing?.passkeyCredential;
     const next: ProfileRecord = {
       profileId,
       defaultDeviceNumber: input.defaultDeviceNumber ?? existing?.defaultDeviceNumber ?? 1,
-      passkeyCredential: input.passkeyCredential,
+      ...(passkeyCredential ? { passkeyCredential } : {}),
       preferences: input.preferences ?? existing?.preferences,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
@@ -1079,7 +1078,6 @@ export class PasskeyClientDBManager {
     await this.upsertProfile({
       profileId: profile.profileId,
       defaultDeviceNumber: profile.defaultDeviceNumber,
-      passkeyCredential: profile.passkeyCredential,
       preferences: updatedPreferences,
     });
 
@@ -1589,6 +1587,7 @@ export class PasskeyClientDBManager {
       .index('profileId')
       .getAll(state.profileId)) as AccountSignerRecord[];
     await signerTx.done;
+    if (!signerRows.length) return;
     const hasMatchingSignerSlot = signerRows.some(
       (row) => row.signerSlot === state.deviceNumber && row.status !== 'revoked',
     );

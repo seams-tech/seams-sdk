@@ -43,6 +43,14 @@ function getTransactionSigningAuthMode(request: SigningUserConfirmRequest): Sign
   return 'webauthn';
 }
 
+function normalizeSixDigitOtpCode(value: unknown): string {
+  const code = String(value || '').replace(/\D/g, '').slice(0, 6);
+  if (!/^\d{6}$/.test(code)) {
+    throw new Error('Enter the 6-digit Email OTP code to continue');
+  }
+  return code;
+}
+
 export async function handleTransactionSigningFlow(
   ctx: TouchConfirmContext,
   request: SigningUserConfirmRequest,
@@ -215,7 +223,12 @@ export async function handleTransactionSigningFlow(
 
     // Ordering matters: resolve user decision first so "Cancel" can close immediately
     // even while context/digest preparation is still running. Confirmed flows wait below.
-    const { confirmed, error: uiError } = await promptDecisionPromise;
+    const {
+      confirmed,
+      error: uiError,
+      otpCode,
+      emailOtpChallengeId,
+    } = await promptDecisionPromise;
     decisionResolved = true;
     if (!confirmed) {
       return session.confirmAndCloseModal({
@@ -247,6 +260,18 @@ export async function handleTransactionSigningFlow(
     if (preparedIntentPromise) {
       const prepared = await preparedIntentPromise;
       applyPreparedIntentData(prepared);
+    }
+
+    if (signingAuthMode === 'emailOtp') {
+      session.confirmAndCloseModal({
+        requestId: request.requestId,
+        intentDigest: resolvedIntentDigestForResponse,
+        confirmed: true,
+        otpCode: normalizeSixDigitOtpCode(otpCode),
+        ...(emailOtpChallengeId ? { emailOtpChallengeId } : {}),
+        transactionContext,
+      });
+      return;
     }
 
     // 4) Warm session: skip WebAuthn (seed/token handled by caller).
@@ -405,7 +430,12 @@ export async function handleIntentDigestSigningFlow(
     // Ordering matters: resolve user decision first so "Cancel" can close immediately
     // even while digest/challenge preparation is still running. Only confirmed flows
     // are allowed to wait for prepared intent data.
-    const { confirmed, error: uiError } = await promptDecisionPromise;
+    const {
+      confirmed,
+      error: uiError,
+      otpCode,
+      emailOtpChallengeId,
+    } = await promptDecisionPromise;
     decisionResolved = true;
     if (!confirmed) {
       if (requiresExplicitConfirmClick) {
@@ -430,6 +460,25 @@ export async function handleIntentDigestSigningFlow(
       if (!intentPreparationApplied) {
         applyPreparedIntentToUi(prepared);
       }
+    }
+
+    if (signingAuthMode === 'emailOtp') {
+      if (requiresExplicitConfirmClick) {
+        sendConfirmProgress(worker, {
+          requestId: request.requestId,
+          step: 2,
+          phase: 'user-confirmation-complete',
+          status: 'success',
+          message: 'Email OTP submitted',
+        });
+      }
+      return session.confirmAndCloseModal({
+        requestId: request.requestId,
+        intentDigest: resolvedIntentDigest,
+        confirmed: true,
+        otpCode: normalizeSixDigitOtpCode(otpCode),
+        ...(emailOtpChallengeId ? { emailOtpChallengeId } : {}),
+      });
     }
 
     if (signingAuthMode === 'warmSession') {

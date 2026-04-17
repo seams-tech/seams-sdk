@@ -4,6 +4,7 @@ import {
   normalizeThresholdEd25519ParticipantIds,
 } from '@shared/threshold/participants';
 import { isObject } from '@shared/utils/validation';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
   AccountId,
   WebAuthnAuthenticationCredential,
@@ -77,7 +78,7 @@ type ThresholdWarmSessionRelayResult = {
   participantIds?: number[];
   remainingUses?: number;
   jwt?: string;
-  runtimeSnapshotScope?: { orgId?: string; environmentId?: string; projectId?: string };
+  runtimePolicyScope?: { orgId: string; projectId: string; envId: string };
 };
 
 const thresholdEd25519ClientBasePrewarmBySessionId = new Map<string, Promise<void>>();
@@ -146,16 +147,17 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
   });
-  const runtimeSnapshotScope = managedRegistrationFlow.runtimeSnapshotScope;
+  const runtimePolicyScope = managedRegistrationFlow.runtimePolicyScope;
   const requestedPolicy = createThresholdWarmSessionPolicyDraft(args.context);
   if (!requestedPolicy) {
     throw new Error('Threshold warm-session defaults are disabled for registration');
   }
   args.onProgress?.('Preparing threshold Ed25519 signer from passkey...');
+  const signingRootId = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope).signingRootId;
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCredential({
       credential: args.credential,
-      orgId: runtimeSnapshotScope.orgId,
+      signingRootId,
       nearAccountId: args.nearAccountId,
       keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
       keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
@@ -175,7 +177,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
     nearAccountId: String(args.nearAccountId),
     rpId: args.rpId,
     hssContext: {
-      orgId: runtimeSnapshotScope.orgId,
+      signingRootId,
       nearAccountId: String(args.nearAccountId),
       keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
       keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
@@ -229,7 +231,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
         participantIds: prepared.participantIds,
         ttlMs: requestedPolicy.ttlMs,
         remainingUses: requestedPolicy.remainingUses,
-        runtimeSnapshotScope,
+        runtimePolicyScope,
       },
       sessionKind: 'jwt',
     },
@@ -416,7 +418,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     expiresAtMs,
     remainingUses,
     jwt,
-    ...(session.runtimeSnapshotScope ? { runtimeSnapshotScope: session.runtimeSnapshotScope } : {}),
+    ...(session.runtimePolicyScope ? { runtimePolicyScope: session.runtimePolicyScope } : {}),
     source: 'registration',
   });
 
@@ -448,9 +450,11 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
   if (!thresholdSessionId || !thresholdSessionJwt) {
     throw new Error('Threshold Ed25519 warm session is missing JWT session state');
   }
-  const orgId = String(args.session.runtimeSnapshotScope?.orgId || '').trim();
-  if (!orgId) {
-    throw new Error('Threshold Ed25519 warm session is missing canonical Option A org scope');
+  const signingRootId = args.session.runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(args.session.runtimePolicyScope).signingRootId
+    : '';
+  if (!signingRootId) {
+    throw new Error('Threshold Ed25519 warm session is missing canonical Option A signing-root scope');
   }
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.session.participantIds) ||
     normalizeThresholdEd25519ParticipantIds(args.participantIdsHint) || [
@@ -465,7 +469,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCredential({
       credential: args.credential,
-      orgId,
+      signingRootId,
       nearAccountId: args.nearAccountId,
       keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
       keyVersion,
@@ -483,7 +487,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
     relayerKeyId,
     operation: 'warm_session_reconstruction',
     context: {
-      orgId,
+      signingRootId,
       nearAccountId: args.nearAccountId,
       keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
       keyVersion,
@@ -542,7 +546,7 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
 
     if (sessionRecord.thresholdSessionKind !== 'jwt') return;
     if (!String(sessionRecord.thresholdSessionJwt || '').trim()) return;
-    if (!String(sessionRecord.runtimeSnapshotScope?.orgId || '').trim()) return;
+    if (!sessionRecord.runtimePolicyScope) return;
 
     const startedAt = performance.now();
     try {
@@ -559,7 +563,7 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
           participantIds: sessionRecord.participantIds,
           remainingUses: sessionRecord.remainingUses,
           jwt: sessionRecord.thresholdSessionJwt,
-          runtimeSnapshotScope: sessionRecord.runtimeSnapshotScope,
+          runtimePolicyScope: sessionRecord.runtimePolicyScope,
         },
         keyVersion: thresholdKeyMaterial.keyVersion,
         participantIdsHint: thresholdKeyMaterial.participants.map((participant) => participant.id),

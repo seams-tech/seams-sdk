@@ -11,6 +11,7 @@ import {
   resolveThresholdEcdsaPresignPoolPolicy,
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
   signThresholdEcdsaDigestWithPool,
+  clearThresholdEcdsaClientPresignaturesForLane,
 } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
@@ -23,6 +24,13 @@ type EcdsaSessionChain = 'tempo' | 'evm';
 function zeroizeBytes(bytes?: Uint8Array | null): void {
   if (!(bytes instanceof Uint8Array)) return;
   bytes.fill(0);
+}
+
+function resolveEmailOtpShareHandleSessionId(keyRef: KeyRef): string {
+  if (keyRef.type !== 'threshold-ecdsa-secp256k1') return '';
+  const handle = keyRef.backendBinding?.clientAdditiveShareHandle;
+  if (handle?.kind !== 'email_otp_worker_session') return '';
+  return String(handle.sessionId || '').trim();
 }
 
 function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessionChain | null {
@@ -49,6 +57,59 @@ function findConsumedSingleUseEmailOtpRecordForAccount(
   );
   if (!consumedRecord) return null;
   return { chain: consumedRecord.chain };
+}
+
+async function claimEmailOtpWorkerEcdsaSigningShare(args: {
+  workerCtx: WorkerOperationContext;
+  sessionId: string;
+}): Promise<Uint8Array> {
+  const sessionId = String(args.sessionId || '').trim();
+  if (!sessionId) {
+    throw new Error(
+      '[multichain] Missing Email OTP signing share handle; reconnect threshold session',
+    );
+  }
+  const result = await args.workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'claimEmailOtpEcdsaSigningShare',
+      timeoutMs: 5_000,
+      payload: { sessionId },
+    },
+  });
+  if (!result.ok) {
+    throw new Error(
+      result.message ||
+        result.code ||
+        '[multichain] Email OTP ECDSA signing material is unavailable; verify Email OTP again',
+    );
+  }
+  const clientSigningShare32 = new Uint8Array(result.clientSigningShare32);
+  if (clientSigningShare32.length !== 32) {
+    zeroizeBytes(clientSigningShare32);
+    throw new Error(
+      '[multichain] Email OTP ECDSA signing material must decode to 32 bytes; verify Email OTP again',
+    );
+  }
+  return clientSigningShare32;
+}
+
+async function clearEmailOtpWorkerSessionBestEffort(args: {
+  workerCtx: WorkerOperationContext;
+  sessionId: string;
+}): Promise<void> {
+  const sessionId = String(args.sessionId || '').trim();
+  if (!sessionId) return;
+  await args.workerCtx
+    .requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'clearEmailOtpWarmSessionMaterial',
+        timeoutMs: 5_000,
+        payload: { sessionId },
+      },
+    })
+    .catch(() => undefined);
 }
 
 export type ThresholdEcdsaCommitQueueEnqueueFn = <T>(args: {
@@ -153,8 +214,9 @@ export class Secp256k1Engine implements Signer {
         resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(keyRefThresholdSessionId);
       const canonicalRecord = resolvedAuthMaterial?.record || null;
       const requestChain = inferThresholdEcdsaSessionChainFromLabel(req.label);
-      const consumedSingleUseEmailOtpRecord =
-        findConsumedSingleUseEmailOtpRecordForAccount(keyRef.userId);
+      const consumedSingleUseEmailOtpRecord = findConsumedSingleUseEmailOtpRecordForAccount(
+        keyRef.userId,
+      );
       if (consumedSingleUseEmailOtpRecord) {
         throw new Error(
           `[SigningEngine] ${requestChain || consumedSingleUseEmailOtpRecord.chain} signing requires fresh Email OTP verification with per_operation policy`,
@@ -233,32 +295,47 @@ export class Secp256k1Engine implements Signer {
           authorized.message || authorized.code || '[multichain] threshold-ecdsa authorize failed',
         );
       }
-      const effectiveThresholdEcdsaPresignPoolPolicy = resolveThresholdEcdsaPresignPoolPolicy({
+      const emailOtpWorkerShareSessionId = resolveEmailOtpShareHandleSessionId(keyRef);
+      const isSingleUseEmailOtpSession =
+        canonicalRecordMatchesKeyRefLane &&
+        canonicalRecord?.source === 'email_otp' &&
+        canonicalRecord.emailOtpAuthContext?.retention === 'single_use';
+      const authorizedPresignPoolPolicy = resolveThresholdEcdsaPresignPoolPolicy({
         ...this.thresholdEcdsaPresignPoolPolicy,
         ...(authorized.presignPoolPolicy || {}),
       });
+      const effectiveThresholdEcdsaPresignPoolPolicy = isSingleUseEmailOtpSession
+        ? { ...authorizedPresignPoolPolicy, enabled: false }
+        : authorizedPresignPoolPolicy;
 
-      const clientAdditiveShare32B64u = String(
-        keyRef.backendBinding?.clientAdditiveShare32B64u || '',
-      ).trim();
-      if (!clientAdditiveShare32B64u) {
-        throw new Error(
-          '[multichain] Missing backend clientAdditiveShare32B64u for threshold-ecdsa signing; reconnect threshold session',
-        );
-      }
       let clientSigningShare32: Uint8Array | null = null;
       try {
-        try {
-          clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
-        } catch {
-          throw new Error(
-            '[multichain] backend clientAdditiveShare32B64u must be valid base64url; reconnect threshold session',
-          );
-        }
-        if (clientSigningShare32.length !== 32) {
-          throw new Error(
-            '[multichain] backend clientAdditiveShare32B64u must decode to 32 bytes; reconnect threshold session',
-          );
+        if (emailOtpWorkerShareSessionId) {
+          clientSigningShare32 = await claimEmailOtpWorkerEcdsaSigningShare({
+            workerCtx: this.workerCtx,
+            sessionId: emailOtpWorkerShareSessionId,
+          });
+        } else {
+          const clientAdditiveShare32B64u = String(
+            keyRef.backendBinding?.clientAdditiveShare32B64u || '',
+          ).trim();
+          if (!clientAdditiveShare32B64u) {
+            throw new Error(
+              '[multichain] Missing threshold ECDSA signing material; reconnect threshold session',
+            );
+          }
+          try {
+            clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
+          } catch {
+            throw new Error(
+              '[multichain] backend clientAdditiveShare32B64u must be valid base64url; reconnect threshold session',
+            );
+          }
+          if (clientSigningShare32.length !== 32) {
+            throw new Error(
+              '[multichain] backend clientAdditiveShare32B64u must decode to 32 bytes; reconnect threshold session',
+            );
+          }
         }
 
         const refillBaseArgs = {
@@ -273,6 +350,13 @@ export class Secp256k1Engine implements Signer {
           ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
           workerCtx: this.workerCtx,
         };
+        if (isSingleUseEmailOtpSession) {
+          clearThresholdEcdsaClientPresignaturesForLane({
+            relayerUrl: keyRef.relayerUrl,
+            ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
+            participantIds,
+          });
+        }
         const presignPoolDepthAtCommitStart = getThresholdEcdsaClientPresignaturePoolDepth({
           relayerUrl: keyRef.relayerUrl,
           ecdsaThresholdKeyId: String(keyRef.ecdsaThresholdKeyId || '').trim(),
@@ -341,6 +425,12 @@ export class Secp256k1Engine implements Signer {
         return signed.signature65;
       } finally {
         zeroizeBytes(clientSigningShare32);
+        if (emailOtpWorkerShareSessionId && isSingleUseEmailOtpSession) {
+          await clearEmailOtpWorkerSessionBestEffort({
+            workerCtx: this.workerCtx,
+            sessionId: emailOtpWorkerShareSessionId,
+          });
+        }
       }
     };
 

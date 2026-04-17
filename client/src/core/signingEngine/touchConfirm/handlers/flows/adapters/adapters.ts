@@ -18,7 +18,13 @@ import {
   type ConfirmUIHandle,
   type ConfirmUIUpdate,
 } from '../../../ui/confirm-ui';
-import { getDisplayModel, getNearAccountId, getSignTransactionPayload } from './request';
+import {
+  getDisplayModel,
+  getEmailOtpPrompt,
+  getNearAccountId,
+  getSignTransactionPayload,
+  getSigningAuthMode,
+} from './request';
 import type { ThemeName } from '@/core/types/tatchi';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
@@ -183,7 +189,13 @@ async function renderConfirmUI({
   loading?: boolean;
   theme: ThemeName;
   onMounted?: (handle: ConfirmUIHandle) => void;
-}): Promise<{ confirmed: boolean; confirmHandle?: ConfirmUIHandle; error?: string }> {
+}): Promise<{
+  confirmed: boolean;
+  confirmHandle?: ConfirmUIHandle;
+  error?: string;
+  otpCode?: string;
+  emailOtpChallengeId?: string;
+}> {
   const nearAccountIdForUi = getNearAccountId(request);
 
   const uiMode = confirmationConfig.uiMode as ConfirmationUIMode;
@@ -192,6 +204,8 @@ async function renderConfirmUI({
       ? getSignTransactionPayload(request).txSigningRequests
       : [];
   const model = getDisplayModel(request);
+  const signingAuthMode = getSigningAuthMode(request);
+  const emailOtpPrompt = getEmailOtpPrompt(request);
 
   const renderDrawerOrModal = async (mode: 'drawer' | 'modal') => {
     if (confirmationConfig.behavior === 'skipClick') {
@@ -205,6 +219,8 @@ async function renderConfirmUI({
         theme,
         uiMode: mode,
         nearAccountIdOverride: nearAccountIdForUi,
+        signingAuthMode,
+        emailOtpPrompt,
       });
       onMounted?.(handle);
       const delay = confirmationConfig.autoProceedDelay ?? 0;
@@ -212,7 +228,8 @@ async function renderConfirmUI({
       return { confirmed: true, confirmHandle: handle } as const;
     }
 
-    const { confirmed, handle, error } = await awaitConfirmUIDecision({
+    const { confirmed, handle, error, otpCode, emailOtpChallengeId } =
+      await awaitConfirmUIDecision({
       ctx,
       summary: transactionSummary,
       txSigningRequests,
@@ -223,8 +240,10 @@ async function renderConfirmUI({
       uiMode: mode,
       nearAccountIdOverride: nearAccountIdForUi,
       onMounted,
+      signingAuthMode,
+      emailOtpPrompt,
     });
-    return { confirmed, confirmHandle: handle, error } as const;
+    return { confirmed, confirmHandle: handle, error, otpCode, emailOtpChallengeId } as const;
   };
 
   switch (uiMode) {
@@ -302,7 +321,12 @@ export function createConfirmSession({
     securityContext?: Partial<UserConfirmSecurityContext>;
     loading?: boolean;
     onMounted?: (handle: ConfirmUIHandle) => void;
-  }) => Promise<{ confirmed: boolean; error?: string }>;
+  }) => Promise<{
+    confirmed: boolean;
+    error?: string;
+    otpCode?: string;
+    emailOtpChallengeId?: string;
+  }>;
   /**
    * Send decision back to worker and perform standard cleanup.
    * - On `confirmed: false`, releases any reserved nonces.
@@ -334,6 +358,8 @@ export function createConfirmSession({
       confirmed,
       confirmHandle: handle,
       error,
+      otpCode,
+      emailOtpChallengeId,
     } = await adapters.ui.renderConfirmUI({
       request,
       confirmationConfig,
@@ -347,7 +373,7 @@ export function createConfirmSession({
       },
     });
     confirmHandle = handle;
-    return { confirmed, error };
+    return { confirmed, error, otpCode, emailOtpChallengeId };
   };
 
   const confirmAndCloseModal = (decision: UserConfirmDecision) => {

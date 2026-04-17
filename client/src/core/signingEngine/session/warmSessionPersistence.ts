@@ -8,8 +8,8 @@ import {
   upsertStoredThresholdEd25519SessionRecord,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
 import {
-  parseThresholdRuntimeSnapshotScopeFromJwt,
-  type ThresholdRuntimeSnapshotScope,
+  parseThresholdRuntimePolicyScopeFromJwt,
+  type ThresholdRuntimePolicyScope,
 } from '../threshold/session/sessionPolicy';
 import type { Ed25519SessionKind } from '../threshold/session/ed25519SessionTypes';
 
@@ -18,7 +18,7 @@ export type PersistWarmSessionEd25519CapabilityArgs = {
   rpId: string;
   relayerUrl: string;
   relayerKeyId: string;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionKind?: Ed25519SessionKind;
   sessionId: string;
@@ -55,8 +55,8 @@ export function persistWarmSessionEd25519Capability(
   }
 
   const jwt = String(args.jwt || '').trim();
-  const runtimeSnapshotScope =
-    args.runtimeSnapshotScope || parseThresholdRuntimeSnapshotScopeFromJwt(jwt);
+  const runtimePolicyScope =
+    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(jwt);
   const xClientBaseB64u =
     String(args.xClientBaseB64u || '').trim() ||
     String(existingRecord?.xClientBaseB64u || '').trim();
@@ -67,7 +67,7 @@ export function persistWarmSessionEd25519Capability(
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     participantIds,
-    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
     thresholdSessionKind: args.sessionKind === 'cookie' ? 'cookie' : 'jwt',
     thresholdSessionId: sessionId,

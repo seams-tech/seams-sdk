@@ -1,6 +1,6 @@
 import type { WalletSession } from '@/core/types/tatchi';
 
-export function isNearThresholdEd25519SessionReadyForUi(args: {
+export function isWalletSessionReadyForUi(args: {
   session: Pick<WalletSession, 'login' | 'signingSession'>;
 }): boolean {
   const { session } = args;

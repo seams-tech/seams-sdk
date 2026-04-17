@@ -15,6 +15,7 @@ import type {
   ThemeName,
   TatchiConfigsReadonly,
   TatchiConfigsInput,
+  EmailOtpAuthPolicy,
 } from '../types/tatchi';
 import type {
   ActionHooksOptions,
@@ -61,7 +62,13 @@ import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaLoginPrefillResult,
 } from '../signingEngine/SigningEngine';
+import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
 import { EmailRecoveryDomain } from './near/emailRecovery';
+import {
+  exchangeGoogleEmailOtpSession,
+  requestEmailOtpChallenge,
+  requestEmailOtpEnrollmentChallenge,
+} from './emailOtp';
 import { DeviceLinkingDomain } from './near/linkDevice';
 import { NearSigner } from './near';
 import { TempoSigner } from './tempo';
@@ -94,7 +101,7 @@ export class TatchiPasskey {
     this.configs = buildConfigsFromEnv(configs);
     // Configure IndexedDB naming before any local persistence is touched.
     // - Wallet iframe host keeps canonical DB names.
-    // - App origin disables IndexedDB entirely when iframe mode is enabled.
+    // - App-origin iframe mode routes persistence through the wallet origin.
     const mode = __isWalletIframeHostMode()
       ? 'wallet'
       : this.configs.wallet.mode === 'iframe'
@@ -164,6 +171,16 @@ export class TatchiPasskey {
       hasPasskeyCredential: async (nearAccountId) => await this.hasPasskeyCredential(nearAccountId),
       prefillThresholdEcdsaPresignPool: async (args) =>
         await this.prefillThresholdEcdsaPresignPool(args),
+      requestEmailOtpChallenge: async (args) => await this.requestEmailOtpChallenge(args),
+      requestEmailOtpEnrollmentChallenge: async (args) =>
+        await this.requestEmailOtpEnrollmentChallenge(args),
+      exchangeGoogleEmailOtpSession: async (args) =>
+        await this.exchangeGoogleEmailOtpSession(args),
+      enrollEmailOtp: async (args) => await this.enrollEmailOtp(args),
+      loginWithEmailOtpEcdsaCapability: async (args) =>
+        await this.loginWithEmailOtpEcdsaCapability(args),
+      enrollAndLoginWithEmailOtpEcdsaCapability: async (args) =>
+        await this.enrollAndLoginWithEmailOtpEcdsaCapability(args),
     };
     this.registration = {
       registerPasskey: async (nearAccountId, options) =>
@@ -488,6 +505,155 @@ export class TatchiPasskey {
     return await prefillThresholdEcdsaPresignPoolDomain(this.getAuthSessionDeps(), args);
   }
 
+  async requestEmailOtpChallenge(args: {
+    nearAccountId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<{ challengeId: string; otpChannel: 'email_otp' }> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.nearAccountId);
+      return await router.requestEmailOtpChallenge(args);
+    }
+    return await requestEmailOtpChallenge({
+      relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+      walletId: String(args.nearAccountId || '').trim(),
+      ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+    });
+  }
+
+  async requestEmailOtpEnrollmentChallenge(args: {
+    nearAccountId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<{ challengeId: string; otpChannel: 'email_otp' }> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.nearAccountId);
+      return await router.requestEmailOtpEnrollmentChallenge(args);
+    }
+    return await requestEmailOtpEnrollmentChallenge({
+      relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+      walletId: String(args.nearAccountId || '').trim(),
+      ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+    });
+  }
+
+  async exchangeGoogleEmailOtpSession(args: {
+    idToken: string;
+    accountMode: 'register' | 'login';
+    relayUrl?: string;
+    sessionKind?: 'jwt' | 'cookie';
+  }): Promise<Awaited<ReturnType<typeof exchangeGoogleEmailOtpSession>>> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter();
+      return await router.exchangeGoogleEmailOtpSession(args);
+    }
+    const managedRegistration =
+      this.configs.registration.mode === 'managed' ? this.configs.registration : null;
+    return await exchangeGoogleEmailOtpSession({
+      relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+      idToken: args.idToken,
+      accountMode: args.accountMode,
+      ...(args.sessionKind ? { sessionKind: args.sessionKind } : {}),
+      ...(managedRegistration
+        ? {
+            runtimeEnvironmentId: managedRegistration.environmentId,
+            publishableKey: managedRegistration.publishableKey,
+          }
+        : {}),
+    });
+  }
+
+  async enrollEmailOtp(args: {
+    nearAccountId: string;
+    otpCode: string;
+    relayUrl?: string;
+    challengeId?: string;
+    shamirPrimeB64u?: string;
+    appSessionJwt?: string;
+    clientSecret32?: Uint8Array;
+  }): Promise<Awaited<ReturnType<SigningEngine['enrollEmailOtpInternal']>>> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      if (args.clientSecret32) {
+        throw new Error(
+          '[TatchiPasskey] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
+        );
+      }
+      const router = await this.walletIframe.requireRouter(args.nearAccountId);
+      const iframeArgs = { ...args };
+      delete iframeArgs.clientSecret32;
+      return await router.enrollEmailOtp(iframeArgs);
+    }
+    return await this.signingEngine.enrollEmailOtpInternal({
+      nearAccountId: args.nearAccountId,
+      otpCode: args.otpCode,
+      ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
+      ...(args.challengeId ? { challengeId: args.challengeId } : {}),
+      ...(args.shamirPrimeB64u ? { shamirPrimeB64u: args.shamirPrimeB64u } : {}),
+      ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+      ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
+    });
+  }
+
+  async loginWithEmailOtpEcdsaCapability(args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+    relayUrl?: string;
+    challengeId?: string;
+    otpCode: string;
+    shamirPrimeB64u?: string;
+    appSessionJwt?: string;
+    authorizationJwt?: string;
+    ecdsaThresholdKeyId?: string;
+    participantIds?: number[];
+    sessionKind?: 'jwt' | 'cookie';
+    sessionId?: string;
+    ttlMs?: number;
+    remainingUses?: number;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  }): Promise<Awaited<ReturnType<SigningEngine['loginWithEmailOtpEcdsaCapabilityInternal']>>> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.nearAccountId);
+      return await router.loginWithEmailOtpEcdsaCapability(args);
+    }
+    return await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal(args);
+  }
+
+  async enrollAndLoginWithEmailOtpEcdsaCapability(args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+    otpCode: string;
+    relayUrl?: string;
+    challengeId?: string;
+    shamirPrimeB64u?: string;
+    appSessionJwt?: string;
+    authorizationJwt?: string;
+    ecdsaThresholdKeyId?: string;
+    participantIds?: number[];
+    sessionKind?: 'jwt' | 'cookie';
+    sessionId?: string;
+    ttlMs?: number;
+    remainingUses?: number;
+    clientSecret32?: Uint8Array;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  }): Promise<
+    Awaited<ReturnType<SigningEngine['enrollAndLoginWithEmailOtpEcdsaCapabilityInternal']>>
+  > {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      if (args.clientSecret32) {
+        throw new Error(
+          '[TatchiPasskey] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
+        );
+      }
+      const router = await this.walletIframe.requireRouter(args.nearAccountId);
+      const iframeArgs = { ...args };
+      delete iframeArgs.clientSecret32;
+      return await router.enrollAndLoginWithEmailOtpEcdsaCapability(iframeArgs);
+    }
+    return await this.signingEngine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(args);
+  }
+
   ///////////////////////////////////////
   // === User Settings ===
   ///////////////////////////////////////
@@ -640,6 +806,13 @@ export class TatchiPasskey {
 export type {
   AuthCapability,
   BootstrapThresholdEcdsaSessionArgs,
+  EmailOtpChallengeResult,
+  EmailOtpEcdsaCapabilityArgs,
+  EmailOtpEcdsaCapabilityResult,
+  EmailOtpEcdsaEnrollmentCapabilityArgs,
+  EmailOtpEcdsaEnrollmentCapabilityResult,
+  EmailOtpEnrollmentResult,
+  GoogleEmailOtpSessionExchangeResult,
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,
   EvmSignerCapability,

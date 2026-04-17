@@ -1,13 +1,17 @@
 import type {
+  EmailOtpBootstrapRecovery,
   SigningEnginePublic,
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaLoginPrefillResult,
   ThresholdEcdsaSessionBootstrapResult,
 } from '../signingEngine/SigningEngine';
+import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
+import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmSessionTypes';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
 import type {
   ActionResult,
   DelegateRelayResult,
+  EmailOtpAuthPolicy,
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
   WalletSession,
@@ -176,6 +180,66 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   };
 };
 
+export type EmailOtpChallengeResult = {
+  challengeId: string;
+  otpChannel: 'email_otp';
+};
+
+export type EmailOtpEnrollmentResult = {
+  thresholdEcdsaClientVerifyingShareB64u: string;
+  challengeId: string;
+  otpChannel: 'email_otp';
+  emailOtpKeyVersion: string;
+  unlockPublicKeyB64u: string;
+  unlockKeyVersion: string;
+};
+
+export type GoogleEmailOtpSessionExchangeResult = {
+  jwt?: string;
+  session: {
+    userId: string;
+    walletId: string;
+    email?: string;
+    name?: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  };
+};
+
+export type EmailOtpEcdsaCapabilityArgs = {
+  nearAccountId: string;
+  chain?: ThresholdEcdsaActivationChain;
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  relayUrl?: string;
+  challengeId?: string;
+  otpCode: string;
+  shamirPrimeB64u?: string;
+  appSessionJwt?: string;
+  authorizationJwt?: string;
+  ecdsaThresholdKeyId?: string;
+  participantIds?: number[];
+  sessionKind?: 'jwt' | 'cookie';
+  sessionId?: string;
+  ttlMs?: number;
+  remainingUses?: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+};
+
+export type EmailOtpEcdsaCapabilityResult = {
+  recovery: EmailOtpBootstrapRecovery;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  warmCapability: WarmSessionEcdsaCapabilityState;
+};
+
+export type EmailOtpEcdsaEnrollmentCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
+  clientSecret32?: Uint8Array;
+};
+
+export type EmailOtpEcdsaEnrollmentCapabilityResult = {
+  enrollment: EmailOtpEnrollmentResult;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  warmCapability: WarmSessionEcdsaCapabilityState;
+};
+
 export interface AuthCapability {
   unlock(nearAccountId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
   lock(): Promise<void>;
@@ -190,6 +254,37 @@ export interface AuthCapability {
     poolReadyPollIntervalMs?: number;
     minRemainingUsesBeforePrefill?: number;
   }): Promise<ThresholdEcdsaLoginPrefillResult>;
+  requestEmailOtpChallenge(args: {
+    nearAccountId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpChallengeResult>;
+  requestEmailOtpEnrollmentChallenge(args: {
+    nearAccountId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpChallengeResult>;
+  exchangeGoogleEmailOtpSession(args: {
+    idToken: string;
+    accountMode: 'register' | 'login';
+    relayUrl?: string;
+    sessionKind?: 'jwt' | 'cookie';
+  }): Promise<GoogleEmailOtpSessionExchangeResult>;
+  enrollEmailOtp(args: {
+    nearAccountId: string;
+    otpCode: string;
+    relayUrl?: string;
+    challengeId?: string;
+    shamirPrimeB64u?: string;
+    appSessionJwt?: string;
+    clientSecret32?: Uint8Array;
+  }): Promise<EmailOtpEnrollmentResult>;
+  loginWithEmailOtpEcdsaCapability(
+    args: EmailOtpEcdsaCapabilityArgs,
+  ): Promise<EmailOtpEcdsaCapabilityResult>;
+  enrollAndLoginWithEmailOtpEcdsaCapability(
+    args: EmailOtpEcdsaEnrollmentCapabilityArgs,
+  ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult>;
 }
 
 export interface RegistrationCapability {

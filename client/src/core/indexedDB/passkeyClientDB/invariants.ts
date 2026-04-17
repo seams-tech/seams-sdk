@@ -124,9 +124,6 @@ export async function collectMigrationParity(
   if (chainAccounts < profiles) {
     mismatches.push(`chainAccounts:${chainAccounts}/profiles:${profiles}`);
   }
-  if (accountSigners < profiles) {
-    mismatches.push(`accountSigners:${accountSigners}/profiles:${profiles}`);
-  }
   if (profileAuthenticators > 0 && profiles === 0) {
     mismatches.push(`profileAuthenticators:${profileAuthenticators}/profiles:${profiles}`);
   }

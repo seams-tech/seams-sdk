@@ -108,6 +108,60 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(req.requestId, result);
     },
 
+    PM_REQUEST_EMAIL_OTP_CHALLENGE: async (req: Req<'PM_REQUEST_EMAIL_OTP_CHALLENGE'>) => {
+      const pm = getTatchiPasskey();
+      const { nearAccountId, relayUrl, appSessionJwt } = req.payload!;
+      const result = await pm.auth.requestEmailOtpChallenge({
+        nearAccountId,
+        ...(relayUrl ? { relayUrl } : {}),
+        ...(appSessionJwt ? { appSessionJwt } : {}),
+      });
+      respondOkResult(req.requestId, result);
+    },
+
+    PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE: async (
+      req: Req<'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const { nearAccountId, relayUrl, appSessionJwt } = req.payload!;
+      const result = await pm.auth.requestEmailOtpEnrollmentChallenge({
+        nearAccountId,
+        ...(relayUrl ? { relayUrl } : {}),
+        ...(appSessionJwt ? { appSessionJwt } : {}),
+      });
+      respondOkResult(req.requestId, result);
+    },
+
+    PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION: async (
+      req: Req<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const result = await pm.auth.exchangeGoogleEmailOtpSession(req.payload!);
+      respondOkResult(req.requestId, result);
+    },
+
+    PM_ENROLL_EMAIL_OTP: async (req: Req<'PM_ENROLL_EMAIL_OTP'>) => {
+      const pm = getTatchiPasskey();
+      const result = await pm.auth.enrollEmailOtp(req.payload!);
+      respondOkResult(req.requestId, result);
+    },
+
+    PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY: async (
+      req: Req<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const result = await pm.auth.loginWithEmailOtpEcdsaCapability(req.payload!);
+      respondOkResult(req.requestId, result);
+    },
+
+    PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY: async (
+      req: Req<'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const result = await pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability(req.payload!);
+      respondOkResult(req.requestId, result);
+    },
+
     PM_REGISTER: async (req: Req<'PM_REGISTER'>) => {
       const pm = getTatchiPasskey();
       const { nearAccountId, options, confirmationConfig } = req.payload!;

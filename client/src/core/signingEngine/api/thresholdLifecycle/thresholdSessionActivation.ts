@@ -16,6 +16,7 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from './thresholdSessionStore';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/session/sessionPolicy';
 
 export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
@@ -30,6 +31,11 @@ export type BootstrapEcdsaSessionArgs = {
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   authorizationJwt?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimeScopeBootstrap?: {
+    environmentId: string;
+    publishableKey: string;
+  };
   ttlMs?: number;
   remainingUses?: number;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
@@ -129,6 +135,8 @@ export async function bootstrapEcdsaSessionValue(
       clientRootShare32: args.clientRootShare32,
       clientRootShare32B64u: args.clientRootShare32B64u,
       authorizationJwt: args.authorizationJwt,
+      runtimePolicyScope: args.runtimePolicyScope,
+      runtimeScopeBootstrap: args.runtimeScopeBootstrap,
       ttlMs: args.ttlMs,
       remainingUses: args.remainingUses,
     },

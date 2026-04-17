@@ -16,6 +16,11 @@ export type ThresholdEcdsaCanonicalExportArtifact = {
 
 export type EcdsaThresholdKeyId = string;
 
+export type ThresholdEcdsaClientAdditiveShareHandle = {
+  kind: 'email_otp_worker_session';
+  sessionId: string;
+};
+
 export type ThresholdEcdsaBackendBinding = {
   /**
    * Backend integration identifier for the current threshold-signatures signer
@@ -32,6 +37,11 @@ export type ThresholdEcdsaBackendBinding = {
    * This remains an internal signer binding, not a public identity field.
    */
   clientAdditiveShare32B64u?: string;
+  /**
+   * Opaque handle for Email OTP-derived signing material owned by the Email OTP worker.
+   * The handle is not secret material; callers must ask the worker for a one-time byte handoff.
+   */
+  clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
 };
 
 export type KeyRef =

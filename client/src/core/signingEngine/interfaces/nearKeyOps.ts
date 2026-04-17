@@ -21,7 +21,7 @@ export type NearSigningKeyOps = {
   }>;
   deriveThresholdEd25519HssClientInputs(args: {
     sessionId: string;
-    orgId: string;
+    signingRootId: string;
     nearAccountId: AccountId;
     keyPurpose: string;
     keyVersion: string;
@@ -30,7 +30,7 @@ export type NearSigningKeyOps = {
     prfFirstB64u: string;
   }): Promise<{
     success: boolean;
-    orgId: string;
+    signingRootId: string;
     nearAccountId: string;
     keyPurpose: string;
     keyVersion: string;

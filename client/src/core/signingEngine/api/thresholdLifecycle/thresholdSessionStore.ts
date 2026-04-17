@@ -8,6 +8,7 @@ import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
 import { normalizeThresholdEcdsaSessionKind } from './normalization';
 import type {
+  ThresholdEcdsaClientAdditiveShareHandle,
   EcdsaThresholdKeyId,
   ThresholdEcdsaCanonicalExportArtifact,
   ThresholdEcdsaSecp256k1KeyRef,
@@ -17,9 +18,9 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '../../orchestration/thresholdActivation';
 import {
-  normalizeThresholdRuntimeSnapshotScope,
-  parseThresholdRuntimeSnapshotScopeFromJwt,
-  type ThresholdRuntimeSnapshotScope,
+  normalizeThresholdRuntimePolicyScope,
+  parseThresholdRuntimePolicyScopeFromJwt,
+  type ThresholdRuntimePolicyScope,
 } from '../../threshold/session/sessionPolicy';
 
 export type ThresholdSessionCurve = 'ed25519' | 'ecdsa';
@@ -47,8 +48,9 @@ export type ThresholdEcdsaSessionRecord = {
   relayerKeyId: string;
   clientVerifyingShareB64u: string;
   clientAdditiveShare32B64u?: string;
+  clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
   participantIds: number[];
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
   thresholdSessionJwt?: string;
@@ -76,7 +78,7 @@ export type ThresholdEd25519SessionRecord = {
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   xClientBaseB64u?: string;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
@@ -409,6 +411,23 @@ function getEd25519SessionStorageSafe(): SessionStoragePort | null {
   return getSessionStorageSafe('__tatchi_threshold_ed25519_session_probe__', 'ed25519');
 }
 
+function normalizeStoredRuntimePolicyScope(
+  obj: Record<string, unknown>,
+  jwt?: string,
+): ThresholdRuntimePolicyScope | undefined {
+  if (Object.prototype.hasOwnProperty.call(obj, 'runtimeSnapshotScope')) {
+    throw new Error('Invalid threshold session record: stale runtimeSnapshotScope');
+  }
+  if (Object.prototype.hasOwnProperty.call(obj, 'runtimePolicyScope')) {
+    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(obj.runtimePolicyScope);
+    if (!runtimePolicyScope) {
+      throw new Error('Invalid threshold session record: stale runtimePolicyScope');
+    }
+    return runtimePolicyScope;
+  }
+  return parseThresholdRuntimePolicyScopeFromJwt(jwt);
+}
+
 function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSessionRecord {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
   const nearAccountId = toAccountId(String(obj.nearAccountId || '').trim());
@@ -418,6 +437,9 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
   const clientVerifyingShareB64u = String(obj.clientVerifyingShareB64u || '').trim();
   const clientAdditiveShare32B64u = normalizeOptionalNonEmptyString(obj.clientAdditiveShare32B64u);
+  const clientAdditiveShareHandle = normalizeThresholdEcdsaClientAdditiveShareHandle(
+    obj.clientAdditiveShareHandle,
+  );
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
   const thresholdSessionKind = normalizeThresholdEcdsaSessionKind(obj.thresholdSessionKind);
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
@@ -428,9 +450,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const signingSessionSealShamirPrimeB64u = normalizeOptionalNonEmptyString(
     obj.signingSessionSealShamirPrimeB64u,
   );
-  const runtimeSnapshotScope =
-    normalizeThresholdRuntimeSnapshotScope(obj.runtimeSnapshotScope) ||
-    parseThresholdRuntimeSnapshotScopeFromJwt(thresholdSessionJwt);
+  const runtimePolicyScope = normalizeStoredRuntimePolicyScope(obj, thresholdSessionJwt);
   const sourceRaw = String(obj.source || '').trim();
   const source: ThresholdEcdsaSessionStoreSource =
     sourceRaw === 'login' ||
@@ -442,7 +462,9 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const updatedAtMs = normalizeInteger(obj.updatedAtMs) || Date.now();
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
   const remainingUses = normalizeInteger(obj.remainingUses);
-  const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(obj.thresholdEcdsaPublicKeyB64u);
+  const thresholdEcdsaPublicKeyB64u = normalizeOptionalNonEmptyString(
+    obj.thresholdEcdsaPublicKeyB64u,
+  );
   const ethereumAddress = normalizeOptionalNonEmptyString(obj.ethereumAddress);
   const relayerVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.relayerVerifyingShareB64u);
   const emailOtpAuthContext =
@@ -472,9 +494,10 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     ecdsaThresholdKeyId,
     relayerKeyId,
     clientVerifyingShareB64u,
-    ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+    ...(source !== 'email_otp' && clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+    ...(source === 'email_otp' && clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
     participantIds,
-    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     thresholdSessionKind,
     thresholdSessionId,
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
@@ -491,21 +514,39 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   };
 }
 
+function normalizeThresholdEcdsaClientAdditiveShareHandle(
+  value: unknown,
+): ThresholdEcdsaClientAdditiveShareHandle | null {
+  const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const kind = String(obj.kind || '').trim();
+  const sessionId = String(obj.sessionId || '').trim();
+  if (kind !== 'email_otp_worker_session' || !sessionId) return null;
+  return {
+    kind: 'email_otp_worker_session',
+    sessionId,
+  };
+}
+
 function normalizeThresholdEcdsaEmailOtpAuthContext(
   value: unknown,
 ): ThresholdEcdsaEmailOtpAuthContext {
   const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const policyRaw = String(obj.policy || '').trim().toLowerCase();
-  const policy: EmailOtpAuthPolicy =
-    policyRaw === 'per_operation' ? 'per_operation' : 'session';
-  const retentionRaw = String(obj.retention || '').trim().toLowerCase();
+  const policyRaw = String(obj.policy || '')
+    .trim()
+    .toLowerCase();
+  const policy: EmailOtpAuthPolicy = policyRaw === 'per_operation' ? 'per_operation' : 'session';
+  const retentionRaw = String(obj.retention || '')
+    .trim()
+    .toLowerCase();
   const retention: 'session' | 'single_use' =
     retentionRaw === 'single_use'
       ? 'single_use'
       : policy === 'per_operation'
         ? 'single_use'
         : 'session';
-  const reasonRaw = String(obj.reason || '').trim().toLowerCase();
+  const reasonRaw = String(obj.reason || '')
+    .trim()
+    .toLowerCase();
   const reason: 'login' | 'sign' = reasonRaw === 'sign' ? 'sign' : 'login';
   const consumedAtMs = normalizePositiveInteger(obj.consumedAtMs);
   return {
@@ -525,7 +566,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const relayerUrl = String(obj.relayerUrl || '').trim();
   const relayerKeyId = String(obj.relayerKeyId || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
-  const runtimeSnapshotScope = normalizeThresholdRuntimeSnapshotScope(obj.runtimeSnapshotScope);
+  const runtimePolicyScope = normalizeStoredRuntimePolicyScope(obj);
   const xClientBaseB64u = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
   const thresholdSessionKindRaw = String(obj.thresholdSessionKind || 'jwt')
     .trim()
@@ -565,7 +606,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     relayerUrl,
     relayerKeyId,
     participantIds,
-    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
     thresholdSessionKind,
     thresholdSessionId,
@@ -747,7 +788,9 @@ function buildEcdsaRecordFromBootstrap(args: {
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
   if (!ecdsaThresholdKeyId) {
-    throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide ecdsaThresholdKeyId');
+    throw new Error(
+      '[SigningEngine] threshold ECDSA bootstrap did not provide ecdsaThresholdKeyId',
+    );
   }
   const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
   if (!participantIds) {
@@ -765,6 +808,16 @@ function buildEcdsaRecordFromBootstrap(args: {
   const thresholdSessionJwt = normalizeOptionalNonEmptyString(
     keyRef.thresholdSessionJwt || args.bootstrap.session.jwt,
   );
+  const clientAdditiveShare32B64u =
+    args.source === 'email_otp'
+      ? undefined
+      : normalizeOptionalNonEmptyString(keyRef.backendBinding?.clientAdditiveShare32B64u);
+  const clientAdditiveShareHandle =
+    args.source === 'email_otp'
+      ? normalizeThresholdEcdsaClientAdditiveShareHandle(
+          keyRef.backendBinding?.clientAdditiveShareHandle,
+        )
+      : null;
   const signingSessionSealKeyVersion = normalizeOptionalNonEmptyString(
     args.signingSessionSeal?.keyVersion,
   );
@@ -784,7 +837,8 @@ function buildEcdsaRecordFromBootstrap(args: {
     ecdsaThresholdKeyId,
     relayerKeyId: keyRef.backendBinding?.relayerKeyId,
     clientVerifyingShareB64u: keyRef.backendBinding?.clientVerifyingShareB64u,
-    clientAdditiveShare32B64u: keyRef.backendBinding?.clientAdditiveShare32B64u,
+    ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+    ...(clientAdditiveShareHandle ? { clientAdditiveShareHandle } : {}),
     participantIds,
     thresholdSessionKind,
     thresholdSessionId,
@@ -973,13 +1027,18 @@ export function getThresholdEcdsaKeyRefForSigning(
       ...(record.clientAdditiveShare32B64u
         ? { clientAdditiveShare32B64u: record.clientAdditiveShare32B64u }
         : {}),
+      ...(record.clientAdditiveShareHandle
+        ? { clientAdditiveShareHandle: record.clientAdditiveShareHandle }
+        : {}),
     },
     ...(ecdsaHssExportArtifact ? { ecdsaHssExportArtifact } : {}),
     participantIds: record.participantIds,
     thresholdSessionKind: record.thresholdSessionKind,
     thresholdSessionId: record.thresholdSessionId,
     ...(record.thresholdSessionJwt ? { thresholdSessionJwt: record.thresholdSessionJwt } : {}),
-    ...(record.thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u } : {}),
+    ...(record.thresholdEcdsaPublicKeyB64u
+      ? { thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u }
+      : {}),
     ...(record.ethereumAddress ? { ethereumAddress: record.ethereumAddress } : {}),
     ...(record.relayerVerifyingShareB64u
       ? { relayerVerifyingShareB64u: record.relayerVerifyingShareB64u }
@@ -1146,7 +1205,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   relayerUrl: string;
   relayerKeyId: string;
   participantIds: number[];
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   xClientBaseB64u?: string;
   thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionId: string;
@@ -1162,7 +1221,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
     relayerUrl: String(args.relayerUrl || '').trim(),
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     participantIds: args.participantIds,
-    ...(args.runtimeSnapshotScope ? { runtimeSnapshotScope: args.runtimeSnapshotScope } : {}),
+    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     ...(String(args.xClientBaseB64u || '').trim()
       ? { xClientBaseB64u: String(args.xClientBaseB64u || '').trim() }
       : {}),
@@ -1209,8 +1268,8 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
     relayerUrl: existing.relayerUrl,
     relayerKeyId: existing.relayerKeyId,
     participantIds: existing.participantIds,
-    ...(existing.runtimeSnapshotScope
-      ? { runtimeSnapshotScope: existing.runtimeSnapshotScope }
+    ...(existing.runtimePolicyScope
+      ? { runtimePolicyScope: existing.runtimePolicyScope }
       : {}),
     xClientBaseB64u,
     thresholdSessionKind: existing.thresholdSessionKind,

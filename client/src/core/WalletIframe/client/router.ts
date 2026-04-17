@@ -109,6 +109,15 @@ import type {
   DeviceLinkingQRData,
 } from '../../types/linkDevice';
 import type { SyncAccountResult } from '../../TatchiPasskey/syncAccount';
+import type {
+  EmailOtpChallengeResult,
+  EmailOtpEcdsaCapabilityArgs,
+  EmailOtpEcdsaCapabilityResult,
+  EmailOtpEcdsaEnrollmentCapabilityArgs,
+  EmailOtpEcdsaEnrollmentCapabilityResult,
+  EmailOtpEnrollmentResult,
+  GoogleEmailOtpSessionExchangeResult,
+} from '../../TatchiPasskey/interfaces';
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '../../types';
 import type { DelegateActionInput } from '../../types/delegate';
 import { IframeTransport } from './transport/IframeTransport';
@@ -183,11 +192,44 @@ type Pending = {
 
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
+const EMAIL_OTP_APP_ORIGIN_FORBIDDEN_RESULT_KEYS = new Set([
+  'S',
+  'secretS',
+  'recoveredS',
+  'recoveredSB64u',
+  'clientSecret32',
+  'clientRootShare32',
+  'clientRootShare32B64u',
+  'clientAdditiveShare32',
+  'clientAdditiveShare32B64u',
+  'clientSigningShare32',
+  'clientSigningShare32B64u',
+  'kShareB64u',
+  'sigmaShareB64u',
+]);
 
 type PostResult<T> = {
   ok: boolean;
   result: T;
 };
+
+function sanitizeEmailOtpIframeResult<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeEmailOtpIframeResult(entry)) as T;
+  }
+  if (!isObject(value)) {
+    return value;
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (EMAIL_OTP_APP_ORIGIN_FORBIDDEN_RESULT_KEYS.has(key)) {
+      continue;
+    }
+    out[key] = sanitizeEmailOtpIframeResult(entry);
+  }
+  return out as T;
+}
 
 const CANONICAL_SIGNER_BOUNDARY_MESSAGES: Record<string, string> = {
   commit_queue_overflow:
@@ -814,6 +856,100 @@ export class WalletIframeRouter {
       payload: nearAccountId ? { nearAccountId } : undefined,
     });
     return res.result;
+  }
+
+  async requestEmailOtpChallenge(payload: {
+    nearAccountId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpChallengeResult> {
+    const res = await this.post<EmailOtpChallengeResult>({
+      type: 'PM_REQUEST_EMAIL_OTP_CHALLENGE',
+      payload,
+    });
+    return res.result;
+  }
+
+  async requestEmailOtpEnrollmentChallenge(payload: {
+    nearAccountId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpChallengeResult> {
+    const res = await this.post<EmailOtpChallengeResult>({
+      type: 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE',
+      payload,
+    });
+    return res.result;
+  }
+
+  async exchangeGoogleEmailOtpSession(payload: {
+    idToken: string;
+    accountMode: 'register' | 'login';
+    relayUrl?: string;
+    sessionKind?: 'jwt' | 'cookie';
+  }): Promise<GoogleEmailOtpSessionExchangeResult> {
+    const res = await this.post<GoogleEmailOtpSessionExchangeResult>({
+      type: 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION',
+      payload,
+    });
+    return res.result;
+  }
+
+  async enrollEmailOtp(payload: {
+    nearAccountId: string;
+    otpCode: string;
+    relayUrl?: string;
+    challengeId?: string;
+    shamirPrimeB64u?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpEnrollmentResult> {
+    const res = await this.post<EmailOtpEnrollmentResult>(
+      {
+        type: 'PM_ENROLL_EMAIL_OTP',
+        payload,
+      },
+      {
+        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+        progressTimeoutExtensionFactor: 1,
+      },
+    );
+    return sanitizeEmailOtpIframeResult(res.result);
+  }
+
+  async loginWithEmailOtpEcdsaCapability(
+    payload: EmailOtpEcdsaCapabilityArgs,
+  ): Promise<EmailOtpEcdsaCapabilityResult> {
+    const res = await this.post<EmailOtpEcdsaCapabilityResult>(
+      {
+        type: 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
+        payload,
+      },
+      {
+        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+        progressTimeoutExtensionFactor: 1,
+      },
+    );
+    const { login: st } = await this.getWalletSession(payload.nearAccountId);
+    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
+    return sanitizeEmailOtpIframeResult(res.result);
+  }
+
+  async enrollAndLoginWithEmailOtpEcdsaCapability(
+    payload: Omit<EmailOtpEcdsaEnrollmentCapabilityArgs, 'clientSecret32'>,
+  ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult> {
+    const res = await this.post<EmailOtpEcdsaEnrollmentCapabilityResult>(
+      {
+        type: 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
+        payload,
+      },
+      {
+        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+        progressTimeoutExtensionFactor: 1,
+      },
+    );
+    const { login: st } = await this.getWalletSession(payload.nearAccountId);
+    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
+    return sanitizeEmailOtpIframeResult(res.result);
   }
 
   async checkLoginStatus(): Promise<

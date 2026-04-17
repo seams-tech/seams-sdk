@@ -85,6 +85,39 @@ function isWarmSessionActive(
   );
 }
 
+function resolveEmailOtpShareHandleSessionId(keyRef: ThresholdEcdsaSecp256k1KeyRef): string {
+  const handle = keyRef.backendBinding?.clientAdditiveShareHandle;
+  if (handle?.kind !== 'email_otp_worker_session') return '';
+  return String(handle.sessionId || '').trim();
+}
+
+async function claimEmailOtpWorkerEcdsaSigningShare(args: {
+  deps: ThresholdEcdsaLoginPrefillDeps;
+  sessionId: string;
+}): Promise<Uint8Array> {
+  const result = await args.deps.getSignerWorkerContext().requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'claimEmailOtpEcdsaSigningShare',
+      timeoutMs: 5_000,
+      payload: { sessionId: args.sessionId },
+    },
+  });
+  if (!result.ok) {
+    throw new Error(
+      result.message ||
+        result.code ||
+        'Email OTP ECDSA signing material is unavailable; verify Email OTP again',
+    );
+  }
+  const clientSigningShare32 = new Uint8Array(result.clientSigningShare32);
+  if (clientSigningShare32.length !== 32) {
+    zeroizeBytes(clientSigningShare32);
+    throw new Error('Email OTP ECDSA signing material must contain 32 bytes');
+  }
+  return clientSigningShare32;
+}
+
 export async function scheduleThresholdEcdsaLoginPresignPrefill(
   deps: ThresholdEcdsaLoginPrefillDeps,
   args: {
@@ -116,6 +149,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
     const clientAdditiveShare32B64u = String(
       keyRef.backendBinding?.clientAdditiveShare32B64u || '',
     ).trim();
+    const emailOtpWorkerShareSessionId = resolveEmailOtpShareHandleSessionId(keyRef);
     const participantIds = normalizeThresholdEd25519ParticipantIds(keyRef.participantIds);
     if (!relayerUrl || !relayerKeyId || !clientVerifyingShareB64u || !participantIds) {
       return {
@@ -201,31 +235,38 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
 
     let clientSigningShare32: Uint8Array | null = null;
     const remainingUsesAfterDispense = remainingUsesBefore;
-    if (!clientAdditiveShare32B64u) {
+    if (!clientAdditiveShare32B64u && !emailOtpWorkerShareSessionId) {
       return {
         status: 'skipped',
         reason: 'invalid_key_ref',
         thresholdSessionId,
-        details: 'missing clientAdditiveShare32B64u',
+        details: 'missing ECDSA signing material',
       };
     }
-    try {
-      clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
-    } catch {
-      return {
-        status: 'skipped',
-        reason: 'invalid_key_ref',
-        thresholdSessionId,
-        details: 'clientAdditiveShare32B64u must be valid base64url',
-      };
-    }
-    if (clientSigningShare32.length !== 32) {
-      return {
-        status: 'skipped',
-        reason: 'invalid_key_ref',
-        thresholdSessionId,
-        details: 'clientAdditiveShare32B64u must decode to 32 bytes',
-      };
+    if (emailOtpWorkerShareSessionId) {
+      clientSigningShare32 = await claimEmailOtpWorkerEcdsaSigningShare({
+        deps,
+        sessionId: emailOtpWorkerShareSessionId,
+      });
+    } else {
+      try {
+        clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
+      } catch {
+        return {
+          status: 'skipped',
+          reason: 'invalid_key_ref',
+          thresholdSessionId,
+          details: 'clientAdditiveShare32B64u must be valid base64url',
+        };
+      }
+      if (clientSigningShare32.length !== 32) {
+        return {
+          status: 'skipped',
+          reason: 'invalid_key_ref',
+          thresholdSessionId,
+          details: 'clientAdditiveShare32B64u must decode to 32 bytes',
+        };
+      }
     }
 
     try {

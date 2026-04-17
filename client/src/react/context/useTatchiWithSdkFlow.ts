@@ -156,6 +156,7 @@ export function useTatchiWithSdkFlow(args: {
         if (prop === 'auth') {
           const auth = Reflect.get(target as object, prop, receiver) as AuthCapability;
           return {
+            ...auth,
             unlock: loginWithSdkFlow,
             lock: () => auth.lock(),
             getWalletSession: (...args: Parameters<AuthCapability['getWalletSession']>) =>

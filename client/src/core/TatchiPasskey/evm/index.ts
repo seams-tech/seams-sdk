@@ -35,12 +35,23 @@ export class EvmSigner implements EvmSignerCapability {
         });
       },
       local: async () => {
-        return await this.getContext().signingEngine.bootstrapEcdsaSession({
+        const context = this.getContext();
+        const managedRegistration =
+          context.configs.registration.mode === 'managed' ? context.configs.registration : null;
+        return await context.signingEngine.bootstrapEcdsaSession({
           nearAccountId: toAccountId(args.nearAccountId),
           chain: options.chain,
           relayerUrl: options.relayerUrl,
           participantIds: options.participantIds,
           sessionKind: options.sessionKind,
+          ...(managedRegistration
+            ? {
+                runtimeScopeBootstrap: {
+                  environmentId: managedRegistration.environmentId,
+                  publishableKey: managedRegistration.publishableKey,
+                },
+              }
+            : {}),
           ttlMs: options.ttlMs,
           remainingUses: options.remainingUses,
           smartAccount: options.smartAccount ? { ...options.smartAccount } : undefined,

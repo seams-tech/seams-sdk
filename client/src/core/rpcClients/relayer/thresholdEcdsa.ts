@@ -2,12 +2,14 @@ import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import { errorMessage } from '@shared/utils/errors';
 import { normalizeJwtCookieSessionKind, stripTrailingSlashes } from '@shared/utils/normalize';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
+import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
 
 type ThresholdSessionPolicyV1 = {
   version: 'threshold_session_v1';
   userId: string;
   rpId: string;
   sessionId: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   ttlMs: number;
   remainingUses: number;
@@ -82,11 +84,16 @@ export async function thresholdEcdsaHssPrepare(
   args: {
     userId: string;
     rpId: string;
-    operation: 'registration_bootstrap' | 'session_bootstrap' | 'explicit_key_export';
+    operation:
+      | 'registration_bootstrap'
+      | 'email_otp_bootstrap'
+      | 'session_bootstrap'
+      | 'explicit_key_export';
     ecdsaThresholdKeyId?: string;
     keygenSessionId?: string;
     sessionPolicy?: ThresholdSessionPolicyV1;
     webauthnAuthentication?: WebAuthnAuthenticationCredential;
+    runtimeEnvironmentId?: string;
     authorizationJwt?: string;
     sessionKind?: 'jwt' | 'cookie';
   },
@@ -118,6 +125,9 @@ export async function thresholdEcdsaHssPrepare(
             : {}),
           ...(args.keygenSessionId ? { keygenSessionId: String(args.keygenSessionId).trim() } : {}),
           ...(args.sessionPolicy ? { sessionPolicy: args.sessionPolicy } : {}),
+          ...(args.runtimeEnvironmentId
+            ? { runtimeEnvironmentId: String(args.runtimeEnvironmentId).trim() }
+            : {}),
           ...(args.webauthnAuthentication
             ? { webauthn_authentication: redactCredentialExtensionOutputs(args.webauthnAuthentication) }
             : {}),

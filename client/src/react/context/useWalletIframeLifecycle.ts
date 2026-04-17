@@ -3,7 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
 import { toAccountId } from '@/core/types/accountIds';
 import type { LoginState } from '../types';
-import { isNearThresholdEd25519SessionReadyForUi } from './walletSessionReadiness';
+import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function useWalletIframeLifecycle(args: {
   tatchi: TatchiPasskey;
@@ -38,7 +38,7 @@ export function useWalletIframeLifecycle(args: {
             if (status?.isLoggedIn && status?.nearAccountId) {
               const session = await tatchi.auth.getWalletSession(status.nearAccountId);
               const { login: state } = session;
-              if (isNearThresholdEd25519SessionReadyForUi({ session })) {
+              if (isWalletSessionReadyForUi({ session })) {
                 tatchi.preferences.setCurrentUser(toAccountId(status.nearAccountId));
                 setLoginState((prev) => ({
                   ...prev,
@@ -80,7 +80,7 @@ export function useWalletIframeLifecycle(args: {
             try {
               const session = await tatchi.auth.getWalletSession(acct);
               const { login: state } = session;
-              if (isNearThresholdEd25519SessionReadyForUi({ session }) && state?.nearAccountId) {
+              if (isWalletSessionReadyForUi({ session }) && state?.nearAccountId) {
                 tatchi.preferences.setCurrentUser(toAccountId(state.nearAccountId));
                 setLoginState((prev) => ({
                   ...prev,
@@ -106,7 +106,7 @@ export function useWalletIframeLifecycle(args: {
 
         const session = await tatchi.auth.getWalletSession();
         const { login: st } = session;
-        if (isNearThresholdEd25519SessionReadyForUi({ session })) {
+        if (isWalletSessionReadyForUi({ session })) {
           setLoginState((prev) => ({
             ...prev,
             isLoggedIn: true,

@@ -6,6 +6,7 @@ import type {
   LoginResult,
   WalletSession,
   LoginState,
+  SigningSessionStatus,
   ThresholdWarmLoginAndCreateSessionResult,
 } from '../types/tatchi';
 import type { PasskeyManagerContext } from './index';
@@ -19,8 +20,11 @@ import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import type { ClientUserData } from '../accountData/near/types';
 import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/rpcCalls';
 import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
-import { clearAllStoredThresholdEd25519SessionRecords } from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdRuntimeSnapshotScope } from '../signingEngine/threshold/session/sessionPolicy';
+import {
+  clearAllStoredThresholdEd25519SessionRecords,
+  getStoredThresholdEd25519SessionRecordForAccount,
+} from '../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarmSessionBootstrap';
 
@@ -536,7 +540,7 @@ async function finalizeLoginError(args: {
 type CanonicalThresholdEcdsaWarmSessionContext = {
   thresholdSessionId: string | null;
   ecdsaThresholdKeyId?: string | null;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
 type ManagedThresholdRuntimeScopeBootstrap = {
@@ -635,8 +639,8 @@ async function primeThresholdLoginWarmSigners(args: {
           nearAccountId: args.nearAccountId,
           relayerUrl: args.relayerUrl,
           relayerKeyId: args.relayerKeyId,
-          ...(args.canonicalEcdsaContext.runtimeSnapshotScope
-            ? { runtimeSnapshotScope: args.canonicalEcdsaContext.runtimeSnapshotScope }
+          ...(args.canonicalEcdsaContext.runtimePolicyScope
+            ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
             : {}),
           ...(args.managedRuntimeScopeBootstrap
             ? { runtimeScopeBootstrap: args.managedRuntimeScopeBootstrap }
@@ -710,6 +714,12 @@ async function primeThresholdLoginWarmSigners(args: {
               sessionId: warmState.sessionId,
               clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
               authorizationJwt: ecdsaAuthorizationJwt,
+              ...(args.canonicalEcdsaContext.runtimePolicyScope
+                ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
+                : {}),
+              ...(args.managedRuntimeScopeBootstrap
+                ? { runtimeScopeBootstrap: args.managedRuntimeScopeBootstrap }
+                : {}),
             });
           }
         } catch (error: unknown) {
@@ -747,9 +757,7 @@ export async function getWalletSession(
   });
   const login = await getLoginStateInternal(context, nearAccountId);
   const signingSession = login?.nearAccountId
-    ? await context.signingEngine
-        .getWarmThresholdEd25519SessionStatus(login.nearAccountId)
-        .catch(() => null)
+    ? await resolveWarmSigningSessionStatusForUi(context, login.nearAccountId).catch(() => null)
     : null;
   return { login, signingSession };
 }
@@ -803,7 +811,7 @@ async function resolveThresholdLoginWarmSigners(args: {
 }): Promise<ThresholdLoginWarmSigner[]> {
   const hasExistingThresholdEcdsaSession =
     !!String(args.canonicalEcdsaContext?.thresholdSessionId || '').trim() ||
-    !!args.canonicalEcdsaContext?.runtimeSnapshotScope ||
+    !!args.canonicalEcdsaContext?.runtimePolicyScope ||
     !!String(args.existingThresholdEcdsaPublicKeyB64u || '').trim();
   try {
     const continuity = await resolveNearAccountProfileContinuity(
@@ -844,7 +852,7 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
       }) => {
         thresholdSessionId?: string;
         ecdsaThresholdKeyId?: string;
-        runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+        runtimePolicyScope?: ThresholdRuntimePolicyScope;
       };
     }
   )?.getThresholdEcdsaSessionRecordForSigning;
@@ -859,12 +867,12 @@ function resolveCanonicalThresholdEcdsaWarmSessionContext(
       const record = getRecord({ nearAccountId, chain });
       const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
       const ecdsaThresholdKeyId = String(record?.ecdsaThresholdKeyId || '').trim();
-      if (thresholdSessionId || ecdsaThresholdKeyId || record?.runtimeSnapshotScope) {
+      if (thresholdSessionId || ecdsaThresholdKeyId || record?.runtimePolicyScope) {
         return {
           thresholdSessionId: thresholdSessionId || null,
           ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
-          ...(record?.runtimeSnapshotScope
-            ? { runtimeSnapshotScope: record.runtimeSnapshotScope }
+          ...(record?.runtimePolicyScope
+            ? { runtimePolicyScope: record.runtimePolicyScope }
             : {}),
         };
       }
@@ -921,6 +929,45 @@ async function resolveThresholdEcdsaLoginMetadata(
   };
 }
 
+function isThresholdSignerMode(context: PasskeyManagerContext): boolean {
+  const signingConfig = context.configs?.signing as { mode?: { mode?: unknown } } | undefined;
+  return String(signingConfig?.mode?.mode || '').trim() === 'threshold-signer';
+}
+
+async function resolveWarmSigningSessionStatusForUi(
+  context: PasskeyManagerContext,
+  nearAccountId: AccountId,
+  hints?: {
+    ed25519?: SigningSessionStatus | null;
+  },
+): Promise<SigningSessionStatus | null> {
+  const signingEngine = context.signingEngine as typeof context.signingEngine & {
+    getWarmThresholdEcdsaSessionStatus?: (
+      nearAccountId: AccountId | string,
+      chain: 'tempo' | 'evm',
+    ) => Promise<SigningSessionStatus | null>;
+  };
+
+  const ed25519 =
+    hints && 'ed25519' in hints
+      ? hints.ed25519 || null
+      : await signingEngine.getWarmThresholdEd25519SessionStatus(nearAccountId).catch(() => null);
+  if (ed25519?.status === 'active') return ed25519;
+
+  const ecdsaStatuses =
+    typeof signingEngine.getWarmThresholdEcdsaSessionStatus === 'function'
+      ? await Promise.all([
+          signingEngine
+            .getWarmThresholdEcdsaSessionStatus(nearAccountId, 'tempo')
+            .catch(() => null),
+          signingEngine.getWarmThresholdEcdsaSessionStatus(nearAccountId, 'evm').catch(() => null),
+        ])
+      : [];
+
+  const activeEcdsa = ecdsaStatuses.find((status) => status?.status === 'active') || null;
+  return activeEcdsa || ed25519 || ecdsaStatuses.find(Boolean) || null;
+}
+
 async function getLoginStateInternal(
   context: PasskeyManagerContext,
   nearAccountId?: AccountId,
@@ -951,16 +998,37 @@ async function getLoginStateInternal(
         ? lastUser
         : latestByAccount) ||
       (await signingEngine.getUserByDevice(targetAccountId, 1).catch(() => null));
-    const publicKey = userData?.operationalPublicKey || null;
-    const isLoggedIn = !!(userData && userData.operationalPublicKey);
     const resolvedNearAccountId = targetAccountId;
-
-    if (isLoggedIn && shouldRequireThresholdWarmSession(context)) {
-      const warmStatus = resolvedNearAccountId
-        ? await signingEngine
-            .getWarmThresholdEd25519SessionStatus(resolvedNearAccountId)
-            .catch(() => null)
+    const thresholdMetadata = await resolveThresholdEcdsaLoginMetadata(context, resolvedNearAccountId);
+    const requiresWarmSession = shouldRequireThresholdWarmSession(context);
+    const thresholdSignerMode = isThresholdSignerMode(context);
+    const hasThresholdEcdsaLogin = !!(
+      thresholdMetadata.thresholdEcdsaPublicKeyB64u || thresholdMetadata.ethereumAddress
+    );
+    const ed25519WarmStatus = await signingEngine
+      .getWarmThresholdEd25519SessionStatus(resolvedNearAccountId)
+      .catch(() => null);
+    const hasThresholdEd25519SessionRecord = !!getStoredThresholdEd25519SessionRecordForAccount(
+      resolvedNearAccountId,
+    );
+    const shouldGateNearPublicKey =
+      requiresWarmSession || thresholdSignerMode || hasThresholdEcdsaLogin;
+    const hasThresholdEd25519SigningCapability =
+      ed25519WarmStatus?.status === 'active' || hasThresholdEd25519SessionRecord;
+    const publicKey =
+      userData?.operationalPublicKey &&
+      (!shouldGateNearPublicKey || hasThresholdEd25519SigningCapability)
+        ? userData.operationalPublicKey
         : null;
+    const hasNearOperationalLogin = !!(userData && publicKey);
+    const isLoggedIn = hasNearOperationalLogin || hasThresholdEcdsaLogin;
+
+    if (isLoggedIn && (requiresWarmSession || !hasNearOperationalLogin)) {
+      const warmStatus = await resolveWarmSigningSessionStatusForUi(
+        context,
+        resolvedNearAccountId,
+        { ed25519: ed25519WarmStatus },
+      );
       if (!warmStatus || warmStatus.status !== 'active') {
         return {
           isLoggedIn: false,
@@ -972,10 +1040,6 @@ async function getLoginStateInternal(
         };
       }
     }
-
-    const thresholdMetadata = resolvedNearAccountId
-      ? await resolveThresholdEcdsaLoginMetadata(context, resolvedNearAccountId)
-      : { ethereumAddress: null, thresholdEcdsaPublicKeyB64u: null };
 
     return {
       isLoggedIn,

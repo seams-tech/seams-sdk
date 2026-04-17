@@ -27,9 +27,12 @@ import type { TempoSigningDeps } from '../api/tempoSigning';
 import type { ThresholdEd25519LifecycleDeps } from '../api/thresholdLifecycle/thresholdEd25519Lifecycle';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
-  type ThresholdEcdsaEmailOtpAuthContext,
+  type ThresholdEcdsaSessionRecord,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdSessionActivationDeps } from '../api/thresholdLifecycle/thresholdSessionActivation';
+import type {
+  BootstrapEcdsaSessionArgs,
+  ThresholdSessionActivationDeps,
+} from '../api/thresholdLifecycle/thresholdSessionActivation';
 import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
 import {
   prewarmSignerWorkers as prewarmSignerWorkersValue,
@@ -78,14 +81,18 @@ export type CreateOrchestrationDependencyBundleArgs = {
   getThresholdEcdsaSessionRecordForSigning: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
-  }) => {
-    relayerUrl: string;
-    ecdsaThresholdKeyId: string;
-    participantIds: number[];
-    source: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-    thresholdSessionId: string;
-    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
-  };
+  }) => ThresholdEcdsaSessionRecord;
+  requestEmailOtpChallengeForSigning?: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+  }) => Promise<{ challengeId: string; emailHint?: string }>;
+  loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+    challengeId: string;
+    otpCode: string;
+    record: ThresholdEcdsaSessionRecord;
+  }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
@@ -94,10 +101,9 @@ export type CreateOrchestrationDependencyBundleArgs = {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
   }) => void;
-  provisionThresholdEcdsaSession: (args: {
-    nearAccountId: AccountId | string;
-    chain: 'tempo' | 'evm';
-  }) => Promise<ThresholdEcdsaSessionBootstrapResult>;
+  provisionThresholdEcdsaSession: (
+    args: BootstrapEcdsaSessionArgs,
+  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   withThresholdEcdsaCommitQueue: <T>(args: {
     queueKey: string;
     nearAccountId: AccountId | string;
@@ -209,12 +215,29 @@ export function createOrchestrationDependencyBundle(
         args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain }),
       getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
         args.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
+      requestEmailOtpChallengeForSigning: ({ nearAccountId, chain }) =>
+        args.requestEmailOtpChallengeForSigning?.({ nearAccountId, chain }) ||
+        Promise.reject(new Error('Email OTP signing challenge is not configured')),
+      loginWithEmailOtpEcdsaCapabilityForSigning: ({
+        nearAccountId,
+        chain,
+        challengeId,
+        otpCode,
+        record,
+      }) =>
+        args.loginWithEmailOtpEcdsaCapabilityForSigning?.({
+          nearAccountId,
+          chain,
+          challengeId,
+          otpCode,
+          record,
+        }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({ nearAccountId, chain }) =>
         args.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({ nearAccountId, chain }),
       clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain }) =>
         args.clearThresholdEcdsaSessionRecordForLane({ nearAccountId, chain }),
-      provisionThresholdEcdsaSession: ({ nearAccountId, chain }) =>
-        args.provisionThresholdEcdsaSession({ nearAccountId, chain }),
+      provisionThresholdEcdsaSession: (provisionArgs) =>
+        args.provisionThresholdEcdsaSession(provisionArgs),
       withThresholdEcdsaCommitQueue: (queueArgs) => args.withThresholdEcdsaCommitQueue(queueArgs),
       touchConfirm: args.touchConfirm,
     },

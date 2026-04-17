@@ -8,7 +8,7 @@ import {
   type ThresholdWebAuthnPromptPort,
 } from '../webauthn';
 import { buildEd25519SessionPolicy } from '../session/sessionPolicy';
-import type { ThresholdRuntimeSnapshotScope } from '../session/sessionPolicy';
+import type { ThresholdRuntimePolicyScope } from '../session/sessionPolicy';
 import { mintEd25519AuthSession } from '../session/ed25519AuthSession';
 import type { Ed25519SessionKind } from '../session/ed25519SessionTypes';
 import { persistWarmSessionEd25519Capability } from '../../session/warmSessionPersistence';
@@ -31,7 +31,7 @@ export async function connectEd25519Session(args: {
   relayerKeyId: string;
   nearAccountId: string;
   participantIds?: number[];
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
@@ -61,7 +61,7 @@ export async function connectEd25519Session(args: {
     nearAccountId: args.nearAccountId,
     rpId,
     relayerKeyId: args.relayerKeyId,
-    ...(args.runtimeSnapshotScope ? { runtimeSnapshotScope: args.runtimeSnapshotScope } : {}),
+    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     participantIds: args.participantIds,
     sessionId: args.sessionId,
     ttlMs: args.ttlMs,
@@ -111,7 +111,7 @@ export async function connectEd25519Session(args: {
     rpId,
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.relayerKeyId,
-    ...(minted.runtimeSnapshotScope ? { runtimeSnapshotScope: minted.runtimeSnapshotScope } : {}),
+    ...(minted.runtimePolicyScope ? { runtimePolicyScope: minted.runtimePolicyScope } : {}),
     participantIds: args.participantIds,
     sessionKind,
     sessionId: resolvedSessionId,

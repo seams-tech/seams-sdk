@@ -17,7 +17,9 @@ import {
   clampThresholdSessionPolicy,
   DEFAULT_THRESHOLD_SESSION_POLICY,
   generateThresholdSessionId,
+  normalizeThresholdRuntimePolicyScope,
   THRESHOLD_SESSION_POLICY_VERSION,
+  type ThresholdRuntimePolicyScope,
 } from '../session/sessionPolicy';
 import {
   createThresholdEcdsaHssHiddenEvalFinalizeMessage,
@@ -32,6 +34,76 @@ import {
 import { resolveThresholdEcdsaClientRootShare } from './thresholdClientSecretSource';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
+
+function joinUrlPath(base: string, path: string): string {
+  return `${String(base || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
+}
+
+async function postJsonExpectOk(args: {
+  url: string;
+  headers?: Record<string, string>;
+  operation: string;
+  body: unknown;
+}): Promise<Record<string, unknown>> {
+  if (typeof fetch !== 'function') {
+    throw new Error(`${args.operation} requires fetch`);
+  }
+  const response = await fetch(args.url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(args.headers || {}),
+    },
+    credentials: 'omit',
+    body: JSON.stringify(args.body),
+  });
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!response.ok || data.ok === false) {
+    throw new Error(
+      String(data.message || data.code || `${args.operation} failed with HTTP ${response.status}`),
+    );
+  }
+  return data;
+}
+
+async function requestManagedRegistrationBootstrapGrant(args: {
+  relayerUrl: string;
+  environmentId: string;
+  publishableKey: string;
+  nearAccountId: string;
+  rpId: string;
+}): Promise<{ token: string; runtimePolicyScope: ThresholdRuntimePolicyScope }> {
+  const data = await postJsonExpectOk({
+    url: joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants'),
+    headers: { Authorization: `Bearer ${args.publishableKey}` },
+    operation: 'Managed registration bootstrap grant',
+    body: {
+      environmentId: args.environmentId,
+      newAccountId: args.nearAccountId,
+      rpId: args.rpId,
+      flow: 'registration_v1',
+    },
+  });
+  const grant =
+    data.grant && typeof data.grant === 'object' && !Array.isArray(data.grant)
+      ? (data.grant as Record<string, unknown>)
+      : {};
+  const token = String(grant.token || '').trim();
+  const orgId = String(grant.orgId || '').trim();
+  const projectId = String(grant.projectId || '').trim();
+  const envId = String(grant.envId || '').trim();
+  if (!token || !orgId || !projectId || !envId) {
+    throw new Error('Managed registration grant response missing token or runtime scope');
+  }
+  return {
+    token,
+    runtimePolicyScope: {
+      orgId,
+      projectId,
+      envId,
+    },
+  };
+}
 
 function generateKeygenSessionId(): string {
   const id =
@@ -59,6 +131,11 @@ export async function bootstrapEcdsaSession(args: {
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   bootstrapAuthorizationJwt?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimeScopeBootstrap?: {
+    environmentId: string;
+    publishableKey: string;
+  };
   ttlMs?: number;
   remainingUses?: number;
   workerCtx: WorkerOperationContext;
@@ -145,9 +222,28 @@ export async function bootstrapEcdsaSession(args: {
       remainingUses: args.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
     });
     const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
+    const runtimeEnvironmentId = String(args.runtimeScopeBootstrap?.environmentId || '').trim();
+    const runtimeScopePublishableKey = String(
+      args.runtimeScopeBootstrap?.publishableKey || '',
+    ).trim();
+    const managedBootstrapGrant =
+      !args.runtimePolicyScope && runtimeEnvironmentId && runtimeScopePublishableKey
+        ? await requestManagedRegistrationBootstrapGrant({
+            relayerUrl: args.relayerUrl,
+            environmentId: runtimeEnvironmentId,
+            publishableKey: runtimeScopePublishableKey,
+            nearAccountId: userId,
+            rpId,
+          })
+        : null;
+    const runtimePolicyScope =
+      normalizeThresholdRuntimePolicyScope(args.runtimePolicyScope) ||
+      managedBootstrapGrant?.runtimePolicyScope;
     const sessionId = requestedSessionId || generateThresholdSessionId();
     const webauthnAuthentication = useAuthorizationBootstrap ? undefined : (credential as any);
-    const authorizationJwt = useAuthorizationBootstrap ? bootstrapAuthorizationJwt : undefined;
+    const authorizationJwt = useAuthorizationBootstrap
+      ? bootstrapAuthorizationJwt
+      : managedBootstrapGrant?.token || runtimeScopePublishableKey || undefined;
     const prepare = await thresholdEcdsaHssPrepare(args.relayerUrl, {
       userId,
       rpId,
@@ -156,11 +252,13 @@ export async function bootstrapEcdsaSession(args: {
       keygenSessionId,
       webauthnAuthentication,
       authorizationJwt,
+      ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
       sessionPolicy: {
         version: THRESHOLD_SESSION_POLICY_VERSION,
         userId,
         rpId,
         sessionId,
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         participantIds: participantIds || undefined,
         ttlMs,
         remainingUses,
@@ -264,9 +362,8 @@ export async function bootstrapEcdsaSession(args: {
     }
     let finalizeMessageB64u = '';
     try {
-      const parsedResponse = parseThresholdEcdsaHssHiddenEvalServerResponseMessage(
-        responseMessageB64u,
-      );
+      const parsedResponse =
+        parseThresholdEcdsaHssHiddenEvalServerResponseMessage(responseMessageB64u);
       if (!parsedResponse) {
         throw new Error(
           'Threshold bootstrap respond response missing hidden-eval server response envelope',

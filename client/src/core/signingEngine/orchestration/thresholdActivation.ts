@@ -10,6 +10,7 @@ import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/workflows/
 import type { connectEcdsaSession } from '@/core/signingEngine/threshold/workflows/connectEcdsaSession';
 import type { keygenEcdsa } from '@/core/signingEngine/threshold/workflows/keygenEcdsa';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/session/sessionPolicy';
 
 export type ThresholdKeyActivationChain = 'near' | 'evm' | 'tempo';
 
@@ -82,6 +83,11 @@ export type ActivateEcdsaSessionRequest = {
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   authorizationJwt?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimeScopeBootstrap?: {
+    environmentId: string;
+    publishableKey: string;
+  };
   ttlMs?: number;
   remainingUses?: number;
 };
@@ -107,6 +113,8 @@ export async function activateEcdsaSession(
     clientRootShare32: args.clientRootShare32,
     clientRootShare32B64u: args.clientRootShare32B64u,
     bootstrapAuthorizationJwt: args.authorizationJwt,
+    runtimePolicyScope: args.runtimePolicyScope,
+    runtimeScopeBootstrap: args.runtimeScopeBootstrap,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
     workerCtx: deps.workerCtx,

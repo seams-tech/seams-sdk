@@ -530,6 +530,8 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   const thresholdSessionId = String(
     args.completedThresholdEd25519Registration.registered.session?.sessionId || '',
   ).trim();
+  const runtimePolicyScope =
+    args.completedThresholdEd25519Registration.registered.session?.runtimePolicyScope;
 
   if (!relayerUrl || !thresholdSessionJwt || !thresholdSessionId) {
     logTelemetry({
@@ -555,6 +557,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
       sessionId: thresholdSessionId,
       clientRootShare32B64u,
       authorizationJwt: thresholdSessionJwt,
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     });
     timings.bootstrapThresholdEcdsaMs = Math.round(performance.now() - bootstrapStartedAt);
 

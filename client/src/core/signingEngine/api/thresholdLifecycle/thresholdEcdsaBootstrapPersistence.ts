@@ -1,11 +1,14 @@
 import type {
   ChainAccountRecord,
   UpsertChainAccountInput,
+  UpsertProfileInput,
 } from '@/core/indexedDB/passkeyClientDB.types';
-import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
+import { buildNearAccountRefs, inferNearChainIdKey } from '@/core/accountData/near/accountRefs';
+import { buildNearProfileId } from '@/core/accountData/near/profileId';
 import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import type { UndeployedSmartAccountSignerSet } from '@shared/utils';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import { DEFAULT_CONFIRMATION_CONFIG } from '@/core/types/signer-worker';
 import {
   normalizeIndexedDbAccountAddress,
   normalizeIndexedDbOptionalChainIdNumber,
@@ -36,6 +39,9 @@ export type ThresholdEcdsaBootstrapIndexedDbPort = {
       chainIdKey: string;
       accountAddress: string;
     }) => Promise<{ profileId: string; accountRef: { chainIdKey: string; accountAddress: string } } | null>;
+    getProfile?: (profileId: string) => Promise<{ defaultDeviceNumber?: number } | null>;
+    upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
+    setLastProfileStateForProfile: (profileId: string, deviceNumber: number) => Promise<void>;
   };
   upsertChainAccount: (input: UpsertChainAccountInput) => Promise<ChainAccountRecord>;
 };
@@ -106,6 +112,54 @@ export function buildThresholdEcdsaBootstrapUndeployedSignerSet(args: {
   };
 }
 
+async function ensureEmailOtpNearProfileAccountMapping(args: {
+  indexedDB: ThresholdEcdsaBootstrapIndexedDbPort;
+  nearAccountId: AccountId;
+}): Promise<void> {
+  const nearAccountId = toAccountId(String(args.nearAccountId || '').trim());
+  const existing = await resolveProfileAccountContextFromCandidates(
+    args.indexedDB.clientDB as any,
+    buildNearAccountRefs(nearAccountId),
+  );
+  if (existing?.profileId) {
+    const profile = await args.indexedDB.clientDB.getProfile?.(existing.profileId).catch(() => null);
+    const deviceNumber = Number(profile?.defaultDeviceNumber);
+    await args.indexedDB.clientDB.setLastProfileStateForProfile(
+      existing.profileId,
+      Number.isSafeInteger(deviceNumber) && deviceNumber >= 1 ? deviceNumber : 1,
+    );
+    return;
+  }
+
+  const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
+  if (!accountAddress) {
+    throw new Error(
+      `[SigningEngine] cannot create Email OTP profile/account mapping for ${String(nearAccountId)}`,
+    );
+  }
+  const profileId = buildNearProfileId(nearAccountId);
+  const chainIdKey = inferNearChainIdKey(nearAccountId);
+  const useNetwork = chainIdKey.endsWith('mainnet') ? 'mainnet' : 'testnet';
+
+  await args.indexedDB.clientDB.upsertProfile({
+    profileId,
+    defaultDeviceNumber: 1,
+    preferences: {
+      useRelayer: false,
+      useNetwork,
+      confirmationConfig: DEFAULT_CONFIRMATION_CONFIG,
+    },
+  });
+  await args.indexedDB.upsertChainAccount({
+    profileId,
+    chainIdKey,
+    accountAddress,
+    accountModel: 'near-native',
+    isPrimary: true,
+  });
+  await args.indexedDB.clientDB.setLastProfileStateForProfile(profileId, 1);
+}
+
 export async function persistThresholdEcdsaBootstrapChainAccount(args: {
   indexedDB: ThresholdEcdsaBootstrapIndexedDbPort;
   nearAccountId: AccountId;
@@ -113,8 +167,15 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   deployment?: ThresholdEcdsaSmartAccountDeploymentInput;
+  ensureEmailOtpNearAccountMapping?: boolean;
 }): Promise<void> {
   const nearAccountId = toAccountId(String(args.nearAccountId || '').trim());
+  if (args.ensureEmailOtpNearAccountMapping) {
+    await ensureEmailOtpNearProfileAccountMapping({
+      indexedDB: args.indexedDB,
+      nearAccountId,
+    });
+  }
   const nearContext = await resolveProfileAccountContextFromCandidates(
     args.indexedDB.clientDB as any,
     buildNearAccountRefs(nearAccountId),

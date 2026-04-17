@@ -99,7 +99,7 @@ export type SignerOperationStatus = 'queued' | 'submitted' | 'confirmed' | 'fail
 export interface ProfileRecord {
   profileId: ProfileId;
   defaultDeviceNumber: number;
-  passkeyCredential: PasskeyCredentialRecord;
+  passkeyCredential?: PasskeyCredentialRecord;
   preferences?: UserPreferences;
   createdAt: number;
   updatedAt: number;
@@ -163,7 +163,7 @@ export interface SignerOpOutboxRecord {
 export type UpsertProfileInput = {
   profileId: ProfileId;
   defaultDeviceNumber?: number;
-  passkeyCredential: PasskeyCredentialRecord;
+  passkeyCredential?: PasskeyCredentialRecord;
   preferences?: UserPreferences;
 };
 

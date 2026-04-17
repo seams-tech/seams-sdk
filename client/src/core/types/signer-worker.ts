@@ -96,7 +96,7 @@ type DirectPrfFields = {
 export type WasmDeriveThresholdEd25519ClientVerifyingShareRequest =
   StripFree<wasmModule.DeriveThresholdEd25519ClientVerifyingShareRequest> & DirectPrfFields;
 export interface WasmDeriveThresholdEd25519HssClientInputsRequest {
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -106,7 +106,7 @@ export interface WasmDeriveThresholdEd25519HssClientInputsRequest {
   prfFirstB64u?: string;
 }
 export interface WasmDeriveThresholdEd25519HssClientInputsResult {
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -117,7 +117,7 @@ export interface WasmDeriveThresholdEd25519HssClientInputsResult {
   tauClientB64u: string;
 }
 export interface WasmPrepareThresholdEd25519HssSessionRequest {
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;
@@ -125,7 +125,7 @@ export interface WasmPrepareThresholdEd25519HssSessionRequest {
   derivationVersion: number;
 }
 export interface WasmPrepareThresholdEd25519HssSessionResult {
-  orgId: string;
+  signingRootId: string;
   nearAccountId: string;
   keyPurpose: string;
   keyVersion: string;

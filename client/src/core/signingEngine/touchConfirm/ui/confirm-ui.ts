@@ -13,6 +13,7 @@ import { computeUiIntentDigestFromTxs, orderActionForDigest } from '@/utils/inte
 
 import type { TouchConfirmContext } from '..';
 import type { TransactionSummary } from '../shared/confirmTypes';
+import type { EmailOtpConfirmPrompt, SigningAuthMode } from '../shared/confirmTypes';
 import type {
   ConfirmUIHandle,
   ConfirmUIUpdate,
@@ -35,6 +36,15 @@ const MAX_STACK_DEPTH = 4;
 type ConfirmEventDetail = {
   confirmed?: boolean;
   error?: string;
+  otpCode?: string;
+  emailOtpChallengeId?: string;
+};
+
+type ConfirmDecisionResult = {
+  confirmed: boolean;
+  error?: string;
+  otpCode?: string;
+  emailOtpChallengeId?: string;
 };
 
 interface HostTxConfirmerElement extends HTMLElement {
@@ -50,6 +60,8 @@ interface HostTxConfirmerElement extends HTMLElement {
   errorMessage?: string;
   body?: string;
   title: string;
+  signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
   requestUpdate?: () => void;
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
@@ -285,6 +297,8 @@ function applyHostElementProps(
   if (update.evmExplorerUrl != null) {
     element.evmExplorerUrl = update.evmExplorerUrl;
   }
+  if (update.signingAuthMode != null) element.signingAuthMode = update.signingAuthMode;
+  if (update.emailOtpPrompt != null) element.emailOtpPrompt = update.emailOtpPrompt;
 
   if (
     update.nearExplorerUrl == null &&
@@ -332,6 +346,8 @@ export async function mountConfirmUI({
   theme,
   uiMode,
   nearAccountIdOverride,
+  signingAuthMode,
+  emailOtpPrompt,
 }: {
   ctx: TouchConfirmContext;
   summary: TransactionSummary;
@@ -342,6 +358,8 @@ export async function mountConfirmUI({
   theme?: ThemeName;
   uiMode: ConfirmationUIMode;
   nearAccountIdOverride?: string;
+  signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
 }): Promise<ConfirmUIHandle> {
   await ensureTxConfirmerElementDefined();
 
@@ -356,6 +374,8 @@ export async function mountConfirmUI({
     theme,
     variant,
     nearAccountIdOverride,
+    signingAuthMode,
+    emailOtpPrompt,
   });
   return handle;
 }
@@ -371,6 +391,8 @@ export async function awaitConfirmUIDecision({
   uiMode,
   nearAccountIdOverride,
   onMounted,
+  signingAuthMode,
+  emailOtpPrompt,
 }: {
   ctx: TouchConfirmContext;
   summary: TransactionSummary;
@@ -382,7 +404,9 @@ export async function awaitConfirmUIDecision({
   uiMode: ConfirmationUIMode;
   nearAccountIdOverride: string;
   onMounted?: (handle: ConfirmUIHandle) => void;
-}): Promise<{ confirmed: boolean; handle: ConfirmUIHandle; error?: string }> {
+  signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
+}): Promise<ConfirmDecisionResult & { handle: ConfirmUIHandle }> {
   await ensureTxConfirmerElementDefined();
 
   const variant = uiModeToVariant(uiMode);
@@ -399,13 +423,15 @@ export async function awaitConfirmUIDecision({
       theme,
       variant: resolvedVariant,
       nearAccountIdOverride,
+      signingAuthMode,
+      emailOtpPrompt,
     });
 
     try {
       onMounted?.(handle);
     } catch {}
 
-    const finalize = (result: { confirmed: boolean; error?: string }) => {
+    const finalize = (result: ConfirmDecisionResult) => {
       cleanup();
       resolve({ ...result, handle });
     };
@@ -435,7 +461,13 @@ export async function awaitConfirmUIDecision({
         return;
       }
 
-      finalize({ confirmed: true });
+      finalize({
+          confirmed: true,
+          ...(typeof detail?.otpCode === 'string' ? { otpCode: detail.otpCode } : {}),
+          ...(typeof detail?.emailOtpChallengeId === 'string'
+            ? { emailOtpChallengeId: detail.emailOtpChallengeId }
+            : {}),
+      });
     };
 
     const onCancel = (event?: Event) => {
@@ -474,6 +506,8 @@ function mountHostElement({
   theme,
   variant,
   nearAccountIdOverride,
+  signingAuthMode,
+  emailOtpPrompt,
 }: {
   ctx: TouchConfirmContext;
   summary: TransactionSummary;
@@ -484,6 +518,8 @@ function mountHostElement({
   theme?: ThemeName;
   variant?: 'modal' | 'drawer';
   nearAccountIdOverride?: string;
+  signingAuthMode?: SigningAuthMode;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
 }): { el: HostTxConfirmerElement; handle: ConfirmUIHandle } {
   const resolvedVariant: 'modal' | 'drawer' = variant || 'modal';
   cleanupExistingConfirmers();
@@ -524,6 +560,8 @@ function mountHostElement({
   if (loading != null) element.loading = !!loading;
   element.removeAttribute('data-error-message');
   element.deferClose = true;
+  if (signingAuthMode) element.signingAuthMode = signingAuthMode;
+  if (emailOtpPrompt) element.emailOtpPrompt = emailOtpPrompt;
 
   if (summary?.title != null) element.title = summary.title;
   if (summary?.body != null) element.body = summary.body;

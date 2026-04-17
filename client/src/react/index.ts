@@ -30,7 +30,11 @@ export { TatchiPasskeyProvider } from './context/TatchiPasskeyProvider';
 // === RE-EXPORT CORE TYPES ===
 export { TatchiPasskey } from '../core/TatchiPasskey';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../core/config/defaultConfigs';
-export type { TatchiConfigsReadonly, TatchiConfigsInput } from '../core/types/tatchi';
+export type {
+  EmailOtpAuthPolicy,
+  TatchiConfigsReadonly,
+  TatchiConfigsInput,
+} from '../core/types/tatchi';
 export type { StoreUserDataInput } from '../core/accountData/near/types';
 
 // === RE-EXPORT ACTION TYPES ===

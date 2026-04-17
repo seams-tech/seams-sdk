@@ -36,14 +36,14 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
       }
     },
     async deriveThresholdEd25519HssClientInputs(args) {
-      const orgId = String(args.orgId || '').trim();
+      const signingRootId = String(args.signingRootId || '').trim();
       const nearAccountId = String(args.nearAccountId);
       const keyPurpose = String(args.keyPurpose || '').trim();
       const keyVersion = String(args.keyVersion || '').trim();
       try {
         const derived = await deriveThresholdEd25519HssClientInputsWasm({
           sessionId: args.sessionId,
-          orgId,
+          signingRootId,
           nearAccountId,
           keyPurpose,
           keyVersion,
@@ -54,7 +54,7 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
         });
         return {
           success: true,
-          orgId: derived.orgId,
+          signingRootId: derived.signingRootId,
           nearAccountId: derived.nearAccountId,
           keyPurpose: derived.keyPurpose,
           keyVersion: derived.keyVersion,
@@ -68,7 +68,7 @@ export function createNearKeyOps(getContext: () => SignerWorkerManagerContext): 
         const message = error instanceof Error ? error.message : String(error);
         return {
           success: false,
-          orgId,
+          signingRootId,
           nearAccountId,
           keyPurpose,
           keyVersion,

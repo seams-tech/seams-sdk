@@ -562,6 +562,67 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   font-weight: 500;
 }
 
+.email-otp-confirm {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.8rem 0.5rem 0.25rem;
+  max-width: 340px;
+}
+
+.email-otp-confirm__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 1.125rem;
+  display: grid;
+  place-items: center;
+  color: var(--w3a-colors-textPrimary);
+  background: var(--w3a-colors-surface);
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  font-size: 1rem;
+  font-weight: 700;
+  box-shadow: 0 0 0 4px var(--w3a-modal__passkey-halo-loading__ring-background, transparent);
+}
+
+.email-otp-confirm__label {
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.email-otp-confirm__input {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 1.25rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  background: var(--w3a-colors-colorBackground);
+  color: var(--w3a-colors-textPrimary);
+  font-family: var(--w3a-font-family);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  text-align: center;
+  min-height: 3rem;
+  padding: 0.55rem 0.8rem 0.55rem 1.15rem;
+  outline: none;
+}
+
+.email-otp-confirm__input:focus {
+  border-color: var(--w3a-colors-primary, var(--w3a-colors-textPrimary));
+  box-shadow: 0 0 0 3px rgba(142, 122, 180, 0.18);
+}
+
+.email-otp-confirm__helper {
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.email-otp-confirm__error {
+  color: var(--w3a-colors-error, var(--w3a-red400));
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
 .btn {
   background-color: var(--w3a-colors-surface);
   box-shadow: var(--w3a-modal__btn__box-shadow, none);
