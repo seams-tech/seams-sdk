@@ -35,7 +35,12 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
       return value.trim().toLowerCase().startsWith('bearer ');
     }
     if (Array.isArray(value)) {
-      return value.some((entry) => String(entry || '').trim().toLowerCase().startsWith('bearer '));
+      return value.some((entry) =>
+        String(entry || '')
+          .trim()
+          .toLowerCase()
+          .startsWith('bearer '),
+      );
     }
     return false;
   };
@@ -437,8 +442,8 @@ export function registerAuthRoutes(router: ExpressRouter, ctx: ExpressRelayConte
     },
     google: {
       options: async (_req, res) => {
-        const configured = ctx.service.isGoogleOidcConfigured();
-        res.status(200).json({ ok: true, configured });
+        const publicConfig = ctx.service.getGoogleOidcPublicConfig();
+        res.status(200).json({ ok: true, ...publicConfig });
       },
       verify: async (req, res) => {
         if (!req?.body) {

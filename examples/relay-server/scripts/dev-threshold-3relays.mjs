@@ -13,16 +13,6 @@ function run(cmd, args, opts = {}) {
 
 dotenv.config();
 
-function requireEnv(name) {
-  const v = String(process.env[name] || '').trim();
-  if (!v) {
-    console.error(`[relay-server] Missing required env var: ${name}`);
-    process.exit(1);
-  }
-  return v;
-}
-
-const masterSecretB64u = requireEnv('THRESHOLD_ED25519_MASTER_SECRET_B64U');
 const coordinatorSharedSecretB64u =
   String(process.env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U || '').trim() ||
   crypto.randomBytes(32).toString('base64url');
@@ -31,7 +21,9 @@ const coordinatorSharedSecretB64u =
 // relay `node --watch` is running. This prevents transient ESM export mismatches mid-restart.
 const watchSdk =
   String(process.env.RELAY_WATCH_SDK || '').trim() === '1' ||
-  String(process.env.RELAY_WATCH_SDK || '').trim().toLowerCase() === 'true';
+  String(process.env.RELAY_WATCH_SDK || '')
+    .trim()
+    .toLowerCase() === 'true';
 const sdk = watchSdk ? run('pnpm', ['-C', '../../sdk', 'dev']) : null;
 if (!watchSdk) {
   console.log('[relay dev] SDK watch disabled (set RELAY_WATCH_SDK=1 to enable)');
@@ -66,7 +58,6 @@ const coordinator = run('node', ['--watch', 'dist/index.js'], {
     THRESHOLD_COORDINATOR_INSTANCE_ID: 'coordinator-a',
     THRESHOLD_COORDINATOR_PEERS: coordinatorPeersJson,
     THRESHOLD_ED25519_SHARE_MODE: 'derived',
-    THRESHOLD_ED25519_MASTER_SECRET_B64U: masterSecretB64u,
     THRESHOLD_ED25519_RELAYER_COSIGNER_ID: '1',
   },
 });
@@ -80,7 +71,6 @@ const cosigner2 = run('node', ['--watch', 'dist/index.js'], {
     THRESHOLD_COORDINATOR_PEERS: '',
     THRESHOLD_ED25519_RELAYER_COSIGNER_ID: '2',
     THRESHOLD_ED25519_SHARE_MODE: '',
-    THRESHOLD_ED25519_MASTER_SECRET_B64U: '',
   },
 });
 
@@ -93,7 +83,6 @@ const cosigner3 = run('node', ['--watch', 'dist/index.js'], {
     THRESHOLD_COORDINATOR_PEERS: '',
     THRESHOLD_ED25519_RELAYER_COSIGNER_ID: '3',
     THRESHOLD_ED25519_SHARE_MODE: '',
-    THRESHOLD_ED25519_MASTER_SECRET_B64U: '',
   },
 });
 

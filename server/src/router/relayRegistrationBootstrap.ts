@@ -394,9 +394,10 @@ export async function handleRelayRegistrationBootstrap(
     });
   }
 
-  const runtimeSnapshotScope = {
+  const runtimePolicyScope = {
     orgId: routePrincipal.principal.orgId,
-    environmentId: routePrincipal.principal.environmentId,
+    projectId: routePrincipal.principal.projectId || routePrincipal.principal.environmentId,
+    envId: routePrincipal.principal.envId || routePrincipal.principal.environmentId,
   };
   const thresholdEd25519Request =
     threshold_ed25519 && isObject(threshold_ed25519)
@@ -405,7 +406,7 @@ export async function handleRelayRegistrationBootstrap(
           session_policy: isObject(threshold_ed25519.session_policy)
             ? {
                 ...threshold_ed25519.session_policy,
-                runtimeSnapshotScope,
+                runtimePolicyScope,
               }
             : threshold_ed25519.session_policy,
         }
@@ -417,7 +418,7 @@ export async function handleRelayRegistrationBootstrap(
           session_policy: isObject(threshold_ecdsa.session_policy)
             ? {
                 ...threshold_ecdsa.session_policy,
-                runtimeSnapshotScope,
+                runtimePolicyScope,
               }
             : threshold_ecdsa.session_policy,
         }
@@ -464,7 +465,8 @@ export async function handleRelayRegistrationBootstrap(
         deployments: response.smartAccountDeployments,
         sponsorshipScope: {
           orgId: routePrincipal.principal.orgId,
-          environmentId: routePrincipal.principal.environmentId,
+          projectId: routePrincipal.principal.projectId || routePrincipal.principal.environmentId,
+          envId: routePrincipal.principal.envId || routePrincipal.principal.environmentId,
         },
       });
     }
@@ -521,7 +523,8 @@ export async function handleRelayRegistrationBootstrap(
       deployments: response.smartAccountDeployments,
       sponsorshipScope: {
         orgId: routePrincipal.principal.orgId,
-        environmentId: routePrincipal.principal.environmentId,
+        projectId: routePrincipal.principal.projectId || routePrincipal.principal.environmentId,
+        envId: routePrincipal.principal.envId || routePrincipal.principal.environmentId,
       },
     });
   }

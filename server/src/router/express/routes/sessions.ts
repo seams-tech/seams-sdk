@@ -5,6 +5,8 @@ import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } 
 import { emitRelayWebhookEvent } from '../../relayWebhooks';
 import { resolveSourceIpFromExpressRequest } from '../../relayApiKeyAuth';
 import type { ExpressRelayContext } from '../createRelayRouter';
+import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 type WalletUnlockBackend = 'passkey' | 'email_otp';
 type WalletEmailOtpChannel = 'email_otp';
@@ -28,9 +30,36 @@ function parseWalletEmailOtpChannel(raw: unknown): WalletEmailOtpChannel | null 
 function emailOtpStatusCode(code: string | undefined): number {
   if (code === 'internal') return 500;
   if (code === 'not_configured') return 503;
+  if (code === 'not_found') return 404;
   if (code === 'rate_limited') return 429;
   if (code === 'stronger_auth_required') return 403;
   return 400;
+}
+
+function getSessionWalletId(claims: any, userId: string): string {
+  const walletId = typeof claims?.walletId === 'string' ? claims.walletId.trim() : '';
+  return walletId || String(userId || '').trim();
+}
+
+function isGoogleOidcEmailOtpSession(claims: any): boolean {
+  const provider = String(claims?.provider || '')
+    .trim()
+    .toLowerCase();
+  const oidcProvider = String(claims?.oidcProvider || '')
+    .trim()
+    .toLowerCase();
+  const providerSubject = String(claims?.providerSubject || '')
+    .trim()
+    .toLowerCase();
+  return provider === 'oidc' && (oidcProvider === 'google' || providerSubject.startsWith('google:'));
+}
+
+function parseOidcAccountMode(raw: unknown): 'register' | 'login' | undefined {
+  const value = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (value === 'register' || value === 'login') return value;
+  return undefined;
 }
 
 export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
@@ -42,7 +71,12 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       return value.trim().toLowerCase().startsWith('bearer ');
     }
     if (Array.isArray(value)) {
-      return value.some((entry) => String(entry || '').trim().toLowerCase().startsWith('bearer '));
+      return value.some((entry) =>
+        String(entry || '')
+          .trim()
+          .toLowerCase()
+          .startsWith('bearer '),
+      );
     }
     return false;
   };
@@ -356,12 +390,38 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       let oidcName: string | undefined;
       let oidcGivenName: string | undefined;
       let oidcFamilyName: string | undefined;
+      let oidcProvider: string | undefined;
+      let oidcAccountMode: 'register' | 'login' | undefined;
       let passkeyChallengeId: string | undefined;
+      let walletId: string | undefined;
+      let runtimePolicyScope: RuntimePolicyScope | undefined;
 
       if (exchangeType === 'oidc_jwt') {
-        const verified = await ctx.service.verifyOidcJwtExchange({
-          token: (exchange as any).token,
-        });
+        oidcProvider = String((exchange as any).provider || '')
+          .trim()
+          .toLowerCase();
+        oidcAccountMode = parseOidcAccountMode((exchange as any).account_mode);
+        if (oidcProvider === 'google' && !oidcAccountMode) {
+          await emitSessionExchangeFailed({
+            status: 400,
+            code: 'invalid_body',
+            message: 'exchange.account_mode must be register or login for Google Email OTP',
+            exchangeType,
+            sessionKind,
+          });
+          res.status(400).json({
+            ok: false,
+            code: 'invalid_body',
+            message: 'exchange.account_mode must be register or login for Google Email OTP',
+          });
+          return;
+        }
+        const verified =
+          oidcProvider === 'google'
+            ? await ctx.service.verifyGoogleLogin({ idToken: (exchange as any).token })
+            : await ctx.service.verifyOidcJwtExchange({
+                token: (exchange as any).token,
+              });
         if (!verified.ok || !verified.verified || !verified.userId) {
           const code = verified.code || 'not_verified';
           const status =
@@ -387,23 +447,80 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         userId = String(verified.userId || '').trim();
         provider = 'oidc';
         providerSubject = verified.providerSubject;
-        oidcIssuer = verified.iss;
+        oidcIssuer =
+          oidcProvider === 'google' ? 'https://accounts.google.com' : (verified as any).iss;
         oidcSub = verified.sub;
-        oidcAud = Array.isArray(verified.aud) ? verified.aud : undefined;
+        oidcAud = Array.isArray((verified as any).aud) ? (verified as any).aud : undefined;
         oidcEmail =
           typeof verified.email === 'string' && verified.email.trim()
             ? verified.email.trim().toLowerCase()
             : undefined;
         oidcName =
-          typeof verified.name === 'string' && verified.name.trim() ? verified.name.trim() : undefined;
+          typeof (verified as any).name === 'string' && (verified as any).name.trim()
+            ? (verified as any).name.trim()
+            : undefined;
         oidcGivenName =
-          typeof verified.given_name === 'string' && verified.given_name.trim()
-            ? verified.given_name.trim()
+          typeof (verified as any).given_name === 'string' && (verified as any).given_name.trim()
+            ? (verified as any).given_name.trim()
             : undefined;
         oidcFamilyName =
-          typeof verified.family_name === 'string' && verified.family_name.trim()
-            ? verified.family_name.trim()
+          typeof (verified as any).family_name === 'string' && (verified as any).family_name.trim()
+            ? (verified as any).family_name.trim()
             : undefined;
+        if (oidcProvider === 'google' && oidcAccountMode === 'register' && !oidcEmail) {
+          await emitSessionExchangeFailed({
+            status: 400,
+            code: 'invalid_claims',
+            message: 'Google id_token must include email for Email OTP registration',
+            exchangeType,
+            sessionKind,
+            userId,
+          });
+          res.status(400).json({
+            ok: false,
+            code: 'invalid_claims',
+            message: 'Google id_token must include email for Email OTP registration',
+          });
+          return;
+        }
+        try {
+          walletId = await ctx.service.resolveOidcWalletId({
+            providerSubject,
+            sub: oidcSub,
+            email: oidcEmail,
+            accountMode: oidcAccountMode,
+          });
+        } catch (e: any) {
+          const code = typeof e?.code === 'string' && e.code ? e.code : 'internal';
+          const status = code === 'not_found' ? 404 : code === 'invalid_body' ? 400 : 500;
+          const message = e?.message || 'Failed to resolve OIDC wallet id';
+          await emitSessionExchangeFailed({
+            status,
+            code,
+            message,
+            exchangeType,
+            sessionKind,
+            userId,
+          });
+          res.status(status).json({ ok: false, code, message });
+          return;
+        }
+        if (oidcProvider === 'google' && oidcAccountMode === 'login') {
+          const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId });
+          if (!enrollment.ok) {
+            const status = emailOtpStatusCode(enrollment.code);
+            await emitSessionExchangeFailed({
+              status,
+              code: enrollment.code,
+              message: enrollment.message,
+              exchangeType,
+              sessionKind,
+              userId,
+            });
+            res.status(status).json(enrollment);
+            return;
+          }
+        }
       } else {
         const challengeId = String(
           (exchange as any).challengeId ?? (exchange as any).challenge_id ?? '',
@@ -492,6 +609,32 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         return;
       }
 
+      const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
+        explicitScopeRaw: undefined,
+        runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown }).runtimeEnvironmentId,
+        headers: req.headers || {},
+        origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
+        publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+        orgProjectEnv: ctx.opts.orgProjectEnv || null,
+      });
+      if (!runtimePolicyScopeResolution.ok) {
+        await emitSessionExchangeFailed({
+          status: runtimePolicyScopeResolution.status,
+          code: runtimePolicyScopeResolution.code,
+          message: runtimePolicyScopeResolution.message,
+          exchangeType,
+          sessionKind,
+          userId,
+        });
+        res.status(runtimePolicyScopeResolution.status).json({
+          ok: false,
+          code: runtimePolicyScopeResolution.code,
+          message: runtimePolicyScopeResolution.message,
+        });
+        return;
+      }
+      runtimePolicyScope = runtimePolicyScopeResolution.scope;
+
       const appVersion = await ctx.service.getOrCreateAppSessionVersion({ userId });
       if (!appVersion.ok) {
         await emitSessionExchangeFailed({
@@ -514,6 +657,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         kind: 'app_session_v1',
         appSessionVersion: appVersion.appSessionVersion,
         provider,
+        ...(walletId ? { walletId } : {}),
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+        ...(oidcProvider ? { oidcProvider } : {}),
         ...(providerSubject ? { providerSubject } : {}),
         ...(oidcIssuer ? { oidcIssuer } : {}),
         ...(oidcSub ? { oidcSub } : {}),
@@ -527,7 +673,11 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       const sessionBody = {
         kind: 'app_session_v1',
         userId,
+        ...(walletId ? { walletId } : {}),
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         ...(sessionExpiresAt ? { expiresAt: sessionExpiresAt } : {}),
+        ...(oidcEmail ? { email: oidcEmail } : {}),
+        ...(oidcName ? { name: oidcName } : {}),
       };
       await emitRelayWebhookEvent({
         logger: ctx.logger,
@@ -568,7 +718,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         code: 'internal',
         message: e?.message || 'Internal error',
       });
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
@@ -608,7 +760,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       });
       res.status(200).json({ ok: true, revoked: true, userId: validated.userId });
     } catch (e: any) {
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
@@ -711,7 +865,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         unlockBackend,
       });
     } catch (e: any) {
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
@@ -797,7 +953,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         },
       });
       if (unlockBackend === 'email_otp') {
-        const recoveredWalletId = String((result as { walletId?: unknown }).walletId || body.walletId || '').trim();
+        const recoveredWalletId = String(
+          (result as { walletId?: unknown }).walletId || body.walletId || '',
+        ).trim();
         const recoveredUserId = String(result.userId || recoveredWalletId).trim();
         await emitEmailOtpWebhookEvent({
           eventType: 'wallet.email_otp.logged_in',
@@ -819,7 +977,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         ...(result.userId ? { userId: result.userId } : {}),
       });
     } catch (e: any) {
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
@@ -847,11 +1007,11 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
         return;
       }
-      if (walletId !== validated.userId) {
+      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
         res.status(403).json({
           ok: false,
           code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session subject',
+          message: 'walletId must match the current app session wallet',
         });
         return;
       }
@@ -864,27 +1024,31 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         });
         return;
       }
-      const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
-      if (!strongAuthGate.ok) {
-        res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
-        return;
-      }
-      if (strongAuthGate.required) {
-        res.status(403).json({
-          ok: false,
-          code: 'stronger_auth_required',
-          message: 'Passkey authentication is required before modifying Email OTP enrollment',
-          ...(strongAuthGate.lastEmailOtpLoginAtMs
-            ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
-            : {}),
-          ...(strongAuthGate.lastStrongAuthAtMs
-            ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
-            : {}),
-        });
-        return;
+      if (!isGoogleOidcEmailOtpSession(validated.claims)) {
+        const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
+        if (!strongAuthGate.ok) {
+          res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
+          return;
+        }
+        if (strongAuthGate.required) {
+          res.status(403).json({
+            ok: false,
+            code: 'stronger_auth_required',
+            message: 'Passkey authentication is required before modifying Email OTP enrollment',
+            ...(strongAuthGate.lastEmailOtpLoginAtMs
+              ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
+              : {}),
+            ...(strongAuthGate.lastStrongAuthAtMs
+              ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
+              : {}),
+          });
+          return;
+        }
       }
       const email =
-        typeof validated.claims.email === 'string' ? validated.claims.email.trim().toLowerCase() : '';
+        typeof validated.claims.email === 'string'
+          ? validated.claims.email.trim().toLowerCase()
+          : '';
       const sessionHash = await hashAppSessionClaims(validated.claims);
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
@@ -919,7 +1083,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
           : result,
       );
     } catch (e: any) {
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
@@ -946,11 +1112,11 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
         return;
       }
-      if (walletId !== validated.userId) {
+      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
         res.status(403).json({
           ok: false,
           code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session subject',
+          message: 'walletId must match the current app session wallet',
         });
         return;
       }
@@ -963,24 +1129,26 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         });
         return;
       }
-      const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
-      if (!strongAuthGate.ok) {
-        res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
-        return;
-      }
-      if (strongAuthGate.required) {
-        res.status(403).json({
-          ok: false,
-          code: 'stronger_auth_required',
-          message: 'Passkey authentication is required before modifying Email OTP enrollment',
-          ...(strongAuthGate.lastEmailOtpLoginAtMs
-            ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
-            : {}),
-          ...(strongAuthGate.lastStrongAuthAtMs
-            ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
-            : {}),
-        });
-        return;
+      if (!isGoogleOidcEmailOtpSession(validated.claims)) {
+        const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
+        if (!strongAuthGate.ok) {
+          res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
+          return;
+        }
+        if (strongAuthGate.required) {
+          res.status(403).json({
+            ok: false,
+            code: 'stronger_auth_required',
+            message: 'Passkey authentication is required before modifying Email OTP enrollment',
+            ...(strongAuthGate.lastEmailOtpLoginAtMs
+              ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
+              : {}),
+            ...(strongAuthGate.lastStrongAuthAtMs
+              ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
+              : {}),
+          });
+          return;
+        }
       }
       const result = await ctx.service.applyEmailOtpServerSeal({
         wrappedCiphertext,
@@ -996,7 +1164,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
           : result,
       );
     } catch (e: any) {
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
@@ -1024,17 +1194,19 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
         return;
       }
-      if (walletId !== validated.userId) {
+      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
         res.status(403).json({
           ok: false,
           code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session subject',
+          message: 'walletId must match the current app session wallet',
         });
         return;
       }
       const challengeId = String(body.challengeId || '').trim();
       if (!challengeId) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
+        res
+          .status(400)
+          .json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
         return;
       }
       const otpCode = String(body.otpCode || '').trim();
@@ -1051,24 +1223,26 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         });
         return;
       }
-      const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
-      if (!strongAuthGate.ok) {
-        res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
-        return;
-      }
-      if (strongAuthGate.required) {
-        res.status(403).json({
-          ok: false,
-          code: 'stronger_auth_required',
-          message: 'Passkey authentication is required before modifying Email OTP enrollment',
-          ...(strongAuthGate.lastEmailOtpLoginAtMs
-            ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
-            : {}),
-          ...(strongAuthGate.lastStrongAuthAtMs
-            ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
-            : {}),
-        });
-        return;
+      if (!isGoogleOidcEmailOtpSession(validated.claims)) {
+        const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
+        if (!strongAuthGate.ok) {
+          res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
+          return;
+        }
+        if (strongAuthGate.required) {
+          res.status(403).json({
+            ok: false,
+            code: 'stronger_auth_required',
+            message: 'Passkey authentication is required before modifying Email OTP enrollment',
+            ...(strongAuthGate.lastEmailOtpLoginAtMs
+              ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
+              : {}),
+            ...(strongAuthGate.lastStrongAuthAtMs
+              ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
+              : {}),
+          });
+          return;
+        }
       }
       const sessionHash = await hashAppSessionClaims(validated.claims);
       const clientIp =
@@ -1135,7 +1309,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         });
       }
     } catch (e: any) {
-      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res
+        .status(500)
+        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
@@ -1160,16 +1336,14 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       const body = req.body;
       const walletId = String(body.walletId || '').trim();
       if (!walletId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
+        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
         return;
       }
-      if (walletId !== validated.userId) {
+      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
         res.status(403).json({
           ok: false,
           code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session subject',
+          message: 'walletId must match the current app session wallet',
         });
         return;
       }
@@ -1183,7 +1357,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         return;
       }
       const email =
-        typeof validated.claims.email === 'string' ? validated.claims.email.trim().toLowerCase() : '';
+        typeof validated.claims.email === 'string'
+          ? validated.claims.email.trim().toLowerCase()
+          : '';
       const sessionHash = await hashAppSessionClaims(validated.claims);
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
@@ -1260,16 +1436,14 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       const body = req.body;
       const walletId = String(body.walletId || '').trim();
       if (!walletId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
+        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
         return;
       }
-      if (walletId !== validated.userId) {
+      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
         res.status(403).json({
           ok: false,
           code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session subject',
+          message: 'walletId must match the current app session wallet',
         });
         return;
       }
@@ -1389,10 +1563,11 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       const sessionHash = await hashAppSessionClaims(validated.claims);
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const sessionWalletId = getSessionWalletId(validated.claims, validated.userId);
       const grant = await ctx.service.consumeEmailOtpGrant({
         loginGrant: loginGrant,
         userId: validated.userId,
-        walletId: validated.userId,
+        walletId: sessionWalletId,
         orgId: (validated.claims as any).orgId,
         otpChannel: 'email_otp',
         sessionHash,
@@ -1411,7 +1586,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(emailOtpStatusCode(result.code)).json(result);
         return;
       }
-      const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId: validated.userId });
+      const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId: sessionWalletId });
       const currentDeviceId =
         typeof (validated.claims as any).deviceId === 'string'
           ? String((validated.claims as any).deviceId).trim()
@@ -1420,16 +1595,12 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         enrollment.ok && typeof enrollment.enrollment.enrollmentDeviceId === 'string'
           ? String(enrollment.enrollment.enrollmentDeviceId).trim()
           : '';
-      if (
-        currentDeviceId &&
-        enrolledDeviceId &&
-        currentDeviceId !== enrolledDeviceId
-      ) {
+      if (currentDeviceId && enrolledDeviceId && currentDeviceId !== enrolledDeviceId) {
         await emitEmailOtpWebhookEvent({
           eventType: 'wallet.email_otp.new_device',
           claims: validated.claims,
           userId: validated.userId,
-          walletId: validated.userId,
+          walletId: sessionWalletId,
           eventId: grant.challengeId,
           payload: {
             otpChannel: grant.otpChannel,
@@ -1464,12 +1635,13 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         return;
       }
       const challengeId = String(req?.query?.challengeId || '').trim();
-      const walletId = String(req?.query?.walletId || validated.userId).trim();
-      if (walletId !== validated.userId) {
+      const sessionWalletId = getSessionWalletId(validated.claims, validated.userId);
+      const walletId = String(req?.query?.walletId || sessionWalletId).trim();
+      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
         res.status(403).json({
           ok: false,
           code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session subject',
+          message: 'walletId must match the current app session wallet',
         });
         return;
       }
@@ -1478,20 +1650,30 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         userId: validated.userId,
         walletId,
       });
-      res.status(result.ok ? 200 : result.code === 'internal' ? 500 : result.code === 'not_found' ? 404 : 400).json(
-        result.ok
-          ? {
-              ok: true,
-              challengeId: result.challengeId,
-              walletId: result.walletId,
-              userId: result.userId,
-              otpChannel: result.otpChannel,
-              emailHint: result.emailHint,
-              otpCode: result.otpCode,
-              expiresAt: new Date(result.expiresAtMs).toISOString(),
-            }
-          : result,
-      );
+      res
+        .status(
+          result.ok
+            ? 200
+            : result.code === 'internal'
+              ? 500
+              : result.code === 'not_found'
+                ? 404
+                : 400,
+        )
+        .json(
+          result.ok
+            ? {
+                ok: true,
+                challengeId: result.challengeId,
+                walletId: result.walletId,
+                userId: result.userId,
+                otpChannel: result.otpChannel,
+                emailHint: result.emailHint,
+                otpCode: result.otpCode,
+                expiresAt: new Date(result.expiresAtMs).toISOString(),
+              }
+            : result,
+        );
     } catch (e: any) {
       res
         .status(500)
@@ -1518,7 +1700,12 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       }
       res.status(200).json({ ok: true, locked: false, userId: validated.userId });
     } catch (e: any) {
-      res.status(500).json({ ok: false, locked: true, code: 'internal', message: e?.message || 'Internal error' });
+      res.status(500).json({
+        ok: false,
+        locked: true,
+        code: 'internal',
+        message: e?.message || 'Internal error',
+      });
     }
   });
 
@@ -1564,7 +1751,12 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       });
       res.status(200).json({ ok: true, locked: true, userId: validated.userId });
     } catch (e: any) {
-      res.status(500).json({ ok: false, locked: true, code: 'internal', message: e?.message || 'Internal error' });
+      res.status(500).json({
+        ok: false,
+        locked: true,
+        code: 'internal',
+        message: e?.message || 'Internal error',
+      });
     }
   });
 }

@@ -21,11 +21,16 @@ import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../core/Thresho
 import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
+  resolveThresholdRuntimePolicyScope,
   signThresholdSessionJwt,
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
 } from '../../commonRouterUtils';
 import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
+
+type EcdsaRuntimePolicyScope = NonNullable<
+  ThresholdEcdsaHssPrepareRequest['sessionPolicy']
+>['runtimePolicyScope'];
 
 const NOT_IMPLEMENTED = {
   ok: false,
@@ -138,6 +143,75 @@ function toOptionalHeaderString(value: string | string[] | undefined): string | 
   }
   const trimmed = String(value || '').trim();
   return trimmed || undefined;
+}
+
+function normalizeEcdsaRuntimePolicyScope(raw: unknown): EcdsaRuntimePolicyScope | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const scope = raw as { orgId?: unknown; envId?: unknown; projectId?: unknown };
+  const orgId = String(scope.orgId || '').trim();
+  const envId = String(scope.envId || '').trim();
+  const projectId = String(scope.projectId || '').trim();
+  if (!orgId || !projectId || !envId) return undefined;
+  return {
+    orgId,
+    projectId,
+    envId,
+  };
+}
+
+function resolveEcdsaRuntimePolicyScopeFromClaims(input: {
+  appSessionClaims: ReturnType<typeof parseAppSessionClaims>;
+  ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>;
+  ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>;
+}): EcdsaRuntimePolicyScope | undefined {
+  return (
+    normalizeEcdsaRuntimePolicyScope(input.ed25519SessionClaims?.runtimePolicyScope) ||
+    normalizeEcdsaRuntimePolicyScope(input.appSessionClaims?.runtimePolicyScope) ||
+    normalizeEcdsaRuntimePolicyScope(input.ecdsaSessionClaims?.runtimePolicyScope)
+  );
+}
+
+function applyEcdsaRuntimePolicyScope(
+  body: ThresholdEcdsaHssPrepareRequest,
+  runtimePolicyScope: EcdsaRuntimePolicyScope | undefined,
+): ThresholdEcdsaHssPrepareRequest {
+  if (!runtimePolicyScope || !body.sessionPolicy) return body;
+  return {
+    ...body,
+    sessionPolicy: {
+      ...body.sessionPolicy,
+      runtimePolicyScope,
+    },
+  };
+}
+
+async function resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
+  ctx: ExpressRelayContext,
+  body: ThresholdEcdsaHssPrepareRequest,
+  appSessionClaims: ReturnType<typeof parseAppSessionClaims>,
+): Promise<ThresholdEcdsaHssPrepareRequest['emailOtpEnrollmentClaims'] | undefined> {
+  if (body.operation !== 'email_otp_bootstrap' || !appSessionClaims) return undefined;
+  const walletId = String(appSessionClaims.walletId || appSessionClaims.sub || '').trim();
+  const userId = String(body.userId || '').trim();
+  if (!walletId || !userId || walletId !== userId) return undefined;
+  const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId: userId });
+  if (!enrollment.ok) return undefined;
+  const verifier = String(
+    enrollment.enrollment.thresholdEcdsaClientVerifyingShareB64u || '',
+  ).trim();
+  if (
+    enrollment.enrollment.userId !== appSessionClaims.sub ||
+    enrollment.enrollment.otpChannel !== 'email_otp' ||
+    !verifier
+  ) {
+    return undefined;
+  }
+  return {
+    walletId: enrollment.enrollment.walletId,
+    userId: enrollment.enrollment.userId,
+    otpChannel: 'email_otp',
+    thresholdEcdsaClientVerifyingShareB64u: verifier,
+  };
 }
 
 function parseForwardHop(value: string | undefined): number {
@@ -258,9 +332,38 @@ export function registerThresholdEcdsaRoutes(
             ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
           }
         }
+        const emailOtpEnrollmentClaims = await resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
+          ctx,
+          body,
+          appSessionClaims,
+        );
+        const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
+          explicitScopeRaw: body.sessionPolicy?.runtimePolicyScope,
+          runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
+            .runtimeEnvironmentId,
+          headers: req.headers || {},
+          origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
+          publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+          orgProjectEnv: ctx.opts.orgProjectEnv || null,
+        });
+        if (!runtimePolicyScopeResolution.ok) {
+          return {
+            ok: false,
+            code: runtimePolicyScopeResolution.code,
+            message: runtimePolicyScopeResolution.message,
+          };
+        }
+        const runtimePolicyScope =
+          resolveEcdsaRuntimePolicyScopeFromClaims({
+            appSessionClaims,
+            ed25519SessionClaims,
+            ecdsaSessionClaims,
+          }) || runtimePolicyScopeResolution.scope;
+        const scopedBody = applyEcdsaRuntimePolicyScope(body, runtimePolicyScope);
         const request: ThresholdEcdsaHssPrepareRequest = {
-          ...body,
+          ...scopedBody,
           appSessionClaims: appSessionClaims || undefined,
+          emailOtpEnrollmentClaims,
           ed25519SessionClaims: ed25519SessionClaims || undefined,
           ecdsaSessionClaims: ecdsaSessionClaims || undefined,
         };
@@ -351,6 +454,9 @@ export function registerThresholdEcdsaRoutes(
             sessionId: result.sessionId,
             expiresAtMs: result.expiresAtMs,
             participantIds: result.participantIds,
+            ...(result.runtimePolicyScope
+              ? { runtimePolicyScope: result.runtimePolicyScope }
+              : {}),
           },
           fallbackParticipantIds: result.participantIds,
           requireJwtErrorMessage:
@@ -366,8 +472,12 @@ export function registerThresholdEcdsaRoutes(
             message: signed.message,
           };
         }
-        const { sessionJwtUserId: _sessionJwtUserId, sessionJwtRpId: _sessionJwtRpId, jwt: _rawJwt, ...rest } =
-          result;
+        const {
+          sessionJwtUserId: _sessionJwtUserId,
+          sessionJwtRpId: _sessionJwtRpId,
+          jwt: _rawJwt,
+          ...rest
+        } = result;
         if (result.sessionKind === 'cookie') {
           res.set('Set-Cookie', ctx.opts.session!.buildSetCookie(signed.jwt));
           return {
@@ -417,7 +527,7 @@ export function registerThresholdEcdsaRoutes(
         if (!validated.ok) return validated;
         const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
           runtimeSnapshots: ctx.opts.runtimeSnapshots,
-          scope: validated.claims.runtimeSnapshotScope,
+          scope: validated.claims.runtimePolicyScope,
           expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
         });
         if (!runtimeSnapshotValidation.ok) return runtimeSnapshotValidation;

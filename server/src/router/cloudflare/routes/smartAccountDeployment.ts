@@ -105,8 +105,8 @@ export async function handleSmartAccountDeployment(
       chainId,
       accountAddress,
       deployed: true,
-      ...(validated.claims.runtimeSnapshotScope
-        ? { sponsorshipScope: validated.claims.runtimeSnapshotScope }
+      ...(validated.claims.runtimePolicyScope
+        ? { sponsorshipScope: validated.claims.runtimePolicyScope }
         : {}),
       ...(accountModel ? { accountModel } : {}),
       ...(deploymentTxHash ? { deploymentTxHash } : {}),

@@ -3,7 +3,12 @@ import http from 'node:http';
 import expressImport from 'express';
 import { performance } from 'node:perf_hooks';
 import { AuthService } from '../../../server/src/core/AuthService.ts';
-import { createThresholdSigningService } from '../../../server/src/core/ThresholdService/index.ts';
+import {
+  createThresholdSigningService,
+  type SigningRootShareId,
+  type SigningRootShareProvider,
+  type SealedSigningRootShareRecord,
+} from '../../../server/src/core/ThresholdService/index.ts';
 import { createRelayRouter } from '../../../server/src/router/express-adaptor.ts';
 import { Ed25519WalletActor } from './actors/ed25519Wallet.mjs';
 import { startSystemStatsCollector, summarizeNumbers } from './system-stats.mjs';
@@ -21,13 +26,24 @@ const express: ExpressLike = (() => {
 })();
 
 const THRESHOLD_ED25519_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
-const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString(
-  'base64url',
-);
-const DEFAULT_ED25519_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(7)).toString(
-  'base64url',
-);
 const SUMMARY_MARKER = '@@THRESHOLD_LOAD_SUMMARY@@';
+const SIGNING_ROOT_SHARE_WIRES: ReadonlyArray<{
+  readonly shareId: SigningRootShareId;
+  readonly wireHex: string;
+}> = [
+  {
+    shareId: 1,
+    wireHex: '011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303',
+  },
+  {
+    shareId: 2,
+    wireHex: '021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d',
+  },
+  {
+    shareId: 3,
+    wireHex: '032ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707',
+  },
+];
 
 type ParsedArgs = {
   scenarioId: string;
@@ -79,6 +95,35 @@ function toBase64UrlUtf8(json: string): string {
 
 function fromBase64UrlUtf8(b64u: string): string {
   return Buffer.from(b64u, 'base64url').toString('utf8');
+}
+
+function createBenchmarkSigningRootShareProvider(): SigningRootShareProvider {
+  const shares = new Map<SigningRootShareId, Uint8Array>(
+    SIGNING_ROOT_SHARE_WIRES.map((share) => [
+      share.shareId,
+      new Uint8Array(Buffer.from(share.wireHex, 'hex')),
+    ]),
+  );
+  return {
+    listSealedSigningRootShares: async (input) =>
+      Array.from(shares.keys())
+        .sort((a, b) => a - b)
+        .map(
+          (shareId): SealedSigningRootShareRecord => ({
+            projectId: input.projectId,
+            ...(input.rootVersion ? { rootVersion: input.rootVersion } : {}),
+            shareId,
+            sealedShare: new Uint8Array([shareId]),
+            storageId: `benchmark-signing-root-${shareId}`,
+            kekId: 'benchmark-fixture',
+          }),
+        ),
+    decryptSigningRootShare: async (record) => {
+      const wire = shares.get(record.shareId);
+      if (!wire) throw new Error(`missing benchmark signing-root share ${record.shareId}`);
+      return new Uint8Array(wire);
+    },
+  };
 }
 
 function createSessionAdapter() {
@@ -181,8 +226,7 @@ async function createLocalRelayContext() {
   const thresholdConfig = {
     kind: 'in-memory',
     THRESHOLD_NODE_ROLE: 'coordinator',
-    THRESHOLD_ED25519_MASTER_SECRET_B64U: DEFAULT_ED25519_MASTER_SECRET_B64U,
-    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: DEFAULT_ECDSA_MASTER_SECRET_B64U,
+    signingRootShareProvider: createBenchmarkSigningRootShareProvider(),
   } as const;
 
   const service = new AuthService({
@@ -192,7 +236,7 @@ async function createLocalRelayContext() {
     networkId: 'testnet',
     accountInitialBalance: '1',
     createAccountAndRegisterGas: '1',
-    thresholdEd25519KeyStore: thresholdConfig,
+    thresholdStore: thresholdConfig,
     logger: null,
   });
 
@@ -218,7 +262,7 @@ async function createLocalRelayContext() {
 
   const threshold = createThresholdSigningService({
     authService: service,
-    thresholdEd25519KeyStore: thresholdConfig,
+    thresholdStore: thresholdConfig,
     logger: null,
   });
 

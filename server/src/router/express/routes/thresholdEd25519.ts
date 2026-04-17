@@ -13,10 +13,14 @@ import type {
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
-  resolveThresholdRuntimeSnapshotScope,
+  resolveThresholdRuntimePolicyScope,
   validateThresholdEd25519AuthorizeInputs,
   validateThresholdEd25519SessionTokenInputs,
 } from '../../commonRouterUtils';
+import {
+  parseAppSessionClaims,
+  parseThresholdEcdsaSessionClaims,
+} from '../../../core/ThresholdService/validation';
 import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 
@@ -119,24 +123,48 @@ export function registerThresholdEd25519Routes(
           };
         }
 
-        const runtimeSnapshotScopeResolution = await resolveThresholdRuntimeSnapshotScope({
-          explicitScopeRaw: body.sessionPolicy?.runtimeSnapshotScope,
+        let appSessionClaims: ReturnType<typeof parseAppSessionClaims> = null;
+        let ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims> = null;
+        if (session) {
+          const parsedSession = await session.parse(req.headers || {});
+          if (parsedSession.ok) {
+            appSessionClaims = parseAppSessionClaims(parsedSession.claims);
+            if (appSessionClaims) {
+              const validated = await ctx.service.validateAppSessionVersion({
+                userId: appSessionClaims.sub,
+                appSessionVersion: appSessionClaims.appSessionVersion,
+              });
+              if (!validated.ok) appSessionClaims = null;
+            }
+            if (!appSessionClaims) {
+              ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
+            }
+          }
+        }
+
+        const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
+          explicitScopeRaw: body.sessionPolicy?.runtimePolicyScope,
           runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
             .runtimeEnvironmentId,
           headers: req.headers || {},
           origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
           publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+          orgProjectEnv: ctx.opts.orgProjectEnv || null,
         });
-        if (!runtimeSnapshotScopeResolution.ok) {
+        if (!runtimePolicyScopeResolution.ok) {
           return {
             ok: false,
-            code: runtimeSnapshotScopeResolution.code,
-            message: runtimeSnapshotScopeResolution.message,
+            code: runtimePolicyScopeResolution.code,
+            message: runtimePolicyScopeResolution.message,
           };
         }
-        const runtimeSnapshotScope = runtimeSnapshotScopeResolution.scope;
+        const runtimePolicyScope = runtimePolicyScopeResolution.scope;
 
-        const result = await resolved.scheme.session(body);
+        const result = await resolved.scheme.session({
+          ...body,
+          ...(appSessionClaims ? { appSessionClaims } : {}),
+          ...(ecdsaSessionClaims ? { ecdsaSessionClaims } : {}),
+        });
         if (!result.ok) return result;
 
         const sessionId = String(result.sessionId || '').trim();
@@ -185,7 +213,7 @@ export function registerThresholdEd25519Routes(
           rpId,
           participantIds,
           thresholdExpiresAtMs,
-          ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           iat: nowSec,
           exp: expSec,
         });
@@ -194,10 +222,10 @@ export function registerThresholdEd25519Routes(
         if (sessionKind === 'cookie') {
           res.set('Set-Cookie', session.buildSetCookie(token));
           const { jwt: _omit, ...rest } = result;
-          return { ...rest, ok: true, ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}) };
+          return { ...rest, ok: true, ...(runtimePolicyScope ? { runtimePolicyScope } : {}) };
         }
 
-        return { ...result, ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}), jwt: token };
+        return { ...result, ...(runtimePolicyScope ? { runtimePolicyScope } : {}), jwt: token };
       },
     );
   });
@@ -235,7 +263,7 @@ export function registerThresholdEd25519Routes(
         if (!validated.ok) return validated;
         const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
           runtimeSnapshots: ctx.opts.runtimeSnapshots,
-          scope: validated.claims.runtimeSnapshotScope,
+          scope: validated.claims.runtimePolicyScope,
           expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
         });
         if (!runtimeSnapshotValidation.ok) return runtimeSnapshotValidation;

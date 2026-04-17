@@ -5,7 +5,12 @@ import type { RouteUsageData } from './routeMeteringPolicy';
 
 export interface RouteErrorBody {
   ok: false;
-  code: RoutePolicyFailureCode | 'internal' | 'invalid_body';
+  code:
+    | RoutePolicyFailureCode
+    | 'internal'
+    | 'invalid_body'
+    | 'account_provisioning_failed'
+    | 'access_key_not_provisioned';
   message: string;
 }
 

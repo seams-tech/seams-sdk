@@ -1,11 +1,11 @@
 import type { NormalizedLogger } from './logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
-  ThresholdEd25519KeyStoreConfigInput,
+  ThresholdStoreConfigInput,
 } from './types';
 import {
   THRESHOLD_PREFIX_DEFAULT,
-  THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
+  THRESHOLD_DO_OBJECT_NAME_DEFAULT,
 } from './defaultConfigsServer';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { isObject as isObjectLoose } from '@shared/utils/validation';
@@ -236,8 +236,8 @@ function resolveDoNamespaceFromConfig(
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
-    .THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_DO_NAMESPACE?: unknown })
+    .THRESHOLD_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
@@ -437,7 +437,7 @@ class PostgresWebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore {
 }
 
 export function createWebAuthnAuthenticatorStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): WebAuthnAuthenticatorStore {
@@ -455,7 +455,7 @@ export function createWebAuthnAuthenticatorStore(input: {
     const objectName =
       toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
       toOptionalTrimmedString((config as { name?: unknown }).name) ||
-      THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
+      THRESHOLD_DO_OBJECT_NAME_DEFAULT;
     input.logger.info(
       '[webauthn] Using Cloudflare Durable Object store for authenticator persistence',
     );

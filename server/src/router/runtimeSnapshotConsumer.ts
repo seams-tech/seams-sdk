@@ -1,7 +1,7 @@
 import type {
   RelayRuntimeSnapshotEnvelope,
   RelayRuntimeSnapshotConsumer,
-  RelayRuntimeSnapshotScope,
+  RelayRuntimePolicyScope,
 } from './relay';
 import type { ThresholdRuntimeSnapshotExpectation } from '../core/types';
 
@@ -19,7 +19,7 @@ type RuntimeSnapshotValidationResult =
   | { ok: false; code: RuntimeSnapshotValidationErrorCode; message: string };
 
 export interface RelayRuntimeSnapshotPublishedUpdate {
-  scope: RelayRuntimeSnapshotScope;
+  scope: RelayRuntimePolicyScope;
   envelope: RelayRuntimeSnapshotEnvelope;
 }
 
@@ -75,7 +75,7 @@ function parseExpectation(
 
 export async function validateRuntimeSnapshotExpectation(input: {
   runtimeSnapshots: RelayRuntimeSnapshotConsumer | null | undefined;
-  scope?: RelayRuntimeSnapshotScope;
+  scope?: RelayRuntimePolicyScope;
   expectationRaw: unknown;
 }): Promise<RuntimeSnapshotValidationResult> {
   const expectationResult = parseExpectation(input.expectationRaw);
@@ -93,7 +93,7 @@ export async function validateRuntimeSnapshotExpectation(input: {
     return {
       ok: false,
       code: 'runtime_snapshot_scope_missing',
-      message: 'threshold session is missing runtimeSnapshotScope',
+      message: 'threshold session is missing runtimePolicyScope',
     };
   }
   if (!input.runtimeSnapshots) {
@@ -108,7 +108,7 @@ export async function validateRuntimeSnapshotExpectation(input: {
     return {
       ok: false,
       code: 'runtime_snapshot_not_found',
-      message: `No runtime snapshot found for org=${scope.orgId} environment=${scope.environmentId}${scope.projectId ? ` project=${scope.projectId}` : ''}`,
+      message: `No runtime snapshot found for org=${scope.orgId} project=${scope.projectId} env=${scope.envId}`,
     };
   }
   if (expectation.snapshotId && latest.snapshotId !== expectation.snapshotId) {
@@ -135,8 +135,8 @@ export async function validateRuntimeSnapshotExpectation(input: {
   return { ok: true };
 }
 
-function makeScopeKey(scope: RelayRuntimeSnapshotScope): string {
-  return `${scope.orgId}::${scope.projectId || ''}::${scope.environmentId}`;
+function makeScopeKey(scope: RelayRuntimePolicyScope): string {
+  return `${scope.orgId}::${scope.projectId}::${scope.envId}`;
 }
 
 function parsePublishedUpdateFromOutboxPayload(
@@ -149,7 +149,7 @@ function parsePublishedUpdateFromOutboxPayload(
   const snapshot = snapshotRaw as Record<string, unknown>;
 
   const orgId = String(snapshot.orgId || '').trim();
-  const environmentId = String(snapshot.environmentId || '').trim();
+  const envId = String(snapshot.envId || snapshot.environmentId || '').trim();
   const projectId = String(snapshot.projectId || '').trim();
   const snapshotId = String(snapshot.snapshotId || '').trim();
   const checksum = String(snapshot.checksum || '').trim();
@@ -157,7 +157,8 @@ function parsePublishedUpdateFromOutboxPayload(
   const versionRaw = Number(snapshot.version);
   if (
     !orgId ||
-    !environmentId ||
+    !projectId ||
+    !envId ||
     !snapshotId ||
     !checksum ||
     !effectiveAt ||
@@ -170,8 +171,8 @@ function parsePublishedUpdateFromOutboxPayload(
   return {
     scope: {
       orgId,
-      environmentId,
-      ...(projectId ? { projectId } : {}),
+      projectId,
+      envId,
     },
     envelope: {
       snapshotId,

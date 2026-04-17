@@ -49,7 +49,7 @@ import type {
   CreateAccountAndRegisterResult,
   CreateAccountAndRegisterSmartAccountTarget,
   OidcExchangeIssuerConfig,
-  ThresholdRuntimeSnapshotScope,
+  ThresholdRuntimePolicyScope,
   WebAuthnAuthenticationCredential,
   SignerWasmModuleSupplier,
 } from './types';
@@ -57,6 +57,7 @@ import type {
 import { EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT } from './defaultConfigsServer';
 import { EmailRecoveryService } from '../email-recovery';
 import { SignedDelegate } from '@/core/types/delegate';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   type ExecuteSignedDelegateResult,
   executeSignedDelegateWithRelayer,
@@ -282,7 +283,7 @@ type ThresholdEd25519BootstrapSession = {
   expiresAt?: string;
   participantIds?: number[];
   remainingUses?: number;
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   jwt?: string;
 };
 
@@ -351,34 +352,28 @@ function normalizeBootstrapPublicKeys(args: { publicKey: string; recoveryPublicK
   };
 }
 
-function normalizeThresholdRuntimeSnapshotScope(
+function normalizeThresholdRuntimePolicyScope(
   raw: unknown,
-): ThresholdRuntimeSnapshotScope | undefined {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const scope = raw as Record<string, unknown>;
-  const orgId = toOptionalTrimmedString(scope.orgId);
-  const environmentId = toOptionalTrimmedString(scope.environmentId);
-  if (!orgId || !environmentId) return undefined;
-  const projectId = toOptionalTrimmedString(scope.projectId);
-  return {
-    orgId,
-    environmentId,
-    ...(projectId ? { projectId } : {}),
-  };
+): ThresholdRuntimePolicyScope | undefined {
+  try {
+    return normalizeRuntimePolicyScope(raw);
+  } catch {
+    return undefined;
+  }
 }
 
-async function resolveBoundThresholdRuntimeSnapshotScope(args: {
+async function resolveBoundThresholdRuntimePolicyScope(args: {
   bindingStore: WebAuthnCredentialBindingStore;
   userId: string;
   rpId: string;
-}): Promise<ThresholdRuntimeSnapshotScope | undefined> {
+}): Promise<ThresholdRuntimePolicyScope | undefined> {
   if (typeof args.bindingStore.listByUserId !== 'function') return undefined;
   const bindings = await args.bindingStore.listByUserId({
     userId: args.userId,
     rpId: args.rpId,
   });
   for (const binding of bindings) {
-    const scope = normalizeThresholdRuntimeSnapshotScope(binding.runtimeSnapshotScope);
+    const scope = normalizeThresholdRuntimePolicyScope(binding.runtimePolicyScope);
     if (scope) return scope;
   }
   return undefined;
@@ -433,11 +428,11 @@ function toThresholdEd25519BootstrapSession(session: {
   expiresAt?: unknown;
   participantIds?: unknown;
   remainingUses?: unknown;
-  runtimeSnapshotScope?: unknown;
+  runtimePolicyScope?: unknown;
 }): ThresholdEd25519BootstrapSession | null {
   const sessionId = String(session.sessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
-  const runtimeSnapshotScope = normalizeThresholdRuntimeSnapshotScope(session.runtimeSnapshotScope);
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
   if (!sessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
   return {
     sessionKind: 'jwt',
@@ -450,7 +445,7 @@ function toThresholdEd25519BootstrapSession(session: {
     ...(Number.isFinite(Number(session.remainingUses))
       ? { remainingUses: Number(session.remainingUses) }
       : {}),
-    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   };
 }
 
@@ -489,10 +484,8 @@ function getSignerWasmUrls(logger: NormalizedLogger): URL[] {
   return resolved;
 }
 
-function summarizeThresholdEd25519Config(
-  cfg: AuthServiceConfig['thresholdEd25519KeyStore'],
-): string {
-  if (!cfg) return 'thresholdEd25519: not configured';
+function summarizeThresholdStoreConfig(cfg: AuthServiceConfig['thresholdStore']): string {
+  if (!cfg) return 'thresholdStore: not configured';
 
   const nodeRole = coerceThresholdNodeRole(cfg.THRESHOLD_NODE_ROLE);
 
@@ -511,7 +504,18 @@ function summarizeThresholdEd25519Config(
     return upstashUrl || upstashToken ? 'upstash' : redisUrl ? 'redis' : 'in-memory';
   })();
 
-  const parts = [`thresholdEd25519: configured`, `nodeRole=${nodeRole}`, `store=${store}`];
+  const hasSigningRootSecretShares = Boolean(
+    cfg.signingRootShareResolver ||
+    cfg.signingRootSecretResolverAdapters ||
+    (cfg.signingRootSecretStore &&
+      (cfg.signingRootSecretDecryptAdapter || cfg.signingRootSecretShareKekResolver)),
+  );
+  const parts = [
+    `thresholdStore: configured`,
+    `nodeRole=${nodeRole}`,
+    `store=${store}`,
+    `signingRootSecretShares=${hasSigningRootSecretShares ? 'configured' : 'not_configured'}`,
+  ];
   return parts.join(' ');
 }
 
@@ -625,7 +629,7 @@ export class AuthService {
     • relayerAccount: ${this.config.relayerAccount}
     • accountInitialBalance: ${this.config.accountInitialBalance} (${formatYoctoToNear(this.config.accountInitialBalance)} NEAR)
     • createAccountAndRegisterGas: ${this.config.createAccountAndRegisterGas} (${formatGasToTGas(this.config.createAccountAndRegisterGas)})
-    • ${summarizeThresholdEd25519Config(this.config.thresholdEd25519KeyStore)}
+    • ${summarizeThresholdStoreConfig(this.config.thresholdStore)}
     ${
       this.config.googleOidc?.clientIds?.length
         ? `• googleOidc: ${this.config.googleOidc.clientIds.length} clientId(s)`
@@ -647,9 +651,9 @@ export class AuthService {
     if (this.storageInitPromise) return this.storageInitPromise;
 
     this.storageInitPromise = (async () => {
-      if (!this.config.thresholdEd25519KeyStore) return;
+      if (!this.config.thresholdStore) return;
 
-      const cfg = this.config.thresholdEd25519KeyStore as unknown as Record<string, unknown>;
+      const cfg = this.config.thresholdStore as unknown as Record<string, unknown>;
       const kind = toOptionalTrimmedString((cfg as any).kind);
       const postgresUrl = getPostgresUrlFromConfig(cfg);
 
@@ -681,6 +685,125 @@ export class AuthService {
 
   isGoogleOidcConfigured(): boolean {
     return Boolean(this.config.googleOidc?.clientIds?.length);
+  }
+
+  getGoogleOidcPublicConfig(): { configured: boolean; clientId?: string } {
+    const clientId = String(this.config.googleOidc?.clientIds?.[0] || '').trim();
+    return {
+      configured: Boolean(clientId),
+      ...(clientId ? { clientId } : {}),
+    };
+  }
+
+  private getNetworkAccountSuffix(): string {
+    return String(this.config.networkId || '').trim() === 'mainnet' ? 'near' : 'testnet';
+  }
+
+  private normalizeEmailWalletIdStem(email: string): string {
+    const normalized = String(email || '')
+      .trim()
+      .toLowerCase()
+      .replace(/@/g, '-')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return normalized || 'email';
+  }
+
+  private buildTimestampedEmailWalletId(input: {
+    email: string;
+    timestampMs: number;
+    attempt?: number;
+  }): string {
+    const suffix = this.getNetworkAccountSuffix();
+    const timestamp = Math.max(0, Math.floor(Number(input.timestampMs) || Date.now())).toString();
+    const attempt = Math.max(0, Math.floor(Number(input.attempt) || 0));
+    const uniqueSuffix = attempt > 0 ? `${timestamp}-${attempt + 1}` : timestamp;
+    const tail = `-${uniqueSuffix}.${suffix}`;
+    const maxStemLength = Math.max(2, 64 - tail.length);
+    let stem = this.normalizeEmailWalletIdStem(input.email).slice(0, maxStemLength);
+    stem = stem.replace(/-+$/g, '') || 'email';
+    const walletId = `${stem}${tail}`;
+    if (!isValidAccountId(walletId)) {
+      throw new Error('Generated Email OTP wallet id is invalid');
+    }
+    return walletId;
+  }
+
+  private async deriveHashedOidcWalletId(input: {
+    providerSubject?: string;
+    sub?: string;
+  }): Promise<string> {
+    const subject = toOptionalTrimmedString(input.providerSubject ?? input.sub);
+    if (!subject) {
+      throw new Error('Cannot derive OIDC wallet id without provider subject');
+    }
+    if (typeof crypto === 'undefined' || !crypto.subtle) {
+      throw new Error('WebCrypto (crypto.subtle) is unavailable in this runtime');
+    }
+    const digest = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(subject)),
+    );
+    const hex = Array.from(digest)
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+    const suffix = this.getNetworkAccountSuffix();
+    return `g-${hex.slice(0, 32)}.${suffix}`;
+  }
+
+  async resolveOidcWalletId(input: {
+    providerSubject?: string;
+    sub?: string;
+    email?: string;
+    accountMode?: unknown;
+  }): Promise<string> {
+    const providerSubject = toOptionalTrimmedString(input.providerSubject ?? input.sub);
+    if (!providerSubject) {
+      throw new Error('Cannot resolve OIDC wallet id without provider subject');
+    }
+
+    const walletSubject = `wallet:${providerSubject}`;
+    const accountMode = toOptionalTrimmedString(input.accountMode)?.toLowerCase();
+    const email = toOptionalTrimmedString(input.email)?.toLowerCase() || '';
+
+    const identity = this.getIdentityStore();
+    const linkedWalletId = await identity.getUserIdBySubject(walletSubject);
+    if (linkedWalletId && isValidAccountId(linkedWalletId)) return linkedWalletId;
+
+    if (accountMode === 'login' && providerSubject.startsWith('google:')) {
+      const error = new Error('Email OTP enrollment not found') as Error & { code?: string };
+      error.code = 'not_found';
+      throw error;
+    }
+
+    if (accountMode === 'register' && email) {
+      const timestampMs = Date.now();
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const walletId = this.buildTimestampedEmailWalletId({ email, timestampMs, attempt });
+        const existingSubjects = await identity.listSubjectsByUserId(walletId);
+        const linkedToDifferentWalletSubject = existingSubjects.some(
+          (subject) => subject.startsWith('wallet:') && subject !== walletSubject,
+        );
+        if (linkedToDifferentWalletSubject) continue;
+
+        const linked = await identity.linkSubjectToUserId({
+          userId: walletId,
+          subject: walletSubject,
+          allowMoveIfSoleIdentity: false,
+        });
+        if (linked.ok) return walletId;
+
+        const reread = await identity.getUserIdBySubject(walletSubject);
+        if (reread && isValidAccountId(reread)) return reread;
+      }
+
+      throw new Error('Unable to reserve timestamped Email OTP wallet id');
+    }
+    if (accountMode === 'register') {
+      throw new Error('Email is required to register a Google Email OTP wallet id');
+    }
+
+    return await this.deriveHashedOidcWalletId({ providerSubject, sub: input.sub });
   }
 
   isOidcExchangeConfigured(): boolean {
@@ -742,21 +865,21 @@ export class AuthService {
   }
 
   /**
-   * Lazily constructs the threshold signing service when `thresholdEd25519KeyStore` is configured.
+   * Lazily constructs the threshold signing service when `thresholdStore` is configured.
    * Routers may call this to auto-enable `/threshold-ed25519/*` endpoints.
    */
   getThresholdSigningService(): ThresholdSigningServiceType | null {
     if (this.thresholdSigningServiceInitialized) return this.thresholdSigningService;
     this.thresholdSigningServiceInitialized = true;
 
-    if (!this.config.thresholdEd25519KeyStore) {
+    if (!this.config.thresholdStore) {
       this.thresholdSigningService = null;
       return null;
     }
 
     this.thresholdSigningService = createThresholdSigningService({
       authService: this,
-      thresholdEd25519KeyStore: this.config.thresholdEd25519KeyStore,
+      thresholdStore: this.config.thresholdStore,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -779,7 +902,7 @@ export class AuthService {
     if (this.webAuthnAuthenticatorStoreInitialized) {
       // Defensive: should never happen, but avoids returning null.
       this.webAuthnAuthenticatorStore = createWebAuthnAuthenticatorStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -788,7 +911,7 @@ export class AuthService {
 
     this.webAuthnAuthenticatorStoreInitialized = true;
     this.webAuthnAuthenticatorStore = createWebAuthnAuthenticatorStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -802,7 +925,7 @@ export class AuthService {
     if (this.webAuthnLoginChallengeStoreInitialized) {
       // Defensive: should never happen, but avoids returning null.
       this.webAuthnLoginChallengeStore = createWebAuthnLoginChallengeStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -811,7 +934,7 @@ export class AuthService {
 
     this.webAuthnLoginChallengeStoreInitialized = true;
     this.webAuthnLoginChallengeStore = createWebAuthnLoginChallengeStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -825,7 +948,7 @@ export class AuthService {
     if (this.webAuthnCredentialBindingStoreInitialized) {
       // Defensive: should never happen, but avoids returning null.
       this.webAuthnCredentialBindingStore = createWebAuthnCredentialBindingStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -834,7 +957,7 @@ export class AuthService {
 
     this.webAuthnCredentialBindingStoreInitialized = true;
     this.webAuthnCredentialBindingStore = createWebAuthnCredentialBindingStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -848,7 +971,7 @@ export class AuthService {
     if (this.webAuthnSyncChallengeStoreInitialized) {
       // Defensive: should never happen, but avoids returning null.
       this.webAuthnSyncChallengeStore = createWebAuthnSyncChallengeStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -857,7 +980,7 @@ export class AuthService {
 
     this.webAuthnSyncChallengeStoreInitialized = true;
     this.webAuthnSyncChallengeStore = createWebAuthnSyncChallengeStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -869,11 +992,19 @@ export class AuthService {
       return this.emailOtpChallengeStore;
     }
     if (this.emailOtpChallengeStoreInitialized) {
-      this.emailOtpChallengeStore = createEmailOtpChallengeStore();
+      this.emailOtpChallengeStore = createEmailOtpChallengeStore({
+        config: this.config.thresholdStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
       return this.emailOtpChallengeStore;
     }
     this.emailOtpChallengeStoreInitialized = true;
-    this.emailOtpChallengeStore = createEmailOtpChallengeStore();
+    this.emailOtpChallengeStore = createEmailOtpChallengeStore({
+      config: this.config.thresholdStore || null,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment(),
+    });
     return this.emailOtpChallengeStore;
   }
 
@@ -882,11 +1013,19 @@ export class AuthService {
       return this.emailOtpGrantStore;
     }
     if (this.emailOtpGrantStoreInitialized) {
-      this.emailOtpGrantStore = createEmailOtpGrantStore();
+      this.emailOtpGrantStore = createEmailOtpGrantStore({
+        config: this.config.thresholdStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
       return this.emailOtpGrantStore;
     }
     this.emailOtpGrantStoreInitialized = true;
-    this.emailOtpGrantStore = createEmailOtpGrantStore();
+    this.emailOtpGrantStore = createEmailOtpGrantStore({
+      config: this.config.thresholdStore || null,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment(),
+    });
     return this.emailOtpGrantStore;
   }
 
@@ -895,11 +1034,19 @@ export class AuthService {
       return this.emailOtpEnrollmentStore;
     }
     if (this.emailOtpEnrollmentStoreInitialized) {
-      this.emailOtpEnrollmentStore = createEmailOtpEnrollmentStore();
+      this.emailOtpEnrollmentStore = createEmailOtpEnrollmentStore({
+        config: this.config.thresholdStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
       return this.emailOtpEnrollmentStore;
     }
     this.emailOtpEnrollmentStoreInitialized = true;
-    this.emailOtpEnrollmentStore = createEmailOtpEnrollmentStore();
+    this.emailOtpEnrollmentStore = createEmailOtpEnrollmentStore({
+      config: this.config.thresholdStore || null,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment(),
+    });
     return this.emailOtpEnrollmentStore;
   }
 
@@ -908,11 +1055,19 @@ export class AuthService {
       return this.emailOtpUnlockChallengeStore;
     }
     if (this.emailOtpUnlockChallengeStoreInitialized) {
-      this.emailOtpUnlockChallengeStore = createEmailOtpUnlockChallengeStore();
+      this.emailOtpUnlockChallengeStore = createEmailOtpUnlockChallengeStore({
+        config: this.config.thresholdStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
       return this.emailOtpUnlockChallengeStore;
     }
     this.emailOtpUnlockChallengeStoreInitialized = true;
-    this.emailOtpUnlockChallengeStore = createEmailOtpUnlockChallengeStore();
+    this.emailOtpUnlockChallengeStore = createEmailOtpUnlockChallengeStore({
+      config: this.config.thresholdStore || null,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment(),
+    });
     return this.emailOtpUnlockChallengeStore;
   }
 
@@ -925,7 +1080,7 @@ export class AuthService {
 
   private readConfigValue(name: string): string {
     const fromStoreConfig = toOptionalTrimmedString(
-      (this.config.thresholdEd25519KeyStore as Record<string, unknown> | null | undefined)?.[name],
+      (this.config.thresholdStore as Record<string, unknown> | null | undefined)?.[name],
     );
     if (fromStoreConfig) return fromStoreConfig;
     return toOptionalTrimmedString((globalThis as any)?.process?.env?.[name]) || '';
@@ -939,27 +1094,28 @@ export class AuthService {
     if (this.emailOtpRateLimiterInitialized && this.emailOtpRateLimiter) {
       return this.emailOtpRateLimiter;
     }
+    const limiterKind =
+      (this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMITER_KIND') as
+        | 'in-memory'
+        | 'upstash-redis-rest'
+        | 'redis-tcp'
+        | '') || null;
+    const useSharedBackendConfig = Boolean(limiterKind) || this.isProductionEnvironment();
     const limiter = resolvePrfSessionSealRateLimitFromEnv({
-      limiterKind:
-        (this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMITER_KIND') as
-          | 'in-memory'
-          | 'upstash-redis-rest'
-          | 'redis-tcp'
-          | '')
-        || null,
+      limiterKind,
       upstashUrl:
         this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_UPSTASH_URL') ||
-        this.readEmailOtpConfigValue('UPSTASH_REDIS_REST_URL') ||
+        (useSharedBackendConfig ? this.readEmailOtpConfigValue('UPSTASH_REDIS_REST_URL') : '') ||
         null,
       upstashToken:
         this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_UPSTASH_TOKEN') ||
-        this.readEmailOtpConfigValue('UPSTASH_REDIS_REST_TOKEN') ||
+        (useSharedBackendConfig ? this.readEmailOtpConfigValue('UPSTASH_REDIS_REST_TOKEN') : '') ||
         null,
       redisUrl:
         this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_REDIS_URL') ||
-        this.readEmailOtpConfigValue('REDIS_URL') ||
+        (useSharedBackendConfig ? this.readEmailOtpConfigValue('REDIS_URL') : '') ||
         null,
-      keyPrefix: 'email-otp:',
+      keyPrefix: this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_KEY_PREFIX') || 'email-otp:v2:',
       limit: 1,
       windowMs: 1,
     }).limiter;
@@ -979,17 +1135,27 @@ export class AuthService {
       if (!Number.isFinite(n)) return fallback;
       return Math.min(Math.max(Math.floor(n), min), max);
     };
+    const production = this.isProductionEnvironment();
+    const challengeFallback = production
+      ? { limit: 5, windowMs: 5 * 60_000 }
+      : { limit: 100, windowMs: 60_000 };
+    const verifyFallback = production
+      ? { limit: 10, windowMs: 5 * 60_000 }
+      : { limit: 100, windowMs: 60_000 };
+    const grantFallback = production
+      ? { limit: 8, windowMs: 5 * 60_000 }
+      : { limit: 100, windowMs: 60_000 };
     return {
       challenge: {
         limit: clampInt(
           this.readEmailOtpConfigValue('EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX'),
-          5,
+          challengeFallback.limit,
           1,
           500,
         ),
         windowMs: clampInt(
           this.readEmailOtpConfigValue('EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS'),
-          5 * 60_000,
+          challengeFallback.windowMs,
           1_000,
           24 * 60 * 60_000,
         ),
@@ -997,13 +1163,13 @@ export class AuthService {
       verify: {
         limit: clampInt(
           this.readEmailOtpConfigValue('EMAIL_OTP_VERIFY_RATE_LIMIT_MAX'),
-          10,
+          verifyFallback.limit,
           1,
           1000,
         ),
         windowMs: clampInt(
           this.readEmailOtpConfigValue('EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS'),
-          5 * 60_000,
+          verifyFallback.windowMs,
           1_000,
           24 * 60 * 60_000,
         ),
@@ -1011,13 +1177,13 @@ export class AuthService {
       grant: {
         limit: clampInt(
           this.readEmailOtpConfigValue('EMAIL_OTP_GRANT_RATE_LIMIT_MAX'),
-          8,
+          grantFallback.limit,
           1,
           1000,
         ),
         windowMs: clampInt(
           this.readEmailOtpConfigValue('EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS'),
-          5 * 60_000,
+          grantFallback.windowMs,
           1_000,
           24 * 60 * 60_000,
         ),
@@ -1034,16 +1200,22 @@ export class AuthService {
     clientIp?: string;
   }): Promise<
     | { ok: true }
-    | { ok: false; code: 'rate_limited'; message: string; retryAfterMs?: number; resetAtMs?: number }
+    | {
+        ok: false;
+        code: 'rate_limited';
+        message: string;
+        retryAfterMs?: number;
+        resetAtMs?: number;
+      }
   > {
     const limiter = this.getEmailOtpRateLimiter();
     const policy = this.resolveEmailOtpRateLimitPolicies()[args.scope];
-    const keySuffix = `scope=${args.scope}:action=${args.action || 'default'}`;
+    const keySuffix = `scope=${args.scope}:action=${args.action || 'default'}:limit=${policy.limit}:windowMs=${policy.windowMs}`;
     const keys = [
+      args.clientIp ? `${keySuffix}:ip:${args.clientIp}` : '',
       args.userId ? `${keySuffix}:user:${args.userId}` : '',
       args.walletId ? `${keySuffix}:wallet:${args.walletId}` : '',
       args.orgId ? `${keySuffix}:org:${args.orgId}` : '',
-      args.clientIp ? `${keySuffix}:ip:${args.clientIp}` : '',
     ].filter(Boolean);
     for (const key of keys) {
       const consumed = await limiter.consume({
@@ -1099,24 +1271,14 @@ export class AuthService {
       10_000,
       5 * 60_000,
     );
-    const maxAttempts = clampInt(
-      this.readEmailOtpConfigValue('EMAIL_OTP_MAX_ATTEMPTS'),
-      5,
-      1,
-      10,
-    );
+    const maxAttempts = clampInt(this.readEmailOtpConfigValue('EMAIL_OTP_MAX_ATTEMPTS'), 5, 1, 10);
     const lockoutTtlMs = clampInt(
       this.readEmailOtpConfigValue('EMAIL_OTP_LOCKOUT_TTL_MS'),
       15 * 60_000,
       60_000,
       24 * 60 * 60_000,
     );
-    const codeLength = clampInt(
-      this.readEmailOtpConfigValue('EMAIL_OTP_CODE_LENGTH'),
-      6,
-      6,
-      8,
-    );
+    const codeLength = clampInt(this.readEmailOtpConfigValue('EMAIL_OTP_CODE_LENGTH'), 6, 6, 8);
     const devOutboxEnabledRaw = this.readEmailOtpConfigValue('EMAIL_OTP_DEV_OUTBOX_ENABLED');
     const devOutboxEnabled =
       deliveryMode === 'memory' &&
@@ -1146,8 +1308,7 @@ export class AuthService {
       return {
         ok: false as const,
         code: 'not_configured',
-        message:
-          'Email OTP unseal requires SHAMIR_P_B64U, SHAMIR_E_S_B64U, and SHAMIR_D_S_B64U',
+        message: 'Email OTP unseal requires SHAMIR_P_B64U, SHAMIR_E_S_B64U, and SHAMIR_D_S_B64U',
       };
     }
     try {
@@ -1186,7 +1347,9 @@ export class AuthService {
   }
 
   private maskEmail(email: string): string {
-    const trimmed = String(email || '').trim().toLowerCase();
+    const trimmed = String(email || '')
+      .trim()
+      .toLowerCase();
     const atIndex = trimmed.indexOf('@');
     if (atIndex <= 0 || atIndex === trimmed.length - 1) return 'hidden';
     const local = trimmed.slice(0, atIndex);
@@ -1224,6 +1387,18 @@ export class AuthService {
     }
 
     const emailHint = this.maskEmail(input.email);
+    const logDevelopmentOtpCode = (deliveryMode: 'log' | 'memory') => {
+      this.logger.warn('[email-otp] development OTP code', {
+        challengeId: input.challengeId,
+        walletId: input.walletId,
+        userId: input.userId,
+        otpChannel: input.otpChannel,
+        deliveryMode,
+        emailHint,
+        devOtpCode: input.otpCode,
+        expiresAtMs: input.expiresAtMs,
+      });
+    };
     if (config.deliveryMode === 'email_provider') {
       return {
         ok: false,
@@ -1242,18 +1417,11 @@ export class AuthService {
         otpCode: input.otpCode,
         expiresAtMs: input.expiresAtMs,
       });
+      logDevelopmentOtpCode('memory');
       return { ok: true, deliveryMode: 'memory', emailHint };
     }
 
-    this.logger.info('[email-otp] issued development OTP challenge metadata', {
-      challengeId: input.challengeId,
-      walletId: input.walletId,
-      userId: input.userId,
-      otpChannel: input.otpChannel,
-      emailHint,
-      codeLength: input.otpCode.length,
-      expiresAtMs: input.expiresAtMs,
-    });
+    logDevelopmentOtpCode('log');
     return { ok: true, deliveryMode: 'log', emailHint };
   }
 
@@ -1263,7 +1431,7 @@ export class AuthService {
     }
     if (this.identityStoreInitialized) {
       this.identityStore = createIdentityStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -1272,7 +1440,7 @@ export class AuthService {
 
     this.identityStoreInitialized = true;
     this.identityStore = createIdentityStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -1405,7 +1573,7 @@ export class AuthService {
     if (this.deviceLinkingSessionStoreInitialized) {
       // Defensive: should never happen, but avoids returning null.
       this.deviceLinkingSessionStore = createDeviceLinkingSessionStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -1414,7 +1582,7 @@ export class AuthService {
 
     this.deviceLinkingSessionStoreInitialized = true;
     this.deviceLinkingSessionStore = createDeviceLinkingSessionStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -1428,7 +1596,7 @@ export class AuthService {
     if (this.nearPublicKeyStoreInitialized) {
       // Defensive: should never happen, but avoids returning null.
       this.nearPublicKeyStore = createNearPublicKeyStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -1436,7 +1604,7 @@ export class AuthService {
     }
     this.nearPublicKeyStoreInitialized = true;
     this.nearPublicKeyStore = createNearPublicKeyStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -1449,7 +1617,7 @@ export class AuthService {
     }
     if (this.accountSignerStoreInitialized) {
       this.accountSignerStore = createAccountSignerStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -1457,7 +1625,7 @@ export class AuthService {
     }
     this.accountSignerStoreInitialized = true;
     this.accountSignerStore = createAccountSignerStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -1470,7 +1638,7 @@ export class AuthService {
     }
     if (this.smartAccountRecoverySubjectStoreInitialized) {
       this.smartAccountRecoverySubjectStore = createSmartAccountRecoverySubjectStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -1478,7 +1646,7 @@ export class AuthService {
     }
     this.smartAccountRecoverySubjectStoreInitialized = true;
     this.smartAccountRecoverySubjectStore = createSmartAccountRecoverySubjectStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -1491,7 +1659,7 @@ export class AuthService {
     }
     if (this.recoverySessionStoreInitialized) {
       this.recoverySessionStore = createRecoverySessionStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -1499,7 +1667,7 @@ export class AuthService {
     }
     this.recoverySessionStoreInitialized = true;
     this.recoverySessionStore = createRecoverySessionStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -1512,7 +1680,7 @@ export class AuthService {
     }
     if (this.recoveryExecutionStoreInitialized) {
       this.recoveryExecutionStore = createRecoveryExecutionStore({
-        config: this.config.thresholdEd25519KeyStore || null,
+        config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
@@ -1520,7 +1688,7 @@ export class AuthService {
     }
     this.recoveryExecutionStoreInitialized = true;
     this.recoveryExecutionStore = createRecoveryExecutionStore({
-      config: this.config.thresholdEd25519KeyStore || null,
+      config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
@@ -2294,7 +2462,7 @@ export class AuthService {
           expiresAt?: string;
           participantIds?: number[];
           remainingUses?: number;
-          runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+          runtimePolicyScope?: ThresholdRuntimePolicyScope;
         } | null = null;
         let thresholdEcdsaSession: {
           sessionKind: 'jwt' | 'cookie';
@@ -2625,14 +2793,14 @@ export class AuthService {
             ? { relayerParticipantId: thresholdKeygen.relayerParticipantId }
             : {}),
           ...(thresholdKeygen ? { participantIds: thresholdKeygen.participantIds } : {}),
-          ...(normalizeThresholdRuntimeSnapshotScope(
+          ...(normalizeThresholdRuntimePolicyScope(
             (thresholdEd25519SessionPolicy as Record<string, unknown> | undefined)
-              ?.runtimeSnapshotScope,
+              ?.runtimePolicyScope,
           )
             ? {
-                runtimeSnapshotScope: normalizeThresholdRuntimeSnapshotScope(
+                runtimePolicyScope: normalizeThresholdRuntimePolicyScope(
                   (thresholdEd25519SessionPolicy as Record<string, unknown> | undefined)
-                    ?.runtimeSnapshotScope,
+                    ?.runtimePolicyScope,
                 ),
               }
             : {}),
@@ -2682,8 +2850,8 @@ export class AuthService {
             ...(Number.isFinite(Number(session.remainingUses))
               ? { remainingUses: Number(session.remainingUses) }
               : {}),
-            ...(session.runtimeSnapshotScope
-              ? { runtimeSnapshotScope: session.runtimeSnapshotScope }
+            ...(session.runtimePolicyScope
+              ? { runtimePolicyScope: session.runtimePolicyScope }
               : {}),
           };
           logDuration(
@@ -3351,14 +3519,19 @@ export class AuthService {
     try {
       const walletId = toOptionalTrimmedString(request.walletId);
       const challengeId = toOptionalTrimmedString(request.challengeId);
-      if (!walletId) return { ok: false, verified: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!walletId)
+        return { ok: false, verified: false, code: 'invalid_body', message: 'Missing walletId' };
       if (!isValidAccountId(walletId)) {
         return { ok: false, verified: false, code: 'invalid_body', message: 'Invalid walletId' };
       }
       if (!challengeId) {
         return { ok: false, verified: false, code: 'invalid_body', message: 'Missing challengeId' };
       }
-      if (!request.unlockProof || typeof request.unlockProof !== 'object' || Array.isArray(request.unlockProof)) {
+      if (
+        !request.unlockProof ||
+        typeof request.unlockProof !== 'object' ||
+        Array.isArray(request.unlockProof)
+      ) {
         return {
           ok: false,
           verified: false,
@@ -3622,7 +3795,13 @@ export class AuthService {
         return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
       }
       const existingEnrollment = await this.getEmailOtpEnrollmentStore().get(walletId);
-      if (existingEnrollment?.otpLockedUntilMs && existingEnrollment.otpLockedUntilMs > Date.now()) {
+      if (action === 'wallet_email_otp_authorize' && !existingEnrollment) {
+        return { ok: false, code: 'not_found', message: 'Email OTP enrollment not found' };
+      }
+      if (
+        existingEnrollment?.otpLockedUntilMs &&
+        existingEnrollment.otpLockedUntilMs > Date.now()
+      ) {
         return {
           ok: false,
           code: 'otp_locked_out',
@@ -3653,24 +3832,13 @@ export class AuthService {
       const challengeId = base64UrlEncode(crypto.getRandomValues(new Uint8Array(16)));
       const otpCode = this.generateNumericOtp(otpConfig.codeLength);
 
-      const delivery = await this.deliverEmailOtpCode({
-        challengeId,
-        walletId,
-        userId,
-        otpChannel: 'email_otp',
-        email,
-        otpCode,
-        expiresAtMs,
-      });
-      if (!delivery.ok) return delivery;
-
-      await this.getEmailOtpChallengeStore().put({
-        version: 'email_otp_challenge_v1',
+      const challengeRecord = {
+        version: 'email_otp_challenge_v1' as const,
         challengeId,
         userId,
         walletId,
         ...(orgId ? { orgId } : {}),
-        otpChannel: 'email_otp',
+        otpChannel: 'email_otp' as const,
         email,
         otpCode,
         sessionHash,
@@ -3680,7 +3848,32 @@ export class AuthService {
         expiresAtMs,
         attemptCount: 0,
         maxAttempts: otpConfig.maxAttempts,
+      };
+      const challengeStore = this.getEmailOtpChallengeStore();
+      await challengeStore.put(challengeRecord);
+      const persistedChallenge = await challengeStore.get(challengeId);
+      if (!persistedChallenge) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: 'Email OTP challenge could not be persisted',
+        };
+      }
+
+      const delivery = await this.deliverEmailOtpCode({
+        challengeId,
+        walletId,
+        userId,
+        otpChannel: 'email_otp',
+        email,
+        otpCode,
+        expiresAtMs,
       });
+      if (!delivery.ok) {
+        await challengeStore.del(challengeId);
+        this.emailOtpMemoryOutbox.delete(challengeId);
+        return delivery;
+      }
 
       return {
         ok: true,
@@ -3862,6 +4055,9 @@ export class AuthService {
 
       const enrollmentStore = this.getEmailOtpEnrollmentStore();
       const enrollment = await enrollmentStore.get(walletId);
+      if (expectedAction === 'wallet_email_otp_authorize' && !enrollment) {
+        return { ok: false, code: 'not_found', message: 'Email OTP enrollment not found' };
+      }
       const activeLockoutUntilMs =
         enrollment?.otpLockedUntilMs && enrollment.otpLockedUntilMs > Date.now()
           ? enrollment.otpLockedUntilMs
@@ -3878,6 +4074,13 @@ export class AuthService {
       const challengeStore = this.getEmailOtpChallengeStore();
       const record = await challengeStore.get(challengeId);
       if (!record) {
+        this.logger.warn('[email-otp] challenge record not found during verification', {
+          challengeId,
+          walletId,
+          userId,
+          otpChannel: 'email_otp',
+          action: expectedAction,
+        });
         return {
           ok: false,
           code: 'challenge_expired_or_invalid',
@@ -4155,9 +4358,7 @@ export class AuthService {
       emailOtpKeyVersion,
       unlockPublicKey,
       unlockKeyVersion,
-      ...(thresholdEcdsaClientVerifyingShareB64u
-        ? { thresholdEcdsaClientVerifyingShareB64u }
-        : {}),
+      ...(thresholdEcdsaClientVerifyingShareB64u ? { thresholdEcdsaClientVerifyingShareB64u } : {}),
     };
   }
 
@@ -4230,7 +4431,9 @@ export class AuthService {
       otpFailureCount: 0,
       lastOtpFailureAtMs: undefined,
       otpLockedUntilMs: undefined,
-      ...(existing?.lastEmailOtpLoginAtMs ? { lastEmailOtpLoginAtMs: existing.lastEmailOtpLoginAtMs } : {}),
+      ...(existing?.lastEmailOtpLoginAtMs
+        ? { lastEmailOtpLoginAtMs: existing.lastEmailOtpLoginAtMs }
+        : {}),
       ...(existing?.lastStrongAuthAtMs ? { lastStrongAuthAtMs: existing.lastStrongAuthAtMs } : {}),
     });
     return {
@@ -4246,9 +4449,7 @@ export class AuthService {
     };
   }
 
-  async readEmailOtpEnrollment(request: {
-    walletId?: unknown;
-  }): Promise<
+  async readEmailOtpEnrollment(request: { walletId?: unknown }): Promise<
     | {
         ok: true;
         enrollment: {
@@ -4282,10 +4483,14 @@ export class AuthService {
     return { ok: true, enrollment };
   }
 
-  async isEmailOtpStrongAuthRequired(request: {
-    walletId?: unknown;
-  }): Promise<
-    | { ok: true; required: boolean; walletId: string; lastEmailOtpLoginAtMs?: number; lastStrongAuthAtMs?: number }
+  async isEmailOtpStrongAuthRequired(request: { walletId?: unknown }): Promise<
+    | {
+        ok: true;
+        required: boolean;
+        walletId: string;
+        lastEmailOtpLoginAtMs?: number;
+        lastStrongAuthAtMs?: number;
+      }
     | { ok: false; code: string; message: string }
   > {
     const walletId = toOptionalTrimmedString(request.walletId);
@@ -4295,14 +4500,17 @@ export class AuthService {
       return { ok: true, required: false, walletId };
     }
     const lastEmailOtpLoginAtMs =
-      typeof enrollment.lastEmailOtpLoginAtMs === 'number' ? enrollment.lastEmailOtpLoginAtMs : undefined;
-    const lastStrongAuthAtMs =
-      typeof enrollment.lastStrongAuthAtMs === 'number'
-        ? enrollment.lastStrongAuthAtMs
+      typeof enrollment.lastEmailOtpLoginAtMs === 'number'
+        ? enrollment.lastEmailOtpLoginAtMs
         : undefined;
+    const lastStrongAuthAtMs =
+      typeof enrollment.lastStrongAuthAtMs === 'number' ? enrollment.lastStrongAuthAtMs : undefined;
     return {
       ok: true,
-      required: Boolean(lastEmailOtpLoginAtMs && (!lastStrongAuthAtMs || lastEmailOtpLoginAtMs > lastStrongAuthAtMs)),
+      required: Boolean(
+        lastEmailOtpLoginAtMs &&
+        (!lastStrongAuthAtMs || lastEmailOtpLoginAtMs > lastStrongAuthAtMs),
+      ),
       walletId,
       ...(lastEmailOtpLoginAtMs ? { lastEmailOtpLoginAtMs } : {}),
       ...(lastStrongAuthAtMs ? { lastStrongAuthAtMs } : {}),
@@ -4993,6 +5201,9 @@ export class AuthService {
     providerSubject?: string;
     sub?: string;
     email?: string;
+    name?: string;
+    given_name?: string;
+    family_name?: string;
     emailVerified?: boolean;
     hostedDomain?: string;
     code?: string;
@@ -5536,9 +5747,9 @@ export class AuthService {
           };
         }
         const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
-        const runtimeSnapshotScope =
-          normalizeThresholdRuntimeSnapshotScope(requestedSessionPolicy.runtimeSnapshotScope) ||
-          normalizeThresholdRuntimeSnapshotScope(binding.runtimeSnapshotScope);
+        const runtimePolicyScope =
+          normalizeThresholdRuntimePolicyScope(requestedSessionPolicy.runtimePolicyScope) ||
+          normalizeThresholdRuntimePolicyScope(binding.runtimePolicyScope);
         const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
           requestedSessionPolicy,
           expectedRelayerKeyId: relayerKeyId,
@@ -5563,7 +5774,7 @@ export class AuthService {
             nearAccountId: binding.userId,
             rpId: binding.rpId,
             relayerKeyId,
-            ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           } as any,
         });
         if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
@@ -5710,7 +5921,7 @@ export class AuthService {
         device2PublicKey,
         expiresAtMs: session.expiresAtMs,
         hasExisting: !!existing,
-        storeKind: String((this.config.thresholdEd25519KeyStore as any)?.kind || ''),
+        storeKind: String((this.config.thresholdStore as any)?.kind || ''),
       });
       return { ok: true, session };
     } catch (e: unknown) {
@@ -5853,7 +6064,7 @@ export class AuthService {
         device2PublicKey,
         deviceNumber,
         addKeyTxHash: addKeyTxHash || '',
-        storeKind: String((this.config.thresholdEd25519KeyStore as any)?.kind || ''),
+        storeKind: String((this.config.thresholdStore as any)?.kind || ''),
       });
       return { ok: true, session };
     } catch (e: unknown) {
@@ -5971,11 +6182,9 @@ export class AuthService {
       const thresholdEcdsaBootstrap = parseThresholdEcdsaBootstrapInput(
         (request as any)?.threshold_ecdsa,
       );
-      const thresholdEcdsaClientRootShare32B64u =
-        thresholdEcdsaBootstrap.clientRootShare32B64u;
+      const thresholdEcdsaClientRootShare32B64u = thresholdEcdsaBootstrap.clientRootShare32B64u;
       const thresholdEcdsaRequested =
-        (request as any)?.threshold_ecdsa != null ||
-        Boolean(thresholdEcdsaClientRootShare32B64u);
+        (request as any)?.threshold_ecdsa != null || Boolean(thresholdEcdsaClientRootShare32B64u);
       if (thresholdEcdsaRequested && !thresholdEcdsaClientRootShare32B64u) {
         return {
           ok: false,
@@ -6073,7 +6282,7 @@ export class AuthService {
         };
       }
       const bindingStore = this.getWebAuthnCredentialBindingStore();
-      const existingRuntimeSnapshotScope = await resolveBoundThresholdRuntimeSnapshotScope({
+      const existingRuntimePolicyScope = await resolveBoundThresholdRuntimePolicyScope({
         bindingStore,
         userId: accountId,
         rpId,
@@ -6138,9 +6347,9 @@ export class AuthService {
       let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
       if (thresholdEd25519SessionPolicy) {
         const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
-        const runtimeSnapshotScope =
-          normalizeThresholdRuntimeSnapshotScope(requestedSessionPolicy.runtimeSnapshotScope) ||
-          existingRuntimeSnapshotScope;
+        const runtimePolicyScope =
+          normalizeThresholdRuntimePolicyScope(requestedSessionPolicy.runtimePolicyScope) ||
+          existingRuntimePolicyScope;
         const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
           requestedSessionPolicy,
           expectedRelayerKeyId: keygen.relayerKeyId,
@@ -6164,7 +6373,7 @@ export class AuthService {
             nearAccountId: accountId,
             rpId,
             relayerKeyId: keygen.relayerKeyId,
-            ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           } as any,
         });
         if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
@@ -6277,10 +6486,10 @@ export class AuthService {
         clientParticipantId: keygen.clientParticipantId,
         relayerParticipantId: keygen.relayerParticipantId,
         participantIds: keygen.participantIds,
-        ...(thresholdEd25519Session?.runtimeSnapshotScope || existingRuntimeSnapshotScope
+        ...(thresholdEd25519Session?.runtimePolicyScope || existingRuntimePolicyScope
           ? {
-              runtimeSnapshotScope:
-                thresholdEd25519Session?.runtimeSnapshotScope || existingRuntimeSnapshotScope,
+              runtimePolicyScope:
+                thresholdEd25519Session?.runtimePolicyScope || existingRuntimePolicyScope,
             }
           : {}),
         createdAtMs: now,
@@ -6549,11 +6758,9 @@ export class AuthService {
       const thresholdEcdsaBootstrap = parseThresholdEcdsaBootstrapInput(
         (request as any)?.threshold_ecdsa,
       );
-      const thresholdEcdsaClientRootShare32B64u =
-        thresholdEcdsaBootstrap.clientRootShare32B64u;
+      const thresholdEcdsaClientRootShare32B64u = thresholdEcdsaBootstrap.clientRootShare32B64u;
       const thresholdEcdsaRequested =
-        (request as any)?.threshold_ecdsa != null ||
-        Boolean(thresholdEcdsaClientRootShare32B64u);
+        (request as any)?.threshold_ecdsa != null || Boolean(thresholdEcdsaClientRootShare32B64u);
       if (!thresholdEcdsaRequested || !thresholdEcdsaClientRootShare32B64u) {
         return {
           ok: false,
@@ -6652,7 +6859,7 @@ export class AuthService {
         };
       }
       const bindingStore = this.getWebAuthnCredentialBindingStore();
-      const existingRuntimeSnapshotScope = await resolveBoundThresholdRuntimeSnapshotScope({
+      const existingRuntimePolicyScope = await resolveBoundThresholdRuntimePolicyScope({
         bindingStore,
         userId: accountId,
         rpId,
@@ -6717,9 +6924,9 @@ export class AuthService {
       let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
       if (thresholdEd25519SessionPolicy) {
         const requestedSessionPolicy = thresholdEd25519SessionPolicy as Record<string, unknown>;
-        const runtimeSnapshotScope =
-          normalizeThresholdRuntimeSnapshotScope(requestedSessionPolicy.runtimeSnapshotScope) ||
-          existingRuntimeSnapshotScope;
+        const runtimePolicyScope =
+          normalizeThresholdRuntimePolicyScope(requestedSessionPolicy.runtimePolicyScope) ||
+          existingRuntimePolicyScope;
         const policyBindingError = validateThresholdEd25519SessionPolicyBindings({
           requestedSessionPolicy,
           expectedRelayerKeyId: keygen.relayerKeyId,
@@ -6743,7 +6950,7 @@ export class AuthService {
             nearAccountId: accountId,
             rpId,
             relayerKeyId: keygen.relayerKeyId,
-            ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+            ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           } as any,
         });
         if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
@@ -6858,10 +7065,10 @@ export class AuthService {
         clientParticipantId: keygen.clientParticipantId,
         relayerParticipantId: keygen.relayerParticipantId,
         participantIds: keygen.participantIds,
-        ...(thresholdEd25519Session?.runtimeSnapshotScope || existingRuntimeSnapshotScope
+        ...(thresholdEd25519Session?.runtimePolicyScope || existingRuntimePolicyScope
           ? {
-              runtimeSnapshotScope:
-                thresholdEd25519Session?.runtimeSnapshotScope || existingRuntimeSnapshotScope,
+              runtimePolicyScope:
+                thresholdEd25519Session?.runtimePolicyScope || existingRuntimePolicyScope,
             }
           : {}),
         createdAtMs: now,

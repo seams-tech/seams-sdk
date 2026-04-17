@@ -12,7 +12,7 @@ import {
 } from './recoveryAuthorityAuthorization';
 import type { RecoveryAuthoritySponsorshipRuntime } from '../router/recoveryAuthoritySponsorship';
 import { parseRecoveryAuthoritySponsorshipScope } from '../router/recoveryAuthoritySponsorship';
-import type { RelayRuntimeSnapshotScope } from '../router/relay';
+import type { RelayRuntimePolicyScope } from '../router/relay';
 import type { ConsoleSponsoredCallReceiptStatus } from '../console/sponsoredCalls';
 import {
   buildSponsoredSpendCapSourceEventId,
@@ -121,7 +121,7 @@ function buildSponsorRef(chainId: number, sponsorAddress: `0x${string}`): string
 
 function resolveRecoverySponsorshipScope(
   execution: RecoveryExecutionRecord,
-): RelayRuntimeSnapshotScope | null {
+): RelayRuntimePolicyScope | null {
   const metadata = asObject(execution.metadata);
   return (
     parseRecoveryAuthoritySponsorshipScope(metadata.sponsorshipScope) ||
@@ -283,7 +283,7 @@ function buildRecoverySpecMetadata(input: {
 }
 
 function buildMetadataPatch(input: {
-  scope: RelayRuntimeSnapshotScope;
+  scope: RelayRuntimePolicyScope;
   chainId: number;
   sponsorAddress: `0x${string}`;
   ownerAddress: `0x${string}`;
@@ -319,11 +319,11 @@ function buildMetadataPatch(input: {
       accountAddress: input.accountAddress,
       gasLimit: input.gasLimit,
     }),
-    sponsorshipScope: {
-      orgId: input.scope.orgId,
-      environmentId: input.scope.environmentId,
-      ...(input.scope.projectId ? { projectId: input.scope.projectId } : {}),
-    },
+      sponsorshipScope: {
+        orgId: input.scope.orgId,
+        environmentId: input.scope.envId,
+        ...(input.scope.projectId ? { projectId: input.scope.projectId } : {}),
+      },
     sponsoredRouteId: RECOVERY_AUTHORITY_SPONSORED_EVM_ROUTE_ID,
     sponsoredApiKeyId: RECOVERY_AUTHORITY_SPONSORED_EVM_API_KEY_ID,
     sponsoredExecutorKind: input.assessment.executorKind,
@@ -332,7 +332,7 @@ function buildMetadataPatch(input: {
     sponsoredPolicyId: input.policyId,
     sponsoredPolicyName: input.policyName,
     ...(input.templateId ? { sponsoredTemplateId: input.templateId } : {}),
-    sponsoredEnvironmentId: input.scope.environmentId,
+    sponsoredEnvId: input.scope.envId,
     sponsoredOrgId: input.scope.orgId,
     ...(input.scope.projectId ? { sponsoredProjectId: input.scope.projectId } : {}),
     sponsoredIdempotencyKey: input.idempotencyKey,
@@ -361,7 +361,7 @@ function buildMetadataPatch(input: {
 
 function buildDetailsJson(input: {
   execution: RecoveryExecutionRecord;
-  scope: RelayRuntimeSnapshotScope;
+  scope: RelayRuntimePolicyScope;
   chainId: number;
   ownerAddress: `0x${string}`;
   contractMethod: RecoveryAuthorityContractMethod;
@@ -400,7 +400,7 @@ function buildDetailsJson(input: {
     },
     sponsorshipScope: {
       orgId: input.scope.orgId,
-      environmentId: input.scope.environmentId,
+      environmentId: input.scope.envId,
       ...(input.scope.projectId ? { projectId: input.scope.projectId } : {}),
     },
     call: {
@@ -511,7 +511,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
     const latestSnapshot = await input.sponsorship.runtimeSnapshots.getLatestSnapshot(
       sponsorshipCtx,
       {
-        environmentId: scope.environmentId,
+        environmentId: scope.envId,
         ...(scope.projectId ? { projectId: scope.projectId } : {}),
       },
     );
@@ -658,7 +658,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         chainFamily: 'evm',
         intentKind: 'evm_call',
         executorKind: adapter.executorKind,
-        environmentId: scope.environmentId,
+        environmentId: scope.envId,
         policyId: matched.policy.policyId,
         accountRef,
         targetRef,
@@ -670,7 +670,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         logSpendCapReserved({
           logger: input.sponsorship.logger,
           routeTag: 'recovery-authority',
-          environmentId: scope.environmentId,
+          environmentId: scope.envId,
           policyId: matched.policy.policyId,
           idempotencyKey,
           chainFamily: 'evm',
@@ -687,7 +687,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         logSpendCapRejected({
           logger: input.sponsorship.logger,
           routeTag: 'recovery-authority',
-          environmentId: scope.environmentId,
+          environmentId: scope.envId,
           policyId: matched.policy.policyId,
           idempotencyKey,
           chainFamily: 'evm',
@@ -736,7 +736,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         chainFamily: 'evm',
         intentKind: 'evm_call',
         executorKind: adapter.executorKind,
-        environmentId: scope.environmentId,
+        environmentId: scope.envId,
         policyId: matched.policy.policyId,
         accountRef,
         targetRef,
@@ -756,7 +756,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
           input.sponsorship.logger.warn(
             '[recovery-authority] spend-cap release after prepaid failure failed',
             {
-              environmentId: scope.environmentId,
+              environmentId: scope.envId,
               policyId: matched.policy.policyId,
               idempotencyKey,
               error: releaseError instanceof Error ? releaseError.message : String(releaseError),
@@ -775,7 +775,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
           },
           ctx: sponsorshipCtx,
           balance: beforeBalanceState,
-          environmentId: scope.environmentId,
+          environmentId: scope.envId,
           policyId: matched.policy.policyId,
           routeId: RECOVERY_AUTHORITY_SPONSORED_EVM_ROUTE_ID,
           chainFamily: 'evm',
@@ -840,7 +840,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         chainFamily: 'evm',
         intentKind: 'evm_call',
         executorKind: adapter.executorKind,
-        environmentId: scope.environmentId,
+        environmentId: scope.envId,
         policyId: matched.policy.policyId,
         accountRef,
         targetRef,
@@ -860,7 +860,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         logSpendCapSettled({
           logger: input.sponsorship.logger,
           routeTag: 'recovery-authority',
-          environmentId: scope.environmentId,
+          environmentId: scope.envId,
           policyId: matched.policy.policyId,
           idempotencyKey,
           chainFamily: 'evm',
@@ -877,7 +877,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
       }
     } catch (error: unknown) {
       input.sponsorship.logger.warn('[recovery-authority] spend-cap settlement failed', {
-        environmentId: scope.environmentId,
+        environmentId: scope.envId,
         policyId: matched.policy.policyId,
         idempotencyKey,
         txHash: assessment.txHash,
@@ -892,7 +892,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
         context: sponsorshipCtx,
         ledger: input.sponsorship.ledger,
         buildRecord: ({ prepaidSettlement, billingLedgerEntryId }) => ({
-          environmentId: scope.environmentId,
+          environmentId: scope.envId,
           apiKeyId: RECOVERY_AUTHORITY_SPONSORED_EVM_API_KEY_ID,
           apiKeyKind: 'secret_key',
           route: RECOVERY_AUTHORITY_SPONSORED_EVM_ROUTE_ID,
@@ -969,7 +969,7 @@ export function createSponsoredRecoveryDeployedExecutor(input: {
           chainFamily: 'evm',
           intentKind: 'evm_call',
           executorKind: adapter.executorKind,
-          environmentId: scope.environmentId,
+          environmentId: scope.envId,
           policyId: matched.policy.policyId,
           accountRef,
           targetRef,

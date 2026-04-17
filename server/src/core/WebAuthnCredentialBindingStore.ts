@@ -1,14 +1,15 @@
 import type { NormalizedLogger } from './logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
-  ThresholdEd25519KeyStoreConfigInput,
-  ThresholdRuntimeSnapshotScope,
+  ThresholdStoreConfigInput,
+  ThresholdRuntimePolicyScope,
 } from './types';
 import {
-  THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
+  THRESHOLD_DO_OBJECT_NAME_DEFAULT,
   THRESHOLD_PREFIX_DEFAULT,
 } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   RedisTcpClient,
   UpstashRedisRestClient,
@@ -33,7 +34,7 @@ export type WebAuthnCredentialBindingRecord = {
   clientParticipantId?: number;
   relayerParticipantId?: number;
   participantIds?: number[];
-  runtimeSnapshotScope?: ThresholdRuntimeSnapshotScope;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -119,24 +120,14 @@ function parseWebAuthnCredentialBindingRecord(
         .filter((n) => Number.isFinite(n) && n >= 1)
         .map((n) => Math.floor(n))
     : null;
-  const runtimeSnapshotScopeRaw = (raw as { runtimeSnapshotScope?: unknown }).runtimeSnapshotScope;
-  const runtimeSnapshotScope = isObject(runtimeSnapshotScopeRaw)
+  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
+  const runtimePolicyScope = isObject(runtimePolicyScopeRaw)
     ? (() => {
-        const orgId = toOptionalTrimmedString(
-          (runtimeSnapshotScopeRaw as { orgId?: unknown }).orgId,
-        );
-        const environmentId = toOptionalTrimmedString(
-          (runtimeSnapshotScopeRaw as { environmentId?: unknown }).environmentId,
-        );
-        if (!orgId || !environmentId) return null;
-        const projectId = toOptionalTrimmedString(
-          (runtimeSnapshotScopeRaw as { projectId?: unknown }).projectId,
-        );
-        return {
-          orgId,
-          environmentId,
-          ...(projectId ? { projectId } : {}),
-        } satisfies ThresholdRuntimeSnapshotScope;
+        try {
+          return normalizeRuntimePolicyScope(runtimePolicyScopeRaw) satisfies ThresholdRuntimePolicyScope;
+        } catch {
+          return null;
+        }
       })()
     : null;
 
@@ -157,7 +148,7 @@ function parseWebAuthnCredentialBindingRecord(
       ? { relayerParticipantId: Math.floor(relayerParticipantId) }
       : {}),
     ...(participantIds && participantIds.length ? { participantIds } : {}),
-    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };
@@ -442,8 +433,8 @@ function resolveDoNamespaceFromConfig(
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
-    .THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_DO_NAMESPACE?: unknown })
+    .THRESHOLD_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
@@ -533,7 +524,7 @@ class CloudflareDurableObjectWebAuthnCredentialBindingStore implements WebAuthnC
 }
 
 export function createWebAuthnCredentialBindingStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): WebAuthnCredentialBindingStore {
@@ -551,7 +542,7 @@ export function createWebAuthnCredentialBindingStore(input: {
     const objectName =
       toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
       toOptionalTrimmedString((config as { name?: unknown }).name) ||
-      THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
+      THRESHOLD_DO_OBJECT_NAME_DEFAULT;
     input.logger.info('[webauthn] Using Cloudflare Durable Object store for credential bindings');
     return new CloudflareDurableObjectWebAuthnCredentialBindingStore({
       namespace,

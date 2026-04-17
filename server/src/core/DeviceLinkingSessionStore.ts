@@ -1,5 +1,5 @@
 import type { NormalizedLogger } from './logger';
-import type { ThresholdEd25519KeyStoreConfigInput } from './types';
+import type { ThresholdStoreConfigInput } from './types';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
@@ -373,7 +373,7 @@ class RedisTcpDeviceLinkingSessionStore implements DeviceLinkingSessionStore {
 }
 
 export function createDeviceLinkingSessionStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): DeviceLinkingSessionStore {

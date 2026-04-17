@@ -9,6 +9,7 @@ import {
   createRecoveryAuthorityIntervalRunner,
   createEvmSmartAccountDeployHandler,
   createEcdsaAuthSessionStore,
+  createSelfHostedSigningRootShareResolver,
   createPrfSessionSealPolicyFromThresholdAuthSessionStores,
   createPrfSessionSealRoutesOptions,
   createPrfSessionSealShamir3PassCipherAdapter,
@@ -23,6 +24,8 @@ import {
   type ConsoleBillingPrepaidReservationService,
   type ConsoleSponsoredCallService,
   type ConsoleSponsorshipSpendCapService,
+  type SigningRootSecretShareId,
+  type SigningRootShareResolver,
 } from '@tatchi-xyz/sdk/server';
 import {
   createConsoleRouter,
@@ -87,6 +90,8 @@ import {
 } from '@tatchi-xyz/sdk/server/router/express';
 
 import dotenv from 'dotenv';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createJwtSession } from './jwtSession.js';
 import { resolveRelayServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
 import {
@@ -95,7 +100,8 @@ import {
   normalizeStripeSecretKey,
 } from './stripeBillingProvider.js';
 
-dotenv.config();
+const relayServerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+dotenv.config({ path: resolve(relayServerDir, '.env') });
 
 let server: ReturnType<Express['listen']> | null = null;
 let recoveryAuthorityRunner: ReturnType<typeof createRecoveryAuthorityIntervalRunner> | null = null;
@@ -168,6 +174,21 @@ function parseBooleanFlag(value: unknown): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
+function isLocalDevelopmentHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized === '::1' ||
+    normalized.endsWith('.localhost') ||
+    normalized.endsWith('.local')
+  );
+}
+
+function isLocalDevelopmentOrigin(origin: string): boolean {
+  return isLocalDevelopmentHost(hostnameFromOrigin(origin));
+}
+
 function parseBooleanFlagWithDefault(value: unknown, fallback: boolean): boolean {
   const normalized = String(value || '').trim();
   if (!normalized) return fallback;
@@ -205,6 +226,62 @@ function readServiceRuntimeBySymbolDescription(
     };
   }
   return null;
+}
+
+const LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES: ReadonlyArray<{
+  readonly shareId: SigningRootSecretShareId;
+  readonly wireHex: string;
+}> = [
+  {
+    shareId: 1,
+    wireHex: '011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303',
+  },
+  {
+    shareId: 2,
+    wireHex: '021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d',
+  },
+  {
+    shareId: 3,
+    wireHex: '032ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707',
+  },
+];
+
+function hexToBytes(hex: string): Uint8Array {
+  return new Uint8Array(Buffer.from(hex, 'hex'));
+}
+
+function shouldEnableLocalDevSigningRootResolver(input: {
+  readonly env: NodeJS.ProcessEnv;
+  readonly expectedOrigin: string;
+  readonly expectedWalletOrigin: string;
+}): boolean {
+  if (
+    String(input.env.NODE_ENV || '')
+      .trim()
+      .toLowerCase() === 'production'
+  )
+    return false;
+  if (parseBooleanFlag(input.env.THRESHOLD_SIGNING_ROOT_LOCAL_DEV_RESOLVER)) return true;
+  return (
+    isLocalDevelopmentOrigin(input.expectedOrigin) ||
+    isLocalDevelopmentOrigin(input.expectedWalletOrigin)
+  );
+}
+
+function createLocalDevSigningRootShareResolver(signingRootId: string): SigningRootShareResolver {
+  return createSelfHostedSigningRootShareResolver({
+    signingRootId,
+    signingRootVersion: 'default',
+    shares: LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES.map((share) => ({
+      shareId: share.shareId,
+      shareWire: hexToBytes(share.wireHex),
+    })),
+  });
+}
+
+function signingRootIdFromManagedEnvironmentId(environmentId: unknown): string {
+  const raw = String(environmentId || '').trim();
+  return raw.includes(':') ? raw : '';
 }
 
 async function resolveConsoleDemoOrgId(input: {
@@ -778,11 +855,6 @@ async function main() {
     consoleObservabilityRetentionBatchSize,
     consoleBillingStripeWebhookSecret,
   } = resolveRelayServerConsoleConfig(env as Record<string, unknown>);
-  const ed25519MasterSecretB64u =
-    typeof env.THRESHOLD_ED25519_MASTER_SECRET_B64U === 'string'
-      ? env.THRESHOLD_ED25519_MASTER_SECRET_B64U.trim()
-      : '';
-  const secp256k1MasterSecretB64u = requireEnvVar(env, 'THRESHOLD_SECP256K1_MASTER_SECRET_B64U');
   const usePostgresForThreshold = Boolean(thresholdPostgresUrl);
   const thresholdRedisUrl = usePostgresForThreshold ? '' : redisUrl;
 
@@ -845,12 +917,29 @@ async function main() {
       .map((s) => s.trim())
       .filter(Boolean),
   ]);
+  const localDevSigningRootId = String(
+    env.THRESHOLD_SIGNING_ROOT_ID ||
+      signingRootIdFromManagedEnvironmentId(env.VITE_TATCHI_ENVIRONMENT_ID) ||
+      env.CONSOLE_DEMO_PROJECT_ID ||
+      'local-dev',
+  ).trim();
+  const localDevSigningRootResolver = shouldEnableLocalDevSigningRootResolver({
+    env,
+    expectedOrigin: config.expectedOrigin,
+    expectedWalletOrigin: config.expectedWalletOrigin,
+  })
+    ? createLocalDevSigningRootShareResolver(localDevSigningRootId || 'local-dev')
+    : undefined;
+  if (localDevSigningRootResolver) {
+    console.warn(
+      `[threshold] using local-dev fixture signing-root shares for signingRootId=${localDevSigningRootId || 'local-dev'}; do not use this signer for real funds.`,
+    );
+  }
 
-  const thresholdEd25519KeyStore = {
-    // Share mode + deterministic relayer share derivation (optional)
+  const thresholdStore = {
+    // Share mode and threshold-prf signing-root share derivation.
     THRESHOLD_ED25519_SHARE_MODE: env.THRESHOLD_ED25519_SHARE_MODE,
-    THRESHOLD_ED25519_MASTER_SECRET_B64U: ed25519MasterSecretB64u || undefined,
-    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: secp256k1MasterSecretB64u,
+    ...(localDevSigningRootResolver ? { signingRootShareResolver: localDevSigningRootResolver } : {}),
     // Node role + coordinator/cosigner wiring (optional)
     THRESHOLD_NODE_ROLE: env.THRESHOLD_NODE_ROLE,
     THRESHOLD_COORDINATOR_SHARED_SECRET_B64U: env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U,
@@ -884,7 +973,7 @@ async function main() {
     accountInitialBalance: env.ACCOUNT_INITIAL_BALANCE,
     createAccountAndRegisterGas: env.CREATE_ACCOUNT_AND_REGISTER_GAS,
     logger: console,
-    thresholdEd25519KeyStore,
+    thresholdStore,
     googleOidc: {
       GOOGLE_OIDC_CLIENT_ID: env.GOOGLE_OIDC_CLIENT_ID,
       GOOGLE_OIDC_CLIENT_IDS: env.GOOGLE_OIDC_CLIENT_IDS,
@@ -934,12 +1023,12 @@ async function main() {
     }
 
     const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
-      config: thresholdEd25519KeyStore,
+      config: thresholdStore,
       logger: console,
       isNode: true,
     });
     const authSessionStore = createEd25519AuthSessionStore({
-      config: thresholdEd25519KeyStore,
+      config: thresholdStore,
       logger: console,
       isNode: true,
     });

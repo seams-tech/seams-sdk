@@ -31,7 +31,8 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
   const hasCookieSessionSignal = (): boolean => {
     const cookie = String(ctx.request.headers.get('cookie') || '').trim();
     if (!cookie) return false;
-    const cookieName = String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
+    const cookieName =
+      String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
     for (const part of cookie.split(';')) {
       const chunk = String(part || '').trim();
       if (!chunk) continue;
@@ -76,9 +77,9 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
     });
   };
 
-  async function requireAppSession(input: { source: string }): Promise<
-    { ok: true; userId: string; claims: any } | { ok: false; response: Response }
-  > {
+  async function requireAppSession(input: {
+    source: string;
+  }): Promise<{ ok: true; userId: string; claims: any } | { ok: false; response: Response }> {
     const session = ctx.opts.session;
     if (!session) {
       return {
@@ -428,8 +429,8 @@ export async function handleAuth(ctx: CloudflareRelayContext): Promise<Response 
     },
     google: {
       options: async () => {
-        const configured = ctx.service.isGoogleOidcConfigured();
-        return json({ ok: true, configured }, { status: 200 });
+        const publicConfig = ctx.service.getGoogleOidcPublicConfig();
+        return json({ ok: true, ...publicConfig }, { status: 200 });
       },
       verify: async () => {
         const idToken = String((body as any).idToken ?? (body as any).id_token ?? '').trim();

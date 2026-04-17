@@ -35,6 +35,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 #[serde(rename_all = "camelCase")]
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 pub(crate) struct ThresholdEd25519HssCanonicalContextArgs {
+    #[serde(rename = "signingRootId")]
     org_id: String,
     near_account_id: String,
     key_purpose: String,
@@ -47,6 +48,7 @@ pub(crate) struct ThresholdEd25519HssCanonicalContextArgs {
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519HssPrepareSessionArgs {
+    #[serde(rename = "signingRootId")]
     org_id: String,
     near_account_id: String,
     key_purpose: String,
@@ -59,6 +61,7 @@ pub(crate) struct ThresholdEd25519HssPrepareSessionArgs {
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-client-exports")]
 pub(crate) struct ThresholdEd25519HssPrepareSessionOutput {
+    #[serde(rename = "signingRootId")]
     org_id: String,
     near_account_id: String,
     key_purpose: String,
@@ -91,6 +94,7 @@ pub(crate) struct ThresholdEd25519HssPrepareClientRequestOutput {
 #[serde(rename_all = "camelCase")]
 #[cfg(feature = "hss-server-exports")]
 pub(crate) struct ThresholdEd25519HssPrepareServerSessionArgs {
+    #[serde(rename = "signingRootId")]
     org_id: String,
     near_account_id: String,
     key_purpose: String,
@@ -602,7 +606,7 @@ fn canonical_context_from_args(
     let key_purpose = args.key_purpose.trim().to_string();
     let key_version = args.key_version.trim().to_string();
     if org_id.is_empty() {
-        return Err(JsValue::from_str("Missing orgId"));
+        return Err(JsValue::from_str("Missing signingRootId"));
     }
     if near_account_id.is_empty() {
         return Err(JsValue::from_str("Missing nearAccountId"));

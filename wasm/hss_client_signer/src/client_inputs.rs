@@ -7,7 +7,7 @@ use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
 pub fn derive_threshold_ed25519_hss_client_inputs(args: JsValue) -> Result<JsValue, JsValue> {
-    let org_id = get_required_string(&args, "orgId")?;
+    let signing_root_id = get_required_string(&args, "signingRootId")?;
     let near_account_id = get_required_string(&args, "nearAccountId")?;
     let key_purpose = get_required_string(&args, "keyPurpose")?;
     let key_version = get_required_string(&args, "keyVersion")?;
@@ -20,7 +20,7 @@ pub fn derive_threshold_ed25519_hss_client_inputs(args: JsValue) -> Result<JsVal
     let inputs = signer_platform_web::near_ed25519_recovery::derive_ed25519_hss_client_inputs_v1(
         &prf_first,
         &signer_platform_web::near_ed25519_recovery::Ed25519HssCanonicalContextV1 {
-            org_id: org_id.clone(),
+            org_id: signing_root_id.clone(),
             account_id: near_account_id.clone(),
             key_purpose: key_purpose.clone(),
             key_version: key_version.clone(),
@@ -31,7 +31,7 @@ pub fn derive_threshold_ed25519_hss_client_inputs(args: JsValue) -> Result<JsVal
     .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
-    set_string(&out, "orgId", &org_id)?;
+    set_string(&out, "signingRootId", &signing_root_id)?;
     set_string(&out, "nearAccountId", &near_account_id)?;
     set_string(&out, "keyPurpose", &key_purpose)?;
     set_string(&out, "keyVersion", &key_version)?;

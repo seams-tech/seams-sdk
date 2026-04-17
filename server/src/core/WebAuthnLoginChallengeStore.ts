@@ -1,10 +1,10 @@
 import type { NormalizedLogger } from './logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
-  ThresholdEd25519KeyStoreConfigInput,
+  ThresholdStoreConfigInput,
 } from './types';
 import {
-  THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
+  THRESHOLD_DO_OBJECT_NAME_DEFAULT,
   THRESHOLD_PREFIX_DEFAULT,
 } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
@@ -272,8 +272,8 @@ function resolveDoNamespaceFromConfig(
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
-    .THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_DO_NAMESPACE?: unknown })
+    .THRESHOLD_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
@@ -363,7 +363,7 @@ class CloudflareDurableObjectWebAuthnLoginChallengeStore implements WebAuthnLogi
 }
 
 export function createWebAuthnLoginChallengeStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): WebAuthnLoginChallengeStore {
@@ -381,7 +381,7 @@ export function createWebAuthnLoginChallengeStore(input: {
     const objectName =
       toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
       toOptionalTrimmedString((config as { name?: unknown }).name) ||
-      THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
+      THRESHOLD_DO_OBJECT_NAME_DEFAULT;
     input.logger.info(
       '[webauthn] Using Cloudflare Durable Object store for login challenge persistence',
     );

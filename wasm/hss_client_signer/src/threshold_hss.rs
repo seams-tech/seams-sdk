@@ -1,4 +1,3 @@
-use js_sys::{Reflect, Uint8Array};
 use crate::encoders::{base64_url_decode, base64_url_encode};
 use crate::js::{
     get_required_string, get_required_u16_vec, get_required_u32, object, set_string, set_u16_vec,
@@ -6,11 +5,10 @@ use crate::js::{
 };
 use ecdsa_hss::{encode_context_v1 as encode_ecdsa_context_v1, EcdsaHssContextV1};
 use ed25519_hss::{
-    client::ClientDriverState,
-    protocol::prepare_prime_order_succinct_hss_client,
-    shared::CanonicalContext,
-    wire::WireMessage,
+    client::ClientDriverState, protocol::prepare_prime_order_succinct_hss_client,
+    shared::CanonicalContext, wire::WireMessage,
 };
+use js_sys::{Reflect, Uint8Array};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::*;
@@ -18,11 +16,11 @@ use wasm_bindgen::prelude::*;
 #[wasm_bindgen]
 pub fn threshold_ed25519_hss_prepare_session(args: JsValue) -> Result<JsValue, JsValue> {
     let context = canonical_context_from_js(&args)?;
-    let evaluator_driver_state =
-        prepare_prime_order_succinct_hss_client(&context).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let evaluator_driver_state = prepare_prime_order_succinct_hss_client(&context)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
-    set_string(&out, "orgId", &context.org_id)?;
+    set_string(&out, "signingRootId", &context.org_id)?;
     set_string(&out, "nearAccountId", &context.account_id)?;
     set_string(&out, "keyPurpose", &context.key_purpose)?;
     set_string(&out, "keyVersion", &context.key_version)?;
@@ -49,11 +47,11 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
     let y_client_b64u = get_required_string(&args, "yClientB64u")?;
     let tau_client_b64u = get_required_string(&args, "tauClientB64u")?;
 
-    let evaluator_state: ClientDriverState = decode_state_blob(
-        &evaluator_driver_state_b64u,
-        "evaluatorDriverStateB64u",
-    )?;
-    let (_runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let evaluator_state: ClientDriverState =
+        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
+    let (_runtime, evaluator_session) = evaluator_state
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let offer_message =
         decode_wire_message(&client_ot_offer_message_b64u, "clientOtOfferMessageB64u")?;
     let y_client = decode_fixed_32(&y_client_b64u, "yClientB64u")?;
@@ -81,11 +79,11 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
 pub fn threshold_ed25519_hss_open_client_output(args: JsValue) -> Result<JsValue, JsValue> {
     let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
     let client_output_message_b64u = get_required_string(&args, "clientOutputMessageB64u")?;
-    let evaluator_state: ClientDriverState = decode_state_blob(
-        &evaluator_driver_state_b64u,
-        "evaluatorDriverStateB64u",
-    )?;
-    let (_runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let evaluator_state: ClientDriverState =
+        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
+    let (_runtime, evaluator_session) = evaluator_state
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let client_output_message =
         decode_wire_message(&client_output_message_b64u, "clientOutputMessageB64u")?;
     let x_client_base = evaluator_session
@@ -107,12 +105,13 @@ pub fn threshold_ed25519_hss_open_client_output(args: JsValue) -> Result<JsValue
 pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, JsValue> {
     let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
     let seed_output_message_b64u = get_required_string(&args, "seedOutputMessageB64u")?;
-    let evaluator_state: ClientDriverState = decode_state_blob(
-        &evaluator_driver_state_b64u,
-        "evaluatorDriverStateB64u",
-    )?;
-    let (_runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let seed_output_message = decode_wire_message(&seed_output_message_b64u, "seedOutputMessageB64u")?;
+    let evaluator_state: ClientDriverState =
+        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
+    let (_runtime, evaluator_session) = evaluator_state
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let seed_output_message =
+        decode_wire_message(&seed_output_message_b64u, "seedOutputMessageB64u")?;
     let canonical_seed = evaluator_session
         .seed_output_opener()
         .open(&seed_output_message)
@@ -124,7 +123,11 @@ pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, 
         "contextBindingB64u",
         &base64_url_encode(&evaluator_state.evaluator_session.context_binding),
     )?;
-    set_string(&out, "canonicalSeedB64u", &base64_url_encode(&canonical_seed))?;
+    set_string(
+        &out,
+        "canonicalSeedB64u",
+        &base64_url_encode(&canonical_seed),
+    )?;
     Ok(out.into())
 }
 
@@ -145,7 +148,11 @@ pub fn threshold_ecdsa_hss_prepare_session(args: JsValue) -> Result<JsValue, JsV
     set_string(&out, "nearAccountId", &state.near_account_id)?;
     set_string(&out, "keyPurpose", &state.key_purpose)?;
     set_string(&out, "keyVersion", &state.key_version)?;
-    set_string(&out, "contextBindingB64u", &base64_url_encode(&state.context_binding))?;
+    set_string(
+        &out,
+        "contextBindingB64u",
+        &base64_url_encode(&state.context_binding),
+    )?;
     set_string(
         &out,
         "evaluatorDriverStateB64u",
@@ -161,10 +168,8 @@ pub fn threshold_ecdsa_hss_prepare_client_request(args: JsValue) -> Result<JsVal
     let server_assist_init_message_b64u =
         get_required_string(&args, "serverAssistInitMessageB64u")?;
 
-    let state: ThresholdEcdsaHssClientSessionState = decode_state_blob(
-        &evaluator_driver_state_b64u,
-        "evaluatorDriverStateB64u",
-    )?;
+    let state: ThresholdEcdsaHssClientSessionState =
+        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
     let expected_client_root_share32 = get_required_client_root_share32(&args)?;
     if expected_client_root_share32 != state.y_client32_le {
         return Err(JsValue::from_str(
@@ -199,10 +204,8 @@ pub fn threshold_ecdsa_hss_prepare_client_request(args: JsValue) -> Result<JsVal
 pub fn threshold_ecdsa_hss_finalize_client_request(args: JsValue) -> Result<JsValue, JsValue> {
     let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
     let server_eval_response_b64u = get_required_string(&args, "serverEvalResponseB64u")?;
-    let state: ThresholdEcdsaHssClientSessionState = decode_state_blob(
-        &evaluator_driver_state_b64u,
-        "evaluatorDriverStateB64u",
-    )?;
+    let state: ThresholdEcdsaHssClientSessionState =
+        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
     let server_eval_response: ThresholdEcdsaHssServerEvalResponseWire =
         decode_state_blob(&server_eval_response_b64u, "serverEvalResponseB64u")?;
     if server_eval_response.context_binding != state.context_binding {
@@ -226,7 +229,7 @@ pub fn threshold_ecdsa_hss_finalize_client_request(args: JsValue) -> Result<JsVa
 
 fn canonical_context_from_js(args: &JsValue) -> Result<CanonicalContext, JsValue> {
     Ok(CanonicalContext {
-        org_id: get_required_string(args, "orgId")?,
+        org_id: get_required_string(args, "signingRootId")?,
         account_id: get_required_string(args, "nearAccountId")?,
         key_purpose: get_required_string(args, "keyPurpose")?,
         key_version: get_required_string(args, "keyVersion")?,
@@ -298,11 +301,15 @@ fn ecdsa_canonical_context_from_js(args: &JsValue) -> Result<EcdsaHssContextV1, 
 }
 
 fn ecdsa_context_binding(context: &EcdsaHssContextV1) -> Result<[u8; 32], JsValue> {
-    let encoded = encode_ecdsa_context_v1(context).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let encoded =
+        encode_ecdsa_context_v1(context).map_err(|e| JsValue::from_str(&e.to_string()))?;
     Ok(Sha256::digest(encoded).into())
 }
 
-fn decode_state_blob<T: for<'de> Deserialize<'de>>(value: &str, field_name: &str) -> Result<T, JsValue> {
+fn decode_state_blob<T: for<'de> Deserialize<'de>>(
+    value: &str,
+    field_name: &str,
+) -> Result<T, JsValue> {
     let bytes = base64_url_decode(value)
         .map_err(|e| JsValue::from_str(&format!("Invalid {field_name}: {e}")))?;
     bincode::deserialize::<T>(&bytes)

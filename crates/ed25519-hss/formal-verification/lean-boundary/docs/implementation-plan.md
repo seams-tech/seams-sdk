@@ -50,7 +50,8 @@ track is intentionally frozen at that boundary.
 
 ## Remaining Checklist
 
-- [ ] Wire the pinned Aeneas/Charon toolchain into CI.
+- [ ] Keep the pinned Aeneas/Charon toolchain available in the environments
+      that run the default formal-verification gate.
 - [x] Define the type-level mapping from the generated Rust boundary to the
       handwritten privacy boundary.
 - [x] Prove the generated boundary matches the handwritten non-export

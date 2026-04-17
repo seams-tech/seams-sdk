@@ -2,7 +2,7 @@ use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Stdio};
 
 type DynError = Box<dyn std::error::Error>;
 
@@ -19,6 +19,7 @@ fn run() -> Result<(), DynError> {
         "all" => {
             run_vectors_check()?;
             run_parity()?;
+            run_aeneas_check()?;
             run_lean_check()?;
             run_verus_check()?;
         }
@@ -120,13 +121,7 @@ fn run_parity() -> Result<(), DynError> {
 }
 
 fn run_lean_check() -> Result<(), DynError> {
-    let lake = match resolve_lake() {
-        Some(path) => path,
-        None => {
-            println!("Lean toolchain not installed; skipping lean-check");
-            return Ok(());
-        }
-    };
+    let lake = require_lake()?;
     let status = Command::new(lake)
         .arg("build")
         .current_dir(lean_privacy_verification_dir())
@@ -137,27 +132,31 @@ fn run_lean_check() -> Result<(), DynError> {
 }
 
 fn run_aeneas_check() -> Result<(), DynError> {
-    let aeneas = resolve_aeneas();
-    let charon = resolve_charon();
+    let aeneas = require_aeneas()?;
+    let charon = require_charon()?;
+    let lake = require_lake()?;
 
-    if aeneas.is_none() || charon.is_none() {
-        println!("Aeneas toolchain not installed; skipping aeneas-check");
-        return Ok(());
-    }
+    let aeneas_help = Command::new(&aeneas)
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    ensure_success("aeneas-check aeneas -version", aeneas_help)?;
 
-    let lake = match resolve_lake() {
-        Some(path) => path,
-        None => {
-            println!("Lean toolchain not installed; skipping aeneas-check");
-            return Ok(());
-        }
-    };
+    let charon_help = Command::new(&charon)
+        .arg("version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    ensure_success("aeneas-check charon version", charon_help)?;
 
-    let aeneas_help = Command::new(aeneas.unwrap()).arg("--help").status()?;
-    ensure_success("aeneas-check aeneas --help", aeneas_help)?;
+    let extract_script = lean_boundary_verification_dir()
+        .join("scripts")
+        .join("extract-visible-boundary.sh");
+    let extract_status = Command::new(&extract_script).status()?;
+    ensure_success("aeneas-check extract-visible-boundary.sh", extract_status)?;
 
-    let charon_help = Command::new(charon.unwrap()).arg("--help").status()?;
-    ensure_success("aeneas-check charon --help", charon_help)?;
+    ensure_clean_after_aeneas_extraction()?;
 
     let status = Command::new(lake)
         .arg("build")
@@ -184,6 +183,34 @@ fn resolve_charon() -> Option<PathBuf> {
 
     let local = lean_boundary_tools_dir().join("charon").join("bin").join("charon");
     local.exists().then_some(local)
+}
+
+fn require_aeneas() -> Result<PathBuf, DynError> {
+    resolve_aeneas().ok_or_else(|| {
+        format!(
+            "Aeneas toolchain not installed; expected `aeneas` on PATH or {}",
+            lean_boundary_tools_dir()
+                .join("aeneas")
+                .join("bin")
+                .join("aeneas")
+                .display()
+        )
+        .into()
+    })
+}
+
+fn require_charon() -> Result<PathBuf, DynError> {
+    resolve_charon().ok_or_else(|| {
+        format!(
+            "Aeneas toolchain not installed; expected `charon` on PATH or {}",
+            lean_boundary_tools_dir()
+                .join("charon")
+                .join("bin")
+                .join("charon")
+                .display()
+        )
+        .into()
+    })
 }
 
 fn run_verus_check() -> Result<(), DynError> {
@@ -249,6 +276,48 @@ fn resolve_lake() -> Option<PathBuf> {
     let home = env::var_os("HOME")?;
     let fallback = PathBuf::from(home).join(".elan").join("bin").join("lake");
     fallback.exists().then_some(fallback)
+}
+
+fn require_lake() -> Result<PathBuf, DynError> {
+    resolve_lake().ok_or_else(|| {
+        "Lean toolchain not installed; expected `lake` on PATH or `$HOME/.elan/bin/lake`"
+            .into()
+    })
+}
+
+fn ensure_clean_after_aeneas_extraction() -> Result<(), DynError> {
+    let boundary_dir = lean_boundary_verification_dir();
+    let tracked_paths = [
+        boundary_dir
+            .join("generated")
+            .join("visible-boundary-package")
+            .join("Ed25519Hss")
+            .join("Types.lean"),
+        boundary_dir
+            .join("generated")
+            .join("visible-boundary-package")
+            .join("Ed25519Hss")
+            .join("Funs.lean"),
+        boundary_dir
+            .join("generated")
+            .join("visible-boundary-package")
+            .join("Ed25519Hss")
+            .join("FunsExternal_Template.lean"),
+        boundary_dir.join("Ed25519Hss").join("Types.lean"),
+        boundary_dir.join("Ed25519Hss").join("Funs.lean"),
+        boundary_dir.join("Ed25519Hss").join("FunsExternal.lean"),
+    ];
+
+    let mut command = Command::new("git");
+    command.arg("diff").arg("--exit-code").arg("--");
+    for path in tracked_paths {
+        command.arg(path);
+    }
+    let status = command.status()?;
+    ensure_success(
+        "aeneas-check generated boundary artifacts differ from committed files",
+        status,
+    )
 }
 
 fn command_exists(program: &str) -> bool {

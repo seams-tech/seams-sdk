@@ -380,7 +380,7 @@ function makeAuthServiceForThreshold(logger) {
 
   const threshold = createThresholdSigningService({
     authService: service,
-    thresholdEd25519KeyStore: parseThresholdStoreConfigFromEnv(),
+    thresholdStore: parseThresholdStoreConfigFromEnv(),
     logger,
   });
 

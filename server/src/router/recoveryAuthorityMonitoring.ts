@@ -63,7 +63,7 @@ function normalizeActorRoles(value: unknown): string[] {
 
 function resolveExecutionScope(record: RecoveryExecutionRecord): {
   orgId: string;
-  environmentId: string;
+  envId: string;
   projectId?: string;
 } | null {
   const metadata = asObject(record.metadata);
@@ -116,7 +116,7 @@ async function emitGroupedRecoveryMonitoringEvents(input: {
     string,
     {
       orgId: string;
-      environmentId: string;
+      envId: string;
       projectId?: string;
       records: RecoveryExecutionRecord[];
     }
@@ -125,7 +125,7 @@ async function emitGroupedRecoveryMonitoringEvents(input: {
   for (const record of input.records) {
     const scope = resolveExecutionScope(record);
     if (!scope) continue;
-    const key = `${scope.orgId}:${scope.environmentId}:${scope.projectId || ''}`;
+    const key = `${scope.orgId}:${scope.envId}:${scope.projectId || ''}`;
     const current = grouped.get(key);
     if (current) {
       current.records.push(record);
@@ -157,7 +157,7 @@ async function emitGroupedRecoveryMonitoringEvents(input: {
       input.category === 'failed'
         ? buildRecoveryExecutionFailedObservabilityEvent({
             orgId: group.orgId,
-            environmentId: group.environmentId,
+            environmentId: group.envId,
             ...(group.projectId ? { projectId: group.projectId } : {}),
             count: group.records.length,
             sampleExecutionRefs,
@@ -166,7 +166,7 @@ async function emitGroupedRecoveryMonitoringEvents(input: {
           })
         : buildRecoveryExecutionStuckObservabilityEvent({
             orgId: group.orgId,
-            environmentId: group.environmentId,
+            environmentId: group.envId,
             ...(group.projectId ? { projectId: group.projectId } : {}),
             status: input.category,
             count: group.records.length,

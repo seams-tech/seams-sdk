@@ -6,10 +6,12 @@ BOUNDARY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CRATE_DIR="$(cd "${BOUNDARY_DIR}/../.." && pwd)"
 CHARON_BIN="${BOUNDARY_DIR}/tools/charon/bin/charon"
 AENEAS_BIN="${BOUNDARY_DIR}/tools/aeneas/bin/aeneas"
-LLBC_DIR="${BOUNDARY_DIR}/generated/visible-boundary-input"
-LLBC_FILE="${LLBC_DIR}/ed25519_hss.llbc"
 GENERATED_DIR="${BOUNDARY_DIR}/generated/visible-boundary-package"
 TARGET_DIR="${BOUNDARY_DIR}/Ed25519Hss"
+TMP_ROOT="${TMPDIR:-/tmp}"
+LLBC_DIR="$(mktemp -d "${TMP_ROOT%/}/ed25519_hss_visible_boundary.XXXXXX")"
+LLBC_FILE="${LLBC_DIR}/ed25519_hss.llbc"
+trap 'rm -rf "${LLBC_DIR}"' EXIT
 
 if [[ ! -x "${CHARON_BIN}" ]]; then
   echo "missing charon binary at ${CHARON_BIN}" >&2
@@ -21,7 +23,6 @@ if [[ ! -x "${AENEAS_BIN}" ]]; then
   exit 1
 fi
 
-mkdir -p "${LLBC_DIR}"
 rm -rf "${GENERATED_DIR}"
 mkdir -p "${GENERATED_DIR}"
 

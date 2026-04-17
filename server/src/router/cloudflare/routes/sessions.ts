@@ -5,6 +5,8 @@ import { resolveSourceIpFromFetchHeaders } from '../../relayApiKeyAuth';
 import { emitRelayWebhookEvent } from '../../relayWebhooks';
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { headersToRecord, json, readJson } from '../http';
+import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 type WalletUnlockBackend = 'passkey' | 'email_otp';
 type WalletEmailOtpChannel = 'email_otp';
@@ -28,9 +30,36 @@ function parseWalletEmailOtpChannel(raw: unknown): WalletEmailOtpChannel | null 
 function emailOtpStatusCode(code: string | undefined): number {
   if (code === 'internal') return 500;
   if (code === 'not_configured') return 503;
+  if (code === 'not_found') return 404;
   if (code === 'rate_limited') return 429;
   if (code === 'stronger_auth_required') return 403;
   return 400;
+}
+
+function getSessionWalletId(claims: any, userId: string): string {
+  const walletId = typeof claims?.walletId === 'string' ? claims.walletId.trim() : '';
+  return walletId || String(userId || '').trim();
+}
+
+function isGoogleOidcEmailOtpSession(claims: any): boolean {
+  const provider = String(claims?.provider || '')
+    .trim()
+    .toLowerCase();
+  const oidcProvider = String(claims?.oidcProvider || '')
+    .trim()
+    .toLowerCase();
+  const providerSubject = String(claims?.providerSubject || '')
+    .trim()
+    .toLowerCase();
+  return provider === 'oidc' && (oidcProvider === 'google' || providerSubject.startsWith('google:'));
+}
+
+function parseOidcAccountMode(raw: unknown): 'register' | 'login' | undefined {
+  const value = String(raw || '')
+    .trim()
+    .toLowerCase();
+  if (value === 'register' || value === 'login') return value;
+  return undefined;
 }
 
 async function emitSessionExchangeFailed(
@@ -144,9 +173,7 @@ function hasCookieSessionSignal(ctx: CloudflareRelayContext): boolean {
   return false;
 }
 
-async function readAndValidateAppSession(
-  ctx: CloudflareRelayContext,
-): Promise<
+async function readAndValidateAppSession(ctx: CloudflareRelayContext): Promise<
   | { ok: true; claims: any; userId: string; appSessionVersion: string }
   | {
       ok: false;
@@ -368,10 +395,38 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
     let oidcName: string | undefined;
     let oidcGivenName: string | undefined;
     let oidcFamilyName: string | undefined;
+    let oidcProvider: string | undefined;
+    let oidcAccountMode: 'register' | 'login' | undefined;
     let passkeyChallengeId: string | undefined;
+    let walletId: string | undefined;
+    let runtimePolicyScope: RuntimePolicyScope | undefined;
 
     if (exchangeType === 'oidc_jwt') {
-      const verified = await ctx.service.verifyOidcJwtExchange({ token: exchange.token });
+      oidcProvider = String(exchange.provider || '')
+        .trim()
+        .toLowerCase();
+      oidcAccountMode = parseOidcAccountMode(exchange.account_mode);
+      if (oidcProvider === 'google' && !oidcAccountMode) {
+        await emitSessionExchangeFailed(ctx, {
+          status: 400,
+          code: 'invalid_body',
+          message: 'exchange.account_mode must be register or login for Google Email OTP',
+          exchangeType,
+          sessionKind,
+        });
+        return json(
+          {
+            ok: false,
+            code: 'invalid_body',
+            message: 'exchange.account_mode must be register or login for Google Email OTP',
+          },
+          { status: 400 },
+        );
+      }
+      const verified =
+        oidcProvider === 'google'
+          ? await ctx.service.verifyGoogleLogin({ idToken: exchange.token })
+          : await ctx.service.verifyOidcJwtExchange({ token: exchange.token });
       if (!verified.ok || !verified.verified || !verified.userId) {
         const code = verified.code || 'not_verified';
         const status =
@@ -397,27 +452,82 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
       userId = String(verified.userId || '').trim();
       provider = 'oidc';
       providerSubject = verified.providerSubject;
-      oidcIssuer = verified.iss;
+      oidcIssuer =
+        oidcProvider === 'google' ? 'https://accounts.google.com' : (verified as any).iss;
       oidcSub = verified.sub;
-      oidcAud = Array.isArray(verified.aud) ? verified.aud : undefined;
+      oidcAud = Array.isArray((verified as any).aud) ? (verified as any).aud : undefined;
       oidcEmail =
         typeof verified.email === 'string' && verified.email.trim()
           ? verified.email.trim().toLowerCase()
           : undefined;
       oidcName =
-        typeof verified.name === 'string' && verified.name.trim() ? verified.name.trim() : undefined;
+        typeof (verified as any).name === 'string' && (verified as any).name.trim()
+          ? (verified as any).name.trim()
+          : undefined;
       oidcGivenName =
-        typeof verified.given_name === 'string' && verified.given_name.trim()
-          ? verified.given_name.trim()
+        typeof (verified as any).given_name === 'string' && (verified as any).given_name.trim()
+          ? (verified as any).given_name.trim()
           : undefined;
       oidcFamilyName =
-        typeof verified.family_name === 'string' && verified.family_name.trim()
-          ? verified.family_name.trim()
+        typeof (verified as any).family_name === 'string' && (verified as any).family_name.trim()
+          ? (verified as any).family_name.trim()
           : undefined;
+      if (oidcProvider === 'google' && oidcAccountMode === 'register' && !oidcEmail) {
+        await emitSessionExchangeFailed(ctx, {
+          status: 400,
+          code: 'invalid_claims',
+          message: 'Google id_token must include email for Email OTP registration',
+          exchangeType,
+          sessionKind,
+          userId,
+        });
+        return json(
+          {
+            ok: false,
+            code: 'invalid_claims',
+            message: 'Google id_token must include email for Email OTP registration',
+          },
+          { status: 400 },
+        );
+      }
+      try {
+        walletId = await ctx.service.resolveOidcWalletId({
+          providerSubject,
+          sub: oidcSub,
+          email: oidcEmail,
+          accountMode: oidcAccountMode,
+        });
+      } catch (e: any) {
+        const code = typeof e?.code === 'string' && e.code ? e.code : 'internal';
+        const status = code === 'not_found' ? 404 : code === 'invalid_body' ? 400 : 500;
+        const message = e?.message || 'Failed to resolve OIDC wallet id';
+        await emitSessionExchangeFailed(ctx, {
+          status,
+          code,
+          message,
+          exchangeType,
+          sessionKind,
+          userId,
+        });
+        return json({ ok: false, code, message }, { status });
+      }
+      if (oidcProvider === 'google' && oidcAccountMode === 'login') {
+        const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId });
+        if (!enrollment.ok) {
+          const status = emailOtpStatusCode(enrollment.code);
+          await emitSessionExchangeFailed(ctx, {
+            status,
+            code: enrollment.code,
+            message: enrollment.message,
+            exchangeType,
+            sessionKind,
+            userId,
+          });
+          return json(enrollment, { status });
+        }
+      }
     } else {
-      const challengeId = String(
-        exchange.challengeId ?? exchange.challenge_id ?? '',
-      ).trim();
+      const challengeId = String(exchange.challengeId ?? exchange.challenge_id ?? '').trim();
       if (!challengeId) {
         await emitSessionExchangeFailed(ctx, {
           status: 400,
@@ -504,6 +614,35 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
       );
     }
 
+    const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
+      explicitScopeRaw: undefined,
+      runtimeEnvironmentIdRaw: (parsedBody as { runtimeEnvironmentId?: unknown })
+        .runtimeEnvironmentId,
+      headers: ctx.request.headers,
+      origin: ctx.request.headers.get('origin'),
+      publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+      orgProjectEnv: ctx.opts.orgProjectEnv || null,
+    });
+    if (!runtimePolicyScopeResolution.ok) {
+      await emitSessionExchangeFailed(ctx, {
+        status: runtimePolicyScopeResolution.status,
+        code: runtimePolicyScopeResolution.code,
+        message: runtimePolicyScopeResolution.message,
+        exchangeType,
+        sessionKind,
+        userId,
+      });
+      return json(
+        {
+          ok: false,
+          code: runtimePolicyScopeResolution.code,
+          message: runtimePolicyScopeResolution.message,
+        },
+        { status: runtimePolicyScopeResolution.status },
+      );
+    }
+    runtimePolicyScope = runtimePolicyScopeResolution.scope;
+
     const appVersion = await ctx.service.getOrCreateAppSessionVersion({ userId });
     if (!appVersion.ok) {
       await emitSessionExchangeFailed(ctx, {
@@ -524,6 +663,9 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
       kind: 'app_session_v1',
       appSessionVersion: appVersion.appSessionVersion,
       provider,
+      ...(walletId ? { walletId } : {}),
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      ...(oidcProvider ? { oidcProvider } : {}),
       ...(providerSubject ? { providerSubject } : {}),
       ...(oidcIssuer ? { oidcIssuer } : {}),
       ...(oidcSub ? { oidcSub } : {}),
@@ -539,7 +681,11 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
       session: {
         kind: 'app_session_v1',
         userId,
+        ...(walletId ? { walletId } : {}),
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         ...(sessionExpiresAt ? { expiresAt: sessionExpiresAt } : {}),
+        ...(oidcEmail ? { email: oidcEmail } : {}),
+        ...(oidcName ? { name: oidcName } : {}),
       },
     };
     await emitRelayWebhookEvent({
@@ -648,7 +794,10 @@ export async function handleSessionRefresh(ctx: CloudflareRelayContext): Promise
       source: 'session.refresh',
       sessionKind,
     });
-    const payload = await validated.response.clone().json().catch(() => ({}));
+    const payload = await validated.response
+      .clone()
+      .json()
+      .catch(() => ({}));
     return json(
       {
         code: String((payload as any)?.code || 'unauthorized'),
@@ -828,7 +977,9 @@ export async function handleWalletUnlockVerify(
     },
   });
   if (unlockBackend === 'email_otp') {
-    const recoveredWalletId = String((result as { walletId?: unknown }).walletId || (body as any).walletId || '').trim();
+    const recoveredWalletId = String(
+      (result as { walletId?: unknown }).walletId || (body as any).walletId || '',
+    ).trim();
     const recoveredUserId = String(result.userId || recoveredWalletId).trim();
     await emitEmailOtpWebhookEvent(ctx, {
       eventType: 'wallet.email_otp.logged_in',
@@ -876,14 +1027,17 @@ export async function handleWalletRecoveryEnrollChallenge(
 
   const walletId = String((body as any).walletId || '').trim();
   if (!walletId) {
-    return json({ ok: false, code: 'invalid_body', message: 'walletId is required' }, { status: 400 });
+    return json(
+      { ok: false, code: 'invalid_body', message: 'walletId is required' },
+      { status: 400 },
+    );
   }
-  if (walletId !== validated.userId) {
+  if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
     return json(
       {
         ok: false,
         code: 'wallet_identity_mismatch',
-        message: 'walletId must match the current app session subject',
+        message: 'walletId must match the current app session wallet',
       },
       { status: 403 },
     );
@@ -895,29 +1049,33 @@ export async function handleWalletRecoveryEnrollChallenge(
       { status: 400 },
     );
   }
-  const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
-  if (!strongAuthGate.ok) {
-    return json(strongAuthGate, { status: emailOtpStatusCode(strongAuthGate.code) });
-  }
-  if (strongAuthGate.required) {
-    return json(
-      {
-        ok: false,
-        code: 'stronger_auth_required',
-        message: 'Passkey authentication is required before modifying Email OTP enrollment',
-        ...(strongAuthGate.lastEmailOtpLoginAtMs
-          ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
-          : {}),
-        ...(strongAuthGate.lastStrongAuthAtMs
-          ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
-          : {}),
-      },
-      { status: 403 },
-    );
+  if (!isGoogleOidcEmailOtpSession(validated.claims)) {
+    const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
+    if (!strongAuthGate.ok) {
+      return json(strongAuthGate, { status: emailOtpStatusCode(strongAuthGate.code) });
+    }
+    if (strongAuthGate.required) {
+      return json(
+        {
+          ok: false,
+          code: 'stronger_auth_required',
+          message: 'Passkey authentication is required before modifying Email OTP enrollment',
+          ...(strongAuthGate.lastEmailOtpLoginAtMs
+            ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
+            : {}),
+          ...(strongAuthGate.lastStrongAuthAtMs
+            ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
+            : {}),
+        },
+        { status: 403 },
+      );
+    }
   }
   const email =
     typeof (validated.claims as any).email === 'string'
-      ? String((validated.claims as any).email).trim().toLowerCase()
+      ? String((validated.claims as any).email)
+          .trim()
+          .toLowerCase()
       : '';
   const sessionHash = await hashAppSessionClaims(validated.claims);
   const clientIp = resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined;
@@ -977,25 +1135,34 @@ export async function handleWalletRecoveryEnrollVerify(
 
   const walletId = String((body as any).walletId || '').trim();
   if (!walletId) {
-    return json({ ok: false, code: 'invalid_body', message: 'walletId is required' }, { status: 400 });
+    return json(
+      { ok: false, code: 'invalid_body', message: 'walletId is required' },
+      { status: 400 },
+    );
   }
-  if (walletId !== validated.userId) {
+  if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
     return json(
       {
         ok: false,
         code: 'wallet_identity_mismatch',
-        message: 'walletId must match the current app session subject',
+        message: 'walletId must match the current app session wallet',
       },
       { status: 403 },
     );
   }
   const challengeId = String((body as any).challengeId || '').trim();
   if (!challengeId) {
-    return json({ ok: false, code: 'invalid_body', message: 'challengeId is required' }, { status: 400 });
+    return json(
+      { ok: false, code: 'invalid_body', message: 'challengeId is required' },
+      { status: 400 },
+    );
   }
   const otpCode = String((body as any).otpCode || '').trim();
   if (!otpCode) {
-    return json({ ok: false, code: 'invalid_body', message: 'otpCode is required' }, { status: 400 });
+    return json(
+      { ok: false, code: 'invalid_body', message: 'otpCode is required' },
+      { status: 400 },
+    );
   }
   const otpChannel = parseWalletEmailOtpChannel((body as any).otpChannel);
   if (!otpChannel) {
@@ -1004,25 +1171,27 @@ export async function handleWalletRecoveryEnrollVerify(
       { status: 400 },
     );
   }
-  const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
-  if (!strongAuthGate.ok) {
-    return json(strongAuthGate, { status: emailOtpStatusCode(strongAuthGate.code) });
-  }
-  if (strongAuthGate.required) {
-    return json(
-      {
-        ok: false,
-        code: 'stronger_auth_required',
-        message: 'Passkey authentication is required before modifying Email OTP enrollment',
-        ...(strongAuthGate.lastEmailOtpLoginAtMs
-          ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
-          : {}),
-        ...(strongAuthGate.lastStrongAuthAtMs
-          ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
-          : {}),
-      },
-      { status: 403 },
-    );
+  if (!isGoogleOidcEmailOtpSession(validated.claims)) {
+    const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
+    if (!strongAuthGate.ok) {
+      return json(strongAuthGate, { status: emailOtpStatusCode(strongAuthGate.code) });
+    }
+    if (strongAuthGate.required) {
+      return json(
+        {
+          ok: false,
+          code: 'stronger_auth_required',
+          message: 'Passkey authentication is required before modifying Email OTP enrollment',
+          ...(strongAuthGate.lastEmailOtpLoginAtMs
+            ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
+            : {}),
+          ...(strongAuthGate.lastStrongAuthAtMs
+            ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
+            : {}),
+        },
+        { status: 403 },
+      );
+    }
   }
   const sessionHash = await hashAppSessionClaims(validated.claims);
   const clientIp = resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined;
@@ -1113,14 +1282,17 @@ export async function handleWalletRecoveryEnrollSeal(
 
   const walletId = String((body as any).walletId || '').trim();
   if (!walletId) {
-    return json({ ok: false, code: 'invalid_body', message: 'walletId is required' }, { status: 400 });
+    return json(
+      { ok: false, code: 'invalid_body', message: 'walletId is required' },
+      { status: 400 },
+    );
   }
-  if (walletId !== validated.userId) {
+  if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
     return json(
       {
         ok: false,
         code: 'wallet_identity_mismatch',
-        message: 'walletId must match the current app session subject',
+        message: 'walletId must match the current app session wallet',
       },
       { status: 403 },
     );
@@ -1132,25 +1304,27 @@ export async function handleWalletRecoveryEnrollSeal(
       { status: 400 },
     );
   }
-  const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
-  if (!strongAuthGate.ok) {
-    return json(strongAuthGate, { status: emailOtpStatusCode(strongAuthGate.code) });
-  }
-  if (strongAuthGate.required) {
-    return json(
-      {
-        ok: false,
-        code: 'stronger_auth_required',
-        message: 'Passkey authentication is required before modifying Email OTP enrollment',
-        ...(strongAuthGate.lastEmailOtpLoginAtMs
-          ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
-          : {}),
-        ...(strongAuthGate.lastStrongAuthAtMs
-          ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
-          : {}),
-      },
-      { status: 403 },
-    );
+  if (!isGoogleOidcEmailOtpSession(validated.claims)) {
+    const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
+    if (!strongAuthGate.ok) {
+      return json(strongAuthGate, { status: emailOtpStatusCode(strongAuthGate.code) });
+    }
+    if (strongAuthGate.required) {
+      return json(
+        {
+          ok: false,
+          code: 'stronger_auth_required',
+          message: 'Passkey authentication is required before modifying Email OTP enrollment',
+          ...(strongAuthGate.lastEmailOtpLoginAtMs
+            ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
+            : {}),
+          ...(strongAuthGate.lastStrongAuthAtMs
+            ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
+            : {}),
+        },
+        { status: 403 },
+      );
+    }
   }
   const result = await ctx.service.applyEmailOtpServerSeal({
     wrappedCiphertext,
@@ -1191,14 +1365,17 @@ export async function handleWalletRecoveryChallenge(
 
   const walletId = String((body as any).walletId || '').trim();
   if (!walletId) {
-    return json({ ok: false, code: 'invalid_body', message: 'walletId is required' }, { status: 400 });
+    return json(
+      { ok: false, code: 'invalid_body', message: 'walletId is required' },
+      { status: 400 },
+    );
   }
-  if (walletId !== validated.userId) {
+  if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
     return json(
       {
         ok: false,
         code: 'wallet_identity_mismatch',
-        message: 'walletId must match the current app session subject',
+        message: 'walletId must match the current app session wallet',
       },
       { status: 403 },
     );
@@ -1212,7 +1389,9 @@ export async function handleWalletRecoveryChallenge(
   }
   const email =
     typeof (validated.claims as any).email === 'string'
-      ? String((validated.claims as any).email).trim().toLowerCase()
+      ? String((validated.claims as any).email)
+          .trim()
+          .toLowerCase()
       : '';
   const sessionHash = await hashAppSessionClaims(validated.claims);
   const clientIp = resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined;
@@ -1287,25 +1466,34 @@ export async function handleWalletRecoveryVerify(
 
   const walletId = String((body as any).walletId || '').trim();
   if (!walletId) {
-    return json({ ok: false, code: 'invalid_body', message: 'walletId is required' }, { status: 400 });
+    return json(
+      { ok: false, code: 'invalid_body', message: 'walletId is required' },
+      { status: 400 },
+    );
   }
-  if (walletId !== validated.userId) {
+  if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
     return json(
       {
         ok: false,
         code: 'wallet_identity_mismatch',
-        message: 'walletId must match the current app session subject',
+        message: 'walletId must match the current app session wallet',
       },
       { status: 403 },
     );
   }
   const challengeId = String((body as any).challengeId || '').trim();
   if (!challengeId) {
-    return json({ ok: false, code: 'invalid_body', message: 'challengeId is required' }, { status: 400 });
+    return json(
+      { ok: false, code: 'invalid_body', message: 'challengeId is required' },
+      { status: 400 },
+    );
   }
   const otpCode = String((body as any).otpCode || '').trim();
   if (!otpCode) {
-    return json({ ok: false, code: 'invalid_body', message: 'otpCode is required' }, { status: 400 });
+    return json(
+      { ok: false, code: 'invalid_body', message: 'otpCode is required' },
+      { status: 400 },
+    );
   }
   const otpChannel = parseWalletEmailOtpChannel((body as any).otpChannel);
   if (!otpChannel) {
@@ -1401,10 +1589,11 @@ export async function handleWalletRecoveryUnseal(
 
   const sessionHash = await hashAppSessionClaims(validated.claims);
   const clientIp = resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined;
+  const sessionWalletId = getSessionWalletId(validated.claims, validated.userId);
   const grant = await ctx.service.consumeEmailOtpGrant({
     loginGrant: loginGrant,
     userId: validated.userId,
-    walletId: validated.userId,
+    walletId: sessionWalletId,
     orgId: (validated.claims as any).orgId,
     otpChannel: 'email_otp',
     sessionHash,
@@ -1419,7 +1608,7 @@ export async function handleWalletRecoveryUnseal(
     wrappedCiphertext,
   });
   if (result.ok) {
-    const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId: validated.userId });
+    const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId: sessionWalletId });
     const currentDeviceId =
       typeof (validated.claims as any).deviceId === 'string'
         ? String((validated.claims as any).deviceId).trim()
@@ -1428,16 +1617,12 @@ export async function handleWalletRecoveryUnseal(
       enrollment.ok && typeof enrollment.enrollment.enrollmentDeviceId === 'string'
         ? String(enrollment.enrollment.enrollmentDeviceId).trim()
         : '';
-    if (
-      currentDeviceId &&
-      enrolledDeviceId &&
-      currentDeviceId !== enrolledDeviceId
-    ) {
+    if (currentDeviceId && enrolledDeviceId && currentDeviceId !== enrolledDeviceId) {
       await emitEmailOtpWebhookEvent(ctx, {
         eventType: 'wallet.email_otp.new_device',
         claims: validated.claims,
         userId: validated.userId,
-        walletId: validated.userId,
+        walletId: sessionWalletId,
         eventId: grant.challengeId,
         payload: {
           otpChannel: grant.otpChannel,
@@ -1477,13 +1662,14 @@ export async function handleWalletRecoveryDevOtpOutbox(
   }
 
   const challengeId = String(ctx.url.searchParams.get('challengeId') || '').trim();
-  const walletId = String(ctx.url.searchParams.get('walletId') || validated.userId).trim();
-  if (walletId !== validated.userId) {
+  const sessionWalletId = getSessionWalletId(validated.claims, validated.userId);
+  const walletId = String(ctx.url.searchParams.get('walletId') || sessionWalletId).trim();
+  if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
     return json(
       {
         ok: false,
         code: 'wallet_identity_mismatch',
-        message: 'walletId must match the current app session subject',
+        message: 'walletId must match the current app session wallet',
       },
       { status: 403 },
     );
@@ -1506,7 +1692,15 @@ export async function handleWalletRecoveryDevOtpOutbox(
           expiresAt: new Date(result.expiresAtMs).toISOString(),
         }
       : result,
-    { status: result.ok ? 200 : result.code === 'internal' ? 500 : result.code === 'not_found' ? 404 : 400 },
+    {
+      status: result.ok
+        ? 200
+        : result.code === 'internal'
+          ? 500
+          : result.code === 'not_found'
+            ? 404
+            : 400,
+    },
   );
 }
 
@@ -1519,7 +1713,10 @@ export async function handleWalletState(ctx: CloudflareRelayContext): Promise<Re
       validated,
       source: 'wallet.state',
     });
-    const payload = await validated.response.clone().json().catch(() => ({}));
+    const payload = await validated.response
+      .clone()
+      .json()
+      .catch(() => ({}));
     return json(
       {
         ok: false,
@@ -1542,7 +1739,10 @@ export async function handleWalletLock(ctx: CloudflareRelayContext): Promise<Res
       validated,
       source: 'wallet.lock',
     });
-    const payload = await validated.response.clone().json().catch(() => ({}));
+    const payload = await validated.response
+      .clone()
+      .json()
+      .catch(() => ({}));
     return json(
       {
         ok: false,

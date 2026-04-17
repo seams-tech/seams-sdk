@@ -60,19 +60,17 @@ just ed25519-hss-fv-aeneas
 
 Today this command verifies:
 
-- the `lean-boundary/` workspace builds with Lean
 - the `aeneas` and `charon` binaries are present
-
-It does not yet run extraction as part of the default proof path.
-It is also not part of the default CI-gated command path.
+- the visible-boundary extraction script runs successfully
+- the regenerated Lean boundary artifacts match the committed generated files
+- the `lean-boundary/` workspace builds with Lean
 
 The default gate is still:
 
 - `pnpm check:formal-verification`
 
-That default gate covers vectors, parity, Lean privacy, and Verus. Aeneas stays
-opt-in because it is a narrower Rust-to-Lean bridge track rather than the main
-implementation gate.
+That default gate now includes the Aeneas visible-boundary extraction check in
+addition to vectors, parity, Lean privacy, and Verus.
 
 The current reproducible extraction script for the minimal helper slice is:
 
@@ -92,10 +90,13 @@ That script writes:
 
 The main visible-boundary script writes:
 
-- [`generated/visible-boundary-input/ed25519_hss.llbc`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/formal-verification/lean-boundary/generated/visible-boundary-input/ed25519_hss.llbc)
 - [`generated/visible-boundary-package/Ed25519Hss/Funs.lean`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/formal-verification/lean-boundary/generated/visible-boundary-package/Ed25519Hss/Funs.lean)
 - [`Ed25519Hss/Funs.lean`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/formal-verification/lean-boundary/Ed25519Hss/Funs.lean)
 - [`Ed25519HssBoundary/GeneratedVisibleBoundary.lean`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/formal-verification/lean-boundary/Ed25519HssBoundary/GeneratedVisibleBoundary.lean)
+
+The raw Charon `.llbc` for the visible-boundary extraction is now treated as a
+transient intermediate, not a committed proof artifact. The gate checks the
+generated Lean package and the copied `Ed25519Hss/` files instead.
 
 The pinned toolchain metadata lives in:
 

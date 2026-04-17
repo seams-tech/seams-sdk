@@ -17,6 +17,29 @@ import type {
 import type { HeaderRecord } from './routeExecutionContext';
 import type { RouteDefinition } from './routeDefinitions';
 
+function inferEnvIdFromEnvironmentId(input: {
+  projectId?: unknown;
+  environmentId?: unknown;
+}): string | undefined {
+  const projectId = String(input.projectId || '').trim();
+  const environmentId = String(input.environmentId || '').trim();
+  if (!environmentId) return undefined;
+  if (projectId) {
+    for (const separator of [':', '-']) {
+      const prefix = `${projectId}${separator}`;
+      if (environmentId.startsWith(prefix)) {
+        const envId = environmentId.slice(prefix.length).trim();
+        if (envId) return envId;
+      }
+    }
+  }
+  const colonIndex = environmentId.lastIndexOf(':');
+  if (colonIndex >= 0 && colonIndex < environmentId.length - 1) {
+    return environmentId.slice(colonIndex + 1).trim() || undefined;
+  }
+  return undefined;
+}
+
 interface ResolvePublishableKeyApiCredentialAuthInput {
   environmentId?: string | null;
   headers: HeaderRecord;
@@ -279,6 +302,10 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
         message: 'bootstrap_token_request_mismatch: Bootstrap token is not valid for this request payload',
       };
     }
+    const envId = inferEnvIdFromEnvironmentId({
+      projectId: redeemResult.record.projectId,
+      environmentId: redeemResult.record.environmentId,
+    });
     return {
       ok: true,
       principal: {
@@ -287,7 +314,9 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
         principal: {
           apiKeyId: redeemResult.record.publishableKeyId,
           orgId: redeemResult.record.orgId,
+          projectId: redeemResult.record.projectId,
           environmentId: redeemResult.record.environmentId,
+          ...(envId ? { envId } : {}),
           scopes: [...(input.route.auth.scopes || [])],
         },
       },

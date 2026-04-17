@@ -16,6 +16,8 @@ import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
+import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
+import { ensureEd25519Prefix } from '@shared/utils/validation';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -42,15 +44,157 @@ type RelayRegistrationThresholdEd25519HssPolicyResult =
   | {
       ok: true;
       orgId: string;
+      signingRootId?: string;
+    }
+	  | {
+	      ok: false;
+	      response: RouteResponse<RouteErrorBody>;
+	    };
+
+type RelayRegistrationThresholdEd25519HssHandler<TResponse> = (
+  input: RelayRegistrationThresholdEd25519HssInput,
+) => Promise<RouteResponse<TResponse | RouteErrorBody>>;
+
+type RegistrationAccountProvisioningResult =
+  | {
+      ok: true;
+      accountProvisioning?: {
+        mode: 'create_if_missing';
+        status: 'created' | 'already_ready';
+        transactionHash?: string;
+      };
     }
   | {
       ok: false;
       response: RouteResponse<RouteErrorBody>;
     };
 
-type RelayRegistrationThresholdEd25519HssHandler<TResponse> = (
-  input: RelayRegistrationThresholdEd25519HssInput,
-) => Promise<RouteResponse<TResponse | RouteErrorBody>>;
+const ACCOUNT_PROVISIONING_KEY_VISIBILITY_DELAYS_MS = [0, 250, 750, 1_500] as const;
+
+async function sleep(ms: number): Promise<void> {
+  if (ms <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function wantsCreateIfMissingAccountProvisioning(body: Record<string, unknown>): boolean {
+  const raw = body.account_provisioning ?? body.accountProvisioning;
+  if (raw === 'create_if_missing') return true;
+  if (!isObject(raw)) return false;
+  return String(raw.mode || '').trim() === 'create_if_missing';
+}
+
+async function hasAccessKey(input: {
+  authService: AuthService;
+  nearAccountId: string;
+  publicKey: string;
+}): Promise<boolean> {
+  const expected = ensureEd25519Prefix(input.publicKey);
+  if (!expected) return false;
+  const list = await input.authService.viewAccessKeyList(input.nearAccountId);
+  return list.keys.some((key) => {
+    return ensureEd25519Prefix(String(key?.public_key || '').trim()) === expected;
+  });
+}
+
+async function waitForAccessKey(input: {
+  authService: AuthService;
+  nearAccountId: string;
+  publicKey: string;
+}): Promise<boolean> {
+  for (const delayMs of ACCOUNT_PROVISIONING_KEY_VISIBILITY_DELAYS_MS) {
+    await sleep(delayMs);
+    if (await hasAccessKey(input)) return true;
+  }
+  return false;
+}
+
+async function ensureRegistrationAccountProvisioning(input: {
+  body: Record<string, unknown>;
+  authService: AuthService;
+  publicKey: string;
+}): Promise<RegistrationAccountProvisioningResult> {
+  if (!wantsCreateIfMissingAccountProvisioning(input.body)) return { ok: true };
+
+  const nearAccountId = String(input.body.new_account_id || '').trim();
+  const publicKey = ensureEd25519Prefix(input.publicKey);
+  if (!nearAccountId || !publicKey) {
+    return {
+      ok: false,
+      response: routeJson(400, {
+        ok: false,
+        code: 'invalid_body',
+        message: 'account provisioning requires new_account_id and finalized publicKey',
+      }),
+    };
+  }
+
+  const accountExists = await input.authService.checkAccountExists(nearAccountId);
+  if (!accountExists) {
+    const created = await input.authService.createAccount({
+      accountId: nearAccountId,
+      publicKey,
+    });
+    if (!created.success) {
+      return {
+        ok: false,
+        response: routeJson(400, {
+          ok: false,
+          code: 'account_provisioning_failed',
+          message: created.error || created.message || 'Failed to create NEAR account',
+        }),
+      };
+    }
+    const ready = await waitForAccessKey({
+      authService: input.authService,
+      nearAccountId,
+      publicKey,
+    });
+    if (!ready) {
+      return {
+        ok: false,
+        response: routeJson(503, {
+          ok: false,
+          code: 'access_key_not_provisioned',
+          message:
+            'NEAR account creation completed, but the finalized threshold Ed25519 public key is not visible as an active access key yet. Retry Email OTP registration before activating this signer locally.',
+        }),
+      };
+    }
+    return {
+      ok: true,
+      accountProvisioning: {
+        mode: 'create_if_missing',
+        status: 'created',
+        ...(created.transactionHash ? { transactionHash: created.transactionHash } : {}),
+      },
+    };
+  }
+
+  const ready = await hasAccessKey({
+    authService: input.authService,
+    nearAccountId,
+    publicKey,
+  });
+  if (ready) {
+    return {
+      ok: true,
+      accountProvisioning: {
+        mode: 'create_if_missing',
+        status: 'already_ready',
+      },
+    };
+  }
+
+  return {
+    ok: false,
+    response: routeJson(409, {
+      ok: false,
+      code: 'access_key_not_provisioned',
+      message:
+        'NEAR account already exists, but the finalized threshold Ed25519 public key is not an active access key. Use a new wallet id for Email OTP registration or add the key through an existing account signer before activating it locally.',
+    }),
+  };
+}
 
 async function enforceRegistrationHssPolicy(
   input: RelayRegistrationThresholdEd25519HssInput,
@@ -92,9 +236,20 @@ async function enforceRegistrationHssPolicy(
       }),
     };
   }
+  const principal = resolved.context.principal.principal;
+  const projectId = String(principal.projectId || '').trim();
+  const envId = String(principal.envId || '').trim();
+  const signingRootId =
+    projectId && envId
+      ? deriveSigningRootId({
+          projectId,
+          envId,
+        })
+      : undefined;
   return {
     ok: true,
-    orgId: resolved.context.principal.principal.orgId,
+    orgId: principal.orgId,
+    ...(signingRootId ? { signingRootId } : {}),
   };
 }
 
@@ -115,6 +270,7 @@ export const handleRelayRegistrationThresholdEd25519HssPrepare: RelayRegistratio
 
   const result = await threshold.ed25519Hss.prepareForRegistration({
     orgId: auth.orgId,
+    ...(auth.signingRootId ? { signingRootId: auth.signingRootId } : {}),
     request: (input.body || {}) as ThresholdEd25519HssPrepareForRegistrationRequest,
   });
   return routeJson(result.ok ? 200 : 400, result);
@@ -139,7 +295,22 @@ export const handleRelayRegistrationThresholdEd25519HssFinalize: RelayRegistrati
     orgId: auth.orgId,
     request: (input.body || {}) as ThresholdEd25519HssFinalizeForRegistrationRequest,
   });
-  return routeJson(result.ok ? 200 : 400, result);
+  if (!result.ok) return routeJson(400, result);
+
+  const body = isObject(input.body) ? input.body : {};
+  const provisioning = await ensureRegistrationAccountProvisioning({
+    body,
+    authService: input.services.authService,
+    publicKey: result.publicKey,
+  });
+  if (!provisioning.ok) return provisioning.response;
+
+  return routeJson(200, {
+    ...result,
+    ...(provisioning.accountProvisioning
+      ? { accountProvisioning: provisioning.accountProvisioning }
+      : {}),
+  });
 };
 
 export const handleRelayRegistrationThresholdEd25519HssRespond: RelayRegistrationThresholdEd25519HssHandler<

@@ -36,9 +36,9 @@ pub fn get_required_u16_vec(value: &JsValue, field_name: &str) -> Result<Vec<u16
     let array = Array::from(&field);
     let mut out = Vec::with_capacity(array.length() as usize);
     for item in array.iter() {
-        let number = item
-            .as_f64()
-            .ok_or_else(|| JsValue::from_str(&format!("Invalid args: {field_name} must be an array")))?;
+        let number = item.as_f64().ok_or_else(|| {
+            JsValue::from_str(&format!("Invalid args: {field_name} must be an array"))
+        })?;
         if !number.is_finite() || number < 0.0 || number.fract() != 0.0 || number > u16::MAX as f64
         {
             return Err(JsValue::from_str(&format!(
@@ -55,8 +55,12 @@ pub fn object() -> Object {
 }
 
 pub fn set_string(target: &Object, field_name: &str, value: &str) -> Result<(), JsValue> {
-    Reflect::set(target, &JsValue::from_str(field_name), &JsValue::from_str(value))
-        .map_err(|_| JsValue::from_str(&format!("Failed to serialize field {field_name}")))?;
+    Reflect::set(
+        target,
+        &JsValue::from_str(field_name),
+        &JsValue::from_str(value),
+    )
+    .map_err(|_| JsValue::from_str(&format!("Failed to serialize field {field_name}")))?;
     Ok(())
 }
 

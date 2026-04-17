@@ -6,7 +6,7 @@ import type { ConsoleSponsoredCallService } from '../console/sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../console/sponsorshipSpendCaps';
 import type { ConsoleWebhookService } from '../console/webhooks';
 import type { NormalizedRouterLogger } from './logger';
-import type { RelayRouterOptions, RelayRuntimeSnapshotScope } from './relay';
+import type { RelayRouterOptions, RelayRuntimePolicyScope } from './relay';
 import type { SponsoredEvmCallExecutorConfig, SponsorshipSpendPricingService } from '../sponsorship';
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -31,17 +31,17 @@ export type RecoveryAuthoritySponsorshipRuntime = {
 
 export function parseRecoveryAuthoritySponsorshipScope(
   raw: unknown,
-): RelayRuntimeSnapshotScope | null {
+): RelayRuntimePolicyScope | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const row = raw as Record<string, unknown>;
   const orgId = normalizeOptionalString(row.orgId);
-  const environmentId = normalizeOptionalString(row.environmentId);
-  if (!orgId || !environmentId) return null;
   const projectId = normalizeOptionalString(row.projectId);
+  const envId = normalizeOptionalString(row.envId) || normalizeOptionalString(row.environmentId);
+  if (!orgId || !projectId || !envId) return null;
   return {
     orgId,
-    environmentId,
-    ...(projectId ? { projectId } : {}),
+    projectId,
+    envId,
   };
 }
 

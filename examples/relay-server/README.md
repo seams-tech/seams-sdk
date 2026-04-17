@@ -207,6 +207,20 @@ Optional limiter config:
 - `PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS`
 - `PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX`
 
+Email OTP challenge, verify, and unseal-grant routes have independent abuse controls:
+
+- `EMAIL_OTP_DELIVERY_MODE` (`memory` | `log` | `email_provider`)
+- `EMAIL_OTP_RATE_LIMITER_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp`)
+- `EMAIL_OTP_RATE_LIMIT_KEY_PREFIX`
+- `EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX`
+- `EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS`
+- `EMAIL_OTP_VERIFY_RATE_LIMIT_MAX`
+- `EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS`
+- `EMAIL_OTP_GRANT_RATE_LIMIT_MAX`
+- `EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS`
+
+Non-production defaults are local-friendly (`100` challenge, verify, and grant attempts per `60000` ms) and use an in-memory limiter unless an Email OTP-specific backend or explicit `EMAIL_OTP_RATE_LIMITER_KIND` is configured. Local delivery defaults to `memory`; the relay prints `[email-otp] development OTP code` with `devOtpCode` for non-production `memory` and `log` delivery modes. Production defaults are conservative when `NODE_ENV=production` (`5` challenges, `10` verifies, and `8` grant redemptions per `300000` ms). Production deploys should set `NODE_ENV=production` and explicit `EMAIL_OTP_*_RATE_LIMIT_*` values. The default limiter key prefix is `email-otp:v2:` so stale Redis buckets from older local defaults do not keep returning HTTP 429 after upgrading.
+
 Optional idempotency replay config (for multi-instance apply/remove dedupe):
 
 - `PRF_SESSION_SEAL_IDEMPOTENCY_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp` | `postgres`)
@@ -312,10 +326,15 @@ RELAY_API_KEY_AUTH_ENABLED=1
 # CONSOLE_OBSERVABILITY_RETENTION_PRUNE_INTERVAL_MS=300000
 # CONSOLE_OBSERVABILITY_RETENTION_BATCH_SIZE=1000
 
-# Threshold secrets (base64url-encoded 32-byte values)
-# THRESHOLD_ED25519_MASTER_SECRET_B64U=<32-byte-base64url>
-# Required: relay startup fails if missing.
-# THRESHOLD_SECP256K1_MASTER_SECRET_B64U=<32-byte-base64url>
+# Threshold signing-root shares
+# Local dev automatically wires fixture signing-root shares for localhost/.local origins
+# unless NODE_ENV=production.
+# Use real sealed signing-root share storage before using the signer for real funds.
+# THRESHOLD_SIGNING_ROOT_LOCAL_DEV_RESOLVER=1
+# For managed local registration, the fixture signing root must match the runtime scope.
+# Prefer THRESHOLD_SIGNING_ROOT_ID=<projectId>:<envId>. If unset, local dev
+# falls back to VITE_TATCHI_ENVIRONMENT_ID, then CONSOLE_DEMO_PROJECT_ID, then local-dev.
+# THRESHOLD_SIGNING_ROOT_ID=proj_example:dev
 
 # Optional PRF seal/unseal routes for refresh rehydrate.
 # PRF_SESSION_SEAL_ENABLED=1
@@ -328,6 +347,15 @@ RELAY_API_KEY_AUTH_ENABLED=1
 # PRF_SESSION_SEAL_RATE_LIMIT=30
 # PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS=60000
 # PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX=threshold:prf-seal:rate:
+# EMAIL_OTP_DELIVERY_MODE=memory
+# EMAIL_OTP_RATE_LIMITER_KIND=in-memory
+# EMAIL_OTP_RATE_LIMIT_KEY_PREFIX=email-otp:v2:
+# EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX=100
+# EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS=60000
+# EMAIL_OTP_VERIFY_RATE_LIMIT_MAX=100
+# EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS=60000
+# EMAIL_OTP_GRANT_RATE_LIMIT_MAX=100
+# EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS=60000
 # PRF_SESSION_SEAL_IDEMPOTENCY_KIND=in-memory
 # PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS=90000
 # PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX=threshold:prf-seal:idempotency:

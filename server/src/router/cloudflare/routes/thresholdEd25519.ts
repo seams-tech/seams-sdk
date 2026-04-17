@@ -13,7 +13,7 @@ import type {
 } from '../../../core/types';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
-  resolveThresholdRuntimeSnapshotScope,
+  resolveThresholdRuntimePolicyScope,
   validateThresholdEd25519AuthorizeInputs,
   validateThresholdEd25519SessionTokenInputs,
 } from '../../commonRouterUtils';
@@ -23,6 +23,10 @@ import {
   THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
 } from '@shared/threshold/participants';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
+import {
+  parseAppSessionClaims,
+  parseThresholdEcdsaSessionClaims,
+} from '../../../core/ThresholdService/validation';
 
 export async function handleThresholdEd25519(
   ctx: CloudflareRelayContext,
@@ -92,6 +96,24 @@ export async function handleThresholdEd25519(
       }
 
       const b = (body || {}) as ThresholdEd25519SessionRequest;
+      let appSessionClaims: ReturnType<typeof parseAppSessionClaims> = null;
+      let ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims> = null;
+      const parsedSession = session
+        ? await session.parse(Object.fromEntries(ctx.request.headers.entries()))
+        : null;
+      if (parsedSession?.ok) {
+        appSessionClaims = parseAppSessionClaims(parsedSession.claims);
+        if (appSessionClaims) {
+          const validated = await ctx.service.validateAppSessionVersion({
+            userId: appSessionClaims.sub,
+            appSessionVersion: appSessionClaims.appSessionVersion,
+          });
+          if (!validated.ok) appSessionClaims = null;
+        }
+        if (!appSessionClaims) {
+          ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
+        }
+      }
       ctx.logger.info('[threshold-ed25519] request', {
         route: pathname,
         method: ctx.method,
@@ -99,26 +121,31 @@ export async function handleThresholdEd25519(
         sessionPolicy: b.sessionPolicy ? { version: b.sessionPolicy.version } : undefined,
       });
 
-      const runtimeSnapshotScopeResolution = await resolveThresholdRuntimeSnapshotScope({
-        explicitScopeRaw: b.sessionPolicy?.runtimeSnapshotScope,
+      const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
+        explicitScopeRaw: b.sessionPolicy?.runtimePolicyScope,
         runtimeEnvironmentIdRaw: (b as { runtimeEnvironmentId?: unknown }).runtimeEnvironmentId,
         headers: ctx.request.headers,
         origin: ctx.request.headers.get('origin'),
         publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+        orgProjectEnv: ctx.opts.orgProjectEnv || null,
       });
-      if (!runtimeSnapshotScopeResolution.ok) {
+      if (!runtimePolicyScopeResolution.ok) {
         return json(
           {
             ok: false,
-            code: runtimeSnapshotScopeResolution.code,
-            message: runtimeSnapshotScopeResolution.message,
+            code: runtimePolicyScopeResolution.code,
+            message: runtimePolicyScopeResolution.message,
           },
-          { status: runtimeSnapshotScopeResolution.status },
+          { status: runtimePolicyScopeResolution.status },
         );
       }
-      const runtimeSnapshotScope = runtimeSnapshotScopeResolution.scope;
+      const runtimePolicyScope = runtimePolicyScopeResolution.scope;
 
-      const result = await ed25519.session(b);
+      const result = await ed25519.session({
+        ...b,
+        ...(appSessionClaims ? { appSessionClaims } : {}),
+        ...(ecdsaSessionClaims ? { ecdsaSessionClaims } : {}),
+      });
       const status = thresholdEd25519StatusCode(result);
       ctx.logger.info('[threshold-ed25519] response', {
         route: pathname,
@@ -189,14 +216,14 @@ export async function handleThresholdEd25519(
         ...(exp !== undefined ? { exp } : {}),
         iat,
         participantIds,
-        ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       });
       const sessionKind = parseSessionKind(b);
 
       const res = json(
         sessionKind === 'cookie'
-          ? { ...result, ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}), jwt: undefined }
-          : { ...result, ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}), jwt: token },
+          ? { ...result, ...(runtimePolicyScope ? { runtimePolicyScope } : {}), jwt: undefined }
+          : { ...result, ...(runtimePolicyScope ? { runtimePolicyScope } : {}), jwt: token },
         { status: 200 },
       );
       if (sessionKind === 'cookie') {
@@ -234,7 +261,7 @@ export async function handleThresholdEd25519(
       if (!validated.ok) return respond(validated);
       const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
         runtimeSnapshots: ctx.opts.runtimeSnapshots,
-        scope: validated.claims.runtimeSnapshotScope,
+        scope: validated.claims.runtimePolicyScope,
         expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
       });
       if (!runtimeSnapshotValidation.ok) return respond(runtimeSnapshotValidation);

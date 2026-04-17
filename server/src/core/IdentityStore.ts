@@ -1,10 +1,10 @@
 import type { NormalizedLogger } from './logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
-  ThresholdEd25519KeyStoreConfigInput,
+  ThresholdStoreConfigInput,
 } from './types';
 import {
-  THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT,
+  THRESHOLD_DO_OBJECT_NAME_DEFAULT,
   THRESHOLD_PREFIX_DEFAULT,
 } from './defaultConfigsServer';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -411,8 +411,8 @@ function resolveDoNamespaceFromConfig(
   const alt = (config as { durableObjectNamespace?: unknown }).durableObjectNamespace;
   if (isDurableObjectNamespaceLike(alt)) return alt;
 
-  const envStyle = (config as { THRESHOLD_ED25519_DO_NAMESPACE?: unknown })
-    .THRESHOLD_ED25519_DO_NAMESPACE;
+  const envStyle = (config as { THRESHOLD_DO_NAMESPACE?: unknown })
+    .THRESHOLD_DO_NAMESPACE;
   if (isDurableObjectNamespaceLike(envStyle)) return envStyle;
 
   return null;
@@ -1004,7 +1004,7 @@ class PostgresIdentityStore implements IdentityStore {
 }
 
 export function createIdentityStore(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger: NormalizedLogger;
   isNode: boolean;
 }): IdentityStore {
@@ -1022,7 +1022,7 @@ export function createIdentityStore(input: {
     const objectName =
       toOptionalTrimmedString((config as { objectName?: unknown }).objectName) ||
       toOptionalTrimmedString((config as { name?: unknown }).name) ||
-      THRESHOLD_ED25519_DO_OBJECT_NAME_DEFAULT;
+      THRESHOLD_DO_OBJECT_NAME_DEFAULT;
     input.logger.info('[identity] Using Cloudflare Durable Object identity store');
     return new CloudflareDurableObjectIdentityStore({ namespace, objectName, prefix });
   }

@@ -1,6 +1,6 @@
 import type { AuthService } from '../core/AuthService';
 import type { CreateAccountAndRegisterSmartAccountDeployment } from '../core/types';
-import type { RelayRuntimeSnapshotScope } from './relay';
+import type { RelayRuntimePolicyScope } from './relay';
 import { syncCanonicalSmartAccountDeploymentManifest } from './smartAccountDeploymentManifest';
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -28,7 +28,7 @@ export type SmartAccountRecoverySubjectDeploymentUpdate = {
   accountAddress: string;
   accountModel?: string;
   deployed: boolean;
-  sponsorshipScope?: RelayRuntimeSnapshotScope;
+  sponsorshipScope?: RelayRuntimePolicyScope;
   counterfactualAddress?: string;
   deploymentTxHash?: string;
   code?: string;
@@ -98,7 +98,7 @@ export async function syncSmartAccountRecoverySubjectDeployment(input: {
         ? {
             sponsorshipScope: {
               orgId: input.update.sponsorshipScope.orgId,
-              environmentId: input.update.sponsorshipScope.environmentId,
+              envId: input.update.sponsorshipScope.envId,
               ...(normalizeOptionalString(input.update.sponsorshipScope.projectId)
                 ? { projectId: normalizeOptionalString(input.update.sponsorshipScope.projectId) }
                 : {}),
@@ -150,7 +150,7 @@ export async function syncSmartAccountRecoverySubjectDeployment(input: {
 export async function syncSmartAccountRecoverySubjectDeployments(input: {
   authService: AuthService;
   deployments: CreateAccountAndRegisterSmartAccountDeployment[];
-  sponsorshipScope?: RelayRuntimeSnapshotScope;
+  sponsorshipScope?: RelayRuntimePolicyScope;
   observedAtMs?: number;
 }): Promise<void> {
   const observedAtMs =

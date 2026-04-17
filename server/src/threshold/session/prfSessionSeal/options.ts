@@ -1,6 +1,6 @@
 import { createEcdsaAuthSessionStore } from '../../../core/ThresholdService';
 import { createEd25519AuthSessionStore } from '../../../core/ThresholdService';
-import type { ThresholdEd25519KeyStoreConfigInput } from '../../../core/types';
+import type { ThresholdStoreConfigInput } from '../../../core/types';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { createPrfSessionSealShamir3PassCipherAdapter } from './crypto/cipher';
 import { resolvePrfSessionSealIdempotencyFromEnv } from './idempotencyBackends';
@@ -13,7 +13,7 @@ export type CreatePrfSessionSealOptionsInput = {
   shamirPrimeB64u: string;
   serverEncryptExponentB64u: string;
   serverDecryptExponentB64u: string;
-  thresholdKeyStoreConfig: ThresholdEd25519KeyStoreConfigInput;
+  thresholdStoreConfig: ThresholdStoreConfigInput;
   isNode?: boolean;
 };
 
@@ -24,12 +24,7 @@ function parseBooleanFlag(value: unknown, fallback: boolean): boolean {
   if (!normalized) return fallback;
   if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on')
     return true;
-  if (
-    normalized === '0' ||
-    normalized === 'false' ||
-    normalized === 'no' ||
-    normalized === 'off'
-  ) {
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
     return false;
   }
   return fallback;
@@ -60,12 +55,10 @@ function toPositiveInt(value: unknown): number | undefined {
   return Math.floor(parsed);
 }
 
-function buildIdempotencyOptions(
-  thresholdKeyStoreConfig: ThresholdEd25519KeyStoreConfigInput,
-) {
+function buildIdempotencyOptions(thresholdStoreConfig: ThresholdStoreConfigInput) {
   const config =
-    thresholdKeyStoreConfig && typeof thresholdKeyStoreConfig === 'object'
-      ? (thresholdKeyStoreConfig as Record<string, unknown>)
+    thresholdStoreConfig && typeof thresholdStoreConfig === 'object'
+      ? (thresholdStoreConfig as Record<string, unknown>)
       : {};
   const idempotencyKind =
     toOptionalTrimmedString(
@@ -92,8 +85,7 @@ function buildIdempotencyOptions(
       ) || null,
     postgresNamespace:
       toOptionalTrimmedString(config.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE) || null,
-    keyPrefix:
-      toOptionalTrimmedString(config.PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) || undefined,
+    keyPrefix: toOptionalTrimmedString(config.PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) || undefined,
     ttlMs: toPositiveInt(
       config.PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS || config.prfSessionSealIdempotencyTtlMs,
     ),
@@ -112,12 +104,12 @@ export function createPrfSessionSealOptions(input: CreatePrfSessionSealOptionsIn
   }
 
   const authSessionStore = createEd25519AuthSessionStore({
-    config: input.thresholdKeyStoreConfig,
+    config: input.thresholdStoreConfig,
     logger: console,
     isNode: input.isNode === true,
   });
   const ecdsaAuthSessionStore = createEcdsaAuthSessionStore({
-    config: input.thresholdKeyStoreConfig,
+    config: input.thresholdStoreConfig,
     logger: console,
     isNode: input.isNode === true,
   });
@@ -137,7 +129,7 @@ export function createPrfSessionSealOptions(input: CreatePrfSessionSealOptionsIn
       keyVersion,
       shamirPrimeB64u: input.shamirPrimeB64u,
     },
-    idempotency: buildIdempotencyOptions(input.thresholdKeyStoreConfig),
+    idempotency: buildIdempotencyOptions(input.thresholdStoreConfig),
     logger: console,
   });
 }

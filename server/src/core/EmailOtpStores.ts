@@ -1,4 +1,8 @@
-import { toOptionalTrimmedString } from '@shared/utils/validation';
+import type { NormalizedLogger } from './logger';
+import type { ThresholdStoreConfigInput } from './types';
+import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
+import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
+import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 
 export type EmailOtpChannel = 'email_otp';
 export type EmailOtpGrantAction = 'wallet_email_otp_unseal';
@@ -93,11 +97,77 @@ export interface EmailOtpUnlockChallengeStore {
   del(challengeId: string): Promise<void>;
 }
 
+type EmailOtpStoreFactoryInput = {
+  config?: ThresholdStoreConfigInput | null;
+  logger?: NormalizedLogger;
+  isNode?: boolean;
+};
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return isObjectLoose(v);
+}
+
+function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
+  const p = toOptionalTrimmedString(prefix);
+  if (!p) return defaultPrefix;
+  return p.endsWith(':') ? p : `${p}:`;
+}
+
+function toEmailOtpPrefix(config: Record<string, unknown>): string {
+  const explicit =
+    toOptionalTrimmedString(config.EMAIL_OTP_PREFIX) ||
+    toOptionalTrimmedString(config.EMAIL_OTP_STORE_PREFIX);
+  if (explicit) return toPrefixWithColon(explicit, '');
+
+  const base = toOptionalTrimmedString(config.THRESHOLD_PREFIX) || THRESHOLD_PREFIX_DEFAULT;
+  const baseWithColon = toPrefixWithColon(base, `${THRESHOLD_PREFIX_DEFAULT}:`);
+  return `${baseWithColon}email-otp:`;
+}
+
+function getStoreConfig(input?: EmailOtpStoreFactoryInput): Record<string, unknown> {
+  return (isObject(input?.config) ? input.config : {}) as Record<string, unknown>;
+}
+
+function resolvePostgresEmailOtpStore(
+  input: EmailOtpStoreFactoryInput | undefined,
+  storeLabel: string,
+): { postgresUrl: string; namespace: string } | null {
+  const config = getStoreConfig(input);
+  const kind = toOptionalTrimmedString(config.kind);
+  const postgresUrl = getPostgresUrlFromConfig(config);
+  const shouldUsePostgres = kind === 'postgres' || (!kind && Boolean(postgresUrl));
+  if (!shouldUsePostgres) {
+    if (kind && kind !== 'in-memory') {
+      input?.logger?.warn(
+        `[email-otp] ${kind} ${storeLabel} store is not implemented; using in-memory ${storeLabel} store`,
+      );
+    }
+    return null;
+  }
+  if (input?.isNode === false) {
+    throw new Error(`[email-otp] postgres ${storeLabel} store is not supported in this runtime`);
+  }
+  if (!postgresUrl) {
+    throw new Error(`[email-otp] postgres ${storeLabel} store enabled but POSTGRES_URL is not set`);
+  }
+  return { postgresUrl, namespace: toEmailOtpPrefix(config) };
+}
+
 function cloneRecord<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function parseJsonRecord(raw: unknown): unknown {
+  if (typeof raw !== 'string') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
+  raw = parseJsonRecord(raw);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
   const version = toOptionalTrimmedString(obj.version);
@@ -144,6 +214,7 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
 }
 
 function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
+  raw = parseJsonRecord(raw);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
   const version = toOptionalTrimmedString(obj.version);
@@ -182,6 +253,7 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
 }
 
 function parseEnrollmentRecord(raw: unknown): EmailOtpEnrollmentRecord | null {
+  raw = parseJsonRecord(raw);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
   const version = toOptionalTrimmedString(obj.version);
@@ -251,6 +323,7 @@ function parseEnrollmentRecord(raw: unknown): EmailOtpEnrollmentRecord | null {
 }
 
 function parseUnlockChallengeRecord(raw: unknown): EmailOtpUnlockChallengeRecord | null {
+  raw = parseJsonRecord(raw);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
   const version = toOptionalTrimmedString(obj.version);
@@ -371,18 +444,262 @@ class InMemoryEmailOtpUnlockChallengeStore implements EmailOtpUnlockChallengeSto
   }
 }
 
-export function createEmailOtpChallengeStore(): EmailOtpChallengeStore {
+class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
+  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
+  private readonly namespace: string;
+
+  constructor(input: { postgresUrl: string; namespace: string }) {
+    this.poolPromise = getPostgresPool(input.postgresUrl);
+    this.namespace = input.namespace;
+  }
+
+  async put(record: EmailOtpChallengeRecord): Promise<void> {
+    const parsed = parseChallengeRecord(record);
+    if (!parsed) throw new Error('Invalid Email OTP challenge record');
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO email_otp_challenges (namespace, challenge_id, record_json, expires_at_ms)
+        VALUES ($1, $2, $3::jsonb, $4)
+        ON CONFLICT (namespace, challenge_id)
+        DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms
+      `,
+      [this.namespace, parsed.challengeId, JSON.stringify(parsed), parsed.expiresAtMs],
+    );
+  }
+
+  async get(challengeId: string): Promise<EmailOtpChallengeRecord | null> {
+    const id = toOptionalTrimmedString(challengeId);
+    if (!id) return null;
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json
+        FROM email_otp_challenges
+        WHERE namespace = $1 AND challenge_id = $2
+      `,
+      [this.namespace, id],
+    );
+    const parsed = parseChallengeRecord(rows[0]?.record_json);
+    if (!parsed) {
+      if (rows[0]) await this.del(id);
+      return null;
+    }
+    return cloneRecord(parsed);
+  }
+
+  async del(challengeId: string): Promise<void> {
+    const id = toOptionalTrimmedString(challengeId);
+    if (!id) return;
+    const pool = await this.poolPromise;
+    await pool.query('DELETE FROM email_otp_challenges WHERE namespace = $1 AND challenge_id = $2', [
+      this.namespace,
+      id,
+    ]);
+  }
+}
+
+class PostgresEmailOtpGrantStore implements EmailOtpGrantStore {
+  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
+  private readonly namespace: string;
+
+  constructor(input: { postgresUrl: string; namespace: string }) {
+    this.poolPromise = getPostgresPool(input.postgresUrl);
+    this.namespace = input.namespace;
+  }
+
+  async put(record: EmailOtpGrantRecord): Promise<void> {
+    const parsed = parseGrantRecord(record);
+    if (!parsed) throw new Error('Invalid Email OTP grant record');
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO email_otp_grants (namespace, grant_token, record_json, expires_at_ms)
+        VALUES ($1, $2, $3::jsonb, $4)
+        ON CONFLICT (namespace, grant_token)
+        DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms
+      `,
+      [this.namespace, parsed.grantToken, JSON.stringify(parsed), parsed.expiresAtMs],
+    );
+  }
+
+  async consume(grantToken: string): Promise<EmailOtpGrantRecord | null> {
+    const token = toOptionalTrimmedString(grantToken);
+    if (!token) return null;
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        DELETE FROM email_otp_grants
+        WHERE namespace = $1 AND grant_token = $2
+        RETURNING record_json
+      `,
+      [this.namespace, token],
+    );
+    const parsed = parseGrantRecord(rows[0]?.record_json);
+    if (!parsed) return null;
+    return cloneRecord(parsed);
+  }
+
+  async del(grantToken: string): Promise<void> {
+    const token = toOptionalTrimmedString(grantToken);
+    if (!token) return;
+    const pool = await this.poolPromise;
+    await pool.query('DELETE FROM email_otp_grants WHERE namespace = $1 AND grant_token = $2', [
+      this.namespace,
+      token,
+    ]);
+  }
+}
+
+class PostgresEmailOtpEnrollmentStore implements EmailOtpEnrollmentStore {
+  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
+  private readonly namespace: string;
+
+  constructor(input: { postgresUrl: string; namespace: string }) {
+    this.poolPromise = getPostgresPool(input.postgresUrl);
+    this.namespace = input.namespace;
+  }
+
+  async get(walletId: string): Promise<EmailOtpEnrollmentRecord | null> {
+    const key = toOptionalTrimmedString(walletId);
+    if (!key) return null;
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json
+        FROM email_otp_enrollments
+        WHERE namespace = $1 AND wallet_id = $2
+      `,
+      [this.namespace, key],
+    );
+    const parsed = parseEnrollmentRecord(rows[0]?.record_json);
+    if (!parsed) {
+      if (rows[0]) await this.del(key);
+      return null;
+    }
+    return cloneRecord(parsed);
+  }
+
+  async put(record: EmailOtpEnrollmentRecord): Promise<void> {
+    const parsed = parseEnrollmentRecord(record);
+    if (!parsed) throw new Error('Invalid Email OTP enrollment record');
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO email_otp_enrollments (namespace, wallet_id, record_json, updated_at_ms)
+        VALUES ($1, $2, $3::jsonb, $4)
+        ON CONFLICT (namespace, wallet_id)
+        DO UPDATE SET record_json = EXCLUDED.record_json, updated_at_ms = EXCLUDED.updated_at_ms
+      `,
+      [this.namespace, parsed.walletId, JSON.stringify(parsed), parsed.updatedAtMs],
+    );
+  }
+
+  async del(walletId: string): Promise<void> {
+    const key = toOptionalTrimmedString(walletId);
+    if (!key) return;
+    const pool = await this.poolPromise;
+    await pool.query('DELETE FROM email_otp_enrollments WHERE namespace = $1 AND wallet_id = $2', [
+      this.namespace,
+      key,
+    ]);
+  }
+}
+
+class PostgresEmailOtpUnlockChallengeStore implements EmailOtpUnlockChallengeStore {
+  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
+  private readonly namespace: string;
+
+  constructor(input: { postgresUrl: string; namespace: string }) {
+    this.poolPromise = getPostgresPool(input.postgresUrl);
+    this.namespace = input.namespace;
+  }
+
+  async put(record: EmailOtpUnlockChallengeRecord): Promise<void> {
+    const parsed = parseUnlockChallengeRecord(record);
+    if (!parsed) throw new Error('Invalid Email OTP unlock challenge record');
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO email_otp_unlock_challenges (namespace, challenge_id, record_json, expires_at_ms)
+        VALUES ($1, $2, $3::jsonb, $4)
+        ON CONFLICT (namespace, challenge_id)
+        DO UPDATE SET record_json = EXCLUDED.record_json, expires_at_ms = EXCLUDED.expires_at_ms
+      `,
+      [this.namespace, parsed.challengeId, JSON.stringify(parsed), parsed.expiresAtMs],
+    );
+  }
+
+  async consume(challengeId: string): Promise<EmailOtpUnlockChallengeRecord | null> {
+    const id = toOptionalTrimmedString(challengeId);
+    if (!id) return null;
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        DELETE FROM email_otp_unlock_challenges
+        WHERE namespace = $1 AND challenge_id = $2
+        RETURNING record_json
+      `,
+      [this.namespace, id],
+    );
+    const parsed = parseUnlockChallengeRecord(rows[0]?.record_json);
+    if (!parsed) return null;
+    return cloneRecord(parsed);
+  }
+
+  async del(challengeId: string): Promise<void> {
+    const id = toOptionalTrimmedString(challengeId);
+    if (!id) return;
+    const pool = await this.poolPromise;
+    await pool.query(
+      'DELETE FROM email_otp_unlock_challenges WHERE namespace = $1 AND challenge_id = $2',
+      [this.namespace, id],
+    );
+  }
+}
+
+export function createEmailOtpChallengeStore(
+  input?: EmailOtpStoreFactoryInput,
+): EmailOtpChallengeStore {
+  const postgres = resolvePostgresEmailOtpStore(input, 'challenge');
+  if (postgres) {
+    input?.logger?.info('[email-otp] Using Postgres challenge store');
+    return new PostgresEmailOtpChallengeStore(postgres);
+  }
+  input?.logger?.info('[email-otp] Using in-memory challenge store (non-persistent)');
   return new InMemoryEmailOtpChallengeStore();
 }
 
-export function createEmailOtpGrantStore(): EmailOtpGrantStore {
+export function createEmailOtpGrantStore(input?: EmailOtpStoreFactoryInput): EmailOtpGrantStore {
+  const postgres = resolvePostgresEmailOtpStore(input, 'grant');
+  if (postgres) {
+    input?.logger?.info('[email-otp] Using Postgres grant store');
+    return new PostgresEmailOtpGrantStore(postgres);
+  }
+  input?.logger?.info('[email-otp] Using in-memory grant store (non-persistent)');
   return new InMemoryEmailOtpGrantStore();
 }
 
-export function createEmailOtpEnrollmentStore(): EmailOtpEnrollmentStore {
+export function createEmailOtpEnrollmentStore(
+  input?: EmailOtpStoreFactoryInput,
+): EmailOtpEnrollmentStore {
+  const postgres = resolvePostgresEmailOtpStore(input, 'enrollment');
+  if (postgres) {
+    input?.logger?.info('[email-otp] Using Postgres enrollment store');
+    return new PostgresEmailOtpEnrollmentStore(postgres);
+  }
+  input?.logger?.info('[email-otp] Using in-memory enrollment store (non-persistent)');
   return new InMemoryEmailOtpEnrollmentStore();
 }
 
-export function createEmailOtpUnlockChallengeStore(): EmailOtpUnlockChallengeStore {
+export function createEmailOtpUnlockChallengeStore(
+  input?: EmailOtpStoreFactoryInput,
+): EmailOtpUnlockChallengeStore {
+  const postgres = resolvePostgresEmailOtpStore(input, 'unlock challenge');
+  if (postgres) {
+    input?.logger?.info('[email-otp] Using Postgres unlock challenge store');
+    return new PostgresEmailOtpUnlockChallengeStore(postgres);
+  }
+  input?.logger?.info('[email-otp] Using in-memory unlock challenge store (non-persistent)');
   return new InMemoryEmailOtpUnlockChallengeStore();
 }

@@ -23,7 +23,7 @@ export type {
   RelayBootstrapGrantIssueResult,
   RelayBootstrapTokenRecord,
   RelayBootstrapGrantBroker,
-  RelayRuntimeSnapshotScope,
+  RelayRuntimePolicyScope,
   RelayRuntimeSnapshotEnvelope,
   RelayRuntimeSnapshotConsumer,
 } from './relay';

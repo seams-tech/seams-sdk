@@ -162,6 +162,62 @@ export async function ensurePostgresSchema(input: {
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_otp_challenges (
+        namespace TEXT NOT NULL,
+        challenge_id TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, challenge_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_otp_challenges_expires_idx
+      ON email_otp_challenges (expires_at_ms)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_otp_grants (
+        namespace TEXT NOT NULL,
+        grant_token TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, grant_token)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_otp_grants_expires_idx
+      ON email_otp_grants (expires_at_ms)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_otp_enrollments (
+        namespace TEXT NOT NULL,
+        wallet_id TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, wallet_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_otp_enrollments_updated_idx
+      ON email_otp_enrollments (namespace, updated_at_ms)
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_otp_unlock_challenges (
+        namespace TEXT NOT NULL,
+        challenge_id TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, challenge_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_otp_unlock_challenges_expires_idx
+      ON email_otp_unlock_challenges (expires_at_ms)
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS threshold_ed25519_keys (
         namespace TEXT NOT NULL,
         relayer_key_id TEXT NOT NULL,
@@ -176,6 +232,22 @@ export async function ensurePostgresSchema(input: {
         relayer_key_id TEXT NOT NULL,
         record_json JSONB NOT NULL,
         PRIMARY KEY (namespace, relayer_key_id)
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS signing_root_secret_shares (
+        namespace TEXT NOT NULL,
+        signing_root_id TEXT NOT NULL,
+        signing_root_version TEXT NOT NULL,
+        share_id INTEGER NOT NULL,
+        sealed_share_b64u TEXT NOT NULL,
+        storage_id TEXT,
+        kek_id TEXT,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, signing_root_id, signing_root_version, share_id),
+        CHECK (share_id IN (1, 2, 3))
       )
     `);
 

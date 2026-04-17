@@ -7,7 +7,8 @@ use wasm_bindgen::prelude::*;
 #[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DeriveThresholdEd25519HssClientInputsRequest {
-    #[wasm_bindgen(getter_with_clone, js_name = "orgId")]
+    #[wasm_bindgen(getter_with_clone, js_name = "signingRootId")]
+    #[serde(rename = "signingRootId")]
     pub org_id: String,
     #[wasm_bindgen(getter_with_clone, js_name = "nearAccountId")]
     pub near_account_id: String,
@@ -30,7 +31,8 @@ pub struct DeriveThresholdEd25519HssClientInputsRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeriveThresholdEd25519HssClientInputsResult {
-    #[wasm_bindgen(getter_with_clone, js_name = "orgId")]
+    #[wasm_bindgen(getter_with_clone, js_name = "signingRootId")]
+    #[serde(rename = "signingRootId")]
     pub org_id: String,
     #[wasm_bindgen(getter_with_clone, js_name = "nearAccountId")]
     pub near_account_id: String,
@@ -55,7 +57,7 @@ pub async fn handle_threshold_ed25519_derive_hss_client_inputs(
 ) -> Result<DeriveThresholdEd25519HssClientInputsResult, String> {
     let org_id = request.org_id.trim().to_string();
     if org_id.is_empty() {
-        return Err("Missing orgId".to_string());
+        return Err("Missing signingRootId".to_string());
     }
     let near_account_id = request.near_account_id.trim().to_string();
     if near_account_id.is_empty() {
@@ -79,7 +81,7 @@ pub async fn handle_threshold_ed25519_derive_hss_client_inputs(
     }
 
     debug!(
-        "[rust wasm]: derive threshold ed25519 HSS client inputs for org {} account {} purpose {} version {}",
+        "[rust wasm]: derive threshold ed25519 HSS client inputs for signing root {} account {} purpose {} version {}",
         org_id, near_account_id, key_purpose, key_version
     );
 

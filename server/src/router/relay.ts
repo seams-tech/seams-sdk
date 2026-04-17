@@ -28,6 +28,7 @@ import type { CanonicalSmartAccountDeploymentManifest } from '../core/smartAccou
 import type { CanonicalEvmSmartAccountDeploymentPlan } from '../core/evmSmartAccountDeploymentPlan';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import type { ApiCredentialScope } from '../../../shared/src/console/apiKeyScopes';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -117,11 +118,7 @@ export interface ThresholdSigningAdapter {
   };
 }
 
-export interface RelayRuntimeSnapshotScope {
-  orgId: string;
-  environmentId: string;
-  projectId?: string;
-}
+export type RelayRuntimePolicyScope = RuntimePolicyScope;
 
 export interface RelayRuntimeSnapshotEnvelope {
   snapshotId: string;
@@ -132,7 +129,7 @@ export interface RelayRuntimeSnapshotEnvelope {
 
 export interface RelayRuntimeSnapshotConsumer {
   getLatestSnapshot(
-    scope: RelayRuntimeSnapshotScope,
+    scope: RelayRuntimePolicyScope,
   ): Promise<RelayRuntimeSnapshotEnvelope | null> | RelayRuntimeSnapshotEnvelope | null;
 }
 
@@ -175,6 +172,8 @@ export interface RelayApiKeyAuthRequest {
 export interface RelayApiKeyPrincipal {
   apiKeyId: string;
   orgId: string;
+  projectId?: string;
+  envId?: string;
   environmentId: string;
   scopes: ApiCredentialScope[];
 }
@@ -271,7 +270,7 @@ export interface RelayBootstrapGrant {
   expiresAt: string;
   orgId: string;
   projectId: string;
-  environmentId: string;
+  envId: string;
   origin: string;
   mode: RelayBootstrapGrantMode;
 }

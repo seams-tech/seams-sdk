@@ -1,6 +1,6 @@
 import type {
   ThresholdEd25519AuthorizeWithSessionRequest,
-  ThresholdRuntimeSnapshotScope,
+  ThresholdRuntimePolicyScope,
   ThresholdEcdsaAuthorizeWithSessionRequest,
 } from '../core/types';
 import {
@@ -9,8 +9,10 @@ import {
 } from '../core/ThresholdService/validation';
 import type { SessionAdapter } from './relay';
 import type { RelayPublishableKeyAuthAdapter } from './relay';
+import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import { extractBearerCredential } from './relayApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
 type PlainObject = Record<string, unknown>;
 type AuthorizeErr = { ok: false; code: 'sessions_disabled' | 'unauthorized'; message: string };
@@ -215,7 +217,7 @@ export async function signThresholdSessionJwt(args: {
     sessionId?: unknown;
     expiresAtMs?: unknown;
     participantIds?: unknown;
-    runtimeSnapshotScope?: unknown;
+    runtimePolicyScope?: unknown;
   };
   fallbackParticipantIds?: unknown;
   allowedSessionKinds?: Array<'jwt' | 'cookie'>;
@@ -256,18 +258,14 @@ export async function signThresholdSessionJwt(args: {
   const participantIds =
     normalizeThresholdEd25519ParticipantIds(args.sessionInfo?.participantIds) ||
     normalizeThresholdEd25519ParticipantIds(args.fallbackParticipantIds);
-  const runtimeSnapshotScope = (() => {
-    const raw = args.sessionInfo?.runtimeSnapshotScope;
+  const runtimePolicyScope = (() => {
+    const raw = args.sessionInfo?.runtimePolicyScope;
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-    const orgId = String((raw as { orgId?: unknown }).orgId || '').trim();
-    const environmentId = String((raw as { environmentId?: unknown }).environmentId || '').trim();
-    const projectId = String((raw as { projectId?: unknown }).projectId || '').trim();
-    if (!orgId || !environmentId) return undefined;
-    return {
-      orgId,
-      environmentId,
-      ...(projectId ? { projectId } : {}),
-    };
+    try {
+      return normalizeRuntimePolicyScope(raw as Record<string, unknown>);
+    } catch {
+      return undefined;
+    }
   })();
 
   if (
@@ -297,7 +295,7 @@ export async function signThresholdSessionJwt(args: {
     rpId,
     participantIds,
     thresholdExpiresAtMs,
-    ...(runtimeSnapshotScope ? { runtimeSnapshotScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     iat: nowSec,
     exp: expSec,
   });
@@ -310,8 +308,8 @@ export async function signThresholdSessionJwt(args: {
   };
 }
 
-export type ThresholdRuntimeSnapshotScopeResolution =
-  | { ok: true; scope?: ThresholdRuntimeSnapshotScope }
+export type ThresholdRuntimePolicyScopeResolution =
+  | { ok: true; scope?: ThresholdRuntimePolicyScope }
   | {
       ok: false;
       status: 401 | 403 | 500;
@@ -319,26 +317,23 @@ export type ThresholdRuntimeSnapshotScopeResolution =
       message: string;
     };
 
-export async function resolveThresholdRuntimeSnapshotScope(input: {
+export async function resolveThresholdRuntimePolicyScope(input: {
   explicitScopeRaw: unknown;
   runtimeEnvironmentIdRaw?: unknown;
   headers: Headers | Record<string, string | string[] | undefined>;
   origin?: string | null;
   publishableKeyAuth?: RelayPublishableKeyAuthAdapter | null;
-}): Promise<ThresholdRuntimeSnapshotScopeResolution> {
+  orgProjectEnv?: ConsoleOrgProjectEnvService | null;
+}): Promise<ThresholdRuntimePolicyScopeResolution> {
   if (isPlainObject(input.explicitScopeRaw)) {
-    const orgId = String(input.explicitScopeRaw.orgId || '').trim();
-    const environmentId = String(input.explicitScopeRaw.environmentId || '').trim();
-    const projectId = String(input.explicitScopeRaw.projectId || '').trim();
-    if (orgId && environmentId) {
+    try {
+      const scope = normalizeRuntimePolicyScope(input.explicitScopeRaw);
       return {
         ok: true,
-        scope: {
-          orgId,
-          environmentId,
-          ...(projectId ? { projectId } : {}),
-        },
+        scope,
       };
+    } catch {
+      return { ok: true };
     }
   }
 
@@ -389,11 +384,41 @@ export async function resolveThresholdRuntimeSnapshotScope(input: {
     };
   }
 
+  const projectEnvironment = await resolveRuntimeProjectEnvironment({
+    orgProjectEnv: input.orgProjectEnv || null,
+    orgId: authResult.principal.orgId,
+    environmentId: authResult.principal.environmentId,
+  });
+  if (!projectEnvironment) return { ok: true };
+
   return {
     ok: true,
     scope: {
       orgId: authResult.principal.orgId,
-      environmentId: authResult.principal.environmentId,
+      projectId: projectEnvironment.projectId,
+      envId: projectEnvironment.envId,
     },
   };
+}
+
+async function resolveRuntimeProjectEnvironment(input: {
+  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  orgId: string;
+  environmentId: string;
+}): Promise<{ projectId: string; envId: string } | undefined> {
+  if (!input.orgProjectEnv) return undefined;
+  try {
+    const environments = await input.orgProjectEnv.listEnvironments({
+      orgId: input.orgId,
+      actorUserId: 'runtime-scope-bootstrap',
+      roles: ['system'],
+      environmentId: input.environmentId,
+    });
+    const environment = environments.find((entry) => entry.id === input.environmentId);
+    const projectId = String(environment?.projectId || '').trim();
+    const envId = String(environment?.key || '').trim();
+    return projectId && envId ? { projectId, envId } : undefined;
+  } catch {
+    return undefined;
+  }
 }

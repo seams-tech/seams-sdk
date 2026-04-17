@@ -322,7 +322,7 @@ export function createRelayBootstrapGrantBroker(
         expiresAt: issued.record.expiresAt,
         orgId: authenticatedApiKey.orgId,
         projectId: environment.projectId,
-        environmentId: environment.id,
+        envId: environment.key,
         origin,
         mode: 'free',
       },
