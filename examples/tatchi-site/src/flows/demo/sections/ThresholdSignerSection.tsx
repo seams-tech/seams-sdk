@@ -13,6 +13,7 @@ type ThresholdSignerSectionProps = {
   tempoFeeTokenIsAlpha: boolean;
   onTempoDripToken: () => void | Promise<void>;
   tempoDripLoading: boolean;
+  tempoSponsorshipUnavailableReason: string | null;
   tempoGreeting: string | null;
   tempoGreetingLoading: boolean;
   onRefreshTempoGreeting: () => void | Promise<unknown>;
@@ -86,11 +87,20 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
             variant="secondary"
             size="medium"
             style={{ width: '100%' }}
-            disabled={props.tempoDripLoading || props.tempoFeeTokenConfigLoading}
+            disabled={
+              props.tempoDripLoading ||
+              props.tempoFeeTokenConfigLoading ||
+              Boolean(props.tempoSponsorshipUnavailableReason)
+            }
           >
             Drip Fee Tokens
           </LoadingButton>
         </div>
+        {props.tempoSponsorshipUnavailableReason ? (
+          <div className="demo-capability-note" style={{ marginTop: 10 }}>
+            {props.tempoSponsorshipUnavailableReason}
+          </div>
+        ) : null}
       </div>
 
       <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>

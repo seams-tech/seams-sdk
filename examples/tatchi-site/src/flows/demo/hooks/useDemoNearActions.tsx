@@ -15,20 +15,21 @@ import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '@/shared/types';
 type UseDemoNearActionsArgs = {
   isLoggedIn: boolean;
   nearAccountId?: string | null;
+  nearPublicKey?: string | null;
   tatchi: ReturnType<typeof useTatchi>['tatchi'];
   fetchGreeting: () => unknown | Promise<unknown>;
 };
 
 export function useDemoNearActions(args: UseDemoNearActionsArgs) {
-  const { isLoggedIn, nearAccountId, tatchi, fetchGreeting } = args;
+  const { isLoggedIn, nearAccountId, nearPublicKey, tatchi, fetchGreeting } = args;
 
   const [greetingInput, setGreetingInput] = useState('Hello from Tatchi!');
   const [txLoading, setTxLoading] = useState(false);
   const [delegateLoading, setDelegateLoading] = useState(false);
 
   const canExecuteGreeting = useCallback(
-    (val: string, loggedIn: boolean, accountId?: string | null) =>
-      Boolean(val?.trim()) && loggedIn && Boolean(accountId),
+    (val: string, loggedIn: boolean, accountId?: string | null, publicKey?: string | null) =>
+      Boolean(val?.trim()) && loggedIn && Boolean(accountId) && Boolean(publicKey),
     [],
   );
 
@@ -51,7 +52,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
   );
 
   const handleSetGreeting = useCallback(async () => {
-    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId)) return;
+    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId, nearPublicKey)) return;
     const actionToExecute: FunctionCallAction = createGreetingAction(
       greetingInput,
     ) as FunctionCallAction;
@@ -149,11 +150,12 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     greetingInput,
     isLoggedIn,
     nearAccountId,
+    nearPublicKey,
     tatchi,
   ]);
 
   const handleSignDelegateGreeting = useCallback(async () => {
-    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId)) return;
+    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId, nearPublicKey)) return;
 
     const { login: loginState } = await tatchi.auth.getWalletSession();
 
@@ -259,6 +261,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     greetingInput,
     isLoggedIn,
     nearAccountId,
+    nearPublicKey,
     tatchi,
   ]);
 
@@ -269,6 +272,6 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     delegateLoading,
     handleSetGreeting,
     handleSignDelegateGreeting,
-    canSubmit: canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId),
+    canSubmit: canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId, nearPublicKey),
   };
 }

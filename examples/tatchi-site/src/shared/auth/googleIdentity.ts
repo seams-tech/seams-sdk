@@ -9,6 +9,12 @@ export interface GoogleIdPromptMomentNotification {
   getSkippedReason?: () => string;
 }
 
+export interface GoogleAuthOptions {
+  configured: boolean;
+  clientId?: string;
+  message?: string;
+}
+
 export interface GoogleIdentityApi {
   initialize(config: {
     client_id: string;
@@ -31,6 +37,46 @@ declare global {
 }
 
 let googleIdentityScriptLoadPromise: Promise<void> | null = null;
+const GOOGLE_ID_TOKEN_TIMEOUT_MS = 60_000;
+const GOOGLE_IDENTITY_SCRIPT_TIMEOUT_MS = 15_000;
+const GOOGLE_IDENTITY_PROMPT_TIMEOUT_MS = 45_000;
+
+function normalizeRelayBaseUrl(input: unknown): string {
+  return String(input || '')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+async function parseOptionalJson(response: Response): Promise<any> {
+  return response.json().catch(() => null);
+}
+
+export async function fetchGoogleAuthOptions(relayerBaseUrl: string): Promise<GoogleAuthOptions> {
+  const baseUrl = normalizeRelayBaseUrl(relayerBaseUrl);
+  if (!baseUrl) {
+    return { configured: false, message: 'Relayer base URL is not configured' };
+  }
+
+  const response = await fetch(`${baseUrl}/auth/google/options`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+  });
+  const body = await parseOptionalJson(response);
+  const configured = response.ok && body?.ok === true && body?.configured === true;
+  const clientId = String(body?.clientId || '').trim();
+  return {
+    configured: configured && clientId.length > 0,
+    ...(clientId ? { clientId } : {}),
+    ...(typeof body?.message === 'string' && body.message.trim()
+      ? { message: body.message.trim() }
+      : {}),
+  };
+}
 
 type GooglePromptStage = 'not_displayed' | 'skipped';
 
@@ -83,17 +129,38 @@ export function ensureGoogleIdentityScriptLoaded(): Promise<void> {
 
   googleIdentityScriptLoadPromise = new Promise<void>((resolve, reject) => {
     const script = document.createElement('script');
+    let settled = false;
+    let timeout: number | undefined;
+    const finishResolve = () => {
+      if (settled) return;
+      settled = true;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      resolve();
+    };
+    const finishReject = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      googleIdentityScriptLoadPromise = null;
+      reject(error);
+    };
+    timeout = window.setTimeout(() => {
+      script.remove();
+      finishReject(
+        new Error('Timed out loading Google Identity script. Check network blockers and retry.'),
+      );
+    }, GOOGLE_IDENTITY_SCRIPT_TIMEOUT_MS);
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
     script.defer = true;
     script.onload = () => {
       if (window.google?.accounts?.id) {
-        resolve();
+        finishResolve();
         return;
       }
-      reject(new Error('Google Identity API loaded without accounts.id'));
+      finishReject(new Error('Google Identity API loaded without accounts.id'));
     };
-    script.onerror = () => reject(new Error('Failed to load Google Identity script'));
+    script.onerror = () => finishReject(new Error('Failed to load Google Identity script'));
     document.head.appendChild(script);
   });
 
@@ -112,20 +179,30 @@ function requestGoogleIdTokenWithPromptMode(
     }
 
     let settled = false;
+    let timeout: number | undefined;
     const finishResolve = (token: string) => {
       if (settled) return;
       settled = true;
+      if (timeout !== undefined) window.clearTimeout(timeout);
       resolve(token);
     };
     const finishReject = (input: string | Error) => {
       if (settled) return;
       settled = true;
+      if (timeout !== undefined) window.clearTimeout(timeout);
       if (input instanceof Error) {
         reject(input);
         return;
       }
       reject(new Error(input));
     };
+    timeout = window.setTimeout(() => {
+      finishReject(
+        new Error(
+          'Timed out waiting for Google sign-in. Check browser sign-in settings or close the Google prompt and retry.',
+        ),
+      );
+    }, GOOGLE_IDENTITY_PROMPT_TIMEOUT_MS);
 
     googleIdApi.initialize({
       client_id: clientId,
@@ -137,7 +214,9 @@ function requestGoogleIdTokenWithPromptMode(
         }
         finishResolve(token);
       },
-      auto_select: false,
+      // Let Google reuse an existing browser Google session when available.
+      // The wallet unlock/signing factor remains the Email OTP flow after SSO.
+      auto_select: true,
       cancel_on_tap_outside: true,
       use_fedcm_for_prompt: useFedcmForPrompt,
     });
@@ -162,10 +241,32 @@ function requestGoogleIdTokenWithPromptMode(
   });
 }
 
+async function withGoogleIdentityTimeout<T>(promise: Promise<T>): Promise<T> {
+  return await new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(
+        new Error(
+          'Google sign-in timed out. Check that the Google popup was not blocked and retry.',
+        ),
+      );
+    }, GOOGLE_ID_TOKEN_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
+}
+
 export async function requestGoogleIdToken(clientId: string): Promise<string> {
   try {
     // First prefer non-FedCM prompt mode.
-    return await requestGoogleIdTokenWithPromptMode(clientId, false);
+    return await withGoogleIdentityTimeout(requestGoogleIdTokenWithPromptMode(clientId, false));
   } catch (error: unknown) {
     if (!isUnknownPromptFailure(error)) {
       throw error;
@@ -173,5 +274,5 @@ export async function requestGoogleIdToken(clientId: string): Promise<string> {
   }
 
   // If browser returns unknown prompt failure, retry with FedCM prompt mode.
-  return await requestGoogleIdTokenWithPromptMode(clientId, true);
+  return await withGoogleIdentityTimeout(requestGoogleIdTokenWithPromptMode(clientId, true));
 }

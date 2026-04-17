@@ -15,6 +15,18 @@
   flex-direction: column;
 }
 
+.demo-capability-note {
+  border: 1px solid var(--fe-border);
+  border-radius: var(--fe-radius-lg);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent),
+    var(--fe-bg-secondary);
+  color: var(--fe-text-secondary);
+  padding: var(--fe-gap-4);
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+
 .on-chain-greeting-box {
   display: flex;
   align-items: center;

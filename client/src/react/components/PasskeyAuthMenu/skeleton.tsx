@@ -1,12 +1,13 @@
 import React from 'react';
 import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
-import { ArrowLeftIcon, MailIcon } from './ui/icons';
+import { ArrowLeftIcon } from './ui/icons';
 import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';
 import { PasskeyAuthMenuThemeScope } from './themeScope';
 import { useTheme } from '../theme';
 import { getModeTitle } from './controller/mode';
 import { AuthMenuMode, type AuthMenuHeadings } from './types';
+import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
 
 export interface PasskeyAuthMenuSkeletonProps {
   className?: string;
@@ -147,43 +148,53 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
                   <div className="w3a-auth-method-stack">
                     {mode === AuthMenuMode.Login && (
                       <>
-                        <button className="w3a-auth-method-btn w3a-auth-method-btn-primary" disabled>
-                          Continue with Passkey
-                        </button>
                         <button
-                          className="w3a-auth-method-btn w3a-auth-method-btn-secondary"
+                          className="w3a-auth-method-btn w3a-auth-method-btn-primary"
                           disabled
                         >
-                          <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
-                          Continue with Email OTP
+                          Continue with Passkey
                         </button>
                         <SocialProviders
                           socialLogin={{ google: () => undefined }}
                           providers={['google']}
                           disabled
+                          providerCopy={{
+                            google: {
+                              buttonLabel: getGoogleSsoButtonLabel(AuthMenuMode.Login),
+                              helperText: getGoogleSsoHelperText(
+                                AuthMenuMode.Login,
+                                resolvedEmailOtpAuthPolicy,
+                              ),
+                            },
+                          }}
                         />
                       </>
                     )}
                     {mode === AuthMenuMode.Register && (
                       <>
-                        <button className="w3a-auth-method-btn w3a-auth-method-btn-primary" disabled>
+                        <button
+                          className="w3a-auth-method-btn w3a-auth-method-btn-primary"
+                          disabled
+                        >
                           Create with Passkey
                         </button>
                         <SocialProviders
                           socialLogin={{ google: () => undefined }}
                           providers={['google']}
                           disabled
+                          providerCopy={{
+                            google: {
+                              buttonLabel: getGoogleSsoButtonLabel(AuthMenuMode.Register),
+                              helperText: getGoogleSsoHelperText(
+                                AuthMenuMode.Register,
+                                resolvedEmailOtpAuthPolicy,
+                              ),
+                            },
+                          }}
                         />
                       </>
                     )}
                   </div>
-                  {mode === AuthMenuMode.Login && (
-                    <div className="w3a-auth-method-note" aria-live="polite">
-                      {resolvedEmailOtpAuthPolicy === 'per_operation'
-                        ? 'Email OTP is a convenience login. Passkey is more secure, and OTP will be required for each operation.'
-                        : 'Email OTP is a convenience login. Passkey is more secure, and OTP remains warm only until session expiry or logout.'}
-                    </div>
-                  )}
                 </div>
               )}
 

@@ -31,7 +31,41 @@ type TempoSponsoredCallResponse = {
   code?: string;
 };
 
+type ManagedRegistrationConfig = NonNullable<FrontendConfig['managedRegistration']>;
+
 const TEMPO_FEE_TOKEN_DECIMALS = 6n;
+const TEMPO_SPONSORSHIP_CONFIG_MESSAGE =
+  'Tempo sponsorship is not configured. Set VITE_TATCHI_ENVIRONMENT_ID and VITE_TATCHI_PUBLISHABLE_KEY to enable the Drip Fee Tokens action.';
+
+function resolveManagedRegistrationConfig(input: unknown): ManagedRegistrationConfig | null {
+  if (!input || typeof input !== 'object') return null;
+  const record = input as {
+    mode?: unknown;
+    environmentId?: unknown;
+    publishableKey?: unknown;
+  };
+  if (record.mode !== 'managed') return null;
+  const environmentId = String(record.environmentId || '').trim();
+  const publishableKey = String(record.publishableKey || '').trim();
+  if (!environmentId || !publishableKey) return null;
+  return {
+    mode: 'managed',
+    environmentId,
+    publishableKey,
+  };
+}
+
+function resolveTempoSponsorshipConfig(args: {
+  frontendConfig: Pick<FrontendConfig, 'managedRegistration'>;
+  tatchi: ReturnType<typeof useTatchi>['tatchi'];
+}): ManagedRegistrationConfig | null {
+  return (
+    resolveManagedRegistrationConfig(args.frontendConfig.managedRegistration) ||
+    resolveManagedRegistrationConfig(
+      (args.tatchi as unknown as { configs?: { registration?: unknown } })?.configs?.registration,
+    )
+  );
+}
 
 function formatTempoFeeTokenAmount(raw: bigint | null): string {
   if (raw == null) return 'unknown';
@@ -93,6 +127,10 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
 
   const [tempoThresholdSignLoading, setTempoThresholdSignLoading] = useState(false);
   const [tempoDripLoading, setTempoDripLoading] = useState(false);
+  const tempoSponsorshipConfig = resolveTempoSponsorshipConfig({ frontendConfig, tatchi });
+  const tempoSponsorshipUnavailableReason = tempoSponsorshipConfig
+    ? null
+    : TEMPO_SPONSORSHIP_CONFIG_MESSAGE;
 
   const handleTempoDripToken = useCallback(async () => {
     if (!isLoggedIn || !nearAccountId) return;
@@ -106,10 +144,10 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     let thresholdSenderForAttempt: EvmAddress | null = null;
     let dripTokensForAttempt: EvmAddress[] = [];
     try {
-      const managedRegistration = frontendConfig.managedRegistration;
+      const managedRegistration = tempoSponsorshipConfig;
       const relayerUrl = String(frontendConfig.relayerUrl || '').trim();
       if (!managedRegistration?.environmentId || !managedRegistration.publishableKey) {
-        throw new Error('Managed registration is not configured for Tempo sponsorship.');
+        throw new Error(TEMPO_SPONSORSHIP_CONFIG_MESSAGE);
       }
       if (!relayerUrl) {
         throw new Error('Relay URL is not configured for Tempo sponsorship.');
@@ -288,6 +326,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     nearAccountId,
     refreshTempoUserFeeTokenBalance,
     resolveThresholdSenderForEvmFamily,
+    tempoSponsorshipConfig,
     tempoUserFeeToken,
   ]);
 
@@ -402,6 +441,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
   return {
     tempoThresholdSignLoading,
     tempoDripLoading,
+    tempoSponsorshipUnavailableReason,
     handleTempoDripToken,
     handleSignTempoThresholdTx,
   };

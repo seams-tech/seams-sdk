@@ -1,11 +1,12 @@
 import React from 'react';
-import { ArrowLeftIcon, MailIcon } from './ui/icons';
+import { ArrowLeftIcon } from './ui/icons';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { PasskeyInput } from './ui/PasskeyInput';
 import { ContentSwitcher } from './ui/ContentSwitcher';
 import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';
 import { AuthMenuMode, type PasskeyAuthMenuProps } from './types';
+import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
 import { usePasskeyAuthMenuRuntime } from './adapters/tatchi';
 import { usePasskeyAuthMenuController } from './controller/usePasskeyAuthMenuController';
 import { useSDKEvents } from './controller/useSDKEvents';
@@ -24,7 +25,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   onLogin,
   onRegister,
   onSyncAccount,
-  onEmailOtpLogin,
   emailOtpAuthPolicy,
   linkDeviceOptions,
   header,
@@ -57,7 +57,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       onLogin: onLoginWithSDKEvents,
       onRegister: onRegisterWithSDKEvents,
       onSyncAccount: onSyncWithSDKEvents,
-      onEmailOtpLogin,
       emailOtpAuthPolicy,
       defaultMode,
       headings,
@@ -97,8 +96,17 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       const lastLine = text.split('\n').filter(Boolean).slice(-1)[0] ?? '';
       return lastLine;
     }
+    if (controller.waitingReason === 'social') {
+      return '';
+    }
     return controller.waiting ? 'Awaiting SDK events…' : '';
-  }, [controller.mode, controller.waiting, runtime.sdkFlow.eventsText, showSDKEvents]);
+  }, [
+    controller.mode,
+    controller.waiting,
+    controller.waitingReason,
+    runtime.sdkFlow.eventsText,
+    showSDKEvents,
+  ]);
 
   return (
     <div
@@ -106,25 +114,36 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       data-mode={controller.mode}
       data-waiting={controller.waiting}
       data-scan-device={controller.showScanDevice}
+      data-otp-prompt={controller.otpPrompt ? 'true' : 'false'}
       style={rootStyle}
     >
       <ContentSwitcher
         waiting={controller.waiting}
         waitingText={
-          controller.mode === AuthMenuMode.Register
-            ? 'Creating passkey wallet…'
-            : controller.mode === AuthMenuMode.Sync
-              ? 'Syncing account…'
-              : 'Signing in…'
+          controller.waitingReason === 'social'
+            ? 'Opening Google SSO…'
+            : controller.mode === AuthMenuMode.Register
+              ? 'Creating passkey wallet…'
+              : controller.mode === AuthMenuMode.Sync
+                ? 'Syncing account…'
+                : 'Signing in…'
         }
         waitingSDKEventsText={waitingSDKEventsText}
         backButton={
           <button
             aria-label="Back"
             onClick={() => {
+              if (controller.otpPrompt) {
+                controller.otpPrompt.onBack();
+                return;
+              }
               controller.onResetToStart();
             }}
-            className={`w3a-back-button${controller.waiting || controller.showScanDevice ? ' is-visible' : ''}`}
+            className={`w3a-back-button${
+              controller.waiting || controller.showScanDevice || controller.otpPrompt
+                ? ' is-visible'
+                : ''
+            }`}
           >
             <ArrowLeftIcon size={18} strokeWidth={2.25} style={{ display: 'block' }} />
           </button>
@@ -156,126 +175,185 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
           )}
         </div>
 
-        <PasskeyInput
-          value={controller.currentValue}
-          onChange={controller.onInputChange}
-          placeholder={
-            controller.mode === AuthMenuMode.Register
-              ? 'Pick a username'
-              : controller.mode === AuthMenuMode.Sync
-                ? 'Leave blank to discover accounts'
-                : 'Enter your username'
-          }
-          postfixText={controller.postfixText}
-          isUsingExistingAccount={controller.isUsingExistingAccount}
-          accountExists={runtime.accountExists}
-          canProceed={controller.canShowContinue}
-          onProceed={controller.onProceed}
-          mode={controller.mode}
-          secure={controller.secure}
-          waiting={controller.waiting}
-        />
-
-        <SegmentedControl
-          items={[
-            { value: AuthMenuMode.Register, label: 'Register', className: 'register' },
-            { value: AuthMenuMode.Login, label: 'Login', className: 'login' },
-            { value: AuthMenuMode.Sync, label: 'Sync', className: 'sync' },
-          ]}
-          value={controller.mode}
-          onValueChange={(v) => controller.onSegmentChange(v as AuthMenuMode)}
-          activeBg={segActiveBg}
-        />
-
-        <div className="w3a-seg-help-row">
-          <div className="w3a-seg-help" aria-live="polite">
-            {controller.mode === AuthMenuMode.Login && 'Choose a login method'}
-            {controller.mode === AuthMenuMode.Register && 'Create a new account'}
-            {controller.mode === AuthMenuMode.Sync && 'Sync account (iCloud/Chrome sync)'}
-          </div>
-        </div>
-
-        {(controller.mode === AuthMenuMode.Login || controller.mode === AuthMenuMode.Register) && (
-          <div className="w3a-auth-methods">
-            <div className="w3a-auth-method-stack">
-              {controller.mode === AuthMenuMode.Login && (
-                <>
-                  <button
-                    type="button"
-                    onClick={controller.onProceed}
-                    className="w3a-auth-method-btn w3a-auth-method-btn-primary"
-                    disabled={!controller.canSubmit || controller.waiting}
-                  >
-                    Continue with Passkey
-                  </button>
-                  <button
-                    type="button"
-                    onClick={controller.onEmailOtpLogin}
-                    className="w3a-auth-method-btn w3a-auth-method-btn-secondary"
-                    disabled={!onEmailOtpLogin || controller.waiting}
-                  >
-                    <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
-                    Continue with Email OTP
-                  </button>
-                  <SocialProviders
-                    socialLogin={socialLogin}
-                    providers={['google']}
-                    disabled={controller.waiting}
-                    onProviderClick={controller.onSocialLogin}
-                  />
-                </>
-              )}
-
-              {controller.mode === AuthMenuMode.Register && (
-                <>
-                  <button
-                    type="button"
-                    onClick={controller.onProceed}
-                    className="w3a-auth-method-btn w3a-auth-method-btn-primary"
-                    disabled={!controller.canSubmit || controller.waiting}
-                  >
-                    Create with Passkey
-                  </button>
-                  <SocialProviders
-                    socialLogin={socialLogin}
-                    providers={['google']}
-                    disabled={controller.waiting}
-                    onProviderClick={controller.onSocialLogin}
-                  />
-                </>
-              )}
+        {controller.otpPrompt ? (
+          <div className="w3a-otp-prompt" aria-live="polite">
+            <div className="w3a-otp-prompt-copy">
+              <div className="w3a-otp-title">{controller.otpPrompt.title}</div>
+              <p className="w3a-otp-description">{controller.otpPrompt.description}</p>
+              {controller.otpPrompt.emailHint ? (
+                <div className="w3a-otp-email">{controller.otpPrompt.emailHint}</div>
+              ) : null}
             </div>
-            {controller.mode === AuthMenuMode.Login && (
-              <div className="w3a-auth-method-note" aria-live="polite">
-                {controller.emailOtpAuthPolicy === 'per_operation'
-                  ? 'Email OTP is a convenience login. Passkey is more secure, and OTP will be required for each operation.'
-                  : 'Email OTP is a convenience login. Passkey is more secure, and OTP remains warm only until session expiry or logout.'}
+            <label className="w3a-field-label" htmlFor="w3a-email-otp-code">
+              Email code
+            </label>
+            <input
+              id="w3a-email-otp-code"
+              className="w3a-otp-input"
+              value={controller.otpPrompt.code}
+              onChange={(event) => controller.otpPrompt?.onCodeChange(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') controller.otpPrompt?.onSubmit();
+              }}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              pattern="[0-9]*"
+              maxLength={6}
+              placeholder="000000"
+              disabled={controller.otpPrompt.submitting}
+            />
+            {controller.otpPrompt.error ? (
+              <p className="w3a-otp-error" role="alert">
+                {controller.otpPrompt.error}
+              </p>
+            ) : (
+              <p className="w3a-otp-helper">{controller.otpPrompt.helperText}</p>
+            )}
+            <button
+              type="button"
+              className="w3a-auth-method-btn w3a-auth-method-btn-primary"
+              onClick={controller.otpPrompt.onSubmit}
+              disabled={controller.otpPrompt.submitting || controller.otpPrompt.code.length !== 6}
+            >
+              {controller.otpPrompt.submitting ? 'Unlocking…' : controller.otpPrompt.submitLabel}
+            </button>
+          </div>
+        ) : (
+          <>
+            <PasskeyInput
+              value={controller.currentValue}
+              onChange={controller.onInputChange}
+              placeholder={
+                controller.mode === AuthMenuMode.Register
+                  ? 'Pick a username'
+                  : controller.mode === AuthMenuMode.Sync
+                    ? 'Leave blank to discover accounts'
+                    : 'Enter your username'
+              }
+              postfixText={controller.postfixText}
+              isUsingExistingAccount={controller.isUsingExistingAccount}
+              accountExists={runtime.accountExists}
+              canProceed={controller.canShowContinue}
+              onProceed={controller.onProceed}
+              mode={controller.mode}
+              secure={controller.secure}
+              waiting={controller.waiting}
+            />
+
+            <SegmentedControl
+              items={[
+                { value: AuthMenuMode.Register, label: 'Register', className: 'register' },
+                { value: AuthMenuMode.Login, label: 'Login', className: 'login' },
+                { value: AuthMenuMode.Sync, label: 'Sync', className: 'sync' },
+              ]}
+              value={controller.mode}
+              onValueChange={(v) => controller.onSegmentChange(v as AuthMenuMode)}
+              activeBg={segActiveBg}
+            />
+
+            <div className="w3a-seg-help-row">
+              <div className="w3a-seg-help" aria-live="polite">
+                {controller.mode === AuthMenuMode.Login && 'Choose a login method'}
+                {controller.mode === AuthMenuMode.Register && 'Create a new account'}
+                {controller.mode === AuthMenuMode.Sync && 'Sync account (iCloud/Chrome sync)'}
+              </div>
+            </div>
+
+            {(controller.mode === AuthMenuMode.Login ||
+              controller.mode === AuthMenuMode.Register) && (
+              <div className="w3a-auth-methods">
+                <div className="w3a-auth-method-stack">
+                  {controller.mode === AuthMenuMode.Login && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={controller.onProceed}
+                        className="w3a-auth-method-btn w3a-auth-method-btn-primary"
+                        disabled={!controller.canSubmit || controller.waiting}
+                      >
+                        Continue with Passkey
+                      </button>
+                      <SocialProviders
+                        socialLogin={socialLogin}
+                        providers={['google']}
+                        disabled={controller.waiting}
+                        onProviderClick={() =>
+                          controller.onSocialLogin('google', AuthMenuMode.Login)
+                        }
+                        providerCopy={{
+                          google: {
+                            buttonLabel: getGoogleSsoButtonLabel(AuthMenuMode.Login),
+                            helperText: getGoogleSsoHelperText(
+                              AuthMenuMode.Login,
+                              controller.emailOtpAuthPolicy,
+                            ),
+                          },
+                        }}
+                      />
+                    </>
+                  )}
+
+                  {controller.mode === AuthMenuMode.Register && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={controller.onProceed}
+                        className="w3a-auth-method-btn w3a-auth-method-btn-primary"
+                        disabled={!controller.canSubmit || controller.waiting}
+                      >
+                        Create with Passkey
+                      </button>
+                      <SocialProviders
+                        socialLogin={socialLogin}
+                        providers={['google']}
+                        disabled={controller.waiting}
+                        onProviderClick={() =>
+                          controller.onSocialLogin('google', AuthMenuMode.Register)
+                        }
+                        providerCopy={{
+                          google: {
+                            buttonLabel: getGoogleSsoButtonLabel(AuthMenuMode.Register),
+                            helperText: getGoogleSsoHelperText(
+                              AuthMenuMode.Register,
+                              controller.emailOtpAuthPolicy,
+                            ),
+                          },
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+                {controller.methodError ? (
+                  <p className="w3a-method-error" role="alert">
+                    {controller.methodError}
+                  </p>
+                ) : null}
               </div>
             )}
-          </div>
-        )}
 
-        {controller.mode === AuthMenuMode.Login && (
-          <div className="w3a-scan-device-row">
-            <div className="w3a-section-divider">
-              <span className="w3a-section-divider-text">Other options</span>
-            </div>
-            <div className="w3a-secondary-actions">
-              <button
-                type="button"
-                onClick={() => {
-                  controller.openScanDevice();
-                }}
-                onPointerEnter={prefetchQRCode}
-                onFocus={prefetchQRCode}
-                onTouchStart={prefetchQRCode}
-                className="w3a-link-device-btn"
-              >
-                <QRCodeIcon width={18} height={18} strokeWidth={2} />
-                Scan and Link Device
-              </button>
-            </div>
-          </div>
+            {controller.mode === AuthMenuMode.Login && (
+              <div className="w3a-scan-device-row">
+                <div className="w3a-section-divider">
+                  <span className="w3a-section-divider-text">Other options</span>
+                </div>
+                <div className="w3a-secondary-actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      controller.openScanDevice();
+                    }}
+                    onPointerEnter={prefetchQRCode}
+                    onFocus={prefetchQRCode}
+                    onTouchStart={prefetchQRCode}
+                    className="w3a-link-device-btn"
+                  >
+                    <QRCodeIcon width={18} height={18} strokeWidth={2} />
+                    Scan and Link Device
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </ContentSwitcher>
     </div>

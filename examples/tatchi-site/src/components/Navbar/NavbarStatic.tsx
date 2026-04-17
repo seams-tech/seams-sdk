@@ -8,6 +8,7 @@ import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { FRONTEND_CONFIG } from '@/config';
 import {
   ensureGoogleIdentityScriptLoaded,
+  fetchGoogleAuthOptions,
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
 import './Navbar.css';
@@ -213,12 +214,6 @@ interface RelaySessionStateResponse {
   message?: string;
 }
 
-interface GoogleOptionsResponse {
-  ok?: boolean;
-  configured?: boolean;
-  message?: string;
-}
-
 function normalizeBaseUrl(input: unknown): string {
   return String(input || '')
     .trim()
@@ -241,10 +236,7 @@ export function NavbarStatic(): React.JSX.Element {
     () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
     [],
   );
-  const googleClientId = React.useMemo(
-    () => String(FRONTEND_CONFIG.googleOidcClientId || '').trim(),
-    [],
-  );
+  const [googleClientId, setGoogleClientId] = React.useState<string>('');
   const rootRef = React.useRef<HTMLElement | null>(null);
   const shellRef = React.useRef<HTMLDivElement | null>(null);
   const dropdownButtonRefs = React.useRef<Record<DropdownId, HTMLButtonElement | null>>({
@@ -316,32 +308,25 @@ export function NavbarStatic(): React.JSX.Element {
   }, [relayerBaseUrl]);
 
   const refreshGoogleConfigured = React.useCallback(async (): Promise<boolean> => {
-    if (!relayerBaseUrl || !googleClientId) {
+    if (!relayerBaseUrl) {
+      setGoogleClientId('');
       setGoogleConfigured(false);
       setGoogleConfigChecked(true);
       return false;
     }
     try {
-      const response = await fetch(`${relayerBaseUrl}/auth/google/options`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({}),
-      });
-      const body = (await parseOptionalJson(response)) as GoogleOptionsResponse | null;
-      const configured = response.ok && body?.ok === true && body?.configured === true;
-      setGoogleConfigured(configured);
+      const options = await fetchGoogleAuthOptions(relayerBaseUrl);
+      setGoogleClientId(options.clientId || '');
+      setGoogleConfigured(options.configured);
       setGoogleConfigChecked(true);
-      return configured;
+      return options.configured;
     } catch {
+      setGoogleClientId('');
       setGoogleConfigured(false);
       setGoogleConfigChecked(true);
       return false;
     }
-  }, [googleClientId, relayerBaseUrl]);
+  }, [relayerBaseUrl]);
 
   React.useEffect(() => {
     void refreshRelaySessionState();
@@ -701,7 +686,7 @@ export function NavbarStatic(): React.JSX.Element {
     setGoogleSigningIn(true);
     try {
       if (!googleClientId) {
-        throw new Error('Google client ID is not configured in frontend env');
+        throw new Error('Google client ID is not configured on the relay server');
       }
       const configured = googleConfigChecked ? googleConfigured : await refreshGoogleConfigured();
       if (!configured) {
@@ -725,6 +710,7 @@ export function NavbarStatic(): React.JSX.Element {
           session_kind: 'cookie',
           exchange: {
             type: 'oidc_jwt',
+            provider: 'google',
             token: idToken,
           },
         }),
@@ -1065,7 +1051,7 @@ export function NavbarStatic(): React.JSX.Element {
             note={
               googleConfigChecked && googleConfigured
                 ? 'Google signs you into the dashboard first. Wallet passkeys are created later inside the console.'
-                : 'Set GOOGLE_OIDC_CLIENT_ID(S) on the relay and VITE_GOOGLE_OIDC_CLIENT_ID on the site to enable dashboard sign-in.'
+                : 'Set GOOGLE_OIDC_CLIENT_ID or GOOGLE_OIDC_CLIENT_IDS on the relay to enable dashboard sign-in.'
             }
             errorMessage={dashboardAuthError}
             closeControl={

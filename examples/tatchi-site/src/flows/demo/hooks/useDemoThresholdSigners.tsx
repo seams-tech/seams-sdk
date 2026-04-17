@@ -74,6 +74,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
   const {
     tempoThresholdSignLoading,
     tempoDripLoading,
+    tempoSponsorshipUnavailableReason,
     handleTempoDripToken,
     handleSignTempoThresholdTx,
   } = useDemoTempoSigningActions({
@@ -113,6 +114,7 @@ export function useDemoThresholdSigners(args: UseDemoThresholdSignersArgs) {
   return {
     tempoThresholdSignLoading,
     tempoDripLoading,
+    tempoSponsorshipUnavailableReason,
     tempoFeeTokenConfigLoading,
     tempoFeeTokenConfigTarget,
     evmThresholdSignLoading,

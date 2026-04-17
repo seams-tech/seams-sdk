@@ -2,7 +2,7 @@ import React from 'react';
 import type { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
 import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
 import type { PasskeyAuthMenuRuntime } from '../adapters/tatchi';
-import { AuthMenuMode, type PasskeyAuthMenuProps } from '../types';
+import { AuthMenuMode, type PasskeyAuthMenuOtpPrompt, type PasskeyAuthMenuProps } from '../types';
 import type { SocialLoginHandlers } from '../ui/SocialProviders';
 import { usePasskeyAuthMenuForceInitialRegister } from '../hydrationContext';
 import { useAuthMenuMode } from './mode';
@@ -15,11 +15,28 @@ export interface PasskeyAuthMenuLinkDeviceController {
   onError: (error: Error) => void;
 }
 
+export interface PasskeyAuthMenuOtpPromptController {
+  title: string;
+  description: string;
+  emailHint?: string;
+  submitLabel: string;
+  helperText: string;
+  code: string;
+  submitting: boolean;
+  error?: string;
+  onCodeChange: (value: string) => void;
+  onSubmit: () => void;
+  onBack: () => void;
+}
+
 export interface PasskeyAuthMenuController {
   mode: AuthMenuMode;
   title: { title: string; subtitle: string };
   waiting: boolean;
+  waitingReason: 'passkey' | 'social' | 'sync' | null;
   showScanDevice: boolean;
+  otpPrompt: PasskeyAuthMenuOtpPromptController | null;
+  methodError?: string;
   currentValue: string;
   postfixText?: string;
   isUsingExistingAccount?: boolean;
@@ -32,10 +49,46 @@ export interface PasskeyAuthMenuController {
   onProceed: () => void;
   onResetToStart: () => void;
   openScanDevice: () => void;
-  onEmailOtpLogin: () => void;
-  onSocialLogin: (provider: keyof SocialLoginHandlers) => void;
+  onSocialLogin: (provider: keyof SocialLoginHandlers, modeOverride?: AuthMenuMode) => void;
   closeLinkDeviceView: (reason: 'user' | 'flow') => void;
   linkDevice: PasskeyAuthMenuLinkDeviceController;
+}
+
+type ActiveOtpPromptState = {
+  username?: string;
+  title: string;
+  description: string;
+  emailHint?: string;
+  submitLabel: string;
+  helperText: string;
+  onSubmit: PasskeyAuthMenuOtpPrompt['onSubmit'];
+};
+
+function resolveOtpPrompt(
+  prompt: PasskeyAuthMenuOtpPrompt,
+  username?: string,
+): ActiveOtpPromptState {
+  const title = String(prompt.title || '').trim() || 'Check your email to unlock your wallet';
+  const description =
+    String(prompt.description || '').trim() || 'Enter the 6-digit code we sent to continue.';
+  const emailHint = String(prompt.emailHint || '').trim();
+  const submitLabel = String(prompt.submitLabel || '').trim() || 'Unlock wallet';
+  const helperText =
+    String(prompt.helperText || '').trim() ||
+    'Google keeps you signed in. This code unlocks wallet signing.';
+  return {
+    ...(username ? { username } : {}),
+    title,
+    description,
+    ...(emailHint ? { emailHint } : {}),
+    submitLabel,
+    helperText,
+    onSubmit: prompt.onSubmit,
+  };
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 export function usePasskeyAuthMenuController(
@@ -44,7 +97,6 @@ export function usePasskeyAuthMenuController(
     | 'onLogin'
     | 'onRegister'
     | 'onSyncAccount'
-    | 'onEmailOtpLogin'
     | 'emailOtpAuthPolicy'
     | 'defaultMode'
     | 'headings'
@@ -86,6 +138,17 @@ export function usePasskeyAuthMenuController(
   const prevModeRef = React.useRef<AuthMenuMode | null>(null);
   const lastUserSelectedModeRef = React.useRef<AuthMenuMode | null>(null);
 
+  const [waiting, setWaiting] = React.useState(false);
+  const [waitingReason, setWaitingReason] = React.useState<'passkey' | 'social' | 'sync' | null>(
+    null,
+  );
+  const [showScanDevice, setShowScanDevice] = React.useState(false);
+  const [otpPromptState, setOtpPromptState] = React.useState<ActiveOtpPromptState | null>(null);
+  const [otpCode, setOtpCode] = React.useState('');
+  const [otpSubmitting, setOtpSubmitting] = React.useState(false);
+  const [otpError, setOtpError] = React.useState<string>('');
+  const [methodError, setMethodError] = React.useState<string>('');
+
   const clearPrefillMarkers = React.useCallback(() => {
     prefilledFromRecentRef.current = false;
     prefilledValueRef.current = '';
@@ -100,6 +163,7 @@ export function usePasskeyAuthMenuController(
         }
         clearPrefillMarkers();
       }
+      setMethodError('');
       onSegmentChangeBase(next);
     },
     [mode, currentValue, setCurrentValue, onSegmentChangeBase, clearPrefillMarkers],
@@ -110,9 +174,10 @@ export function usePasskeyAuthMenuController(
       if (val !== prefilledValueRef.current) {
         prefilledFromRecentRef.current = false;
       }
+      if (methodError) setMethodError('');
       onInputChangeBase(val);
     },
-    [onInputChangeBase],
+    [methodError, onInputChangeBase],
   );
 
   const { canShowContinue, canSubmit } = getProceedEligibility({
@@ -121,9 +186,6 @@ export function usePasskeyAuthMenuController(
     accountExists: runtime.accountExists,
     secure,
   });
-
-  const [waiting, setWaiting] = React.useState(false);
-  const [showScanDevice, setShowScanDevice] = React.useState(false);
 
   // If the user is attempting to register but we discover the account already exists,
   // automatically switch them to the Login tab.
@@ -194,6 +256,12 @@ export function usePasskeyAuthMenuController(
 
   const onResetToStart = React.useCallback(() => {
     setWaiting(false);
+    setWaitingReason(null);
+    setOtpPromptState(null);
+    setOtpCode('');
+    setOtpError('');
+    setMethodError('');
+    setOtpSubmitting(false);
     if (showScanDevice) {
       closeLinkDeviceView('user');
     } else {
@@ -209,26 +277,31 @@ export function usePasskeyAuthMenuController(
     if (!canSubmit) return;
 
     setWaiting(true);
+    setWaitingReason(mode === AuthMenuMode.Sync ? 'sync' : 'passkey');
 
     void (async () => {
       try {
         if (mode === AuthMenuMode.Sync) {
           await props.onSyncAccount?.();
           setWaiting(false);
+          setWaitingReason(null);
           setMode(AuthMenuMode.Login);
         } else if (mode === AuthMenuMode.Login) {
           await props.onLogin?.();
           setWaiting(false);
+          setWaitingReason(null);
           closeLinkDeviceView('flow');
           setMode(AuthMenuMode.Login);
         } else {
           await props.onRegister?.();
           setWaiting(false);
+          setWaitingReason(null);
           setMode(AuthMenuMode.Login);
         }
       } catch {
         if (mode === AuthMenuMode.Login) {
           setWaiting(false);
+          setWaitingReason(null);
           closeLinkDeviceView('flow');
           setMode(mode);
           return;
@@ -251,39 +324,115 @@ export function usePasskeyAuthMenuController(
     setShowScanDevice(true);
   }, []);
 
-  const onEmailOtpLogin = React.useCallback(() => {
-    if (mode !== AuthMenuMode.Login) return;
-    if (!props.onEmailOtpLogin) return;
-    setWaiting(true);
-    void (async () => {
-      try {
-        await props.onEmailOtpLogin?.({ policy: emailOtpAuthPolicy });
-      } finally {
-        setWaiting(false);
-      }
-    })();
-  }, [emailOtpAuthPolicy, mode, props.onEmailOtpLogin]);
-
   const onSocialLogin = React.useCallback(
-    (provider: keyof SocialLoginHandlers) => {
+    (provider: keyof SocialLoginHandlers, modeOverride?: AuthMenuMode) => {
+      if (waiting) return;
       const handler = props.socialLogin?.[provider];
       if (typeof handler !== 'function') return;
+      const socialMode = modeOverride ?? mode;
       setWaiting(true);
+      setWaitingReason('social');
+      setOtpError('');
+      setMethodError('');
       void (async () => {
         try {
-          const result = await handler();
-          const username = typeof result === 'string' ? result.trim() : '';
+          const result = await handler({ mode: socialMode, emailOtpAuthPolicy });
+          const flowResult = result && typeof result === 'object' ? result : null;
+          const username = String(flowResult?.username || '').trim();
           if (username) {
             setCurrentValue(username);
+          }
+          if (flowResult?.otpPrompt) {
+            setOtpCode('');
+            setOtpError('');
+            setMethodError('');
+            setOtpPromptState(resolveOtpPrompt(flowResult.otpPrompt, username || undefined));
+          } else if (username) {
             await runtime.refreshLoginState(username).catch(() => {});
           }
+        } catch (error: unknown) {
+          setMethodError(getErrorMessage(error, 'Google SSO failed. Please retry.'));
         } finally {
           setWaiting(false);
+          setWaitingReason(null);
         }
       })();
     },
-    [props.socialLogin, runtime, setCurrentValue],
+    [waiting, props.socialLogin, mode, emailOtpAuthPolicy, runtime, setCurrentValue],
   );
+
+  const onOtpCodeChange = React.useCallback(
+    (value: string) => {
+      const normalized = String(value || '')
+        .replace(/\D/g, '')
+        .slice(0, 6);
+      setOtpCode(normalized);
+      if (otpError) setOtpError('');
+    },
+    [otpError],
+  );
+
+  const onOtpPromptBack = React.useCallback(() => {
+    setOtpPromptState(null);
+    setOtpCode('');
+    setOtpError('');
+    setOtpSubmitting(false);
+  }, []);
+
+  const onOtpSubmit = React.useCallback(() => {
+    const activePrompt = otpPromptState;
+    if (!activePrompt || otpSubmitting) return;
+    if (!/^\d{6}$/.test(otpCode)) {
+      setOtpError('Enter the 6-digit code from your email.');
+      return;
+    }
+    setOtpSubmitting(true);
+    setOtpError('');
+    void (async () => {
+      try {
+        await activePrompt.onSubmit(otpCode);
+        const username = String(activePrompt.username || '').trim();
+        if (username) {
+          await runtime.refreshLoginState(username).catch(() => {});
+        }
+        setOtpPromptState(null);
+        setOtpCode('');
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : 'Email code verification failed.';
+        setOtpError(message);
+      } finally {
+        setOtpSubmitting(false);
+      }
+    })();
+  }, [otpCode, otpPromptState, otpSubmitting, runtime]);
+
+  const otpPrompt: PasskeyAuthMenuOtpPromptController | null = React.useMemo(() => {
+    if (!otpPromptState) return null;
+    return {
+      title: otpPromptState.title,
+      description: otpPromptState.description,
+      ...(otpPromptState.emailHint ? { emailHint: otpPromptState.emailHint } : {}),
+      submitLabel: otpPromptState.submitLabel,
+      helperText: otpPromptState.helperText,
+      code: otpCode,
+      submitting: otpSubmitting,
+      ...(otpError ? { error: otpError } : {}),
+      onCodeChange: onOtpCodeChange,
+      onSubmit: onOtpSubmit,
+      onBack: onOtpPromptBack,
+    };
+  }, [
+    otpPromptState,
+    otpCode,
+    otpSubmitting,
+    otpError,
+    onOtpCodeChange,
+    onOtpSubmit,
+    onOtpPromptBack,
+  ]);
 
   const linkDevice: PasskeyAuthMenuLinkDeviceController = React.useMemo(
     () => ({
@@ -299,7 +448,10 @@ export function usePasskeyAuthMenuController(
     mode,
     title,
     waiting,
+    waitingReason,
     showScanDevice,
+    otpPrompt,
+    ...(methodError ? { methodError } : {}),
     currentValue,
     postfixText: runtime.displayPostfix,
     isUsingExistingAccount: runtime.isUsingExistingAccount,
@@ -312,7 +464,6 @@ export function usePasskeyAuthMenuController(
     onProceed,
     onResetToStart,
     openScanDevice,
-    onEmailOtpLogin,
     onSocialLogin,
     closeLinkDeviceView,
     linkDevice,

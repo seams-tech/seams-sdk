@@ -134,7 +134,6 @@ const chains: NonNullable<TatchiConfigsInput['chains']> = [
 export const FRONTEND_CONFIG = Object.freeze({
   relayerUrl: toOptionalString(env.VITE_RELAYER_URL),
   consoleBaseUrl: toOptionalString(env.VITE_CONSOLE_BASE_URL),
-  googleOidcClientId: toOptionalString(env.VITE_GOOGLE_OIDC_CLIENT_ID),
   managedRegistration: resolveManagedRegistrationConfig(env),
   relayerAccountId: toOptionalString(env.VITE_RELAYER_ACCOUNT_ID),
   nearNetwork,

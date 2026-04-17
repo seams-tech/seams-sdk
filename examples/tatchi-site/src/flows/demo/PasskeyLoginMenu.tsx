@@ -6,20 +6,22 @@ import {
   SyncAccountPhase,
   SyncAccountStatus,
   AuthMenuMode,
-  DeviceLinkingPhase,
-  EmailRecoveryPhase,
-  EmailRecoveryStatus,
   type RegistrationSSEEvent,
   type SyncAccountSSEEvent,
-  type DeviceLinkingSSEEvent,
-  type EmailRecoverySSEEvent,
   PasskeyAuthMenu,
+  type EmailOtpAuthPolicy,
 } from '@tatchi-xyz/sdk/react';
 import React from 'react';
 import { toast } from 'sonner';
 
 import './PasskeyLoginMenu.css';
+import { FRONTEND_CONFIG } from '@/config';
 import { useAuthMenuControl } from '@/context/AuthMenuControl';
+import {
+  ensureGoogleIdentityScriptLoaded,
+  fetchGoogleAuthOptions,
+  requestGoogleIdToken,
+} from '@/shared/auth/googleIdentity';
 
 type PasskeyLoginMenuTestOverrides = {
   useTatchiHook?: typeof useTatchi;
@@ -32,18 +34,54 @@ type PasskeyLoginMenuProps = {
   __testOverrides?: PasskeyLoginMenuTestOverrides;
 };
 
+function normalizeBaseUrl(input: unknown): string {
+  return String(input || '')
+    .trim()
+    .replace(/\/+$/, '');
+}
+
+function formatRetryAfter(ms: unknown): string {
+  const retryAfterMs = Number(ms);
+  if (!Number.isFinite(retryAfterMs) || retryAfterMs <= 0) return '';
+  const seconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  if (seconds < 60) return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  const minutes = Math.ceil(seconds / 60);
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+}
+
+function formatGoogleSsoEmailOtpError(error: unknown): string {
+  const code = String((error as any)?.code || '').trim();
+  const status = Number((error as any)?.status);
+  const message = error instanceof Error ? error.message : String((error as any)?.message || '');
+  if ((code === 'not_found' || status === 404) && /Email OTP enrollment not found/i.test(message)) {
+    return 'No Email OTP wallet is enrolled for this Google account yet. Use Register with Google SSO first.';
+  }
+  if (code === 'rate_limited' || status === 429) {
+    const retryAfter = formatRetryAfter((error as any)?.retryAfterMs);
+    return retryAfter
+      ? `Too many Email OTP requests. Try again in ${retryAfter}.`
+      : 'Too many Email OTP requests. Wait a moment and try again.';
+  }
+  return message ? message : 'Google SSO Email OTP failed. Please retry.';
+}
+
 export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   const useTatchiHook = props.__testOverrides?.useTatchiHook || useTatchi;
   const useAuthMenuControlHook =
     props.__testOverrides?.useAuthMenuControlHook || useAuthMenuControl;
   const PasskeyAuthMenuComponent =
     props.__testOverrides?.PasskeyAuthMenuComponent || PasskeyAuthMenu;
+  const relayerBaseUrl = React.useMemo(
+    () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
+    [],
+  );
 
   const {
     accountInputState: { targetAccountId, accountExists },
     unlock,
     registerPasskey,
     tatchi,
+    refreshLoginState,
   } = useTatchiHook();
 
   // let tutorial control the menu (programmatically open/close menus)
@@ -153,6 +191,123 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     return await loginWithSession(targetAccountId);
   };
 
+  const onGoogleSsoEmailOtp = async (args: {
+    mode: AuthMenuMode;
+    emailOtpAuthPolicy: EmailOtpAuthPolicy;
+  }) => {
+    if (!relayerBaseUrl) {
+      throw new Error('Relayer base URL is not configured');
+    }
+
+    const googleOptions = await fetchGoogleAuthOptions(relayerBaseUrl);
+    if (!googleOptions.configured || !googleOptions.clientId) {
+      throw new Error('Google SSO is not configured on the relay server');
+    }
+
+    toast.loading('Opening Google SSO…', { id: 'google-sso' });
+    await ensureGoogleIdentityScriptLoaded();
+    let idToken: string;
+    try {
+      idToken = await requestGoogleIdToken(googleOptions.clientId);
+    } catch (error: unknown) {
+      const message = formatGoogleSsoEmailOtpError(error);
+      toast.error(message, { id: 'google-sso' });
+      throw new Error(message);
+    }
+    const isRegister = args.mode === AuthMenuMode.Register;
+
+    let exchange: Awaited<ReturnType<typeof tatchi.auth.exchangeGoogleEmailOtpSession>>;
+    try {
+      exchange = await tatchi.auth.exchangeGoogleEmailOtpSession({
+        idToken,
+        accountMode: isRegister ? 'register' : 'login',
+        relayUrl: relayerBaseUrl,
+        sessionKind: 'cookie',
+      });
+    } catch (error: unknown) {
+      const formatted = formatGoogleSsoEmailOtpError(error);
+      toast.error(formatted, { id: 'google-sso' });
+      throw new Error(formatted);
+    }
+
+    const walletId = String(exchange.session?.walletId || exchange.session?.userId || '').trim();
+    if (!walletId) {
+      throw new Error('Google session exchange did not return a wallet id');
+    }
+    const emailHint = String(exchange.session?.email || '').trim();
+    const displayHint = emailHint || walletId;
+
+    const challenge = await (async () => {
+      try {
+        return isRegister
+          ? await tatchi.auth.requestEmailOtpEnrollmentChallenge({
+              nearAccountId: walletId,
+              relayUrl: relayerBaseUrl,
+            })
+          : await tatchi.auth.requestEmailOtpChallenge({
+              nearAccountId: walletId,
+              relayUrl: relayerBaseUrl,
+            });
+      } catch (error: unknown) {
+        const message = formatGoogleSsoEmailOtpError(error);
+        toast.error(message, { id: 'google-sso' });
+        throw new Error(message);
+      }
+    })();
+
+    toast.success('Email code sent', { id: 'google-sso' });
+
+    return {
+      username: walletId,
+      otpPrompt: {
+        title: 'Check your email to unlock your wallet',
+        description: `Enter the 6-digit code we sent${emailHint ? ` to ${emailHint}` : ''}.`,
+        emailHint: displayHint,
+        submitLabel: 'Unlock wallet',
+        helperText:
+          'Google keeps you signed in. The email code unlocks wallet signing for this session.',
+        onSubmit: async (otpCode: string) => {
+          const toastId = 'google-email-otp';
+          toast.loading('Unlocking wallet with email code…', { id: toastId });
+          if (isRegister) {
+            await tatchi.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
+              nearAccountId: walletId,
+              chain: 'tempo',
+              challengeId: challenge.challengeId,
+              otpCode,
+              relayUrl: relayerBaseUrl,
+              sessionKind: 'cookie',
+              emailOtpAuthPolicy: args.emailOtpAuthPolicy,
+              ...(exchange.session.runtimePolicyScope
+                ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
+                : {}),
+            });
+          } else {
+            await tatchi.auth.loginWithEmailOtpEcdsaCapability({
+              nearAccountId: walletId,
+              chain: 'tempo',
+              challengeId: challenge.challengeId,
+              otpCode,
+              relayUrl: relayerBaseUrl,
+              sessionKind: 'cookie',
+              emailOtpAuthPolicy: args.emailOtpAuthPolicy,
+              ...(exchange.session.runtimePolicyScope
+                ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
+                : {}),
+            });
+          }
+          await refreshLoginState(walletId);
+          const session = await tatchi.auth.getWalletSession(walletId);
+          if (!session.login.isLoggedIn) {
+            throw new Error('Wallet unlocked, but the local signing session is not ready yet.');
+          }
+          toast.success(`Wallet unlocked${emailHint ? ` for ${emailHint}` : ''}`, { id: toastId });
+          props.onLoggedIn?.(walletId);
+        },
+      },
+    };
+  };
+
   const onSyncAccount = async () => {
     const result = await tatchi.recovery.syncAccount({
       ...(targetAccountId ? { accountId: targetAccountId } : {}),
@@ -207,159 +362,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     return result;
   };
 
-  // Only handle Device2 events here
-  const onLinkDeviceEvents = async (event: DeviceLinkingSSEEvent) => {
-    const toastId = 'device-linking';
-    switch (event.phase) {
-      case DeviceLinkingPhase.STEP_1_QR_CODE_GENERATED:
-        toast.loading('QR code ready. Scan it with your other device.', { id: toastId });
-        break;
-      case DeviceLinkingPhase.STEP_2_SCANNING:
-        toast.loading('Waiting for Device 1 to scan the QR code…', { id: toastId });
-        break;
-      case DeviceLinkingPhase.STEP_3_AUTHORIZATION:
-        toast.loading('Authorize linking on Device 1…', { id: toastId });
-        break;
-      case DeviceLinkingPhase.STEP_4_POLLING:
-        toast.loading('Confirming new device with the network…', { id: toastId });
-        break;
-      case DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED:
-        toast.loading('Device key detected on-chain…', { id: toastId });
-        break;
-      case DeviceLinkingPhase.STEP_6_REGISTRATION:
-        toast.loading('Creating a passkey on this device…', { id: toastId });
-        break;
-      case DeviceLinkingPhase.STEP_7_LINKING_COMPLETE:
-        toast.success('Device linked successfully!', { id: toastId });
-        break;
-      case DeviceLinkingPhase.STEP_8_AUTO_LOGIN:
-        toast.loading('Login in progress…', { id: toastId });
-        break;
-      case DeviceLinkingPhase.DEVICE_LINKING_ERROR:
-      case DeviceLinkingPhase.LOGIN_ERROR:
-      case DeviceLinkingPhase.REGISTRATION_ERROR: {
-        toast.error(event.error, { id: toastId });
-        break;
-      }
-      default:
-        console.warn('Unexpected Link Device event');
-        break;
-    }
-  };
-
-  const onEmailRecoveryEvents = (event: EmailRecoverySSEEvent) => {
-    const toastId = 'email-recovery';
-    if (
-      event.phase === EmailRecoveryPhase.STEP_6_COMPLETE &&
-      event.status === EmailRecoveryStatus.SUCCESS
-    ) {
-      toast.success(event.message || 'Email recovery complete', { id: toastId });
-      return;
-    }
-    if (event.phase === EmailRecoveryPhase.ERROR || event.status === EmailRecoveryStatus.ERROR) {
-      toast.error((event as any)?.error || event.message || 'Email recovery failed', {
-        id: toastId,
-      });
-      return;
-    }
-
-    switch (event.phase) {
-      case EmailRecoveryPhase.RESUMED_FROM_PENDING:
-        toast.loading(event.message || 'Resuming pending email recovery…', { id: toastId });
-        return;
-      case EmailRecoveryPhase.STEP_1_PREPARATION:
-        toast.loading(event.message || 'Preparing email recovery…', { id: toastId });
-        return;
-      case EmailRecoveryPhase.STEP_2_TOUCH_ID_REGISTRATION:
-        toast.loading(event.message || 'Creating a passkey on this device…', {
-          id: toastId,
-        });
-        return;
-      case EmailRecoveryPhase.STEP_3_AWAIT_EMAIL:
-        toast.loading(event.message || 'Waiting for the recovery email to be sent and verified…', {
-          id: toastId,
-        });
-        return;
-      case EmailRecoveryPhase.STEP_4_POLLING_ADD_KEY:
-      case EmailRecoveryPhase.STEP_4_POLLING_VERIFICATION_RESULT:
-        toast.loading(event.message || 'Polling for recovery verification…', { id: toastId });
-        return;
-      case EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION:
-        toast.loading(event.message || 'Finalizing recovery registration…', { id: toastId });
-        return;
-      default:
-        return;
-    }
-  };
-
-  const startDevice2Linking = async () => {
-    const toastId = 'device-linking';
-    try {
-      toast.loading('Generating QR code…', { id: toastId });
-      await tatchi.recovery.startDevice2LinkingFlow({
-        accountId: targetAccountId,
-        ui: 'inline',
-        options: {
-          onEvent: onLinkDeviceEvents,
-          onError: (error: Error) => {
-            console.error('Device linking error:', error);
-            toast.error(error.message || 'Device linking failed', { id: toastId });
-          },
-          onCancelled: () => {
-            toast.dismiss(toastId);
-          },
-        } as any,
-      } as any);
-    } catch (error: any) {
-      console.error('Device linking start failed:', error);
-      toast.error(error?.message || 'Failed to start device linking', { id: toastId });
-    }
-  };
-
-  const stopDevice2Linking = async () => {
-    const toastId = 'device-linking';
-    try {
-      await tatchi.recovery.stopDevice2LinkingFlow();
-    } catch {}
-    try {
-      toast.dismiss(toastId);
-    } catch {}
-  };
-
-  const startEmailRecovery = async () => {
-    const toastId = 'email-recovery';
-    try {
-      toast.loading('Starting email recovery…', { id: toastId });
-      const { mailtoUrl, nearPublicKey } = await tatchi.recovery.startEmailRecovery({
-        accountId: targetAccountId,
-        options: {
-          onEvent: onEmailRecoveryEvents,
-          onError: (error: Error) => {
-            console.error('Email recovery error:', error);
-            toast.error(error.message || 'Email recovery failed', { id: toastId });
-          },
-        } as any,
-      } as any);
-
-      // Kick the user into their mail client.
-      try {
-        window.location.href = mailtoUrl;
-      } catch {}
-
-      // Best-effort: start polling immediately (user can reload and resume later).
-      try {
-        await tatchi.recovery.finalizeEmailRecovery({
-          accountId: targetAccountId,
-          nearPublicKey,
-          options: { onEvent: onEmailRecoveryEvents } as any,
-        } as any);
-      } catch {}
-    } catch (error: any) {
-      console.error('Email recovery start failed:', error);
-      toast.error(error?.message || 'Failed to start email recovery', { id: toastId });
-    }
-  };
-
   return (
     <div className="passkey-login-container-root">
       <PasskeyAuthMenuComponent
@@ -381,6 +383,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         onLogin={onLogin}
         onRegister={onRegister}
         onSyncAccount={onSyncAccount}
+        socialLogin={{
+          google: onGoogleSsoEmailOtp,
+        }}
       />
     </div>
   );

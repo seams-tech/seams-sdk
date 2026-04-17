@@ -1,10 +1,11 @@
 import React from 'react';
+import type { PasskeyAuthMenuSocialLoginHandler } from '../types';
 import { ChromeIcon, AppleIcon, AtSignIcon } from './icons';
 
 export type SocialLoginHandlers = {
-  google?: () => string | void | Promise<string | void>;
-  x?: () => string | void | Promise<string | void>;
-  apple?: () => string | void | Promise<string | void>;
+  google?: PasskeyAuthMenuSocialLoginHandler;
+  x?: PasskeyAuthMenuSocialLoginHandler;
+  apple?: PasskeyAuthMenuSocialLoginHandler;
 };
 
 export interface SocialProvidersProps {
@@ -12,6 +13,9 @@ export interface SocialProvidersProps {
   providers?: Array<keyof SocialLoginHandlers>;
   disabled?: boolean;
   onProviderClick?: (provider: keyof SocialLoginHandlers) => void;
+  providerCopy?: Partial<
+    Record<keyof SocialLoginHandlers, { buttonLabel?: string; helperText?: string }>
+  >;
 }
 
 const iconByKey: Record<
@@ -28,28 +32,49 @@ export const SocialProviders: React.FC<SocialProvidersProps> = ({
   providers,
   disabled = false,
   onProviderClick,
+  providerCopy,
 }) => {
-  const enabledProviders = (providers || (Object.keys(iconByKey) as Array<keyof SocialLoginHandlers>))
-    .filter((provider) => typeof socialLogin?.[provider] === 'function');
-  if (!enabledProviders.length) return null;
+  const helperIdBase = React.useId();
+  const visibleProviders =
+    providers && providers.length > 0
+      ? providers
+      : (Object.keys(iconByKey) as Array<keyof SocialLoginHandlers>).filter(
+          (provider) => typeof socialLogin?.[provider] === 'function',
+        );
+  if (!visibleProviders.length) return null;
 
   return (
     <div className="w3a-auth-method-stack w3a-social-stack">
-      {enabledProviders.map((provider) => {
+      {visibleProviders.map((provider) => {
         const { Icon, label } = iconByKey[provider];
+        const copy = providerCopy?.[provider];
+        const hasHandler = typeof socialLogin?.[provider] === 'function';
         const buttonLabel =
-          provider === 'google' ? 'Continue with Google' : `Continue with ${label}`;
+          copy?.buttonLabel ||
+          (provider === 'google' ? 'Continue with Google' : `Continue with ${label}`);
+        const helperText = copy?.helperText?.trim();
+        const helperId = helperText ? `${helperIdBase}-${provider}` : undefined;
         return (
-          <button
-            key={provider}
-            type="button"
-            className="w3a-auth-method-btn w3a-auth-method-btn-secondary"
-            onClick={() => onProviderClick?.(provider)}
-            disabled={disabled}
-          >
-            <Icon size={18} style={{ display: 'block' }} />
-            {buttonLabel}
-          </button>
+          <div key={provider} className="w3a-social-provider">
+            <button
+              type="button"
+              className="w3a-auth-method-btn w3a-auth-method-btn-secondary"
+              onClick={() => {
+                if (!hasHandler) return;
+                onProviderClick?.(provider);
+              }}
+              disabled={disabled || !hasHandler}
+              aria-describedby={helperId}
+            >
+              <Icon size={18} style={{ display: 'block' }} />
+              {buttonLabel}
+            </button>
+            {helperText ? (
+              <p id={helperId} className="w3a-auth-method-note w3a-social-helper">
+                {helperText}
+              </p>
+            ) : null}
+          </div>
         );
       })}
     </div>

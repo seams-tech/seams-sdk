@@ -5,17 +5,12 @@ import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { DashboardGoogleAuthCard } from '@/shared/auth/DashboardGoogleAuthCard';
 import {
   ensureGoogleIdentityScriptLoaded,
+  fetchGoogleAuthOptions,
   requestGoogleIdToken,
 } from '@/shared/auth/googleIdentity';
 import '@/components/Navbar/Navbar.css';
 import { fetchDashboardConsoleSession } from '../consoleSession';
 import '../styles.css';
-
-interface GoogleOptionsResponse {
-  ok?: boolean;
-  configured?: boolean;
-  message?: string;
-}
 
 function normalizeBaseUrl(input: unknown): string {
   return String(input || '')
@@ -34,10 +29,7 @@ export function DashboardLoginPage(): React.JSX.Element {
     () => normalizeBaseUrl(FRONTEND_CONFIG.consoleBaseUrl || FRONTEND_CONFIG.relayerUrl),
     [],
   );
-  const googleClientId = React.useMemo(
-    () => String(FRONTEND_CONFIG.googleOidcClientId || '').trim(),
-    [],
-  );
+  const [googleClientId, setGoogleClientId] = React.useState<string>('');
   const [initializing, setInitializing] = React.useState<boolean>(true);
   const [loading, setLoading] = React.useState<boolean>(false);
   const [errorMessage, setErrorMessage] = React.useState<string>('');
@@ -63,32 +55,27 @@ export function DashboardLoginPage(): React.JSX.Element {
   React.useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      if (!relayerBaseUrl || !googleClientId) {
+      if (!relayerBaseUrl) {
         if (!cancelled) setGoogleConfigured(false);
         return;
       }
       try {
-        const response = await fetch(`${relayerBaseUrl}/auth/google/options`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({}),
-        });
-        const body = (await parseOptionalJson(response)) as GoogleOptionsResponse | null;
-        const configured = response.ok && body?.ok === true && body?.configured === true;
-        if (!cancelled) setGoogleConfigured(configured);
+        const options = await fetchGoogleAuthOptions(relayerBaseUrl);
+        if (cancelled) return;
+        setGoogleClientId(options.clientId || '');
+        setGoogleConfigured(options.configured);
       } catch {
-        if (!cancelled) setGoogleConfigured(false);
+        if (!cancelled) {
+          setGoogleClientId('');
+          setGoogleConfigured(false);
+        }
       }
     };
     void run();
     return () => {
       cancelled = true;
     };
-  }, [googleClientId, relayerBaseUrl]);
+  }, [relayerBaseUrl]);
 
   const onGoogleSignIn = React.useCallback(async () => {
     if (loading) return;
@@ -99,7 +86,7 @@ export function DashboardLoginPage(): React.JSX.Element {
         throw new Error('Relayer base URL is not configured');
       }
       if (!googleClientId) {
-        throw new Error('Google client ID is not configured in frontend env');
+        throw new Error('Google client ID is not configured on the relay server');
       }
       if (!googleConfigured) {
         throw new Error('Google OIDC is not configured on the relay server');
@@ -119,6 +106,7 @@ export function DashboardLoginPage(): React.JSX.Element {
           session_kind: 'cookie',
           exchange: {
             type: 'oidc_jwt',
+            provider: 'google',
             token: idToken,
           },
         }),
@@ -150,7 +138,7 @@ export function DashboardLoginPage(): React.JSX.Element {
 
   const footerNote = googleConfigured
     ? 'Google signs you into the dashboard first. Wallet passkeys are created later inside the console.'
-    : 'Set GOOGLE_OIDC_CLIENT_ID(S) on the relay and VITE_GOOGLE_OIDC_CLIENT_ID on the site to enable dashboard sign-in.';
+    : 'Set GOOGLE_OIDC_CLIENT_ID or GOOGLE_OIDC_CLIENT_IDS on the relay to enable dashboard sign-in.';
 
   return (
     <main className="dashboard-login" aria-label="Dashboard login page">
@@ -172,7 +160,8 @@ export function DashboardLoginPage(): React.JSX.Element {
           error: 'navbar-static__auth-error',
         }}
         titleId="dashboard-login-title"
-        title="Sign In To Open Dashboard"
+        titleTag="h1"
+        title="Sign In With Google"
         description="Use Google SSO to enter the console. Wallet passkeys can be added later inside the dashboard when you create wallets for stablecoin billing."
         providerLabel="Google SSO"
         providerDescription="One secure sign-in to open the dashboard and start managing billing."

@@ -11,6 +11,25 @@ import {
 export { AuthMenuMode, AuthMenuModeMap };
 export type { AuthMenuModeLabel, AuthMenuHeadings };
 
+export type PasskeyAuthMenuOtpPrompt = {
+  title?: string;
+  description?: string;
+  emailHint?: string;
+  submitLabel?: string;
+  helperText?: string;
+  onSubmit: (otpCode: string) => void | Promise<unknown>;
+};
+
+export type PasskeyAuthMenuSocialLoginResult = {
+  username?: string;
+  otpPrompt?: PasskeyAuthMenuOtpPrompt;
+};
+
+export type PasskeyAuthMenuSocialLoginHandler = (args: {
+  mode: AuthMenuMode;
+  emailOtpAuthPolicy: EmailOtpAuthPolicy;
+}) => void | PasskeyAuthMenuSocialLoginResult | Promise<void | PasskeyAuthMenuSocialLoginResult>;
+
 export interface PasskeyAuthMenuProps {
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onLogin?: () => void | Promise<unknown>;
@@ -18,8 +37,6 @@ export interface PasskeyAuthMenuProps {
   onRegister?: () => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onSyncAccount?: () => void | Promise<unknown>;
-  /** Return a Promise to keep the waiting screen visible until the Email OTP flow completes. */
-  onEmailOtpLogin?: (args: { policy: EmailOtpAuthPolicy }) => void | Promise<unknown>;
   /** App-selected Email OTP retention policy exposed through the auth menu. */
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   /** Display SDK progress event messages under the waiting screen. */
@@ -45,13 +62,13 @@ export interface PasskeyAuthMenuProps {
   /** Optional custom headings for each mode */
   headings?: AuthMenuHeadings;
   /**
-   * Optional social login hooks. Provide a function per provider that returns
-   * the derived username (e.g., email/handle) after the external auth flow.
+   * Optional social login hooks. Google SSO should return an Email OTP prompt
+   * once the external app session is established and the OTP challenge is sent.
    * If omitted or all undefined, the social buttons are hidden.
    */
   socialLogin?: {
-    google?: () => string | void | Promise<string | void>;
-    x?: () => string | void | Promise<string | void>;
-    apple?: () => string | void | Promise<string | void>;
+    google?: PasskeyAuthMenuSocialLoginHandler;
+    x?: PasskeyAuthMenuSocialLoginHandler;
+    apple?: PasskeyAuthMenuSocialLoginHandler;
   };
 }

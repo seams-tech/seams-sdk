@@ -50,7 +50,7 @@ export function DemoPasskeyColumn() {
           <>
             <PrefetchOnIntent onIntent={prefetchPasskeyMenu}>
               <React.Suspense fallback={<SuspenseFallback />}>
-                <PasskeyLoginMenu onLoggedIn={() => setCurrentPage(1)} />
+                <PasskeyLoginMenu />
               </React.Suspense>
             </PrefetchOnIntent>
             {index > 0 && canNext && (
