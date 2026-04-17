@@ -16,12 +16,12 @@ modularization and packaging effort that establishes a clean boundary between:
   wallet-as-a-service platform
 
 The self-hosted worker must let a customer run the server-side threshold
-signing share for their own project using their own imported `k_org`, while
-preserving:
+signing share for their own project using their own imported signing-root
+shares, while preserving:
 
 - the same wallet origin and `rpId`
 - the same passkey-derived client share
-- the same deterministic server share derivation for the active migration mode
+- the same versioned server-side derivation for the active migration mode
 - the same threshold public keys and addresses
 - no per-wallet durable server secret database
 
@@ -36,40 +36,41 @@ The self-hosted worker should first be extracted as a minimal signing runtime
 without changing current signing behavior.
 
 After the boundary is clean, the worker should run from an imported
-project-root bundle.
+signing-root share bundle.
 
-The bundle contains the customer's project-level `k_org` and versioned
-derivation metadata. The worker stores that root in its own Cloudflare Durable
-Object and derives `k_srv_wallet` locally during signing.
+The bundle contains the customer's signing-root shares and versioned derivation
+metadata. The worker stores sealed root shares in its own Cloudflare Durable
+Object, decrypts two shares in memory for signing, computes two threshold-PRF
+partials, and combines them into `y_relayer` locally.
 
-The customer does not need our hosted KMS path for normal signing after cutover.
+The customer does not need our hosted root-share storage or wrapping path for
+normal signing after cutover.
 
 ## Self-Host Semantics
 
 Self-host migration means:
 
 - the customer can independently operate signing for the same wallets
-- the customer receives the exact project root material needed to derive the
-  same server shares
+- the customer receives the signing-root shares needed to reconstruct the same
+  root and derive the same server-side inputs
 - our hosted signer is disabled for that project
 - our active cached copies are deleted from hosted infrastructure
 - we provide audit evidence for export, disablement, and deletion actions
 
-Self-host migration does not mean cryptographic vendor exclusion when `k_org` is
-deterministically derived from a platform `master_secret`.
-
-If we retain the relevant `master_secret` and derivation context, we can
-technically rederive `k_org`. That is the explicit availability tradeoff of
-deterministic derivation.
+Self-host migration means a custody transfer of the same random
+`signing_root_secret` / `k_org`. Because the target model does not use a
+deterministic platform `master_secret`, hosted infrastructure should not be able
+to rederive the root after hosted shares are deleted.
 
 The correct product language is:
 
 - same-wallet self-hosting is supported
 - hosted signing custody is operationally retired
-- the customer must trust that we will not rederive their `k_org` after
-  migration
-- cryptographic vendor exclusion would require a random per-project root,
-  customer-generated root, or destruction of the relevant master derivation path
+- the customer imports the root shares required for the same wallets
+- hosted root-share deletion has real cryptographic meaning if no hosted backup
+  or wrapping path remains
+- if the customer chooses a fresh signing root, that is wallet-key migration,
+  not same-wallet self-host migration
 
 ## Current State
 
@@ -88,15 +89,146 @@ What is already useful:
 
 Main gaps:
 
-- ECDSA uses `THRESHOLD_SECP256K1_MASTER_SECRET_B64U`, not `k_org`
-- the server share derivation is `master_secret + relayerKeyId`
-- `relayerKeyId` does not include `project_id`, `k_org_version`, or
-  `wallet_key_version`
-- ECDSA key records do not record project-root version or derivation version
-- the Cloudflare worker example only passes the Ed25519 threshold master secret
-- the shared Durable Object is still named as if it were Ed25519-only
-- signing logic still has checks that require the secp256k1 master secret even
-  when imported key material should be enough
+- production Cloudflare wiring must choose a customer-owned
+  `SigningRootSecretResolver` or an explicit hosted resolver adapter
+  composition
+- self-host Worker deployments still need production-grade customer KEK/KMS/HSM
+  configuration and failure runbooks
+- `relayerKeyId` is still an identifier, not a complete self-describing
+  derivation envelope; callers must load the persisted key record to validate
+  `projectId`, `signingRootVersion`, `walletKeyVersion`, and
+  `derivationVersion`
+- production Worker benchmarks and deployment-level KEK/KMS failure behavior
+  still need to be captured before Worker deployment
+- hosted project signing disablement, hosted root deletion, and export audit
+  evidence remain migration-tooling work
+
+Already completed by the signing-root refactor:
+
+- ECDSA key records carry signing-root version and derivation metadata.
+- The public Cloudflare Durable Object export has a neutral threshold-store
+  name.
+- The server SDK path derives ECDSA and Ed25519 HSS server inputs from
+  signing-root shares through `SigningRootShareResolver`.
+
+## Current ECDSA Call Graph
+
+Cloudflare and Express expose the same threshold ECDSA route shape. The
+Cloudflare route entrypoint is `handleThresholdEcdsa` in
+`server/src/router/cloudflare/routes/thresholdEcdsa.ts`.
+
+Registration and bootstrap:
+
+```text
+POST /threshold-ecdsa/hss/prepare
+  -> handleThresholdEcdsa
+  -> scheme.hss.prepare
+  -> ThresholdSigningService.ecdsaHss.prepare
+  -> deriveEcdsaHssYRelayerFromSigningRootSecretResolver
+  -> threshold-prf WASM Option A partial evaluation and combine
+  -> prepareThresholdEcdsaHssServerSession
+
+POST /threshold-ecdsa/hss/respond
+  -> scheme.hss.respond
+
+POST /threshold-ecdsa/hss/finalize
+  -> scheme.hss.finalize
+  -> upsertIntegratedEcdsaKeyRecord
+  -> optional threshold ECDSA session JWT/cookie issuance
+```
+
+First-bootstrap from registration material:
+
+```text
+ThresholdSigningService.bootstrapEcdsaFromRegistrationMaterial
+  -> deriveEcdsaKeyMaterialForFirstBootstrapFromClientRootShare
+  -> deriveEcdsaHssYRelayerFromSigningRootSecretResolver
+  -> ecdsaHssBootstrapNonExportSign
+  -> upsertIntegratedEcdsaKeyRecord
+```
+
+Authorization and signing:
+
+```text
+POST /threshold-ecdsa/authorize
+  -> validateThresholdEcdsaAuthorizeInputs
+  -> validateRuntimeSnapshotExpectation
+  -> scheme.authorize
+  -> threshold session record / JWT or cookie
+
+POST /threshold-ecdsa/presign/init
+  -> validateThresholdEcdsaSessionInputs
+  -> scheme.presign.init
+  -> EcdsaSigningHandlers.ecdsaPresignInit
+  -> resolve persisted integrated key material
+  -> create ThresholdEcdsaPresignSession
+  -> persist presign session
+
+POST /threshold-ecdsa/presign/step
+  -> scheme.presign.step
+  -> advance presign session by CAS
+  -> persist completed presignature relayer share
+
+POST /threshold-ecdsa/sign/init
+  -> scheme.protocol.signInit
+  -> reserve or consume presignature
+  -> persist signing session
+
+POST /threshold-ecdsa/sign/finalize
+  -> scheme.protocol.signFinalize
+  -> take signing session
+  -> finalize threshold ECDSA signature
+```
+
+The current signing-root dependency is concentrated in HSS prepare and
+first-bootstrap. Presign and sign use persisted integrated-key and presignature
+state; they do not rederive from a process-level secp256k1 master secret.
+
+## Current ECDSA Durable State
+
+Persisted ECDSA records that contain server-derived material:
+
+- `ThresholdEcdsaIntegratedKeyRecord` contains `relayerRootShare32B64u`,
+  `relayerBackendInputB64u`, and optionally `relayerVerifyingShareB64u`.
+- `ThresholdEcdsaPresignatureRelayerShareRecord` contains `kShareB64u` and
+  `sigmaShareB64u` for the relayer presignature share.
+- `ThresholdEcdsaSigningSessionRecord` contains ephemeral signing-session
+  material such as `entropyB64u`, `bigRB64u`, the digest, and identifiers that
+  bind the session to the persisted integrated key.
+- `ThresholdEcdsaPresignSessionRecord` contains session metadata and ownership
+  state, not long-lived server root material.
+- ECDSA auth/session records contain `relayerKeyId`, `userId`, `rpId`,
+  participant IDs, and optional `runtimeSnapshotScope`.
+
+Current Cloudflare Durable Object ECDSA key spaces:
+
+- Object name defaults to `threshold-ecdsa-store`.
+- Integrated key records use `THRESHOLD_ECDSA_KEYSTORE_PREFIX`, or
+  `THRESHOLD_PREFIX + "key"`, or default `w3a:threshold-ecdsa:key:`.
+- Auth sessions use `THRESHOLD_ECDSA_AUTH_PREFIX`, or
+  `THRESHOLD_PREFIX + "auth"`, or default `w3a:threshold-ecdsa:auth:`.
+- Threshold sessions use `THRESHOLD_ECDSA_SESSION_PREFIX`, or
+  `THRESHOLD_PREFIX + "sess"`, or default `w3a:threshold-ecdsa:sess:`.
+- Signing sessions use `THRESHOLD_ECDSA_SIGNING_PREFIX`, or
+  `THRESHOLD_PREFIX + "signing"`, or default
+  `w3a:threshold-ecdsa:signing:`.
+- Presign sessions and presignature pools use `THRESHOLD_ECDSA_PRESIGN_PREFIX`,
+  or `THRESHOLD_PREFIX + "presign"`, or default
+  `w3a:threshold-ecdsa:presign:`.
+- Available presignatures are stored under
+  `presignPrefix + "avail:" + relayerKeyId`.
+- Reserved presignatures are stored under
+  `presignPrefix + "res:" + relayerKeyId + ":" + presignatureId`.
+
+Current signing-root share storage:
+
+- `CloudflareDurableObjectSigningRootSecretStore` defaults to object name
+  `threshold-signing-root-secrets`.
+- The signing-root share key prefix defaults to
+  `threshold-prf:signing-root-secret:`.
+- Share indexes use `idx:${signingRootId}\0${signingRootVersionKey}` under that prefix.
+- Sealed share records use
+  `rec:${signingRootId}\0${signingRootVersionKey}\0${shareId}` under that prefix.
 
 ## Behavior Preservation
 
@@ -117,7 +249,7 @@ internally. The point of the first cut is to prove that the minimal threshold
 signing runtime can be built and deployed without importing proprietary SaaS
 platform modules.
 
-The `k_org` project-root model is the target root abstraction, but it should be
+The `k_org` signing-root model is the target root abstraction, but it should be
 introduced behind explicit tests and migration steps. It should not be bundled
 into the same change as route/package extraction unless the compatibility
 harness proves same-wallet behavior.
@@ -155,7 +287,7 @@ The worker owns:
 - threshold authorization routes
 - threshold presign routes
 - threshold sign routes
-- project-root import/export/status routes
+- signing-root import/export/status routes
 - health and readiness routes
 
 The worker depends on:
@@ -163,11 +295,11 @@ The worker depends on:
 - Cloudflare Durable Objects for Phase 0 root and threshold state
 - caller-provided session/JWT verification hooks
 - configured wallet origin and `rpId`
-- imported `k_org` bundle
+- imported signing-root share bundle
 
 The worker must not require:
 
-- our hosted KMS
+- our hosted root-share wrapping or storage services
 - our hosted database
 - our hosted relay account
 - our hosted console
@@ -182,11 +314,11 @@ The open-source self-host package should include:
 
 - Cloudflare Worker entrypoint factory for self-hosted signing
 - neutral threshold Durable Object store
-- project-root import, status, verify, and delete routes
-- project-root storage interfaces and Cloudflare implementation
+- signing-root import, status, verify, and delete routes
+- signing-root storage interfaces and Cloudflare implementation
 - threshold ECDSA HSS bootstrap routes needed to establish sessions
 - threshold ECDSA authorization, presign, and sign routes
-- canonical `k_org -> k_srv_wallet` derivation bindings
+- canonical `k_org -> y_relayer` derivation bindings
 - minimal session/JWT verification adapter interfaces
 - migration bundle validation and wallet-address verification helpers
 - tests and vectors required to verify same-wallet self-host migration
@@ -207,7 +339,7 @@ Keep proprietary:
 - observability ingestion and hosted incident pipelines
 - managed bootstrap grant brokers and commercial API-key enforcement
 - customer onboarding automation and premium dashboard surfaces
-- hosted KMS provisioning services
+- hosted root-share provisioning and wrapping services
 - hosted root export approval workflows, except for the minimal export artifact
   schema needed by the self-host SDK
 
@@ -215,7 +347,9 @@ The boundary is:
 
 ```text
 open-source server SDK:
-  enough code to import k_org, derive server shares, verify sessions, and sign
+  enough code to import root shares, decrypt two shares in memory, derive
+  y_relayer through threshold-prf partial evaluation and combine, verify
+  sessions, and sign
 
 proprietary hosted platform:
   everything around commercial operations, policy, sponsorship, billing,
@@ -233,36 +367,35 @@ explicit `k_org` migration phase.
 
 ## Secret Model
 
-The self-hosted worker stores one project root per migrated project.
+The self-hosted worker stores one signing root per migrated project environment.
 
 ```text
-k_org -> k_srv_wallet -> server MPC share
+sealed_signing_root_secret_shares
+  -> threshold-prf partials
+  -> y_relayer
+  -> server signing share
 passkey PRF -> client MPC share
 ```
 
-The self-hosted worker derives:
+The self-hosted worker derives server inputs through the same threshold-prf
+Option A semantics used by the hosted Phase 1 model:
 
 ```text
-k_srv_wallet = HKDF(
-  ikm = k_org,
-  salt = "wallet-server-secret:v1",
-  info = encode(
-    env,
-    project_id,
-    user_id,
-    rp_id,
-    scheme_id,
-    key_purpose,
-    wallet_key_version,
-    k_org_version,
-    derivation_version
-  )
-)
+share_i, share_j = decrypt_two_signing_root_secret_shares(signing_root_id, signing_root_version)
+context = canonical_hss_context(...)
+partial_i = threshold_prf_partial(share_i, context)
+partial_j = threshold_prf_partial(share_j, context)
+y_relayer = threshold_prf_combine([partial_i, partial_j], context)
 ```
 
-The derivation must be implemented in `signer-core` and exposed through the
-server WASM/runtime bindings. It should not be duplicated as ad hoc
-TypeScript.
+`y_relayer` is the server-side per-wallet root input used by the existing HSS
+and threshold signing flows. The derivation must use the committed
+`crates/threshold-prf` protocol, vectors, and context encodings. It should not
+be duplicated as ad hoc TypeScript.
+
+The direct `k_org -> y_relayer` path is reference-only for vectors, recovery
+checks, and audits. Production signing should use partial evaluation and combine
+even when one worker computes both partials.
 
 ## Migration Bundle
 
@@ -270,16 +403,20 @@ The same-wallet self-host migration bundle should include:
 
 - `bundle_version`
 - `project_id`
-- `environment_id`
+- `env_id`
+- `signing_root_id`
 - `wallet_origin`
 - `rp_id`
-- `k_org_b64u`
-- `k_org_version`
+- `signing_root_version`
+- `root_share_epoch`
+- `sealed_signing_root_secret_shares` or plaintext root shares for an explicit import
+  ceremony
+- share threshold metadata, for example `threshold = 2`, `share_count = 3`
 - `derivation_version`
 - `scheme_id`
 - `key_purpose`
 - `participant_ids`
-- KMS provider metadata used to create or wrap the root
+- share wrapping metadata, if the bundle contains sealed shares
 - export timestamp
 - export actor and approval metadata
 - integrity checksum over the bundle
@@ -292,36 +429,42 @@ Optional wallet inventory can be included or exported separately:
 - `user_id`
 - `rp_id`
 - `wallet_key_version`
-- `k_org_version`
+- `signing_root_version`
 - threshold public key
 - address
 - active or retired status
 
 The wallet inventory is metadata. It is useful for validation and import
-auditing, but signing should remain derivable from `k_org` and wallet context.
+auditing, but signing should remain derivable from `k_org` and wallet context
+after reconstructing the signing root from imported shares.
 
-## Self-Hosted Project Root Store
+## Self-Hosted Signing Root Store
 
-Add a neutral project-root store abstraction.
+Add a neutral signing-root store abstraction.
 
 ```ts
-interface ProjectRootStore {
-  getProjectRoot(projectId: string): Promise<ProjectRootRecord | null>;
-  putProjectRoot(record: ProjectRootRecord): Promise<void>;
-  deleteProjectRoot(projectId: string): Promise<void>;
+interface SigningRootStore {
+  getSigningRoot(signingRootId: string): Promise<SigningRootRecord | null>;
+  putSigningRoot(record: SigningRootRecord): Promise<void>;
+  deleteSigningRoot(signingRootId: string): Promise<void>;
 }
 ```
 
-`ProjectRootRecord` should include:
+`SigningRootRecord` should include:
 
 - `version`
 - `projectId`
-- `environmentId`
+- `envId`
+- `signingRootId`
 - `walletOrigin`
 - `rpId`
-- `kOrgB64u`
-- `kOrgVersion`
+- `signingRootVersion`
+- `rootShareEpoch`
+- `shareThreshold`
+- `shareCount`
+- `sealedSigningRootSecretShares`
 - `derivationVersion`
+- `contextHashB64u` or recomputable context-hash inputs
 - `createdAtMs`
 - `updatedAtMs`
 - `source`
@@ -333,84 +476,231 @@ Allowed `source` values:
 - `customer-generated`
 - `dev`
 
-Phase 0 self-host mode stores plaintext `kOrgB64u` in the customer's Durable
-Object. Later modes can add customer-owned wrapping without changing wallet
-identity.
+Phase 0 self-host mode stores sealed signing-root shares in the customer's
+Durable Object. The worker decrypts two shares in memory during signing and uses
+threshold-prf partial evaluation and combine as the canonical path. Development
+mode may allow plaintext test root material, but production import should use
+root shares.
 
 ## Required Refactors
 
 ### 1. Rename threshold store surfaces
 
-Current naming is Ed25519-specific even though the store now holds ECDSA state
-too.
+Some threshold-store naming is still Ed25519-specific even though the store now
+holds ECDSA and signing-root state too.
 
-Rename public SDK surfaces to neutral names:
+The Durable Object worker export has been renamed to:
 
-- `ThresholdEd25519StoreDurableObject` -> `ThresholdStoreDurableObject`
-- `ThresholdEd25519KeyStoreConfigInput` -> `ThresholdStoreConfigInput`
-- `THRESHOLD_ED25519_DO_NAMESPACE` -> `THRESHOLD_DO_NAMESPACE`
+- `ThresholdStoreDurableObject`
+
+Remaining public SDK surfaces should move to neutral names:
+
+- `ThresholdStoreConfigInput` -> `ThresholdStoreConfigInput`
+- `THRESHOLD_DO_NAMESPACE` -> `THRESHOLD_DO_NAMESPACE`
 
 Do this as a breaking cleanup. Do not keep duplicate old names in the primary
 code path.
 
-### 2. Add `ProjectRootProvider`
+### 2. Add Signing-Root Share Adapters
 
-Add a server-side provider that resolves `k_org` for a project.
+Add server-side adapters that resolve sealed signing-root shares for a project.
+The derivation layer decrypts two shares in memory and uses threshold-prf
+partial evaluation and combine.
 
 ```ts
-interface ProjectRootProvider {
-  resolveKOrg(input: {
-    projectId: string;
-    kOrgVersion: string;
-  }): Promise<
-    | { ok: true; kOrg32: Uint8Array; derivationVersion: string }
-    | { ok: false; code: string; message: string }
-  >;
+type SigningRootSecretResolverAdapters = {
+  storageAdapter: SigningRootSecretShareSource;
+  decryptAdapter: SigningRootSecretDecryptAdapter;
+};
+
+interface SigningRootSecretShareSource {
+  listSealedSigningRootSecretShares(input: {
+    signingRootId: string;
+    signingRootVersion?: string;
+  }): Promise<readonly SealedSigningRootSecretShare[]>;
+}
+
+interface SigningRootSecretDecryptAdapter {
+  decryptSigningRootSecretShare(record: SealedSigningRootSecretShare): Promise<Uint8Array>;
 }
 ```
 
-Implementations:
+Storage adapters:
 
-- Cloudflare Durable Object project-root store
-- Node/Postgres project-root store
-- dev in-memory store
-- hosted KMS provisioning adapter for project creation and recovery
+- Cloudflare Durable Object signing-root store
+- Node/Postgres signing-root store
+- dev in-memory store for tests/local fixtures
+- AWS Secrets Manager or GCP Secret Manager adapter if sealed share records live
+  there
 
-The threshold service should depend on this provider, not directly on
-`THRESHOLD_SECP256K1_MASTER_SECRET_B64U`.
+Decrypt adapters:
 
-### 3. Move `k_srv_wallet` derivation into `signer-core`
+- local AES-GCM KEK resolver for local/dev or self-hosted deployments
+- AWS Secrets Manager or GCP Secret Manager KEK resolver
+- AWS KMS or GCP KMS decrypt adapter
+- TEE-backed unwrap/decrypt adapter
+
+The threshold service should depend on the composed provider, not on a
+process-level server-root secret.
+
+### 2A.0. Signing-Root Scope Invariants
+
+The self-host and hosted code paths must keep organization policy scope separate
+from signing-root custody scope.
+
+- `orgId` is an organization, policy, and billing identifier. It must not be a
+  signing-root cryptographic domain separator.
+- `signingRootId` is the signing-root lookup and cryptographic custody
+  identifier.
+- Registration bootstrap grants and threshold sessions must carry enough runtime
+  scope to derive or persist `signingRootId` before any route derives
+  `y_relayer`.
+- `SigningRootShareResolver` calls must receive `signingRootId` from
+  authenticated runtime scope, a bootstrap token, persisted key metadata, or a
+  fixed self-host resolver scope.
+- The implementation must not pass `context.orgId` as signing-root resolver
+  `signingRootId`.
+- The repository check `check-signing-root-refactor-boundaries` is the minimum
+  static guard for this class of regression.
+
+### 2A. Add `SigningRootShareResolver`
+
+The core signing service should depend on one resolver abstraction that returns
+the two signing-root shares needed by threshold-prf. Storage, decrypt, hosted
+multi-tenancy, and self-host import details should stay outside the signing
+service.
+
+```ts
+interface SigningRootShareResolver {
+  resolveSigningRootSharePair(input: {
+    signingRootId: string;
+    signingRootVersion?: string;
+    preferredShareIds?: readonly [1 | 2 | 3, 1 | 2 | 3];
+  }): Promise<readonly [Uint8Array, Uint8Array]>;
+}
+```
+
+Hosted multi-customer configuration:
+
+- The hosted resolver accepts dynamic `signingRootId` and `signingRootVersion`
+  from the session/runtime scope.
+- The hosted resolver composes a durable storage adapter with a decrypt adapter.
+- Durable storage adapters may be Cloudflare Durable Objects, Postgres, AWS
+  Secrets Manager, GCP Secret Manager, or custom customer/provider storage.
+- Decrypt adapters may be local AES-GCM KEK resolution, AWS KMS, GCP KMS,
+  Secret Manager backed KEK resolution, TEE-backed unwrap, or custom decrypt.
+- The hosted resolver returns exactly two plaintext signing-root share wires and
+  zeroization remains the caller's responsibility after threshold-prf copies what
+  it needs.
+
+Customer self-hosted configuration, direct-import model:
+
+- The customer imports a bundle containing their signing-root shares.
+- The self-host resolver validates `signingRootId`, `signingRootVersion`, share
+  ids, and canonical share-wire shape.
+- The self-host resolver returns any two imported share wires.
+- No `SIGNING_ROOT_SECRET_SHARE_KEK_B64U` or equivalent KEK is required for this
+  minimal model because the customer is choosing to run from locally supplied
+  shares.
+
+Customer self-hosted configuration, sealed-local model:
+
+- The customer imports the same signing-root share bundle once.
+- The self-host worker reseals shares into the customer's chosen local storage.
+- The self-host resolver composes the customer's storage adapter with the
+  customer's decrypt adapter.
+- The decrypt adapter can use a local env KEK, customer KMS, HSM, Secret
+  Manager, or TEE-backed unwrap.
+
+Todo:
+
+- [x] Define `SigningRootShareResolver` in the server SDK boundary.
+- [x] Refactor threshold-ECDSA HSS prepare to depend on
+      `SigningRootShareResolver.resolveSigningRootSharePair`.
+- [x] Refactor threshold-Ed25519 HSS prepare to depend on
+      `SigningRootShareResolver.resolveSigningRootSharePair`.
+- [x] Keep hosted adapter composition outside the core signing service.
+- [x] Implement `createHostedSigningRootShareResolver({ storageAdapter,
+decryptAdapter })`.
+- [x] Implement `createSelfHostedSigningRootShareResolver({ signingRootId,
+signingRootVersion, shares })` for direct imported shares.
+- [x] Implement `createSealedSelfHostedSigningRootShareResolver({
+storageAdapter, decryptAdapter })` for customer-local sealed storage.
+- [x] Add tests proving hosted, direct self-host, and sealed self-host resolvers
+      derive the same `y_relayer` for the same root shares and context.
+- [x] Add tests proving direct self-host mode does not require a KEK env var.
+- [x] Add tests proving hosted mode rejects missing project scope and missing
+      sealed-share records.
+- [x] Update self-host import routes to support both direct-import and
+      sealed-local resolver configuration.
+
+### 2B. Rename Tenant-Root Secret API Surface
+
+Use signing-root secret names for public server SDK APIs. Avoid `master_secret`
+because that name is reserved for the removed platform-wide deterministic root
+model.
+
+Todo:
+
+- [x] Expose `SigningRootSecretShare`, `SigningRootSecretShareWireV1`, and
+      `SigningRootSecretShareId` as the public share types.
+- [x] Expose `SealedSigningRootSecretShare` as the sealed stored-share record.
+- [x] Expose `SigningRootSecretShareSource`,
+      `SigningRootSecretDecryptAdapter`, and `SigningRootSecretResolverAdapters`
+      for hosted sealed-share composition.
+- [x] Expose `SigningRootSecretResolver` for adapter-backed sealed-share
+      resolution.
+- [x] Expose `SigningRootSecretStore` for durable storage adapters.
+- [x] Expose `SigningRootSecretShareKekResolver` for local AES-GCM sealed-share
+      mode.
+- [x] Rename built-in stores to
+      `CloudflareDurableObjectSigningRootSecretStore`,
+      `PostgresSigningRootSecretStore`, and `InMemorySigningRootSecretStore`.
+- [x] Expose the local AES-GCM decrypt adapter as
+      `createSigningRootSecretAesGcmDecryptAdapter`.
+- [x] Rename config fields to `signingRootSecretResolverAdapters`,
+      `signingRootSecretStore`, `signingRootSecretDecryptAdapter`, and
+      `signingRootSecretShareKekResolver`.
+- [x] Use `SIGNING_ROOT_SECRET_SHARE_KEK_B64U` for the local AES-GCM decrypt
+      adapter.
+- [x] Update docs, tests, Cloudflare worker examples, and self-host examples in
+      the same breaking cleanup.
+- [x] Do not keep deprecated aliases or legacy flags after the rename lands.
+
+### 3. Move `y_relayer` derivation to `threshold-prf`
 
 Replace the ECDSA server-share derivation input shape.
 
-Current shape:
+Previous shape:
 
 ```text
-derive_threshold_secp256k1_relayer_share(master_secret, relayer_key_id)
+derive_server_share(process_root_secret, relayer_key_id)
 ```
 
 Target shape:
 
 ```text
-derive_threshold_secp256k1_server_share(k_org, wallet_context)
+derive_threshold_prf_y_relayer(signing_root_secret_share_i, signing_root_secret_share_j, wallet_context)
 ```
 
 The canonical context must include:
 
-- `project_id`
+- `signing_root_id`
 - `user_id`
 - `rp_id`
 - `scheme_id`
 - `key_purpose`
 - `wallet_key_version`
-- `k_org_version`
+- `signing_root_version`
 - `derivation_version`
 
 The function should return:
 
-- server signing share
-- server verifying share
+- `y_relayer`
 - derivation metadata or context hash
+
+Server verifying shares remain an HSS/downstream concern after `y_relayer` is
+produced.
 
 ### 4. Version ECDSA key records
 
@@ -427,7 +717,7 @@ Minimum fields:
 - `schemeId`
 - `keyPurpose`
 - `walletKeyVersion`
-- `kOrgVersion`
+- `signingRootVersion`
 - `derivationVersion`
 - `clientVerifyingShareB64u`
 - `thresholdEcdsaPublicKeyB64u`
@@ -439,7 +729,7 @@ Minimum fields:
 
 `serverShareSource` should distinguish:
 
-- `derived_from_k_org`
+- `derived_from_signing_root`
 - `imported_integrated_record`
 - `dev`
 
@@ -451,18 +741,20 @@ treated as cached derived material, not the canonical root of custody.
 ECDSA bootstrap should:
 
 1. resolve project context from the session, request, or environment
-2. load `k_org` through `ProjectRootProvider`
-3. derive `k_srv_wallet` from canonical wallet context
+2. resolve two usable signing-root shares through `SigningRootSecretResolver`
+3. derive `y_relayer` from threshold-prf partial evaluation and canonical
+   wallet context
 4. combine with the client passkey-derived share
 5. persist versioned wallet metadata
 
-It should not require `THRESHOLD_SECP256K1_MASTER_SECRET_B64U`.
+It should require a signing-root share provider, not a global server-root
+secret.
 
 ### 6. Update ECDSA signing
 
 Signing should be able to use either:
 
-- derived server material from `k_org`
+- derived server material from threshold-prf over signing-root shares
 - validated cached derived material from the key record
 
 Any current sign-time checks that require the secp256k1 master secret should be
@@ -471,8 +763,8 @@ root.
 
 Presign and signing session records must carry:
 
-- `projectId`
-- `kOrgVersion`
+- `signingRootId`
+- `signingRootVersion`
 - `walletKeyVersion`
 - `derivationVersion`
 - `ecdsaThresholdKeyId`
@@ -484,10 +776,10 @@ The worker should expose admin-gated import/status routes.
 Recommended routes:
 
 - `GET /self-host/healthz`
-- `POST /self-host/project-root/import`
-- `GET /self-host/project-root/status`
-- `POST /self-host/project-root/verify-wallet`
-- `POST /self-host/project-root/delete`
+- `POST /self-host/signing-root/import`
+- `GET /self-host/signing-root/status`
+- `POST /self-host/signing-root/verify-wallet`
+- `POST /self-host/signing-root/delete`
 
 These routes must be disabled unless a self-host admin authentication adapter is
 configured.
@@ -496,15 +788,19 @@ Import must validate:
 
 - bundle schema
 - checksum
-- `project_id`
+- `signingRootId`
 - `wallet_origin`
 - `rp_id`
-- `k_org` length
+- root share count and threshold
+- root share lengths and identifiers
 - supported `derivation_version`
 - supported `scheme_id`
 
 Verification should derive at least one known wallet public identity from the
-bundle and compare it to the exported wallet inventory.
+imported signing-root shares and compare it to an exported wallet inventory
+entry. For ECDSA, the route must receive a user/device-supplied
+`clientRootShare32B64u`; the server signing root alone cannot determine the
+threshold wallet address.
 
 ### 8. Add hosted export tooling
 
@@ -514,8 +810,8 @@ The export flow should:
 
 1. require customer admin authentication
 2. require explicit approval
-3. freeze or pin project-root version during export
-4. export `k_org` and metadata
+3. freeze or pin signing-root version during export
+4. export signing-root shares and metadata
 5. export wallet inventory
 6. write an audit event
 7. provide a checksum and import instructions
@@ -528,15 +824,14 @@ self-hosted worker validates the bundle.
 After customer cutover:
 
 1. disable hosted signing for the project
-2. delete active plaintext `k_org` from hosted Durable Objects
-3. delete or disable hosted wrapped recovery artifacts
+2. delete active hosted signing-root shares
+3. delete or disable hosted sealed-share recovery artifacts
 4. delete cached derived server material where applicable
 5. retain only non-secret audit and billing metadata
 6. issue deletion and disablement attestation
 
-The attestation should explicitly state that deterministic master derivation may
-still technically allow rederivation if the platform master derivation key is
-retained.
+The attestation should explicitly state which hosted root-share copies and
+wrapping paths were deleted or disabled.
 
 ## Customer Deployment Shape
 
@@ -551,7 +846,7 @@ import {
 export { ThresholdStoreDurableObject };
 
 export default createSelfHostedCloudflareSigningWorker({
-  projectId: 'proj_...',
+  signingRootId: 'proj_...:prod',
   walletOrigin: 'https://wallet.customer.com',
   rpId: 'customer.com',
 });
@@ -566,21 +861,22 @@ Required customer secrets or admin configuration:
 - admin import token or admin auth adapter secret
 - session/JWT signing secret or external session verification config
 
-Project root material should normally be imported into the Durable Object using
+Project root shares should normally be imported into the Durable Object using
 the admin import route, not hard-coded into `wrangler.toml`.
 
-Development mode can allow `K_ORG_B64U` as a secret for local testing, but that
-should not be the recommended production import path.
+Development mode can allow `SIGNING_ROOT_SECRET_B64U` or plaintext root shares
+as local test secrets, but that should not be the recommended production import
+path.
 
 ## Cutover Flow
 
 Recommended same-wallet self-host cutover:
 
 1. Customer already uses a customer-owned wallet origin and stable `rpId`.
-2. Hosted system pins the active `k_org_version`.
+2. Hosted system pins the active `signing_root_version`.
 3. Hosted system exports the migration bundle.
 4. Customer deploys the self-hosted Cloudflare signing worker.
-5. Customer imports the project-root bundle.
+5. Customer imports the signing-root share bundle.
 6. Customer verifies one or more known wallet addresses against the bundle.
 7. Customer points traffic to the self-hosted worker.
 8. Customer runs signing validation.
@@ -595,19 +891,19 @@ migrated.
 
 The self-hosted worker must fail closed when:
 
-- no project root is imported
-- `project_id` is missing or mismatched
+- no signing root is imported
+- `signingRootId` is missing or mismatched
 - `rp_id` does not match the imported bundle
 - `wallet_origin` does not match configured self-host origin
-- `k_org_version` is unsupported
+- `signingRootVersion` is unsupported
 - `derivation_version` is unsupported
 - a wallet record references an unknown root version
-- a threshold session references a different project root than the active key
+- a threshold session references a different signing root than the active key
 
 The worker must log non-secret context for:
 
-- project-root import
-- project-root verification
+- signing-root import
+- signing-root verification
 - signing authorization
 - root deletion
 - failed derivation-context validation
@@ -615,7 +911,7 @@ The worker must log non-secret context for:
 Logs must never include:
 
 - `k_org`
-- `k_srv_wallet`
+- `y_relayer`
 - client PRF material
 - server signing share
 - presignature secret shares
@@ -624,21 +920,21 @@ Logs must never include:
 
 Add tests for:
 
-- canonical `k_srv_wallet` derivation vectors
+- canonical `y_relayer` derivation vectors
 - same `k_org` plus same context produces same threshold address
-- different `k_org_version` changes threshold identity
+- different `signingRootVersion` changes threshold identity
 - imported self-host bundle reproduces hosted wallet address
-- self-host worker signs with imported `k_org`
-- missing project root fails before signing
+- self-host worker signs with imported signing-root shares
+- missing signing root fails before signing
 - mismatched `rpId` fails before signing
-- mismatched `project_id` fails before signing
+- mismatched `signingRootId` fails before signing
 - hosted export followed by self-host import and sign
 - hosted retirement prevents hosted signing after cutover
 
 Add an end-to-end migration harness:
 
 1. create wallet in hosted mode
-2. export project-root bundle
+2. export signing-root bundle
 3. import bundle into self-host worker
 4. verify same EVM address
 5. sign with self-host worker
@@ -649,95 +945,107 @@ Add an end-to-end migration harness:
 
 ### Phase 0. Current-state inventory
 
-- [ ] Document the current ECDSA bootstrap and signing call graph from
-  Cloudflare route to threshold service to WASM.
-- [ ] Identify every read of `THRESHOLD_SECP256K1_MASTER_SECRET_B64U`.
-- [ ] Identify every persisted ECDSA record field that contains derived server
-  material.
-- [ ] Confirm which Cloudflare Durable Object keys are used for ECDSA key
-  records, auth sessions, presign sessions, signing sessions, and
-  presignatures.
-- [ ] Write an explicit compatibility baseline test that captures the current
-  hosted derivation output before changing derivation code.
+- [x] Document the current ECDSA bootstrap and signing call graph from
+      Cloudflare route to threshold service to WASM.
+- [x] Confirm the server SDK no longer reads a process-level server-root env
+      secret for ECDSA or Ed25519 HSS input derivation.
+- [x] Identify every persisted ECDSA record field that contains derived server
+      material.
+- [x] Confirm which Cloudflare Durable Object keys are used for ECDSA key
+      records, auth sessions, presign sessions, signing sessions, and
+      presignatures.
+- [x] Write an explicit compatibility baseline test that captures the current
+      hosted derivation output before changing derivation code.
 
 ### Phase 1. Behavior-preserving boundary extraction
 
-- [ ] Split self-host signing routes from hosted SaaS routes without changing
-  route behavior.
-- [ ] Create a self-host worker factory that reuses the current threshold
-  signing behavior.
-- [ ] Move only the minimal threshold signing dependencies into the server SDK
-  boundary.
-- [ ] Add dependency-boundary checks that fail if the self-host SDK imports
-  console, billing, sponsorship, policy, webhook, runtime snapshot, or hosted
-  KMS modules.
-- [ ] Add parity tests comparing hosted factory and self-host factory behavior
-  for the same threshold signing inputs.
-- [ ] Keep current persisted state formats unchanged in this phase.
+- [x] Split self-host signing routes from hosted SaaS routes without changing
+      route behavior.
+- [x] Create a self-host worker factory that reuses the current threshold
+      signing behavior.
+- [x] Move only the minimal threshold signing dependencies into the self-host
+      router boundary.
+- [x] Add dependency-boundary checks that fail if the self-host SDK imports
+      console, billing, sponsorship, policy, webhook, runtime snapshot, or hosted
+      root-share provisioning modules.
+- [x] Add parity tests comparing hosted factory and self-host factory behavior
+      for the same threshold signing inputs.
+- [x] Keep current persisted state formats unchanged in this phase.
 
 ### Phase 2. Root and derivation specs
 
-- [ ] Define `ProjectRootRecord`.
-- [ ] Define `ProjectRootProvider`.
-- [ ] Define `ProjectRootStore`.
-- [ ] Define the self-host migration bundle schema.
-- [ ] Define canonical `k_srv_wallet` derivation context.
-- [ ] Add signer-core test vectors for `k_org -> k_srv_wallet`.
-- [ ] Add a context hash to make derivation mismatches easy to diagnose without
-  logging secrets.
+- [x] Define `SigningRootRecord`.
+- [x] Define `SigningRootSecretResolver`.
+- [x] Define `SigningRootSecretStore`.
+- [x] Define `SigningRootSecretShareRecord`.
+- [x] Define `SealedSigningRootSecretShare`.
+- [x] Define the self-host migration bundle schema.
+- [x] Define canonical `y_relayer` derivation context in the threshold-prf
+      specs.
+- [x] Add threshold-prf test vectors for `k_org_share_i + k_org_share_j ->
+y_relayer`.
+- [x] Add a context hash to make derivation mismatches easy to diagnose without
+      logging secrets.
 
-### Phase 3. Cloudflare project-root storage
+### Phase 3. Cloudflare signing-root storage
 
-- [ ] Extend the threshold Durable Object protocol with project-root operations.
-- [ ] Store plaintext `k_org` in the customer's Durable Object for Phase 0.
-- [ ] Store root metadata next to `k_org`.
-- [ ] Add import, status, verify, and delete operations.
-- [ ] Add an in-memory root cache inside the worker or Durable Object client
-  path.
-- [ ] Add fail-closed behavior when a project root is missing.
+- [x] Extend the threshold Durable Object protocol with signing-root operations.
+- [x] Store sealed signing-root shares in the customer's Durable Object for
+      Phase 0.
+- [x] Store root and share metadata next to the sealed shares.
+- [x] Add authenticated self-host import, status, and delete routes.
+- [x] Add self-host wallet-address verification route.
+- [x] Add an optional in-memory sealed-share cache inside the Durable Object
+      client path.
+- [x] Add fail-closed behavior when a signing root is missing.
 
 ### Phase 4. ECDSA `k_org` derivation refactor
 
-- [ ] Replace ECDSA bootstrap derivation from global master secret with
-  `ProjectRootProvider.resolveKOrg`.
-- [ ] Replace `relayerKeyId`-only derivation context with canonical wallet
-  context.
-- [ ] Add `projectId`, `kOrgVersion`, `walletKeyVersion`, and
-  `derivationVersion` to ECDSA key records.
-- [ ] Carry project-root metadata through ECDSA auth sessions.
-- [ ] Carry project-root metadata through presign sessions.
-- [ ] Carry project-root metadata through signing sessions.
-- [ ] Remove secp256k1 master-secret checks from paths that can resolve or
-  validate the active project root.
+- [x] Replace ECDSA bootstrap derivation from global master secret with
+      `SigningRootSecretResolver.resolveSigningRootSecretShares` plus threshold-prf Option
+      A partial evaluation and combine.
+- [x] Replace `relayerKeyId`-only derivation context with canonical wallet
+      context.
+- [x] Add `projectId`, `signingRootVersion`, `walletKeyVersion`, and
+      `derivationVersion` to ECDSA key records.
+- [x] Carry signing-root metadata through ECDSA auth sessions.
+- [x] Carry signing-root metadata through presign sessions.
+- [x] Carry signing-root metadata through signing sessions.
+- [x] Remove secp256k1 master-secret checks from paths that can resolve or
+      validate the active signing root.
 
 ### Phase 5. Self-hosted Cloudflare SDK package
 
-- [ ] Add `createSelfHostedCloudflareSigningWorker`.
-- [ ] Add a neutral `ThresholdStoreDurableObject` export.
-- [ ] Add a minimal self-host worker example.
-- [ ] Add a Wrangler template for the customer deployment.
-- [ ] Add self-host admin authentication hooks for project-root import routes.
-- [ ] Add setup docs that avoid requiring `k_org` in `wrangler.toml`.
+- [x] Add `createSelfHostedCloudflareSigningWorker`.
+- [x] Add a neutral `ThresholdStoreDurableObject` export.
+- [x] Add a minimal self-host worker example.
+- [x] Add a Wrangler template for the customer deployment.
+- [x] Add self-host admin authentication hooks for signing-root import routes.
+- [x] Add setup docs that avoid requiring `k_org` in `wrangler.toml`.
 
 ### Phase 6. Hosted export and cutover
 
-- [ ] Add hosted project-root export tooling.
-- [ ] Add wallet inventory export tooling.
-- [ ] Add bundle checksum generation.
-- [ ] Add self-host import verification against known wallet addresses.
+- [x] Add hosted signing-root export artifact tooling.
+- [x] Add wallet inventory export tooling.
+- [x] Add bundle checksum generation.
+- [x] Add self-host import verification against known wallet addresses.
 - [ ] Add hosted project signing disablement.
 - [ ] Add hosted root deletion flow.
-- [ ] Add audit evidence for export, disablement, deletion, and the deterministic
-  rederivation trust tradeoff.
+- [ ] Add audit evidence for export, disablement, hosted share deletion, and
+      wrapping-path disablement.
 
 ### Phase 7. Hardening and cleanup
 
-- [ ] Rename Ed25519-specific threshold store public surfaces to neutral names.
-- [ ] Remove duplicate old public store names from primary docs and examples.
-- [ ] Remove global ECDSA master-secret assumptions from self-hosted flows.
-- [ ] Add recovery drills for exported/imported project roots.
+- [x] Rename the Durable Object public export to a neutral threshold-store name.
+- [x] Rename remaining Ed25519-specific threshold config surfaces to neutral
+      names.
+- [x] Remove the old Durable Object public store name from primary docs and
+      examples.
+- [x] Remove global ECDSA master-secret assumptions from self-hosted flows.
+- [ ] Add recovery drills for exported/imported signing roots.
 - [ ] Add alerts for signing attempts against a retired hosted project.
-- [ ] Add a wrapped-only project-root storage option after Phase 0 is stable.
+- [ ] Add independent storage and share-wrapping boundaries after Phase 0 is
+      stable.
 
 ## Cloudflare Worker Refactor Outline
 
@@ -754,9 +1062,9 @@ createSelfHostedCloudflareSigningWorker(...)
 ```
 
 The self-host factory should mount only the routes required for customer-owned
-signing, project-root import/status, health, readiness, and session validation.
+signing, signing-root import/status, health, readiness, and session validation.
 It should not require hosted console, billing, cron, webhook, sponsorship, or
-hosted KMS configuration.
+hosted root-share provisioning configuration.
 
 This step should preserve behavior. The self-host factory can initially call
 the same threshold service and use the same store semantics as the hosted path.
@@ -776,7 +1084,7 @@ Concretely, the self-host factory should not import:
 - webhook services
 - hosted observability services
 - hosted bootstrap brokers
-- hosted KMS provisioning internals
+- hosted root-share provisioning internals
 
 If the shared router currently imports those modules eagerly, split route
 registration so the self-host package can tree-shake or omit them entirely.
@@ -796,98 +1104,97 @@ entrypoint should expose the same signing semantics with fewer dependencies.
 
 ### Step 2. Make threshold storage neutral
 
-The current Durable Object is exported as
-`ThresholdEd25519StoreDurableObject`, but it stores more than Ed25519 state.
-
-Rename the public worker export to:
+The Durable Object is exported as:
 
 ```ts
-ThresholdStoreDurableObject
+ThresholdStoreDurableObject;
 ```
 
 The Durable Object protocol should remain generic key/value plus the ECDSA
-presign atomic operations, then gain project-root operations.
+presign atomic operations, then gain signing-root operations.
 
-### Step 3. Add project-root operations to the Durable Object
+### Step 3. Add signing-root operations to the Durable Object
 
 Extend the Durable Object request protocol with operations like:
 
 ```text
-projectRootGet
-projectRootPut
-projectRootDelete
-projectRootStatus
+signingRootGet
+signingRootPut
+signingRootDelete
+signingRootStatus
 ```
 
-These operations should validate and store `ProjectRootRecord` objects. They
+These operations should validate and store `SigningRootRecord` objects. They
 must never return secret root material through unauthenticated routes.
 
 The public worker routes call these operations only after admin authentication.
-The threshold signing path uses them internally to resolve `k_org`.
+The threshold signing path uses them internally to resolve sealed root shares
+and derive server inputs.
 
-### Step 4. Add `ProjectRootProvider` to the threshold service
+### Step 4. Add `SigningRootSecretResolver` to the threshold service
 
-Thread a `ProjectRootProvider` into `createThresholdSigningService` and
+Thread a `SigningRootSecretResolver` into `createThresholdSigningService` and
 `ThresholdSigningService`.
 
-Hosted mode can provide a provider backed by hosted project-root storage and
-KMS provisioning. Self-host mode provides a provider backed by the customer's
-Durable Object.
+Hosted mode can provide a provider backed by hosted signing-root storage and
+share reconstruction. Self-host mode provides a provider backed by the
+customer's Durable Object.
 
 After this step, ECDSA code should resolve:
 
 ```text
-project_id + k_org_version -> k_org
+signing_root_id + signing_root_version -> two usable sealed root shares -> y_relayer
 ```
 
 instead of reading a process-level secp256k1 master secret.
 
-`ProjectRootProvider` belongs in the open-source boundary because self-hosted
-signing cannot work without it. Hosted KMS implementations of that provider do
-not need to be open sourced.
+`SigningRootSecretResolver` belongs in the open-source boundary because
+self-hosted signing cannot work without resolving imported shares. Hosted share
+storage and wrapping implementations of that provider do not need to be open
+sourced.
 
 This is the first step that may change root-resolution behavior. It should land
 after the boundary extraction and parity tests are in place.
 
-### Step 5. Move server-share derivation to `signer-core`
+### Step 5. Move server-share derivation to `threshold-prf`
 
-Add a new signer-core function that accepts `k_org` and canonical wallet
-context.
+Add a server SDK binding that accepts two signing-root shares and canonical
+wallet context and returns `y_relayer` using the `threshold-prf` crate.
 
-The TypeScript wrapper in `server/src/core/ThresholdService/ethSignerWasm.ts`
-should expose the new function. Existing ECDSA bootstrap code should call the
-new wrapper.
+The TypeScript wrapper in `server/src/core/ThresholdService` should expose the
+new derivation boundary. Existing ECDSA bootstrap code should call the new
+boundary before entering the existing HSS flow.
 
-The old `master_secret + relayerKeyId` derivation path should be removed from
-the self-host flow once the `k_org` path is complete.
+The old process-level secret plus relayer-key-id derivation path should be
+removed from the self-host flow once the threshold-prf path is complete.
 
-### Step 6. Rework ECDSA bootstrap around project roots
+### Step 6. Rework ECDSA bootstrap around signing roots
 
 ECDSA bootstrap should resolve:
 
 ```text
-project_id
-k_org_version
+signing_root_id
+signing_root_version
 wallet_key_version
 derivation_version
 rp_id
 user_id
 ```
 
-Then it should derive the server share from `k_org` and persist a versioned
+Then it should derive `y_relayer` from `k_org` and persist a versioned
 wallet key record.
 
 The persisted record should be sufficient to validate future signing sessions,
-but the canonical server share source remains `k_org + wallet_context`.
+but the canonical server-side input source remains `k_org + wallet_context`.
 
 ### Step 7. Rework ECDSA authorize, presign, and signing sessions
 
-Every session object that can lead to signing must carry the project-root
+Every session object that can lead to signing must carry the signing-root
 binding:
 
 ```text
-project_id
-k_org_version
+signing_root_id
+signing_root_version
 wallet_key_version
 derivation_version
 ecdsa_threshold_key_id
@@ -896,17 +1203,17 @@ ecdsa_threshold_key_id
 Each route should reject mismatches before touching secret material.
 
 This prevents a self-hosted worker from accidentally using one imported
-project root to sign for a wallet derived under another root.
+signing root to sign for a wallet derived under another root.
 
 ### Step 8. Add self-host admin routes
 
 Add Cloudflare routes for:
 
 ```text
-POST /self-host/project-root/import
-GET /self-host/project-root/status
-POST /self-host/project-root/verify-wallet
-POST /self-host/project-root/delete
+POST /self-host/signing-root/import
+GET /self-host/signing-root/status
+POST /self-host/signing-root/verify-wallet
+POST /self-host/signing-root/delete
 ```
 
 These routes should be available only in the self-host worker factory and only
@@ -923,8 +1230,8 @@ Add an SDK export such as:
 The export should include:
 
 ```ts
-createSelfHostedCloudflareSigningWorker
-ThresholdStoreDurableObject
+createSelfHostedCloudflareSigningWorker;
+ThresholdStoreDurableObject;
 ```
 
 The customer entrypoint should be small enough to copy into a Cloudflare Worker
@@ -932,7 +1239,8 @@ project without understanding the hosted relay internals.
 
 The package should have no dependency on proprietary hosted feature modules.
 The dependency graph should be checked in CI so accidental imports from console,
-policy, billing, sponsorship, or hosted KMS modules fail the build.
+policy, billing, sponsorship, or hosted root-share provisioning modules fail
+the build.
 
 ### Step 10. Add migration and verification harnesses
 
@@ -958,15 +1266,16 @@ This harness is the acceptance test for same-wallet self-host migration.
    behavior.
 2. Add dependency-boundary checks for the self-host package.
 3. Add hosted-vs-self-host parity tests for current signing behavior.
-4. Write the canonical `k_org` and `k_srv_wallet` derivation specs.
-5. Add test vectors in `signer-core`.
-6. Add project-root and wallet-key metadata types.
-7. Remove direct ECDSA assumptions that `master_secret` is the server share
-   root.
+4. Reuse the canonical threshold-prf `k_org_share_i + k_org_share_j ->
+y_relayer` derivation specs.
+5. Reuse the threshold-prf test vectors.
+6. Add signing-root and wallet-key metadata types.
+7. Remove direct ECDSA assumptions that a process-level secret is the server
+   share root.
 
-### Phase 2. Add project-root storage
+### Phase 2. Add signing-root storage
 
-1. Add `ProjectRootStore`.
+1. Add `SigningRootStore`.
 2. Add Cloudflare Durable Object implementation.
 3. Add Node/Postgres implementation for non-Cloudflare self-hosting.
 4. Add import/status/delete operations.
@@ -974,7 +1283,7 @@ This harness is the acceptance test for same-wallet self-host migration.
 ### Phase 3. Refactor ECDSA to use `k_org`
 
 1. Update bootstrap to resolve `k_org`.
-2. Update signing and presign to carry project-root metadata.
+2. Update signing and presign to carry signing-root metadata.
 3. Update ECDSA integrated key records.
 4. Remove unnecessary secp256k1 master-secret requirements from sign-time paths.
 
@@ -992,13 +1301,13 @@ This harness is the acceptance test for same-wallet self-host migration.
 
 ### Phase 5. Add hosted migration tooling
 
-1. Add hosted project-root export.
+1. Add hosted signing-root export.
 2. Add wallet inventory export.
 3. Add self-host import verification.
 4. Add hosted signing disablement.
 5. Add deletion and audit attestation.
 
-### Phase 6. Remove stale surfaces
+### Phase 6. Remove old surfaces
 
 1. Remove Ed25519-only names from shared threshold store APIs.
 2. Remove global ECDSA master-secret assumptions from public self-host docs.
@@ -1008,54 +1317,56 @@ This harness is the acceptance test for same-wallet self-host migration.
 
 - per-wallet durable server secret storage
 - migrating in-flight presign sessions
-- guaranteeing cryptographic vendor exclusion while deterministic
-  `master_secret -> k_org` derivation remains available
+- guaranteeing protection against malicious signer runtime code in the Phase 0
+  single-worker reconstruction model
 - requiring the customer to re-register passkeys
 - changing wallet addresses during same-root self-host migration
-- using the hosted KMS path on the self-hosted signing hot path
+- using hosted root-share storage or wrapping paths on the self-hosted signing
+  hot path
 - open sourcing hosted premium features such as policies, gas sponsorship,
-  billing, console management, webhooks, runtime snapshots, or hosted KMS
-  provisioning
+  billing, console management, webhooks, runtime snapshots, or hosted
+  root-share provisioning
 - making the self-host SDK a full replacement for the hosted relay platform
 
 ## Open Questions
 
-- Is `k_org` scoped per project, org, environment, or custody domain?
-- Should the self-hosted worker support multiple active project roots in one
+- Confirm whether `signing_root_secret` is scoped per project, environment, or
+  custody domain.
+- Should the self-hosted worker support multiple active signing roots in one
   deployment?
 - Which admin auth adapter should gate root import in the default Cloudflare
   template?
 - Should the migration bundle include wallet inventory by default or require a
   separate export?
-- Do we want customer-owned wrapping for imported `k_org` in Phase 0, or only
-  plaintext Durable Object storage?
-- Which hosted deletion evidence is sufficient if deterministic rederivation is
-  still technically possible?
+- Should self-host import seal root shares immediately with customer-owned
+  wrapping keys?
+- Which hosted deletion evidence is sufficient for hosted share deletion and
+  wrapping-path disablement?
 
 ## Summary
 
 The current Cloudflare worker is a reusable relay runtime, but not yet a clean
 self-hosted signing SDK.
 
-To make it self-hostable, the root dependency must move from a global
-`THRESHOLD_SECP256K1_MASTER_SECRET_B64U` to an imported project `k_org` resolved
-through a `ProjectRootProvider`.
+To make it self-hostable, the root dependency must be imported signing-root
+shares resolved through a `SigningRootSecretResolver`.
 
 The self-hosted worker should:
 
-- import a customer project-root bundle
-- store plaintext `k_org` in the customer's Durable Object in Phase 0
-- derive `k_srv_wallet` locally using canonical versioned context
+- import a customer signing-root bundle
+- store sealed signing-root shares in the customer's Durable Object in Phase 0
+- decrypt two signing-root shares in memory during signing
+- derive `y_relayer` locally using threshold-prf partial evaluation and combine
 - preserve wallet identity without passkey re-registration
 - let hosted infrastructure disable and delete active signing state after
   cutover
 - expose only the minimal server-side signing surface required for migrated
   customers
 
-This gives customers operational self-hosting while preserving the deterministic
-root tradeoff: we can still technically rederive `k_org` from the platform
-master derivation key unless that capability is destroyed or replaced.
+This gives customers operational self-hosting without a deterministic platform
+`master_secret` that can rederive `k_org` after hosted shares and wrapping paths
+are deleted.
 
 The open-source boundary is intentionally narrow: threshold signing runtime,
-project-root import, and migration verification. Premium hosted features remain
+signing-root import, and migration verification. Premium hosted features remain
 proprietary and should not be dependencies of the self-hosted server SDK.
