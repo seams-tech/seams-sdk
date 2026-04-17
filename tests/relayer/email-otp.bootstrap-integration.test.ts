@@ -76,7 +76,7 @@ function makeService(): AuthService {
     accountInitialBalance: '1',
     createAccountAndRegisterGas: '1',
     logger: null,
-    thresholdEd25519KeyStore: {
+    thresholdStore: {
       PRF_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
       SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
       SHAMIR_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,

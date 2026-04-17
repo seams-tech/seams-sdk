@@ -28,9 +28,10 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           relayerUrl: 'https://relay.example',
           relayerKeyId: 'rk-1',
           participantIds: [1, 2],
-          runtimeSnapshotScope: {
+          runtimePolicyScope: {
             orgId: 'org-a',
-            environmentId: 'env-a',
+            projectId: 'proj-a',
+            envId: 'env-a',
           },
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
@@ -171,5 +172,79 @@ test.describe('threshold Ed25519 threshold-session state', () => {
       thresholdSessionJwt: 'jwt-ed25519',
       thresholdSessionId: 'shared-session-id',
     });
+  });
+
+  test('rejects stale threshold session records with runtimeSnapshotScope or environmentId', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const storeMod = await import(paths.thresholdSessionStore);
+
+        const baseRecord = {
+          nearAccountId: 'alice.testnet',
+          rpId: 'example.localhost',
+          relayerUrl: 'https://relay.example',
+          relayerKeyId: 'rk-1',
+          participantIds: [1, 2],
+          xClientBaseB64u: 'x-client-base',
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'stale-threshold-session',
+          thresholdSessionJwt: 'jwt-stale',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+          source: 'registration',
+        };
+
+        const attempts: string[] = [];
+        try {
+          storeMod.upsertStoredThresholdEd25519SessionRecord({
+            ...baseRecord,
+            runtimePolicyScope: {
+              orgId: 'org-a',
+              projectId: 'proj-a',
+              envId: 'env-a',
+              environmentId: 'env-a',
+            },
+          });
+          attempts.push('accepted');
+        } catch (error) {
+          attempts.push(error instanceof Error ? error.message : String(error));
+        }
+
+        const staleRecord = {
+          ...baseRecord,
+          runtimeSnapshotScope: {
+            orgId: 'org-a',
+            projectId: 'proj-a',
+            envId: 'env-a',
+          },
+        };
+        sessionStorage.setItem(
+          'tatchi:threshold-ed25519-session:v1:alice.testnet',
+          JSON.stringify({ v: 1, record: staleRecord }),
+        );
+        sessionStorage.setItem(
+          'tatchi:threshold-ed25519-session:v1:session-index',
+          JSON.stringify({ 'stale-threshold-session': 'alice.testnet' }),
+        );
+        attempts.push(
+          storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+            'stale-threshold-session',
+          ) === null
+            ? 'stale-record-dropped'
+            : 'accepted',
+        );
+
+        storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        return attempts;
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual([
+      'Invalid threshold session record: stale runtimePolicyScope',
+      'stale-record-dropped',
+    ]);
   });
 });

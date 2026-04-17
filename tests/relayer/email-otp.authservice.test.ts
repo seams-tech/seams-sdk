@@ -1,6 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
+import {
+  createEmailOtpChallengeStore,
+  createEmailOtpEnrollmentStore,
+  createEmailOtpGrantStore,
+  createEmailOtpUnlockChallengeStore,
+} from '@server/core/EmailOtpStores';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { ensurePostgresSchema, getPostgresPool } from '../../server/src/storage/postgres';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const EMAIL_OTP_KEY_VERSION = 'kek-s-email-otp-test';
@@ -17,6 +24,23 @@ const WALLET_ID = 'alice.testnet';
 const EMAIL = 'alice@example.com';
 const SESSION_HASH = 'session-hash-v1';
 const APP_SESSION_VERSION = 'app-session-v1';
+const EMAIL_OTP_RATE_LIMIT_ENV_UNSET: Record<string, string | undefined> = {
+  EMAIL_OTP_RATE_LIMITER_KIND: undefined,
+  EMAIL_OTP_RATE_LIMIT_REDIS_URL: undefined,
+  EMAIL_OTP_RATE_LIMIT_UPSTASH_URL: undefined,
+  EMAIL_OTP_RATE_LIMIT_UPSTASH_TOKEN: undefined,
+  EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX: undefined,
+  EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS: undefined,
+  EMAIL_OTP_VERIFY_RATE_LIMIT_MAX: undefined,
+  EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS: undefined,
+  EMAIL_OTP_GRANT_RATE_LIMIT_MAX: undefined,
+  EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS: undefined,
+  EMAIL_OTP_RATE_LIMIT_KEY_PREFIX: undefined,
+};
+
+function randPrefix(tag: string): string {
+  return `test:${tag}:${Date.now()}:${Math.random().toString(16).slice(2)}:`;
+}
 
 function makeService(): AuthService {
   return new AuthService({
@@ -65,7 +89,7 @@ function makeServiceWithLogger(logger: {
     accountInitialBalance: '1',
     createAccountAndRegisterGas: '1',
     logger,
-    thresholdEd25519KeyStore: {
+    thresholdStore: {
       PRF_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
       SHAMIR_P_B64U: base64UrlEncode(Uint8Array.from([0x01, 0x01])),
       SHAMIR_E_S_B64U: base64UrlEncode(Uint8Array.from([0x03])),
@@ -100,6 +124,7 @@ async function createEmailOtpLoginChallenge(service: AuthService): Promise<{
   otpCode: string;
   expiresAtMs: number;
 }> {
+  await seedEmailOtpEnrollment(service);
   const challenge = await service.createEmailOtpChallenge({
     userId: USER_ID,
     walletId: WALLET_ID,
@@ -121,6 +146,36 @@ async function createEmailOtpLoginChallenge(service: AuthService): Promise<{
     otpCode: outbox.ok ? outbox.otpCode : '',
     expiresAtMs: outbox.ok ? outbox.expiresAtMs : 0,
   };
+}
+
+async function seedEmailOtpEnrollment(service: AuthService): Promise<void> {
+  const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+  const existing = await enrollmentStore.get(WALLET_ID);
+  if (existing) return;
+  const nowMs = Date.now();
+  await enrollmentStore.put({
+    version: 'email_otp_enrollment_v1',
+    walletId: WALLET_ID,
+    userId: USER_ID,
+    otpChannel: 'email_otp',
+    emailOtpEscrowBlob: 'recovery-escrow-blob',
+    emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
+    unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+    unlockKeyVersion: 'email-otp-unlock-v1',
+    thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  });
+}
+
+async function consumeEmailOtpChallengeRateLimit(service: AuthService, clientIp: string) {
+  return (service as any).consumeEmailOtpRateLimit({
+    scope: 'challenge',
+    action: 'wallet_email_otp_authorize',
+    userId: USER_ID,
+    walletId: WALLET_ID,
+    clientIp,
+  });
 }
 
 async function enrollRecoveryWallet(service: AuthService): Promise<void> {
@@ -171,7 +226,156 @@ async function withMockedNow<T>(startMs: number, fn: (setNowMs: (nextMs: number)
 }
 
 test.describe('AuthService Email OTP policy', () => {
-  test('Email OTP logs never include plaintext OTP codes or plaintext Email OTP secret material', async () => {
+  test('Email OTP login challenge requires a completed enrollment', async () => {
+    const service = makeService();
+    const missingEnrollmentChallenge = await service.createEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      email: EMAIL,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(missingEnrollmentChallenge.ok).toBe(false);
+    if (missingEnrollmentChallenge.ok) return;
+    expect(missingEnrollmentChallenge.code).toBe('not_found');
+
+    const missingEnrollmentVerify = await service.verifyEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      challengeId: 'missing-challenge',
+      otpCode: '123456',
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(missingEnrollmentVerify.ok).toBe(false);
+    if (missingEnrollmentVerify.ok) return;
+    expect(missingEnrollmentVerify.code).toBe('not_found');
+
+    await seedEmailOtpEnrollment(service);
+    const enrolledChallenge = await service.createEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      email: EMAIL,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(enrolledChallenge.ok).toBe(true);
+  });
+
+  test.describe('Postgres durable stores', () => {
+    const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
+    const enabled = Boolean(postgresUrl);
+    const emailOtpPrefix = randPrefix('email-otp:pg');
+
+    test.beforeAll(async () => {
+      test.skip(!enabled, 'POSTGRES_URL not set');
+      await ensurePostgresSchema({ postgresUrl, logger: console as any });
+    });
+
+    test.afterAll(async () => {
+      if (!enabled) return;
+      const pool = await getPostgresPool(postgresUrl);
+      await pool.query('DELETE FROM email_otp_challenges WHERE namespace = $1', [emailOtpPrefix]);
+      await pool.query('DELETE FROM email_otp_grants WHERE namespace = $1', [emailOtpPrefix]);
+      await pool.query('DELETE FROM email_otp_enrollments WHERE namespace = $1', [
+        emailOtpPrefix,
+      ]);
+      await pool.query('DELETE FROM email_otp_unlock_challenges WHERE namespace = $1', [
+        emailOtpPrefix,
+      ]);
+    });
+
+    test('persists challenge, grant, enrollment, and unlock state across store instances', async () => {
+      test.skip(!enabled, 'POSTGRES_URL not set');
+      const config = {
+        kind: 'postgres',
+        POSTGRES_URL: postgresUrl,
+        EMAIL_OTP_PREFIX: emailOtpPrefix,
+      } as any;
+      const storeInput = { config, logger: console as any, isNode: true };
+      const nowMs = Date.now();
+      const expiresAtMs = nowMs + 60_000;
+
+      const challengeWriter = createEmailOtpChallengeStore(storeInput);
+      const challengeReader = createEmailOtpChallengeStore(storeInput);
+      await challengeWriter.put({
+        version: 'email_otp_challenge_v1',
+        challengeId: 'challenge-pg',
+        userId: USER_ID,
+        walletId: WALLET_ID,
+        otpChannel: 'email_otp',
+        email: EMAIL,
+        otpCode: '169670',
+        sessionHash: SESSION_HASH,
+        appSessionVersion: APP_SESSION_VERSION,
+        action: 'wallet_email_otp_enroll',
+        createdAtMs: nowMs,
+        expiresAtMs,
+        attemptCount: 0,
+        maxAttempts: 5,
+      });
+      const persistedChallenge = await challengeReader.get('challenge-pg');
+      expect(persistedChallenge?.otpCode).toBe('169670');
+      await challengeReader.del('challenge-pg');
+      expect(await challengeWriter.get('challenge-pg')).toBeNull();
+
+      const grantWriter = createEmailOtpGrantStore(storeInput);
+      const grantReader = createEmailOtpGrantStore(storeInput);
+      await grantWriter.put({
+        version: 'email_otp_grant_v1',
+        grantToken: 'grant-pg',
+        userId: USER_ID,
+        walletId: WALLET_ID,
+        challengeId: 'challenge-pg',
+        otpChannel: 'email_otp',
+        sessionHash: SESSION_HASH,
+        appSessionVersion: APP_SESSION_VERSION,
+        action: 'wallet_email_otp_unseal',
+        issuedAtMs: nowMs,
+        expiresAtMs,
+      });
+      expect((await grantReader.consume('grant-pg'))?.challengeId).toBe('challenge-pg');
+      expect(await grantWriter.consume('grant-pg')).toBeNull();
+
+      const enrollmentWriter = createEmailOtpEnrollmentStore(storeInput);
+      const enrollmentReader = createEmailOtpEnrollmentStore(storeInput);
+      await enrollmentWriter.put({
+        version: 'email_otp_enrollment_v1',
+        walletId: WALLET_ID,
+        userId: USER_ID,
+        otpChannel: 'email_otp',
+        emailOtpEscrowBlob: 'escrow-blob',
+        emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
+        unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+        unlockKeyVersion: 'unlock-v1',
+        thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+      });
+      expect((await enrollmentReader.get(WALLET_ID))?.emailOtpEscrowBlob).toBe('escrow-blob');
+      await enrollmentReader.del(WALLET_ID);
+      expect(await enrollmentWriter.get(WALLET_ID)).toBeNull();
+
+      const unlockWriter = createEmailOtpUnlockChallengeStore(storeInput);
+      const unlockReader = createEmailOtpUnlockChallengeStore(storeInput);
+      await unlockWriter.put({
+        version: 'email_otp_unlock_challenge_v1',
+        challengeId: 'unlock-pg',
+        walletId: WALLET_ID,
+        userId: USER_ID,
+        challengeB64u: base64UrlEncode(Uint8Array.from([1, 2, 3, 4])),
+        createdAtMs: nowMs,
+        expiresAtMs,
+      });
+      expect((await unlockReader.consume('unlock-pg'))?.walletId).toBe(WALLET_ID);
+      expect(await unlockWriter.consume('unlock-pg')).toBeNull();
+    });
+  });
+
+  test('Email OTP dev delivery logs plaintext OTP codes but never plaintext secret material', async () => {
     const { logger, entries } = makeCapturingLogger();
     await withEnv(
       {
@@ -239,12 +443,11 @@ test.describe('AuthService Email OTP policy', () => {
     );
 
     const serializedLogs = JSON.stringify(entries);
-    expect(serializedLogs).not.toContain('123456');
-    expect(serializedLogs).not.toContain('otpCode');
+    expect(serializedLogs).toContain('123456');
+    expect(serializedLogs).toContain('devOtpCode');
     expect(serializedLogs).not.toContain('email-otp-escrow-sensitive-marker');
     expect(serializedLogs).not.toContain('emailOtpEscrowBlob');
-    expect(serializedLogs).toContain('issued development OTP challenge metadata');
-    expect(serializedLogs).toContain('codeLength');
+    expect(serializedLogs).toContain('development OTP code');
   });
 
   test('Email OTP delivery mode selection enforces production guardrails', async () => {
@@ -256,7 +459,7 @@ test.describe('AuthService Email OTP policy', () => {
       },
       async () => {
         const service = makeService();
-        const challenge = await service.createEmailOtpChallenge({
+        const challenge = await service.createEmailOtpEnrollmentChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
           email: EMAIL,
@@ -281,12 +484,12 @@ test.describe('AuthService Email OTP policy', () => {
     await withEnv(
       {
         NODE_ENV: 'production',
-        EMAIL_OTP_DELIVERY_MODE: 'memory',
+        EMAIL_OTP_DELIVERY_MODE: 'log',
         EMAIL_OTP_DEV_OUTBOX_ENABLED: 'true',
       },
       async () => {
         const service = makeService();
-        const challenge = await service.createEmailOtpChallenge({
+        const challenge = await service.createEmailOtpEnrollmentChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
           email: EMAIL,
@@ -297,6 +500,71 @@ test.describe('AuthService Email OTP policy', () => {
         expect(challenge.ok).toBe(false);
         if (challenge.ok) return;
         expect(challenge.code).toBe('email_otp_delivery_not_allowed');
+      },
+    );
+  });
+
+  test('Email OTP does not deliver a code before the challenge is durably persisted', async () => {
+    const { logger, entries } = makeCapturingLogger();
+    const service = makeServiceWithLogger(logger);
+    (service as any).getEmailOtpChallengeStore = () => ({
+      put: async () => {},
+      get: async () => null,
+      del: async () => {},
+    });
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      email: EMAIL,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(challenge.ok).toBe(false);
+    if (challenge.ok) return;
+    expect(challenge.code).toBe('internal');
+    expect(challenge.message).toBe('Email OTP challenge could not be persisted');
+
+    const serializedLogs = JSON.stringify(entries);
+    expect(serializedLogs).not.toContain('development OTP code');
+    expect(serializedLogs).not.toContain('devOtpCode');
+  });
+
+  test('Email OTP default memory delivery logs the development OTP code', async () => {
+    const { logger, entries } = makeCapturingLogger();
+    await withEnv(
+      {
+        NODE_ENV: 'development',
+        EMAIL_OTP_DELIVERY_MODE: undefined,
+        EMAIL_OTP_DEV_OUTBOX_ENABLED: 'true',
+      },
+      async () => {
+        const service = makeServiceWithLogger(logger);
+        const challenge = await service.createEmailOtpEnrollmentChallenge({
+          userId: USER_ID,
+          walletId: WALLET_ID,
+          email: EMAIL,
+          otpChannel: 'email_otp',
+          sessionHash: SESSION_HASH,
+          appSessionVersion: APP_SESSION_VERSION,
+        });
+        expect(challenge.ok).toBe(true);
+        if (!challenge.ok) return;
+        expect(challenge.delivery.mode).toBe('memory');
+
+        const outbox = await service.readEmailOtpOutboxEntry({
+          challengeId: challenge.challenge.challengeId,
+          userId: USER_ID,
+          walletId: WALLET_ID,
+        });
+        expect(outbox.ok).toBe(true);
+        if (!outbox.ok) return;
+
+        const serializedLogs = JSON.stringify(entries);
+        expect(serializedLogs).toContain('development OTP code');
+        expect(serializedLogs).toContain('devOtpCode');
+        expect(serializedLogs).toContain(outbox.otpCode);
       },
     );
   });
@@ -535,9 +803,79 @@ test.describe('AuthService Email OTP policy', () => {
     });
   });
 
+  test('Email OTP default challenge limits are local-friendly and production-conservative', async () => {
+    await withEnv(
+      {
+        ...EMAIL_OTP_RATE_LIMIT_ENV_UNSET,
+        NODE_ENV: 'development',
+        EMAIL_OTP_RATE_LIMITER_KIND: 'in-memory',
+      },
+      async () => {
+        const service = makeService();
+        for (let i = 0; i < 6; i += 1) {
+          const consumed = await consumeEmailOtpChallengeRateLimit(service, '203.0.113.20');
+          expect(consumed.ok).toBe(true);
+        }
+      },
+    );
+
+    await withEnv(
+      {
+        ...EMAIL_OTP_RATE_LIMIT_ENV_UNSET,
+        NODE_ENV: 'production',
+        EMAIL_OTP_RATE_LIMITER_KIND: 'in-memory',
+      },
+      async () => {
+        const service = makeService();
+        for (let i = 0; i < 5; i += 1) {
+          const consumed = await consumeEmailOtpChallengeRateLimit(service, '203.0.113.21');
+          expect(consumed.ok).toBe(true);
+        }
+
+        const limited = await consumeEmailOtpChallengeRateLimit(service, '203.0.113.21');
+        expect(limited.ok).toBe(false);
+        if (limited.ok) return;
+        expect(limited.code).toBe('rate_limited');
+      },
+    );
+  });
+
+  test('Email OTP local default rate limiter does not inherit shared Redis without explicit opt-in', async () => {
+    await withEnv(
+      {
+        ...EMAIL_OTP_RATE_LIMIT_ENV_UNSET,
+        NODE_ENV: 'development',
+        REDIS_URL: 'redis://127.0.0.1:1',
+        EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX: '1',
+        EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS: '60000',
+      },
+      async () => {
+        const firstService = makeService();
+        const firstConsume = await consumeEmailOtpChallengeRateLimit(firstService, '203.0.113.22');
+        expect(firstConsume.ok).toBe(true);
+
+        const firstLimited = await consumeEmailOtpChallengeRateLimit(
+          firstService,
+          '203.0.113.22',
+        );
+        expect(firstLimited.ok).toBe(false);
+        if (firstLimited.ok) return;
+        expect(firstLimited.code).toBe('rate_limited');
+
+        const secondService = makeService();
+        const secondConsume = await consumeEmailOtpChallengeRateLimit(
+          secondService,
+          '203.0.113.22',
+        );
+        expect(secondConsume.ok).toBe(true);
+      },
+    );
+  });
+
   test('Email OTP rate limits challenge issuance, OTP verification, and grant redemption', async () => {
     await withEnv(
       {
+        EMAIL_OTP_RATE_LIMITER_KIND: 'in-memory',
         EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX: '1',
         EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS: '60000',
         EMAIL_OTP_VERIFY_RATE_LIMIT_MAX: '1',
@@ -547,6 +885,7 @@ test.describe('AuthService Email OTP policy', () => {
       },
       async () => {
         const service = makeService();
+        await seedEmailOtpEnrollment(service);
 
         const challenge1 = await service.createEmailOtpChallenge({
           userId: USER_ID,

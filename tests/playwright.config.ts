@@ -226,8 +226,6 @@ export default defineConfig({
       VITE_WALLET_DEV_CSP: process.env.VITE_WALLET_DEV_CSP ?? 'strict',
       VITE_COEP_MODE: process.env.VITE_COEP_MODE ?? 'strict',
       VITE_CONSOLE_BASE_URL: process.env.VITE_CONSOLE_BASE_URL ?? DEV_SERVER_URL,
-      VITE_GOOGLE_OIDC_CLIENT_ID:
-        process.env.VITE_GOOGLE_OIDC_CLIENT_ID ?? 'playwright-google-client-id',
     },
   },
 });

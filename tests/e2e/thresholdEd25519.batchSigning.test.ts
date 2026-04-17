@@ -8,18 +8,21 @@
 import { test, expect } from '@playwright/test';
 import bs58 from 'bs58';
 import { ed25519 } from '@noble/curves/ed25519.js';
-import { DEFAULT_TEST_CONFIG } from '../setup/config';
-import { createRelayRouter } from '@server/router/express-adaptor';
-import { startExpressRouter } from '../relayer/helpers';
 import {
-  createInMemoryJwtSessionAdapter,
   installFastNearRpcMock,
   installThresholdEd25519RegistrationMocks,
   makeAuthServiceForThreshold,
   persistThresholdEd25519RegistrationMaterial,
+  setupManagedThresholdRegistrationHarness,
   setupThresholdE2ePage,
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_near_tx_signing_digests } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
+
+const BATCH_RUNTIME_POLICY_SCOPE = {
+  orgId: 'org_threshold_batch',
+  projectId: 'proj_threshold_batch',
+  envId: 'dev',
+} as const;
 
 test.describe('threshold-ed25519 batch signing', () => {
   test.setTimeout(180_000);
@@ -37,48 +40,65 @@ test.describe('threshold-ed25519 batch signing', () => {
 
     const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
     await service.getRelayerAccount();
-
-    const session = createInMemoryJwtSessionAdapter();
-    const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
-    const router = createRelayRouter(service, {
-      corsOrigins: [frontendOrigin],
+    const managedRegistrationHarness = await setupManagedThresholdRegistrationHarness({
+      page,
+      service,
       threshold,
-      session,
+      keyName: 'threshold-batch-browser',
+      orgId: 'org_threshold_batch',
+      orgSlug: 'threshold-batch-org',
+      orgName: 'Threshold Batch Org',
+      projectId: 'proj_threshold_batch',
+      projectName: 'Threshold Batch Project',
     });
-    const srv = await startExpressRouter(router);
 
     const relayerCounts = { keygen: 0, session: 0, authorize: 0, init: 0, finalize: 0 };
 
     try {
-      await page.route(`${srv.baseUrl}/threshold-ed25519/session`, async (route) => {
-        const req = route.request();
-        if (req.method().toUpperCase() === 'POST') relayerCounts.session += 1;
-        await route.fallback();
-      });
+      await page.route(
+        `${managedRegistrationHarness.baseUrl}/threshold-ed25519/session`,
+        async (route) => {
+          const req = route.request();
+          if (req.method().toUpperCase() === 'POST') relayerCounts.session += 1;
+          await route.fallback();
+        },
+      );
 
-      await page.route(`${srv.baseUrl}/threshold-ed25519/authorize`, async (route) => {
-        const req = route.request();
-        if (req.method().toUpperCase() === 'POST') {
-          relayerCounts.authorize += 1;
-        }
-        await route.fallback();
-      });
+      await page.route(
+        `${managedRegistrationHarness.baseUrl}/threshold-ed25519/authorize`,
+        async (route) => {
+          const req = route.request();
+          if (req.method().toUpperCase() === 'POST') {
+            relayerCounts.authorize += 1;
+          }
+          await route.fallback();
+        },
+      );
 
-      await page.route(`${srv.baseUrl}/threshold-ed25519/sign/init`, async (route) => {
-        const req = route.request();
-        if (req.method().toUpperCase() === 'POST') relayerCounts.init += 1;
-        await route.fallback();
-      });
-      await page.route(`${srv.baseUrl}/threshold-ed25519/sign/finalize`, async (route) => {
-        const req = route.request();
-        if (req.method().toUpperCase() === 'POST') relayerCounts.finalize += 1;
-        await route.fallback();
-      });
+      await page.route(
+        `${managedRegistrationHarness.baseUrl}/threshold-ed25519/sign/init`,
+        async (route) => {
+          const req = route.request();
+          if (req.method().toUpperCase() === 'POST') relayerCounts.init += 1;
+          await route.fallback();
+        },
+      );
+      await page.route(
+        `${managedRegistrationHarness.baseUrl}/threshold-ed25519/sign/finalize`,
+        async (route) => {
+          const req = route.request();
+          if (req.method().toUpperCase() === 'POST') relayerCounts.finalize += 1;
+          await route.fallback();
+        },
+      );
 
       await installThresholdEd25519RegistrationMocks(page, {
-        relayerBaseUrl: srv.baseUrl,
+        relayerBaseUrl: managedRegistrationHarness.baseUrl,
         keysOnChain,
         nonceByPublicKey,
+        session: managedRegistrationHarness.session,
+        threshold,
+        runtimePolicyScope: BATCH_RUNTIME_POLICY_SCOPE,
         onBootstrap: async (bootstrap) => {
           await persistThresholdEd25519RegistrationMaterial({ threshold, ...bootstrap });
         },
@@ -107,13 +127,20 @@ test.describe('threshold-ed25519 batch signing', () => {
             ok: true;
             accountId: string;
             operationalPublicKey: string;
+            ecdsaTempoKeyRef: {
+              ecdsaThresholdKeyId: string;
+              relayerKeyId: string;
+              thresholdSessionId: string;
+              participantIds: number[];
+              ethereumAddress: string;
+            };
             txInput: { receiverId: string; wasmActions: unknown[] };
             signedTxs: ExtractedSignedTx[];
           }
         | { ok: false; error: string };
 
       const result = (await page.evaluate(
-        async ({ relayerUrl }) => {
+        async ({ relayerUrl, managedRegistration }) => {
           try {
             const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
             const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
@@ -127,6 +154,15 @@ test.describe('threshold-ed25519 batch signing', () => {
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
               signingSessionDefaults: { ttlMs: 60_000, remainingUses: 10 },
               iframeWallet: { walletOrigin: '' },
             });
@@ -153,8 +189,39 @@ test.describe('threshold-ed25519 batch signing', () => {
             );
             if (!reg?.success) return { ok: false, error: reg?.error || 'registration failed' };
 
-            const login = await pm.auth.unlock(accountId);
-            if (!login?.success) return { ok: false, error: login?.error || 'login failed' };
+            const ecdsaTempoKeyRef = (() => {
+              try {
+                const keyRef = (pm.getContext().signingEngine as any).getThresholdEcdsaKeyRefForSigning(
+                  {
+                    nearAccountId: accountId,
+                    chain: 'tempo',
+                  },
+                );
+                return {
+                  ecdsaThresholdKeyId: String(keyRef?.ecdsaThresholdKeyId || ''),
+                  relayerKeyId: String(keyRef?.relayerKeyId || keyRef?.backendBinding?.relayerKeyId || ''),
+                  thresholdSessionId: String(keyRef?.thresholdSessionId || ''),
+                  participantIds: Array.isArray(keyRef?.participantIds)
+                    ? keyRef.participantIds.map((value: unknown) => Number(value)).filter(Number.isFinite)
+                    : [],
+                  ethereumAddress: String(keyRef?.ethereumAddress || ''),
+                };
+              } catch (error: any) {
+                throw new Error(error?.message || 'post-registration ECDSA key ref is unavailable');
+              }
+            })();
+            if (
+              !ecdsaTempoKeyRef.ecdsaThresholdKeyId ||
+              !ecdsaTempoKeyRef.relayerKeyId ||
+              !ecdsaTempoKeyRef.thresholdSessionId ||
+              ecdsaTempoKeyRef.participantIds.length === 0 ||
+              !/^0x[0-9a-f]{40}$/i.test(ecdsaTempoKeyRef.ethereumAddress)
+            ) {
+              return {
+                ok: false,
+                error: `post-registration ECDSA key ref incomplete: ${JSON.stringify(ecdsaTempoKeyRef)}`,
+              };
+            }
 
             const receiverId = 'w3a-v1.testnet';
             const actions = [{ type: ActionType.Transfer, amount: '1' }];
@@ -200,6 +267,7 @@ test.describe('threshold-ed25519 batch signing', () => {
               ok: true,
               accountId,
               operationalPublicKey: String(reg.operationalPublicKey || ''),
+              ecdsaTempoKeyRef,
               txInput: { receiverId, wasmActions },
               signedTxs: [extractSigned(signed[0]), extractSigned(signed[1])],
             };
@@ -207,7 +275,10 @@ test.describe('threshold-ed25519 batch signing', () => {
             return { ok: false, error: e?.message || String(e) };
           }
         },
-        { relayerUrl: srv.baseUrl },
+        {
+          relayerUrl: managedRegistrationHarness.baseUrl,
+          managedRegistration: managedRegistrationHarness.managedRegistration,
+        },
       )) as BatchSigningResult;
 
       if (!result.ok) {
@@ -216,11 +287,16 @@ test.describe('threshold-ed25519 batch signing', () => {
 
       expect(sendTxCount).toBe(0);
       expect(relayerCounts.keygen).toBe(0);
-      expect(relayerCounts.session).toBe(1);
+      expect(relayerCounts.session).toBe(0);
       expect(relayerCounts.authorize).toBeGreaterThanOrEqual(2);
       expect(relayerCounts.authorize).toBeLessThanOrEqual(4);
       expect(relayerCounts.init).toBe(2);
       expect(relayerCounts.finalize).toBe(2);
+      expect(result.ecdsaTempoKeyRef.ecdsaThresholdKeyId).toBeTruthy();
+      expect(result.ecdsaTempoKeyRef.relayerKeyId).toBeTruthy();
+      expect(result.ecdsaTempoKeyRef.thresholdSessionId).toBeTruthy();
+      expect(result.ecdsaTempoKeyRef.participantIds).toEqual([1, 2]);
+      expect(result.ecdsaTempoKeyRef.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
 
       const operationalPkStr = String(result.operationalPublicKey);
       const toPkBytes = (pk: string): Uint8Array => {
@@ -267,7 +343,7 @@ test.describe('threshold-ed25519 batch signing', () => {
         expect(ed25519.verify(sigBytes, digest, toPkBytes(wrongPublicKey))).toBe(false);
       }
     } finally {
-      await srv.close().catch(() => undefined);
+      await managedRegistrationHarness.close().catch(() => undefined);
     }
   });
 });

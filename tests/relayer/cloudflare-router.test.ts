@@ -24,7 +24,10 @@ import {
   createInMemoryConsoleWebhookService,
   createRelayPublishableKeyAuthAdapter,
 } from '@server/router/cloudflare-adaptor';
-import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
+import {
+  THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
+  THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+} from '@server/core/ThresholdService/schemes/schemeIds';
 import { callCf, getPath, makeCfCtx, makeFakeAuthService, makeSessionAdapter } from './helpers';
 
 type IssuedAppSessionClaims = {
@@ -267,6 +270,54 @@ function makeEd25519ThresholdAdapter(input: {
             message: 'not implemented',
           }),
           signFinalize: async () => ({
+            ok: false,
+            code: 'not_implemented',
+            message: 'not implemented',
+          }),
+        },
+      };
+    },
+  };
+}
+
+function makeEcdsaThresholdAdapter(input: {
+  prepare: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
+}): {
+  getSchemeModule: (schemeId: string) => Record<string, unknown> | null;
+} {
+  return {
+    getSchemeModule: (schemeId: string) => {
+      if (schemeId !== THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID) return null;
+      return {
+        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+        healthz: async () => ({ ok: true }),
+        hss: {
+          prepare: async (request: Record<string, unknown>) => await input.prepare(request),
+          respond: async () => ({
+            ok: false,
+            code: 'not_implemented',
+            message: 'not implemented',
+          }),
+          finalize: async () => ({
+            ok: false,
+            code: 'not_implemented',
+            message: 'not implemented',
+          }),
+        },
+        authorize: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
+        presign: {
+          init: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
+          step: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
+        },
+        protocol: {
+          signInit: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
+          signFinalize: async () => ({
+            ok: false,
+            code: 'not_implemented',
+            message: 'not implemented',
+          }),
+          cosignInit: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
+          cosignFinalize: async () => ({
             ok: false,
             code: 'not_implemented',
             message: 'not implemented',
@@ -1549,6 +1600,75 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(session.status).toBe(404);
   });
 
+  test('POST /threshold-ecdsa/hss/prepare injects runtime scope from threshold session claims', async () => {
+    let capturedRequest: Record<string, unknown> | null = null;
+    const service = makeFakeAuthService();
+    const session = makeSessionAdapter({
+      parse: async () => ({
+        ok: true,
+        claims: {
+          sub: 'alice.testnet',
+          kind: 'threshold_ed25519_session_v1',
+          sessionId: 'session-ed25519-scoped-ecdsa-cf',
+          relayerKeyId: 'relayer-ed25519-cf-1',
+          rpId: 'example.localhost',
+          thresholdExpiresAtMs: Date.now() + 60_000,
+          participantIds: [1, 2],
+          runtimePolicyScope: {
+            orgId: 'org-ecdsa-cf-1',
+            environmentId: 'env-ecdsa-cf-1',
+          },
+        },
+      }),
+    });
+    const threshold = makeEcdsaThresholdAdapter({
+      prepare: async (request) => {
+        capturedRequest = request;
+        return {
+          ok: true,
+          ceremonyId: 'ceremony-scoped-cf-1',
+          preparedServerSessionB64u: 'prepared-server',
+          serverAssistInitB64u: 'server-assist',
+        };
+      },
+    });
+    const handler = createCloudflareRouter(service, { session, threshold: threshold as any });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ecdsa/hss/prepare',
+      origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer session-token' },
+      body: {
+        userId: 'alice.testnet',
+        rpId: 'example.localhost',
+        operation: 'session_bootstrap',
+        ecdsaThresholdKeyId: 'ecdsa-key-cf-1',
+        keygenSessionId: 'keygen-scoped-cf-1',
+        sessionPolicy: {
+          version: 'threshold_session_v1',
+          userId: 'alice.testnet',
+          rpId: 'example.localhost',
+          sessionId: 'session-ecdsa-scoped-cf-1',
+          runtimePolicyScope: {
+            orgId: 'org-body-ignored',
+            environmentId: 'env-body-ignored',
+          },
+          participantIds: [1, 2],
+          ttlMs: 300_000,
+          remainingUses: 5,
+        },
+        sessionKind: 'jwt',
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(getPath(capturedRequest, 'sessionPolicy', 'runtimePolicyScope')).toEqual({
+      orgId: 'org-ecdsa-cf-1',
+      environmentId: 'env-ecdsa-cf-1',
+    });
+  });
+
   test('GET /session/state: sessions disabled -> 501', async () => {
     const service = makeFakeAuthService();
     const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
@@ -1788,6 +1908,199 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(getPath(res.json, 'session', 'userId')).toBe('user-oidc-cf-1');
     expect(getPath(res.json, 'session', 'expiresAt')).toBe('2030-01-01T00:00:00.000Z');
     expect(typeof res.json?.jwt).toBe('string');
+  });
+
+  test('POST /session/exchange: Google register forwards account mode to wallet id resolution', async () => {
+    let resolvedInput: Record<string, unknown> | null = null;
+    const session = makeSessionAdapter({ signJwt: async () => 'google-register-cf-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-cf-1',
+        providerSubject: 'google:user-cf-1',
+        sub: 'user-cf-1',
+        email: 'alice@example.com',
+        name: 'Alice Example',
+      }),
+      resolveOidcWalletId: async (input) => {
+        resolvedInput = input as Record<string, unknown>;
+        return 'alice-example-com-1712345678901.testnet';
+      },
+      getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google.id.token',
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(getPath(res.json, 'session', 'userId')).toBe('google:user-cf-1');
+    expect(getPath(res.json, 'session', 'walletId')).toBe(
+      'alice-example-com-1712345678901.testnet',
+    );
+    expect(resolvedInput).toMatchObject({
+      providerSubject: 'google:user-cf-1',
+      sub: 'user-cf-1',
+      email: 'alice@example.com',
+      accountMode: 'register',
+    });
+  });
+
+  test('POST /session/exchange: Google register binds managed runtime scope to app session', async () => {
+    let signedExtra: Record<string, unknown> | null = null;
+    const session = makeSessionAdapter({
+      signJwt: async (_sub, extra) => {
+        signedExtra = extra as Record<string, unknown>;
+        return 'google-register-scoped-cf-jwt';
+      },
+    });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-cf-scoped-1',
+        providerSubject: 'google:user-cf-scoped-1',
+        sub: 'user-cf-scoped-1',
+        email: 'scoped@example.com',
+      }),
+      resolveOidcWalletId: async () => 'scoped-example-com-1712345678901.testnet',
+      getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://wallet.example.test'],
+      session,
+      publishableKeyAuth: {
+        authenticate: async (input) => {
+          expect(input.secret).toBe('pk_test_scoped');
+          expect(input.origin).toBe('https://wallet.example.test');
+          expect(input.environmentId).toBe('env_test_scoped');
+          return {
+            ok: true,
+            principal: {
+              apiKeyId: 'pk_1',
+              orgId: 'org_test_scoped',
+              environmentId: 'env_test_scoped',
+              scopes: [],
+            },
+          };
+        },
+      },
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://wallet.example.test',
+      headers: { Authorization: 'Bearer pk_test_scoped' },
+      body: {
+        sessionKind: 'jwt',
+        runtimeEnvironmentId: 'env_test_scoped',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google.id.token',
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(getPath(res.json, 'session', 'runtimePolicyScope')).toEqual({
+      orgId: 'org_test_scoped',
+      environmentId: 'env_test_scoped',
+    });
+    expect(signedExtra?.runtimePolicyScope).toEqual({
+      orgId: 'org_test_scoped',
+      environmentId: 'env_test_scoped',
+    });
+  });
+
+  test('POST /session/exchange: Google login requires completed Email OTP enrollment', async () => {
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-google-login-cf-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-cf-1',
+        providerSubject: 'google:user-cf-1',
+        sub: 'user-cf-1',
+        email: 'alice@example.com',
+      }),
+      resolveOidcWalletId: async () => 'alice-example-com-1712345678901.testnet',
+      readEmailOtpEnrollment: async () => ({
+        ok: false,
+        code: 'not_found',
+        message: 'Email OTP enrollment not found',
+      }),
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'login',
+          token: 'google.id.token',
+        },
+      },
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.json?.code).toBe('not_found');
+    expect(res.json?.message).toBe('Email OTP enrollment not found');
+  });
+
+  test('POST /session/exchange: Google Email OTP requires account_mode', async () => {
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-google-cf-jwt' });
+    const service = makeFakeAuthService();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          token: 'google.id.token',
+        },
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.json?.code).toBe('invalid_body');
+    expect(res.json?.message).toBe(
+      'exchange.account_mode must be register or login for Google Email OTP',
+    );
   });
 
   test('POST /session/exchange: oidc_jwt + sessionKind=cookie sets cookie and omits jwt', async () => {
@@ -3328,7 +3641,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
           rpId: 'example.localhost',
           thresholdExpiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
-          runtimeSnapshotScope: {
+          runtimePolicyScope: {
             orgId: 'org-runtime-cf-1',
             projectId: 'project-runtime-cf-1',
             environmentId: 'env-runtime-cf-1',

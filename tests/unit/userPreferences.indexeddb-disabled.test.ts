@@ -7,11 +7,34 @@ const IMPORT_PATHS = {
 } as const;
 
 test.describe('UserPreferences when IndexedDB is disabled', () => {
-  test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page);
+  test('wallet-iframe app-origin mode disables SDK IndexedDB persistence', async ({
+    page,
+  }) => {
+    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { configureIndexedDB, IndexedDBManager } = await import(paths.indexedDBManager);
+
+        configureIndexedDB({ mode: 'disabled' });
+
+        return {
+          clientDbDisabled: IndexedDBManager.clientDB.isDisabled(),
+          accountKeyMaterialDbDisabled: IndexedDBManager.accountKeyMaterialDB.isDisabled(),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      clientDbDisabled: true,
+      accountKeyMaterialDbDisabled: true,
+    });
   });
 
   test('setCurrentUser does not cause unhandledrejection', async ({ page }) => {
+    await setupBasicPasskeyTest(page);
+
     const result = await page.evaluate(
       async ({ paths }) => {
         const { IndexedDBManager } = await import(paths.indexedDBManager);

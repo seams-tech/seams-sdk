@@ -31,12 +31,16 @@ import {
   respondThresholdEd25519HssServerCeremonyWithRelayRegistration,
 } from '@/core/TatchiPasskey/faucets/createAccountRelayServer';
 import {
-  deriveThresholdEd25519HssServerInputs,
   deriveThresholdEd25519HssPublicKey,
   finalizeThresholdEd25519HssServerCeremony,
   prepareThresholdEd25519HssServerCeremony,
   prepareThresholdEd25519HssServerSession,
 } from '../../server/src/core/ThresholdService/ed25519HssWasm';
+import { deriveEd25519HssServerInputsFromSigningRootSecretShares } from '../../server/src/core/ThresholdService/thresholdPrfWasm';
+import {
+  parseSigningRootSecretShareWireV1,
+  type SigningRootSecretShareWirePair,
+} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
 import {
   handle_signer_message,
   initSync as initNearSignerWasmSync,
@@ -90,10 +94,15 @@ const CONTEXT = {
 } as const;
 const RUNTIME_SCOPE = {
   orgId: CONTEXT.orgId,
-  environmentId: 'env_option_a',
+  projectId: 'project_option_a',
+  envId: 'env_option_a',
 } as const;
+const SIGNING_ROOT_ID = `${RUNTIME_SCOPE.projectId}:${RUNTIME_SCOPE.envId}`;
 const PRF_FIRST_B64U = Buffer.alloc(32, 11).toString('base64url');
-const MASTER_SECRET_B64U = Buffer.alloc(32, 7).toString('base64url');
+const SIGNING_ROOT_SECRET_SHARE_WIRE_HEX = [
+  '011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303',
+  '021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d',
+] as const;
 const NEAR_SIGNER_WASM_URL = new URL(
   '../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
   import.meta.url,
@@ -104,6 +113,55 @@ const HSS_CLIENT_SIGNER_WASM_URL = new URL(
 );
 let nearSignerWasmInitializedForDirectWorkerTests = false;
 let hssClientSignerWasmInitializedForDirectWorkerTests = false;
+
+function fixtureSigningRootSecretShareWirePair(): SigningRootSecretShareWirePair {
+  const parsed = SIGNING_ROOT_SECRET_SHARE_WIRE_HEX.map((wireHex) =>
+    parseSigningRootSecretShareWireV1(new Uint8Array(Buffer.from(wireHex, 'hex'))),
+  );
+  if (!parsed[0].ok) throw new Error(parsed[0].message);
+  if (!parsed[1].ok) throw new Error(parsed[1].message);
+  return [parsed[0].value, parsed[1].value];
+}
+
+async function deriveFixtureThresholdEd25519HssServerInputs(
+  context:
+    | typeof CONTEXT
+    | {
+        orgId: string;
+        signingRootId?: string;
+        nearAccountId: string;
+        keyPurpose: string;
+        keyVersion: string;
+        participantIds: readonly number[];
+        derivationVersion: number;
+      },
+) {
+  const shareWires = fixtureSigningRootSecretShareWirePair();
+  try {
+    return await deriveEd25519HssServerInputsFromSigningRootSecretShares({
+      shareWires,
+      context: {
+        orgId: context.orgId,
+        signingRootId: context.signingRootId || SIGNING_ROOT_ID,
+        nearAccountId: context.nearAccountId,
+        keyPurpose: context.keyPurpose,
+        keyVersion: context.keyVersion,
+        participantIds: [...context.participantIds],
+        derivationVersion: context.derivationVersion,
+      },
+    });
+  } finally {
+    shareWires[0].fill(0);
+    shareWires[1].fill(0);
+  }
+}
+
+function expectNoSigningRootSecretShareWire(payload: string): void {
+  for (const wireHex of SIGNING_ROOT_SECRET_SHARE_WIRE_HEX) {
+    expect(payload.includes(wireHex)).toBe(false);
+    expect(payload.includes(Buffer.from(wireHex, 'hex').toString('base64url'))).toBe(false);
+  }
+}
 
 function buildExportAuthorizationDecision(requestId: string) {
   return {
@@ -139,8 +197,12 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
   }>;
   finalize: (body: Record<string, any>) => Promise<{
     ok: true;
-    finalizedReport: Awaited<ReturnType<typeof finalizeThresholdEd25519HssServerCeremony>>['finalizedReport'];
-    serverOutput: Awaited<ReturnType<typeof finalizeThresholdEd25519HssServerCeremony>>['serverOutput'];
+    finalizedReport: Awaited<
+      ReturnType<typeof finalizeThresholdEd25519HssServerCeremony>
+    >['finalizedReport'];
+    serverOutput: Awaited<
+      ReturnType<typeof finalizeThresholdEd25519HssServerCeremony>
+    >['serverOutput'];
   }>;
 } {
   const ceremoniesByHandle = new Map<
@@ -167,10 +229,7 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
         prepareThresholdEd25519HssServerSession({
           context: body.context,
         }),
-        deriveThresholdEd25519HssServerInputs({
-          context: body.context,
-          masterSecretB64u: MASTER_SECRET_B64U,
-        }),
+        deriveFixtureThresholdEd25519HssServerInputs(body.context),
       ]);
       const preparedSession = {
         contextBindingB64u: preparedServerSession.contextBindingB64u,
@@ -182,7 +241,9 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
         preparedSession,
         preparedServerSession: {
           preparedSessionHandle: String(preparedServerSession.preparedSessionHandle || '').trim(),
-          evaluatorDriverStateBytes: base64UrlDecode(preparedServerSession.evaluatorDriverStateB64u),
+          evaluatorDriverStateBytes: base64UrlDecode(
+            preparedServerSession.evaluatorDriverStateB64u,
+          ),
           garblerDriverStateBytes: base64UrlDecode(preparedServerSession.garblerDriverStateB64u),
         },
         serverInputs: {
@@ -226,7 +287,10 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
       }
       ceremoniesByHandle.delete(ceremonyHandle);
       const finalized = await finalizeThresholdEd25519HssServerCeremony({
-        operation: ceremony.operation === 'explicit_key_export' ? 'explicit_key_export' : 'warm_session_reconstruction',
+        operation:
+          ceremony.operation === 'explicit_key_export'
+            ? 'explicit_key_export'
+            : 'warm_session_reconstruction',
         preparedSession: ceremony.preparedSession,
         preparedServerSession: ceremony.preparedServerSession,
         evaluationResult: ceremony.evaluationResult,
@@ -281,7 +345,7 @@ function seedThresholdEd25519Session(args?: { xClientBaseB64u?: string }): void 
     relayerUrl: RELAYER_URL,
     relayerKeyId: RELAYER_KEY_ID,
     participantIds: [...CONTEXT.participantIds],
-    runtimeSnapshotScope: { ...RUNTIME_SCOPE },
+    runtimePolicyScope: { ...RUNTIME_SCOPE },
     ...(String(args?.xClientBaseB64u || '').trim()
       ? { xClientBaseB64u: String(args?.xClientBaseB64u || '').trim() }
       : {}),
@@ -432,6 +496,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
   test('browser HSS wasm exports do not expose clear relayer roots', async () => {
     const context = {
       orgId: CONTEXT.orgId,
+      signingRootId: SIGNING_ROOT_ID,
       nearAccountId: NEAR_ACCOUNT_ID,
       keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
       keyVersion: CONTEXT.keyVersion,
@@ -456,10 +521,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       clientInputs,
       workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
     });
-    const serverInputs = await deriveThresholdEd25519HssServerInputs({
-      context,
-      masterSecretB64u: MASTER_SECRET_B64U,
-    });
+    const serverInputs = await deriveFixtureThresholdEd25519HssServerInputs(context);
     for (const payload of [
       JSON.stringify(preparedSession),
       JSON.stringify(clientInputs),
@@ -483,7 +545,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         rpId: RP_ID,
         relayerUrl: RELAYER_URL,
         relayerKeyId: RELAYER_KEY_ID,
-        runtimeSnapshotScope: { ...RUNTIME_SCOPE },
+        runtimePolicyScope: { ...RUNTIME_SCOPE },
         participantIds: [...CONTEXT.participantIds],
         sessionId: THRESHOLD_SESSION_ID,
         expiresAtMs: Date.now() + 60_000,
@@ -512,7 +574,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           relayerUrl: RELAYER_URL,
           relayerKeyId: RELAYER_KEY_ID,
           participantIds: [...CONTEXT.participantIds],
-          runtimeSnapshotScope: { ...RUNTIME_SCOPE },
+          runtimePolicyScope: { ...RUNTIME_SCOPE },
           thresholdSessionKind: 'jwt',
           thresholdSessionId: THRESHOLD_SESSION_ID,
           thresholdSessionJwt: THRESHOLD_SESSION_JWT,
@@ -528,7 +590,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         getStoredThresholdEd25519SessionRecordByThresholdSessionId(THRESHOLD_SESSION_ID),
       );
       expect(loaded?.thresholdSessionId).toBe(THRESHOLD_SESSION_ID);
-      expect(loaded?.runtimeSnapshotScope?.orgId).toBe(RUNTIME_SCOPE.orgId);
+      expect(loaded?.runtimePolicyScope?.orgId).toBe(RUNTIME_SCOPE.orgId);
 
       const persisted = withoutSessionStorage(() =>
         persistStoredThresholdEd25519SessionClientBase({
@@ -640,7 +702,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       relayerKeyId: RELAYER_KEY_ID,
-      runtimeSnapshotScope: { ...RUNTIME_SCOPE },
+      runtimePolicyScope: { ...RUNTIME_SCOPE },
       participantIds: [...CONTEXT.participantIds],
       sessionId: THRESHOLD_SESSION_ID,
       expiresAtMs: Date.now() + 60_000,
@@ -776,7 +838,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       relayerKeyId: RELAYER_KEY_ID,
-      runtimeSnapshotScope: { ...RUNTIME_SCOPE },
+      runtimePolicyScope: { ...RUNTIME_SCOPE },
       participantIds: [...CONTEXT.participantIds],
       sessionId: THRESHOLD_SESSION_ID,
       expiresAtMs: Date.now() + 60_000,
@@ -974,6 +1036,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       const preparedServerSession = await prepareThresholdEd25519HssServerSession({
         context: {
           orgId: CONTEXT.orgId,
+          signingRootId: SIGNING_ROOT_ID,
           nearAccountId: NEAR_ACCOUNT_ID,
           keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
           keyVersion: CONTEXT.keyVersion,
@@ -993,6 +1056,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
         sessionId: `${THRESHOLD_SESSION_ID}:option-a-export-test-inputs`,
         orgId: CONTEXT.orgId,
+        signingRootId: SIGNING_ROOT_ID,
         nearAccountId: NEAR_ACCOUNT_ID,
         keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
         keyVersion: CONTEXT.keyVersion,
@@ -1007,16 +1071,14 @@ test.describe('threshold Ed25519 Option A active path', () => {
         clientInputs,
         workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
       });
-      const serverInputs = await deriveThresholdEd25519HssServerInputs({
-        context: {
-          orgId: CONTEXT.orgId,
-          nearAccountId: NEAR_ACCOUNT_ID,
-          keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-          keyVersion: CONTEXT.keyVersion,
-          participantIds: [...CONTEXT.participantIds],
-          derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-        },
-        masterSecretB64u: MASTER_SECRET_B64U,
+      const serverInputs = await deriveFixtureThresholdEd25519HssServerInputs({
+        orgId: CONTEXT.orgId,
+        signingRootId: SIGNING_ROOT_ID,
+        nearAccountId: NEAR_ACCOUNT_ID,
+        keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+        keyVersion: CONTEXT.keyVersion,
+        participantIds: [...CONTEXT.participantIds],
+        derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
       });
       const storedServerInputs = {
         yRelayerBytes: base64UrlDecode(serverInputs.yRelayerB64u),
@@ -1233,7 +1295,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       rpId: RP_ID,
       relayerUrl: RELAYER_URL,
       relayerKeyId: RELAYER_KEY_ID,
-      runtimeSnapshotScope: { ...RUNTIME_SCOPE },
+      runtimePolicyScope: { ...RUNTIME_SCOPE },
       participantIds: [...CONTEXT.participantIds],
       sessionId: THRESHOLD_SESSION_ID,
       expiresAtMs: Date.now() + 60_000,
@@ -1571,7 +1633,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         false,
       );
       expect(prepareRequestJson.includes(PRF_FIRST_B64U)).toBe(false);
-      expect(prepareRequestJson.includes(MASTER_SECRET_B64U)).toBe(false);
+      expectNoSigningRootSecretShareWire(prepareRequestJson);
 
       expect(prepareResponses[0]).toHaveProperty('ceremonyHandle');
       expect(prepareResponses[0]).toHaveProperty('clientOtOfferMessageB64u');
@@ -1590,10 +1652,12 @@ test.describe('threshold Ed25519 Option A active path', () => {
           'participantIds',
         ),
       ).toBe(false);
-      expect(Object.prototype.hasOwnProperty.call(prepareResponses[0], 'serverAssistInit')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(prepareResponses[0], 'serverAssistInit')).toBe(
+        false,
+      );
       expect(Object.prototype.hasOwnProperty.call(prepareResponses[0], 'serverOutput')).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(prepareResponses[0], 'serverInputs')).toBe(false);
-      expect(prepareResponseJson.includes(MASTER_SECRET_B64U)).toBe(false);
+      expectNoSigningRootSecretShareWire(prepareResponseJson);
 
       expect(respondRequests[0]).toHaveProperty('ceremonyHandle');
       expect(respondRequests[0]).toHaveProperty('clientRequest');
@@ -1607,7 +1671,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         ),
       ).toBe(false);
       expect(respondRequestJson.includes(PRF_FIRST_B64U)).toBe(false);
-      expect(respondRequestJson.includes(MASTER_SECRET_B64U)).toBe(false);
+      expectNoSigningRootSecretShareWire(respondRequestJson);
 
       expect(Object.prototype.hasOwnProperty.call(respondResponses[0], 'serverAssistInit')).toBe(
         false,
@@ -1616,7 +1680,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         false,
       );
       expect(Object.prototype.hasOwnProperty.call(respondResponses[0], 'serverOutput')).toBe(false);
-      expect(respondResponseJson.includes(MASTER_SECRET_B64U)).toBe(false);
+      expectNoSigningRootSecretShareWire(respondResponseJson);
 
       expect(finalizeRequests[0]).toHaveProperty('ceremonyHandle');
       expect(Object.prototype.hasOwnProperty.call(finalizeRequests[0], 'evaluationResult')).toBe(
@@ -1631,7 +1695,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       );
       expect(Object.prototype.hasOwnProperty.call(finalizeRequests[0], 'seedB64u')).toBe(false);
       expect(finalizeRequestJson.includes(PRF_FIRST_B64U)).toBe(false);
-      expect(finalizeRequestJson.includes(MASTER_SECRET_B64U)).toBe(false);
+      expectNoSigningRootSecretShareWire(finalizeRequestJson);
 
       expect(finalizeResponses[0]).toHaveProperty('finalizedReport');
       expect(finalizeResponses[0].finalizedReport).toHaveProperty('clientOutputMessageB64u');
@@ -1645,7 +1709,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         false,
       );
       expect(finalizeResponseJson.includes('xRelayerBaseB64u')).toBe(false);
-      expect(finalizeResponseJson.includes(MASTER_SECRET_B64U)).toBe(false);
+      expectNoSigningRootSecretShareWire(finalizeResponseJson);
     } finally {
       globalThis.fetch = originalFetch;
       clearAllStoredThresholdEd25519SessionRecords();
@@ -1678,7 +1742,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
               expiresAt: new Date(Date.now() + 60_000).toISOString(),
               orgId: CONTEXT.orgId,
               projectId: 'project_option_a',
-              environmentId: RUNTIME_SCOPE.environmentId,
+              envId: RUNTIME_SCOPE.envId,
               origin: 'https://example.localhost',
               mode: 'free',
             },
@@ -1737,6 +1801,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
         sessionId: `${THRESHOLD_SESSION_ID}:registration-inputs`,
         orgId: CONTEXT.orgId,
+        signingRootId: SIGNING_ROOT_ID,
         nearAccountId: NEAR_ACCOUNT_ID,
         keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
         keyVersion: CONTEXT.keyVersion,
@@ -1747,6 +1812,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       });
       const hssContext = {
         orgId: CONTEXT.orgId,
+        signingRootId: SIGNING_ROOT_ID,
         nearAccountId: NEAR_ACCOUNT_ID,
         keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
         keyVersion: CONTEXT.keyVersion,
@@ -1763,7 +1829,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           },
           registration: {
             mode: 'managed',
-            environmentId: RUNTIME_SCOPE.environmentId,
+            environmentId: RUNTIME_SCOPE.envId,
             publishableKey: 'pk_test_option_a',
           },
         },
@@ -1814,9 +1880,9 @@ test.describe('threshold Ed25519 Option A active path', () => {
         false,
       );
       expect(JSON.stringify(prepareBodies[0]).includes(PRF_FIRST_B64U)).toBe(false);
-      expect(JSON.stringify(prepareBodies[0]).includes(MASTER_SECRET_B64U)).toBe(false);
+      expectNoSigningRootSecretShareWire(JSON.stringify(prepareBodies[0]));
       expect(JSON.stringify(finalizeBodies[0]).includes(PRF_FIRST_B64U)).toBe(false);
-      expect(JSON.stringify(finalizeBodies[0]).includes(MASTER_SECRET_B64U)).toBe(false);
+      expectNoSigningRootSecretShareWire(JSON.stringify(finalizeBodies[0]));
     } finally {
       globalThis.fetch = originalFetch;
     }

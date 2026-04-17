@@ -203,9 +203,10 @@ test.describe('EmailRecoveryDomain', () => {
                 expiresAtMs: Date.now() + 60_000,
                 remainingUses: 5,
                 participantIds: [1, 2],
-                runtimeSnapshotScope: {
+                runtimePolicyScope: {
                   orgId: 'org-email-recovery',
-                  environmentId: 'env-email-recovery',
+                  projectId: 'proj-email-recovery',
+                  envId: 'env-email-recovery',
                 },
                 jwt: 'sync-jwt',
               },

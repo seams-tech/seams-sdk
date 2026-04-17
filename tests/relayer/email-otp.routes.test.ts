@@ -34,6 +34,7 @@ const VALID_SECP256K1_PUBLIC_KEY_33_B64U = base64UrlEncode(
     ),
   ),
 );
+const GOOGLE_EMAIL_OTP_USER_ID = 'google:117142622123955425762';
 
 function encodePositiveBigIntB64u(value: bigint): string {
   if (value <= 0n) throw new Error('value must be > 0');
@@ -118,7 +119,7 @@ function makeService(): AuthService {
     accountInitialBalance: '1',
     createAccountAndRegisterGas: '1',
     logger: null,
-    thresholdEd25519KeyStore: {
+    thresholdStore: {
       PRF_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
       SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
       SHAMIR_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
@@ -135,6 +136,24 @@ function makeAppSessionAdapter(appSessionVersion: string) {
         kind: 'app_session_v1',
         sub: 'alice.testnet',
         appSessionVersion,
+        email: 'alice@example.com',
+      },
+    }),
+  });
+}
+
+function makeGoogleEmailOtpAppSessionAdapter(appSessionVersion: string) {
+  return makeSessionAdapter({
+    parse: async () => ({
+      ok: true,
+      claims: {
+        kind: 'app_session_v1',
+        sub: GOOGLE_EMAIL_OTP_USER_ID,
+        walletId: 'alice.testnet',
+        appSessionVersion,
+        provider: 'oidc',
+        oidcProvider: 'google',
+        providerSubject: GOOGLE_EMAIL_OTP_USER_ID,
         email: 'alice@example.com',
       },
     }),
@@ -292,6 +311,53 @@ async function enrollEmailOtpOverCloudflare(args: {
 }
 
 test.describe('Email OTP routes', () => {
+  test('Express: login challenge requires completed Email OTP enrollment', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const router = createRelayRouter(service, {
+      session: makeAppSessionAdapter((appVersion as { appSessionVersion: string }).appSessionVersion),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          otpChannel: 'email_otp',
+        }),
+      });
+      expect(challenge.status).toBe(404);
+      expect(challenge.json?.code).toBe('not_found');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('Cloudflare: login challenge requires completed Email OTP enrollment', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const handler = createCloudflareRouter(service, {
+      session: makeAppSessionAdapter((appVersion as { appSessionVersion: string }).appSessionVersion),
+    });
+    const cf = makeCfCtx();
+
+    const challenge = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/email-otp/challenge',
+      headers: { Authorization: 'Bearer app-session' },
+      body: {
+        walletId: 'alice.testnet',
+        otpChannel: 'email_otp',
+      },
+      ctx: cf.ctx,
+    });
+    expect(challenge.status).toBe(404);
+    expect(challenge.json?.code).toBe('not_found');
+  });
+
   test('Express: local development memory OTP flow issues challenge, serves dev outbox, verifies OTP, and consumes grants single-use', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
@@ -1433,6 +1499,36 @@ test.describe('Email OTP routes', () => {
     }
   });
 
+  test('Express: Google SSO Email OTP enrollment can re-enroll after Email OTP login without passkey', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({
+      userId: GOOGLE_EMAIL_OTP_USER_ID,
+    });
+    expect(appVersion.ok).toBe(true);
+    const server = await startExpressRouter(
+      createRelayRouter(service, {
+        session: makeGoogleEmailOtpAppSessionAdapter(
+          (appVersion as { appSessionVersion: string }).appSessionVersion,
+        ),
+      }),
+    );
+    try {
+      await enrollEmailOtpOverExpress({ baseUrl: server.baseUrl });
+      const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+      const current = await enrollmentStore.get('alice.testnet');
+      expect(current).toBeTruthy();
+      await enrollmentStore.put({
+        ...current,
+        updatedAtMs: Date.now(),
+        lastEmailOtpLoginAtMs: Date.now(),
+      });
+
+      await enrollEmailOtpOverExpress({ baseUrl: server.baseUrl });
+    } finally {
+      await server.close();
+    }
+  });
+
   test('Cloudflare: Email OTP enrollment mutations require fresh passkey auth after Email OTP', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
@@ -1464,5 +1560,31 @@ test.describe('Email OTP routes', () => {
     });
     expect(gated.status).toBe(403);
     expect(gated.json?.code).toBe('stronger_auth_required');
+  });
+
+  test('Cloudflare: Google SSO Email OTP enrollment can re-enroll after Email OTP login without passkey', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({
+      userId: GOOGLE_EMAIL_OTP_USER_ID,
+    });
+    expect(appVersion.ok).toBe(true);
+    const handler = createCloudflareRouter(service, {
+      session: makeGoogleEmailOtpAppSessionAdapter(
+        (appVersion as { appSessionVersion: string }).appSessionVersion,
+      ),
+    });
+    const cf = makeCfCtx();
+
+    await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
+    const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+    const current = await enrollmentStore.get('alice.testnet');
+    expect(current).toBeTruthy();
+    await enrollmentStore.put({
+      ...current,
+      updatedAtMs: Date.now(),
+      lastEmailOtpLoginAtMs: Date.now(),
+    });
+
+    await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
   });
 });

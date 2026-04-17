@@ -17,10 +17,6 @@ import {
 } from '@server/router/express-adaptor';
 import { startExpressRouter } from '../relayer/helpers';
 
-const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString(
-  'base64url',
-);
-
 export type ThresholdEcdsaTempoFlowOptions = {
   relayerUrl: string;
   signingKind?: 'tempoTransaction' | 'eip1559';
@@ -91,7 +87,6 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
 
   const { service, threshold } = makeAuthServiceForThreshold(keysOnChain, {
     THRESHOLD_NODE_ROLE: 'coordinator',
-    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: DEFAULT_ECDSA_MASTER_SECRET_B64U,
   });
   await service.getRelayerAccount();
 
@@ -104,6 +99,11 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
     roles: ['admin'],
   } as const;
   const bootstrapProjectId = 'proj_threshold_ecdsa_tempo';
+  const runtimePolicyScope = {
+    orgId: bootstrapAdminCtx.orgId,
+    projectId: bootstrapProjectId,
+    envId: 'dev',
+  } as const;
   const managedRegistrationEnvironmentId = `${bootstrapProjectId}:dev`;
   await orgProjectEnv.upsertOrganization(bootstrapAdminCtx, {
     name: 'Threshold ECDSA Tempo Org',
@@ -160,6 +160,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
     relayerBaseUrl: server.baseUrl,
     session,
     threshold,
+    runtimePolicyScope,
     onNewPublicKey: (publicKey) => {
       keysOnChain.add(publicKey);
       nonceByPublicKey.set(publicKey, 0);

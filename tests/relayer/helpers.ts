@@ -181,6 +181,7 @@ export function makeFakeAuthService(
     verifyEmailOtpUnlockProof: AuthService['verifyEmailOtpUnlockProof'];
     createEmailOtpChallenge: AuthService['createEmailOtpChallenge'];
     verifyEmailOtpChallenge: AuthService['verifyEmailOtpChallenge'];
+    readEmailOtpEnrollment: AuthService['readEmailOtpEnrollment'];
     readEmailOtpOutboxEntry: AuthService['readEmailOtpOutboxEntry'];
     createWebAuthnSyncAccountOptions: AuthService['createWebAuthnSyncAccountOptions'];
     verifyWebAuthnSyncAccount: AuthService['verifyWebAuthnSyncAccount'];
@@ -190,9 +191,13 @@ export function makeFakeAuthService(
     validateAppSessionVersion: AuthService['validateAppSessionVersion'];
     rotateAppSessionVersion: AuthService['rotateAppSessionVersion'];
     verifyOidcJwtExchange: AuthService['verifyOidcJwtExchange'];
+    resolveOidcWalletId: AuthService['resolveOidcWalletId'];
     isGoogleOidcConfigured: AuthService['isGoogleOidcConfigured'];
     verifyGoogleLogin: AuthService['verifyGoogleLogin'];
     markEmailOtpStrongAuthSatisfied: AuthService['markEmailOtpStrongAuthSatisfied'];
+    checkAccountExists: AuthService['checkAccountExists'];
+    createAccount: AuthService['createAccount'];
+    viewAccessKeyList: AuthService['viewAccessKeyList'];
     prepareEmailRecovery: AuthService['prepareEmailRecovery'];
     prepareLinkDevice: AuthService['prepareLinkDevice'];
     getRecoverySession: AuthService['getRecoverySession'];
@@ -244,6 +249,24 @@ export function makeFakeAuthService(
     verifyEmailOtpChallenge:
       overrides.verifyEmailOtpChallenge ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    readEmailOtpEnrollment:
+      overrides.readEmailOtpEnrollment ||
+      (async (request) => ({
+        ok: true,
+        enrollment: {
+          walletId: String(
+            (request as { walletId?: unknown }).walletId || 'g-fake-oidc-wallet.testnet',
+          ),
+          userId: 'user.testnet',
+          otpChannel: 'email_otp',
+          emailOtpEscrowBlob: 'test-escrow',
+          emailOtpKeyVersion: 'test-email-otp-key-v1',
+          unlockPublicKey: 'test-unlock-public-key',
+          unlockKeyVersion: 'test-unlock-key-v1',
+          createdAtMs: 0,
+          updatedAtMs: 0,
+        },
+      })),
     readEmailOtpOutboxEntry:
       overrides.readEmailOtpOutboxEntry ||
       (async () => ({ ok: false, code: 'not_found', message: 'not found' })),
@@ -278,6 +301,8 @@ export function makeFakeAuthService(
         code: 'not_implemented',
         message: 'not implemented',
       })),
+    resolveOidcWalletId:
+      overrides.resolveOidcWalletId || (async () => 'g-fake-oidc-wallet.testnet'),
     isGoogleOidcConfigured: overrides.isGoogleOidcConfigured || (() => false),
     verifyGoogleLogin:
       overrides.verifyGoogleLogin ||
@@ -289,6 +314,11 @@ export function makeFakeAuthService(
       })),
     markEmailOtpStrongAuthSatisfied:
       overrides.markEmailOtpStrongAuthSatisfied || (async () => ({ ok: true })),
+    checkAccountExists: overrides.checkAccountExists || (async () => false),
+    createAccount:
+      overrides.createAccount ||
+      (async () => ({ success: false, error: 'not implemented' })),
+    viewAccessKeyList: overrides.viewAccessKeyList || (async () => ({ keys: [] })),
     prepareEmailRecovery:
       overrides.prepareEmailRecovery ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),

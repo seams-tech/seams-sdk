@@ -111,9 +111,10 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               participantIds: [1, 2],
               ttlMs: 60_000,
               remainingUses: 3,
-              runtimeSnapshotScope: {
+              runtimePolicyScope: {
                 orgId: 'org-registration',
-                environmentId: 'env-registration',
+                projectId: 'proj-registration',
+                envId: 'env-registration',
               },
             },
             completedRegistration: {
@@ -131,9 +132,10 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   expiresAtMs: now + 60_000,
                   participantIds: [1, 2],
                   remainingUses: 3,
-                  runtimeSnapshotScope: {
+                  runtimePolicyScope: {
                     orgId: 'org-registration',
-                    environmentId: 'env-registration',
+                projectId: 'proj-registration',
+                envId: 'env-registration',
                   },
                   jwt: 'jwt-registration',
                 },
@@ -271,9 +273,10 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               participantIds: [1, 2],
               ttlMs: 60_000,
               remainingUses: 3,
-              runtimeSnapshotScope: {
+              runtimePolicyScope: {
                 orgId: 'org-registration',
-                environmentId: 'env-registration',
+                projectId: 'proj-registration',
+                envId: 'env-registration',
               },
             },
             completedRegistration: {
@@ -291,9 +294,10 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   expiresAtMs: now + 60_000,
                   participantIds: [1, 2],
                   remainingUses: 3,
-                  runtimeSnapshotScope: {
+                  runtimePolicyScope: {
                     orgId: 'org-registration',
-                    environmentId: 'env-registration',
+                projectId: 'proj-registration',
+                envId: 'env-registration',
                   },
                   jwt: 'jwt-registration',
                 },

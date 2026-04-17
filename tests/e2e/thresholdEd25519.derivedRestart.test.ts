@@ -1,10 +1,10 @@
 /**
- * Threshold Ed25519 (2-party) — derived relayer share mode restart.
+ * Threshold Ed25519 (2-party) — signing-root relayer share restart.
  *
- * This test proves that in `THRESHOLD_ED25519_SHARE_MODE=derived` the relayer does not need to
- * persist long-lived signing shares: after a relayer restart (fresh in-memory stores), signing
- * still succeeds because the relayer deterministically re-derives its signing share from
- * `THRESHOLD_ED25519_MASTER_SECRET_B64U` plus the canonical registration context.
+ * This future test should prove that the relayer does not need to persist long-lived signing
+ * shares: after a relayer restart (fresh in-memory stores), signing still succeeds because the
+ * relayer derives its signing input from persisted encrypted signing-root shares plus the
+ * canonical registration context.
  */
 
 import { test, expect } from '@playwright/test';
@@ -23,7 +23,7 @@ import {
 } from './thresholdEd25519.testUtils';
 import { threshold_ed25519_compute_near_tx_signing_digests } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
 
-test.describe('threshold-ed25519 derived share mode restart', () => {
+test.describe('threshold-ed25519 signing-root share restart', () => {
   test.setTimeout(180_000);
 
   test.beforeEach(async ({ page }) => {
@@ -38,10 +38,8 @@ test.describe('threshold-ed25519 derived share mode restart', () => {
     const nonceByPublicKey = new Map<string, number>();
     let sendTxCount = 0;
 
-    const masterSecretB64u = Buffer.alloc(32, 7).toString('base64url');
     const derivedConfig = {
-      THRESHOLD_ED25519_SHARE_MODE: 'derived',
-      THRESHOLD_ED25519_MASTER_SECRET_B64U: masterSecretB64u,
+      THRESHOLD_NODE_ROLE: 'coordinator',
     } as const;
 
     const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;

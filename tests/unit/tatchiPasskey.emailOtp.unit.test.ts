@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
+  EmailOtpRouteError,
   enrollEmailOtpWallet,
+  exchangeGoogleEmailOtpSession,
   requestEmailOtpChallenge,
   requestEmailOtpEnrollmentChallenge,
   verifyEmailOtpCode,
@@ -128,6 +130,24 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
+      if (url.endsWith('/session/exchange')) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            session: {
+              userId: 'google:subject-1',
+              walletId: 'alice.testnet',
+              email: 'alice@example.com',
+              runtimePolicyScope: {
+                orgId: 'org_test',
+                environmentId: 'env_test',
+                projectId: 'project_test',
+              },
+            },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
       throw new Error(`Unexpected fetch URL: ${url}`);
     };
 
@@ -158,12 +178,76 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
       otpChannel: 'email_otp',
       emailOtpEscrowBlob: 'escrow-1',
     });
+    await expect(
+      exchangeGoogleEmailOtpSession({
+        relayUrl: 'https://relay.example',
+        idToken: 'google-id-token-1',
+        accountMode: 'register',
+        sessionKind: 'cookie',
+        runtimeEnvironmentId: 'env_test',
+        fetchImpl,
+      }),
+    ).resolves.toEqual({
+      session: {
+        userId: 'google:subject-1',
+        walletId: 'alice.testnet',
+        email: 'alice@example.com',
+        runtimePolicyScope: {
+          orgId: 'org_test',
+          environmentId: 'env_test',
+          projectId: 'project_test',
+        },
+      },
+    });
 
     expect(fetchCalls.map((call) => call.url)).toEqual([
       'https://relay.example/wallet/email-otp/challenge',
       'https://relay.example/wallet/email-otp/enroll/challenge',
       'https://relay.example/wallet/email-otp/verify',
+      'https://relay.example/session/exchange',
     ]);
+    expect(fetchCalls[3]?.body).toEqual({
+      session_kind: 'cookie',
+      runtimeEnvironmentId: 'env_test',
+      exchange: {
+        type: 'oidc_jwt',
+        provider: 'google',
+        account_mode: 'register',
+        token: 'google-id-token-1',
+      },
+    });
+  });
+
+  test('Email OTP route helpers preserve rate-limit metadata', async () => {
+    const fetchImpl: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          code: 'rate_limited',
+          message: 'Email OTP rate limit exceeded',
+          retryAfterMs: 123_000,
+          resetAtMs: 1_712_345_678_901,
+        }),
+        { status: 429, headers: { 'Content-Type': 'application/json' } },
+      );
+
+    let caught: unknown;
+    try {
+      await requestEmailOtpEnrollmentChallenge({
+        relayUrl: 'https://relay.example',
+        walletId: 'alice.testnet',
+        fetchImpl,
+      });
+    } catch (error: unknown) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(EmailOtpRouteError);
+    expect((caught as EmailOtpRouteError).message).toBe('Email OTP rate limit exceeded');
+    expect((caught as EmailOtpRouteError).status).toBe(429);
+    expect((caught as EmailOtpRouteError).code).toBe('rate_limited');
+    expect((caught as EmailOtpRouteError).retryAfterMs).toBe(123_000);
+    expect((caught as EmailOtpRouteError).resetAtMs).toBe(1_712_345_678_901);
   });
 
   test('Email OTP enrollment dispatches secret-bearing enrollment through the dedicated worker', async () => {

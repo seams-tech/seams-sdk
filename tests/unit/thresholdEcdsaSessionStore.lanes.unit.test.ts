@@ -14,98 +14,101 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
   test('canonical lane key encoding round-trips and malformed lane keys are ignored', async ({
     page,
   }) => {
-    const result = await page.evaluate(async ({ paths }) => {
-      const storeMod = await import(paths.thresholdSessionStore);
-      const deps = { recordsByLane: new Map<string, unknown>() };
-      storeMod.clearAllThresholdEcdsaSessionRecords(deps);
-      const now = Date.now();
-      const relayerKeyId = 'rk:tempo/1 with spaces';
-      const ecdsaThresholdKeyId = 'ek:tempo/1 with spaces';
-      storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
-        nearAccountId: 'alice.testnet',
-        chain: 'tempo',
-        source: 'login',
-        bootstrap: {
-          thresholdEcdsaKeyRef: {
-            type: 'threshold-ecdsa-secp256k1',
-            userId: 'alice.testnet',
-            relayerUrl: 'https://relay.example',
-            ecdsaThresholdKeyId,
-            backendBinding: {
-              relayerKeyId,
-              clientVerifyingShareB64u: 'AQ',
-            },
-            participantIds: [1, 2],
-            thresholdSessionKind: 'jwt',
-            thresholdSessionId: 'session-tempo-encode-1',
-            thresholdSessionJwt: 'jwt-tempo-encode-1',
-          },
-          keygen: {
-            ok: true,
-            keygenSessionId: 'kg-tempo-encode-1',
-            rpId: 'example.localhost',
-            clientVerifyingShareB64u: 'AQ',
-            relayerKeyId,
-            participantIds: [1, 2],
-          },
-          session: {
-            ok: true,
-            sessionId: 'session-tempo-encode-1',
-            jwt: 'jwt-tempo-encode-1',
-            expiresAtMs: now + 120_000,
-            remainingUses: 9,
-          },
-        },
-      });
-
-      const v2Prefix = 'tatchi:threshold-ecdsa-session:v2';
-      const laneIndex = JSON.parse(sessionStorage.getItem(`${v2Prefix}:index`) || '[]');
-      const canonicalLaneKey = Array.isArray(laneIndex) ? String(laneIndex[0] || '') : '';
-      const canonicalDecoded = canonicalLaneKey
-        .split('|')
-        .map((token) => decodeURIComponent(String(token || '').trim()));
-
-      sessionStorage.clear();
-      sessionStorage.setItem(`${v2Prefix}:index`, JSON.stringify(['alice|not-a-chain|rk']));
-      sessionStorage.setItem(
-        `${v2Prefix}:alice|not-a-chain|rk`,
-        JSON.stringify({
-          v: 1,
-          record: {
-            nearAccountId: 'alice.testnet',
-            chain: 'tempo',
-            relayerUrl: 'https://relay.example',
-            relayerKeyId: 'rk-tempo',
-            clientVerifyingShareB64u: 'AQ',
-            participantIds: [1, 2],
-            thresholdSessionKind: 'jwt',
-            thresholdSessionId: 'invalid-lane-key-record',
-            thresholdSessionJwt: 'jwt-invalid',
-            expiresAtMs: now + 120_000,
-            remainingUses: 1,
-            updatedAtMs: now,
-            source: 'login',
-          },
-        }),
-      );
-      deps.recordsByLane.clear();
-
-      let malformedLaneKeyError = '';
-      try {
-        storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const storeMod = await import(paths.thresholdSessionStore);
+        const deps = { recordsByLane: new Map<string, unknown>() };
+        storeMod.clearAllThresholdEcdsaSessionRecords(deps);
+        const now = Date.now();
+        const relayerKeyId = 'rk:tempo/1 with spaces';
+        const ecdsaThresholdKeyId = 'ek:tempo/1 with spaces';
+        storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'tempo',
+          source: 'login',
+          bootstrap: {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              ecdsaThresholdKeyId,
+              backendBinding: {
+                relayerKeyId,
+                clientVerifyingShareB64u: 'AQ',
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'session-tempo-encode-1',
+              thresholdSessionJwt: 'jwt-tempo-encode-1',
+            },
+            keygen: {
+              ok: true,
+              keygenSessionId: 'kg-tempo-encode-1',
+              rpId: 'example.localhost',
+              clientVerifyingShareB64u: 'AQ',
+              relayerKeyId,
+              participantIds: [1, 2],
+            },
+            session: {
+              ok: true,
+              sessionId: 'session-tempo-encode-1',
+              jwt: 'jwt-tempo-encode-1',
+              expiresAtMs: now + 120_000,
+              remainingUses: 9,
+            },
+          },
         });
-      } catch (error) {
-        malformedLaneKeyError = error instanceof Error ? error.message : String(error || '');
-      }
 
-      return {
-        canonicalLaneKey,
-        canonicalDecoded,
-        malformedLaneKeyError,
-      };
-    }, { paths: IMPORT_PATHS });
+        const v2Prefix = 'tatchi:threshold-ecdsa-session:v2';
+        const laneIndex = JSON.parse(sessionStorage.getItem(`${v2Prefix}:index`) || '[]');
+        const canonicalLaneKey = Array.isArray(laneIndex) ? String(laneIndex[0] || '') : '';
+        const canonicalDecoded = canonicalLaneKey
+          .split('|')
+          .map((token) => decodeURIComponent(String(token || '').trim()));
+
+        sessionStorage.clear();
+        sessionStorage.setItem(`${v2Prefix}:index`, JSON.stringify(['alice|not-a-chain|rk']));
+        sessionStorage.setItem(
+          `${v2Prefix}:alice|not-a-chain|rk`,
+          JSON.stringify({
+            v: 1,
+            record: {
+              nearAccountId: 'alice.testnet',
+              chain: 'tempo',
+              relayerUrl: 'https://relay.example',
+              relayerKeyId: 'rk-tempo',
+              clientVerifyingShareB64u: 'AQ',
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'invalid-lane-key-record',
+              thresholdSessionJwt: 'jwt-invalid',
+              expiresAtMs: now + 120_000,
+              remainingUses: 1,
+              updatedAtMs: now,
+              source: 'login',
+            },
+          }),
+        );
+        deps.recordsByLane.clear();
+
+        let malformedLaneKeyError = '';
+        try {
+          storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+            nearAccountId: 'alice.testnet',
+            chain: 'tempo',
+          });
+        } catch (error) {
+          malformedLaneKeyError = error instanceof Error ? error.message : String(error || '');
+        }
+
+        return {
+          canonicalLaneKey,
+          canonicalDecoded,
+          malformedLaneKeyError,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
 
     expect(result.canonicalLaneKey).toContain('|');
     expect(result.canonicalDecoded).toEqual(['alice.testnet', 'tempo', 'ek:tempo/1 with spaces']);
@@ -333,7 +336,9 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
         const explicitLaneIndex = JSON.parse(
           sessionStorage.getItem(`${explicitStoragePrefix}:index`) || '[]',
         );
-        const explicitLaneKey = Array.isArray(explicitLaneIndex) ? String(explicitLaneIndex[0] || '') : '';
+        const explicitLaneKey = Array.isArray(explicitLaneIndex)
+          ? String(explicitLaneIndex[0] || '')
+          : '';
         const explicitStoredRaw = explicitLaneKey
           ? sessionStorage.getItem(`${explicitStoragePrefix}:${explicitLaneKey}`) || ''
           : '';
@@ -393,6 +398,109 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
       explicitStoredHasPrivateKeyHex: false,
       legacyRecordHasThresholdKeyId: 'ek-legacy',
       legacyKeyRefHasThresholdKeyId: 'ek-legacy',
+    });
+  });
+
+  test('Email OTP ECDSA sessions persist only opaque share handles, not derived share bytes', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const storeMod = await import(paths.thresholdSessionStore);
+        const deps = { recordsByLane: new Map<string, unknown>() };
+        const now = Date.now();
+        const secretShareSentinel = 'email-otp-derived-share-must-not-persist';
+        const handle = {
+          kind: 'email_otp_worker_session',
+          sessionId: 'email-otp-session-1',
+        };
+
+        storeMod.clearAllThresholdEcdsaSessionRecords(deps);
+        storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+          source: 'email_otp',
+          emailOtpAuthContext: {
+            policy: 'session',
+            retention: 'session',
+            reason: 'login',
+            authMethod: 'email_otp',
+            stepUpRequired: true,
+          },
+          bootstrap: {
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relay.example',
+              ecdsaThresholdKeyId: 'ek-email-otp',
+              backendBinding: {
+                relayerKeyId: 'rk-email-otp',
+                clientVerifyingShareB64u: 'AQ',
+                clientAdditiveShare32B64u: secretShareSentinel,
+                clientAdditiveShareHandle: handle,
+              },
+              participantIds: [1, 2],
+              thresholdSessionKind: 'jwt',
+              thresholdSessionId: 'email-otp-session-1',
+              thresholdSessionJwt: 'jwt-email-otp-1',
+            },
+            keygen: {
+              ok: true,
+              keygenSessionId: 'kg-email-otp-1',
+              rpId: 'example.localhost',
+              clientVerifyingShareB64u: 'AQ',
+              relayerKeyId: 'rk-email-otp',
+              clientAdditiveShare32B64u: secretShareSentinel,
+              participantIds: [1, 2],
+            },
+            session: {
+              ok: true,
+              sessionId: 'email-otp-session-1',
+              jwt: 'jwt-email-otp-1',
+              expiresAtMs: now + 120_000,
+              remainingUses: 9,
+            },
+          },
+        });
+
+        const record = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+        });
+        const keyRef = storeMod.getThresholdEcdsaKeyRefForSigning(deps, {
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+        });
+        const prefix = 'tatchi:threshold-ecdsa-session:v2';
+        const index = JSON.parse(sessionStorage.getItem(`${prefix}:index`) || '[]');
+        const laneKey = Array.isArray(index) ? String(index[0] || '') : '';
+        const storedRaw = laneKey ? sessionStorage.getItem(`${prefix}:${laneKey}`) || '' : '';
+
+        return {
+          recordHasInlineShare: Boolean(record.clientAdditiveShare32B64u),
+          recordHandle: record.clientAdditiveShareHandle || null,
+          keyRefHasInlineShare: Boolean(keyRef.backendBinding?.clientAdditiveShare32B64u),
+          keyRefHandle: keyRef.backendBinding?.clientAdditiveShareHandle || null,
+          storedContainsSentinel: storedRaw.includes(secretShareSentinel),
+          storedContainsHandle: storedRaw.includes('email_otp_worker_session'),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      recordHasInlineShare: false,
+      recordHandle: {
+        kind: 'email_otp_worker_session',
+        sessionId: 'email-otp-session-1',
+      },
+      keyRefHasInlineShare: false,
+      keyRefHandle: {
+        kind: 'email_otp_worker_session',
+        sessionId: 'email-otp-session-1',
+      },
+      storedContainsSentinel: false,
+      storedContainsHandle: true,
     });
   });
 
@@ -471,10 +579,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
           .join('|');
 
         sessionStorage.clear();
-        sessionStorage.setItem(
-          `${prefix}:index`,
-          JSON.stringify([laneKey]),
-        );
+        sessionStorage.setItem(`${prefix}:index`, JSON.stringify([laneKey]));
         sessionStorage.setItem(
           `${prefix}:${laneKey}`,
           JSON.stringify({

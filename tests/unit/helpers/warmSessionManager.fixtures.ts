@@ -87,7 +87,7 @@ export function seedEd25519WarmSessionRecord(
     relayerUrl: args.relayerUrl || 'https://relay.example',
     relayerKeyId: args.relayerKeyId || 'rk-ed25519',
     participantIds: args.participantIds || [1, 2],
-    ...(args.runtimeSnapshotScope ? { runtimeSnapshotScope: args.runtimeSnapshotScope } : {}),
+    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     ...(args.xClientBaseB64u ? { xClientBaseB64u: args.xClientBaseB64u } : {}),
     thresholdSessionKind: args.thresholdSessionKind || 'jwt',
     thresholdSessionId: args.thresholdSessionId,

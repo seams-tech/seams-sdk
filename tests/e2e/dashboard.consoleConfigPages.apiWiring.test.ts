@@ -217,6 +217,7 @@ test.describe('dashboard console config page api wiring', () => {
     let sessionExchangeCalls = 0;
     let exchangeToken = '';
     let exchangeType = '';
+    let exchangeProvider = '';
     let exchangeSessionKind = '';
     let optionsRequestUsedLegacyAuthHeaders = false;
     let exchangeRequestUsedLegacyAuthHeaders = false;
@@ -267,6 +268,7 @@ test.describe('dashboard console config page api wiring', () => {
         body: JSON.stringify({
           ok: true,
           configured: true,
+          clientId: 'playwright-google-client-id',
         }),
       });
     });
@@ -282,6 +284,7 @@ test.describe('dashboard console config page api wiring', () => {
       const exchange = (body.exchange || {}) as Record<string, unknown>;
       exchangeToken = String(exchange.token || '').trim();
       exchangeType = String(exchange.type || '').trim();
+      exchangeProvider = String(exchange.provider || '').trim();
       exchangeSessionKind = String(body.session_kind || '').trim();
       sessionExchangeCalls += 1;
       sessionEstablished = true;
@@ -428,6 +431,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => sessionExchangeCalls).toBe(1);
     await expect.poll(() => exchangeToken).toBe('mock-google-id-token');
     await expect(exchangeType).toBe('oidc_jwt');
+    await expect(exchangeProvider).toBe('google');
     await expect(exchangeSessionKind).toBe('cookie');
     await expect(optionsRequestUsedLegacyAuthHeaders).toBe(false);
     await expect(exchangeRequestUsedLegacyAuthHeaders).toBe(false);

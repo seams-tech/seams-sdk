@@ -263,7 +263,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
         { relayerUrl: harness.baseUrl },
       );
 
-      expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
+      expect(result.ok, JSON.stringify(result)).toBe(true);
       expect(result.code).toBe('tx_payload_mismatch');
       expect(result.reason).toBe('mismatch');
       const observedInput = result.observedInput;
@@ -1243,7 +1243,11 @@ test.describe('threshold-ecdsa tempo signing', () => {
             const evmThenTempo = await runOrder(['evm', 'tempo']);
 
             const orderOk = (
-              entries: Array<{ requestedChain: 'tempo' | 'evm'; resultChain: string; kind: string }>,
+              entries: Array<{
+                requestedChain: 'tempo' | 'evm';
+                resultChain: string;
+                kind: string;
+              }>,
               expected: Array<'tempo' | 'evm'>,
             ) =>
               entries.length === 2 &&
@@ -1256,8 +1260,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
 
             return {
               ok:
-                orderOk(tempoThenEvm, ['tempo', 'evm']) &&
-                orderOk(evmThenTempo, ['evm', 'tempo']),
+                orderOk(tempoThenEvm, ['tempo', 'evm']) && orderOk(evmThenTempo, ['evm', 'tempo']),
               tempoThenEvm,
               evmThenTempo,
             };
@@ -1275,7 +1278,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
         { relayerUrl: harness.baseUrl },
       );
 
-      expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
+      expect(result.ok, JSON.stringify(result)).toBe(true);
       expect(result.tempoThenEvm).toEqual([
         {
           requestedChain: 'tempo',

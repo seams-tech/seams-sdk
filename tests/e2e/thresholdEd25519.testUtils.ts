@@ -4,7 +4,7 @@ import { setupBasicPasskeyTest, SDK_ESM_PATHS } from '../setup';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
-import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
+import type { ThresholdStoreConfigInput } from '@server/core/types';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
 import { makeSessionAdapter, startExpressRouter } from '../relayer/helpers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
@@ -16,6 +16,7 @@ import {
   createRelayPublishableKeyAuthAdapter,
   createRelayRouter,
 } from '@server/router/express-adaptor';
+import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 
 const SESSION_COOKIE_NAME =
   String(process.env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
@@ -37,38 +38,30 @@ export async function setupThresholdE2ePage(page: Page): Promise<void> {
 const DEFAULT_ACCOUNTS_ON_CHAIN = new Set<string>(
   [DEFAULT_TEST_CONFIG.relayerAccount].filter((id): id is string => !!id),
 );
-const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString(
-  'base64url',
-);
-const DEFAULT_ED25519_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(7)).toString(
-  'base64url',
-);
 const THRESHOLD_ED25519_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
 
 export function makeAuthServiceForThreshold(
   keysOnChain: Set<string>,
-  thresholdEd25519KeyStore?: ThresholdEd25519KeyStoreConfigInput | null,
+  thresholdStore?: ThresholdStoreConfigInput | null,
 ): {
   service: AuthService;
   threshold: ReturnType<typeof createThresholdSigningService>;
 } {
-  const thresholdConfigDefaults: ThresholdEd25519KeyStoreConfigInput = {
+  const providedConfig = (thresholdStore || {}) as Partial<ThresholdStoreConfigInput>;
+  const needsFixtureSigningRootResolver = !(
+    providedConfig.signingRootShareResolver ||
+    providedConfig.signingRootSecretResolverAdapters ||
+    providedConfig.signingRootSecretStore ||
+    providedConfig.signingRootSecretDecryptAdapter ||
+    providedConfig.signingRootSecretShareKekResolver
+  );
+  const thresholdConfig: ThresholdStoreConfigInput = {
     THRESHOLD_NODE_ROLE: 'coordinator',
-    THRESHOLD_ED25519_MASTER_SECRET_B64U: DEFAULT_ED25519_MASTER_SECRET_B64U,
-    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: DEFAULT_ECDSA_MASTER_SECRET_B64U,
+    ...providedConfig,
+    ...(needsFixtureSigningRootResolver
+      ? { signingRootShareResolver: createFixtureSigningRootShareResolverForUnitTests() }
+      : {}),
   };
-  const thresholdConfig: ThresholdEd25519KeyStoreConfigInput = thresholdEd25519KeyStore
-    ? {
-        ...thresholdConfigDefaults,
-        ...thresholdEd25519KeyStore,
-        THRESHOLD_ED25519_MASTER_SECRET_B64U:
-          String(thresholdEd25519KeyStore.THRESHOLD_ED25519_MASTER_SECRET_B64U || '').trim() ||
-          DEFAULT_ED25519_MASTER_SECRET_B64U,
-        THRESHOLD_SECP256K1_MASTER_SECRET_B64U:
-          String(thresholdEd25519KeyStore.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim() ||
-          DEFAULT_ECDSA_MASTER_SECRET_B64U,
-      }
-    : thresholdConfigDefaults;
 
   const svc = new AuthService({
     relayerAccount: 'relayer.testnet',
@@ -77,7 +70,7 @@ export function makeAuthServiceForThreshold(
     networkId: DEFAULT_TEST_CONFIG.nearNetwork,
     accountInitialBalance: '1',
     createAccountAndRegisterGas: '1',
-    thresholdEd25519KeyStore: thresholdConfig,
+    thresholdStore: thresholdConfig,
     logger: null,
   });
 
@@ -101,7 +94,7 @@ export function makeAuthServiceForThreshold(
   };
   const threshold = createThresholdSigningService({
     authService: svc,
-    thresholdEd25519KeyStore: thresholdConfig,
+    thresholdStore: thresholdConfig,
     logger: null,
   });
   svc.setThresholdSigningService(threshold);
@@ -121,9 +114,7 @@ export async function persistThresholdEd25519RegistrationMaterial(input: {
   const existing = await (
     input.threshold as unknown as {
       keyStore?: {
-        get: (
-          relayerKeyId: string,
-        ) => Promise<{
+        get: (relayerKeyId: string) => Promise<{
           nearAccountId: string;
           rpId: string;
           publicKey: string;
@@ -326,6 +317,11 @@ export async function installCreateAccountAndRegisterUserMock(
     session?: {
       signJwt: (sub: string, extra?: Record<string, unknown>) => Promise<string>;
     };
+    runtimePolicyScope?: {
+      orgId: string;
+      projectId: string;
+      envId: string;
+    };
     threshold?: {
       bootstrapEcdsaFromRegistrationMaterial?: (request: {
         userId: string;
@@ -386,6 +382,7 @@ export async function installCreateAccountAndRegisterUserMock(
         rpId: String(payload?.rp_id || '').trim() || 'example.localhost',
         participantIds: args.participantIds,
         thresholdExpiresAtMs: args.expiresAtMs,
+        ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
         iat: nowSec,
         exp: expSec,
       });
@@ -420,11 +417,14 @@ export async function installCreateAccountAndRegisterUserMock(
                 participantIds,
                 expiresAtMs,
               }),
+              ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
             };
           })()
         : undefined;
     const ecdsaBootstrap =
-      thresholdEcdsaMode && input.threshold?.bootstrapEcdsaFromRegistrationMaterial && ecdsaSessionPolicy
+      thresholdEcdsaMode &&
+      input.threshold?.bootstrapEcdsaFromRegistrationMaterial &&
+      ecdsaSessionPolicy
         ? await input.threshold.bootstrapEcdsaFromRegistrationMaterial({
             userId: accountId,
             rpId: String(payload?.rp_id || '').trim() || 'example.localhost',
@@ -439,11 +439,15 @@ export async function installCreateAccountAndRegisterUserMock(
                   `ecdsa-session-${nowMs}`,
               ),
               participantIds: [1, 2],
-              ttlMs: coercePositive(ecdsaSessionPolicy?.ttlMs || ecdsaSessionPolicy?.ttl_ms, 60_000),
+              ttlMs: coercePositive(
+                ecdsaSessionPolicy?.ttlMs || ecdsaSessionPolicy?.ttl_ms,
+                60_000,
+              ),
               remainingUses: coercePositive(
                 ecdsaSessionPolicy?.remainingUses || ecdsaSessionPolicy?.remaining_uses,
                 10_000,
               ),
+              ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
             },
           })
         : null;
@@ -458,20 +462,26 @@ export async function installCreateAccountAndRegisterUserMock(
       });
       return;
     }
-    const thresholdEcdsaRelayerKeyId = String(
-      ecdsaBootstrap && ecdsaBootstrap.ok === true ? ecdsaBootstrap.relayerKeyId || '' : '',
-    ).trim() || 'secp256k1:mock-relayer-key-id';
-    const thresholdEcdsaPublicKeyB64u = String(
-      ecdsaBootstrap && ecdsaBootstrap.ok === true ? ecdsaBootstrap.thresholdEcdsaPublicKeyB64u || '' : '',
-    ).trim() || base64UrlEncode(new Uint8Array(33).fill(61));
-    const thresholdEcdsaRelayerVerifyingShareB64u = String(
-      ecdsaBootstrap && ecdsaBootstrap.ok === true
-        ? ecdsaBootstrap.relayerVerifyingShareB64u || ''
-        : '',
-    ).trim() || base64UrlEncode(new Uint8Array(33).fill(31));
-    const thresholdEcdsaEthereumAddress = String(
-      ecdsaBootstrap && ecdsaBootstrap.ok === true ? ecdsaBootstrap.ethereumAddress || '' : '',
-    ).trim() || `0x${'12'.repeat(20)}`;
+    const thresholdEcdsaRelayerKeyId =
+      String(
+        ecdsaBootstrap && ecdsaBootstrap.ok === true ? ecdsaBootstrap.relayerKeyId || '' : '',
+      ).trim() || 'secp256k1:mock-relayer-key-id';
+    const thresholdEcdsaPublicKeyB64u =
+      String(
+        ecdsaBootstrap && ecdsaBootstrap.ok === true
+          ? ecdsaBootstrap.thresholdEcdsaPublicKeyB64u || ''
+          : '',
+      ).trim() || base64UrlEncode(new Uint8Array(33).fill(61));
+    const thresholdEcdsaRelayerVerifyingShareB64u =
+      String(
+        ecdsaBootstrap && ecdsaBootstrap.ok === true
+          ? ecdsaBootstrap.relayerVerifyingShareB64u || ''
+          : '',
+      ).trim() || base64UrlEncode(new Uint8Array(33).fill(31));
+    const thresholdEcdsaEthereumAddress =
+      String(
+        ecdsaBootstrap && ecdsaBootstrap.ok === true ? ecdsaBootstrap.ethereumAddress || '' : '',
+      ).trim() || `0x${'12'.repeat(20)}`;
     const thresholdEcdsaThresholdKeyId = String(
       ecdsaBootstrap && ecdsaBootstrap.ok === true ? ecdsaBootstrap.ecdsaThresholdKeyId || '' : '',
     ).trim();
@@ -771,6 +781,15 @@ export async function installThresholdEd25519RegistrationMocks(
       publicKey: string;
       keyVersion: string;
     }) => void | Promise<void>;
+    session?: {
+      signJwt: (sub: string, extra?: Record<string, unknown>) => Promise<string>;
+    };
+    threshold?: ReturnType<typeof createThresholdSigningService>;
+    runtimePolicyScope?: {
+      orgId: string;
+      projectId: string;
+      envId: string;
+    };
     mutateThresholdEd25519Response?: (
       thresholdEd25519: Record<string, unknown>,
     ) => Record<string, unknown>;
@@ -810,6 +829,52 @@ export async function installThresholdEd25519RegistrationMocks(
       sessionPolicy?.remainingUses || sessionPolicy?.remaining_uses,
       10_000,
     );
+    const expiresAtMs = Date.now() + ttlMs;
+    const effectiveExpiresAtMs = expiresAtMs;
+    const effectiveRemainingUses = remainingUses;
+    const effectiveParticipantIds = [1, 2];
+    const thresholdAuthSessionStore = (
+      input.threshold as unknown as {
+        authSessionStore?: {
+          putSession: (
+            sessionId: string,
+            record: unknown,
+            opts: { ttlMs: number; remainingUses: number },
+          ) => Promise<void>;
+        };
+      }
+    )?.authSessionStore;
+    if (sessionId && thresholdAuthSessionStore?.putSession) {
+      await thresholdAuthSessionStore.putSession(
+        sessionId,
+        {
+          expiresAtMs: effectiveExpiresAtMs,
+          relayerKeyId,
+          userId: accountId,
+          rpId,
+          participantIds: effectiveParticipantIds,
+        },
+        {
+          ttlMs,
+          remainingUses: effectiveRemainingUses,
+        },
+      );
+    }
+    const nowSec = Math.floor(Date.now() / 1000);
+    const thresholdSessionJwt =
+      sessionId && input.session?.signJwt
+        ? await input.session.signJwt(accountId, {
+            kind: 'threshold_ed25519_session_v1',
+            sessionId,
+            relayerKeyId,
+            rpId,
+            participantIds: effectiveParticipantIds,
+            thresholdExpiresAtMs: effectiveExpiresAtMs,
+            ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
+            iat: nowSec,
+            exp: Math.floor(effectiveExpiresAtMs / 1000),
+          })
+        : 'mock-threshold-ed25519-registration-jwt';
 
     if (accountId) {
       accountsOnChain.add(accountId);
@@ -840,10 +905,11 @@ export async function installThresholdEd25519RegistrationMocks(
             session: {
               sessionKind: 'jwt',
               sessionId,
-              expiresAtMs: Date.now() + ttlMs,
-              participantIds: [1, 2],
-              remainingUses,
-              jwt: 'mock-threshold-ed25519-registration-jwt',
+              expiresAtMs: effectiveExpiresAtMs,
+              participantIds: effectiveParticipantIds,
+              remainingUses: effectiveRemainingUses,
+              jwt: thresholdSessionJwt,
+              ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
             },
           }
         : {}),

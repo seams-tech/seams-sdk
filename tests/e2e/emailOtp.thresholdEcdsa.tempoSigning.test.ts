@@ -13,10 +13,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
     const harness = await setupEmailOtpEcdsaTempoHarness(page);
     const accountId = `emailotpsession${Date.now()}.w3a-v1.testnet`;
     try {
-      const bootstrappedKey = await harness.bootstrapEmailOtpEcdsaKey({
-        userId: accountId,
-        clientSecretB64u: harness.defaultClientSecretB64u,
-      });
       const appSessionJwt = await harness.mintAppSessionJwt({
         userId: accountId,
         deviceId: 'email-otp-enroll-device',
@@ -28,23 +24,18 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         accountId,
         enrollAppSessionJwt: appSessionJwt,
         loginAppSessionJwt: appSessionJwt,
-        ecdsaThresholdKeyId: bootstrappedKey.ecdsaThresholdKeyId,
-        participantIds: bootstrappedKey.participantIds,
         clientSecretB64u: harness.defaultClientSecretB64u,
         emailOtpAuthPolicy: 'session',
         signTwice: true,
+        signNearAfterLogin: true,
       });
 
       const failureContext = result.ok
         ? result
-        : {
-            result,
-            bootstrappedKey,
-            enrollment: await harness.readEmailOtpEnrollment(accountId),
-            integratedKey: await harness.readIntegratedEcdsaKey(
-              bootstrappedKey.ecdsaThresholdKeyId,
-            ),
-          };
+          : {
+              result,
+              enrollment: await harness.readEmailOtpEnrollment(accountId),
+            };
       expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
       expect(result.registration?.success).toBe(true);
       expect(result.ecdsaKeyBinding?.ecdsaThresholdKeyId).toBeTruthy();
@@ -64,6 +55,10 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(result.secondSign?.chain).toBe('tempo');
       expect(result.secondSign?.kind).toBe('tempoTransaction');
       expect(result.secondSign?.rawTxHex?.startsWith('0x')).toBe(true);
+      expect(result.nearSign?.ok, result.nearSign?.error || '').toBe(true);
+      expect(result.nearSign?.signedCount).toBe(1);
+      expect(result.nearSign?.signerId).toBe(accountId);
+      expect(result.nearSign?.receiverId).toBe('w3a-v1.testnet');
     } finally {
       await harness.close();
     }
@@ -75,10 +70,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
     const harness = await setupEmailOtpEcdsaTempoHarness(page);
     const accountId = `emailotpperop${Date.now()}.w3a-v1.testnet`;
     try {
-      const bootstrappedKey = await harness.bootstrapEmailOtpEcdsaKey({
-        userId: accountId,
-        clientSecretB64u: harness.defaultClientSecretB64u,
-      });
       const appSessionJwt = await harness.mintAppSessionJwt({
         userId: accountId,
         deviceId: 'email-otp-enroll-device',
@@ -90,8 +81,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         accountId,
         enrollAppSessionJwt: appSessionJwt,
         loginAppSessionJwt: appSessionJwt,
-        ecdsaThresholdKeyId: bootstrappedKey.ecdsaThresholdKeyId,
-        participantIds: bootstrappedKey.participantIds,
         clientSecretB64u: harness.defaultClientSecretB64u,
         emailOtpAuthPolicy: 'per_operation',
         signTwice: true,
@@ -99,14 +88,10 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
 
       const failureContext = result.ok
         ? result
-        : {
-            result,
-            bootstrappedKey,
-            enrollment: await harness.readEmailOtpEnrollment(accountId),
-            integratedKey: await harness.readIntegratedEcdsaKey(
-              bootstrappedKey.ecdsaThresholdKeyId,
-            ),
-          };
+          : {
+              result,
+              enrollment: await harness.readEmailOtpEnrollment(accountId),
+            };
       expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
       expect(result.emailOtpLogin?.policy).toBe('per_operation');
       expect(result.emailOtpLogin?.retention).toBe('single_use');
@@ -131,10 +116,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
     const harness = await setupEmailOtpEcdsaTempoHarness(page);
     const accountId = `emailotpevm${Date.now()}.w3a-v1.testnet`;
     try {
-      const bootstrappedKey = await harness.bootstrapEmailOtpEcdsaKey({
-        userId: accountId,
-        clientSecretB64u: harness.defaultClientSecretB64u,
-      });
       const appSessionJwt = await harness.mintAppSessionJwt({
         userId: accountId,
         deviceId: 'email-otp-evm-device',
@@ -146,8 +127,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         accountId,
         enrollAppSessionJwt: appSessionJwt,
         loginAppSessionJwt: appSessionJwt,
-        ecdsaThresholdKeyId: bootstrappedKey.ecdsaThresholdKeyId,
-        participantIds: bootstrappedKey.participantIds,
         clientSecretB64u: harness.defaultClientSecretB64u,
         emailOtpAuthPolicy: 'session',
         signingKind: 'eip1559',
@@ -156,14 +135,10 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
 
       const failureContext = result.ok
         ? result
-        : {
-            result,
-            bootstrappedKey,
-            enrollment: await harness.readEmailOtpEnrollment(accountId),
-            integratedKey: await harness.readIntegratedEcdsaKey(
-              bootstrappedKey.ecdsaThresholdKeyId,
-            ),
-          };
+          : {
+              result,
+              enrollment: await harness.readEmailOtpEnrollment(accountId),
+            };
       expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
       expect(result.emailOtpLogin?.policy).toBe('session');
       expect(result.emailOtpLogin?.retention).toBe('session');
@@ -186,10 +161,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
     const harness = await setupEmailOtpEcdsaTempoHarness(page);
     const accountId = `emailotpevmpop${Date.now()}.w3a-v1.testnet`;
     try {
-      const bootstrappedKey = await harness.bootstrapEmailOtpEcdsaKey({
-        userId: accountId,
-        clientSecretB64u: harness.defaultClientSecretB64u,
-      });
       const appSessionJwt = await harness.mintAppSessionJwt({
         userId: accountId,
         deviceId: 'email-otp-evm-perop-device',
@@ -201,8 +172,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         accountId,
         enrollAppSessionJwt: appSessionJwt,
         loginAppSessionJwt: appSessionJwt,
-        ecdsaThresholdKeyId: bootstrappedKey.ecdsaThresholdKeyId,
-        participantIds: bootstrappedKey.participantIds,
         clientSecretB64u: harness.defaultClientSecretB64u,
         emailOtpAuthPolicy: 'per_operation',
         signingKind: 'eip1559',
@@ -211,14 +180,10 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
 
       const failureContext = result.ok
         ? result
-        : {
-            result,
-            bootstrappedKey,
-            enrollment: await harness.readEmailOtpEnrollment(accountId),
-            integratedKey: await harness.readIntegratedEcdsaKey(
-              bootstrappedKey.ecdsaThresholdKeyId,
-            ),
-          };
+          : {
+              result,
+              enrollment: await harness.readEmailOtpEnrollment(accountId),
+            };
       expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
       expect(result.emailOtpLogin?.policy).toBe('per_operation');
       expect(result.emailOtpLogin?.retention).toBe('single_use');

@@ -1,5 +1,4 @@
 import type { Page } from '@playwright/test';
-import { deriveEmailOtpEcdsaClientRootShare32B64u } from './emailOtpDerivation';
 import {
   createInMemoryJwtSessionAdapter,
   installCreateAccountAndRegisterUserMock,
@@ -9,9 +8,6 @@ import {
   setupThresholdE2ePage,
 } from '../e2e/thresholdEd25519.testUtils';
 
-const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString(
-  'base64url',
-);
 const SHAMIR_PRIME_B64U = '_____________________________________v___C8';
 const SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U = 'AQAB';
 const SHAMIR_SERVER_DECRYPT_EXPONENT_B64U = '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXSv___Ic';
@@ -32,21 +28,7 @@ export type EmailOtpEcdsaTempoHarness = {
     deviceId?: string;
     rotate?: boolean;
   }) => Promise<string>;
-  bootstrapEmailOtpEcdsaKey: (args: {
-    userId: string;
-    walletId?: string;
-    clientSecretB64u?: string;
-    rpId?: string;
-  }) => Promise<{
-    ecdsaThresholdKeyId: string;
-    participantIds: number[];
-    clientVerifyingShareB64u: string;
-    thresholdEcdsaPublicKeyB64u: string;
-    ethereumAddress: string;
-    clientRootShare32B64u: string;
-  }>;
   readEmailOtpEnrollment: (walletId: string) => Promise<unknown>;
-  readIntegratedEcdsaKey: (ecdsaThresholdKeyId: string) => Promise<unknown>;
   close: () => Promise<void>;
 };
 
@@ -55,13 +37,14 @@ export type EmailOtpEcdsaTempoFlowOptions = {
   shamirPrimeB64u: string;
   enrollAppSessionJwt: string;
   loginAppSessionJwt: string;
-  ecdsaThresholdKeyId: string;
-  participantIds: number[];
+  ecdsaThresholdKeyId?: string;
+  participantIds?: number[];
   clientSecretB64u?: string;
   accountId?: string;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   signingKind?: 'tempoTransaction' | 'eip1559';
   signTwice?: boolean;
+  signNearAfterLogin?: boolean;
 };
 
 export type EmailOtpEcdsaTempoFlowResult = {
@@ -104,6 +87,13 @@ export type EmailOtpEcdsaTempoFlowResult = {
     rawTxHex?: string;
     error?: string;
   };
+  nearSign?: {
+    ok: boolean;
+    signedCount?: number;
+    signerId?: string;
+    receiverId?: string;
+    error?: string;
+  };
   error?: string;
 };
 
@@ -114,16 +104,21 @@ export async function setupEmailOtpEcdsaTempoHarness(
 
   const keysOnChain = new Set<string>();
   const nonceByPublicKey = new Map<string, number>();
+  const accountsOnChain = new Set<string>();
   const session = createInMemoryJwtSessionAdapter();
   const { service, threshold } = makeAuthServiceForThreshold(keysOnChain, {
     THRESHOLD_NODE_ROLE: 'coordinator',
-    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: DEFAULT_ECDSA_MASTER_SECRET_B64U,
     PRF_SESSION_SEAL_KEY_VERSION: 'kek-s-email-otp-test',
     SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
     SHAMIR_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
     SHAMIR_D_S_B64U: SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
   });
   await service.getRelayerAccount();
+  const runtimePolicyScope = {
+    orgId: 'org_threshold_ecdsa_email_otp',
+    projectId: 'proj_threshold_ecdsa_email_otp',
+    envId: 'dev',
+  } as const;
 
   const harness = await setupManagedThresholdRegistrationHarness({
     page,
@@ -131,10 +126,10 @@ export async function setupEmailOtpEcdsaTempoHarness(
     threshold,
     session,
     keyName: 'threshold-ecdsa-email-otp-browser',
-    orgId: 'org_threshold_ecdsa_email_otp',
+    orgId: runtimePolicyScope.orgId,
     orgSlug: 'threshold-ecdsa-email-otp-org',
     orgName: 'Threshold ECDSA Email OTP Org',
-    projectId: 'proj_threshold_ecdsa_email_otp',
+    projectId: runtimePolicyScope.projectId,
     projectName: 'Threshold ECDSA Email OTP Project',
   });
 
@@ -142,14 +137,44 @@ export async function setupEmailOtpEcdsaTempoHarness(
     relayerBaseUrl: harness.baseUrl,
     session,
     threshold,
+    runtimePolicyScope,
     onNewPublicKey: (publicKey) => {
       keysOnChain.add(publicKey);
       nonceByPublicKey.set(publicKey, 0);
     },
   });
+  await page.route(
+    `${harness.baseUrl}/registration/threshold-ed25519/hss/finalize`,
+    async (route) => {
+      const req = route.request();
+      if (req.method().toUpperCase() !== 'POST') {
+        await route.fallback();
+        return;
+      }
+      const response = await route.fetch();
+      const body = await response.body();
+      try {
+        const json = JSON.parse(body.toString('utf8') || '{}');
+        for (const key of [json.publicKey, json.relayerKeyId]) {
+          const publicKey = String(key || '').trim();
+          if (publicKey) {
+            keysOnChain.add(publicKey);
+            nonceByPublicKey.set(publicKey, nonceByPublicKey.get(publicKey) ?? 0);
+          }
+        }
+      } catch {}
+      await route.fulfill({
+        status: response.status(),
+        headers: response.headers(),
+        body,
+      });
+    },
+  );
   await installFastNearRpcMock(page, {
     keysOnChain,
     nonceByPublicKey,
+    strictAccessKeyLookup: false,
+    accountsOnChain,
   });
 
   return {
@@ -161,6 +186,7 @@ export async function setupEmailOtpEcdsaTempoHarness(
       if (!normalizedUserId) {
         throw new Error('mintAppSessionJwt requires userId');
       }
+      accountsOnChain.add(normalizedUserId);
       const versionResult = rotate
         ? await service.rotateAppSessionVersion({ userId: normalizedUserId })
         : await service.getOrCreateAppSessionVersion({ userId: normalizedUserId });
@@ -173,85 +199,12 @@ export async function setupEmailOtpEcdsaTempoHarness(
         appSessionVersion: versionResult.appSessionVersion,
         email: String(email || DEFAULT_EMAIL).trim() || DEFAULT_EMAIL,
         deviceId: String(deviceId || 'browser-email-otp').trim() || 'browser-email-otp',
+        runtimePolicyScope,
       });
-    },
-    bootstrapEmailOtpEcdsaKey: async ({ userId, walletId, clientSecretB64u, rpId }) => {
-      const normalizedUserId = String(userId || '').trim();
-      if (!normalizedUserId) {
-        throw new Error('bootstrapEmailOtpEcdsaKey requires userId');
-      }
-      const normalizedWalletId =
-        String(walletId || normalizedUserId).trim() || normalizedUserId;
-      const detectedRpId =
-        String(
-          rpId ||
-            (await page
-              .evaluate(() => String(globalThis.location?.hostname || '').trim())
-              .catch(() => '')),
-        ).trim() || 'example.localhost';
-      const normalizedClientSecretB64u =
-        String(clientSecretB64u || DEFAULT_EMAIL_OTP_CLIENT_SECRET_B64U).trim() ||
-        DEFAULT_EMAIL_OTP_CLIENT_SECRET_B64U;
-      const clientRootShare32B64u = await deriveEmailOtpEcdsaClientRootShare32B64u({
-        clientSecretB64u: normalizedClientSecretB64u,
-        walletId: normalizedWalletId,
-        userId: normalizedUserId,
-      });
-      const sessionId = `email-otp-registration-${Date.now()}-${Math.random()
-        .toString(16)
-        .slice(2)}`;
-      const bootstrapped = await threshold.bootstrapEcdsaFromRegistrationMaterial({
-        userId: normalizedUserId,
-        rpId: detectedRpId,
-        clientRootShare32B64u,
-        sessionPolicy: {
-          version: 'threshold_session_v1',
-          userId: normalizedUserId,
-          rpId: detectedRpId,
-          sessionId,
-          participantIds: [1, 2],
-          ttlMs: 120_000,
-          remainingUses: 4,
-        },
-      });
-      if (!bootstrapped.ok) {
-        throw new Error(bootstrapped.message || 'Email OTP threshold bootstrap failed');
-      }
-      const ecdsaThresholdKeyId = String(bootstrapped.ecdsaThresholdKeyId || '').trim();
-      const clientVerifyingShareB64u = String(bootstrapped.clientVerifyingShareB64u || '').trim();
-      const thresholdEcdsaPublicKeyB64u = String(
-        bootstrapped.thresholdEcdsaPublicKeyB64u || '',
-      ).trim();
-      const ethereumAddress = String(bootstrapped.ethereumAddress || '').trim();
-      const participantIds = Array.isArray(bootstrapped.participantIds)
-        ? bootstrapped.participantIds
-            .map((value) => Number(value))
-            .filter((value) => Number.isFinite(value))
-        : [];
-      if (
-        !ecdsaThresholdKeyId ||
-        !clientVerifyingShareB64u ||
-        !thresholdEcdsaPublicKeyB64u ||
-        !ethereumAddress ||
-        participantIds.length === 0
-      ) {
-        throw new Error('Email OTP threshold bootstrap returned incomplete key metadata');
-      }
-      return {
-        ecdsaThresholdKeyId,
-        participantIds,
-        clientVerifyingShareB64u,
-        thresholdEcdsaPublicKeyB64u,
-        ethereumAddress,
-        clientRootShare32B64u,
-      };
     },
     readEmailOtpEnrollment: async (walletId) => {
       const result = await service.readEmailOtpEnrollment({ walletId });
       return result;
-    },
-    readIntegratedEcdsaKey: async (ecdsaThresholdKeyId) => {
-      return await (threshold as any).getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
     },
     close: harness.close,
   };
@@ -276,7 +229,9 @@ export async function runEmailOtpEcdsaTempoFlow(
     };
 
     const sdkMod = await import('/sdk/esm/index.js');
+    const actionsMod = await import('/sdk/esm/core/types/actions.js');
     const { TatchiPasskey } = sdkMod as any;
+    const { ActionType } = actionsMod as any;
 
     const accountId =
       typeof input.accountId === 'string' && input.accountId.trim()
@@ -300,19 +255,11 @@ export async function runEmailOtpEcdsaTempoFlow(
     const shamirPrimeB64u = String(input.shamirPrimeB64u || '').trim();
     const enrollAppSessionJwt = String(input.enrollAppSessionJwt || '').trim();
     const loginAppSessionJwt = String(input.loginAppSessionJwt || '').trim();
-    const ecdsaThresholdKeyId = String(input.ecdsaThresholdKeyId || '').trim();
+    const requestedEcdsaThresholdKeyId = String(input.ecdsaThresholdKeyId || '').trim();
     const participantIds = Array.isArray(input.participantIds)
       ? input.participantIds.map((value) => Number(value)).filter(Number.isFinite)
-      : [];
+      : [1, 2];
     const clientSecretB64u = String(input.clientSecretB64u || '').trim();
-
-    if (!ecdsaThresholdKeyId || participantIds.length === 0) {
-      return {
-        ok: false,
-        accountId,
-        error: 'runEmailOtpEcdsaTempoFlow requires canonical ecdsaThresholdKeyId and participantIds',
-      };
-    }
 
     const joinUrl = (base: string, path: string): string =>
       `${String(base || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
@@ -424,9 +371,10 @@ export async function runEmailOtpEcdsaTempoFlow(
     } catch {}
 
     const signingKind = input.signingKind === 'eip1559' ? 'eip1559' : 'tempoTransaction';
+    const bootstrapChain = signingKind === 'eip1559' ? 'evm' : 'tempo';
     const makeThresholdEcdsaRequest = (tag: string) =>
       signingKind === 'eip1559'
-        ? ({
+        ? {
             chain: 'evm' as const,
             kind: 'eip1559' as const,
             senderSignatureAlgorithm: 'secp256k1' as const,
@@ -440,8 +388,8 @@ export async function runEmailOtpEcdsaTempoFlow(
               data: `0x${tag}`,
               accessList: [],
             },
-          })
-        : ({
+          }
+        : {
             chain: 'tempo' as const,
             kind: 'tempoTransaction' as const,
             senderSignatureAlgorithm: 'secp256k1' as const,
@@ -458,70 +406,50 @@ export async function runEmailOtpEcdsaTempoFlow(
               feePayerSignature: { kind: 'none' as const },
               aaAuthorizationList: [],
             },
-          });
+          };
 
     try {
       const signingEngine = pm.getContext().signingEngine as any;
       const enrollmentOtp = await requestEnrollmentOtp();
-      const enrolled = await signingEngine.enrollEmailOtpInternal({
-        nearAccountId: accountId,
-        challengeId: enrollmentOtp.challengeId,
-        otpCode: enrollmentOtp.otpCode,
-        appSessionJwt: enrollAppSessionJwt,
-        ...(clientSecretB64u ? { clientSecret32: decodeBase64UrlToBytes(clientSecretB64u) } : {}),
-      });
-
-      const originalBootstrapEcdsaSession = signingEngine.bootstrapEcdsaSession?.bind(signingEngine);
-      try {
-        signingEngine.bootstrapEcdsaSession = async () => ({
-          keygen: {
-            ok: true,
-            ecdsaThresholdKeyId,
-            participantIds,
-          },
-          thresholdEcdsaKeyRef: {
-            type: 'threshold-ecdsa-secp256k1',
-            userId: accountId,
-            relayerUrl,
-            ecdsaThresholdKeyId,
-            participantIds,
-            thresholdSessionId: 'registration-bootstrap-bypassed',
-            thresholdSessionKind: 'jwt',
-          },
-        });
-
-        const registration = await pm.registration.registerPasskeyInternal(
+      const enrollmentLogin = await signingEngine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
+        {
+          nearAccountId: accountId,
+          chain: bootstrapChain,
+          emailOtpAuthPolicy,
+          challengeId: enrollmentOtp.challengeId,
+          otpCode: enrollmentOtp.otpCode,
+          appSessionJwt: enrollAppSessionJwt,
+          authorizationJwt: enrollAppSessionJwt,
+          sessionKind: 'jwt',
+          ...(requestedEcdsaThresholdKeyId
+            ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
+            : {}),
+          participantIds,
+          ...(clientSecretB64u ? { clientSecret32: decodeBase64UrlToBytes(clientSecretB64u) } : {}),
+        },
+      );
+      const enrolled = enrollmentLogin?.enrollment || {};
+      const ecdsaThresholdKeyId = String(
+        enrollmentLogin?.bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId || '',
+      ).trim();
+      const resolvedParticipantIds = Array.isArray(
+        enrollmentLogin?.bootstrap?.thresholdEcdsaKeyRef?.participantIds,
+      )
+        ? enrollmentLogin.bootstrap.thresholdEcdsaKeyRef.participantIds
+            .map((value: unknown) => Number(value))
+            .filter(Number.isFinite)
+        : participantIds;
+      if (!ecdsaThresholdKeyId || resolvedParticipantIds.length === 0) {
+        return {
+          ok: false,
           accountId,
-          {
-            signerOptions: {
-              tempo: {
-                enabled: false,
-                participantIds: [1, 2],
-                signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-              },
-              evm: {
-                enabled: false,
-                participantIds: [1, 2],
-                signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-              },
-            },
+          emailOtpEnrollment: {
+            challengeId: String(enrolled?.challengeId || ''),
+            emailOtpKeyVersion: String(enrolled?.emailOtpKeyVersion || ''),
+            unlockKeyVersion: String(enrolled?.unlockKeyVersion || ''),
           },
-          confirmationConfig,
-        );
-        if (!registration?.success) {
-          return {
-            ok: false,
-            accountId,
-            emailOtpEnrollment: {
-              challengeId: String(enrolled?.challengeId || ''),
-              emailOtpKeyVersion: String(enrolled?.emailOtpKeyVersion || ''),
-              unlockKeyVersion: String(enrolled?.unlockKeyVersion || ''),
-            },
-            error: String(registration?.error || 'registerPasskeyInternal failed'),
-          };
-        }
-      } finally {
-        signingEngine.bootstrapEcdsaSession = originalBootstrapEcdsaSession;
+          error: 'Email OTP registration bootstrap did not return canonical ECDSA key metadata',
+        };
       }
 
       await signingEngine.clearWarmSigningSessions(accountId).catch(() => undefined);
@@ -529,14 +457,14 @@ export async function runEmailOtpEcdsaTempoFlow(
       const loginOtp = await requestLoginOtp();
       const loggedIn = await signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         nearAccountId: accountId,
-        chain: 'tempo',
+        chain: bootstrapChain,
         emailOtpAuthPolicy,
         challengeId: loginOtp.challengeId,
         otpCode: loginOtp.otpCode,
         appSessionJwt: loginAppSessionJwt,
         authorizationJwt: loginAppSessionJwt,
         ecdsaThresholdKeyId,
-        participantIds,
+        participantIds: resolvedParticipantIds,
         sessionKind: 'jwt',
       });
 
@@ -591,13 +519,47 @@ export async function runEmailOtpEcdsaTempoFlow(
               }
             })();
 
+      const nearSignResult =
+        input.signNearAfterLogin === true
+          ? await (async () => {
+              try {
+                const signed = await pm.near.signTransactionsWithActions({
+                  nearAccountId: accountId,
+                  transactions: [
+                    {
+                      receiverId: 'w3a-v1.testnet',
+                      actions: [{ type: ActionType.Transfer, amount: '1' }],
+                    },
+                  ],
+                  options: { confirmationConfig },
+                });
+                const first = Array.isArray(signed) ? signed[0] : null;
+                const tx = (first as any)?.signedTransaction?.transaction || {};
+                return {
+                  ok: Array.isArray(signed) && signed.length === 1,
+                  signedCount: Array.isArray(signed) ? signed.length : 0,
+                  signerId: String(tx.signerId || ''),
+                  receiverId: String(tx.receiverId || ''),
+                };
+              } catch (error: unknown) {
+                return {
+                  ok: false,
+                  error:
+                    error && typeof error === 'object' && 'message' in error
+                      ? String((error as { message?: unknown }).message || '')
+                      : String(error || 'near sign failed'),
+                };
+              }
+            })()
+          : undefined;
+
       return {
         ok: true,
         accountId,
         registration: { success: true },
         ecdsaKeyBinding: {
           ecdsaThresholdKeyId,
-          participantIds,
+          participantIds: resolvedParticipantIds,
         },
         emailOtpEnrollment: {
           challengeId: String(enrolled?.challengeId || ''),
@@ -608,7 +570,9 @@ export async function runEmailOtpEcdsaTempoFlow(
           retention: String(loggedIn?.warmCapability?.emailOtpAuthContext?.retention || '') as
             | 'session'
             | 'single_use',
-          policy: String(loggedIn?.warmCapability?.emailOtpAuthContext?.policy || '') as EmailOtpAuthPolicy,
+          policy: String(
+            loggedIn?.warmCapability?.emailOtpAuthContext?.policy || '',
+          ) as EmailOtpAuthPolicy,
           challengeId: String(loggedIn?.recovery?.challengeId || ''),
           emailOtpKeyVersion: String(loggedIn?.recovery?.emailOtpKeyVersion || ''),
           warmState: String(loggedIn?.warmCapability?.state || ''),
@@ -619,6 +583,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         },
         firstSign: firstSignResult,
         ...(secondSignResult ? { secondSign: secondSignResult } : {}),
+        ...(nearSignResult ? { nearSign: nearSignResult } : {}),
       };
     } catch (error: unknown) {
       return {

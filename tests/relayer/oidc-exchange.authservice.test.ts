@@ -193,6 +193,61 @@ test.describe('AuthService OIDC exchange verification', () => {
     expect(verified.code).toBe('invalid_signature');
   });
 
+  test('resolves Google Email OTP registration to a timestamped email wallet id and reuses it on login', async () => {
+    const service = makeService();
+    const originalNow = Date.now;
+    Date.now = () => 1_712_345_678_901;
+    try {
+      const registered = await service.resolveOidcWalletId({
+        providerSubject: 'google:subject-1',
+        email: 'Alice.Example+demo@Example.COM',
+        accountMode: 'register',
+      });
+      expect(registered).toBe('alice-example-demo-example-com-1712345678901.testnet');
+
+      const login = await service.resolveOidcWalletId({
+        providerSubject: 'google:subject-1',
+        email: 'different@example.com',
+        accountMode: 'login',
+      });
+      expect(login).toBe(registered);
+    } finally {
+      Date.now = originalNow;
+    }
+  });
+
+  test('falls back to hashed OIDC wallet id when no registration mapping exists', async () => {
+    const service = makeService();
+    const walletId = await service.resolveOidcWalletId({
+      providerSubject: 'oidc:https://issuer.example.com:subject-no-registration',
+      accountMode: 'login',
+    });
+    expect(walletId).toMatch(/^g-[a-f0-9]{32}\.testnet$/);
+  });
+
+  test('Google Email OTP login does not fall back to a hashed wallet id without registration', async () => {
+    const service = makeService();
+    await expect(
+      service.resolveOidcWalletId({
+        providerSubject: 'google:subject-no-registration',
+        accountMode: 'login',
+      }),
+    ).rejects.toMatchObject({
+      code: 'not_found',
+      message: 'Email OTP enrollment not found',
+    });
+  });
+
+  test('rejects Email OTP registration wallet id resolution without email', async () => {
+    const service = makeService();
+    await expect(
+      service.resolveOidcWalletId({
+        providerSubject: 'google:subject-without-email',
+        accountMode: 'register',
+      }),
+    ).rejects.toThrow('Email is required to register a Google Email OTP wallet id');
+  });
+
   test('returns invalid_session_version for stale app session version', async () => {
     const service = makeService();
     const userId = 'oidc:https://issuer.example.com:subject-stale-version';

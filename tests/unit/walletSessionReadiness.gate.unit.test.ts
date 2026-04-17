@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { isNearThresholdEd25519SessionReadyForUi } from '@/react/context/walletSessionReadiness';
+import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
 import type { WalletSession } from '@/core/types/tatchi';
 import { toAccountId } from '@/core/types/accountIds';
 
@@ -24,13 +24,13 @@ function makeSession(overrides?: Partial<WalletSession>): WalletSession {
 test.describe('wallet session readiness gate', () => {
   test('requires an active signing session', () => {
     expect(
-      isNearThresholdEd25519SessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({ signingSession: null }),
       }),
     ).toBe(false);
 
     expect(
-      isNearThresholdEd25519SessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({
           signingSession: { sessionId: 'session-1', status: 'expired' },
         }),
@@ -38,7 +38,7 @@ test.describe('wallet session readiness gate', () => {
     ).toBe(false);
 
     expect(
-      isNearThresholdEd25519SessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({
           signingSession: { sessionId: 'session-1', status: 'active' },
         }),
@@ -48,7 +48,7 @@ test.describe('wallet session readiness gate', () => {
 
   test('requires base logged-in snapshot regardless of signing-session status', () => {
     expect(
-      isNearThresholdEd25519SessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({
           login: {
             isLoggedIn: false,
@@ -61,7 +61,7 @@ test.describe('wallet session readiness gate', () => {
     ).toBe(false);
 
     expect(
-      isNearThresholdEd25519SessionReadyForUi({
+      isWalletSessionReadyForUi({
         session: makeSession({
           login: {
             isLoggedIn: true,
@@ -72,5 +72,25 @@ test.describe('wallet session readiness gate', () => {
         }),
       }),
     ).toBe(false);
+  });
+
+  test('accepts an active ECDSA warm session without an Ed25519 public key', () => {
+    expect(
+      isWalletSessionReadyForUi({
+        session: makeSession({
+          login: {
+            isLoggedIn: true,
+            nearAccountId: toAccountId('email-otp.testnet'),
+            publicKey: null,
+            userData: null,
+            thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
+          },
+          signingSession: {
+            sessionId: 'ecdsa-session-1',
+            status: 'active',
+          },
+        }),
+      }),
+    ).toBe(true);
   });
 });

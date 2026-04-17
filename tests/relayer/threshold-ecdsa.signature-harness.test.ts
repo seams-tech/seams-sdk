@@ -5,12 +5,14 @@ import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
-import {
-  deriveThresholdSecp256k1RelayerShare,
-  ecdsaHssBootstrapNonExportSign,
-} from '@server/core/ThresholdService/ethSignerWasm';
-import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
+import { ecdsaHssBootstrapNonExportSign } from '@server/core/ThresholdService/ethSignerWasm';
+import { deriveEcdsaHssYRelayerFromSigningRootSecretResolver } from '@server/core/ThresholdService/signingRootSecretResolverAdapters';
+import type { ThresholdStoreConfigInput } from '@server/core/types';
 import { makeSessionAdapter, fetchJson, startExpressRouter } from './helpers';
+import {
+  createFixtureSigningRootSecretResolverForUnitTests,
+  createFixtureSigningRootShareResolverForUnitTests,
+} from '../helpers/thresholdEd25519TestUtils';
 import {
   createThresholdEcdsaHssHiddenEvalFinalizeMessage,
   encodeThresholdEcdsaHssHiddenEvalRequestMessage,
@@ -27,11 +29,14 @@ import {
   threshold_ecdsa_hss_prepare_session,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 
-const TEST_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
 );
+const TEST_RUNTIME_SCOPE = {
+  orgId: 'org_threshold_ecdsa_signature_harness',
+  environmentId: 'env_threshold_ecdsa_signature_harness',
+} as const;
 let hssClientSignerWasmInitialized = false;
 
 function ensureHssClientSignerWasm(): void {
@@ -40,9 +45,7 @@ function ensureHssClientSignerWasm(): void {
   hssClientSignerWasmInitialized = true;
 }
 
-function makeAuthServiceForThreshold(
-  thresholdEd25519KeyStore?: ThresholdEd25519KeyStoreConfigInput | null,
-): {
+function makeAuthServiceForThreshold(thresholdStore?: ThresholdStoreConfigInput | null): {
   service: AuthService;
   threshold: ReturnType<typeof createThresholdSigningService>;
 } {
@@ -64,24 +67,31 @@ function makeAuthServiceForThreshold(
     }
   ).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
 
-  const thresholdConfigDefaults: ThresholdEd25519KeyStoreConfigInput = {
+  const providedConfig = (thresholdStore || {}) as Partial<ThresholdStoreConfigInput>;
+  const needsFixtureSigningRootResolver = !(
+    providedConfig.signingRootShareResolver ||
+    providedConfig.signingRootSecretResolverAdapters ||
+    providedConfig.signingRootSecretStore ||
+    providedConfig.signingRootSecretDecryptAdapter ||
+    providedConfig.signingRootSecretShareKekResolver
+  );
+  const thresholdConfigDefaults: ThresholdStoreConfigInput = {
     kind: 'in-memory',
     THRESHOLD_NODE_ROLE: 'coordinator',
-    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: TEST_MASTER_SECRET_B64U,
+    ...(needsFixtureSigningRootResolver
+      ? { signingRootShareResolver: createFixtureSigningRootShareResolverForUnitTests() }
+      : {}),
   };
-  const thresholdConfig: ThresholdEd25519KeyStoreConfigInput = thresholdEd25519KeyStore
+  const thresholdConfig: ThresholdStoreConfigInput = thresholdStore
     ? {
         ...thresholdConfigDefaults,
-        ...thresholdEd25519KeyStore,
-        THRESHOLD_SECP256K1_MASTER_SECRET_B64U:
-          String(thresholdEd25519KeyStore.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim() ||
-          TEST_MASTER_SECRET_B64U,
+        ...thresholdStore,
       }
     : thresholdConfigDefaults;
 
   const threshold = createThresholdSigningService({
     authService: service,
-    thresholdEd25519KeyStore: thresholdConfig,
+    thresholdStore: thresholdConfig,
     logger: null,
   });
 
@@ -149,6 +159,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
         userId: args.userId,
         rpId: args.rpId,
         sessionId: args.sessionId,
+        runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: args.ttlMs ?? 60_000,
         remainingUses: args.remainingUses ?? 3,
         participantIds: args.participantIds,
@@ -246,6 +257,7 @@ async function stagedSessionBootstrapThresholdEcdsa(args: {
         userId: args.userId,
         rpId: args.rpId,
         sessionId: args.sessionId,
+        runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: args.ttlMs ?? 60_000,
         remainingUses: args.remainingUses ?? 3,
         participantIds: args.participantIds,
@@ -448,17 +460,25 @@ async function deriveLocalThresholdBootstrap(args: {
   relayerKeyId: string;
   clientRootShare32B64u: string;
 }) {
-  const { relayerSigningShare32 } = await deriveThresholdSecp256k1RelayerShare({
-    masterSecretB64u: TEST_MASTER_SECRET_B64U,
-    relayerKeyId: args.relayerKeyId,
+  const derivedRelayerShare = await deriveEcdsaHssYRelayerFromSigningRootSecretResolver({
+    projectId: TEST_RUNTIME_SCOPE.orgId,
+    provider: createFixtureSigningRootSecretResolverForUnitTests(),
+    preferredShareIds: [1, 2],
+    context: {
+      nearAccountId: args.userId,
+      keyPurpose: 'evm-signing',
+      keyVersion: 'v1',
+    },
   });
+  expect(derivedRelayerShare.ok).toBe(true);
+  if (!derivedRelayerShare.ok) throw new Error(derivedRelayerShare.message);
   const clientRootShare32 = base64UrlDecode(args.clientRootShare32B64u);
   return await ecdsaHssBootstrapNonExportSign({
     nearAccountId: args.userId,
     keyPurpose: 'evm-signing',
     keyVersion: 'v1',
     yClient32Le: clientRootShare32,
-    yRelayer32Le: relayerSigningShare32,
+    yRelayer32Le: derivedRelayerShare.value,
   });
 }
 
@@ -1136,7 +1156,9 @@ test.describe('threshold-ecdsa harness signature verification', () => {
 
       const ecdsaThresholdKeyId = String(firstBootstrap.json?.ecdsaThresholdKeyId || '');
       const relayerKeyId = String(firstBootstrap.json?.relayerKeyId || '');
-      const thresholdEcdsaPublicKeyB64u = String(firstBootstrap.json?.thresholdEcdsaPublicKeyB64u || '');
+      const thresholdEcdsaPublicKeyB64u = String(
+        firstBootstrap.json?.thresholdEcdsaPublicKeyB64u || '',
+      );
       const ethereumAddress = String(firstBootstrap.json?.ethereumAddress || '');
       const ecdsaJwt = String(firstBootstrap.json?.jwt || '');
       expect(ecdsaThresholdKeyId).toBeTruthy();
@@ -1182,7 +1204,9 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(resumedBootstrap.json?.ok, resumedBootstrap.text).toBe(true);
       expectNoCanonicalExportMaterial(resumedBootstrap.json);
       expect(String(resumedBootstrap.json?.ecdsaThresholdKeyId || '')).toBe(ecdsaThresholdKeyId);
-      expect(String(resumedBootstrap.json?.thresholdEcdsaPublicKeyB64u || '')).toBe(thresholdEcdsaPublicKeyB64u);
+      expect(String(resumedBootstrap.json?.thresholdEcdsaPublicKeyB64u || '')).toBe(
+        thresholdEcdsaPublicKeyB64u,
+      );
       expect(String(resumedBootstrap.json?.ethereumAddress || '')).toBe(ethereumAddress);
 
       const resumedJwt = String(resumedBootstrap.json?.jwt || '');

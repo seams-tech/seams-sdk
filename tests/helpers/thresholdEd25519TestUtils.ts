@@ -5,7 +5,8 @@ import { createEcdsaAuthSessionStore } from '@server/core/ThresholdService/store
 import { createThresholdEcdsaKeyStore } from '@server/core/ThresholdService/stores/KeyStore';
 import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService/stores/EcdsaSigningStore';
 import { parseThresholdEd25519KeyRecord } from '@server/core/ThresholdService/validation';
-import type { ThresholdEd25519KeyStoreConfigInput } from '@server/core/types';
+import { createConfiguredSigningRootShareResolver } from '@server/core/ThresholdService/signingRootSecretConfig';
+import type { ThresholdStoreConfigInput } from '@server/core/types';
 import type { WebAuthnAuthenticationCredential } from '@server/core/types';
 import { normalizeLogger, type Logger } from '@server/core/logger';
 import { readFileSync } from 'node:fs';
@@ -13,8 +14,18 @@ import {
   initSync as initWasmSignerSync,
   threshold_ed25519_hss_verifying_share_from_signing_share,
 } from '../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import type {
+  SigningRootSecretShareId,
+  SealedSigningRootSecretShare,
+} from '@server/core/ThresholdService/signingRootSecretShareWires';
+import type { SigningRootSecretResolver } from '@server/core/ThresholdService/signingRootSecretResolverAdapters';
+import {
+  createHostedSigningRootShareResolver,
+  type SigningRootShareResolver,
+} from '@server/core/ThresholdService/signingRootShareResolver';
 
 let signerWasmInitializedForTests = false;
+let fixtureSigningRootSecretShares: Map<SigningRootSecretShareId, Uint8Array> | null = null;
 
 function ensureSignerWasmForUnitTests(): void {
   if (signerWasmInitializedForTests) return;
@@ -43,8 +54,70 @@ export function deriveThresholdEd25519VerifyingShareForUnitTests(input: {
   return verifyingShareB64u;
 }
 
+function loadFixtureSigningRootSecretSharesForUnitTests(): Map<SigningRootSecretShareId, Uint8Array> {
+  if (fixtureSigningRootSecretShares) return fixtureSigningRootSecretShares;
+  const corpus = JSON.parse(
+    readFileSync(
+      new URL('../../crates/threshold-prf/fixtures/protocol-v1.json', import.meta.url),
+      'utf8',
+    ),
+  ) as {
+    vectors?: Array<{
+      purpose?: string;
+      shares?: Array<{ id?: SigningRootSecretShareId; wire_hex?: string }>;
+    }>;
+  };
+  const vector = corpus.vectors?.find((entry) => entry.purpose === 'ecdsa-hss/y_relayer');
+  const shares = new Map<SigningRootSecretShareId, Uint8Array>();
+  for (const share of vector?.shares || []) {
+    if (share.id !== 1 && share.id !== 2 && share.id !== 3) continue;
+    const wireHex = String(share.wire_hex || '').trim();
+    if (!wireHex) continue;
+    shares.set(share.id, new Uint8Array(Buffer.from(wireHex, 'hex')));
+  }
+  if (shares.size < 2) throw new Error('Missing threshold-prf signing-root fixture shares');
+  fixtureSigningRootSecretShares = shares;
+  return shares;
+}
+
+export function createFixtureSigningRootSecretResolverForUnitTests(): SigningRootSecretResolver {
+  const shares = loadFixtureSigningRootSecretSharesForUnitTests();
+  return {
+    listSealedSigningRootSecretShares: async (input) =>
+      Array.from(shares.keys())
+        .sort((a, b) => a - b)
+        .map(
+          (shareId): SealedSigningRootSecretShare => ({
+            signingRootId: input.signingRootId,
+            ...(input.signingRootVersion ? { signingRootVersion: input.signingRootVersion } : {}),
+            shareId,
+            sealedShare: new Uint8Array([shareId]),
+            storageId: `fixture-${shareId}`,
+            kekId: 'fixture-kek',
+          }),
+        ),
+    decryptSigningRootSecretShare: async (record) => {
+      const wire = shares.get(record.shareId);
+      if (!wire) throw new Error(`missing fixture signing-root share ${record.shareId}`);
+      return new Uint8Array(wire);
+    },
+  };
+}
+
+export function createFixtureSigningRootShareResolverForUnitTests(): SigningRootShareResolver {
+  const provider = createFixtureSigningRootSecretResolverForUnitTests();
+  return createHostedSigningRootShareResolver({
+    storageAdapter: {
+      listSealedSigningRootSecretShares: (request) => provider.listSealedSigningRootSecretShares(request),
+    },
+    decryptAdapter: {
+      decryptSigningRootSecretShare: (record) => provider.decryptSigningRootSecretShare(record),
+    },
+  });
+}
+
 export function createThresholdSigningServiceForUnitTests(input: {
-  config?: ThresholdEd25519KeyStoreConfigInput | null;
+  config?: ThresholdStoreConfigInput | null;
   logger?: Logger | null;
   keyRecord?: {
     nearAccountId?: string;
@@ -122,6 +195,29 @@ export function createThresholdSigningServiceForUnitTests(input: {
   const accessKeysOnChain = input.accessKeysOnChain ?? null;
   const verifyWebAuthnAuthenticationLite =
     input.verifyWebAuthnAuthenticationLite || (async () => ({ success: true, verified: true }));
+  const fixtureSigningRootSecretResolver = createFixtureSigningRootSecretResolverForUnitTests();
+  const config = {
+    ...(input.config || {}),
+    ...(input.config?.signingRootShareResolver ||
+    input.config?.signingRootSecretResolverAdapters ||
+    input.config?.signingRootSecretStore ||
+    input.config?.signingRootSecretDecryptAdapter ||
+    input.config?.signingRootSecretShareKekResolver
+      ? {}
+      : { signingRootShareResolver: createFixtureSigningRootShareResolverForUnitTests() }),
+  };
+  const signingRootShareResolver =
+    createConfiguredSigningRootShareResolver(config) ??
+    createHostedSigningRootShareResolver({
+      storageAdapter: {
+        listSealedSigningRootSecretShares: (request) =>
+          fixtureSigningRootSecretResolver.listSealedSigningRootSecretShares(request),
+      },
+      decryptAdapter: {
+        decryptSigningRootSecretShare: (record) =>
+          fixtureSigningRootSecretResolver.decryptSigningRootSecretShare(record),
+      },
+    });
 
   const svc = new ThresholdSigningService({
     logger,
@@ -142,7 +238,8 @@ export function createThresholdSigningServiceForUnitTests(input: {
     ecdsaSigningSessionStore,
     ecdsaPresignSessionStore,
     ecdsaPresignaturePool,
-    config: input.config,
+    signingRootShareResolver,
+    config,
     ensureReady: async () => {},
     ensureSignerWasm: async () => {
       ensureSignerWasmForUnitTests();

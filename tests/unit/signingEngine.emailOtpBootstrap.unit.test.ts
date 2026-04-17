@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';
+import { planEmailOtpThresholdEd25519SignerSlot } from '@/core/signingEngine/session/emailOtpThresholdEd25519SignerSlots';
 
 function makeWorkerBootstrap(args?: {
   walletId?: string;
@@ -9,6 +10,10 @@ function makeWorkerBootstrap(args?: {
 }) {
   const walletId = args?.walletId || 'alice.testnet';
   const sessionId = args?.sessionId || 'ecdsa-session-worker';
+  const clientAdditiveShareHandle = {
+    kind: 'email_otp_worker_session' as const,
+    sessionId,
+  };
   return {
     thresholdEcdsaKeyRef: {
       type: 'threshold-ecdsa-secp256k1' as const,
@@ -18,7 +23,7 @@ function makeWorkerBootstrap(args?: {
       backendBinding: {
         relayerKeyId: 'rk-worker',
         clientVerifyingShareB64u: 'AQ',
-        clientAdditiveShare32B64u: 'Ag',
+        clientAdditiveShareHandle,
       },
       participantIds: [1, 2],
       thresholdSessionKind: 'jwt' as const,
@@ -32,7 +37,6 @@ function makeWorkerBootstrap(args?: {
       ecdsaThresholdKeyId: 'ecdsa-key-worker',
       relayerKeyId: 'rk-worker',
       clientVerifyingShareB64u: 'AQ',
-      clientAdditiveShare32B64u: 'Ag',
       participantIds: [1, 2],
     },
     session: {
@@ -51,12 +55,14 @@ function makeEngine(args: {
   authPolicy?: 'session' | 'per_operation';
   rpId?: string;
   warmReady?: boolean;
+  touchConfirm?: Record<string, unknown>;
 }) {
   const engine = Object.create(SigningEngine.prototype) as SigningEngine;
   const engineAny = engine as any;
   const persistCalls: Array<Record<string, unknown>> = [];
   const upsertCalls: Array<Record<string, unknown>> = [];
   const readyChecks: Array<Record<string, unknown>> = [];
+  const ed25519ProvisionCalls: Array<Record<string, unknown>> = [];
 
   engineAny.tatchiPasskeyConfigs = {
     network: {
@@ -76,7 +82,7 @@ function makeEngine(args: {
   engineAny.touchIdPrompt = {
     getRpId: () => args.rpId ?? 'example.localhost',
   };
-  engineAny.touchConfirm = {};
+  engineAny.touchConfirm = args.touchConfirm || {};
   engineAny.thresholdEcdsaBootstrapQueueByAccount = new Map();
   engineAny.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap = async () => undefined;
   engineAny.orchestrationDeps = {
@@ -89,7 +95,9 @@ function makeEngine(args: {
   engineAny.bootstrapEcdsaSession = async () => {
     throw new Error('main-thread Email OTP bootstrap fallback must not run');
   };
-  engineAny.persistThresholdEcdsaBootstrapChainAccount = async (callArgs: Record<string, unknown>) => {
+  engineAny.persistThresholdEcdsaBootstrapChainAccount = async (
+    callArgs: Record<string, unknown>,
+  ) => {
     persistCalls.push(callArgs);
   };
   engineAny.upsertThresholdEcdsaSessionFromBootstrap = (callArgs: Record<string, unknown>) => {
@@ -146,11 +154,63 @@ function makeEngine(args: {
       state: 'ready',
     };
   };
+  engineAny.provisionEmailOtpThresholdEd25519Capability = async (
+    callArgs: Record<string, unknown>,
+  ) => {
+    ed25519ProvisionCalls.push(callArgs);
+    return {
+      publicKey: 'ed25519:email-otp-public-key',
+      relayerKeyId: 'ed25519-relayer-key',
+      keyVersion: 'threshold-ed25519-hss-v1',
+      sessionId: 'ed25519-session-worker',
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 7,
+      participantIds: [1, 2],
+      jwt: 'ed25519-jwt-worker',
+      xClientBaseB64u: 'x-client-base-worker',
+    };
+  };
 
-  return { engine, persistCalls, upsertCalls, readyChecks };
+  return { engine, persistCalls, upsertCalls, readyChecks, ed25519ProvisionCalls };
 }
 
 test.describe('SigningEngine Email OTP bootstrap runtime', () => {
+  test('Email OTP Ed25519 slot planning revokes stale threshold signer and reuses slot 1', () => {
+    const plan = planEmailOtpThresholdEd25519SignerSlot({
+      signerId: 'threshold-ed25519:rk-new',
+      activeSigners: [
+        {
+          signerId: 'threshold-ed25519:rk-old',
+          signerSlot: 1,
+          signerType: 'threshold',
+        },
+      ],
+    });
+
+    expect(plan).toEqual({
+      signerSlot: 1,
+      staleSignerIds: ['threshold-ed25519:rk-old'],
+    });
+  });
+
+  test('Email OTP Ed25519 slot planning does not evict non-threshold signer slots', () => {
+    const plan = planEmailOtpThresholdEd25519SignerSlot({
+      signerId: 'threshold-ed25519:rk-new',
+      activeSigners: [
+        {
+          signerId: 'passkey:primary',
+          signerSlot: 1,
+          signerType: 'passkey',
+        },
+      ],
+    });
+
+    expect(plan).toEqual({
+      signerSlot: 2,
+      staleSignerIds: [],
+    });
+  });
+
   test('enrollment bridge dispatches secret-bearing enrollment to the Email OTP worker', async () => {
     const walletId = 'alice.testnet';
     const workerRequests: Array<Record<string, any>> = [];
@@ -199,10 +259,87 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect(result.unlockKeyVersion).toBe('email-otp-unlock-v1');
   });
 
+  test('Google SSO registration can enroll Email OTP and bootstrap ECDSA with a cookie session', async () => {
+    const walletId = 'g-1234567890abcdef1234567890abcdef.testnet';
+    const runtimePolicyScope = {
+      orgId: 'org_test',
+      environmentId: 'env_test',
+      projectId: 'project_test',
+    };
+    const workerRequests: Array<Record<string, any>> = [];
+    const { engine, persistCalls, upsertCalls, readyChecks, ed25519ProvisionCalls } = makeEngine({
+      requestWorkerOperation: async ({ kind, request }) => {
+        workerRequests.push({ kind, request });
+        expect(kind).toBe('emailOtp');
+        expect(request.type).toBe('enrollEmailOtpWalletAndBootstrapEcdsaSession');
+        return {
+          enrollment: {
+            thresholdEcdsaClientVerifyingShareB64u: 'verifier-worker',
+            thresholdEd25519PrfFirstB64u: 'email-otp-ed25519-prf-worker',
+            challengeId: 'enroll-otp-1',
+            otpChannel: 'email_otp',
+            emailOtpKeyVersion: 'email-otp-kv-1',
+            unlockPublicKeyB64u: 'unlock-public-key-worker',
+            unlockKeyVersion: 'email-otp-unlock-v1',
+          },
+          bootstrap: makeWorkerBootstrap({ walletId, sessionId: 'cookie-ecdsa-session-worker' }),
+        };
+      },
+    });
+
+    const result = await engine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal({
+      nearAccountId: walletId,
+      chain: 'tempo',
+      challengeId: 'enroll-otp-1',
+      otpCode: '123456',
+      sessionKind: 'cookie',
+      ecdsaThresholdKeyId: 'ecdsa-key-worker',
+      participantIds: [1, 2],
+      sessionId: 'cookie-ecdsa-session-worker',
+      runtimePolicyScope,
+    });
+
+    expect(workerRequests).toHaveLength(1);
+    expect(workerRequests[0]?.request).toMatchObject({
+      type: 'enrollEmailOtpWalletAndBootstrapEcdsaSession',
+      timeoutMs: 60_000,
+      payload: {
+        relayUrl: 'https://relay.example',
+        walletId,
+        userId: walletId,
+        challengeId: 'enroll-otp-1',
+        otpCode: '123456',
+        shamirPrimeB64u: 'prime-b64u',
+        otpChannel: 'email_otp',
+        rpId: 'example.localhost',
+        ecdsaThresholdKeyId: 'ecdsa-key-worker',
+        participantIds: [1, 2],
+        sessionKind: 'cookie',
+        sessionId: 'cookie-ecdsa-session-worker',
+        runtimePolicyScope,
+      },
+    });
+    expect(workerRequests[0]?.request.payload.authorizationJwt).toBeUndefined();
+    expect(result.enrollment.emailOtpKeyVersion).toBe('email-otp-kv-1');
+    expect(persistCalls).toHaveLength(1);
+    expect(persistCalls[0]).toMatchObject({ ensureEmailOtpNearAccountMapping: true });
+    expect(upsertCalls).toHaveLength(1);
+    expect(readyChecks).toEqual([{ nearAccountId: walletId, chain: 'tempo' }]);
+    expect(ed25519ProvisionCalls).toHaveLength(1);
+    expect(ed25519ProvisionCalls[0]).toMatchObject({
+      nearAccountId: walletId,
+      relayUrl: 'https://relay.example',
+      rpId: 'example.localhost',
+      prfFirstB64u: 'email-otp-ed25519-prf-worker',
+      runtimePolicyScope,
+      participantIds: [1, 2],
+    });
+  });
+
   test('default Email OTP login completes ECDSA authorization bootstrap inside the Email OTP worker', async () => {
     const walletId = 'alice.testnet';
     const workerRequests: Array<Record<string, any>> = [];
-    const { engine, persistCalls, upsertCalls, readyChecks } = makeEngine({
+    const { engine, persistCalls, upsertCalls, readyChecks, ed25519ProvisionCalls } = makeEngine({
       requestWorkerOperation: async ({ kind, request }) => {
         workerRequests.push({ kind, request });
         expect(kind).toBe('emailOtp');
@@ -216,6 +353,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
             unlockChallengeB64u: 'unlock-b64u',
             unlockPublicKeyB64u: 'unlock-pub',
             unlockSignatureB64u: 'unlock-sig',
+            thresholdEd25519PrfFirstB64u: 'email-otp-ed25519-prf-worker',
           },
           bootstrap: makeWorkerBootstrap({ walletId, sessionId: 'ecdsa-session-worker' }),
         };
@@ -261,11 +399,22 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       },
     });
     expect(persistCalls).toHaveLength(1);
+    expect(persistCalls[0]).toMatchObject({ ensureEmailOtpNearAccountMapping: true });
     expect(upsertCalls).toHaveLength(1);
     expect(upsertCalls[0]).toMatchObject({
       nearAccountId: walletId,
       chain: 'evm',
       source: 'email_otp',
+      bootstrap: {
+        thresholdEcdsaKeyRef: {
+          backendBinding: {
+            clientAdditiveShareHandle: {
+              kind: 'email_otp_worker_session',
+              sessionId: 'ecdsa-session-worker',
+            },
+          },
+        },
+      },
       emailOtpAuthContext: {
         policy: 'session',
         retention: 'session',
@@ -274,11 +423,162 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         stepUpRequired: true,
       },
     });
+    expect(
+      ((upsertCalls[0]?.bootstrap as any)?.thresholdEcdsaKeyRef?.backendBinding || {})
+        .clientAdditiveShare32B64u,
+    ).toBeUndefined();
     expect(readyChecks).toEqual([{ nearAccountId: walletId, chain: 'evm' }]);
+    expect(ed25519ProvisionCalls).toHaveLength(1);
+    expect(ed25519ProvisionCalls[0]).toMatchObject({
+      nearAccountId: walletId,
+      relayUrl: 'https://relay.example',
+      rpId: 'example.localhost',
+      prfFirstB64u: 'email-otp-ed25519-prf-worker',
+      appSessionJwt: 'app-session-jwt',
+      participantIds: [1, 2],
+      ttlMs: 120_000,
+      remainingUses: 7,
+    });
     expect('clientRootShare32B64u' in result.recovery).toBe(false);
     expect(result.recovery.loginGrant).toBe('grant-worker');
     expect(result.bootstrap.thresholdEcdsaKeyRef.thresholdSessionId).toBe('ecdsa-session-worker');
     expect(result.warmCapability.state).toBe('ready');
+  });
+
+  test('Email OTP Ed25519 provisioning reuses authorizationJwt when appSessionJwt is omitted', async () => {
+    const walletId = 'alice.testnet';
+    const workerRequests: Array<Record<string, any>> = [];
+    const { engine, ed25519ProvisionCalls } = makeEngine({
+      requestWorkerOperation: async ({ kind, request }) => {
+        workerRequests.push({ kind, request });
+        expect(kind).toBe('emailOtp');
+        expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
+        return {
+          recovery: {
+            loginGrant: 'grant-worker',
+            challengeId: 'challenge-worker',
+            emailOtpKeyVersion: 'email-otp-kv-worker',
+            unlockChallengeId: 'unlock-worker',
+            unlockChallengeB64u: 'unlock-b64u',
+            unlockPublicKeyB64u: 'unlock-pub',
+            unlockSignatureB64u: 'unlock-sig',
+            thresholdEd25519PrfFirstB64u: 'email-otp-ed25519-prf-worker',
+          },
+          bootstrap: makeWorkerBootstrap({ walletId, sessionId: 'ecdsa-session-worker' }),
+        };
+      },
+    });
+
+    await engine.loginWithEmailOtpEcdsaCapabilityInternal({
+      nearAccountId: walletId,
+      chain: 'evm',
+      otpCode: '123456',
+      authorizationJwt: 'app-session-bootstrap-jwt',
+      ecdsaThresholdKeyId: 'ecdsa-key-worker',
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      sessionId: 'ecdsa-session-worker',
+    });
+
+    expect(workerRequests[0]?.request.payload.appSessionJwt).toBe('app-session-bootstrap-jwt');
+    expect(workerRequests[0]?.request.payload.authorizationJwt).toBe('app-session-bootstrap-jwt');
+    expect(ed25519ProvisionCalls).toHaveLength(1);
+    expect(ed25519ProvisionCalls[0]).toMatchObject({
+      nearAccountId: walletId,
+      appSessionJwt: 'app-session-bootstrap-jwt',
+      prfFirstB64u: 'email-otp-ed25519-prf-worker',
+    });
+  });
+
+  test('Email OTP enrollment Ed25519 provisioning reuses authorizationJwt when appSessionJwt is omitted', async () => {
+    const walletId = 'alice.testnet';
+    const workerRequests: Array<Record<string, any>> = [];
+    const { engine, ed25519ProvisionCalls } = makeEngine({
+      requestWorkerOperation: async ({ kind, request }) => {
+        workerRequests.push({ kind, request });
+        expect(kind).toBe('emailOtp');
+        expect(request.type).toBe('enrollEmailOtpWalletAndBootstrapEcdsaSession');
+        return {
+          enrollment: {
+            thresholdEcdsaClientVerifyingShareB64u: 'verifier-worker',
+            thresholdEd25519PrfFirstB64u: 'email-otp-ed25519-prf-worker',
+            challengeId: 'enroll-otp-1',
+            otpChannel: 'email_otp',
+            emailOtpKeyVersion: 'email-otp-kv-1',
+            unlockPublicKeyB64u: 'unlock-public-key-worker',
+            unlockKeyVersion: 'email-otp-unlock-v1',
+          },
+          bootstrap: makeWorkerBootstrap({ walletId, sessionId: 'ecdsa-session-worker' }),
+        };
+      },
+    });
+
+    await engine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal({
+      nearAccountId: walletId,
+      chain: 'evm',
+      otpCode: '123456',
+      authorizationJwt: 'app-session-bootstrap-jwt',
+      ecdsaThresholdKeyId: 'ecdsa-key-worker',
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      sessionId: 'ecdsa-session-worker',
+    });
+
+    expect(workerRequests[0]?.request.payload.appSessionJwt).toBe('app-session-bootstrap-jwt');
+    expect(workerRequests[0]?.request.payload.authorizationJwt).toBe('app-session-bootstrap-jwt');
+    expect(ed25519ProvisionCalls).toHaveLength(1);
+    expect(ed25519ProvisionCalls[0]).toMatchObject({
+      nearAccountId: walletId,
+      appSessionJwt: 'app-session-bootstrap-jwt',
+      prfFirstB64u: 'email-otp-ed25519-prf-worker',
+    });
+  });
+
+  test('Email OTP bootstrap does not use passkey PRF seal persistence', async () => {
+    const walletId = 'alice.testnet';
+    const sealPersistCalls: unknown[] = [];
+    const { engine } = makeEngine({
+      touchConfirm: {
+        sealAndPersistWarmSessionMaterial: async (args: unknown) => {
+          sealPersistCalls.push(args);
+          return {
+            ok: false,
+            code: 'not_found',
+            message: 'Warm-session material is not available for threshold session',
+          };
+        },
+      },
+      requestWorkerOperation: async ({ kind, request }) => {
+        expect(kind).toBe('emailOtp');
+        expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
+        return {
+          recovery: {
+            loginGrant: 'grant-worker',
+            challengeId: 'challenge-worker',
+            emailOtpKeyVersion: 'email-otp-kv-worker',
+            unlockChallengeId: 'unlock-worker',
+            unlockChallengeB64u: 'unlock-b64u',
+            unlockPublicKeyB64u: 'unlock-pub',
+            unlockSignatureB64u: 'unlock-sig',
+          },
+          bootstrap: makeWorkerBootstrap({ walletId, sessionId: 'ecdsa-session-worker' }),
+        };
+      },
+    });
+
+    await engine.loginWithEmailOtpEcdsaCapabilityInternal({
+      nearAccountId: walletId,
+      chain: 'evm',
+      otpCode: '123456',
+      appSessionJwt: 'app-session-jwt',
+      authorizationJwt: 'bootstrap-auth-jwt',
+      ecdsaThresholdKeyId: 'ecdsa-key-worker',
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      sessionId: 'ecdsa-session-worker',
+    });
+
+    expect(sealPersistCalls).toEqual([]);
   });
 
   test('fails when Email OTP bootstrap does not reach warm-session ready state', async () => {

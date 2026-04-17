@@ -16,6 +16,8 @@ function createIndexedDbPort(calls: UpsertCall[]): ThresholdEcdsaBootstrapIndexe
           accountAddress: 'alice.testnet',
         },
       }),
+      upsertProfile: async () => ({}),
+      setLastProfileStateForProfile: async () => undefined,
     },
     upsertChainAccount: async (input) => {
       calls.push(input);
@@ -150,5 +152,87 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     expect(mirror.deploymentTxHash).toBeNull();
     expect(mirror.lastDeploymentCheckAt).toBeNull();
     expect(mirror.undeployedSignerSet).toEqual(primary.undeployedSignerSet);
+  });
+
+  test('Email OTP bootstrap creates NEAR profile/account projection without a passkey signer', async () => {
+    const calls: UpsertCall[] = [];
+    const profileCalls: unknown[] = [];
+    const lastProfileSelections: unknown[] = [];
+    let hasNearProjection = false;
+    const port: ThresholdEcdsaBootstrapIndexedDbPort = {
+      clientDB: {
+        resolveProfileAccountContext: async () =>
+          hasNearProjection
+            ? {
+                profileId: 'near-profile:google-user.testnet',
+                accountRef: {
+                  chainIdKey: 'near:testnet',
+                  accountAddress: 'google-user.testnet',
+                },
+              }
+            : null,
+        upsertProfile: async (input) => {
+          profileCalls.push(input);
+          return {};
+        },
+        setLastProfileStateForProfile: async (profileId, deviceNumber) => {
+          lastProfileSelections.push({ profileId, deviceNumber });
+        },
+      },
+      upsertChainAccount: async (input) => {
+        calls.push(input);
+        if (input.chainIdKey === 'near:testnet' && input.accountAddress === 'google-user.testnet') {
+          hasNearProjection = true;
+        }
+        return {
+          profileId: String(input.profileId),
+          chainIdKey: String(input.chainIdKey),
+          accountAddress: String(input.accountAddress),
+          accountModel: String(input.accountModel) as any,
+          isPrimary: !!input.isPrimary,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        } as any;
+      },
+    };
+
+    await persistThresholdEcdsaBootstrapChainAccount({
+      indexedDB: port,
+      nearAccountId: 'google-user.testnet' as any,
+      chain: 'tempo',
+      ensureEmailOtpNearAccountMapping: true,
+      bootstrap: {
+        keygen: {
+          chainId: 42431,
+          counterfactualAddress: `0x${'34'.repeat(20)}`,
+          ethereumAddress: `0x${'34'.repeat(20)}`,
+        },
+      } as any,
+    });
+
+    expect(profileCalls).toHaveLength(1);
+    expect(profileCalls[0]).toMatchObject({
+      profileId: 'near-profile:google-user.testnet',
+      defaultDeviceNumber: 1,
+      preferences: {
+        useRelayer: false,
+        useNetwork: 'testnet',
+      },
+    });
+    expect((profileCalls[0] as any).passkeyCredential).toBeUndefined();
+    expect(calls[0]).toMatchObject({
+      profileId: 'near-profile:google-user.testnet',
+      chainIdKey: 'near:testnet',
+      accountAddress: 'google-user.testnet',
+      accountModel: 'near-native',
+    });
+    expect(lastProfileSelections).toEqual([
+      { profileId: 'near-profile:google-user.testnet', deviceNumber: 1 },
+    ]);
+    expect(calls.map((call) => call.chainIdKey)).toEqual([
+      'near:testnet',
+      'tempo:42431',
+      'evm:unknown',
+    ]);
   });
 });

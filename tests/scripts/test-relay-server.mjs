@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url';
 import { promises as fs } from 'node:fs';
 
 // Import from built SDK to avoid TS transpilation for tests
-import { AuthService, createThresholdSigningService } from '../../sdk/dist/esm/server/index.js';
+import {
+  AuthService,
+  createHostedSigningRootShareResolver,
+  createThresholdSigningService,
+} from '../../sdk/dist/esm/server/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,17 +17,55 @@ const ROOT = path.resolve(path.join(__dirname, '../..'));
 const RELAY_DIR = path.join(ROOT, 'examples', 'relay-server');
 const DEFAULT_CACHE = path.join(RELAY_DIR, '.provision-cache.json');
 const CACHE_PATH = process.env.RELAY_PROVISION_CACHE_PATH || DEFAULT_CACHE;
+const SIGNING_ROOT_SECRET_SHARE_WIRES = [
+  {
+    shareId: 1,
+    wireHex: '011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303',
+  },
+  {
+    shareId: 2,
+    wireHex: '021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d',
+  },
+  {
+    shareId: 3,
+    wireHex: '032ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707',
+  },
+];
 
 async function readCache() {
   const txt = await fs.readFile(CACHE_PATH, 'utf8');
   return JSON.parse(txt);
 }
 
+function createFixtureSigningRootSecretResolver() {
+  const shares = new Map(
+    SIGNING_ROOT_SECRET_SHARE_WIRES.map((share) => [
+      share.shareId,
+      new Uint8Array(Buffer.from(share.wireHex, 'hex')),
+    ]),
+  );
+  return {
+    listSealedSigningRootSecretShares: async (input) =>
+      Array.from(shares.keys())
+        .sort((a, b) => a - b)
+        .map((shareId) => ({
+          signingRootId: input.signingRootId,
+          ...(input.signingRootVersion ? { signingRootVersion: input.signingRootVersion } : {}),
+          shareId,
+          sealedShare: new Uint8Array([shareId]),
+          storageId: `fixture-signing-root-${shareId}`,
+          kekId: 'fixture-kek',
+        })),
+    decryptSigningRootSecretShare: async (record) => {
+      const wire = shares.get(record.shareId);
+      if (!wire) throw new Error(`missing fixture signing-root share ${record.shareId}`);
+      return new Uint8Array(wire);
+    },
+  };
+}
+
 async function main() {
   const cache = await readCache();
-  const thresholdEcdsaMasterSecretB64u =
-    String(process.env.THRESHOLD_SECP256K1_MASTER_SECRET_B64U || '').trim() ||
-    Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 
   const config = {
     relayerAccount: cache.accountId,
@@ -44,12 +86,22 @@ async function main() {
   } catch {}
 
   // Threshold signing services (in-memory stores are sufficient for test runs).
+  const fixtureSigningRootSecretResolver = createFixtureSigningRootSecretResolver();
   const threshold = createThresholdSigningService({
     authService,
-    thresholdEd25519KeyStore: {
+    thresholdStore: {
       kind: 'in-memory',
       THRESHOLD_NODE_ROLE: 'coordinator',
-      THRESHOLD_SECP256K1_MASTER_SECRET_B64U: thresholdEcdsaMasterSecretB64u,
+      signingRootShareResolver: createHostedSigningRootShareResolver({
+        storageAdapter: {
+          listSealedSigningRootSecretShares: (request) =>
+            fixtureSigningRootSecretResolver.listSealedSigningRootSecretShares(request),
+        },
+        decryptAdapter: {
+          decryptSigningRootSecretShare: (record) =>
+            fixtureSigningRootSecretResolver.decryptSigningRootSecretShare(record),
+        },
+      }),
     },
     logger: null,
   });

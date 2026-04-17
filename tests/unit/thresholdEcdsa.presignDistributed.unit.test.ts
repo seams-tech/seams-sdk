@@ -15,8 +15,10 @@ import {
 } from '../../server/src/core/ThresholdService/stores/EcdsaSigningStore';
 import { ThresholdEcdsaPresignSession } from '../../wasm/eth_signer/pkg/eth_signer.js';
 
-const TEST_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
+const TEST_RELAYER_SHARE_SEED_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 const TEST_THRESHOLD_EXPIRES_IN_MS = 10 * 60_000;
+const TEST_RUNTIME_SCOPE = { orgId: 'org-alpha', projectId: 'project-alpha', envId: 'env-alpha' } as const;
+const TEST_SIGNING_ROOT_ID = `${TEST_RUNTIME_SCOPE.projectId}:${TEST_RUNTIME_SCOPE.envId}`;
 
 function toUint8Array(value: ArrayBuffer | ArrayBufferView): Uint8Array {
   if (value instanceof Uint8Array) return value;
@@ -28,17 +30,17 @@ function sha256Bytes(input: Uint8Array): Uint8Array {
   return new Uint8Array(createHash('sha256').update(input).digest());
 }
 
-function deriveRelayerSecp256k1SigningShare32(input: {
-  masterSecretB64u: string;
+function deriveFixtureRelayerSecp256k1SigningShare32(input: {
+  relayerShareSeedB64u: string;
   relayerKeyId: string;
 }): Uint8Array {
-  const masterSecretBytes = base64UrlDecode(input.masterSecretB64u);
+  const relayerShareSeedBytes = base64UrlDecode(input.relayerShareSeedB64u);
   const relayerShareSaltV1 = new TextEncoder().encode(
-    'tatchi/lite/threshold-secp256k1-ecdsa/relayer-share:v1',
+    'tatchi/test/threshold-secp256k1-ecdsa/fixture-relayer-share:v1',
   );
   const relayerShareInfo = new TextEncoder().encode(input.relayerKeyId);
   const okm64 = toUint8Array(
-    hkdfSync('sha256', masterSecretBytes, relayerShareSaltV1, relayerShareInfo, 64),
+    hkdfSync('sha256', relayerShareSeedBytes, relayerShareSaltV1, relayerShareInfo, 64),
   );
   const reduced = (bytesToNumberBE(okm64) % (SECP256K1_ORDER - 1n)) + 1n;
   return numberToBytesBE(reduced, 32);
@@ -81,12 +83,15 @@ function buildIntegratedKeyRecord(input: {
   clientVerifyingShareB64u: string;
 }) {
   const clientVerifyingShare33 = base64UrlDecode(input.clientVerifyingShareB64u);
-  const relayerSigningShare32 = deriveRelayerSecp256k1SigningShare32({
-    masterSecretB64u: TEST_MASTER_SECRET_B64U,
+  const relayerSigningShare32 = deriveFixtureRelayerSecp256k1SigningShare32({
+    relayerShareSeedB64u: TEST_RELAYER_SHARE_SEED_B64U,
     relayerKeyId: input.relayerKeyId,
   });
   const relayerVerifyingShare33 = secp256k1.getPublicKey(relayerSigningShare32, true);
-  const groupPublicKey33 = sumSecpPublicKeysCompressed(clientVerifyingShare33, relayerVerifyingShare33);
+  const groupPublicKey33 = sumSecpPublicKeysCompressed(
+    clientVerifyingShare33,
+    relayerVerifyingShare33,
+  );
   const nowMs = Date.now();
   return {
     version: 'threshold_ecdsa_hss_key_v1' as const,
@@ -97,6 +102,9 @@ function buildIntegratedKeyRecord(input: {
     clientVerifyingShareB64u: input.clientVerifyingShareB64u,
     thresholdEcdsaPublicKeyB64u: base64UrlEncode(groupPublicKey33),
     ethereumAddress: `0x${'11'.repeat(20)}`,
+    signingRootId: TEST_SIGNING_ROOT_ID,
+    walletKeyVersion: 'v1',
+    derivationVersion: 1,
     participantIds: input.participantIds,
     relayerKeyId: input.relayerKeyId,
     relayerVerifyingShareB64u: base64UrlEncode(relayerVerifyingShare33),
@@ -174,8 +182,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       clientVerifyingShareB64u,
     });
 
-    const relayerSigningShare32 = deriveRelayerSecp256k1SigningShare32({
-      masterSecretB64u: TEST_MASTER_SECRET_B64U,
+    const relayerSigningShare32 = deriveFixtureRelayerSecp256k1SigningShare32({
+      relayerShareSeedB64u: TEST_RELAYER_SHARE_SEED_B64U,
       relayerKeyId,
     });
     const relayerVerifyingShare33 = secp256k1.getPublicKey(relayerSigningShare32, true);
@@ -211,7 +219,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         participantIds2p: participantIds,
         clientParticipantId,
         relayerParticipantId,
-        secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
         sessionStore: fakeSessionStore as any,
         signingSessionStore: sharedSigningSessionStore,
         presignSessionStore: sharedPresignSessionStore,
@@ -231,6 +238,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       relayerKeyId,
       participantIds,
       thresholdExpiresAtMs,
+      runtimePolicyScope: TEST_RUNTIME_SCOPE,
     };
 
     const init = await handlerA.ecdsaPresignInit({
@@ -384,7 +392,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         participantIds2p: participantIds,
         clientParticipantId,
         relayerParticipantId,
-        secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
         sessionStore: fakeSessionStore as any,
         signingSessionStore: sharedSigningSessionStore,
         presignSessionStore: sharedPresignSessionStore,
@@ -404,6 +411,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       relayerKeyId,
       participantIds,
       thresholdExpiresAtMs,
+      runtimePolicyScope: TEST_RUNTIME_SCOPE,
     };
 
     const init = await handlerA.ecdsaPresignInit({
@@ -489,7 +497,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         participantIds2p: participantIds,
         clientParticipantId,
         relayerParticipantId,
-        secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
         coordinatorInstanceId: input.instanceId,
         coordinatorPeers: input.peers,
         sessionStore: fakeSessionStore as any,
@@ -514,6 +521,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       relayerKeyId,
       participantIds,
       thresholdExpiresAtMs,
+      runtimePolicyScope: TEST_RUNTIME_SCOPE,
     };
 
     const init = await handlerA.ecdsaPresignInit({
@@ -627,7 +635,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         participantIds2p: participantIds,
         clientParticipantId,
         relayerParticipantId,
-        secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
         coordinatorInstanceId: input.instanceId,
         coordinatorPeers: input.peers,
         sessionStore: fakeSessionStore as any,
@@ -652,6 +659,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       relayerKeyId,
       participantIds,
       thresholdExpiresAtMs,
+      runtimePolicyScope: TEST_RUNTIME_SCOPE,
     };
 
     const init = await handlerA.ecdsaPresignInit({
@@ -738,7 +746,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         participantIds2p: participantIds,
         clientParticipantId,
         relayerParticipantId,
-        secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
         sessionStore: fakeSessionStore as any,
         signingSessionStore: sharedSigningSessionStore,
         presignSessionStore: sharedPresignSessionStore,
@@ -758,6 +765,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       relayerKeyId,
       participantIds,
       thresholdExpiresAtMs,
+      runtimePolicyScope: TEST_RUNTIME_SCOPE,
     };
 
     const init = await handlerA.ecdsaPresignInit({
@@ -818,8 +826,8 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       clientVerifyingShareB64u,
     });
 
-    const relayerSigningShare32 = deriveRelayerSecp256k1SigningShare32({
-      masterSecretB64u: TEST_MASTER_SECRET_B64U,
+    const relayerSigningShare32 = deriveFixtureRelayerSecp256k1SigningShare32({
+      relayerShareSeedB64u: TEST_RELAYER_SHARE_SEED_B64U,
       relayerKeyId,
     });
     const relayerVerifyingShare33 = secp256k1.getPublicKey(relayerSigningShare32, true);
@@ -853,7 +861,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       participantIds2p: participantIds,
       clientParticipantId,
       relayerParticipantId,
-      secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
       sessionStore: fakeSessionStore as any,
       signingSessionStore: sharedSigningSessionStore,
       presignSessionStore: sharedPresignSessionStore,
@@ -871,6 +878,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       relayerKeyId,
       participantIds,
       thresholdExpiresAtMs,
+      runtimePolicyScope: TEST_RUNTIME_SCOPE,
     };
 
     const init = await handler.ecdsaPresignInit({
@@ -966,7 +974,9 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const rpId = 'example.localhost';
     const participantIds = [1, 2];
     const clientSigningShare32 = randomSecpSecretKey32();
-    const clientVerifyingShareB64u = base64UrlEncode(secp256k1.getPublicKey(clientSigningShare32, true));
+    const clientVerifyingShareB64u = base64UrlEncode(
+      secp256k1.getPublicKey(clientSigningShare32, true),
+    );
     const digest32 = new Uint8Array(32).fill(7);
     const signingDigestB64u = base64UrlEncode(digest32);
     const mpcSessionId = 'mpc-signinit-select';
@@ -1017,6 +1027,9 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
           rpId,
           clientVerifyingShareB64u,
           participantIds,
+          signingRootId: TEST_SIGNING_ROOT_ID,
+          walletKeyVersion: 'v1',
+          derivationVersion: 1,
         },
       ],
     ]);
@@ -1040,7 +1053,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       participantIds2p: [1, 2],
       clientParticipantId: 1,
       relayerParticipantId: 2,
-      secp256k1MasterSecretB64u: TEST_MASTER_SECRET_B64U,
       sessionStore: fakeSessionStore as any,
       signingSessionStore: sharedSigningSessionStore,
       presignSessionStore: sharedPresignSessionStore,
@@ -1054,7 +1066,6 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
     const signInit = await handler.ecdsaSignInit({
       mpcSessionId,
-      ecdsaThresholdKeyId,
       relayerKeyId,
       signingDigestB64u,
       clientRound1: { presignatureId: secondRecord.presignatureId },

@@ -32,7 +32,10 @@ import {
   makeSessionAdapter,
   startExpressRouter,
 } from './helpers';
-import { deriveThresholdEd25519VerifyingShareForUnitTests } from '../helpers/thresholdEd25519TestUtils';
+import {
+  createFixtureSigningRootShareResolverForUnitTests,
+  deriveThresholdEd25519VerifyingShareForUnitTests,
+} from '../helpers/thresholdEd25519TestUtils';
 import type {
   ThresholdEd25519AuthConsumeUsesResult,
   Ed25519AuthSessionRecord,
@@ -43,12 +46,6 @@ type ThresholdEd25519AuthConsumeResult =
   | { ok: true; record: Ed25519AuthSessionRecord; remainingUses: number }
   | { ok: false; code: string; message: string };
 
-const DEFAULT_ECDSA_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString(
-  'base64url',
-);
-const DEFAULT_ED25519_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(7)).toString(
-  'base64url',
-);
 const DEFAULT_HSS_PRF_FIRST_B64U = Buffer.from(new Uint8Array(32).fill(13)).toString('base64url');
 const DEFAULT_HSS_ORG_ID = 'org_threshold_scope_test';
 const DEFAULT_HSS_KEY_PURPOSE = 'near-ed25519-signing';
@@ -121,8 +118,7 @@ function makeAuthServiceForThreshold(input?: {
 } {
   const thresholdConfig = {
     THRESHOLD_NODE_ROLE: 'coordinator',
-    THRESHOLD_ED25519_MASTER_SECRET_B64U: DEFAULT_ED25519_MASTER_SECRET_B64U,
-    THRESHOLD_SECP256K1_MASTER_SECRET_B64U: DEFAULT_ECDSA_MASTER_SECRET_B64U,
+    signingRootShareResolver: createFixtureSigningRootShareResolverForUnitTests(),
   } as const;
   const logger = input?.logger ?? null;
   const svc = new AuthService({
@@ -132,7 +128,7 @@ function makeAuthServiceForThreshold(input?: {
     networkId: 'testnet',
     accountInitialBalance: '1',
     createAccountAndRegisterGas: '1',
-    thresholdEd25519KeyStore: thresholdConfig,
+    thresholdStore: thresholdConfig,
     logger,
   });
 
@@ -160,7 +156,7 @@ function makeAuthServiceForThreshold(input?: {
 
   const threshold = createThresholdSigningService({
     authService: svc,
-    thresholdEd25519KeyStore: thresholdConfig,
+    thresholdStore: thresholdConfig,
     logger,
   });
 
@@ -523,6 +519,55 @@ async function provisionThresholdEd25519RegistrationMaterial(input: {
 }
 
 test.describe('threshold-ed25519 scope (express)', () => {
+  test('session mint accepts same-account threshold-ecdsa session without WebAuthn', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const { session } = createTestSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+    try {
+      const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+      const { relayerKeyId } = await provisionThresholdEd25519RegistrationMaterial({
+        service,
+        threshold,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+      });
+      const ecdsaJwt = await session.signJwt('bob.testnet', {
+        kind: 'threshold_ecdsa_session_v1',
+        sessionId: 'ecdsa-session-for-ed25519-mint',
+        relayerKeyId: 'ecdsa-relayer-key',
+        rpId: 'example.localhost',
+        thresholdExpiresAtMs: Date.now() + 60_000,
+        participantIds: [1, 2],
+      });
+      const thresholdSessionBody = await buildThresholdSessionBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+        sessionId: `ed25519-from-ecdsa-${Date.now()}`,
+        ttlMs: 60_000,
+        remainingUses: 2,
+      });
+      delete thresholdSessionBody.webauthn_authentication;
+
+      const minted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${ecdsaJwt}`,
+        },
+        body: JSON.stringify(thresholdSessionBody),
+      });
+
+      expect(minted.status, minted.text).toBe(200);
+      expect(minted.json?.ok, minted.text).toBe(true);
+      expect(String(minted.json?.jwt || '')).toContain('testjwt-');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('integration: session/exchange -> threshold session -> authorize -> sign/init', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     enableOidcExchangeForTest(service, 'bob.testnet');
@@ -1281,11 +1326,10 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(wrongScopeMinted.json?.ok).toBe(true);
       const wrongScopeJwt = String(wrongScopeMinted.json?.jwt || '');
 
-      const { context, clientInputs } =
-        await buildThresholdEd25519HssSessionMaterial({
-          thresholdSessionId: sessionId,
-          nearAccountId: 'bob.testnet',
-        });
+      const { context, clientInputs } = await buildThresholdEd25519HssSessionMaterial({
+        thresholdSessionId: sessionId,
+        nearAccountId: 'bob.testnet',
+      });
       await (threshold as any).keyStore.del(relayerKeyId);
 
       const prepared = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/prepare`, {
@@ -1368,11 +1412,10 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(minted.json?.ok).toBe(true);
       const jwt = String(minted.json?.jwt || '');
 
-      const { context, clientInputs } =
-        await buildThresholdEd25519HssSessionMaterial({
-          thresholdSessionId: sessionId,
-          nearAccountId: 'bob.testnet',
-        });
+      const { context, clientInputs } = await buildThresholdEd25519HssSessionMaterial({
+        thresholdSessionId: sessionId,
+        nearAccountId: 'bob.testnet',
+      });
       await (threshold as any).keyStore.del(relayerKeyId);
 
       const prepared = await fetchJson(`${srv.baseUrl}/threshold-ed25519/hss/prepare`, {
@@ -1484,10 +1527,16 @@ test.describe('threshold-ed25519 scope (express)', () => {
         Object.prototype.hasOwnProperty.call(storedCeremony?.preparedSession || {}, 'orgId'),
       ).toBe(false);
       expect(
-        Object.prototype.hasOwnProperty.call(storedCeremony?.preparedSession || {}, 'nearAccountId'),
+        Object.prototype.hasOwnProperty.call(
+          storedCeremony?.preparedSession || {},
+          'nearAccountId',
+        ),
       ).toBe(false);
       expect(
-        Object.prototype.hasOwnProperty.call(storedCeremony?.serverInputs || {}, 'contextBindingB64u'),
+        Object.prototype.hasOwnProperty.call(
+          storedCeremony?.serverInputs || {},
+          'contextBindingB64u',
+        ),
       ).toBe(false);
       expect(
         Object.prototype.hasOwnProperty.call(
@@ -1501,8 +1550,12 @@ test.describe('threshold-ed25519 scope (express)', () => {
           'clientOtOfferMessageB64u',
         ),
       ).toBe(false);
-      expect(storedCeremony?.preparedServerSession?.evaluatorDriverStateBytes).toBeInstanceOf(Uint8Array);
-      expect(storedCeremony?.preparedServerSession?.garblerDriverStateBytes).toBeInstanceOf(Uint8Array);
+      expect(storedCeremony?.preparedServerSession?.evaluatorDriverStateBytes).toBeInstanceOf(
+        Uint8Array,
+      );
+      expect(storedCeremony?.preparedServerSession?.garblerDriverStateBytes).toBeInstanceOf(
+        Uint8Array,
+      );
       expect(storedCeremony?.serverInputs?.yRelayerBytes).toBeInstanceOf(Uint8Array);
       expect(storedCeremony?.serverInputs?.tauRelayerBytes).toBeInstanceOf(Uint8Array);
 
@@ -1543,33 +1596,45 @@ test.describe('threshold-ed25519 scope (express)', () => {
       ).toBe(true);
 
       const prepareTimingEntry = captured.entries.find(
-        (entry) => entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss prepare timings',
+        (entry) =>
+          entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss prepare timings',
       );
       expect(prepareTimingEntry).toBeTruthy();
       const prepareTiming = (prepareTimingEntry?.args[1] as Record<string, unknown>) || {};
       expect(prepareTiming).toHaveProperty('ceremonyStateBytes');
       expect(Number(prepareTiming.evaluatorDriverStateBytes || 0)).toBeGreaterThan(0);
       expect(Number(prepareTiming.evaluatorDriverStatePayloadBytes || 0)).toBeGreaterThan(0);
-      expect(Number(prepareTiming.evaluatorDriverStateTransportOverheadBytes || 0)).toBeGreaterThan(0);
+      expect(Number(prepareTiming.evaluatorDriverStateTransportOverheadBytes || 0)).toBeGreaterThan(
+        0,
+      );
       expect(Number(prepareTiming.clientOtOfferMessageBytes || 0)).toBeGreaterThan(0);
       expect(Number(prepareTiming.clientOtOfferMessagePayloadBytes || 0)).toBeGreaterThan(0);
-      expect(Number(prepareTiming.clientOtOfferMessageTransportOverheadBytes || 0)).toBeGreaterThan(0);
+      expect(Number(prepareTiming.clientOtOfferMessageTransportOverheadBytes || 0)).toBeGreaterThan(
+        0,
+      );
       expect(
-        Number((prepareTiming.ceremonyStateBytes as Record<string, unknown>)?.preparedSessionBytes || 0),
+        Number(
+          (prepareTiming.ceremonyStateBytes as Record<string, unknown>)?.preparedSessionBytes || 0,
+        ),
       ).toBeGreaterThan(0);
       expect(
-        Number((prepareTiming.ceremonyStateBytes as Record<string, unknown>)?.serverInputsBytes || 0),
+        Number(
+          (prepareTiming.ceremonyStateBytes as Record<string, unknown>)?.serverInputsBytes || 0,
+        ),
       ).toBeGreaterThan(0);
 
       const respondTimingEntry = captured.entries.find(
-        (entry) => entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss respond timings',
+        (entry) =>
+          entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss respond timings',
       );
       expect(respondTimingEntry).toBeTruthy();
       const respondTiming = (respondTimingEntry?.args[1] as Record<string, unknown>) || {};
       expect(respondTiming).toHaveProperty('ceremonyStateBytes');
       expect(Number(respondTiming.clientRequestMessageBytes || 0)).toBeGreaterThan(0);
       expect(Number(respondTiming.clientRequestMessagePayloadBytes || 0)).toBeGreaterThan(0);
-      expect(Number(respondTiming.clientRequestMessageTransportOverheadBytes || 0)).toBeGreaterThan(0);
+      expect(Number(respondTiming.clientRequestMessageTransportOverheadBytes || 0)).toBeGreaterThan(
+        0,
+      );
       expect(Number(respondTiming.evaluatorOtStateBytes || 0)).toBeGreaterThan(0);
       expect(Number(respondTiming.evaluatorOtStatePayloadBytes || 0)).toBeGreaterThan(0);
       expect(Number(respondTiming.evaluatorOtStateTransportOverheadBytes || 0)).toBeGreaterThan(0);
@@ -1601,13 +1666,20 @@ test.describe('threshold-ed25519 scope (express)', () => {
       }
       expect(Number(respondTiming.evaluationResultBytes || 0)).toBeGreaterThan(0);
       expect(
-        Number((respondTiming.ceremonyStateBytes as Record<string, unknown>)?.serverInputsBytes || 0),
+        Number(
+          (respondTiming.ceremonyStateBytes as Record<string, unknown>)?.serverInputsBytes || 0,
+        ),
       ).toBe(0);
       expect(
-        Number((respondTiming.ceremonyStateBytes as Record<string, unknown>)?.evaluationResultBytes || 0),
+        Number(
+          (respondTiming.ceremonyStateBytes as Record<string, unknown>)?.evaluationResultBytes || 0,
+        ),
       ).toBeGreaterThan(0);
       expect(
-        Number((respondTiming.ceremonyStateBytes as Record<string, unknown>)?.stagedEvaluatorArtifactBytes || 0),
+        Number(
+          (respondTiming.ceremonyStateBytes as Record<string, unknown>)
+            ?.stagedEvaluatorArtifactBytes || 0,
+        ),
       ).toBeGreaterThan(0);
     } finally {
       await srv.close();
@@ -1768,7 +1840,8 @@ test.describe('threshold-ed25519 scope (express)', () => {
           entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss finalize timings',
       );
       const respondTimingEntry = captured.entries.find(
-        (entry) => entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss respond timings',
+        (entry) =>
+          entry.level === 'info' && entry.args[0] === '[threshold-ed25519] hss respond timings',
       );
       expect(respondTimingEntry).toBeTruthy();
       const respondTiming = (respondTimingEntry?.args[1] as Record<string, unknown>) || {};
@@ -1816,6 +1889,56 @@ test.describe('threshold-ed25519 scope (express)', () => {
 });
 
 test.describe('threshold-ed25519 scope (cloudflare)', () => {
+  test('session mint accepts same-account threshold-ecdsa session without WebAuthn', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const { session } = createTestSessionAdapter();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      threshold,
+      session,
+    });
+    const { ctx } = makeCfCtx();
+
+    const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+    const { relayerKeyId } = await provisionThresholdEd25519RegistrationMaterial({
+      service,
+      threshold,
+      nearAccountId: 'bob.testnet',
+      rpId: 'example.localhost',
+    });
+    const ecdsaJwt = await session.signJwt('bob.testnet', {
+      kind: 'threshold_ecdsa_session_v1',
+      sessionId: 'ecdsa-session-for-ed25519-mint',
+      relayerKeyId: 'ecdsa-relayer-key',
+      rpId: 'example.localhost',
+      thresholdExpiresAtMs: Date.now() + 60_000,
+      participantIds: [1, 2],
+    });
+    const thresholdSessionBody = await buildThresholdSessionBody({
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      nearAccountId: 'bob.testnet',
+      rpId: 'example.localhost',
+      sessionId: `ed25519-from-ecdsa-cf-${Date.now()}`,
+      ttlMs: 60_000,
+      remainingUses: 2,
+    });
+    delete thresholdSessionBody.webauthn_authentication;
+
+    const minted = await callCf(handler, {
+      method: 'POST',
+      path: '/threshold-ed25519/session',
+      origin: 'https://example.localhost',
+      headers: { Authorization: `Bearer ${ecdsaJwt}` },
+      body: thresholdSessionBody,
+      ctx,
+    });
+
+    expect(minted.status, minted.text).toBe(200);
+    expect(minted.json?.ok, minted.text).toBe(true);
+    expect(String(minted.json?.jwt || '')).toContain('testjwt-');
+  });
+
   test('integration: session/exchange -> threshold session -> authorize -> sign/init', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     enableOidcExchangeForTest(service, 'bob.testnet');
