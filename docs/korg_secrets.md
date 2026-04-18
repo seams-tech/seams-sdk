@@ -884,8 +884,17 @@ decryptAdapter })`.
 - [x] Add parity tests proving hosted mode, direct self-host mode, and sealed
       self-host mode produce the same `y_relayer` for the same root shares and
       wallet context.
-- [ ] Add failure tests for missing project scope, missing shares, duplicate
+- [x] Add failure tests for missing project scope, missing shares, duplicate
       shares, invalid share ids, decrypt failures, and wrong root version.
+      Coverage is split across:
+      `tests/unit/signingRootSecretWires.script.unit.test.ts`, which validates
+      missing `signingRootId`, missing preferred shares, duplicate records,
+      invalid share ids, malformed share wires, decrypt failures, and project
+      mismatches before decrypt; and
+      `tests/unit/signingRootShareResolver.script.unit.test.ts`, which
+      validates fixed-scope self-host resolver mismatch, duplicate direct-share
+      imports, hosted resolver share resolution, sealed self-host resolution,
+      and wrong `signingRootVersion` rejection.
 - [x] Document that direct self-host mode does not require a KEK env var.
 - [x] Document that local AES-GCM sealed-share mode uses
       `SIGNING_ROOT_SECRET_SHARE_KEK_B64U`, while KMS/TEE modes should not expose

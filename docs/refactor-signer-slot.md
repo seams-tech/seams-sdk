@@ -1269,7 +1269,7 @@ Todo:
        non-array object guards now use shared `isPlainObject` in router,
        Cloudflare Durable Object, self-hosted worker, Email OTP store, and
        link-device parsing code.
-4. [ ] Audit Express and Cloudflare Email OTP route duplication and extract
+4. [x] Audit Express and Cloudflare Email OTP route duplication and extract
        shared helpers for body validation, app-session claim extraction,
        export-policy authorization, export audit payloads, and common response
        shaping.
@@ -1278,9 +1278,10 @@ Todo:
        `emailOtpExportPolicy.ts`; shared session-route helpers for status
        mapping, wallet-id claim extraction, Google OIDC detection, and OIDC
        account-mode parsing live in `emailOtpSessionRouteHelpers.ts`. Email
-       OTP challenge response shaping now also lives there.
-       Remaining work is larger common response-shaping extraction if the two
-       route files keep drifting.
+       OTP challenge response shaping and stable app-session claim hashing now
+       also live there. The final pass found no remaining renamed-value
+       compatibility aliases in the Email OTP route boundary; future response
+       shaping should be extracted only when new drift appears.
 5. [x] Add remaining guard tests that reject duplicated hard-coded domain literals and
        duplicated local validation helpers in router/client/server boundary
        code.

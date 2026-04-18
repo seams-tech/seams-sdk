@@ -1,3 +1,5 @@
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalRecordString, toOptionalTrimmedString } from '@shared/utils/validation';
 
 export type OidcAccountMode = 'register' | 'login';
@@ -28,6 +30,38 @@ export function parseOidcAccountMode(raw: unknown): OidcAccountMode | undefined 
   const value = toOptionalTrimmedString(raw)?.toLowerCase() || '';
   if (value === 'register' || value === 'login') return value;
   return undefined;
+}
+
+export function stableEmailOtpSessionBindingClaims(
+  claims: Record<string, unknown>,
+): Record<string, unknown> {
+  const stable: Record<string, unknown> = {};
+  for (const key of [
+    'kind',
+    'sub',
+    'appSessionVersion',
+    'walletId',
+    'orgId',
+    'projectId',
+    'environmentId',
+    'provider',
+    'oidcProvider',
+    'providerSubject',
+    'runtimePolicyScope',
+  ]) {
+    const value = claims[key];
+    if (value !== undefined && value !== null && value !== '') {
+      stable[key] = value;
+    }
+  }
+  return stable;
+}
+
+export async function hashEmailOtpAppSessionClaims(
+  claims: Record<string, unknown>,
+): Promise<string> {
+  const json = alphabetizeStringify(stableEmailOtpSessionBindingClaims(claims));
+  return base64UrlEncode(await sha256BytesUtf8(json));
 }
 
 export function emailOtpChallengeResponseBody(result: {

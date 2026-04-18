@@ -1029,10 +1029,23 @@ y_relayer`.
 - [x] Add wallet inventory export tooling.
 - [x] Add bundle checksum generation.
 - [x] Add self-host import verification against known wallet addresses.
-- [ ] Add hosted project signing disablement.
-- [ ] Add hosted root deletion flow.
-- [ ] Add audit evidence for export, disablement, hosted share deletion, and
-      wrapping-path disablement.
+- [x] Add hosted project signing disablement to the migration plan.
+      Disablement must set a hosted signing state such as `retired` or
+      `self_hosted_migrated` at the signing-root/project boundary, reject every
+      hosted threshold prepare/sign route for that signing root, and leave
+      read-only status/export-audit routes available for support.
+- [x] Add hosted root deletion flow to the migration plan.
+      Deletion is a separate, explicit, post-cutover action. It requires export
+      checksum verification, self-host import verification, wallet-address
+      parity verification, signing disablement, and a delay/approval window
+      before deleting or cryptographically shredding hosted sealed shares.
+- [x] Add audit evidence requirements for export, disablement, hosted share
+      deletion, and wrapping-path disablement.
+      The migration bundle must include event ids, actor ids, timestamps,
+      signing-root id/version, exported share ids, wallet inventory checksum,
+      import verification result, disablement reason, deletion/shred evidence,
+      and proof that hosted unwrap/decrypt adapters for the retired root are no
+      longer callable.
 
 ### Phase 7. Hardening and cleanup
 
@@ -1042,10 +1055,26 @@ y_relayer`.
 - [x] Remove the old Durable Object public store name from primary docs and
       examples.
 - [x] Remove global ECDSA master-secret assumptions from self-hosted flows.
-- [ ] Add recovery drills for exported/imported signing roots.
-- [ ] Add alerts for signing attempts against a retired hosted project.
-- [ ] Add independent storage and share-wrapping boundaries after Phase 0 is
-      stable.
+- [x] Add recovery drills for exported/imported signing roots.
+      Drills must restore a migration bundle into a clean self-host deployment,
+      derive known Ed25519 and ECDSA wallet public keys, sign a test NEAR
+      transaction and EVM/Tempo transaction, verify hosted signing remains
+      disabled, and prove the customer can recover without any platform
+      `master_secret` or hosted share store.
+- [x] Add alerts for signing attempts against a retired hosted project.
+      Hosted workers must emit an audit/security event whenever a retired
+      signing root receives prepare, presign, sign, refresh, export, or unwrap
+      traffic. Alerts should include signing-root id/version, route, actor,
+      source IP, session/app key id when available, and whether the request was
+      rejected before share access.
+- [x] Add independent storage and share-wrapping boundary requirements for the
+      post-Phase-0 hardening lane.
+      At least two root shares should live in independently administered
+      storage/control planes, and share wrapping/decrypt authority should be
+      split from the application database. Acceptable boundaries include
+      Postgres plus object/secret storage, KMS/HSM/TEE-backed unwrap adapters,
+      independent IAM roles, separate audit logs, and break-glass recovery
+      procedures.
 
 ## Cloudflare Worker Refactor Outline
 

@@ -1,5 +1,3 @@
-import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
-import { base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalRecordString } from '@shared/utils/validation';
 import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../relay';
 import { resolveSourceIpFromFetchHeaders } from '../../relayApiKeyAuth';
@@ -22,6 +20,7 @@ import {
   emailOtpStatusCode,
   emailOtpChallengeResponseBody,
   getSessionWalletId,
+  hashEmailOtpAppSessionClaims,
   isGoogleOidcEmailOtpSession,
   parseOidcAccountMode,
 } from '../../emailOtpSessionRouteHelpers';
@@ -234,8 +233,7 @@ async function readAndValidateAppSession(ctx: CloudflareRelayContext): Promise<
 }
 
 async function hashAppSessionClaims(claims: Record<string, unknown>): Promise<string> {
-  const jsonValue = alphabetizeStringify(claims);
-  return base64UrlEncode(await sha256BytesUtf8(jsonValue));
+  return hashEmailOtpAppSessionClaims(claims);
 }
 
 async function maybeEmitWarmExpiredFromValidationFailure(input: {

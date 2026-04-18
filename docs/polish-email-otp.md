@@ -314,6 +314,34 @@ Recommendation:
 3. Track the implementation in the signer-slot/signing-root refactor lane so it is fixed with the ECDSA HSS context shape, persisted key schema, replay path, fixtures, and tests together.
 4. Do not hide it behind a compatibility fallback; development can tolerate breaking schema/test updates.
 
+Release-blocker tracking:
+
+1. [ ] Before enabling persisted ECDSA HSS replay/reconstruction in production, bind every persisted ECDSA HSS record to `signingRootId` and `signingRootVersion`.
+2. [ ] Reject persisted ECDSA HSS signing/export records when stored signing-root metadata differs from the authenticated runtime scope.
+3. [ ] Add fixtures and tests covering matching scope, mismatched `signingRootId`, mismatched `signingRootVersion`, missing metadata, and self-hosted import replay.
+
+## Cleanup: JWT-Kind And Route Auth Boundaries
+
+Root cause:
+
+ECDSA Email OTP export uses two different authorization lanes:
+
+1. Email OTP `export_key` challenge and verification are bound to the current app-session JWT.
+2. ECDSA HSS export prepare/respond/finalize are authorized by the threshold-session JWT.
+
+Using one generic `authorizationJwt` field made those lanes easy to confuse. The server then correctly rejected an OTP challenge when the follow-up request presented a token whose stable app-session binding did not match the challenge.
+
+Todo:
+
+1. [x] Add shared JWT-kind helpers for app-session and threshold-session tokens.
+2. [x] Remove unsafe `SigningEngine` fallbacks that substitute a threshold-session JWT where an app-session JWT is required, or substitute an app-session JWT where ECDSA HSS needs threshold-session authorization.
+3. [x] Rename the active Email OTP / ECDSA HSS `authorizationJwt` plumbing to explicit route auth fields.
+4. [x] Introduce discriminated auth objects at new/changed ECDSA HSS boundaries: `{ kind: 'app_session', jwt }`, `{ kind: 'threshold_session', jwt }`, `{ kind: 'cookie' }`, `{ kind: 'bootstrap_grant', token }`, and `{ kind: 'publishable_key', token }`.
+5. [x] Add negative misuse tests proving app-session JWTs are rejected at threshold-session boundaries and threshold-session JWTs are rejected at app-session boundaries.
+6. [x] Re-run focused Email OTP login/sign/export coverage for Ed25519 and ECDSA.
+7. [x] Re-run focused relayer Email OTP route coverage for export-scoped challenge verification and refreshed app-session binding.
+8. [x] Rebuild the SDK after the boundary rename.
+
 ## Cleanup: Domain Literal Constants
 
 Recommendation:
@@ -343,7 +371,12 @@ Todo:
         shared wire literals cannot be reintroduced in those surfaces.
 6. [x] Add a guard test preventing Email OTP parser/client/store modules from redeclaring shared Email OTP wire literal types.
 7. [x] Add guard tests that fail on duplicated hard-coded literals in wallet auth-mode resolution and signer-slot lifecycle code.
-8. [ ] Avoid compatibility aliases for renamed values; this codebase is still in development, so breaking cleanup is preferred over legacy symbols.
+8. [x] Avoid compatibility aliases for renamed values; this codebase is still in development, so breaking cleanup is preferred over legacy symbols.
+        Email OTP route names, operation names, signer-slot names, and shared
+        domain values now use the current names directly. No compatibility
+        aliases were kept for renamed Email OTP/signing values; route aliases
+        remain only for explicitly configurable route paths, not renamed
+        request fields or legacy symbols.
 9. [x] Decide whether any shared string-union domains should become real enums. Default to `as const` maps plus derived types; use enums only when runtime enum semantics are actually needed.
 10. [x] Replace local helper copies such as `toOptionalTrimmedString`, `optionalClaimString`, local object/string guards, and equivalent normalizers with shared validation/normalization helpers where behavior matches.
         `optionalClaimString` was removed from
@@ -351,11 +384,13 @@ Todo:
         normalization. Matching non-array object guards now use shared
         `isPlainObject`; local helpers remain only where semantics differ or
         where the helper is the central router utility.
-11. [ ] Extract duplicated Email OTP server route logic shared by Express and Cloudflare: request validation, app-session claim extraction, export-policy authorization, audit payload construction, and response shaping.
+11. [x] Extract duplicated Email OTP server route logic shared by Express and Cloudflare: request validation, app-session claim extraction, export-policy authorization, audit payload construction, and response shaping.
         Completed slices: request parsing, export-policy authorization/audit
         payloads, status mapping, wallet-id claim extraction, Google OIDC
         detection, OIDC account-mode parsing, Email OTP wire constants, and
-        Email OTP challenge response shaping are shared. Remaining work is
-        enrollment-finalize, unseal, and dev-outbox response shaping if
-        Express/Cloudflare route bodies keep diverging.
+        Email OTP challenge response shaping are shared. The final pass also
+        extracted stable app-session claim hashing used by both Express and
+        Cloudflare routes. Future enrollment-finalize, unseal, or dev-outbox
+        response shaping should be extracted only if those route bodies start
+        drifting again.
 12. [x] Add guard tests preventing route files from reintroducing local copies of generic validation or claim-normalization helpers.

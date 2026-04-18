@@ -1,6 +1,4 @@
 import type { Router as ExpressRouter } from 'express';
-import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
-import { base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalRecordString } from '@shared/utils/validation';
 import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../relay';
 import { emitRelayWebhookEvent } from '../../relayWebhooks';
@@ -22,6 +20,7 @@ import {
   emailOtpStatusCode,
   emailOtpChallengeResponseBody,
   getSessionWalletId,
+  hashEmailOtpAppSessionClaims,
   isGoogleOidcEmailOtpSession,
   parseOidcAccountMode,
 } from '../../emailOtpSessionRouteHelpers';
@@ -231,8 +230,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
   };
 
   const hashAppSessionClaims = async (claims: Record<string, unknown>): Promise<string> => {
-    const json = alphabetizeStringify(claims);
-    return base64UrlEncode(await sha256BytesUtf8(json));
+    return hashEmailOtpAppSessionClaims(claims);
   };
 
   const maybeEmitWarmExpiredFromValidationFailure = async (input: {
