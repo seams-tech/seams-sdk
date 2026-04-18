@@ -9,6 +9,26 @@ import {
   getEmailOtpPrompt,
   getSigningAuthMode,
 } from '@/core/signingEngine/touchConfirm/handlers/flows/adapters/request';
+import type { SigningAuthPlan } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+
+const passkeyPlan: SigningAuthPlan = {
+  kind: 'passkeyReauth',
+  method: 'passkey',
+};
+
+function warmSessionPlan(sessionId: string): SigningAuthPlan {
+  return {
+    kind: 'warmSession',
+    method: 'passkey',
+    accountId: 'alice.testnet',
+    intent: 'transaction_sign',
+    curve: 'ed25519',
+    sessionId,
+    retention: 'session',
+    expiresAtMs: Date.now() + 60_000,
+    remainingUses: 1,
+  };
+}
 
 test.describe('touchConfirm orchestration manager bridge', () => {
   test('uses ctx.touchConfirm.requestUserConfirmation', async () => {
@@ -36,6 +56,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       signerAccountId: 'alice.testnet',
       challengeB64u: 'AQ',
       intentDigest: 'intent-fallback',
+      signingAuthPlan: passkeyPlan,
     });
 
     expect(managerCalls).toBe(1);
@@ -52,11 +73,12 @@ test.describe('touchConfirm orchestration manager bridge', () => {
         signerAccountId: 'alice.testnet',
         challengeB64u: 'AQ',
         intentDigest: 'intent-missing',
+        signingAuthPlan: passkeyPlan,
       }),
     ).rejects.toThrow('UserConfirm manager request bridge is unavailable');
   });
 
-  test('forwards signing auth plans and prefers them over legacy auth modes', async () => {
+  test('forwards signing auth plans as canonical auth input', async () => {
     let capturedRequest: any;
 
     await orchestrateSigningConfirmation({
@@ -78,7 +100,6 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       signerAccountId: 'alice.testnet',
       challengeB64u: 'AQ',
       intentDigest: 'intent-email-otp-plan',
-      signingAuthMode: 'webauthn',
       signingAuthPlan: {
         kind: 'emailOtpReauth',
         method: 'email_otp',
@@ -125,7 +146,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
         sessionId,
         chain: 'near',
         kind: 'transaction',
-        signingAuthMode: 'warmSession',
+        signingAuthPlan: warmSessionPlan('threshold-session-warm'),
         txSigningRequests: [
           {
             receiverId: 'receiver.testnet',
@@ -180,17 +201,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
         sessionId,
         chain: 'near',
         kind: 'transaction',
-        signingAuthPlan: {
-          kind: 'warmSession',
-          method: 'passkey',
-          accountId: 'alice.testnet',
-          intent: 'transaction_sign',
-          curve: 'ed25519',
-          sessionId: 'threshold-session-1',
-          retention: 'session',
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 1,
-        },
+        signingAuthPlan: warmSessionPlan('threshold-session-1'),
         txSigningRequests: [
           {
             receiverId: 'receiver.testnet',
@@ -238,7 +249,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       sessionId: 'session-near-delegate',
       chain: 'near',
       kind: 'delegate',
-      signingAuthMode: 'warmSession',
+      signingAuthPlan: warmSessionPlan('threshold-session-delegate'),
       nearAccountId: 'alice.testnet',
       nearPublicKeyStr: 'ed25519:delegate-key',
       delegate: {
@@ -284,7 +295,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       sessionId: 'session-nep413',
       chain: 'near',
       kind: 'nep413',
-      signingAuthMode: 'warmSession',
+      signingAuthPlan: warmSessionPlan('threshold-session-nep413'),
       nearAccountId: 'alice.testnet',
       nearPublicKeyStr: 'ed25519:nep413-key',
       message: 'hello threshold nep413',

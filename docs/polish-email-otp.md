@@ -306,7 +306,10 @@ Tasks:
 4. [x] Unit test Tempo Email OTP `per_operation` challenge, submit, sign, discard, and replay rejection.
 5. [x] Unit test NEAR Ed25519 Email OTP session and per-operation signing paths.
 6. [x] Unit test Email OTP-only Ed25519 and ECDSA key export with fresh OTP step-up.
-7. [ ] E2E smoke test Google SSO + Email OTP registration, login, NEAR sign, EVM sign, Tempo sign.
+7. [x] E2E smoke test Google SSO + Email OTP registration, login, NEAR sign, EVM sign, Tempo sign.
+        Covered by the Google SSO Email OTP E2E cases for registration/login,
+        NEAR signing, normal EVM signing, Tempo signing, and Ed25519/ECDSA
+        export with resend.
 8. [x] E2E smoke test passkey registration, login, NEAR sign, EVM sign, Tempo sign, Ed25519 export, ECDSA export.
         Completed manually: passkey registration, wallet unlock, Ed25519 threshold signing, ECDSA threshold signing, Drip fee token claim on Tempo, Ed25519 export, and ECDSA export.
 9. [ ] E2E smoke test wallet-iframe mode with app-origin IndexedDB disabled.

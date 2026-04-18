@@ -67,6 +67,13 @@ export function emailOtpSigningAuthPlan(emailOtpPrompt: EmailOtpConfirmPrompt): 
   };
 }
 
+export function passkeySigningAuthPlan(): SigningAuthPlan {
+  return {
+    kind: 'passkeyReauth',
+    method: 'passkey',
+  };
+}
+
 export async function resolveTouchConfirmSigningAuth(args: {
   needsWebAuthn: boolean;
   walletAuthPlan?: WalletAuthPlan;
@@ -90,10 +97,7 @@ export async function resolveTouchConfirmSigningAuth(args: {
     };
   }
   if (args.needsWebAuthn) {
-    const signingAuthPlan: SigningAuthPlan = {
-      kind: 'passkeyReauth',
-      method: 'passkey',
-    };
+    const signingAuthPlan = passkeySigningAuthPlan();
     return {
       touchConfirmAuthPayload: { signingAuthPlan },
     };

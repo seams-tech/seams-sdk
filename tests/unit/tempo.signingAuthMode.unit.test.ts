@@ -44,6 +44,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               orchestrateSigningConfirmation: async (params: any) => {
                 confirmCalls += 1;
                 capturedAuthMode = String(params?.signingAuthMode || '');
+                capturedAuthPlanKind = String(params?.signingAuthPlan?.kind || '');
                 return {
                   sessionId: 'intent',
                   intentDigest: '0x' + '11'.repeat(32),
@@ -88,12 +89,13 @@ test.describe('tempo signing auth-mode resolution', () => {
               },
             } as any,
           });
-          return { ok: true, confirmCalls, capturedAuthMode };
+          return { ok: true, confirmCalls, capturedAuthMode, capturedAuthPlanKind };
         } catch (error: any) {
           return {
             ok: false,
             confirmCalls,
             capturedAuthMode,
+            capturedAuthPlanKind,
             message: String(error?.message || error),
           };
         }
@@ -103,7 +105,8 @@ test.describe('tempo signing auth-mode resolution', () => {
 
     expect(result.ok).toBe(true);
     expect(result.confirmCalls).toBe(1);
-    expect(result.capturedAuthMode).toBe('warmSession');
+    expect(result.capturedAuthMode).toBe('');
+    expect(result.capturedAuthPlanKind).toBe('passkeyReauth');
   });
 
   test('uses Email OTP prompt and refreshed keyRef for EVM per-operation signing', async ({
@@ -633,6 +636,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       async ({ paths }) => {
         const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
         let capturedAuthMode: string | null = null;
+        let capturedAuthPlanKind: string | null = null;
 
         const workerCtx = {
           requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -655,6 +659,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             }),
             orchestrateSigningConfirmation: async (params: any) => {
               capturedAuthMode = String(params?.signingAuthMode || '');
+              capturedAuthPlanKind = String(params?.signingAuthPlan?.kind || '');
               return {
                 sessionId: 'intent',
                 intentDigest: String(params?.intentDigest || ''),
@@ -698,10 +703,21 @@ test.describe('tempo signing auth-mode resolution', () => {
               thresholdSessionId: 'session-1',
             },
           } as any,
+          walletAuthPlan: {
+            kind: 'warmSession',
+            method: 'passkey',
+            accountId: 'alice.testnet',
+            intent: 'transaction_sign',
+            curve: 'ecdsa',
+            sessionId: 'session-1',
+            expiresAtMs: Date.now() + 10_000,
+            remainingUses: 2,
+          },
         });
 
         return {
           capturedAuthMode,
+          capturedAuthPlanKind,
           kind: signed.kind,
           chain: signed.chain,
         };
@@ -709,7 +725,8 @@ test.describe('tempo signing auth-mode resolution', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.capturedAuthMode).toBe('warmSession');
+    expect(result.capturedAuthMode).toBe('');
+    expect(result.capturedAuthPlanKind).toBe('warmSession');
     expect(result.chain).toBe('evm');
     expect(result.kind).toBe('eip1559');
   });
@@ -719,6 +736,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       async ({ paths }) => {
         const { signTempoWithTouchConfirm } = await import(paths.signTempoWithTouchConfirm);
         let capturedAuthMode: string | null = null;
+        let capturedAuthPlanKind: string | null = null;
 
         const workerCtx = {
           requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -909,6 +927,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       async ({ paths }) => {
         const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
         let capturedAuthMode: string | null = null;
+        let capturedAuthPlanKind: string | null = null;
 
         const workerCtx = {
           requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -931,6 +950,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             }),
             orchestrateSigningConfirmation: async (params: any) => {
               capturedAuthMode = String(params?.signingAuthMode || '');
+              capturedAuthPlanKind = String(params?.signingAuthPlan?.kind || '');
               return {
                 sessionId: 'intent',
                 intentDigest: String(params?.intentDigest || ''),
@@ -975,10 +995,21 @@ test.describe('tempo signing auth-mode resolution', () => {
               thresholdSessionId: 'session-1',
             },
           } as any,
+          walletAuthPlan: {
+            kind: 'warmSession',
+            method: 'passkey',
+            accountId: 'alice.testnet',
+            intent: 'transaction_sign',
+            curve: 'ecdsa',
+            sessionId: 'session-1',
+            expiresAtMs: Date.now() + 10_000,
+            remainingUses: 2,
+          },
         });
 
         return {
           capturedAuthMode,
+          capturedAuthPlanKind,
           kind: signed.kind,
           chain: signed.chain,
         };
@@ -986,7 +1017,8 @@ test.describe('tempo signing auth-mode resolution', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.capturedAuthMode).toBe('warmSession');
+    expect(result.capturedAuthMode).toBe('');
+    expect(result.capturedAuthPlanKind).toBe('warmSession');
     expect(result.chain).toBe('evm');
     expect(result.kind).toBe('eip1559');
   });

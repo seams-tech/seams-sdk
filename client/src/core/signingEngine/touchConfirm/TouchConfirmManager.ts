@@ -69,6 +69,41 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function stripFunctionsForWorkerMessage<T>(value: T): T {
+  if (typeof value === 'function') {
+    return undefined as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripFunctionsForWorkerMessage(entry)) as T;
+  }
+  if (!isObjectRecord(value)) {
+    return value;
+  }
+  const output: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === 'function') continue;
+    output[key] = stripFunctionsForWorkerMessage(entry);
+  }
+  return output as T;
+}
+
+function maybeCopyEmailOtpResendHandler(args: {
+  targetPrompt: unknown;
+  sourcePrompt: unknown;
+}): unknown {
+  if (!isObjectRecord(args.targetPrompt) || !isObjectRecord(args.sourcePrompt)) {
+    return args.targetPrompt;
+  }
+  const onResend = args.sourcePrompt.onResend;
+  if (typeof onResend !== 'function') {
+    return args.targetPrompt;
+  }
+  return {
+    ...args.targetPrompt,
+    onResend,
+  };
+}
+
 function parseWarmSessionStatusResult(data: unknown): WarmSessionStatusResult | null {
   if (!isObjectRecord(data) || typeof data.ok !== 'boolean') return null;
   if (!data.ok) {
@@ -236,6 +271,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     string,
     (progress: UserConfirmProgressEvent) => void
   >();
+  private readonly pendingFunctionBearingConfirmRequests = new Map<string, UserConfirmRequest>();
   private readonly boundHandleWorkerMessage = this.handleWorkerMessage.bind(this);
   private readonly boundHandleWorkerError = this.handleWorkerError.bind(this);
 
@@ -850,12 +886,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (options?.onProgress) {
       this.userConfirmProgressListeners.set(requestId, options.onProgress);
     }
+    this.pendingFunctionBearingConfirmRequests.set(requestId, request);
+    const workerSafeRequest = stripFunctionsForWorkerMessage(request);
 
     try {
       const response = await this.sendMessage({
         type: 'SECURE_CONFIRM_REQUEST',
         id: this.generateMessageId(),
-        payload: { request },
+        payload: { request: workerSafeRequest },
       });
       if (!response?.success) {
         throw new Error(String(response?.error || 'Secure confirmation request failed'));
@@ -870,6 +908,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       return decision;
     } finally {
       this.userConfirmProgressListeners.delete(requestId);
+      this.pendingFunctionBearingConfirmRequests.delete(requestId);
     }
   }
 
@@ -1072,8 +1111,48 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       type: UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
       requestId,
       channelToken,
-      data: request,
+      data: this.restoreFunctionBearingConfirmRequestFields(requestId, request),
     };
+  }
+
+  private restoreFunctionBearingConfirmRequestFields(
+    requestId: string,
+    request: UserConfirmRequest,
+  ): UserConfirmRequest {
+    const original = this.pendingFunctionBearingConfirmRequests.get(requestId);
+    if (!original) return request;
+    const requestWithUnknownPayload = request as unknown as { payload?: unknown };
+    const originalWithUnknownPayload = original as unknown as { payload?: unknown };
+    const payload = isObjectRecord(requestWithUnknownPayload.payload)
+      ? { ...requestWithUnknownPayload.payload }
+      : null;
+    const originalPayload = isObjectRecord(originalWithUnknownPayload.payload)
+      ? originalWithUnknownPayload.payload
+      : null;
+    if (!payload || !originalPayload) return request;
+
+    if (payload.emailOtpPrompt || originalPayload.emailOtpPrompt) {
+      payload.emailOtpPrompt = maybeCopyEmailOtpResendHandler({
+        targetPrompt: payload.emailOtpPrompt,
+        sourcePrompt: originalPayload.emailOtpPrompt,
+      });
+    }
+
+    const signingAuthPlan = payload.signingAuthPlan;
+    const originalSigningAuthPlan = originalPayload.signingAuthPlan;
+    if (isObjectRecord(signingAuthPlan) && isObjectRecord(originalSigningAuthPlan)) {
+      const restoredSigningAuthPlan: Record<string, unknown> = { ...signingAuthPlan };
+      restoredSigningAuthPlan.emailOtpPrompt = maybeCopyEmailOtpResendHandler({
+        targetPrompt: signingAuthPlan.emailOtpPrompt,
+        sourcePrompt: originalSigningAuthPlan.emailOtpPrompt,
+      });
+      payload.signingAuthPlan = restoredSigningAuthPlan;
+    }
+
+    return {
+      ...(request as object),
+      payload,
+    } as unknown as UserConfirmRequest;
   }
 
   private postPromptEnvelopeError(requestId: string, channelToken: string, message: string): void {

@@ -7,7 +7,6 @@ import {
   signingAuthModeFromSigningAuthPlan,
   UserConfirmationType,
   type UserConfirmRequest,
-  type SigningAuthMode,
   type SigningAuthPlan,
   type EmailOtpConfirmPrompt,
   type TransactionSummary,
@@ -47,15 +46,7 @@ export interface OrchestrateSigningConfirmationBaseParams {
   chain: SigningConfirmationChain;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   onProgress?: (progress: UserConfirmProgressEvent) => void;
-  /**
-   * Optional override for signing auth mode.
-   * When omitted, the UserConfirm worker may auto-select `warmSession` when a warm session is available.
-   *
-   * Threshold signing typically selects `warmSession` only when a valid relay session token exists
-   * and PRF.first is cached in the UserConfirm worker; otherwise it uses `webauthn`.
-   */
-  signingAuthMode?: SigningAuthMode;
-  signingAuthPlan?: SigningAuthPlan;
+  signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
   confirmationReadiness?: ConfirmationReadiness;
   /**
@@ -221,10 +212,7 @@ export async function orchestrateSigningConfirmation(
 ): Promise<SigningConfirmationResultWithTxContext | SigningConfirmationResultIntentDigest> {
   const { sessionId } = params;
   const requestUserConfirmation = resolveRequestUserConfirmationBridge(params.ctx);
-  const effectiveSigningAuthMode = params.signingAuthPlan
-    ? signingAuthModeFromSigningAuthPlan(params.signingAuthPlan)
-    : params.signingAuthMode;
-  const legacySigningAuthMode = params.signingAuthPlan ? undefined : params.signingAuthMode;
+  const effectiveSigningAuthMode = signingAuthModeFromSigningAuthPlan(params.signingAuthPlan);
 
   let intentDigest: string;
   let request: UserConfirmRequest;
@@ -289,8 +277,7 @@ export async function orchestrateSigningConfirmation(
             ...(params.sessionPolicyDigest32
               ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
               : {}),
-            ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
-            ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
+            signingAuthPlan: params.signingAuthPlan,
             ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
           },
           confirmationConfig: params.confirmationConfigOverride,
@@ -326,8 +313,7 @@ export async function orchestrateSigningConfirmation(
           ...(params.sessionPolicyDigest32
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
-          ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
-          ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
+          signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
@@ -385,8 +371,7 @@ export async function orchestrateSigningConfirmation(
           ...(params.sessionPolicyDigest32
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
-          ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
-          ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
+          signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
@@ -416,8 +401,7 @@ export async function orchestrateSigningConfirmation(
           ...(params.sessionPolicyDigest32
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
-          ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
-          ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
+          signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
@@ -453,8 +437,7 @@ export async function orchestrateSigningConfirmation(
           nearAccountId: params.signerAccountId,
           challengeB64u,
           displayModel,
-          ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
-          ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
+          signingAuthPlan: params.signingAuthPlan,
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,

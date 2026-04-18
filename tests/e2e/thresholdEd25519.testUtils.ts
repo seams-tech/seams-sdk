@@ -211,6 +211,22 @@ export async function persistThresholdEd25519RegistrationMaterial(input: {
 
 export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSessionAdapter> {
   const issuedTokens = new Map<string, Record<string, unknown>>();
+  const makeTestJwt = (claims: Record<string, unknown>): string => {
+    const header = base64UrlEncode(Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })));
+    const payload = base64UrlEncode(
+      Buffer.from(
+        JSON.stringify({
+          ...claims,
+          exp: Math.floor(Date.now() / 1000) + 3600,
+        }),
+      ),
+    );
+    const signature =
+      typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID().replace(/-/g, '')
+        : `${Date.now()}${Math.random().toString(16).slice(2)}`;
+    return `${header}.${payload}.${signature}`;
+  };
   const extractCookieToken = (cookieHeader: string | undefined): string => {
     const raw = String(cookieHeader || '').trim();
     if (!raw) return '';
@@ -224,12 +240,18 @@ export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSession
   };
   return makeSessionAdapter({
     signJwt: async (sub: string, extra?: Record<string, unknown>) => {
-      const id =
-        typeof globalThis.crypto?.randomUUID === 'function'
-          ? globalThis.crypto.randomUUID()
-          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const token = `testjwt-${id}`;
-      issuedTokens.set(token, { sub, ...(extra || {}) });
+      const extraRecord = { ...(extra || {}) };
+      const jwtShape = extraRecord.__testJwtShape === true;
+      delete extraRecord.__testJwtShape;
+      const claims = { sub, ...extraRecord };
+      const token = jwtShape
+        ? makeTestJwt(claims)
+        : `testjwt-${
+            typeof globalThis.crypto?.randomUUID === 'function'
+              ? globalThis.crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+          }`;
+      issuedTokens.set(token, claims);
       return token;
     },
     parse: async (headers: Record<string, string | string[] | undefined>) => {
@@ -242,6 +264,23 @@ export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSession
       const token = tokenFromAuthorization || extractCookieToken(cookieHeader);
       const claims = token ? issuedTokens.get(token) : undefined;
       return claims ? { ok: true as const, claims } : { ok: false as const };
+    },
+    refresh: async (headers: Record<string, string | string[] | undefined>) => {
+      const authHeaderRaw = headers['authorization'] ?? headers['Authorization'];
+      const authHeader = Array.isArray(authHeaderRaw) ? authHeaderRaw[0] : authHeaderRaw;
+      const cookieHeaderRaw = headers['cookie'] ?? headers['Cookie'];
+      const cookieHeader = Array.isArray(cookieHeaderRaw) ? cookieHeaderRaw[0] : cookieHeaderRaw;
+      const tokenFromAuthorization =
+        typeof authHeader === 'string' ? authHeader.replace(/^Bearer\s+/i, '').trim() : '';
+      const token = tokenFromAuthorization || extractCookieToken(cookieHeader);
+      const claims = token ? issuedTokens.get(token) : undefined;
+      if (!claims) return { ok: false as const, code: 'unauthorized', message: 'No valid session' };
+      const sub = String(claims.sub || '').trim();
+      if (!sub) return { ok: false as const, code: 'unauthorized', message: 'Invalid session' };
+      const nextClaims = { ...claims };
+      const nextToken = makeTestJwt(nextClaims);
+      issuedTokens.set(nextToken, nextClaims);
+      return { ok: true as const, jwt: nextToken };
     },
   });
 }

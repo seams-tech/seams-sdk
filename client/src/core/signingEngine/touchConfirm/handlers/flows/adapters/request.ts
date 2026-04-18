@@ -2,6 +2,7 @@ import {
   signingAuthModeFromSigningAuthPlan,
   type EmailOtpConfirmPrompt,
   type RegisterAccountPayload,
+  type SigningAuthPlan,
   type SigningAuthMode,
   type UserConfirmRequest,
   type SignIntentDigestPayload,
@@ -37,7 +38,39 @@ export function validateUserConfirmRequest(input: unknown): UserConfirmRequest {
   if (p.payload === undefined || p.payload === null) throw new Error('missing payload');
   if (!isObject(p.payload) || Array.isArray(p.payload))
     throw new Error('invalid payload: expected an object');
+  assertSigningRequestUsesAuthPlanOnly(input as unknown as UserConfirmRequest);
   return input as unknown as UserConfirmRequest;
+}
+
+function assertSigningRequestUsesAuthPlanOnly(request: UserConfirmRequest): void {
+  if (
+    request.type !== UserConfirmationType.SIGN_TRANSACTION &&
+    request.type !== UserConfirmationType.SIGN_NEP413_MESSAGE &&
+    request.type !== UserConfirmationType.SIGN_INTENT_DIGEST
+  ) {
+    return;
+  }
+
+  const payload = ((request as { payload?: unknown }).payload ?? {}) as Record<string, unknown>;
+  if (payload.signingAuthMode !== undefined) {
+    throw new Error(
+      'Invalid secure confirm request: signingAuthMode is not accepted; use signingAuthPlan',
+    );
+  }
+  if (!isSigningAuthPlan(payload.signingAuthPlan)) {
+    throw new Error('Invalid secure confirm request: missing or invalid signingAuthPlan');
+  }
+}
+
+function isSigningAuthPlan(value: unknown): value is SigningAuthPlan {
+  if (!isObject(value)) return false;
+  const plan = value as { kind?: unknown; method?: unknown };
+  if (plan.kind === 'warmSession') {
+    return plan.method === 'passkey' || plan.method === 'email_otp';
+  }
+  if (plan.kind === 'passkeyReauth') return plan.method === 'passkey';
+  if (plan.kind === 'emailOtpReauth') return plan.method === 'email_otp';
+  return false;
 }
 
 export function assertNoForbiddenMainThreadSigningSecrets(request: UserConfirmRequest): void {
@@ -121,21 +154,15 @@ export function getDisplayModel(request: UserConfirmRequest): TxDisplayModel | u
 export function getSigningAuthMode(request: UserConfirmRequest): SigningAuthMode | undefined {
   if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
     const payload = getSignTransactionPayload(request);
-    return payload.signingAuthPlan
-      ? signingAuthModeFromSigningAuthPlan(payload.signingAuthPlan)
-      : payload.signingAuthMode;
+    return signingAuthModeFromSigningAuthPlan(payload.signingAuthPlan);
   }
   if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
     const payload = request.payload as SignNep413Payload;
-    return payload.signingAuthPlan
-      ? signingAuthModeFromSigningAuthPlan(payload.signingAuthPlan)
-      : payload.signingAuthMode;
+    return signingAuthModeFromSigningAuthPlan(payload.signingAuthPlan);
   }
   if (request.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
     const payload = request.payload as SignIntentDigestPayload;
-    return payload.signingAuthPlan
-      ? signingAuthModeFromSigningAuthPlan(payload.signingAuthPlan)
-      : payload.signingAuthMode;
+    return signingAuthModeFromSigningAuthPlan(payload.signingAuthPlan);
   }
   return undefined;
 }

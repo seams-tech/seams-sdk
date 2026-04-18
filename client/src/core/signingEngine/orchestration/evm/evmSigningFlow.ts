@@ -109,7 +109,7 @@ export async function signEvmWithTouchConfirm(args: {
       }
     : undefined;
   const signingAuthPromise = resolveTouchConfirmSigningAuth({
-    needsWebAuthn: false,
+    needsWebAuthn: !args.walletAuthPlan && !emailOtpPrompt,
     ...(args.walletAuthPlan ? { walletAuthPlan: args.walletAuthPlan } : {}),
     ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
   });

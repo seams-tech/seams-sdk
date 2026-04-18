@@ -712,6 +712,62 @@ test.describe('Email OTP bootstrap integration', () => {
     }
   });
 
+  test('Email OTP app-session routes reject threshold-session JWTs', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const router = createRelayRouter(service, {
+      session: makeTokenBoundAppSessionAdapter({
+        'threshold-session-token': {
+          kind: 'threshold_ecdsa_session_v1',
+          sub: 'alice.testnet',
+          rpId: 'example.localhost',
+          sessionId: 'threshold-ecdsa-session-1',
+          relayerKeyId: 'rk-1',
+          participantIds: [1, 2],
+          thresholdExpiresAtMs: Date.now() + 60_000,
+        },
+      }),
+    });
+    const srv = await startExpressRouter(router);
+
+    try {
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer threshold-session-token',
+        },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          otpChannel: 'email_otp',
+        }),
+      });
+      expect(challenge.status).toBe(401);
+      expect(challenge.json?.code).toBe('unauthorized');
+      expect(challenge.json?.message).toBe('No valid app session');
+
+      const verify = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer threshold-session-token',
+        },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          challengeId: 'challenge-not-used',
+          otpChannel: 'email_otp',
+          otpCode: '123456',
+        }),
+      });
+      expect(verify.status).toBe(401);
+      expect(verify.json?.code).toBe('unauthorized');
+      expect(verify.json?.message).toBe('No valid app session');
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('SSO session plus Email OTP enrollment persists canonical verifier material over real Email OTP routes', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });

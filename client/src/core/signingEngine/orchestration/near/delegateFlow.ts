@@ -44,6 +44,7 @@ import {
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
 import { ActionPhase, ActionStatus } from '@/core/types/sdkSentEvents';
+import { passkeySigningAuthPlan } from '../shared/touchConfirmSigning';
 
 export async function signDelegateAction({
   ctx,
@@ -155,7 +156,7 @@ export async function signDelegateAction({
     sessionId,
     chain: 'near',
     kind: 'delegate',
-    ...(thresholdAuthPlan?.touchConfirmAuthPayload ?? {}),
+    ...(thresholdAuthPlan?.touchConfirmAuthPayload ?? { signingAuthPlan: passkeySigningAuthPlan() }),
     nearAccountId,
     delegate: {
       senderId: delegate.senderId || nearAccountId,

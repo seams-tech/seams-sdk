@@ -32,6 +32,7 @@ import {
 } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
+import { passkeySigningAuthPlan } from '../shared/touchConfirmSigning';
 
 /**
  * Sign a NEP-413 message using the user's passkey-derived private key
@@ -105,7 +106,7 @@ export async function signNep413Message({
       sessionId,
       chain: 'near',
       kind: 'nep413',
-      ...(thresholdAuthPlan?.touchConfirmAuthPayload ?? {}),
+      ...(thresholdAuthPlan?.touchConfirmAuthPayload ?? { signingAuthPlan: passkeySigningAuthPlan() }),
       nearAccountId,
       nearPublicKeyStr: signingContext.nearPublicKey,
       message: payload.message,

@@ -173,7 +173,7 @@ sequenceDiagram
 11. [x] Unit regression test Email OTP export resend completes the resent challenge.
 12. [x] Unit regression test transaction-signing resend completes the resent
     challenge in `per_operation` mode.
-13. [ ] E2E test Email OTP export with resend.
+13. [x] E2E test Email OTP export with resend for Ed25519 and ECDSA.
 14. [ ] E2E test transaction-signing OTP with resend in `per_operation` mode.
 
 ## Master TODO
@@ -189,7 +189,8 @@ sequenceDiagram
 9. [x] Add server tests for multi-code validity, single-use, TTL, context binding, and active-count pruning.
 10. [x] Add unit regression coverage for export and `per_operation` signing
    resend challenge handoff.
-11. [ ] Add E2E coverage for unlock, export, and per-operation signing resend flows.
+11. [ ] Add remaining E2E coverage for transaction-signing OTP resend in `per_operation`
+    mode. Unlock resend and Ed25519/ECDSA export resend are covered.
 
 ## Acceptance Criteria
 

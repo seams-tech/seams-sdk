@@ -18,6 +18,7 @@ import type { NearEd25519WarmupHook, NearEmailOtpSigningHook } from '../../inter
 import type { WalletAuthPlan } from '../../auth';
 import {
   emailOtpSigningAuthPlan,
+  passkeySigningAuthPlan,
   signingAuthPlanFromWalletAuthPlan,
 } from '../shared/touchConfirmSigning';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
@@ -238,7 +239,7 @@ export async function signTransactionsWithActions({
       : thresholdAuthPlan?.signingAuthPlan;
   const touchConfirmAuthPayload = signingAuthPlan
     ? { signingAuthPlan }
-    : (thresholdAuthPlan?.touchConfirmAuthPayload ?? {});
+    : (thresholdAuthPlan?.touchConfirmAuthPayload ?? { signingAuthPlan: passkeySigningAuthPlan() });
   const confirmation = await ctx.touchConfirm.orchestrateSigningConfirmation({
     ctx: { touchConfirm },
     sessionId,

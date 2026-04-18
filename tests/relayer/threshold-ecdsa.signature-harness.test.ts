@@ -35,8 +35,10 @@ const HSS_CLIENT_SIGNER_WASM_URL = new URL(
 );
 const TEST_RUNTIME_SCOPE = {
   orgId: 'org_threshold_ecdsa_signature_harness',
-  environmentId: 'env_threshold_ecdsa_signature_harness',
+  projectId: 'proj_threshold_ecdsa_signature_harness',
+  envId: 'env_threshold_ecdsa_signature_harness',
 } as const;
+const TEST_SIGNING_ROOT_ID = `${TEST_RUNTIME_SCOPE.projectId}:${TEST_RUNTIME_SCOPE.envId}`;
 let hssClientSignerWasmInitialized = false;
 
 function ensureHssClientSignerWasm(): void {
@@ -461,10 +463,11 @@ async function deriveLocalThresholdBootstrap(args: {
   clientRootShare32B64u: string;
 }) {
   const derivedRelayerShare = await deriveEcdsaHssYRelayerFromSigningRootSecretResolver({
-    projectId: TEST_RUNTIME_SCOPE.orgId,
-    provider: createFixtureSigningRootSecretResolverForUnitTests(),
+    signingRootId: TEST_SIGNING_ROOT_ID,
+    resolver: createFixtureSigningRootSecretResolverForUnitTests(),
     preferredShareIds: [1, 2],
     context: {
+      signingRootId: TEST_SIGNING_ROOT_ID,
       nearAccountId: args.userId,
       keyPurpose: 'evm-signing',
       keyVersion: 'v1',
@@ -1116,6 +1119,47 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(String(exported.json?.canonicalEthereumAddress || '')).toBe(ethereumAddress);
       expect('jwt' in (exported.json || {})).toBe(false);
       expect('sessionId' in (exported.json || {})).toBe(false);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('explicit_key_export rejects app-session JWTs at the threshold-session boundary', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const session = makeJwtSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+
+    try {
+      const userId = 'explicit-export-app-session.testnet';
+      const appSessionJwt = await mintAppSessionJwt({
+        service,
+        session,
+        userId,
+      });
+
+      const prepare = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/hss/prepare`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${appSessionJwt}`,
+        },
+        body: JSON.stringify({
+          userId,
+          rpId: 'example.localhost',
+          operation: 'explicit_key_export',
+          ecdsaThresholdKeyId: 'ecdsa-key-not-used',
+          sessionKind: 'jwt',
+          sessionPolicy: {
+            runtimePolicyScope: TEST_RUNTIME_SCOPE,
+          },
+        }),
+      });
+      expect(prepare.status, prepare.text).toBe(401);
+      expect(prepare.json?.code).toBe('unauthorized');
+      expect(prepare.json?.message).toBe(
+        'explicit_key_export requires an authenticated threshold-ecdsa session',
+      );
     } finally {
       await srv.close();
     }

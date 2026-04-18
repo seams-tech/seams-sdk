@@ -139,7 +139,10 @@ test.describe('determineConfirmationConfig', () => {
           payload: {
             nearAccountId: 'alice.testnet',
             challengeB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-            signingAuthMode: 'webauthn',
+            signingAuthPlan: {
+              kind: 'passkeyReauth',
+              method: 'passkey',
+            },
           },
         } as any;
 

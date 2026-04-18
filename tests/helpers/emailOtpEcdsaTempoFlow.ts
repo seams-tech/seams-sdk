@@ -26,9 +26,11 @@ export type EmailOtpEcdsaTempoHarness = {
   defaultClientSecretB64u: string;
   mintAppSessionJwt: (args: {
     userId: string;
+    walletId?: string;
     email?: string;
     deviceId?: string;
     rotate?: boolean;
+    jwtShape?: boolean;
   }) => Promise<string>;
   readEmailOtpEnrollment: (walletId: string) => Promise<unknown>;
   close: () => Promise<void>;
@@ -48,6 +50,8 @@ export type EmailOtpEcdsaTempoFlowOptions = {
   signTwice?: boolean;
   signNearAfterLogin?: boolean;
   resendLoginOtpBeforeSubmit?: boolean;
+  exportNearWithResend?: boolean;
+  exportEcdsaWithResend?: boolean;
 };
 
 export type EmailOtpEcdsaTempoFlowResult = {
@@ -75,6 +79,7 @@ export type EmailOtpEcdsaTempoFlowResult = {
   otpCounters?: {
     enrollChallengeCount: number;
     loginChallengeCount: number;
+    exportChallengeCount: number;
   };
   webauthnCounters?: {
     createCount: number;
@@ -100,6 +105,18 @@ export type EmailOtpEcdsaTempoFlowResult = {
     signerId?: string;
     receiverId?: string;
     error?: string;
+  };
+  exports?: {
+    near?: {
+      ok: boolean;
+      exportedSchemes?: string[];
+      error?: string;
+    };
+    ecdsa?: {
+      ok: boolean;
+      exportedSchemes?: string[];
+      error?: string;
+    };
   };
   error?: string;
 };
@@ -191,12 +208,13 @@ export async function setupEmailOtpEcdsaTempoHarness(
     baseUrl: harness.baseUrl,
     shamirPrimeB64u: SHAMIR_PRIME_B64U,
     defaultClientSecretB64u: DEFAULT_EMAIL_OTP_CLIENT_SECRET_B64U,
-    mintAppSessionJwt: async ({ userId, email, deviceId, rotate }) => {
+    mintAppSessionJwt: async ({ userId, walletId, email, deviceId, rotate, jwtShape }) => {
       const normalizedUserId = String(userId || '').trim();
       if (!normalizedUserId) {
         throw new Error('mintAppSessionJwt requires userId');
       }
-      accountsOnChain.add(normalizedUserId);
+      const normalizedWalletId = String(walletId || '').trim();
+      accountsOnChain.add(normalizedWalletId || normalizedUserId);
       const versionResult = rotate
         ? await service.rotateAppSessionVersion({ userId: normalizedUserId })
         : await service.getOrCreateAppSessionVersion({ userId: normalizedUserId });
@@ -210,6 +228,8 @@ export async function setupEmailOtpEcdsaTempoHarness(
         email: String(email || DEFAULT_EMAIL).trim() || DEFAULT_EMAIL,
         deviceId: String(deviceId || 'browser-email-otp').trim() || 'browser-email-otp',
         runtimePolicyScope,
+        ...(normalizedWalletId ? { walletId: normalizedWalletId } : {}),
+        ...(jwtShape ? { __testJwtShape: true } : {}),
       });
     },
     readEmailOtpEnrollment: async (walletId) => {
@@ -259,6 +279,7 @@ export async function runEmailOtpEcdsaTempoFlow(
     const otpState = {
       enrollChallengeCount: 0,
       loginChallengeCount: 0,
+      exportChallengeCount: 0,
     };
     const webauthnState = {
       createCount: 0,
@@ -296,6 +317,31 @@ export async function runEmailOtpEcdsaTempoFlow(
     const joinUrl = (base: string, path: string): string =>
       `${String(base || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
 
+    const readEmailOtpOutbox = async (args: {
+      challengeId: string;
+      appSessionJwt: string;
+      walletId: string;
+    }): Promise<string> => {
+      const challengeId = String(args.challengeId || '').trim();
+      if (!challengeId) {
+        throw new Error('missing Email OTP challengeId for test outbox lookup');
+      }
+      const outbox = await fetch(
+        `${joinUrl(relayerUrl, '/wallet/email-otp/dev/otp-outbox')}?challengeId=${encodeURIComponent(challengeId)}&walletId=${encodeURIComponent(args.walletId)}`,
+        {
+          headers: args.appSessionJwt
+            ? { Authorization: `Bearer ${args.appSessionJwt}` }
+            : undefined,
+        },
+      );
+      const outboxJson = await outbox.json().catch(() => ({}));
+      const otpCode = String(outboxJson?.otpCode || '').trim();
+      if (!otpCode) {
+        throw new Error(`missing Email OTP test outbox entry for ${challengeId}`);
+      }
+      return otpCode;
+    };
+
     const requestEmailOtpChallengeWithOutbox = async (args: {
       route: '/wallet/email-otp/registration/challenge' | '/wallet/email-otp/login/challenge';
       appSessionJwt: string;
@@ -322,19 +368,11 @@ export async function runEmailOtpEcdsaTempoFlow(
       if (!challengeId) {
         throw new Error(`${args.route} did not return challengeId`);
       }
-      const outbox = await fetch(
-        `${joinUrl(relayerUrl, '/wallet/email-otp/dev/otp-outbox')}?challengeId=${encodeURIComponent(challengeId)}&walletId=${encodeURIComponent(args.walletId)}`,
-        {
-          headers: args.appSessionJwt
-            ? { Authorization: `Bearer ${args.appSessionJwt}` }
-            : undefined,
-        },
-      );
-      const outboxJson = await outbox.json().catch(() => ({}));
-      const otpCode = String(outboxJson?.otpCode || '').trim();
-      if (!otpCode) {
-        throw new Error(`missing Email OTP test outbox entry for ${challengeId}`);
-      }
+      const otpCode = await readEmailOtpOutbox({
+        challengeId,
+        appSessionJwt: args.appSessionJwt,
+        walletId: args.walletId,
+      });
       if (args.target === 'enroll') {
         otpState.enrollChallengeCount += 1;
       } else {
@@ -501,6 +539,71 @@ export async function runEmailOtpEcdsaTempoFlow(
         sessionKind: 'jwt',
       });
 
+      const exportOptionsRequested =
+        input.exportNearWithResend === true || input.exportEcdsaWithResend === true;
+      const originalRequestUserConfirmation =
+        typeof signingEngine?.touchConfirm?.requestUserConfirmation === 'function'
+          ? signingEngine.touchConfirm.requestUserConfirmation.bind(signingEngine.touchConfirm)
+          : null;
+      if (
+        (exportOptionsRequested || emailOtpAuthPolicy === 'per_operation') &&
+        originalRequestUserConfirmation
+      ) {
+        signingEngine.touchConfirm.requestUserConfirmation = async (
+          request: Record<string, any>,
+          requestOptions?: Record<string, any>,
+        ) => {
+          const requestType = String(request?.type || '');
+          if (requestType === 'showSecurePrivateKeyUi') {
+            return { confirmed: true };
+          }
+          const intentDigest = String(request?.intentDigest || '');
+          const prompt =
+            request?.payload?.signingAuthPlan?.emailOtpPrompt || request?.payload?.emailOtpPrompt;
+          if (
+            requestType === 'signIntentDigest' &&
+            prompt &&
+            intentDigest.startsWith(`export-keys:${accountId}:`)
+          ) {
+            otpState.exportChallengeCount += 1;
+            let challengeId = String(prompt.challengeId || '').trim();
+            const shouldResend =
+              (intentDigest.includes(':near:') && input.exportNearWithResend === true) ||
+              ((intentDigest.includes(':evm:') || intentDigest.includes(':tempo:')) &&
+                input.exportEcdsaWithResend === true);
+            if (shouldResend && typeof prompt.onResend === 'function') {
+              const resent = await prompt.onResend();
+              otpState.exportChallengeCount += 1;
+              challengeId = String(resent?.challengeId || '').trim();
+            }
+            const otpCode = await readEmailOtpOutbox({
+              challengeId,
+              appSessionJwt: loginAppSessionJwt,
+              walletId: accountId,
+            });
+            return {
+              confirmed: true,
+              otpCode,
+              emailOtpChallengeId: challengeId,
+            };
+          }
+          if (requestType === 'signIntentDigest' && prompt) {
+            const challengeId = String(prompt.challengeId || '').trim();
+            const otpCode = await readEmailOtpOutbox({
+              challengeId,
+              appSessionJwt: loginAppSessionJwt,
+              walletId: accountId,
+            });
+            return {
+              confirmed: true,
+              otpCode,
+              emailOtpChallengeId: challengeId,
+            };
+          }
+          return await originalRequestUserConfirmation(request as any, requestOptions as any);
+        };
+      }
+
       const firstSignResult = await (async () => {
         try {
           const signed = await pm.tempo.signTempo({
@@ -586,6 +689,64 @@ export async function runEmailOtpEcdsaTempoFlow(
             })()
           : undefined;
 
+      const exportResults =
+        input.exportNearWithResend === true || input.exportEcdsaWithResend === true
+          ? {
+              ...(input.exportNearWithResend === true
+                ? {
+                    near: await (async () => {
+                      try {
+                        const exported = await pm.keys.exportKeypairWithUI(accountId, {
+                          chain: 'near',
+                          variant: 'drawer',
+                        });
+                        return {
+                          ok: true,
+                          exportedSchemes: Array.isArray(exported?.exportedSchemes)
+                            ? exported.exportedSchemes.map((value: unknown) => String(value))
+                            : ['ed25519'],
+                        };
+                      } catch (error: unknown) {
+                        return {
+                          ok: false,
+                          error:
+                            error && typeof error === 'object' && 'message' in error
+                              ? String((error as { message?: unknown }).message || '')
+                              : String(error || 'near export failed'),
+                        };
+                      }
+                    })(),
+                  }
+                : {}),
+              ...(input.exportEcdsaWithResend === true
+                ? {
+                    ecdsa: await (async () => {
+                      try {
+                        const exported = await pm.keys.exportKeypairWithUI(accountId, {
+                          chain: bootstrapChain,
+                          variant: 'drawer',
+                        });
+                        return {
+                          ok: true,
+                          exportedSchemes: Array.isArray(exported?.exportedSchemes)
+                            ? exported.exportedSchemes.map((value: unknown) => String(value))
+                            : ['secp256k1'],
+                        };
+                      } catch (error: unknown) {
+                        return {
+                          ok: false,
+                          error:
+                            error && typeof error === 'object' && 'message' in error
+                              ? String((error as { message?: unknown }).message || '')
+                              : String(error || 'ecdsa export failed'),
+                        };
+                      }
+                    })(),
+                  }
+                : {}),
+            }
+          : undefined;
+
       return {
         ok: true,
         accountId,
@@ -613,11 +774,13 @@ export async function runEmailOtpEcdsaTempoFlow(
         otpCounters: {
           enrollChallengeCount: otpState.enrollChallengeCount,
           loginChallengeCount: otpState.loginChallengeCount,
+          exportChallengeCount: otpState.exportChallengeCount,
         },
         webauthnCounters: webauthnState,
         firstSign: firstSignResult,
         ...(secondSignResult ? { secondSign: secondSignResult } : {}),
         ...(nearSignResult ? { nearSign: nearSignResult } : {}),
+        ...(exportResults ? { exports: exportResults } : {}),
       };
     } catch (error: unknown) {
       return {

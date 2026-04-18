@@ -121,6 +121,8 @@ export enum UserConfirmationType {
   SIGN_INTENT_DIGEST = 'signIntentDigest',
 }
 
+// UI-only display mode derived from SigningAuthPlan. Do not accept this in
+// secure-confirm request payloads.
 export type SigningAuthMode = 'webauthn' | 'warmSession' | 'emailOtp';
 
 export interface EmailOtpConfirmPrompt {
@@ -241,13 +243,7 @@ export interface SignTransactionPayload {
    * threshold session token (so the same digest can be used for both session mint + subsequent signing auth).
    */
   sessionPolicyDigest32?: string;
-  /**
-   * Controls whether touchConfirm signing flow should collect a WebAuthn credential.
-   * - `webauthn`: prompt TouchID/FaceID and collect PRF outputs for signer requests.
-   * - `warmSession`: skip WebAuthn when a wallet-origin warm session is available (e.g. cached PRF.first).
-   */
-  signingAuthMode?: SigningAuthMode;
-  signingAuthPlan?: SigningAuthPlan;
+  signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 
@@ -300,24 +296,19 @@ export interface SignNep413Payload {
    * Optional base64url-encoded 32-byte digest used as the preferred WebAuthn challenge for this signing flow.
    */
   sessionPolicyDigest32?: string;
-  /**
-   * Controls whether touchConfirm signing flow should collect a WebAuthn credential for this signing intent.
-   * See `SignTransactionPayload.signingAuthMode`.
-   */
-  signingAuthMode?: SigningAuthMode;
-  signingAuthPlan?: SigningAuthPlan;
+  signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 
 export interface SignIntentDigestPayload {
   nearAccountId: string;
   /**
-   * Base64url-encoded 32-byte digest used as WebAuthn challenge when `signingAuthMode='webauthn'`.
+   * Base64url-encoded 32-byte digest used as WebAuthn challenge when the
+   * derived signing auth display mode is WebAuthn.
    */
   challengeB64u: string;
   displayModel?: TxDisplayModel;
-  signingAuthMode?: SigningAuthMode;
-  signingAuthPlan?: SigningAuthPlan;
+  signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 

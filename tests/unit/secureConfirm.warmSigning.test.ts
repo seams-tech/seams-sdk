@@ -91,7 +91,17 @@ test.describe('UserConfirm – warm signing', () => {
               nearAccountId: 'alice.testnet',
               nearRpcUrl: 'https://rpc.testnet.near.org',
             },
-            signingAuthMode: 'warmSession',
+            signingAuthPlan: {
+              kind: 'warmSession',
+              method: 'passkey',
+              accountId: 'alice.testnet',
+              intent: 'transaction_sign',
+              curve: 'ed25519',
+              sessionId: 'threshold-session-warm',
+              retention: 'session',
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 1,
+            },
           },
         } as any;
 

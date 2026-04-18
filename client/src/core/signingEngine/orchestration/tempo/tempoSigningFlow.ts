@@ -109,7 +109,7 @@ export async function signTempoWithTouchConfirm(args: {
       }
     : undefined;
   const signingAuthPromise = resolveTouchConfirmSigningAuth({
-    needsWebAuthn,
+    needsWebAuthn: needsWebAuthn || (!args.walletAuthPlan && !emailOtpPrompt),
     ...(args.walletAuthPlan ? { walletAuthPlan: args.walletAuthPlan } : {}),
     ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
   });

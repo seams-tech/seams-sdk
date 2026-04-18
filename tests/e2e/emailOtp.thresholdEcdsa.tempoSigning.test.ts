@@ -110,6 +110,114 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
     }
   });
 
+  test('Google SSO Email OTP lifecycle signs and exports Ed25519/ECDSA with resend', async ({
+    page,
+  }) => {
+    const harness = await setupEmailOtpEcdsaTempoHarness(page);
+    const nonce = Date.now();
+    const accountId = `googlessootp${nonce}.w3a-v1.testnet`;
+    const googleSubject = `google:e2e-email-otp-${nonce}`;
+    try {
+      const appSessionJwt = await harness.mintAppSessionJwt({
+        userId: googleSubject,
+        walletId: accountId,
+        email: `email-otp-e2e-${nonce}@example.com`,
+        deviceId: 'google-sso-email-otp-device',
+        jwtShape: true,
+      });
+
+      const result = await runEmailOtpEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+        shamirPrimeB64u: harness.shamirPrimeB64u,
+        accountId,
+        enrollAppSessionJwt: appSessionJwt,
+        loginAppSessionJwt: appSessionJwt,
+        clientSecretB64u: harness.defaultClientSecretB64u,
+        emailOtpAuthPolicy: 'session',
+        signingKind: 'eip1559',
+        signTwice: true,
+        signNearAfterLogin: true,
+        exportNearWithResend: true,
+        exportEcdsaWithResend: true,
+      });
+
+      const failureContext = result.ok
+        ? result
+        : {
+            result,
+            enrollment: await harness.readEmailOtpEnrollment(accountId),
+          };
+      expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
+      expect(result.registration?.success).toBe(true);
+      expect(result.emailOtpLogin?.policy).toBe('session');
+      expect(result.emailOtpLogin?.retention).toBe('session');
+      expect(result.emailOtpLogin?.warmState).toBe('ready');
+      expect(result.otpCounters?.enrollChallengeCount).toBe(1);
+      expect(result.otpCounters?.loginChallengeCount).toBe(1);
+      expect(result.otpCounters?.exportChallengeCount).toBe(4);
+      expect(result.webauthnCounters?.createCount).toBe(0);
+      expect(result.webauthnCounters?.getCount).toBe(0);
+      expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
+      expect(result.firstSign?.chain).toBe('evm');
+      expect(result.firstSign?.kind).toBe('eip1559');
+      expect(result.secondSign?.ok, result.secondSign?.error || '').toBe(true);
+      expect(result.secondSign?.chain).toBe('evm');
+      expect(result.nearSign?.ok, result.nearSign?.error || '').toBe(true);
+      expect(result.nearSign?.signerId).toBe(accountId);
+      expect(result.exports?.near?.ok, result.exports?.near?.error || '').toBe(true);
+      expect(result.exports?.near?.exportedSchemes).toEqual(['ed25519']);
+      expect(result.exports?.ecdsa?.ok, result.exports?.ecdsa?.error || '').toBe(true);
+      expect(result.exports?.ecdsa?.exportedSchemes).toEqual(['secp256k1']);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('Google SSO Email OTP lifecycle signs Tempo transactions', async ({ page }) => {
+    const harness = await setupEmailOtpEcdsaTempoHarness(page);
+    const nonce = Date.now();
+    const accountId = `googlessotempo${nonce}.w3a-v1.testnet`;
+    const googleSubject = `google:e2e-email-otp-tempo-${nonce}`;
+    try {
+      const appSessionJwt = await harness.mintAppSessionJwt({
+        userId: googleSubject,
+        walletId: accountId,
+        email: `email-otp-tempo-e2e-${nonce}@example.com`,
+        deviceId: 'google-sso-email-otp-tempo-device',
+        jwtShape: true,
+      });
+
+      const result = await runEmailOtpEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+        shamirPrimeB64u: harness.shamirPrimeB64u,
+        accountId,
+        enrollAppSessionJwt: appSessionJwt,
+        loginAppSessionJwt: appSessionJwt,
+        clientSecretB64u: harness.defaultClientSecretB64u,
+        emailOtpAuthPolicy: 'session',
+        signTwice: false,
+      });
+
+      const failureContext = result.ok
+        ? result
+        : {
+            result,
+            enrollment: await harness.readEmailOtpEnrollment(accountId),
+          };
+      expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
+      expect(result.registration?.success).toBe(true);
+      expect(result.emailOtpLogin?.policy).toBe('session');
+      expect(result.emailOtpLogin?.retention).toBe('session');
+      expect(result.webauthnCounters?.createCount).toBe(0);
+      expect(result.webauthnCounters?.getCount).toBe(0);
+      expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
+      expect(result.firstSign?.chain).toBe('tempo');
+      expect(result.firstSign?.kind).toBe('tempoTransaction');
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('per_operation Email OTP login signs once and then requires fresh OTP before the next sign', async ({
     page,
   }) => {
@@ -119,6 +227,7 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       const appSessionJwt = await harness.mintAppSessionJwt({
         userId: accountId,
         deviceId: 'email-otp-enroll-device',
+        jwtShape: true,
       });
 
       const result = await runEmailOtpEcdsaTempoFlow(page, {
@@ -214,6 +323,7 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       const appSessionJwt = await harness.mintAppSessionJwt({
         userId: accountId,
         deviceId: 'email-otp-evm-perop-device',
+        jwtShape: true,
       });
 
       const result = await runEmailOtpEcdsaTempoFlow(page, {
