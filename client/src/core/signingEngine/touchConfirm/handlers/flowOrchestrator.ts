@@ -4,9 +4,11 @@ import type { RpcCallPayload, ConfirmationConfig } from '@/core/types/signer-wor
 import type { TransactionContext } from '@/core/types/rpc';
 import { computeUiIntentDigestFromTxs, orderActionForDigest } from '@/utils/intentDigest';
 import {
+  signingAuthModeFromSigningAuthPlan,
   UserConfirmationType,
   type UserConfirmRequest,
   type SigningAuthMode,
+  type SigningAuthPlan,
   type EmailOtpConfirmPrompt,
   type TransactionSummary,
   type SerializableCredential,
@@ -48,6 +50,7 @@ export interface OrchestrateSigningConfirmationBaseParams {
    * and PRF.first is cached in the UserConfirm worker; otherwise it uses `webauthn`.
    */
   signingAuthMode?: SigningAuthMode;
+  signingAuthPlan?: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
   /**
    * Optional base64url-encoded 32-byte digest to bind a relayer session policy into the WebAuthn challenge.
@@ -212,6 +215,10 @@ export async function orchestrateSigningConfirmation(
 ): Promise<SigningConfirmationResultWithTxContext | SigningConfirmationResultIntentDigest> {
   const { sessionId } = params;
   const requestUserConfirmation = resolveRequestUserConfirmationBridge(params.ctx);
+  const effectiveSigningAuthMode = params.signingAuthPlan
+    ? signingAuthModeFromSigningAuthPlan(params.signingAuthPlan)
+    : params.signingAuthMode;
+  const legacySigningAuthMode = params.signingAuthPlan ? undefined : params.signingAuthMode;
 
   let intentDigest: string;
   let request: UserConfirmRequest;
@@ -231,7 +238,10 @@ export async function orchestrateSigningConfirmation(
         ...(params.body != null ? { body: params.body } : {}),
       };
 
-      if (params.chain === 'near' && params.signingAuthMode === 'warmSession') {
+      if (
+        params.chain === 'near' &&
+        effectiveSigningAuthMode === 'warmSession'
+      ) {
         const eagerDisplayModel = buildNearDisplayModelWithFallback({
           txSigningRequests,
           signerAccountId: params.rpcCall.nearAccountId,
@@ -273,7 +283,8 @@ export async function orchestrateSigningConfirmation(
             ...(params.sessionPolicyDigest32
               ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
               : {}),
-            ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+            ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
+            ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
             ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
           },
           confirmationConfig: params.confirmationConfigOverride,
@@ -309,7 +320,8 @@ export async function orchestrateSigningConfirmation(
           ...(params.sessionPolicyDigest32
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
-          ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+          ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
+          ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
@@ -367,7 +379,8 @@ export async function orchestrateSigningConfirmation(
           ...(params.sessionPolicyDigest32
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
-          ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+          ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
+          ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
@@ -397,7 +410,8 @@ export async function orchestrateSigningConfirmation(
           ...(params.sessionPolicyDigest32
             ? { sessionPolicyDigest32: params.sessionPolicyDigest32 }
             : {}),
-          ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+          ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
+          ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,
@@ -433,7 +447,8 @@ export async function orchestrateSigningConfirmation(
           nearAccountId: params.signerAccountId,
           challengeB64u,
           displayModel,
-          ...(params.signingAuthMode ? { signingAuthMode: params.signingAuthMode } : {}),
+          ...(legacySigningAuthMode ? { signingAuthMode: legacySigningAuthMode } : {}),
+          ...(params.signingAuthPlan ? { signingAuthPlan: params.signingAuthPlan } : {}),
           ...(params.emailOtpPrompt ? { emailOtpPrompt: params.emailOtpPrompt } : {}),
         },
         confirmationConfig: params.confirmationConfigOverride,

@@ -1,3 +1,8 @@
+import {
+  EMAIL_OTP_CHANNEL,
+  type WalletEmailOtpChannel,
+  type WalletEmailOtpLoginOperation,
+} from '@shared/utils/emailOtpDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import type { WorkerOperationContext } from '../signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -6,7 +11,6 @@ import {
 } from '../signingEngine/threshold/session/sessionPolicy';
 
 type FetchLike = typeof fetch;
-type EmailOtpChannel = 'email_otp';
 
 type JsonObject = Record<string, unknown>;
 
@@ -42,7 +46,7 @@ export class EmailOtpRouteError extends Error {
 export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
   challengeId: string;
-  otpChannel: EmailOtpChannel;
+  otpChannel: WalletEmailOtpChannel;
   emailOtpKeyVersion: string;
   unlockPublicKeyB64u: string;
   unlockKeyVersion: string;
@@ -55,6 +59,11 @@ export type GoogleEmailOtpSessionExchangeResult = {
     walletId: string;
     email?: string;
     name?: string;
+    googleEmailOtpResolution?: {
+      mode: 'existing_wallet' | 'register_started';
+      registrationAttemptId?: string;
+      expiresAt?: string;
+    };
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
   };
 };
@@ -158,12 +167,13 @@ export async function requestEmailOtpChallenge(args: {
   relayUrl: string;
   walletId: string;
   appSessionJwt?: string;
-  otpChannel?: EmailOtpChannel;
+  otpChannel?: WalletEmailOtpChannel;
+  operation?: WalletEmailOtpLoginOperation;
   fetchImpl?: FetchLike;
   workerCtx?: WorkerOperationContext;
 }): Promise<{
   challengeId: string;
-  otpChannel: EmailOtpChannel;
+  otpChannel: WalletEmailOtpChannel;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -176,24 +186,26 @@ export async function requestEmailOtpChallenge(args: {
           ...(readOptionalString(args.appSessionJwt)
             ? { appSessionJwt: readOptionalString(args.appSessionJwt) }
             : {}),
-          otpChannel: 'email_otp',
+          ...(args.operation ? { operation: args.operation } : {}),
+          otpChannel: EMAIL_OTP_CHANNEL,
         },
       },
     });
   }
   const response = await postJson({
-    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/challenge'),
+    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/login/challenge'),
     appSessionJwt: args.appSessionJwt,
     fetchImpl: args.fetchImpl,
     body: {
       walletId: readString(args.walletId, 'walletId'),
-      otpChannel: args.otpChannel || 'email_otp',
+      otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
+      ...(args.operation ? { operation: args.operation } : {}),
     },
   });
-  const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/challenge');
+  const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/login/challenge');
   return {
-    challengeId: readString(challenge.challengeId, 'wallet/email-otp/challenge challengeId'),
-    otpChannel: 'email_otp',
+    challengeId: readString(challenge.challengeId, 'wallet/email-otp/login/challenge challengeId'),
+    otpChannel: EMAIL_OTP_CHANNEL,
   };
 }
 
@@ -201,12 +213,12 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
   relayUrl: string;
   walletId: string;
   appSessionJwt?: string;
-  otpChannel?: EmailOtpChannel;
+  otpChannel?: WalletEmailOtpChannel;
   fetchImpl?: FetchLike;
   workerCtx?: WorkerOperationContext;
 }): Promise<{
   challengeId: string;
-  otpChannel: EmailOtpChannel;
+  otpChannel: WalletEmailOtpChannel;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -219,27 +231,27 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
           ...(readOptionalString(args.appSessionJwt)
             ? { appSessionJwt: readOptionalString(args.appSessionJwt) }
             : {}),
-          otpChannel: 'email_otp',
+          otpChannel: EMAIL_OTP_CHANNEL,
         },
       },
     });
   }
   const response = await postJson({
-    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/enroll/challenge'),
+    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/registration/challenge'),
     appSessionJwt: args.appSessionJwt,
     fetchImpl: args.fetchImpl,
     body: {
       walletId: readString(args.walletId, 'walletId'),
-      otpChannel: args.otpChannel || 'email_otp',
+      otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
     },
   });
-  const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/enroll/challenge');
+  const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/registration/challenge');
   return {
     challengeId: readString(
       challenge.challengeId,
-      'wallet/email-otp/enroll/challenge challengeId',
+      'wallet/email-otp/registration/challenge challengeId',
     ),
-    otpChannel: 'email_otp',
+    otpChannel: EMAIL_OTP_CHANNEL,
   };
 }
 
@@ -249,12 +261,12 @@ export async function verifyEmailOtpCode(args: {
   challengeId: string;
   otpCode: string;
   appSessionJwt?: string;
-  otpChannel?: EmailOtpChannel;
+  otpChannel?: WalletEmailOtpChannel;
   fetchImpl?: FetchLike;
   workerCtx?: WorkerOperationContext;
 }): Promise<{
   loginGrant: string;
-  otpChannel: EmailOtpChannel;
+  otpChannel: WalletEmailOtpChannel;
   emailOtpEscrowBlob: string;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
@@ -270,28 +282,28 @@ export async function verifyEmailOtpCode(args: {
           ...(readOptionalString(args.appSessionJwt)
             ? { appSessionJwt: readOptionalString(args.appSessionJwt) }
             : {}),
-          otpChannel: 'email_otp',
+          otpChannel: EMAIL_OTP_CHANNEL,
         },
       },
     });
   }
   const response = await postJson({
-    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/verify'),
+    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/login/verify'),
     appSessionJwt: args.appSessionJwt,
     fetchImpl: args.fetchImpl,
     body: {
       walletId: readString(args.walletId, 'walletId'),
       challengeId: readString(args.challengeId, 'challengeId'),
       otpCode: readString(args.otpCode, 'otpCode'),
-      otpChannel: args.otpChannel || 'email_otp',
+      otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
     },
   });
   return {
-    loginGrant: readString(response.loginGrant, 'wallet/email-otp/verify loginGrant'),
-    otpChannel: 'email_otp',
+    loginGrant: readString(response.loginGrant, 'wallet/email-otp/login/verify loginGrant'),
+    otpChannel: EMAIL_OTP_CHANNEL,
     emailOtpEscrowBlob: readString(
       response.emailOtpEscrowBlob,
-      'wallet/email-otp/verify emailOtpEscrowBlob',
+      'wallet/email-otp/login/verify emailOtpEscrowBlob',
     ),
   };
 }
@@ -303,6 +315,7 @@ export async function exchangeGoogleEmailOtpSession(args: {
   sessionKind?: 'jwt' | 'cookie';
   runtimeEnvironmentId?: string;
   publishableKey?: string;
+  forceNewDevWallet?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<GoogleEmailOtpSessionExchangeResult> {
   const sessionKind = args.sessionKind === 'jwt' ? 'jwt' : 'cookie';
@@ -319,6 +332,7 @@ export async function exchangeGoogleEmailOtpSession(args: {
         type: 'oidc_jwt',
         provider: 'google',
         account_mode: accountMode,
+        ...(args.forceNewDevWallet === true ? { force_new_dev_wallet: true } : {}),
         token: readString(args.idToken, 'idToken'),
       },
     },
@@ -329,6 +343,19 @@ export async function exchangeGoogleEmailOtpSession(args: {
   const jwt = readOptionalString(response.jwt);
   const email = readOptionalString(session.email);
   const name = readOptionalString(session.name);
+  const googleEmailOtpResolutionRaw =
+    session.googleEmailOtpResolution &&
+    typeof session.googleEmailOtpResolution === 'object' &&
+    !Array.isArray(session.googleEmailOtpResolution)
+      ? (session.googleEmailOtpResolution as JsonObject)
+      : null;
+  const googleEmailOtpResolutionMode = readOptionalString(googleEmailOtpResolutionRaw?.mode);
+  const googleEmailOtpRegistrationAttemptId = readOptionalString(
+    googleEmailOtpResolutionRaw?.registrationAttemptId,
+  );
+  const googleEmailOtpResolutionExpiresAt = readOptionalString(
+    googleEmailOtpResolutionRaw?.expiresAt,
+  );
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
   return {
     ...(jwt ? { jwt } : {}),
@@ -337,6 +364,20 @@ export async function exchangeGoogleEmailOtpSession(args: {
       walletId,
       ...(email ? { email } : {}),
       ...(name ? { name } : {}),
+      ...(googleEmailOtpResolutionMode === 'existing_wallet' ||
+      googleEmailOtpResolutionMode === 'register_started'
+        ? {
+            googleEmailOtpResolution: {
+              mode: googleEmailOtpResolutionMode,
+              ...(googleEmailOtpRegistrationAttemptId
+                ? { registrationAttemptId: googleEmailOtpRegistrationAttemptId }
+                : {}),
+              ...(googleEmailOtpResolutionExpiresAt
+                ? { expiresAt: googleEmailOtpResolutionExpiresAt }
+                : {}),
+            },
+          }
+        : {}),
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     },
   };
@@ -351,7 +392,7 @@ export async function enrollEmailOtpWallet(args: {
   shamirPrimeB64u: string;
   workerCtx: WorkerOperationContext;
   appSessionJwt?: string;
-  otpChannel?: EmailOtpChannel;
+  otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
 }): Promise<EmailOtpEnrollmentResult> {
   const workerCtx = requireWorkerCtx(args.workerCtx);
@@ -376,7 +417,7 @@ export async function enrollEmailOtpWallet(args: {
           ...(readOptionalString(args.appSessionJwt)
             ? { appSessionJwt: readOptionalString(args.appSessionJwt) }
             : {}),
-          otpChannel: 'email_otp',
+          otpChannel: EMAIL_OTP_CHANNEL,
           ...(workerClientSecret32
             ? { clientSecret32: workerClientSecret32.buffer.slice(0) }
             : {}),

@@ -10,7 +10,10 @@ export interface RouteErrorBody {
     | 'internal'
     | 'invalid_body'
     | 'account_provisioning_failed'
-    | 'access_key_not_provisioned';
+    | 'access_key_not_provisioned'
+    | 'wallet_id_collision'
+    | 'registration_incomplete'
+    | 'wallet_identity_mismatch';
   message: string;
 }
 

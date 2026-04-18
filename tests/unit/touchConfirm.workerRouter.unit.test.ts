@@ -1889,7 +1889,7 @@ test.describe('UserConfirm worker router', () => {
 
         const exportPromise = manager.exportPrivateKeysWithUi({
           nearAccountId: 'alice.testnet',
-          deviceNumber: 1,
+          signerSlot: 1,
           hasThresholdKeyMaterial: true,
           chain: 'near',
         } as any);
@@ -1987,7 +1987,7 @@ test.describe('UserConfirm worker router', () => {
         const exportResult = manager
           .exportPrivateKeysWithUi({
             nearAccountId: 'alice.testnet',
-            deviceNumber: 1,
+            signerSlot: 1,
             hasThresholdKeyMaterial: true,
             chain: 'near',
           } as any)

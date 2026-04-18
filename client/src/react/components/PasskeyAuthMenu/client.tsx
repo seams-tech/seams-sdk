@@ -71,6 +71,12 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   }, []);
 
   const segActiveBg = 'var(--w3a-passkey-auth-menu2-seg-active-bg)';
+  const googleAccountNameNote =
+    socialLogin?.google && controller.mode === AuthMenuMode.Register
+      ? 'The username above is only for Passkey. Google SSO creates the wallet from your Google email.'
+      : socialLogin?.google && controller.mode === AuthMenuMode.Login
+        ? 'The username above is only for Passkey login. Google SSO finds your Email OTP wallet from your Google account.'
+        : '';
 
   const rootStyle = React.useMemo<CSSVarStyle>(
     () => ({
@@ -239,6 +245,11 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               secure={controller.secure}
               waiting={controller.waiting}
             />
+            {googleAccountNameNote ? (
+              <p className="w3a-auth-method-note w3a-google-account-name-note">
+                {googleAccountNameNote}
+              </p>
+            ) : null}
 
             <SegmentedControl
               items={[

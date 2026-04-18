@@ -48,7 +48,7 @@ export async function unlockDomain(
         nearAccountId,
         options: {
           onEvent: options?.onEvent,
-          deviceNumber: options?.deviceNumber,
+          signerSlot: options?.signerSlot,
           // Pass through session so the wallet host calls relay to mint JWT/cookie sessions.
           session: options?.session,
           signingSession: options?.signingSession,

@@ -12,6 +12,7 @@ import type {
   SignatureBytes,
 } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
+import type { WalletAuthPlan } from '@/core/signingEngine/auth';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
@@ -35,7 +36,7 @@ import {
   inferDigest32FromSignRequest,
   makeRequestId,
   resolveKeyRefForSignRequest,
-  resolveSigningAuthMode,
+  resolveTouchConfirmSigningAuth,
 } from '../shared/touchConfirmSigning';
 
 type ManagedNonceReservation = ReserveNonceInput & { nonce: bigint };
@@ -69,6 +70,7 @@ export async function signEvmWithTouchConfirm(args: {
     emailHint?: string;
     complete: (otpCode: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   };
+  walletAuthPlan?: WalletAuthPlan;
 }): Promise<EvmSignedResult> {
   const emitProgress = (event: {
     step: number;
@@ -96,13 +98,19 @@ export async function signEvmWithTouchConfirm(args: {
     });
   } catch {}
   let thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
-  const signingAuthModePromise = args.emailOtpSigning
-    ? Promise.resolve<'emailOtp'>('emailOtp')
-    : resolveSigningAuthMode({
-        needsWebAuthn: false,
-        thresholdEcdsaKeyRef,
-        touchConfirm: args.touchConfirm,
-      });
+  const emailOtpPrompt = args.emailOtpSigning
+    ? {
+        challengeId: args.emailOtpSigning.challengeId,
+        ...(args.emailOtpSigning.emailHint ? { emailHint: args.emailOtpSigning.emailHint } : {}),
+        title: 'Enter email code to sign',
+        helperText: 'Enter the 6-digit code sent to your email to sign this transaction.',
+      }
+    : undefined;
+  const signingAuthPromise = resolveTouchConfirmSigningAuth({
+    needsWebAuthn: false,
+    ...(args.walletAuthPlan ? { walletAuthPlan: args.walletAuthPlan } : {}),
+    ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
+  });
   let preparedRequest = args.request;
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
@@ -162,7 +170,7 @@ export async function signEvmWithTouchConfirm(args: {
       status: 'progress',
       message: 'Awaiting transaction confirmation',
     });
-    const signingAuthMode = await signingAuthModePromise;
+    const { touchConfirmAuthPayload } = await signingAuthPromise;
     const confirmation = await args.touchConfirm.orchestrateSigningConfirmation({
       ctx: { touchConfirm: args.touchConfirm },
       sessionId,
@@ -174,19 +182,8 @@ export async function signEvmWithTouchConfirm(args: {
       ...(eagerDisplayModel ? { displayModel: eagerDisplayModel } : {}),
       title,
       body,
-      signingAuthMode,
-      ...(args.emailOtpSigning
-        ? {
-            emailOtpPrompt: {
-              challengeId: args.emailOtpSigning.challengeId,
-              ...(args.emailOtpSigning.emailHint
-                ? { emailHint: args.emailOtpSigning.emailHint }
-                : {}),
-              title: 'Confirm with Email OTP',
-              helperText: 'Enter the 6-digit code sent to your email to authorize this transaction.',
-            },
-          }
-        : {}),
+      ...touchConfirmAuthPayload,
+      ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
       onProgress: args.onEvent,
       confirmationConfigOverride: args.confirmationConfigOverride,
     });

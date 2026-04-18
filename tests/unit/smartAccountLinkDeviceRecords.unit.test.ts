@@ -22,7 +22,7 @@ test.describe('smart-account link-device canonical records', () => {
 
       const built = buildLinkDeviceSmartAccountRecords({
         userId: 'alice.testnet',
-        deviceNumber: 4,
+        signerSlot: 4,
         credentialIdB64u: 'cred-b64u',
         rpId: 'wallet.example.test',
         relayerKeyId: 'rk-ecdsa',
@@ -95,7 +95,7 @@ test.describe('smart-account link-device canonical records', () => {
     expect(result.evmSigners[0]?.status).toBe('pending');
     expect(result.evmSigners[0]?.signerId).toBe(`0x${'aa'.repeat(20)}`);
     expect(result.evmSigners[0]?.metadata?.thresholdEcdsaPublicKeyB64u).toBe('group-public-key');
-    expect(result.evmSigners[0]?.metadata?.deviceNumber).toBe(4);
+    expect(result.evmSigners[0]?.metadata?.signerSlot).toBe(4);
     expect(result.linkedAccounts[0]?.chainIdKey).toBe('evm:11155111');
     expect(result.linkedAccounts[0]?.accountModel).toBe('erc4337');
     expect(result.linkedAccounts[0]?.deployed).toBe(true);
@@ -109,7 +109,7 @@ test.describe('smart-account link-device canonical records', () => {
       const { buildLinkDeviceSmartAccountRecords } = await import(paths.server);
       return buildLinkDeviceSmartAccountRecords({
         userId: 'alice.testnet',
-        deviceNumber: 2,
+        signerSlot: 2,
         credentialIdB64u: 'cred-b64u',
         rpId: 'wallet.example.test',
         relayerKeyId: 'rk-ecdsa',

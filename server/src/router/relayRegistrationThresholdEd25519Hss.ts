@@ -17,11 +17,7 @@ import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
-import { ensureEd25519Prefix } from '@shared/utils/validation';
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { ensureEd25519Prefix, isPlainObject } from '@shared/utils/validation';
 
 type RelayRegistrationThresholdEd25519HssServices = {
   authService: AuthService;
@@ -79,7 +75,7 @@ async function sleep(ms: number): Promise<void> {
 function wantsCreateIfMissingAccountProvisioning(body: Record<string, unknown>): boolean {
   const raw = body.account_provisioning ?? body.accountProvisioning;
   if (raw === 'create_if_missing') return true;
-  if (!isObject(raw)) return false;
+  if (!isPlainObject(raw)) return false;
   return String(raw.mode || '').trim() === 'create_if_missing';
 }
 
@@ -189,9 +185,8 @@ async function ensureRegistrationAccountProvisioning(input: {
     ok: false,
     response: routeJson(409, {
       ok: false,
-      code: 'access_key_not_provisioned',
-      message:
-        'NEAR account already exists, but the finalized threshold Ed25519 public key is not an active access key. Use a new wallet id for Email OTP registration or add the key through an existing account signer before activating it locally.',
+      code: 'wallet_id_collision',
+      message: 'This wallet name is already in use. Try registering again with a new wallet name.',
     }),
   };
 }
@@ -199,7 +194,7 @@ async function ensureRegistrationAccountProvisioning(input: {
 async function enforceRegistrationHssPolicy(
   input: RelayRegistrationThresholdEd25519HssInput,
 ): Promise<RelayRegistrationThresholdEd25519HssPolicyResult> {
-  const body = isObject(input.body) ? input.body : null;
+  const body = isPlainObject(input.body) ? input.body : null;
   if (!body) {
     return { ok: false, response: routeError(400, 'invalid_body', 'JSON body required') };
   }
@@ -297,13 +292,39 @@ export const handleRelayRegistrationThresholdEd25519HssFinalize: RelayRegistrati
   });
   if (!result.ok) return routeJson(400, result);
 
-  const body = isObject(input.body) ? input.body : {};
+  const body = isPlainObject(input.body) ? input.body : {};
   const provisioning = await ensureRegistrationAccountProvisioning({
     body,
     authService: input.services.authService,
     publicKey: result.publicKey,
   });
-  if (!provisioning.ok) return provisioning.response;
+  if (!provisioning.ok) {
+    await input.services.authService.failGoogleEmailOtpRegistrationAttempt({
+      registrationAttemptId:
+        body.google_email_otp_registration_attempt_id ??
+        body.googleEmailOtpRegistrationAttemptId ??
+        body.registrationAttemptId,
+      walletId: body.new_account_id,
+      failureCode: (provisioning.response.body as { code?: unknown }).code,
+    });
+    return provisioning.response;
+  }
+
+  const completed = await input.services.authService.completeGoogleEmailOtpRegistrationAttempt({
+    registrationAttemptId:
+      body.google_email_otp_registration_attempt_id ??
+      body.googleEmailOtpRegistrationAttemptId ??
+      body.registrationAttemptId,
+    walletId: body.new_account_id,
+    finalizedPublicKey: result.publicKey,
+  });
+  if (!completed.ok) {
+    return routeJson(409, {
+      ok: false,
+      code: completed.code,
+      message: completed.message,
+    });
+  }
 
   return routeJson(200, {
     ...result,

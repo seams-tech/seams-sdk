@@ -25,6 +25,7 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
     isLoggedIn: false,
     nearAccountId: null,
     nearPublicKey: null,
+    authMethod: null,
     thresholdEcdsaEthereumAddress: null,
     thresholdEcdsaPublicKeyB64u: null,
   });

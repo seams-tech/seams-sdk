@@ -192,6 +192,10 @@ export function makeFakeAuthService(
     rotateAppSessionVersion: AuthService['rotateAppSessionVersion'];
     verifyOidcJwtExchange: AuthService['verifyOidcJwtExchange'];
     resolveOidcWalletId: AuthService['resolveOidcWalletId'];
+    resolveGoogleEmailOtpSession: AuthService['resolveGoogleEmailOtpSession'];
+    completeGoogleEmailOtpRegistrationAttempt: AuthService['completeGoogleEmailOtpRegistrationAttempt'];
+    failGoogleEmailOtpRegistrationAttempt: AuthService['failGoogleEmailOtpRegistrationAttempt'];
+    cleanupGoogleEmailOtpDevRegistrationState: AuthService['cleanupGoogleEmailOtpDevRegistrationState'];
     isGoogleOidcConfigured: AuthService['isGoogleOidcConfigured'];
     verifyGoogleLogin: AuthService['verifyGoogleLogin'];
     markEmailOtpStrongAuthSatisfied: AuthService['markEmailOtpStrongAuthSatisfied'];
@@ -249,6 +253,39 @@ export function makeFakeAuthService(
     verifyEmailOtpChallenge:
       overrides.verifyEmailOtpChallenge ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    resolveGoogleEmailOtpSession:
+      overrides.resolveGoogleEmailOtpSession ||
+      (async (request) => {
+        const walletId = String((request as { email?: unknown }).email || 'alice@example.com')
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+        return {
+          ok: true,
+          mode: 'register_started',
+          walletId: `${walletId || 'alice'}.testnet`,
+          providerSubject: String(
+            (request as { providerSubject?: unknown }).providerSubject || 'google:user.test',
+          ),
+          email: String((request as { email?: unknown }).email || 'alice@example.com'),
+          registrationAttemptId: 'google-email-otp-attempt-test',
+          expiresAtMs: Date.now() + 60_000,
+        };
+      }),
+    completeGoogleEmailOtpRegistrationAttempt:
+      overrides.completeGoogleEmailOtpRegistrationAttempt || (async () => ({ ok: true })),
+    failGoogleEmailOtpRegistrationAttempt:
+      overrides.failGoogleEmailOtpRegistrationAttempt || (async () => undefined),
+    cleanupGoogleEmailOtpDevRegistrationState:
+      overrides.cleanupGoogleEmailOtpDevRegistrationState ||
+      (async () => ({
+        ok: true,
+        providerSubject: 'google:user.test',
+        expiredRegistrationAttemptsDeleted: 0,
+        orphanedWalletMappingRemoved: false,
+        orphanedWalletMappingSkippedReason: 'no_linked_wallet',
+      })),
     readEmailOtpEnrollment:
       overrides.readEmailOtpEnrollment ||
       (async (request) => ({

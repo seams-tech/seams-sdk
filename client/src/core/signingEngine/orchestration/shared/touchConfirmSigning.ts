@@ -1,8 +1,10 @@
-import type { SigningAuthMode } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
-import type { WarmSessionStatusReader } from '@/core/signingEngine/touchConfirm';
+import type {
+  EmailOtpConfirmPrompt,
+  SigningAuthPlan,
+} from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+import type { WalletAuthPlan } from '@/core/signingEngine/auth';
 import type { KeyRef, SignRequest } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
-import { resolveThresholdSigningAuthMode } from './thresholdSigningSessionPlanner';
 
 export function makeRequestId(prefix: string): string {
   const c = globalThis.crypto;
@@ -23,17 +25,80 @@ export function asThresholdEcdsaKeyRef(
     : null;
 }
 
-export async function resolveSigningAuthMode(args: {
+export function signingAuthPlanFromWalletAuthPlan(
+  plan: WalletAuthPlan,
+  emailOtpPrompt?: EmailOtpConfirmPrompt,
+): SigningAuthPlan {
+  if (plan.kind === 'warmSession') {
+    return {
+      kind: 'warmSession',
+      method: plan.method,
+      accountId: plan.accountId,
+      intent: plan.intent,
+      ...(plan.curve ? { curve: plan.curve } : {}),
+      ...(plan.signingRootId ? { signingRootId: plan.signingRootId } : {}),
+      sessionId: plan.sessionId,
+      ...(plan.retention !== undefined ? { retention: plan.retention } : {}),
+      expiresAtMs: plan.expiresAtMs,
+      remainingUses: plan.remainingUses,
+    };
+  }
+  if (plan.kind === 'emailOtpReauth') {
+    if (!emailOtpPrompt) {
+      throw new Error('Email OTP signing auth plan requires an emailOtpPrompt');
+    }
+    return {
+      kind: 'emailOtpReauth',
+      method: 'email_otp',
+      emailOtpPrompt,
+    };
+  }
+  return {
+    kind: 'passkeyReauth',
+    method: 'passkey',
+  };
+}
+
+export function emailOtpSigningAuthPlan(emailOtpPrompt: EmailOtpConfirmPrompt): SigningAuthPlan {
+  return {
+    kind: 'emailOtpReauth',
+    method: 'email_otp',
+    emailOtpPrompt,
+  };
+}
+
+export async function resolveTouchConfirmSigningAuth(args: {
   needsWebAuthn: boolean;
-  thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | null;
-  touchConfirm: WarmSessionStatusReader;
-}): Promise<SigningAuthMode> {
-  return await resolveThresholdSigningAuthMode({
-    needsWebAuthn: args.needsWebAuthn,
-    sessionId: args.thresholdEcdsaKeyRef?.thresholdSessionId,
-    touchConfirm: args.touchConfirm,
-    usesNeeded: 1,
-  });
+  walletAuthPlan?: WalletAuthPlan;
+  emailOtpPrompt?: EmailOtpConfirmPrompt;
+}): Promise<{
+  touchConfirmAuthPayload: { signingAuthPlan: SigningAuthPlan };
+}> {
+  if (args.walletAuthPlan) {
+    const signingAuthPlan = signingAuthPlanFromWalletAuthPlan(
+      args.walletAuthPlan,
+      args.emailOtpPrompt,
+    );
+    return {
+      touchConfirmAuthPayload: { signingAuthPlan },
+    };
+  }
+  if (args.emailOtpPrompt) {
+    const signingAuthPlan = emailOtpSigningAuthPlan(args.emailOtpPrompt);
+    return {
+      touchConfirmAuthPayload: { signingAuthPlan },
+    };
+  }
+  if (args.needsWebAuthn) {
+    const signingAuthPlan: SigningAuthPlan = {
+      kind: 'passkeyReauth',
+      method: 'passkey',
+    };
+    return {
+      touchConfirmAuthPayload: { signingAuthPlan },
+    };
+  }
+  throw new Error('Signing auth resolution requires a concrete SigningAuthPlan');
 }
 
 export function resolveKeyRefForSignRequest(args: {

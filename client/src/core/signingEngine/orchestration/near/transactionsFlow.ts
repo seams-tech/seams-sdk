@@ -14,6 +14,12 @@ import {
 } from '@/core/types/signer-worker';
 import { AccountId } from '@/core/types/accountIds';
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
+import type { NearEmailOtpSigningHook } from '../../interfaces/near';
+import type { WalletAuthPlan } from '../../auth';
+import {
+  emailOtpSigningAuthPlan,
+  signingAuthPlanFromWalletAuthPlan,
+} from '../shared/touchConfirmSigning';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { toAccountId } from '@/core/types/accountIds';
@@ -81,7 +87,9 @@ export async function signTransactionsWithActions({
   confirmationConfigOverride,
   title,
   body,
-  deviceNumber,
+  signerSlot,
+  emailOtpSigning,
+  walletAuthPlan,
 }: {
   ctx: SigningRuntimeDeps;
   sessionId?: string;
@@ -92,7 +100,9 @@ export async function signTransactionsWithActions({
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
-  deviceNumber?: number;
+  signerSlot?: number;
+  emailOtpSigning?: NearEmailOtpSigningHook;
+  walletAuthPlan?: WalletAuthPlan;
 }): Promise<
   Array<{
     signedTransaction: SignedTransaction;
@@ -115,7 +125,7 @@ export async function signTransactionsWithActions({
   const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
     ctx,
     nearAccountId,
-    deviceNumber,
+    signerSlot,
     operationLabel: 'signing',
     warnings,
   });
@@ -188,19 +198,35 @@ export async function signTransactionsWithActions({
     status: ActionStatus.PROGRESS,
     message: 'Opening confirmation prompt...',
   });
-  const signingAuthMode = thresholdAuthPlan?.signingAuthMode;
+  const emailOtpPrompt = emailOtpSigning
+    ? {
+        challengeId: emailOtpSigning.challengeId,
+        ...(emailOtpSigning.emailHint ? { emailHint: emailOtpSigning.emailHint } : {}),
+        title: 'Enter email code to sign',
+        helperText: 'Enter the 6-digit code sent to your email to sign this transaction.',
+      }
+    : undefined;
+  const signingAuthPlan = walletAuthPlan
+    ? signingAuthPlanFromWalletAuthPlan(walletAuthPlan, emailOtpPrompt)
+    : emailOtpPrompt
+      ? emailOtpSigningAuthPlan(emailOtpPrompt)
+      : thresholdAuthPlan?.signingAuthPlan;
+  const touchConfirmAuthPayload = signingAuthPlan
+    ? { signingAuthPlan }
+    : (thresholdAuthPlan?.touchConfirmAuthPayload ?? {});
   const confirmation = await ctx.touchConfirm.orchestrateSigningConfirmation({
     ctx: { touchConfirm },
     sessionId,
     chain: 'near',
     kind: 'transaction',
-    ...(signingAuthMode ? { signingAuthMode } : {}),
+    ...touchConfirmAuthPayload,
     txSigningRequests: normalizedTransactions,
     rpcCall: resolvedRpcCall,
     nearPublicKeyStr: signingContext.signingNearPublicKeyStr,
     confirmationConfigOverride,
     title,
     body,
+    ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
   });
 
   const intentDigest = confirmation.intentDigest;
@@ -211,49 +237,66 @@ export async function signTransactionsWithActions({
 
   const credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
 
-  const prfFirstB64u = signingContext.threshold
-    ? thresholdAuthPlan?.warmSessionReady
-      ? await warmSessionManager.claimPrfFirstByThresholdSessionId({
-          thresholdSessionId: thresholdAuthPlan.sessionId,
-          uses: usesNeeded,
-          errorContext: 'threshold-ed25519 transaction signing',
-        })
-      : requirePrfFirstFromCredential(credentialWithPrf)
-    : requirePrfFirstFromCredential(credentialWithPrf);
-
-  if (!prfFirstB64u) {
-    throw new Error('Missing PRF.first output for signing');
-  }
-
   // Threshold signer: authorize with relayer and pass threshold config into the signer worker.
-  const canonicalThresholdSessionId = thresholdAuthPlan?.sessionId || sessionId;
+  let canonicalThresholdSessionId = thresholdAuthPlan?.sessionId || sessionId;
+  if (emailOtpSigning) {
+    const otpCode = String(confirmation.otpCode || '').trim();
+    if (!/^\d{6}$/.test(otpCode)) {
+      throw new Error('[SigningEngine] missing Email OTP code from touchConfirm');
+    }
+    const refreshed = await emailOtpSigning.complete(otpCode);
+    const refreshedSessionId = String(refreshed.sessionId || '').trim();
+    if (!refreshedSessionId) {
+      throw new Error('[SigningEngine] Email OTP signing did not return a threshold session id');
+    }
+    canonicalThresholdSessionId = refreshedSessionId;
+  }
   const thresholdSessionState = requireResolvedThresholdEd25519SessionState({
     warmSessionManager,
     thresholdSessionId: canonicalThresholdSessionId,
   });
-  const xClientBaseB64u = await ensureThresholdEd25519HssClientBase({
-    ...(onEvent
-      ? {
-          onProgress: (message: string) => {
-            onEvent({
-              step: 4,
-              phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
-              status: ActionStatus.PROGRESS,
-              message,
-            });
-          },
-        }
-      : {}),
-    ctx,
-    thresholdSessionId: canonicalThresholdSessionId,
-    thresholdSessionJwt: thresholdSessionState.thresholdSessionJwt,
-    relayerUrl: thresholdSessionState.relayerUrl,
-    relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
-    nearAccountId,
-    keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
-    participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map((p) => p.id),
-    prfFirstB64u,
-  });
+  const cachedXClientBaseB64u = String(thresholdSessionState.xClientBaseB64u || '').trim();
+  const prfFirstB64u = signingContext.threshold
+    ? cachedXClientBaseB64u
+      ? ''
+      : thresholdAuthPlan?.warmSessionReady
+        ? await warmSessionManager.claimPrfFirstByThresholdSessionId({
+            thresholdSessionId: thresholdAuthPlan.sessionId,
+            uses: usesNeeded,
+            errorContext: 'threshold-ed25519 transaction signing',
+          })
+        : requirePrfFirstFromCredential(credentialWithPrf)
+    : requirePrfFirstFromCredential(credentialWithPrf);
+
+  if (!cachedXClientBaseB64u && !prfFirstB64u) {
+    throw new Error('Missing PRF.first output for signing');
+  }
+
+  const xClientBaseB64u =
+    cachedXClientBaseB64u ||
+    (await ensureThresholdEd25519HssClientBase({
+      ...(onEvent
+        ? {
+            onProgress: (message: string) => {
+              onEvent({
+                step: 4,
+                phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
+                status: ActionStatus.PROGRESS,
+                message,
+              });
+            },
+          }
+        : {}),
+      ctx,
+      thresholdSessionId: canonicalThresholdSessionId,
+      thresholdSessionJwt: thresholdSessionState.thresholdSessionJwt,
+      relayerUrl: thresholdSessionState.relayerUrl,
+      relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
+      nearAccountId,
+      keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
+      participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map((p) => p.id),
+      prfFirstB64u,
+    }));
   console.debug('[SigningEngine][near][transactions] threshold client base ready', {
     nearAccountId,
     thresholdSessionId: canonicalThresholdSessionId,
@@ -305,17 +348,28 @@ export async function signTransactionsWithActions({
 
   try {
     const okResponse = await executeSignRequest(requestPayload);
-    return toSignedTransactionResults({
+    const signedResults = toSignedTransactionResults({
       okResponse,
       expectedTransactionCount: transactions.length,
       nearAccountId,
       warnings,
     });
+    emailOtpSigning?.markConsumed?.(canonicalThresholdSessionId);
+    return signedResults;
   } catch (e: unknown) {
     const err = e instanceof Error ? e : new Error(String(e));
 
     if (isThresholdSignerMissingKeyError(err)) {
       try {
+        const repairPrfFirstB64u =
+          prfFirstB64u ||
+          (thresholdAuthPlan?.warmSessionReady
+            ? await warmSessionManager.claimPrfFirstByThresholdSessionId({
+                thresholdSessionId: thresholdAuthPlan.sessionId,
+                uses: usesNeeded,
+                errorContext: 'threshold-ed25519 transaction signing repair',
+              })
+            : requirePrfFirstFromCredential(credentialWithPrf));
         const repairedXClientBaseB64u = await repairThresholdEd25519MissingRelayerKey({
           ctx,
           operationLabel: 'transactions',
@@ -328,7 +382,7 @@ export async function signTransactionsWithActions({
           participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map(
             (p) => p.id,
           ),
-          prfFirstB64u,
+          prfFirstB64u: repairPrfFirstB64u,
           ...(onEvent
             ? {
                 onProgress: (message: string) => {
@@ -344,12 +398,14 @@ export async function signTransactionsWithActions({
         });
         requestPayload = buildRequestPayload(repairedXClientBaseB64u);
         const okResponse = await executeSignRequest(requestPayload);
-        return toSignedTransactionResults({
+        const signedResults = toSignedTransactionResults({
           okResponse,
           expectedTransactionCount: transactions.length,
           nearAccountId,
           warnings,
         });
+        emailOtpSigning?.markConsumed?.(canonicalThresholdSessionId);
+        return signedResults;
       } catch (repairError: unknown) {
         const repairErr =
           repairError instanceof Error ? repairError : new Error(String(repairError));

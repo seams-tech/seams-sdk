@@ -9,7 +9,7 @@ import type {
   SignNEP413MessageParams,
   SignNEP413MessageResult,
 } from '../core/TatchiPasskey';
-import type { ThemeName } from '../core/types/tatchi';
+import type { ThemeName, WalletAuthMethod } from '../core/types/tatchi';
 import { TransactionInput } from '../core/types/actions';
 import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/signer-worker';
 import type { ClientUserData } from '../core/accountData/near/types';
@@ -62,6 +62,8 @@ export interface LoginState {
   nearPublicKey: string | null;
   // The NEAR account ID of the currently authenticated user (e.g., "alice.testnet")
   nearAccountId: string | null;
+  // Auth method that unlocked the active wallet session.
+  authMethod?: WalletAuthMethod | null;
   // Canonical threshold ECDSA account address used for Tempo/EVM signing
   thresholdEcdsaEthereumAddress?: string | null;
   // Canonical threshold ECDSA public key (base64url)

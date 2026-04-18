@@ -58,7 +58,7 @@ test.describe('passkey-confirm export flow worker', () => {
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
                 nearAccountId: 'alice.testnet',
-                deviceNumber: 1,
+                signerSlot: 1,
                 chain: 'near',
                 artifactKind: 'near-ed25519-seed-v1',
                 expectedPublicKey,
@@ -182,7 +182,7 @@ test.describe('passkey-confirm export flow worker', () => {
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
                 nearAccountId: 'alice.testnet',
-                deviceNumber: 1,
+                signerSlot: 1,
                 chain: 'evm',
                 variant: 'drawer',
                 theme: 'dark',
@@ -273,7 +273,7 @@ test.describe('passkey-confirm export flow worker', () => {
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
                 nearAccountId: 'alice.testnet',
-                deviceNumber: 1,
+                signerSlot: 1,
                 chain: 'near',
                 artifactKind: 'near-ed25519-seed-v1',
                 expectedPublicKey,
@@ -390,7 +390,7 @@ test.describe('passkey-confirm export flow worker', () => {
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
                 nearAccountId: 'alice.testnet',
-                deviceNumber: 1,
+                signerSlot: 1,
                 chain: 'evm',
                 variant: 'drawer',
                 theme: 'dark',
@@ -477,7 +477,7 @@ test.describe('passkey-confirm export flow worker', () => {
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
                 nearAccountId: 'alice.testnet',
-                deviceNumber: 1,
+                signerSlot: 1,
                 chain: 'near',
                 artifactKind: 'near-ed25519-seed-v1',
                 expectedPublicKey,
@@ -524,7 +524,9 @@ test.describe('passkey-confirm export flow worker', () => {
       id: 'export-op-near-mismatch',
       success: false,
     });
-    expect(String(result.response?.error || '')).toContain('unexpected public key');
+    expect(String(result.response?.error || '')).toContain(
+      'canonical seed does not match the expected public key',
+    );
   });
 
   test('completes NEAR seed export happy path', async ({ page }) => {
@@ -603,7 +605,7 @@ test.describe('passkey-confirm export flow worker', () => {
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
                 nearAccountId: 'alice.testnet',
-                deviceNumber: 1,
+                signerSlot: 1,
                 chain: 'near',
                 artifactKind: 'near-ed25519-seed-v1',
                 expectedPublicKey,
@@ -733,7 +735,7 @@ test.describe('passkey-confirm export flow worker', () => {
               type: 'EXPORT_PRIVATE_KEYS_WITH_UI',
               payload: {
                 nearAccountId: 'alice.testnet',
-                deviceNumber: 1,
+                signerSlot: 1,
                 chain: 'evm',
                 artifactKind: 'ecdsa-hss-secp256k1-key-v1',
                 publicKeyHex,

@@ -16,7 +16,7 @@ export type RecoverySessionRecord = {
   sessionId: string;
   userId: string;
   nearAccountId: string;
-  deviceNumber: number;
+  signerSlot: number;
   status: RecoverySessionStatus;
   createdAtMs: number;
   updatedAtMs: number;
@@ -73,9 +73,9 @@ function parseRecoverySessionRecord(raw: unknown): RecoverySessionRecord | null 
   const userId = toOptionalTrimmedString(raw.userId);
   const nearAccountId = toOptionalTrimmedString(raw.nearAccountId);
   const status = normalizeRecoverySessionStatus((raw as { status?: unknown }).status);
-  const deviceNumberRaw = (raw as { deviceNumber?: unknown }).deviceNumber;
-  const deviceNumber =
-    typeof deviceNumberRaw === 'number' ? deviceNumberRaw : Number(deviceNumberRaw);
+  const signerSlotRaw = (raw as { signerSlot?: unknown }).signerSlot;
+  const signerSlot =
+    typeof signerSlotRaw === 'number' ? signerSlotRaw : Number(signerSlotRaw);
   const createdAtMsRaw = (raw as { createdAtMs?: unknown }).createdAtMs;
   const updatedAtMsRaw = (raw as { updatedAtMs?: unknown }).updatedAtMs;
   const expiresAtMsRaw = (raw as { expiresAtMs?: unknown }).expiresAtMs;
@@ -116,7 +116,7 @@ function parseRecoverySessionRecord(raw: unknown): RecoverySessionRecord | null 
   ) {
     return null;
   }
-  if (!Number.isFinite(deviceNumber) || deviceNumber < 1) return null;
+  if (!Number.isFinite(signerSlot) || signerSlot < 1) return null;
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
@@ -129,7 +129,7 @@ function parseRecoverySessionRecord(raw: unknown): RecoverySessionRecord | null 
     sessionId,
     userId,
     nearAccountId,
-    deviceNumber: Math.floor(deviceNumber),
+    signerSlot: Math.floor(signerSlot),
     status,
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),

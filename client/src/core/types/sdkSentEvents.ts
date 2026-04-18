@@ -261,7 +261,7 @@ export interface RegistrationEventStep7ThresholdKeyEnrollment extends BaseRegist
   thresholdKeyReady: boolean;
   thresholdPublicKey?: string;
   relayerKeyId?: string;
-  deviceNumber?: number;
+  signerSlot?: number;
   warning?: string;
 }
 
@@ -271,7 +271,7 @@ export interface RegistrationEventStep7ThresholdKeyEnrollmentProgress extends Ba
   status: RegistrationStatus.PROGRESS;
   thresholdPublicKey?: string;
   relayerKeyId?: string;
-  deviceNumber?: number;
+  signerSlot?: number;
 }
 
 export interface RegistrationEventStep8 extends BaseRegistrationSSEEvent {
@@ -652,13 +652,13 @@ export interface LoginHooksOptions {
   onError?: (error: Error) => void;
   afterCall?: AfterCall<LoginAndCreateSessionResult>;
   /**
-   * Optional: passkey deviceNumber hint.
+   * Optional signer-slot hint.
    *
-   * When multiple passkeys exist for the same `nearAccountId`, providing this hint lets
+   * When multiple signers exist for the same `nearAccountId`, providing this hint lets
    * the login flow prioritize the matching `credentialId` when presenting the TouchID
    * (WebAuthn) prompt.
    */
-  deviceNumber?: number;
+  signerSlot?: number;
   // Optional: request a server session (JWT in body or HttpOnly cookie)
   session?: {
     // 'jwt' returns the token in the JSON body; 'cookie' sets HttpOnly cookie
@@ -700,9 +700,9 @@ export interface ActionHooksOptions {
   waitUntil?: TxExecutionStatus;
   afterCall?: AfterCall<ActionResult>;
   /**
-   * Optional: passkey deviceNumber override for this signing request.
+   * Optional signer-slot override for this signing request.
    */
-  deviceNumber?: number;
+  signerSlot?: number;
   /**
    * Preferred grouping for per-call confirmer copy.
    */
@@ -722,9 +722,9 @@ export interface SignAndSendTransactionHooksOptions {
   onError?: (error: Error) => void;
   waitUntil?: TxExecutionStatus;
   /**
-   * Optional: passkey deviceNumber override for this signing request.
+   * Optional signer-slot override for this signing request.
    */
-  deviceNumber?: number;
+  signerSlot?: number;
   /**
    * Execution control for multi-transaction broadcasts:
    * - { mode: 'sequential', waitUntil?: TxExecutionStatus }
@@ -750,9 +750,9 @@ export interface SignTransactionHooksOptions {
   afterCall?: AfterCall<SignTransactionResult[]>;
   waitUntil?: TxExecutionStatus;
   /**
-   * Optional: passkey deviceNumber override for this signing request.
+   * Optional signer-slot override for this signing request.
    */
-  deviceNumber?: number;
+  signerSlot?: number;
   /**
    * Preferred grouping for per-call confirmer copy.
    */
@@ -776,9 +776,9 @@ export interface DelegateActionHooksOptions {
   waitUntil?: TxExecutionStatus;
   afterCall?: AfterCall<SignDelegateActionResult>;
   /**
-   * Optional: passkey deviceNumber override for this signing request.
+   * Optional signer-slot override for this signing request.
    */
-  deviceNumber?: number;
+  signerSlot?: number;
   /**
    * Preferred grouping for per-call confirmer copy.
    */
@@ -820,9 +820,9 @@ export interface SignNEP413HooksOptions {
 
   afterCall?: AfterCall<SignNEP413MessageResult>;
   /**
-   * Optional: passkey deviceNumber override for this signing request.
+   * Optional signer-slot override for this signing request.
    */
-  deviceNumber?: number;
+  signerSlot?: number;
   /**
    * Preferred grouping for per-call confirmer copy.
    */

@@ -201,7 +201,7 @@ async function enrollEmailOtpOverExpress(args: {
   authToken?: string;
 }): Promise<void> {
   const authToken = args.authToken || 'app-session';
-  const enrollChallenge = await fetchJson(`${args.baseUrl}/wallet/email-otp/enroll/challenge`, {
+  const enrollChallenge = await fetchJson(`${args.baseUrl}/wallet/email-otp/registration/challenge`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
     body: JSON.stringify({
@@ -222,7 +222,7 @@ async function enrollEmailOtpOverExpress(args: {
   const enrollOtpCode = String(enrollOutbox.json?.otpCode || '');
   const enrollPlaintextSecretB64u = encodePositiveBigIntB64u(11n);
   const enrollWrappedCiphertext = addClientSeal(enrollPlaintextSecretB64u);
-  const enrollSeal = await fetchJson(`${args.baseUrl}/wallet/email-otp/enroll/seal`, {
+  const enrollSeal = await fetchJson(`${args.baseUrl}/wallet/email-otp/registration/seal`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
     body: JSON.stringify({
@@ -232,7 +232,7 @@ async function enrollEmailOtpOverExpress(args: {
   });
   expect(enrollSeal.status).toBe(200);
   const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
-  const enrollVerify = await fetchJson(`${args.baseUrl}/wallet/email-otp/enroll/verify`, {
+  const enrollVerify = await fetchJson(`${args.baseUrl}/wallet/email-otp/registration/finalize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
     body: JSON.stringify({
@@ -258,7 +258,7 @@ async function enrollEmailOtpOverCloudflare(args: {
   const authToken = args.authToken || 'app-session';
   const enrollChallenge = await callCf(args.handler, {
     method: 'POST',
-    path: '/wallet/email-otp/enroll/challenge',
+    path: '/wallet/email-otp/registration/challenge',
     headers: { Authorization: `Bearer ${authToken}` },
     body: {
       walletId: 'alice.testnet',
@@ -280,7 +280,7 @@ async function enrollEmailOtpOverCloudflare(args: {
   const enrollWrappedCiphertext = addClientSeal(enrollPlaintextSecretB64u);
   const enrollSeal = await callCf(args.handler, {
     method: 'POST',
-    path: '/wallet/email-otp/enroll/seal',
+    path: '/wallet/email-otp/registration/seal',
     headers: { Authorization: `Bearer ${authToken}` },
     body: {
       walletId: 'alice.testnet',
@@ -292,7 +292,7 @@ async function enrollEmailOtpOverCloudflare(args: {
   const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
   const enrollVerify = await callCf(args.handler, {
     method: 'POST',
-    path: '/wallet/email-otp/enroll/verify',
+    path: '/wallet/email-otp/registration/finalize',
     headers: { Authorization: `Bearer ${authToken}` },
     body: {
       walletId: 'alice.testnet',
@@ -320,7 +320,7 @@ test.describe('Email OTP routes', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/challenge`, {
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -346,7 +346,7 @@ test.describe('Email OTP routes', () => {
 
     const challenge = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/challenge',
+      path: '/wallet/email-otp/login/challenge',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -356,6 +356,191 @@ test.describe('Email OTP routes', () => {
     });
     expect(challenge.status).toBe(404);
     expect(challenge.json?.code).toBe('not_found');
+  });
+
+  test('Express: export_key Email OTP challenge and verify use route policy and emit export audit events', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const { dispatched, webhooks } = makeWebhookRecorder();
+    await webhooks.createEndpoint(
+      { orgId: 'org-email-otp-export-policy-express', actorUserId: 'test-admin', roles: ['admin'] },
+      {
+        url: 'https://example.com/relay-webhooks',
+        eventCategories: ['wallet'],
+      },
+    );
+    const authorizations: Array<Record<string, unknown>> = [];
+    const router = createRelayRouter(service, {
+      session: makeAppSessionAdapter((appVersion as { appSessionVersion: string }).appSessionVersion),
+      relayWebhooks: {
+        service: webhooks,
+        orgId: 'org-email-otp-export-policy-express',
+      },
+      emailOtpExportPolicy: {
+        authorize: async (input) => {
+          authorizations.push(input);
+          return {
+            ok: true,
+            decision: 'ALLOW',
+            policyId: 'policy_export_allowed',
+            approvalId: `approval_${input.phase}`,
+            reason: 'test export policy allow',
+          };
+        },
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          otpChannel: 'email_otp',
+          operation: 'export_key',
+        }),
+      });
+      expect(challenge.status).toBe(200);
+      expect(challenge.json?.challenge?.operation).toBe('export_key');
+      const challengeId = String(challenge.json?.challenge?.challengeId || '');
+      const outbox = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/dev/otp-outbox?challengeId=${encodeURIComponent(challengeId)}&walletId=alice.testnet`,
+        {
+          method: 'GET',
+          headers: { Authorization: 'Bearer app-session' },
+        },
+      );
+      expect(outbox.status).toBe(200);
+      const otpCode = String(outbox.json?.otpCode || '');
+      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          challengeId,
+          otpChannel: 'email_otp',
+          otpCode,
+          operation: 'export_key',
+        }),
+      });
+      expect(verified.status).toBe(200);
+      expect(verified.json?.ok).toBe(true);
+
+      expect(authorizations.map((entry) => entry.phase)).toEqual(['challenge', 'verify']);
+      expect(authorizations[0]).toMatchObject({
+        operation: 'export_key',
+        userId: 'alice.testnet',
+        walletId: 'alice.testnet',
+      });
+      expect(authorizations[1]).toMatchObject({
+        operation: 'export_key',
+        phase: 'verify',
+        challengeId,
+      });
+      const challengeEvent = dispatched.find(
+        (entry) => entry.eventType === 'wallet.email_otp.export_challenge_issued',
+      );
+      expect(challengeEvent?.payload).toMatchObject({
+        walletId: 'alice.testnet',
+        operation: 'export_key',
+        source: 'login_challenge',
+        challengeId,
+        policyDecision: 'ALLOW',
+        policySource: 'adapter',
+        policyId: 'policy_export_allowed',
+        approvalId: 'approval_challenge',
+      });
+      const approvedEvent = dispatched.find(
+        (entry) => entry.eventType === 'wallet.email_otp.export_approved',
+      );
+      expect(approvedEvent?.payload).toMatchObject({
+        walletId: 'alice.testnet',
+        operation: 'export_key',
+        source: 'login_verify',
+        challengeId,
+        policyDecision: 'ALLOW',
+        policySource: 'adapter',
+        policyId: 'policy_export_allowed',
+        approvalId: 'approval_verify',
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('Cloudflare: export_key Email OTP challenge can be denied by route policy and audited', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const { dispatched, webhooks } = makeWebhookRecorder();
+    await webhooks.createEndpoint(
+      { orgId: 'org-email-otp-export-policy-cf', actorUserId: 'test-admin', roles: ['admin'] },
+      {
+        url: 'https://example.com/relay-webhooks',
+        eventCategories: ['wallet'],
+      },
+    );
+    const authorizations: Array<Record<string, unknown>> = [];
+    const handler = createCloudflareRouter(service, {
+      session: makeAppSessionAdapter((appVersion as { appSessionVersion: string }).appSessionVersion),
+      relayWebhooks: {
+        service: webhooks,
+        orgId: 'org-email-otp-export-policy-cf',
+      },
+      emailOtpExportPolicy: {
+        authorize: async (input) => {
+          authorizations.push(input);
+          return {
+            ok: false,
+            decision: 'DENY',
+            code: 'export_key_policy_denied',
+            message: 'Email OTP export is blocked by test policy',
+            policyId: 'policy_export_blocked',
+            reason: 'test export policy deny',
+          };
+        },
+      },
+    });
+    const cf = makeCfCtx();
+    const challenge = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/email-otp/login/challenge',
+      headers: { Authorization: 'Bearer app-session' },
+      body: {
+        walletId: 'alice.testnet',
+        otpChannel: 'email_otp',
+        operation: 'export_key',
+      },
+      ctx: cf.ctx,
+    });
+    expect(challenge.status).toBe(403);
+    expect(challenge.json).toMatchObject({
+      ok: false,
+      code: 'export_key_policy_denied',
+      message: 'Email OTP export is blocked by test policy',
+    });
+    expect(authorizations).toHaveLength(1);
+    expect(authorizations[0]).toMatchObject({
+      operation: 'export_key',
+      phase: 'challenge',
+      userId: 'alice.testnet',
+      walletId: 'alice.testnet',
+    });
+    const deniedEvent = dispatched.find(
+      (entry) => entry.eventType === 'wallet.email_otp.export_denied',
+    );
+    expect(deniedEvent?.payload).toMatchObject({
+      walletId: 'alice.testnet',
+      operation: 'export_key',
+      source: 'login_challenge',
+      policyDecision: 'DENY',
+      policySource: 'adapter',
+      policyId: 'policy_export_blocked',
+      code: 'export_key_policy_denied',
+      message: 'Email OTP export is blocked by test policy',
+    });
   });
 
   test('Express: local development memory OTP flow issues challenge, serves dev outbox, verifies OTP, and consumes grants single-use', async () => {
@@ -368,7 +553,7 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      const enrollChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/enroll/challenge`, {
+      const enrollChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/registration/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -377,7 +562,7 @@ test.describe('Email OTP routes', () => {
         }),
       });
       expect(enrollChallenge.status).toBe(200);
-      expect(enrollChallenge.json?.challenge?.action).toBe('wallet_email_otp_enroll');
+      expect(enrollChallenge.json?.challenge?.action).toBe('wallet_email_otp_registration');
       const enrollChallengeId = String(enrollChallenge.json?.challenge?.challengeId || '');
       const enrollOutbox = await fetchJson(
         `${srv.baseUrl}/wallet/email-otp/dev/otp-outbox?challengeId=${encodeURIComponent(enrollChallengeId)}&walletId=alice.testnet`,
@@ -390,7 +575,7 @@ test.describe('Email OTP routes', () => {
       const enrollOtpCode = String(enrollOutbox.json?.otpCode || '');
       const enrollPlaintextSecretB64u = encodePositiveBigIntB64u(11n);
       const enrollWrappedCiphertext = addClientSeal(enrollPlaintextSecretB64u);
-      const enrollSeal = await fetchJson(`${srv.baseUrl}/wallet/email-otp/enroll/seal`, {
+      const enrollSeal = await fetchJson(`${srv.baseUrl}/wallet/email-otp/registration/seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -402,7 +587,7 @@ test.describe('Email OTP routes', () => {
       expect(enrollSeal.json?.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
       const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
       expect(emailOtpEscrowBlob).toBe(addServerSeal(enrollPlaintextSecretB64u));
-      const enrollVerify = await fetchJson(`${srv.baseUrl}/wallet/email-otp/enroll/verify`, {
+      const enrollVerify = await fetchJson(`${srv.baseUrl}/wallet/email-otp/registration/finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -429,7 +614,7 @@ test.describe('Email OTP routes', () => {
         enrolled.ok && enrolled.enrollment.thresholdEcdsaClientVerifyingShareB64u,
       ).toBe(VALID_SECP256K1_PUBLIC_KEY_33_B64U);
 
-      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/challenge`, {
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -442,7 +627,7 @@ test.describe('Email OTP routes', () => {
       expect(challenge.json?.delivery?.mode).toBe('memory');
       expect(challenge.json?.challenge?.walletId).toBe('alice.testnet');
       expect(challenge.json?.challenge?.userId).toBe('alice.testnet');
-      expect(challenge.json?.challenge?.action).toBe('wallet_email_otp_authorize');
+      expect(challenge.json?.challenge?.action).toBe('wallet_email_otp_login');
       expect(challenge.json?.challenge?.otpChannel).toBe('email_otp');
       const challengeId = String(challenge.json?.challenge?.challengeId || '');
       expect(challengeId.length).toBeGreaterThan(10);
@@ -459,7 +644,7 @@ test.describe('Email OTP routes', () => {
       const otpCode = String(outbox.json?.otpCode || '');
       expect(otpCode).toMatch(/^\d{6}$/);
 
-      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/verify`, {
+      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -558,7 +743,7 @@ test.describe('Email OTP routes', () => {
     try {
       await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
 
-      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/challenge`, {
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -573,7 +758,7 @@ test.describe('Email OTP routes', () => {
       let totalAttempts = 0;
       while (!exhausted) {
         totalAttempts += 1;
-        const invalid = await fetchJson(`${srv.baseUrl}/wallet/email-otp/verify`, {
+        const invalid = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
           body: JSON.stringify({
@@ -604,7 +789,7 @@ test.describe('Email OTP routes', () => {
       expect(enrollment.ok && typeof enrollment.enrollment.lastOtpFailureAtMs).toBe('number');
       expect(enrollment.ok && typeof enrollment.enrollment.otpLockedUntilMs).toBe('number');
 
-      const lockedChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/challenge`, {
+      const lockedChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -644,7 +829,7 @@ test.describe('Email OTP routes', () => {
     try {
       await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
 
-      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/challenge`, {
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -663,7 +848,7 @@ test.describe('Email OTP routes', () => {
       );
       expect(outbox.status).toBe(200);
       const otpCode = String(outbox.json?.otpCode || '');
-      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/verify`, {
+      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -717,7 +902,7 @@ test.describe('Email OTP routes', () => {
       });
       expect(unlockVerify.status).toBe(200);
 
-      const failingChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/challenge`, {
+      const failingChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -729,7 +914,7 @@ test.describe('Email OTP routes', () => {
       const failingChallengeId = String(failingChallenge.json?.challenge?.challengeId || '');
       let exhausted = false;
       while (!exhausted) {
-        const invalid = await fetchJson(`${srv.baseUrl}/wallet/email-otp/verify`, {
+        const invalid = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
           body: JSON.stringify({
@@ -742,7 +927,7 @@ test.describe('Email OTP routes', () => {
         expect(invalid.status).toBe(400);
         exhausted = invalid.json?.code === 'otp_attempts_exhausted';
       }
-      const lockedChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/challenge`, {
+      const lockedChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -767,11 +952,13 @@ test.describe('Email OTP routes', () => {
       expect(loggedInEvent?.payload.challengeId).toBe(unlockChallengeId);
 
       const failedEvent = dispatched.find((entry) => entry.eventType === 'wallet.email_otp.failed');
-      expect(failedEvent?.payload.source).toBe('verify');
+      expect(failedEvent?.payload.source).toBe('login_verify');
       expect(['invalid_otp', 'otp_attempts_exhausted']).toContain(String(failedEvent?.payload.code || ''));
 
       const lockedEvent = dispatched.find((entry) => entry.eventType === 'wallet.email_otp.locked');
-      expect(['challenge', 'verify']).toContain(String(lockedEvent?.payload.source || ''));
+      expect(['login_challenge', 'login_verify']).toContain(
+        String(lockedEvent?.payload.source || ''),
+      );
       expect(['otp_locked_out', 'otp_attempts_exhausted']).toContain(
         String(lockedEvent?.payload.code || ''),
       );
@@ -820,7 +1007,7 @@ test.describe('Email OTP routes', () => {
     try {
       await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl, authToken: 'app-session-enroll' });
 
-      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/challenge`, {
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -842,7 +1029,7 @@ test.describe('Email OTP routes', () => {
       );
       expect(outbox.status).toBe(200);
       const otpCode = String(outbox.json?.otpCode || '');
-      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/verify`, {
+      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -921,7 +1108,7 @@ test.describe('Email OTP routes', () => {
 
     const enrollChallenge = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/enroll/challenge',
+      path: '/wallet/email-otp/registration/challenge',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -930,7 +1117,7 @@ test.describe('Email OTP routes', () => {
       ctx: cf.ctx,
     });
     expect(enrollChallenge.status).toBe(200);
-    expect(enrollChallenge.json?.challenge?.action).toBe('wallet_email_otp_enroll');
+    expect(enrollChallenge.json?.challenge?.action).toBe('wallet_email_otp_registration');
     const enrollChallengeId = String(enrollChallenge.json?.challenge?.challengeId || '');
     const enrollOutbox = await callCf(handler, {
       method: 'GET',
@@ -944,7 +1131,7 @@ test.describe('Email OTP routes', () => {
     const enrollWrappedCiphertext = addClientSeal(enrollPlaintextSecretB64u);
     const enrollSeal = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/enroll/seal',
+      path: '/wallet/email-otp/registration/seal',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -958,7 +1145,7 @@ test.describe('Email OTP routes', () => {
     expect(emailOtpEscrowBlob).toBe(addServerSeal(enrollPlaintextSecretB64u));
     const enrollVerify = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/enroll/verify',
+      path: '/wallet/email-otp/registration/finalize',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -980,7 +1167,7 @@ test.describe('Email OTP routes', () => {
 
     const challenge = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/challenge',
+      path: '/wallet/email-otp/login/challenge',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -991,7 +1178,7 @@ test.describe('Email OTP routes', () => {
     expect(challenge.status).toBe(200);
     expect(challenge.json?.ok).toBe(true);
     expect(challenge.json?.delivery?.mode).toBe('memory');
-    expect(challenge.json?.challenge?.action).toBe('wallet_email_otp_authorize');
+    expect(challenge.json?.challenge?.action).toBe('wallet_email_otp_login');
     const challengeId = String(challenge.json?.challenge?.challengeId || '');
     expect(challengeId.length).toBeGreaterThan(10);
 
@@ -1007,7 +1194,7 @@ test.describe('Email OTP routes', () => {
 
     const verified = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/verify',
+      path: '/wallet/email-otp/login/verify',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -1108,7 +1295,7 @@ test.describe('Email OTP routes', () => {
 
     const challenge = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/challenge',
+      path: '/wallet/email-otp/login/challenge',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -1125,7 +1312,7 @@ test.describe('Email OTP routes', () => {
       totalAttempts += 1;
       const invalid = await callCf(handler, {
         method: 'POST',
-        path: '/wallet/email-otp/verify',
+        path: '/wallet/email-otp/login/verify',
         headers: { Authorization: 'Bearer app-session' },
         body: {
           walletId: 'alice.testnet',
@@ -1158,7 +1345,7 @@ test.describe('Email OTP routes', () => {
 
     const lockedChallenge = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/challenge',
+      path: '/wallet/email-otp/login/challenge',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -1196,7 +1383,7 @@ test.describe('Email OTP routes', () => {
 
     const challenge = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/challenge',
+      path: '/wallet/email-otp/login/challenge',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -1216,7 +1403,7 @@ test.describe('Email OTP routes', () => {
     const otpCode = String(outbox.json?.otpCode || '');
     const verified = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/verify',
+      path: '/wallet/email-otp/login/verify',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -1276,7 +1463,7 @@ test.describe('Email OTP routes', () => {
 
     const failingChallenge = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/challenge',
+      path: '/wallet/email-otp/login/challenge',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -1290,7 +1477,7 @@ test.describe('Email OTP routes', () => {
     while (!exhausted) {
       const invalid = await callCf(handler, {
         method: 'POST',
-        path: '/wallet/email-otp/verify',
+        path: '/wallet/email-otp/login/verify',
         headers: { Authorization: 'Bearer app-session' },
         body: {
           walletId: 'alice.testnet',
@@ -1305,7 +1492,7 @@ test.describe('Email OTP routes', () => {
     }
     const lockedChallenge = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/challenge',
+      path: '/wallet/email-otp/login/challenge',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
@@ -1330,11 +1517,13 @@ test.describe('Email OTP routes', () => {
     expect(loggedInEvent?.payload.challengeId).toBe(unlockChallengeId);
 
     const failedEvent = dispatched.find((entry) => entry.eventType === 'wallet.email_otp.failed');
-    expect(failedEvent?.payload.source).toBe('verify');
+    expect(failedEvent?.payload.source).toBe('login_verify');
     expect(['invalid_otp', 'otp_attempts_exhausted']).toContain(String(failedEvent?.payload.code || ''));
 
     const lockedEvent = dispatched.find((entry) => entry.eventType === 'wallet.email_otp.locked');
-    expect(['challenge', 'verify']).toContain(String(lockedEvent?.payload.source || ''));
+    expect(['login_challenge', 'login_verify']).toContain(
+      String(lockedEvent?.payload.source || ''),
+    );
     expect(['otp_locked_out', 'otp_attempts_exhausted']).toContain(
       String(lockedEvent?.payload.code || ''),
     );
@@ -1385,7 +1574,7 @@ test.describe('Email OTP routes', () => {
 
     const challenge = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/challenge',
+      path: '/wallet/email-otp/login/challenge',
       headers: { Authorization: 'Bearer app-session-login' },
       body: {
         walletId: 'alice.testnet',
@@ -1405,7 +1594,7 @@ test.describe('Email OTP routes', () => {
     const otpCode = String(outbox.json?.otpCode || '');
     const verified = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/verify',
+      path: '/wallet/email-otp/login/verify',
       headers: { Authorization: 'Bearer app-session-login' },
       body: {
         walletId: 'alice.testnet',
@@ -1484,7 +1673,7 @@ test.describe('Email OTP routes', () => {
         lastEmailOtpLoginAtMs: Date.now(),
       });
 
-      const gated = await fetchJson(`${server.baseUrl}/wallet/email-otp/enroll/challenge`, {
+      const gated = await fetchJson(`${server.baseUrl}/wallet/email-otp/registration/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -1550,7 +1739,7 @@ test.describe('Email OTP routes', () => {
 
     const gated = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/enroll/challenge',
+      path: '/wallet/email-otp/registration/challenge',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',

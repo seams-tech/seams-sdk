@@ -197,7 +197,7 @@ test.describe('PasskeyLoginMenu threshold signer auto-provision', () => {
 
   test('register flow does not auto-provision Tempo/EVM signers', async ({ page }) => {
     const result = await runFlow(page, { flow: 'register' });
-    expect(result.loggedInCalls).toEqual([]);
+    expect(result.loggedInCalls).toEqual(['alice.testnet']);
     expect(result.loginCalls).toEqual([]);
     expect(result.loginError).toBeNull();
     expect(result.syncCalls).toEqual([]);

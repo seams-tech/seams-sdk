@@ -211,7 +211,7 @@ test.describe('smart-account deployment manifest builder', () => {
               status: 'pending',
               createdAtMs: 40,
               updatedAtMs: 40,
-              metadata: { deviceNumber: 4 },
+              metadata: { signerSlot: 4 },
             },
             {
               version: 'account_signer_v1',
@@ -223,7 +223,7 @@ test.describe('smart-account deployment manifest builder', () => {
               status: 'active',
               createdAtMs: 20,
               updatedAtMs: 20,
-              metadata: { deviceNumber: 2 },
+              metadata: { signerSlot: 2 },
             },
             {
               version: 'account_signer_v1',
@@ -235,7 +235,7 @@ test.describe('smart-account deployment manifest builder', () => {
               status: 'active',
               createdAtMs: 10,
               updatedAtMs: 10,
-              metadata: { deviceNumber: 1 },
+              metadata: { signerSlot: 1 },
             },
             {
               version: 'account_signer_v1',
@@ -274,7 +274,7 @@ test.describe('smart-account deployment manifest builder', () => {
             manifest?.owners?.map((owner) => ({
               signerId: owner.signerId,
               status: owner.status,
-              deviceNumber: owner.deviceNumber ?? null,
+              signerSlot: owner.signerSlot ?? null,
             })) || null,
           initOwners: ownerWords,
         };
@@ -292,22 +292,22 @@ test.describe('smart-account deployment manifest builder', () => {
       {
         signerId: `0x${'bb'.repeat(20)}`,
         status: 'active',
-        deviceNumber: 1,
+        signerSlot: 1,
       },
       {
         signerId: `0x${'cc'.repeat(20)}`,
         status: 'active',
-        deviceNumber: 2,
+        signerSlot: 2,
       },
       {
         signerId: `0x${'dd'.repeat(20)}`,
         status: 'pending',
-        deviceNumber: 4,
+        signerSlot: 4,
       },
       {
         signerId: `0x${'aa'.repeat(20)}`,
         status: 'pending',
-        deviceNumber: null,
+        signerSlot: null,
       },
     ]);
     expect(result?.initOwners).toEqual(result?.ownerAddresses);

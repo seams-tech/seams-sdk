@@ -56,10 +56,7 @@ import {
   emitSponsorshipBlockedObservabilityEvent,
   readSponsorshipBillingBalanceSnapshot,
 } from './sponsorshipBillingEvents';
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { isPlainObject } from '@shared/utils/validation';
 
 interface SignedDelegateRequestBody {
   hash: string;
@@ -98,7 +95,7 @@ export interface RelaySignedDelegateInput {
 }
 
 function parseSignedDelegateBody(body: unknown): SignedDelegateRequestBody {
-  if (!isObject(body)) {
+  if (!isPlainObject(body)) {
     throw new Error('invalid_body: Expected { hash, signedDelegate }');
   }
   const hash = String(body.hash || '').trim();
@@ -112,7 +109,7 @@ function parseSignedDelegateBody(body: unknown): SignedDelegateRequestBody {
 }
 
 function extractSignedDelegateSenderId(signedDelegate: unknown): string {
-  return isObject(signedDelegate) && isObject(signedDelegate.delegateAction)
+  return isPlainObject(signedDelegate) && isPlainObject(signedDelegate.delegateAction)
     ? String((signedDelegate.delegateAction as Record<string, unknown>).senderId || '').trim() ||
         'unknown-sender'
     : 'unknown-sender';
@@ -200,7 +197,7 @@ function readNearFailureDetail(status: unknown): {
   code: string | null;
   message: string | null;
 } | null {
-  if (isObject(status) && isObject(status.Failure)) {
+  if (isPlainObject(status) && isPlainObject(status.Failure)) {
     const failure = status.Failure as Record<string, unknown>;
     return {
       code: String(failure.error_type || '').trim() || 'near_delegate_reverted',
@@ -220,16 +217,16 @@ function resolveNearOutcomeFailure(outcome: unknown): {
   code: string | null;
   message: string | null;
 } | null {
-  if (!isObject(outcome)) return null;
+  if (!isPlainObject(outcome)) return null;
   const directChecks = [readNearFailureDetail(outcome.status)];
   for (const failure of directChecks) {
     if (failure) return failure;
   }
 
-  const transactionOutcome = isObject(outcome.transaction_outcome)
+  const transactionOutcome = isPlainObject(outcome.transaction_outcome)
     ? (outcome.transaction_outcome as Record<string, unknown>)
     : null;
-  const rootOutcome = transactionOutcome && isObject(transactionOutcome.outcome)
+  const rootOutcome = transactionOutcome && isPlainObject(transactionOutcome.outcome)
     ? (transactionOutcome.outcome as Record<string, unknown>)
     : null;
   const rootFailure = readNearFailureDetail(rootOutcome?.status);
@@ -237,7 +234,7 @@ function resolveNearOutcomeFailure(outcome: unknown): {
 
   if (Array.isArray((outcome as Record<string, unknown>).receipts_outcome)) {
     for (const entry of (outcome as Record<string, unknown>).receipts_outcome as unknown[]) {
-      if (!isObject(entry) || !isObject(entry.outcome)) continue;
+      if (!isPlainObject(entry) || !isPlainObject(entry.outcome)) continue;
       const failure = readNearFailureDetail((entry.outcome as Record<string, unknown>).status);
       if (failure) return failure;
     }
@@ -255,7 +252,7 @@ function resolveSignedDelegateAssessment(result: {
 }): SignedDelegateExecutionAssessment {
   const metrics = summarizeNearExecutionOutcome(result.outcome);
   const outcomeHash =
-    isObject(result.outcome) && isObject(result.outcome.transaction)
+    isPlainObject(result.outcome) && isPlainObject(result.outcome.transaction)
       ? String((result.outcome.transaction as Record<string, unknown>).hash || '').trim()
       : '';
   const transactionHash = String(result.transactionHash || '').trim() || outcomeHash || null;
@@ -336,17 +333,17 @@ function summarizeNearExecutionOutcome(
   gasBurnt: string | null;
 } {
   const rows: Array<Record<string, unknown>> = [];
-  if (isObject(outcome)) {
-    const transactionOutcome = isObject(outcome.transaction_outcome)
+  if (isPlainObject(outcome)) {
+    const transactionOutcome = isPlainObject(outcome.transaction_outcome)
       ? (outcome.transaction_outcome as Record<string, unknown>)
       : null;
-    const rootOutcome = transactionOutcome && isObject(transactionOutcome.outcome)
+    const rootOutcome = transactionOutcome && isPlainObject(transactionOutcome.outcome)
       ? (transactionOutcome.outcome as Record<string, unknown>)
       : null;
     if (rootOutcome) rows.push(rootOutcome);
     if (Array.isArray((outcome as Record<string, unknown>).receipts_outcome)) {
       for (const entry of (outcome as Record<string, unknown>).receipts_outcome as unknown[]) {
-        if (!isObject(entry) || !isObject(entry.outcome)) continue;
+        if (!isPlainObject(entry) || !isPlainObject(entry.outcome)) continue;
         rows.push(entry.outcome as Record<string, unknown>);
       }
     }
@@ -405,7 +402,7 @@ function buildSignedDelegateDetailsJson(input: {
   };
 }): string {
   const delegateAction =
-    isObject(input.signedDelegate) && isObject(input.signedDelegate.delegateAction)
+    isPlainObject(input.signedDelegate) && isPlainObject(input.signedDelegate.delegateAction)
       ? (input.signedDelegate.delegateAction as Record<string, unknown>)
       : null;
   const summary = summarizeNearExecutionOutcome(input.result.outcome);
@@ -506,7 +503,7 @@ async function meterSignedDelegate(input: {
         if (context.principal.kind !== 'api_credentials') return;
         if (context.principal.credentialType !== 'publishable_key') return;
         const delegateAction =
-          isObject(input.signedDelegate) && isObject(input.signedDelegate.delegateAction)
+          isPlainObject(input.signedDelegate) && isPlainObject(input.signedDelegate.delegateAction)
             ? (input.signedDelegate.delegateAction as Record<string, unknown>)
             : null;
         const senderId = String(delegateAction?.senderId || '').trim() || 'unknown-sender';

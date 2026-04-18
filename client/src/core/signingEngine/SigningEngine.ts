@@ -15,6 +15,7 @@ import type {
   ClientUserData,
   StoreUserDataInput,
 } from '../accountData/near/types';
+import { SIGNER_MATERIAL_FINGERPRINT_METADATA_KEY } from '../indexedDB/accountSignerLifecycle';
 import { resolveProfileAccountContextFromCandidates } from '../indexedDB/profileAccountProjection';
 import type { ProfileAuthenticatorRecord } from '../indexedDB/passkeyClientDB.types';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
@@ -35,6 +36,15 @@ import {
   THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   normalizeThresholdEd25519ParticipantIds,
 } from '@shared/threshold/participants';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+  type WalletEmailOtpChannel,
+  type WalletEmailOtpLoginOperation,
+} from '@shared/utils/emailOtpDomain';
+import { joinNormalizedUrl } from '@shared/utils/normalize';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { UserPreferencesManager } from './api/userPreferences';
 import type {
   ThresholdEcdsaCanonicalExportArtifact,
@@ -85,8 +95,10 @@ import {
   getThresholdEcdsaKeyRefForSigning as getThresholdEcdsaKeyRefForSigningValue,
   getThresholdEcdsaSessionRecordForSigning as getThresholdEcdsaSessionRecordForSigningValue,
   getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
+  markThresholdEd25519EmailOtpSessionConsumedForAccount as markThresholdEd25519EmailOtpSessionConsumedForAccountValue,
   markThresholdEcdsaEmailOtpSessionConsumedForAccount as markThresholdEcdsaEmailOtpSessionConsumedForAccountValue,
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapValue,
+  type ThresholdEd25519SessionRecord,
   type ThresholdEcdsaEmailOtpAuthContext,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreSource,
@@ -138,7 +150,7 @@ import {
   type ThresholdEd25519CommitQueueByKey,
 } from './api/thresholdLifecycle/thresholdEd25519CommitQueue';
 import { exportNearEd25519SeedArtifactWithUI as exportNearEd25519SeedArtifactWithUIValue } from './api/recovery/privateKeyExportRecovery';
-import { getLastLoggedInDeviceNumber } from './signers/webauthn/device/getDeviceNumber';
+import { getLastLoggedInSignerSlot } from './signers/webauthn/device/signerSlot';
 import { removeExportViewerHostIfPresent } from './touchConfirm/ui/export-viewer-host';
 import {
   thresholdEcdsaHssFinalize,
@@ -194,7 +206,13 @@ import {
 } from './bootstrap/orchestrationDependencyFactory';
 import { enrollEmailOtpWallet } from '../TatchiPasskey/emailOtp';
 import { persistWarmSessionEd25519Capability } from './session/warmSessionPersistence';
-import { planEmailOtpThresholdEd25519SignerSlot } from './session/emailOtpThresholdEd25519SignerSlots';
+import {
+  createEmailOtpWalletAuthAdapter,
+  createPasskeyWalletAuthAdapter,
+  createWalletAuthModeResolver,
+  type WalletAuthCurve,
+  type WalletAuthIntent,
+} from './auth';
 
 export type {
   ThresholdEcdsaActivationChain,
@@ -202,6 +220,28 @@ export type {
 } from './orchestration/thresholdActivation';
 export type { NearSignIntentRequest, NearSignIntentResult } from './api/nearSigning';
 export type { ThresholdEcdsaLoginPrefillResult } from './api/thresholdLifecycle/thresholdEcdsaLoginPrefill';
+
+type EmailOtpSigningOperation =
+  | typeof WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION
+  | typeof WALLET_EMAIL_OTP_EXPORT_OPERATION;
+
+function buildEmailOtpThresholdEd25519SignerMaterialFingerprint(args: {
+  publicKey: string;
+  relayerKeyId: string;
+  keyVersion: string;
+  rpId: string;
+  participantIds: number[];
+}): string {
+  return JSON.stringify({
+    kind: SIGNER_KINDS.thresholdEd25519,
+    authMethod: SIGNER_AUTH_METHODS.emailOtp,
+    publicKey: args.publicKey,
+    relayerKeyId: args.relayerKeyId,
+    keyVersion: args.keyVersion,
+    rpId: args.rpId,
+    participantIds: args.participantIds,
+  });
+}
 
 export type EmailOtpBootstrapRecovery = {
   loginGrant: string;
@@ -229,6 +269,37 @@ type EmailOtpThresholdEd25519ProvisioningResult = {
 type RegistrationTransport =
   | { mode: 'managed'; relayerUrl: string; environmentId: string; publishableKey: string }
   | { mode: 'backend_proxy'; bootstrapUrl: string; relayerUrl: string };
+
+const EMAIL_OTP_KEY_EXPORT_REQUIRES_PASSKEY_ERROR =
+  'Key export requires a passkey-authenticated account.';
+
+class KeyExportAuthPolicyError extends Error {
+  readonly code = 'passkey_step_up_required';
+  readonly policy = 'export_requires_passkey';
+
+  constructor(message = EMAIL_OTP_KEY_EXPORT_REQUIRES_PASSKEY_ERROR) {
+    super(message);
+    this.name = 'KeyExportAuthPolicyError';
+  }
+}
+
+function createEmailOtpKeyExportRequiresPasskeyError(): KeyExportAuthPolicyError {
+  return new KeyExportAuthPolicyError();
+}
+
+function resolveEmailOtpThresholdEcdsaActivationChains(
+  primaryChain: ThresholdEcdsaActivationChain,
+): ThresholdEcdsaActivationChain[] {
+  return primaryChain === 'evm' ? ['evm', 'tempo'] : ['tempo', 'evm'];
+}
+
+function isEmailOtpPasskeyStepUpError(error: unknown): boolean {
+  const message = String(error instanceof Error ? error.message : error || '');
+  return (
+    message.includes('requires fresh passkey authentication after Email OTP login') ||
+    message.includes('requires passkey authentication after Email OTP login')
+  );
+}
 
 function joinUrlPath(baseUrl: string, path: string): string {
   const base = String(baseUrl || '')
@@ -365,7 +436,7 @@ function mapProfileAuthenticatorToClient(
 ): ClientAuthenticatorData {
   return {
     nearAccountId,
-    deviceNumber: profileAuthenticator.deviceNumber,
+    signerSlot: profileAuthenticator.signerSlot,
     credentialId: profileAuthenticator.credentialId,
     credentialPublicKey: profileAuthenticator.credentialPublicKey,
     transports: profileAuthenticator.transports,
@@ -454,12 +525,15 @@ export class SigningEngine {
       getThresholdEcdsaKeyRefForSigning: (args) => this.getThresholdEcdsaKeyRefForSigning(args),
       getThresholdEcdsaSessionRecordForSigning: (args) =>
         this.getThresholdEcdsaSessionRecordForSigning(args),
-      requestEmailOtpChallengeForSigning: (args) =>
-        this.requestEmailOtpChallengeForSigning(args),
+      requestEmailOtpChallengeForSigning: (args) => this.requestEmailOtpChallengeForSigning(args),
+      loginWithEmailOtpEd25519CapabilityForSigning: (args) =>
+        this.loginWithEmailOtpEd25519CapabilityForSigning(args),
       loginWithEmailOtpEcdsaCapabilityForSigning: (args) =>
         this.loginWithEmailOtpEcdsaCapabilityForSigning(args),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args) =>
         this.markThresholdEcdsaEmailOtpSessionConsumedForAccount(args),
+      markThresholdEd25519EmailOtpSessionConsumedForAccount: (args) =>
+        this.markThresholdEd25519EmailOtpSessionConsumedForAccount(args),
       clearThresholdEcdsaSessionRecordForLane: (args) =>
         this.clearThresholdEcdsaSessionRecordForLane(args),
       provisionThresholdEcdsaSession: (args) => this.bootstrapEcdsaSession(args),
@@ -749,18 +823,24 @@ export class SigningEngine {
   }
 
   storeUserData(userData: StoreUserDataInput): Promise<void> {
-    return storeUserDataValue(this.orchestrationDeps.registrationAccountLifecycleDeps, userData);
+    return storeUserDataValue(
+      this.orchestrationDeps.registrationAccountLifecycleDeps,
+      userData,
+    ).then(() => undefined);
   }
 
   getAllUsers(): Promise<ClientUserData[]> {
     return listNearAccountProjections(this.orchestrationDeps.indexedDB.clientDB);
   }
 
-  getUserByDevice(nearAccountId: AccountId, deviceNumber: number): Promise<ClientUserData | null> {
+  getUserBySignerSlot(
+    nearAccountId: AccountId,
+    signerSlot: number,
+  ): Promise<ClientUserData | null> {
     return getNearAccountProjection(
       this.orchestrationDeps.indexedDB.clientDB,
       nearAccountId,
-      deviceNumber,
+      signerSlot,
     );
   }
 
@@ -795,25 +875,25 @@ export class SigningEngine {
         this.orchestrationDeps.indexedDB.clientDB.getLastProfileState().catch(() => null),
         this.orchestrationDeps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null),
       ]);
-      const defaultDeviceNumber = Number(profile?.defaultDeviceNumber);
-      const deviceNumber =
+      const defaultSignerSlot = Number(profile?.defaultSignerSlot);
+      const signerSlot =
         lastProfileState?.profileId === context.profileId
-          ? lastProfileState.deviceNumber
-          : Number.isSafeInteger(defaultDeviceNumber) && defaultDeviceNumber >= 1
-            ? defaultDeviceNumber
+          ? lastProfileState.activeSignerSlot
+          : Number.isSafeInteger(defaultSignerSlot) && defaultSignerSlot >= 1
+            ? defaultSignerSlot
             : 1;
       await this.orchestrationDeps.indexedDB.clientDB.setLastProfileStateForProfile(
         context.profileId,
-        deviceNumber,
+        signerSlot,
       );
     })();
   }
 
-  setLastUser(nearAccountId: AccountId, deviceNumber: number = 1): Promise<void> {
+  setLastUser(nearAccountId: AccountId, signerSlot: number = 1): Promise<void> {
     return (async () => {
-      const normalizedDeviceNumber = Number(deviceNumber);
-      if (!Number.isSafeInteger(normalizedDeviceNumber) || normalizedDeviceNumber < 1) {
-        throw new Error('PasskeyClientDB: deviceNumber must be an integer >= 1');
+      const normalizedSignerSlot = Number(signerSlot);
+      if (!Number.isSafeInteger(normalizedSignerSlot) || normalizedSignerSlot < 1) {
+        throw new Error('PasskeyClientDB: signerSlot must be an integer >= 1');
       }
       const accountId = toAccountId(nearAccountId);
       const context = await resolveProfileAccountContextFromCandidates(
@@ -827,7 +907,7 @@ export class SigningEngine {
       }
       await this.orchestrationDeps.indexedDB.clientDB.setLastProfileStateForProfile(
         context.profileId,
-        normalizedDeviceNumber,
+        normalizedSignerSlot,
       );
     })();
   }
@@ -873,7 +953,7 @@ export class SigningEngine {
 
   requestRegistrationCredentialConfirmation(params: {
     nearAccountId: string;
-    deviceNumber: number;
+    signerSlot: number;
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
   }): Promise<RegistrationCredentialConfirmationPayload> {
@@ -935,13 +1015,25 @@ export class SigningEngine {
       throw new Error('NEAR Ed25519 export now requires the canonical Option A HSS export path');
     }
 
-    const thresholdEcdsaKeyRef = this.getThresholdEcdsaKeyRefForSigning({
-      nearAccountId: args.nearAccountId,
-      chain: args.options.chain === 'tempo' ? 'tempo' : 'evm',
-    });
+    const exportChain = args.options.chain === 'tempo' ? 'tempo' : 'evm';
+    let thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
+    try {
+      thresholdEcdsaKeyRef = this.getThresholdEcdsaKeyRefForSigning({
+        nearAccountId: args.nearAccountId,
+        chain: exportChain,
+      });
+    } catch {
+      thresholdEcdsaKeyRef = (
+        await this.bootstrapEcdsaSession({
+          nearAccountId: args.nearAccountId,
+          chain: exportChain,
+          source: 'manual-bootstrap',
+        })
+      ).thresholdEcdsaKeyRef;
+    }
     return await this.exportThresholdEcdsaKeyWithAuthorization({
       nearAccountId: args.nearAccountId,
-      chain: args.options.chain === 'tempo' ? 'tempo' : 'evm',
+      chain: exportChain,
       keyRef: thresholdEcdsaKeyRef,
       options: {
         variant: args.options.variant,
@@ -959,31 +1051,129 @@ export class SigningEngine {
       theme?: 'dark' | 'light';
     };
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    await createWarmSessionManager({
-      touchConfirm: this.touchConfirm,
-      clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) =>
-        this.clearThresholdEcdsaSigningArtifactsForLane({ nearAccountId, chain }),
-      clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain }) =>
-        this.clearThresholdEcdsaSessionRecordForLane({ nearAccountId, chain }),
-      getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
-        this.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
-    }).assertEcdsaOperationAllowed({
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
-      thresholdSessionId: args.keyRef.thresholdSessionId,
-      operationLabel: 'threshold-ecdsa key export',
-      sensitivePolicy: 'passkey',
-    });
+    const currentRecord = (() => {
+      try {
+        return this.getThresholdEcdsaSessionRecordForSigning({
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+        });
+      } catch {
+        return null;
+      }
+    })();
+    const exportPublicKey =
+      String(args.keyRef.ecdsaHssExportArtifact?.publicKeyHex || '').trim() ||
+      String(args.keyRef.ecdsaThresholdKeyId || '').trim() ||
+      String(args.keyRef.ethereumAddress || '').trim() ||
+      '(threshold export key)';
+
+    if (currentRecord?.source === SIGNER_AUTH_METHODS.emailOtp) {
+      const rpId = String(this.getRpId() || '').trim();
+      if (!rpId) {
+        throw new Error('Missing rpId for threshold-ecdsa Email OTP export');
+      }
+      const exportRelayUrl = String(
+        currentRecord.relayerUrl || args.keyRef.relayerUrl || this.tatchiPasskeyConfigs.network.relayer?.url || '',
+      ).trim();
+      const exportAppSessionJwt = await this.refreshAppSessionJwtForEmailOtpWorker({
+        relayUrl: exportRelayUrl,
+      });
+      const authorization = await this.requestEmailOtpExportAuthorization({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+        publicKey: exportPublicKey,
+        curve: 'ecdsa',
+        appSessionJwt: exportAppSessionJwt,
+      });
+      await this.loginWithEmailOtpEcdsaCapabilityForSigning({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+        challengeId: authorization.challengeId,
+        otpCode: authorization.otpCode,
+        record: currentRecord,
+        operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+        appSessionJwt: exportAppSessionJwt,
+      });
+      const refreshedRecord = this.getThresholdEcdsaSessionRecordForSigning({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+      });
+      const workerCtx =
+        this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
+      const artifact = await workerCtx.requestWorkerOperation({
+        kind: 'emailOtp',
+        request: {
+          type: 'exportThresholdEcdsaHssKeyFromEmailOtpWarmSession',
+          timeoutMs: 60_000,
+          payload: {
+            relayUrl: String(refreshedRecord.relayerUrl || exportRelayUrl || '').trim(),
+            userId: String(args.nearAccountId),
+            rpId,
+            sessionId: refreshedRecord.thresholdSessionId,
+            ...(String(refreshedRecord.thresholdSessionJwt || exportAppSessionJwt).trim()
+              ? {
+                  authorizationJwt: String(
+                    refreshedRecord.thresholdSessionJwt || exportAppSessionJwt,
+                  ).trim(),
+                }
+              : {}),
+            sessionKind: refreshedRecord.thresholdSessionKind,
+            ecdsaThresholdKeyId: refreshedRecord.ecdsaThresholdKeyId,
+            chain: args.chain,
+          },
+        },
+      });
+      if ((artifact as { ok?: unknown }).ok === false) {
+        throw new Error(
+          String((artifact as { message?: unknown }).message || 'Email OTP ECDSA export failed'),
+        );
+      }
+      await this.showThresholdEcdsaExportViewer({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+        publicKeyHex: String(artifact.publicKeyHex || '').trim(),
+        privateKeyHex: String(artifact.privateKeyHex || '').trim(),
+        ethereumAddress: String(artifact.ethereumAddress || '').trim(),
+        variant: args.options.variant,
+        theme: args.options.theme,
+      });
+      this.markThresholdEcdsaEmailOtpSessionConsumedForAccount({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+      });
+      return {
+        accountId: String(args.nearAccountId),
+        exportedSchemes: ['secp256k1'],
+      };
+    }
+
+    try {
+      await createWarmSessionManager({
+        touchConfirm: this.touchConfirm,
+        clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) =>
+          this.clearThresholdEcdsaSigningArtifactsForLane({ nearAccountId, chain }),
+        clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain }) =>
+          this.clearThresholdEcdsaSessionRecordForLane({ nearAccountId, chain }),
+        getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
+          this.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
+      }).assertEcdsaOperationAllowed({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+        thresholdSessionId: args.keyRef.thresholdSessionId,
+        operationLabel: 'threshold-ecdsa key export',
+        sensitivePolicy: 'passkey',
+      });
+    } catch (error: unknown) {
+      if (isEmailOtpPasskeyStepUpError(error)) {
+        throw createEmailOtpKeyExportRequiresPasskeyError();
+      }
+      throw error;
+    }
     const rpId = String(this.getRpId() || '').trim();
     if (!rpId) {
       throw new Error('Missing rpId for threshold-ecdsa explicit export');
     }
     let thresholdEcdsaKeyRef = args.keyRef;
-    const exportPublicKey =
-      String(thresholdEcdsaKeyRef.ecdsaHssExportArtifact?.publicKeyHex || '').trim() ||
-      String(thresholdEcdsaKeyRef.ecdsaThresholdKeyId || '').trim() ||
-      String(thresholdEcdsaKeyRef.ethereumAddress || '').trim() ||
-      '(threshold export key)';
     const exportCredential = await this.requestThresholdEcdsaExportAuthorization({
       nearAccountId: args.nearAccountId,
       publicKey: exportPublicKey,
@@ -1249,26 +1439,26 @@ export class SigningEngine {
     nearAccountId: AccountId;
     expectedPublicKey: string;
   }): Promise<WebAuthnAuthenticationCredential> {
-    removeExportViewerHostIfPresent();
-    const decision = await this.touchConfirm.requestUserConfirmation({
-      requestId: createExportUiRequestId('export-near-ed25519-auth'),
-      type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
-      summary: {
-        operation: 'Export Private Key',
-        accountId: args.nearAccountId,
-        publicKey: args.expectedPublicKey,
-        warning: 'Confirm to reveal your NEAR private key export.',
+    return await this.requestPasskeyExportAuthorization({
+      nearAccountId: args.nearAccountId,
+      intent: 'ed25519_export',
+      curve: 'ed25519',
+      request: {
+        requestId: createExportUiRequestId('export-near-ed25519-auth'),
+        type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+        summary: {
+          operation: 'Export Private Key',
+          accountId: args.nearAccountId,
+          publicKey: args.expectedPublicKey,
+          warning: 'Confirm to reveal your NEAR private key export.',
+        },
+        payload: {
+          nearAccountId: args.nearAccountId,
+          publicKey: args.expectedPublicKey,
+        },
+        intentDigest: `export-keys:${args.nearAccountId}:near-ed25519`,
       },
-      payload: {
-        nearAccountId: args.nearAccountId,
-        publicKey: args.expectedPublicKey,
-      },
-      intentDigest: `export-keys:${args.nearAccountId}:near-ed25519`,
     });
-    if (!decision.confirmed) {
-      throw new Error(decision.error || 'User cancelled export request');
-    }
-    return decision.credential as WebAuthnAuthenticationCredential;
   }
 
   private async showNearEd25519ExportViewer(args: {
@@ -1313,29 +1503,176 @@ export class SigningEngine {
     publicKey: string;
     chain: 'evm' | 'tempo';
   }): Promise<WebAuthnAuthenticationCredential> {
-    removeExportViewerHostIfPresent();
+    return await this.requestPasskeyExportAuthorization({
+      nearAccountId: args.nearAccountId,
+      intent: 'ecdsa_export',
+      curve: 'ecdsa',
+      request: {
+        requestId: createExportUiRequestId('export-threshold-ecdsa-auth'),
+        type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+        summary: {
+          operation: 'Export Private Key',
+          accountId: args.nearAccountId,
+          publicKey: args.publicKey,
+          warning:
+            args.chain === 'tempo'
+              ? 'Confirm to reveal your Tempo private key export.'
+              : 'Confirm to reveal your EVM private key export.',
+        },
+        payload: {
+          nearAccountId: args.nearAccountId,
+          publicKey: args.publicKey,
+        },
+        intentDigest: `export-keys:${args.nearAccountId}:${args.chain}:secp256k1`,
+      },
+    });
+  }
+
+  private async requestPasskeyExportAuthorization(args: {
+    nearAccountId: AccountId;
+    intent: Extract<WalletAuthIntent, 'ed25519_export' | 'ecdsa_export'>;
+    curve: WalletAuthCurve;
+    request: Parameters<TouchConfirmRuntimeBridgePort['requestUserConfirmation']>[0];
+  }): Promise<WebAuthnAuthenticationCredential> {
+    const resolver = createWalletAuthModeResolver({
+      passkey: createPasskeyWalletAuthAdapter({
+        challenge: async () => {
+          removeExportViewerHostIfPresent();
+          return await this.touchConfirm.requestUserConfirmation(args.request);
+        },
+        complete: async ({ response }) => {
+          const decision = response as Awaited<
+            ReturnType<TouchConfirmRuntimeBridgePort['requestUserConfirmation']>
+          >;
+          if (!decision.confirmed) {
+            throw new Error(decision.error || 'User cancelled export request');
+          }
+          return {
+            method: 'passkey',
+            webauthnAuthentication: decision.credential,
+          };
+        },
+      }),
+      emailOtp: createEmailOtpWalletAuthAdapter({
+        challenge: async () => {
+          throw createEmailOtpKeyExportRequiresPasskeyError();
+        },
+        complete: async () => {
+          throw createEmailOtpKeyExportRequiresPasskeyError();
+        },
+      }),
+    });
+    const plan = await resolver.resolveWalletAuthPlan({
+      accountId: args.nearAccountId,
+      accountAuth: {
+        primaryAuthMethod: 'passkey',
+        linkedAuthMethods: ['passkey'],
+      },
+      intent: args.intent,
+      curve: args.curve,
+    });
+    if (plan.kind !== 'passkeyReauth') {
+      throw new Error('Export authorization requires passkey re-authentication');
+    }
+    const challenge = await plan.challenge();
+    const proof = await plan.complete(challenge);
+    return proof.webauthnAuthentication as WebAuthnAuthenticationCredential;
+  }
+
+  private async refreshAppSessionJwtForEmailOtpWorker(args: { relayUrl: string }): Promise<string> {
+    const relayUrl = String(args.relayUrl || '').trim();
+    if (!relayUrl) {
+      throw new Error('Missing relayer url for Email OTP export session refresh');
+    }
+    const response = await fetch(joinNormalizedUrl(relayUrl, '/session/refresh'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ session_kind: 'jwt' }),
+    });
+    const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!response.ok || !json || json.ok === false) {
+      const message =
+        (typeof json?.message === 'string' && json.message.trim()) ||
+        `Email OTP export session refresh failed (HTTP ${response.status})`;
+      throw new Error(message);
+    }
+    const jwt = typeof json.jwt === 'string' ? json.jwt.trim() : '';
+    if (!jwt) {
+      throw new Error('Email OTP export session refresh did not return a JWT');
+    }
+    return jwt;
+  }
+
+  private async requestEmailOtpExportAuthorization(args: {
+    nearAccountId: AccountId;
+    chain: 'near' | 'evm' | 'tempo';
+    publicKey: string;
+    curve: WalletAuthCurve;
+    appSessionJwt?: string;
+  }): Promise<{ challengeId: string; otpCode: string }> {
+    const challenge = await this.requestEmailOtpChallengeForSigning({
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+      ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+    });
+    const challengeId = String(challenge.challengeId || '').trim();
+    if (!challengeId) {
+      throw new Error('Email OTP export challenge response did not include challengeId');
+    }
+    const emailHint = String(challenge.emailHint || '').trim();
     const decision = await this.touchConfirm.requestUserConfirmation({
-      requestId: createExportUiRequestId('export-threshold-ecdsa-auth'),
-      type: UserConfirmationType.DECRYPT_PRIVATE_KEY_WITH_PRF,
+      requestId: createExportUiRequestId(`export-${args.curve}-email-otp-auth`),
+      type: UserConfirmationType.SIGN_INTENT_DIGEST,
       summary: {
         operation: 'Export Private Key',
         accountId: args.nearAccountId,
         publicKey: args.publicKey,
         warning:
-          args.chain === 'tempo'
-            ? 'Confirm to reveal your Tempo private key export.'
-            : 'Confirm to reveal your EVM private key export.',
+          'Enter the email code to export this key. Anyone with the private key can fully control the account.',
       },
       payload: {
         nearAccountId: args.nearAccountId,
         publicKey: args.publicKey,
+        challengeB64u: challengeId,
+        signingAuthPlan: {
+          kind: 'emailOtpReauth',
+          method: 'email_otp',
+          emailOtpPrompt: {
+            challengeId,
+            ...(emailHint ? { emailHint } : {}),
+            title: 'Enter email code to export',
+            body: 'This one-time code authorizes private key export only.',
+            helperText:
+              'Key export is sensitive. The recovered export material is discarded after the viewer closes.',
+          },
+        },
+        emailOtpPrompt: {
+          challengeId,
+          ...(emailHint ? { emailHint } : {}),
+          title: 'Enter email code to export',
+          body: 'This one-time code authorizes private key export only.',
+          helperText:
+            'Key export is sensitive. The recovered export material is discarded after the viewer closes.',
+        },
       },
-      intentDigest: `export-keys:${args.nearAccountId}:${args.chain}:secp256k1`,
+      intentDigest: `export-keys:${args.nearAccountId}:${args.chain}:${args.curve}:email-otp`,
     });
     if (!decision.confirmed) {
-      throw new Error(decision.error || 'User cancelled export request');
+      throw new Error(decision.error || 'User cancelled Email OTP export request');
     }
-    return decision.credential as WebAuthnAuthenticationCredential;
+    const otpCode = String(decision.otpCode || '')
+      .replace(/\D/g, '')
+      .slice(0, 6);
+    if (otpCode.length !== 6) {
+      throw new Error('Email OTP export requires a 6-digit code');
+    }
+    const responseChallengeId = String(decision.emailOtpChallengeId || challengeId).trim();
+    if (responseChallengeId !== challengeId) {
+      throw new Error('Email OTP export challenge mismatch');
+    }
+    return { challengeId, otpCode };
   }
 
   private async showThresholdEcdsaExportViewer(args: {
@@ -1447,11 +1784,10 @@ export class SigningEngine {
       theme?: 'dark' | 'light';
     };
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    const artifactResult = await buildThresholdEd25519SeedExportArtifactFromHssReportValue({
+    const artifactResult = await this.buildThresholdEd25519SeedExportArtifactFromHssReport({
       preparedSession: args.preparedSession,
       finalizedReport: args.finalizedReport,
       expectedPublicKey: args.expectedPublicKey,
-      workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
     });
     if (!artifactResult.success || !artifactResult.artifact) {
       throw new Error(
@@ -1513,12 +1849,12 @@ export class SigningEngine {
       return null;
     }
 
-    const deviceNumber = await getLastLoggedInDeviceNumber(
+    const signerSlot = await getLastLoggedInSignerSlot(
       nearAccountId,
       this.orchestrationDeps.indexedDB.clientDB,
     ).catch(() => null as number | null);
-    if (deviceNumber == null) {
-      requireOptionAExportPrerequisite(false, 'Missing device number for Option A Ed25519 export');
+    if (signerSlot == null) {
+      requireOptionAExportPrerequisite(false, 'Missing signer slot for Option A Ed25519 export');
       return null;
     }
 
@@ -1528,7 +1864,7 @@ export class SigningEngine {
         accountKeyMaterialDB: this.orchestrationDeps.indexedDB.accountKeyMaterialDB,
       },
       nearAccountId,
-      deviceNumber,
+      signerSlot,
     ).catch(() => null);
     const keyVersion = String(thresholdKeyMaterial?.keyVersion || '').trim();
     const expectedPublicKey = String(thresholdKeyMaterial?.publicKey || '').trim();
@@ -1541,6 +1877,87 @@ export class SigningEngine {
     }
 
     try {
+      if (sessionRecord?.source === SIGNER_AUTH_METHODS.emailOtp) {
+        const exportAppSessionJwt = await this.refreshAppSessionJwtForEmailOtpWorker({
+          relayUrl: relayerUrl,
+        });
+        const authorization = await this.requestEmailOtpExportAuthorization({
+          nearAccountId,
+          chain: 'near',
+          publicKey: expectedPublicKey,
+          curve: 'ed25519',
+          appSessionJwt: exportAppSessionJwt,
+        });
+        const refreshed = await this.loginWithEmailOtpEd25519CapabilityForSigning({
+          nearAccountId,
+          challengeId: authorization.challengeId,
+          otpCode: authorization.otpCode,
+          record: sessionRecord,
+          operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+          appSessionJwt: exportAppSessionJwt,
+        });
+        const refreshedRecord =
+          getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId) || sessionRecord;
+        const exportPrfFirstB64u = await createWarmSessionManager({
+          touchConfirm: this.touchConfirm,
+        }).claimPrfFirstByThresholdSessionId({
+          thresholdSessionId: refreshed.sessionId,
+          uses: 1,
+          errorContext: 'Email OTP Ed25519 key export',
+        });
+        const hssTask = this.runNearEd25519OptionAHssExport({
+          signingRootId: signingRootScopeFromRuntimePolicyScope({
+            orgId: String(refreshedRecord.runtimePolicyScope?.orgId || orgId),
+            projectId: String(refreshedRecord.runtimePolicyScope?.projectId || projectId),
+            envId: String(refreshedRecord.runtimePolicyScope?.envId || envId),
+          }).signingRootId,
+          nearAccountId,
+          keyVersion,
+          participantIds:
+            normalizeThresholdEd25519ParticipantIds(refreshedRecord.participantIds) ||
+            participantIds,
+          thresholdSessionId: refreshedRecord.thresholdSessionId,
+          thresholdSessionJwt: String(
+            refreshedRecord.thresholdSessionJwt || thresholdSessionJwt || exportAppSessionJwt,
+          ),
+          relayerUrl: String(refreshedRecord.relayerUrl || relayerUrl),
+          relayerKeyId: String(refreshedRecord.relayerKeyId || relayerKeyId),
+          prfFirstB64u: exportPrfFirstB64u,
+        });
+        await this.showNearEd25519ExportViewer({
+          nearAccountId,
+          expectedPublicKey,
+          variant: args.options.variant,
+          theme: args.options.theme,
+          loading: true,
+        });
+        const { preparedSession, finalizedReport } = await hssTask;
+        const artifactResult = await this.buildThresholdEd25519SeedExportArtifactFromHssReport({
+          preparedSession,
+          finalizedReport,
+          expectedPublicKey,
+        });
+        if (!artifactResult.success || !artifactResult.artifact) {
+          throw new Error(
+            artifactResult.error || 'Failed to build Email OTP Option A Ed25519 seed export artifact',
+          );
+        }
+        await this.showNearEd25519ExportViewer({
+          nearAccountId,
+          expectedPublicKey: artifactResult.artifact.publicKey,
+          privateKey: artifactResult.artifact.privateKey,
+          variant: args.options.variant,
+          theme: args.options.theme,
+        });
+        this.markThresholdEd25519EmailOtpSessionConsumedForAccount({
+          nearAccountId,
+          thresholdSessionId: refreshed.sessionId,
+        });
+        return {
+          accountId: nearAccountId,
+          exportedSchemes: ['ed25519'],
+        };
+      }
       const exportCredential = await this.requestNearEd25519ExportAuthorization({
         nearAccountId,
         expectedPublicKey,
@@ -1573,11 +1990,10 @@ export class SigningEngine {
       });
 
       const { preparedSession, finalizedReport } = await hssTask;
-      const artifactResult = await buildThresholdEd25519SeedExportArtifactFromHssReportValue({
+      const artifactResult = await this.buildThresholdEd25519SeedExportArtifactFromHssReport({
         preparedSession,
         finalizedReport,
         expectedPublicKey,
-        workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
       });
       if (!artifactResult.success || !artifactResult.artifact) {
         throw new Error(
@@ -1721,7 +2137,9 @@ export class SigningEngine {
    */
   private async requestEmailOtpChallengeForSigning(args: {
     nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
+    chain: 'near' | ThresholdEcdsaActivationChain;
+    operation?: EmailOtpSigningOperation;
+    appSessionJwt?: string;
   }): Promise<{ challengeId: string; emailHint?: string }> {
     void args.chain;
     const nearAccountId = toAccountId(args.nearAccountId);
@@ -1742,7 +2160,9 @@ export class SigningEngine {
         payload: {
           relayUrl,
           walletId: String(nearAccountId),
-          otpChannel: 'email_otp',
+          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+          otpChannel: EMAIL_OTP_CHANNEL,
+          operation: args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
         },
       },
     });
@@ -1759,8 +2179,11 @@ export class SigningEngine {
     challengeId: string;
     otpCode: string;
     record: ThresholdEcdsaSessionRecord;
+    operation?: EmailOtpSigningOperation;
+    appSessionJwt?: string;
   }): Promise<ThresholdEcdsaSecp256k1KeyRef> {
     const record = args.record;
+    const appSessionJwt = String(args.appSessionJwt || record.thresholdSessionJwt || '').trim();
     await this.loginWithEmailOtpEcdsaCapabilityInternal({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
@@ -1768,14 +2191,15 @@ export class SigningEngine {
       emailOtpAuthReason: 'sign',
       challengeId: args.challengeId,
       otpCode: args.otpCode,
+      operation: args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
       ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
       participantIds: record.participantIds,
       sessionKind: record.thresholdSessionKind,
       sessionId: record.thresholdSessionId,
-      ...(record.thresholdSessionJwt
+      ...(appSessionJwt
         ? {
-            authorizationJwt: record.thresholdSessionJwt,
-            appSessionJwt: record.thresholdSessionJwt,
+            authorizationJwt: appSessionJwt,
+            appSessionJwt,
           }
         : {}),
       remainingUses: 1,
@@ -1787,6 +2211,86 @@ export class SigningEngine {
     });
   }
 
+  private async loginWithEmailOtpEd25519CapabilityForSigning(args: {
+    nearAccountId: AccountId | string;
+    challengeId: string;
+    otpCode: string;
+    record: ThresholdEd25519SessionRecord;
+    operation?: EmailOtpSigningOperation;
+    appSessionJwt?: string;
+  }): Promise<{ sessionId: string }> {
+    const nearAccountId = toAccountId(args.nearAccountId);
+    const relayUrl = String(
+      args.record.relayerUrl || this.tatchiPasskeyConfigs.network.relayer?.url || '',
+    ).trim();
+    if (!relayUrl) {
+      throw new Error('Missing relayer url (configs.network.relayer.url)');
+    }
+    const shamirPrimeB64u = String(
+      this.tatchiPasskeyConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
+    ).trim();
+    if (!shamirPrimeB64u) {
+      throw new Error('Missing shamir prime for Email OTP runtime');
+    }
+    const rpId =
+      String(args.record.rpId || '').trim() ||
+      (typeof (this.touchIdPrompt as { getRpId?: unknown } | undefined)?.getRpId === 'function'
+        ? String(this.touchIdPrompt.getRpId() || '').trim()
+        : '');
+    if (!rpId) {
+      throw new Error('Email OTP Ed25519 signing requires an RP ID');
+    }
+    const workerCtx =
+      this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
+    if (!workerCtx) {
+      throw new Error('Email OTP Ed25519 signing requires the dedicated emailOtp worker');
+    }
+    const appSessionJwt = String(args.appSessionJwt || args.record.thresholdSessionJwt || '').trim();
+    const workerResult = await workerCtx.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'loginWithEmailOtpWallet',
+        timeoutMs: 60_000,
+        payload: {
+          relayUrl,
+          walletId: String(nearAccountId),
+          userId: String(nearAccountId),
+          challengeId: args.challengeId,
+          otpCode: args.otpCode,
+          operation: args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+          shamirPrimeB64u,
+          ...(appSessionJwt ? { appSessionJwt } : {}),
+          otpChannel: EMAIL_OTP_CHANNEL,
+        },
+      },
+    });
+    const prfFirstB64u = String(workerResult.recovery?.thresholdEd25519PrfFirstB64u || '').trim();
+    if (!prfFirstB64u) {
+      throw new Error('Email OTP Ed25519 signing did not recover client seed material');
+    }
+    const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
+      policy: 'per_operation',
+      retention: 'single_use',
+      reason: 'sign',
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      stepUpRequired: true,
+    };
+    const provisioned = await this.provisionEmailOtpThresholdEd25519Capability({
+      nearAccountId,
+      relayUrl,
+      rpId,
+      prfFirstB64u,
+      emailOtpAuthContext,
+      ...(appSessionJwt ? { appSessionJwt } : {}),
+      ...(args.record.runtimePolicyScope
+        ? { runtimePolicyScope: args.record.runtimePolicyScope }
+        : {}),
+      participantIds: args.record.participantIds,
+      remainingUses: 1,
+    });
+    return { sessionId: provisioned.sessionId };
+  }
+
   async loginWithEmailOtpEcdsaCapabilityInternal(args: {
     nearAccountId: AccountId | string;
     chain?: ThresholdEcdsaActivationChain;
@@ -1795,6 +2299,7 @@ export class SigningEngine {
     relayUrl?: string;
     challengeId?: string;
     otpCode: string;
+    operation?: WalletEmailOtpLoginOperation;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
     authorizationJwt?: string;
@@ -1812,14 +2317,14 @@ export class SigningEngine {
     warmCapability: WarmSessionEcdsaCapabilityState;
   }> {
     const nearAccountId = toAccountId(args.nearAccountId);
-    const chain: ThresholdEcdsaActivationChain = args.chain || 'evm';
+    const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
     const emailOtpAuthPolicy: EmailOtpAuthPolicy =
       args.emailOtpAuthPolicy || this.tatchiPasskeyConfigs.signing.emailOtp.authPolicy;
     const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
       policy: emailOtpAuthPolicy,
       retention: emailOtpAuthPolicy === 'per_operation' ? 'single_use' : 'session',
       reason: args.emailOtpAuthReason || 'login',
-      authMethod: 'email_otp',
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
       stepUpRequired: true,
     };
     const relayUrl = String(
@@ -1872,7 +2377,7 @@ export class SigningEngine {
           otpCode: args.otpCode,
           shamirPrimeB64u,
           ...(appSessionJwt ? { appSessionJwt } : {}),
-          otpChannel: 'email_otp',
+          otpChannel: EMAIL_OTP_CHANNEL,
           rpId,
           ...(args.ecdsaThresholdKeyId ? { ecdsaThresholdKeyId: args.ecdsaThresholdKeyId } : {}),
           ...(Array.isArray(args.participantIds) && args.participantIds.length > 0
@@ -1887,17 +2392,13 @@ export class SigningEngine {
         },
       },
     });
-    const bootstrap = await this.commitWorkerProvisionedThresholdEcdsaSession({
+    const { bootstrap, warmCapability } = await this.commitWorkerProvisionedThresholdEcdsaSessions({
       nearAccountId,
-      chain,
+      primaryChain: chain,
       bootstrap: workerResult.bootstrap,
       source: 'email_otp',
       emailOtpAuthContext,
       smartAccount: args.smartAccount,
-    });
-    const warmCapability = await this.assertWarmThresholdEcdsaCapabilityReady({
-      nearAccountId,
-      chain,
     });
     const thresholdEd25519PrfFirstB64u = String(
       workerResult.recovery?.thresholdEd25519PrfFirstB64u || '',
@@ -1908,6 +2409,7 @@ export class SigningEngine {
         relayUrl,
         rpId,
         prfFirstB64u: thresholdEd25519PrfFirstB64u,
+        emailOtpAuthContext,
         ...(appSessionJwt ? { appSessionJwt } : {}),
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
         ...(Array.isArray(args.participantIds) ? { participantIds: args.participantIds } : {}),
@@ -1934,7 +2436,7 @@ export class SigningEngine {
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
-    otpChannel?: 'email_otp';
+    otpChannel?: WalletEmailOtpChannel;
   }): Promise<Awaited<ReturnType<typeof enrollEmailOtpWallet>>> {
     const nearAccountId = toAccountId(args.nearAccountId);
     const relayUrl = String(
@@ -1968,8 +2470,10 @@ export class SigningEngine {
     relayUrl: string;
     rpId: string;
     prfFirstB64u: string;
+    emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     appSessionJwt?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    registrationAttemptId?: string;
     participantIds?: number[];
     ttlMs?: number;
     remainingUses?: number;
@@ -1978,16 +2482,16 @@ export class SigningEngine {
     const relayerUrl = String(args.relayUrl || '').trim();
     const rpId = String(args.rpId || '').trim();
     const prfFirstB64u = String(args.prfFirstB64u || '').trim();
-    if (!relayerUrl) throw new Error('Email OTP threshold-ed25519 provisioning requires relayerUrl');
+    if (!relayerUrl)
+      throw new Error('Email OTP threshold-ed25519 provisioning requires relayerUrl');
     if (!rpId) throw new Error('Email OTP threshold-ed25519 provisioning requires rpId');
     if (!prfFirstB64u) {
       throw new Error('Email OTP threshold-ed25519 provisioning requires client seed material');
     }
 
-    const participantIds =
-      normalizeThresholdEd25519ParticipantIds(args.participantIds) || [
-        ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
-      ];
+    const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds) || [
+      ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
+    ];
     const keyVersion = 'threshold-ed25519-hss-v1';
     const registrationTransport = resolveRegistrationTransportFromConfig({
       configs: this.tatchiPasskeyConfigs,
@@ -2011,10 +2515,13 @@ export class SigningEngine {
       ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope).signingRootId
       : '';
     if (!orgId || !signingRootId) {
-      throw new Error('Email OTP threshold-ed25519 provisioning requires canonical signing-root scope');
+      throw new Error(
+        'Email OTP threshold-ed25519 provisioning requires canonical signing-root scope',
+      );
     }
 
-    const workerCtx = this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
+    const workerCtx =
+      this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
     const context = {
       signingRootId,
       nearAccountId: String(nearAccountId),
@@ -2096,6 +2603,9 @@ export class SigningEngine {
         rp_id: rpId,
         ceremonyHandle,
         account_provisioning: { mode: 'create_if_missing' },
+        ...(args.registrationAttemptId
+          ? { google_email_otp_registration_attempt_id: args.registrationAttemptId }
+          : {}),
       },
     });
     const publicKey = String(finalized.publicKey || '').trim();
@@ -2173,7 +2683,8 @@ export class SigningEngine {
       expiresAtMs,
       remainingUses,
       jwt,
-      source: 'login',
+      emailOtpAuthContext: args.emailOtpAuthContext,
+      source: 'email_otp',
     });
     await this.hydrateSigningSession({
       sessionId,
@@ -2234,31 +2745,13 @@ export class SigningEngine {
     const chainIdKey = inferNearChainIdKey(args.nearAccountId);
     const accountAddress = String(args.nearAccountId);
     const signerId = `threshold-ed25519:${args.relayerKeyId}`;
+    const signerMaterialFingerprint =
+      buildEmailOtpThresholdEd25519SignerMaterialFingerprint(args);
     const clientDB = this.orchestrationDeps.indexedDB.clientDB;
-    const activeSigners = await clientDB.listAccountSigners({
-      chainIdKey,
-      accountAddress,
-      status: 'active',
-    });
-    const slotPlan = planEmailOtpThresholdEd25519SignerSlot({
-      activeSigners,
-      signerId,
-    });
-    for (const staleSignerId of slotPlan.staleSignerIds) {
-      await clientDB.setAccountSignerStatus({
-        chainIdKey,
-        accountAddress,
-        signerId: staleSignerId,
-        status: 'revoked',
-        removedAt: Date.now(),
-        mutation: { routeThroughOutbox: false },
-      });
-    }
-    const deviceNumber = slotPlan.signerSlot;
 
     await clientDB.upsertProfile({
       profileId,
-      defaultDeviceNumber: deviceNumber,
+      defaultSignerSlot: 1,
     });
     await clientDB.upsertChainAccount({
       profileId,
@@ -2268,6 +2761,42 @@ export class SigningEngine {
       isPrimary: true,
     });
 
+    const activation = await clientDB.activateAccountSigner({
+      account: {
+        profileId,
+        chainIdKey,
+        accountAddress,
+        accountModel: 'near-native',
+      },
+      signer: {
+        signerId,
+        signerType: 'threshold',
+        signerKind: SIGNER_KINDS.thresholdEd25519,
+        signerAuthMethod: SIGNER_AUTH_METHODS.emailOtp,
+        signerSource: SIGNER_SOURCES.emailOtpRegistration,
+        metadata: {
+          operationalPublicKey: args.publicKey,
+          relayerKeyId: args.relayerKeyId,
+          keyVersion: args.keyVersion,
+          rpId: args.rpId,
+          participantIds: args.participantIds,
+          source: EMAIL_OTP_CHANNEL,
+          [SIGNER_MATERIAL_FINGERPRINT_METADATA_KEY]: signerMaterialFingerprint,
+        },
+      },
+      activationPolicy: {
+        mode: 'reuse_existing',
+        signerId,
+        materialFingerprint: signerMaterialFingerprint,
+      },
+      mutation: { routeThroughOutbox: false },
+    });
+    const signerSlot = activation.signerSlot;
+    await clientDB.upsertProfile({
+      profileId,
+      defaultSignerSlot: signerSlot,
+    });
+
     await storeNearThresholdKeyMaterial(
       {
         clientDB,
@@ -2275,7 +2804,7 @@ export class SigningEngine {
       },
       {
         nearAccountId: args.nearAccountId,
-        deviceNumber,
+        signerSlot,
         publicKey: args.publicKey,
         relayerKeyId: args.relayerKeyId,
         keyVersion: args.keyVersion,
@@ -2289,26 +2818,6 @@ export class SigningEngine {
         timestamp: Date.now(),
       },
     );
-
-    await clientDB.upsertAccountSigner({
-      profileId,
-      chainIdKey,
-      accountAddress,
-      signerId,
-      signerSlot: deviceNumber,
-      signerType: 'threshold',
-      status: 'active',
-      metadata: {
-        operationalPublicKey: args.publicKey,
-        relayerKeyId: args.relayerKeyId,
-        keyVersion: args.keyVersion,
-        rpId: args.rpId,
-        participantIds: args.participantIds,
-        source: 'email_otp',
-      },
-      mutation: { routeThroughOutbox: false },
-    });
-    await clientDB.setLastProfileStateForProfile(profileId, deviceNumber);
   }
 
   async enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(args: {
@@ -2328,23 +2837,24 @@ export class SigningEngine {
     ttlMs?: number;
     remainingUses?: number;
     clientSecret32?: Uint8Array;
-    otpChannel?: 'email_otp';
+    otpChannel?: WalletEmailOtpChannel;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+    registrationAttemptId?: string;
   }): Promise<{
     enrollment: Awaited<ReturnType<typeof enrollEmailOtpWallet>>;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     warmCapability: WarmSessionEcdsaCapabilityState;
   }> {
     const nearAccountId = toAccountId(args.nearAccountId);
-    const chain: ThresholdEcdsaActivationChain = args.chain || 'evm';
+    const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
     const emailOtpAuthPolicy: EmailOtpAuthPolicy =
       args.emailOtpAuthPolicy || this.tatchiPasskeyConfigs.signing.emailOtp.authPolicy;
     const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext = {
       policy: emailOtpAuthPolicy,
       retention: emailOtpAuthPolicy === 'per_operation' ? 'single_use' : 'session',
       reason: 'login',
-      authMethod: 'email_otp',
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
       stepUpRequired: true,
     };
     const relayUrl = String(
@@ -2400,7 +2910,7 @@ export class SigningEngine {
             otpCode: args.otpCode,
             shamirPrimeB64u,
             ...(appSessionJwt ? { appSessionJwt } : {}),
-            otpChannel: 'email_otp',
+            otpChannel: EMAIL_OTP_CHANNEL,
             ...(workerClientSecret32
               ? { clientSecret32: workerClientSecret32.buffer.slice(0) }
               : {}),
@@ -2414,24 +2924,19 @@ export class SigningEngine {
             ...(authorizationJwt ? { authorizationJwt } : {}),
             ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
             ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
-            ...(args.runtimePolicyScope
-              ? { runtimePolicyScope: args.runtimePolicyScope }
-              : {}),
+            ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
           },
         },
       });
-      const bootstrap = await this.commitWorkerProvisionedThresholdEcdsaSession({
-        nearAccountId,
-        chain,
-        bootstrap: workerResult.bootstrap,
-        source: 'email_otp',
-        emailOtpAuthContext,
-        smartAccount: args.smartAccount,
-      });
-      const warmCapability = await this.assertWarmThresholdEcdsaCapabilityReady({
-        nearAccountId,
-        chain,
-      });
+      const { bootstrap, warmCapability } =
+        await this.commitWorkerProvisionedThresholdEcdsaSessions({
+          nearAccountId,
+          primaryChain: chain,
+          bootstrap: workerResult.bootstrap,
+          source: 'email_otp',
+          emailOtpAuthContext,
+          smartAccount: args.smartAccount,
+        });
       const thresholdEd25519PrfFirstB64u = String(
         workerResult.enrollment?.thresholdEd25519PrfFirstB64u || '',
       ).trim();
@@ -2441,8 +2946,12 @@ export class SigningEngine {
           relayUrl,
           rpId,
           prfFirstB64u: thresholdEd25519PrfFirstB64u,
+          emailOtpAuthContext,
           ...(appSessionJwt ? { appSessionJwt } : {}),
           ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+          ...(args.registrationAttemptId
+            ? { registrationAttemptId: args.registrationAttemptId }
+            : {}),
           ...(Array.isArray(args.participantIds) ? { participantIds: args.participantIds } : {}),
           ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
           ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
@@ -2559,7 +3068,7 @@ export class SigningEngine {
         chain: args.chain,
         bootstrap: canonicalBootstrap,
         smartAccount: args.smartAccount,
-        ensureEmailOtpNearAccountMapping: args.source === 'email_otp',
+        ensureEmailOtpNearAccountMapping: args.source === SIGNER_AUTH_METHODS.emailOtp,
       });
       this.upsertThresholdEcdsaSessionFromBootstrap({
         nearAccountId,
@@ -2572,6 +3081,51 @@ export class SigningEngine {
       // be persisted through the passkey PRF sealed-refresh path.
       return canonicalBootstrap;
     });
+  }
+
+  private async commitWorkerProvisionedThresholdEcdsaSessions(args: {
+    nearAccountId: AccountId | string;
+    primaryChain: ThresholdEcdsaActivationChain;
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    source: ThresholdEcdsaSessionStoreSource;
+    emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
+    smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+  }): Promise<{
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    warmCapability: WarmSessionEcdsaCapabilityState;
+  }> {
+    const chains = resolveEmailOtpThresholdEcdsaActivationChains(args.primaryChain);
+    let primaryBootstrap: ThresholdEcdsaSessionBootstrapResult | null = null;
+    let primaryWarmCapability: WarmSessionEcdsaCapabilityState | null = null;
+
+    for (const chain of chains) {
+      const bootstrap = await this.commitWorkerProvisionedThresholdEcdsaSession({
+        nearAccountId: args.nearAccountId,
+        chain,
+        bootstrap: args.bootstrap,
+        source: args.source,
+        ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
+        ...(args.smartAccount ? { smartAccount: args.smartAccount } : {}),
+      });
+      const warmCapability = await this.assertWarmThresholdEcdsaCapabilityReady({
+        nearAccountId: args.nearAccountId,
+        chain,
+      });
+      if (chain === args.primaryChain) {
+        primaryBootstrap = bootstrap;
+        primaryWarmCapability = warmCapability;
+      }
+    }
+
+    if (!primaryBootstrap || !primaryWarmCapability) {
+      throw new Error(
+        `[SigningEngine] Email OTP bootstrap did not commit primary threshold ECDSA lane (${args.primaryChain})`,
+      );
+    }
+    return {
+      bootstrap: primaryBootstrap,
+      warmCapability: primaryWarmCapability,
+    };
   }
 
   private async provisionThresholdEd25519Session(
@@ -2594,6 +3148,9 @@ export class SigningEngine {
       prfFirstCache: this.touchConfirm,
       relayerUrl,
       relayerKeyId: args.relayerKeyId,
+      ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+      ...(args.useAppSessionCookie ? { useAppSessionCookie: args.useAppSessionCookie } : {}),
+      ...(args.localPrfCredential ? { localPrfCredential: args.localPrfCredential } : {}),
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
       nearAccountId,
@@ -2684,6 +3241,13 @@ export class SigningEngine {
       },
       args,
     );
+  }
+
+  markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
+    nearAccountId: AccountId | string;
+    thresholdSessionId?: string;
+  }): void {
+    markThresholdEd25519EmailOtpSessionConsumedForAccountValue(args);
   }
 
   clearThresholdEcdsaSigningArtifactsForLane(args: {
@@ -3060,7 +3624,7 @@ export type SigningEnginePublic = Pick<
   | 'reconcileTempoNonceLane'
   | 'storeUserData'
   | 'getAllUsers'
-  | 'getUserByDevice'
+  | 'getUserBySignerSlot'
   | 'getLastUser'
   | 'getAuthenticatorsByUser'
   | 'updateLastLogin'

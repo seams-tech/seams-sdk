@@ -582,7 +582,18 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         })),
       };
     }
-    return parsed;
+    const results = await Promise.all(
+      parsed.results.map(async (entry) => {
+        if (entry.result.ok || entry.result.code !== 'not_found') return entry;
+        const rehydrated = await this.tryRehydrateFromSealedRecord(entry.sessionId);
+        if (!rehydrated) return entry;
+        if (!rehydrated.ok && (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')) {
+          deletePrfSessionSealedRecord(entry.sessionId);
+        }
+        return { sessionId: entry.sessionId, result: rehydrated };
+      }),
+    );
+    return { results };
   };
 
   persistPrfFirstSealForThresholdSession = async (args: {
@@ -714,6 +725,29 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         message: String(res?.error || 'Warm-session claim failed'),
       };
     }
+    if (!parsed.ok && parsed.code === 'not_found') {
+      const rehydrated = await this.tryRehydrateFromSealedRecord(args.sessionId);
+      if (rehydrated?.ok) {
+        const retry = await this.sendMessage({
+          type: 'WARM_SESSION_MATERIAL_CLAIM',
+          id: this.generateMessageId(),
+          payload: args,
+        });
+        const retryParsed = parseWarmSessionClaimResult(retry?.data);
+        if (retry?.success !== true || !retryParsed) {
+          return {
+            ok: false,
+            code: 'worker_error',
+            message: String(retry?.error || 'Warm-session claim failed after rehydrate'),
+          };
+        }
+        return retryParsed;
+      }
+      if (rehydrated && !rehydrated.ok && (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')) {
+        deletePrfSessionSealedRecord(args.sessionId);
+      }
+      return parsed;
+    }
     if (parsed.ok) {
       if (parsed.remainingUses <= 0 || Date.now() >= parsed.expiresAtMs) {
         deletePrfSessionSealedRecord(args.sessionId);
@@ -725,11 +759,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
           updatedAtMs: Date.now(),
         });
       }
-    } else if (
-      parsed.code === 'expired' ||
-      parsed.code === 'exhausted' ||
-      parsed.code === 'not_found'
-    ) {
+    } else if (parsed.code === 'expired' || parsed.code === 'exhausted') {
       deletePrfSessionSealedRecord(args.sessionId);
     }
     return parsed;
@@ -888,7 +918,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     return requestRegistrationCredentialConfirmationFlow({
       touchConfirm: this,
       nearAccountId: params.nearAccountId,
-      deviceNumber: params.deviceNumber,
+      signerSlot: params.signerSlot,
       confirmerText: params.confirmerText,
       nearRpcUrl: params.nearRpcUrl,
       confirmationConfig: params.confirmationConfigOverride,

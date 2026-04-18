@@ -294,6 +294,49 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(message).toContain('Request cancelled');
   });
 
+  test('distinguishes fresh Email OTP, passkey step-up, and policy-blocked errors', async () => {
+    expect(
+      resolveWalletBoundaryErrorCode({
+        requestType: 'PM_SIGN_TEMPO',
+        message: '[SigningEngine] evm signing requires fresh Email OTP verification with per_operation policy',
+      }),
+    ).toBe('fresh_email_otp_required');
+    expect(
+      resolveWalletBoundaryErrorMessage({
+        requestType: 'PM_SIGN_TEMPO',
+        code: 'fresh_email_otp_required',
+      }),
+    ).toContain('Fresh Email OTP verification is required');
+
+    expect(
+      resolveWalletBoundaryErrorCode({
+        requestType: 'PM_SIGN_TEMPO',
+        message:
+          '[SigningEngine] threshold-ecdsa key export requires fresh passkey authentication after Email OTP login',
+      }),
+    ).toBe('passkey_step_up_required');
+    expect(
+      resolveWalletBoundaryErrorMessage({
+        requestType: 'PM_SIGN_TEMPO',
+        code: 'stronger_auth_required',
+      }),
+    ).toContain('Passkey authentication is required');
+
+    expect(
+      resolveWalletBoundaryErrorCode({
+        requestType: 'PM_SIGN_TEMPO',
+        rawCode: 'operation_blocked_by_policy',
+        message: 'operation blocked by policy',
+      }),
+    ).toBe('operation_blocked_by_policy');
+    expect(
+      resolveWalletBoundaryErrorMessage({
+        requestType: 'PM_SIGN_TEMPO',
+        code: 'operation_blocked_by_policy',
+      }),
+    ).toContain('blocked by wallet policy');
+  });
+
   test('prevents unknown signer-boundary code leakage', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',

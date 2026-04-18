@@ -90,7 +90,7 @@ export type ThresholdEcdsaExportArtifactKind = 'ecdsa-hss-secp256k1-key-v1';
 
 type ExportPrivateKeysWithUiWorkerPayloadBase = {
   nearAccountId: string;
-  deviceNumber: number;
+  signerSlot: number;
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
 };

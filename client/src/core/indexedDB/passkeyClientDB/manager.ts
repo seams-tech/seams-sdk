@@ -23,10 +23,13 @@ import type {
   ProfileRecord,
   ProfileRecoveryEmailRecord,
   SignerId,
+  SignerAuthMethod,
+  SignerKind,
   SignerMutationOptions,
   SignerOperationStatus,
   SignerOperationType,
   SignerOpOutboxRecord,
+  SignerSource,
   UpsertAccountSignerInput,
   UpsertChainAccountInput,
   UpsertProfileInput,
@@ -64,6 +67,13 @@ import {
   normalizeIndexedDbChainIdKey as normalizeChainIdKey,
   normalizeLastUserScope,
 } from '../normalization';
+import {
+  planAccountSignerActivation,
+  type ActivateAccountSignerInput,
+  type ActivateAccountSignerResult,
+  type StageAccountSignerInput,
+  type StageAccountSignerResult,
+} from '../accountSignerLifecycle';
 
 export type {
   AccountAddress,
@@ -95,6 +105,17 @@ export type {
   UpsertProfileInput,
   UserPreferences,
 } from '../passkeyClientDB.types';
+export type {
+  ActivateAccountSignerInput,
+  ActivateAccountSignerResult,
+  AccountSignerActivationPlan,
+  SignerActivationPolicy,
+  SignerAuthMethod,
+  SignerKind,
+  SignerSource,
+  StageAccountSignerInput,
+  StageAccountSignerResult,
+} from '../accountSignerLifecycle';
 
 interface AppStateEntry<T = unknown> {
   key: string;
@@ -134,7 +155,7 @@ function normalizeUndeployedSmartAccountSignerSet(
           const signerType = normalizeOptionalNonEmptyString(candidate.signerType) || 'threshold';
           const status = normalizeOptionalNonEmptyString(candidate.status);
           if (!signerId || (status !== 'active' && status !== 'pending')) return null;
-          const deviceNumberRaw = Number(candidate.deviceNumber);
+          const signerSlotRaw = Number(candidate.signerSlot);
           const participantIds = Array.isArray(candidate.participantIds)
             ? candidate.participantIds
                 .map((value) => Math.floor(Number(value)))
@@ -144,8 +165,8 @@ function normalizeUndeployedSmartAccountSignerSet(
             signerId,
             signerType,
             status,
-            ...(Number.isFinite(deviceNumberRaw) && deviceNumberRaw > 0
-              ? { deviceNumber: Math.floor(deviceNumberRaw) }
+            ...(Number.isFinite(signerSlotRaw) && signerSlotRaw > 0
+              ? { signerSlot: Math.floor(signerSlotRaw) }
               : {}),
             ...(normalizeOptionalNonEmptyString(candidate.relayerKeyId)
               ? { relayerKeyId: normalizeOptionalNonEmptyString(candidate.relayerKeyId)! }
@@ -209,12 +230,6 @@ const ACCOUNT_MODEL_CAPABILITY_MATRIX: Record<string, AccountModelCapabilities> 
     supportsAddRemoveSigner: true,
     supportsSessionSigner: true,
     supportsRecoverySigner: true,
-  },
-  eoa: {
-    supportsMultiSigner: false,
-    supportsAddRemoveSigner: false,
-    supportsSessionSigner: false,
-    supportsRecoverySigner: false,
   },
   'tempo-native': {
     supportsMultiSigner: true,
@@ -528,6 +543,17 @@ export class PasskeyClientDBManager {
     return (rec as ProfileRecord) || null;
   }
 
+  async listProfiles(args?: { limit?: number }): Promise<ProfileRecord[]> {
+    const db = await this.getDB();
+    const limit = Number.isSafeInteger(args?.limit) && Number(args?.limit) > 0
+      ? Number(args?.limit)
+      : undefined;
+    const rows = limit
+      ? await db.getAll(DB_CONFIG.profilesStore, undefined, limit)
+      : await db.getAll(DB_CONFIG.profilesStore);
+    return (rows as ProfileRecord[]) || [];
+  }
+
   async upsertProfile(input: UpsertProfileInput): Promise<ProfileRecord> {
     const profileId = toTrimmedString(input.profileId || '');
     if (!profileId) throw new Error('PasskeyClientDB: profileId is required');
@@ -536,11 +562,12 @@ export class PasskeyClientDBManager {
     const existing = (await db.get(DB_CONFIG.profilesStore, profileId)) as
       | ProfileRecord
       | undefined;
-    const passkeyCredential =
-      input.passkeyCredential?.rawId ? input.passkeyCredential : existing?.passkeyCredential;
+    const passkeyCredential = input.passkeyCredential?.rawId
+      ? input.passkeyCredential
+      : existing?.passkeyCredential;
     const next: ProfileRecord = {
       profileId,
-      defaultDeviceNumber: input.defaultDeviceNumber ?? existing?.defaultDeviceNumber ?? 1,
+      defaultSignerSlot: input.defaultSignerSlot ?? existing?.defaultSignerSlot ?? 1,
       ...(passkeyCredential ? { passkeyCredential } : {}),
       preferences: input.preferences ?? existing?.preferences,
       createdAt: existing?.createdAt ?? now,
@@ -653,6 +680,25 @@ export class PasskeyClientDBManager {
       args.next.accountAddress,
     ])) as AccountSignerRecord[];
     const otherSigners = allForAccount.filter((row) => row.signerId !== args.next.signerId);
+
+    if (
+      args.next.status !== 'revoked' &&
+      (!toTrimmedString(args.next.signerKind || '') ||
+        !toTrimmedString(args.next.signerAuthMethod || '') ||
+        !toTrimmedString(args.next.signerSource || ''))
+    ) {
+      throw new DBConstraintError(
+        'MISSING_SIGNER_KIND',
+        'Active and pending account signers require signerKind, signerAuthMethod, and signerSource',
+        {
+          chainIdKey: args.next.chainIdKey,
+          accountAddress: args.next.accountAddress,
+          signerId: args.next.signerId,
+          status: args.next.status,
+        },
+      );
+    }
+
     if (!capabilities.supportsMultiSigner && !args.existingSignerId && otherSigners.length > 0) {
       throw new DBConstraintError(
         'MULTI_SIGNER_NOT_SUPPORTED',
@@ -689,6 +735,8 @@ export class PasskeyClientDBManager {
         args.next.accountAddress,
         'active',
       ])) as AccountSignerRecord[];
+      // Duplicate active slots are a lifecycle bug. Callers must route slot
+      // selection through activateAccountSigner instead of weakening this invariant.
       const conflictingSlot = activeRows.find(
         (row) => row.signerId !== args.next.signerId && row.signerSlot === args.next.signerSlot,
       );
@@ -704,21 +752,6 @@ export class PasskeyClientDBManager {
             conflictingSignerId: conflictingSlot.signerId,
           },
         );
-      }
-
-      if (normalizeAccountModel(args.accountModel) === 'eoa') {
-        const activeOthers = activeRows.filter((row) => row.signerId !== args.next.signerId);
-        if (activeOthers.length > 0) {
-          throw new DBConstraintError(
-            'EOA_ACTIVE_SIGNER_LIMIT',
-            'EOA accounts can have at most one active signer',
-            {
-              chainIdKey: args.next.chainIdKey,
-              accountAddress: args.next.accountAddress,
-              signerId: args.next.signerId,
-            },
-          );
-        }
       }
     }
 
@@ -1030,18 +1063,18 @@ export class PasskeyClientDBManager {
     };
   }
 
-  async setLastProfileStateForProfile(profileId: string, deviceNumber: number): Promise<void> {
+  async setLastProfileStateForProfile(profileId: string, activeSignerSlot: number): Promise<void> {
     const normalizedProfileId = toTrimmedString(profileId || '');
-    const normalizedDeviceNumber = Number(deviceNumber);
+    const normalizedActiveSignerSlot = Number(activeSignerSlot);
     if (!normalizedProfileId) {
       throw new Error('PasskeyClientDB: profileId is required');
     }
-    if (!Number.isSafeInteger(normalizedDeviceNumber) || normalizedDeviceNumber < 1) {
-      throw new Error('PasskeyClientDB: deviceNumber must be an integer >= 1');
+    if (!Number.isSafeInteger(normalizedActiveSignerSlot) || normalizedActiveSignerSlot < 1) {
+      throw new Error('PasskeyClientDB: activeSignerSlot must be an integer >= 1');
     }
     await this.setLastProfileState({
       profileId: normalizedProfileId,
-      deviceNumber: normalizedDeviceNumber,
+      activeSignerSlot: normalizedActiveSignerSlot,
       ...(this.lastUserScope != null ? { scope: this.lastUserScope } : {}),
     });
   }
@@ -1077,7 +1110,7 @@ export class PasskeyClientDBManager {
 
     await this.upsertProfile({
       profileId: profile.profileId,
-      defaultDeviceNumber: profile.defaultDeviceNumber,
+      defaultSignerSlot: profile.defaultSignerSlot,
       preferences: updatedPreferences,
     });
 
@@ -1108,15 +1141,20 @@ export class PasskeyClientDBManager {
   async upsertProfileAuthenticator(record: ProfileAuthenticatorRecord): Promise<void> {
     const profileId = toTrimmedString(record.profileId || '');
     const credentialId = toTrimmedString(record.credentialId || '');
+    const signerSlot = Number(record.signerSlot);
     if (!profileId || !credentialId) {
       throw new Error(
         'PasskeyClientDB: profileId and credentialId are required for profileAuthenticators',
       );
     }
+    if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
+      throw new Error('PasskeyClientDB: signerSlot must be an integer >= 1');
+    }
     const db = await this.getDB();
     await db.put(DB_CONFIG.profileAuthenticatorStore, {
       ...record,
       profileId,
+      signerSlot,
       credentialId,
     } satisfies ProfileAuthenticatorRecord);
   }
@@ -1208,10 +1246,10 @@ export class PasskeyClientDBManager {
       return { authenticatorsForPrompt: authenticators };
     }
 
-    const expectedDeviceNumber = Number(lastProfileState.deviceNumber);
-    const byDeviceNumber = authenticators.filter((a) => a.deviceNumber === expectedDeviceNumber);
+    const expectedSignerSlot = Number(lastProfileState.activeSignerSlot);
+    const bySignerSlot = authenticators.filter((a) => a.signerSlot === expectedSignerSlot);
     const expectedCredentialId = String(
-      byDeviceNumber[0]?.credentialId || authenticators[0]?.credentialId || '',
+      bySignerSlot[0]?.credentialId || authenticators[0]?.credentialId || '',
     ).trim();
     const byCredentialId = expectedCredentialId
       ? authenticators.filter((a) => a.credentialId === expectedCredentialId)
@@ -1219,8 +1257,8 @@ export class PasskeyClientDBManager {
     const authenticatorsForPrompt =
       byCredentialId.length > 0
         ? byCredentialId
-        : byDeviceNumber.length > 0
-          ? byDeviceNumber
+        : bySignerSlot.length > 0
+          ? bySignerSlot
           : authenticators;
 
     const selectedCredentialRawId = toTrimmedString(args.selectedCredentialRawId || '');
@@ -1229,9 +1267,9 @@ export class PasskeyClientDBManager {
       selectedCredentialRawId &&
       expectedCredentialId &&
       selectedCredentialRawId !== expectedCredentialId
-        ? `You have multiple passkeys (deviceNumbers) for account ${accountLabel}, ` +
+        ? `You have multiple passkeys for account ${accountLabel}, ` +
           'but used a different passkey than the most recently logged-in one. ' +
-          'Please use the passkey for the most recently logged-in device.'
+          'Please use the passkey for the most recently active signer.'
         : undefined;
 
     return { authenticatorsForPrompt, wrongPasskeyError };
@@ -1239,6 +1277,157 @@ export class PasskeyClientDBManager {
 
   private createSignerOperationId(prefix: string): string {
     return createSignerOperationIdValue(prefix);
+  }
+
+  private async enqueueSignerOperationInTransaction(
+    store: any,
+    input: EnqueueSignerOperationInput,
+  ): Promise<SignerOpOutboxRecord> {
+    const opId = toTrimmedString(input.opId || '');
+    const idempotencyKey = toTrimmedString(input.idempotencyKey || '');
+    const chainIdKey = normalizeChainIdKey(input.chainIdKey);
+    const accountAddress = normalizeAccountAddress(input.accountAddress);
+    const signerId = toTrimmedString(input.signerId || '');
+    if (!opId || !idempotencyKey || !chainIdKey || !accountAddress || !signerId) {
+      throw new Error(
+        'PasskeyClientDB: opId, idempotencyKey, chainIdKey, accountAddress, and signerId are required',
+      );
+    }
+
+    const now = Date.now();
+    const existing = (await store.get(opId)) as SignerOpOutboxRecord | undefined;
+    if (!existing) {
+      const byIdempotency = (await store.index('idempotencyKey').get(idempotencyKey)) as
+        | SignerOpOutboxRecord
+        | undefined;
+      if (byIdempotency) return byIdempotency;
+    }
+
+    const next: SignerOpOutboxRecord = {
+      opId,
+      idempotencyKey,
+      opType: input.opType,
+      chainIdKey,
+      accountAddress,
+      signerId,
+      payload: input.payload ?? existing?.payload,
+      status: input.status ?? existing?.status ?? 'queued',
+      attemptCount: input.attemptCount ?? existing?.attemptCount ?? 0,
+      nextAttemptAt: input.nextAttemptAt ?? existing?.nextAttemptAt ?? now,
+      lastError: input.lastError ?? existing?.lastError,
+      txHash: input.txHash ?? existing?.txHash,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    await store.put(next);
+    return next;
+  }
+
+  private async putChainAccountForSignerLifecycle(args: {
+    tx: any;
+    profileId: string;
+    chainIdKey: string;
+    accountAddress: string;
+    accountModel: AccountModel;
+    now: number;
+  }): Promise<ChainAccountRecord> {
+    const profile = (await args.tx.objectStore(DB_CONFIG.profilesStore).get(args.profileId)) as
+      | ProfileRecord
+      | undefined;
+    if (!profile) {
+      throw new DBConstraintError(
+        'MISSING_PROFILE',
+        `Cannot upsert chain account for unknown profile: ${args.profileId}`,
+        {
+          profileId: args.profileId,
+          chainIdKey: args.chainIdKey,
+          accountAddress: args.accountAddress,
+        },
+      );
+    }
+
+    const store = args.tx.objectStore(DB_CONFIG.chainAccountsStore);
+    const existing = (await store.get([args.profileId, args.chainIdKey, args.accountAddress])) as
+      | ChainAccountRecord
+      | undefined;
+    const next: ChainAccountRecord = {
+      ...existing,
+      profileId: args.profileId,
+      chainIdKey: args.chainIdKey,
+      accountAddress: args.accountAddress,
+      accountModel: args.accountModel,
+      isPrimary: true,
+      createdAt: existing?.createdAt ?? args.now,
+      updatedAt: args.now,
+    };
+
+    const idx = store.index('profileId_chainIdKey');
+    let cursor = await idx.openCursor([args.profileId, args.chainIdKey]);
+    while (cursor) {
+      const row = cursor.value as ChainAccountRecord;
+      if (row.isPrimary && normalizeAccountAddress(row.accountAddress) !== args.accountAddress) {
+        await cursor.update({
+          ...row,
+          isPrimary: false,
+          updatedAt: args.now,
+        });
+      }
+      cursor = await cursor.continue();
+    }
+
+    await store.put(next);
+    return next;
+  }
+
+  private buildAccountSignerRecord(args: {
+    profileId: string;
+    chainIdKey: string;
+    accountAddress: string;
+    signerId: string;
+    signerSlot: number;
+    signerType: AccountSignerType;
+    signerKind: SignerKind;
+    signerAuthMethod: SignerAuthMethod;
+    signerSource: SignerSource;
+    status: AccountSignerStatus;
+    existing?: AccountSignerRecord;
+    now: number;
+    removedAt?: number;
+    revocationReason?: string;
+    metadata?: Record<string, unknown>;
+  }): AccountSignerRecord {
+    const removedAt = this.ensureRevokedSignerHasRemovedAt({
+      status: args.status,
+      removedAt: args.removedAt ?? args.existing?.removedAt,
+      chainIdKey: args.chainIdKey,
+      accountAddress: args.accountAddress,
+      signerId: args.signerId,
+    });
+    return {
+      profileId: args.profileId,
+      chainIdKey: args.chainIdKey,
+      accountAddress: args.accountAddress,
+      signerId: args.signerId,
+      signerSlot: args.signerSlot,
+      signerType: args.signerType,
+      signerKind: toTrimmedString(args.signerKind) as SignerKind,
+      signerAuthMethod: toTrimmedString(args.signerAuthMethod) as SignerAuthMethod,
+      signerSource: toTrimmedString(args.signerSource) as SignerSource,
+      status: args.status,
+      addedAt: args.existing?.addedAt ?? args.now,
+      updatedAt: args.now,
+      ...(removedAt != null ? { removedAt } : {}),
+      ...(args.revocationReason
+        ? { revocationReason: toTrimmedString(args.revocationReason) }
+        : args.existing?.revocationReason
+          ? { revocationReason: args.existing.revocationReason }
+          : {}),
+      ...(args.metadata != null
+        ? { metadata: args.metadata }
+        : args.existing?.metadata != null
+          ? { metadata: args.existing.metadata }
+          : {}),
+    };
   }
 
   private async upsertAccountSignerDirect(
@@ -1306,30 +1495,23 @@ export class PasskeyClientDBManager {
         },
       );
     }
-    const removedAt = this.ensureRevokedSignerHasRemovedAt({
-      status: input.status,
-      removedAt: input.removedAt ?? existing?.removedAt,
-      chainIdKey,
-      accountAddress,
-      signerId,
-    });
-    const next: AccountSignerRecord = {
+    const next = this.buildAccountSignerRecord({
       profileId,
       chainIdKey,
       accountAddress,
       signerId,
       signerSlot: input.signerSlot,
       signerType: input.signerType,
+      signerKind: input.signerKind,
+      signerAuthMethod: input.signerAuthMethod,
+      signerSource: input.signerSource,
       status: input.status,
-      addedAt: existing?.addedAt ?? now,
-      updatedAt: now,
-      ...(removedAt != null ? { removedAt } : {}),
-      ...(input.metadata != null
-        ? { metadata: input.metadata }
-        : existing?.metadata != null
-          ? { metadata: existing.metadata }
-          : {}),
-    };
+      existing,
+      now,
+      ...(input.removedAt != null ? { removedAt: input.removedAt } : {}),
+      ...(input.revocationReason ? { revocationReason: input.revocationReason } : {}),
+      ...(input.metadata != null ? { metadata: input.metadata } : {}),
+    });
     await this.assertSignerWriteInvariants(store, {
       next,
       accountModel: chainAccount.accountModel,
@@ -1361,12 +1543,310 @@ export class PasskeyClientDBManager {
         profileId: next.profileId,
         signerSlot: next.signerSlot,
         signerType: next.signerType,
+        ...(next.signerKind ? { signerKind: next.signerKind } : {}),
+        ...(next.signerAuthMethod ? { signerAuthMethod: next.signerAuthMethod } : {}),
+        ...(next.signerSource ? { signerSource: next.signerSource } : {}),
         ...(next.metadata ? { signerMetadata: next.metadata } : {}),
         ...(input.mutation?.outboxPayload ? input.mutation.outboxPayload : {}),
       },
       status: input.mutation?.outboxStatus || 'queued',
     });
     return next;
+  }
+
+  async activateAccountSigner(
+    input: ActivateAccountSignerInput,
+  ): Promise<ActivateAccountSignerResult> {
+    const profileId = toTrimmedString(input.account.profileId || '');
+    const chainIdKey = normalizeChainIdKey(input.account.chainIdKey);
+    const accountAddress = normalizeAccountAddress(input.account.accountAddress);
+    const accountModel = normalizeAccountModel(input.account.accountModel);
+    const signerId = toTrimmedString(input.signer.signerId || '');
+    const signerKind = toTrimmedString(input.signer.signerKind || '') as SignerKind;
+    const signerAuthMethod = toTrimmedString(
+      input.signer.signerAuthMethod || '',
+    ) as SignerAuthMethod;
+    const signerSource = toTrimmedString(input.signer.signerSource || '') as SignerSource;
+    if (
+      !profileId ||
+      !chainIdKey ||
+      !accountAddress ||
+      !accountModel ||
+      !signerId ||
+      !signerKind ||
+      !signerAuthMethod ||
+      !signerSource
+    ) {
+      throw new Error(
+        'PasskeyClientDB: profileId, chainIdKey, accountAddress, accountModel, signerId, signerKind, signerAuthMethod, and signerSource are required',
+      );
+    }
+
+    const db = await this.getDB();
+    const tx = db.transaction(
+      [
+        DB_CONFIG.profilesStore,
+        DB_CONFIG.chainAccountsStore,
+        DB_CONFIG.accountSignersStore,
+        DB_CONFIG.appStateStore,
+        DB_CONFIG.signerOpsOutboxStore,
+      ],
+      'readwrite',
+    );
+    const now = Date.now();
+    const chainAccount = await this.putChainAccountForSignerLifecycle({
+      tx,
+      profileId,
+      chainIdKey,
+      accountAddress,
+      accountModel,
+      now,
+    });
+    const signerStore = tx.objectStore(DB_CONFIG.accountSignersStore);
+    const activeSigners = (await signerStore
+      .index('chainIdKey_accountAddress_status')
+      .getAll([chainIdKey, accountAddress, 'active'])) as AccountSignerRecord[];
+    const plan = planAccountSignerActivation({
+      activeSigners,
+      signer: { signerId, signerKind, signerAuthMethod, signerSource },
+      activationPolicy: input.activationPolicy,
+      ...(input.preferredSlot != null ? { preferredSlot: input.preferredSlot } : {}),
+    });
+
+    const existingSigner = (await signerStore.get([chainIdKey, accountAddress, signerId])) as
+      | AccountSignerRecord
+      | undefined;
+    if (existingSigner && existingSigner.profileId !== profileId) {
+      throw new DBConstraintError(
+        'CHAIN_ACCOUNT_PROFILE_MISMATCH',
+        `Signer row belongs to a different profile for ${chainIdKey}/${accountAddress}/${signerId}`,
+        {
+          expectedProfileId: profileId,
+          existingProfileId: existingSigner.profileId,
+          chainIdKey,
+          accountAddress,
+          signerId,
+        },
+      );
+    }
+
+    const signer = this.buildAccountSignerRecord({
+      profileId,
+      chainIdKey,
+      accountAddress,
+      signerId,
+      signerSlot: plan.signerSlot,
+      signerType: input.signer.signerType as AccountSignerType,
+      signerKind,
+      signerAuthMethod,
+      signerSource,
+      status: 'active',
+      existing: existingSigner,
+      now,
+      ...(input.signer.metadata ? { metadata: input.signer.metadata } : {}),
+    });
+    await this.assertSignerWriteInvariants(signerStore, {
+      next: signer,
+      accountModel: chainAccount.accountModel,
+      existingSignerId: existingSigner?.signerId,
+      existingStatus: existingSigner?.status,
+    });
+    await signerStore.put(signer);
+
+    const selectAsActive = input.selectAsActive ?? true;
+    if (selectAsActive) {
+      const lastProfileState: LastProfileState = {
+        profileId,
+        activeSignerSlot: plan.signerSlot,
+        ...(this.lastUserScope != null ? { scope: this.lastUserScope } : {}),
+      };
+      const signerRows = (await signerStore.index('profileId').getAll(profileId)) as
+        | AccountSignerRecord[]
+        | undefined;
+      const hasMatchingSignerSlot = (signerRows || []).some(
+        (row) => row.signerSlot === lastProfileState.activeSignerSlot && row.status !== 'revoked',
+      );
+      if (!hasMatchingSignerSlot) {
+        throw new DBConstraintError(
+          'INVALID_LAST_PROFILE_STATE',
+          `lastProfileState signer slot ${lastProfileState.activeSignerSlot} was not found for profile ${profileId}`,
+          {
+            profileId,
+            activeSignerSlot: lastProfileState.activeSignerSlot,
+          },
+        );
+      }
+      const appStateStore = tx.objectStore(DB_CONFIG.appStateStore);
+      await appStateStore.put({
+        key: this.getScopedLastProfileStateAppStateKey() || LAST_PROFILE_STATE_APP_STATE_KEY,
+        value: lastProfileState,
+      } satisfies AppStateEntry<LastProfileState>);
+    }
+
+    const routeThroughOutbox = input.mutation?.routeThroughOutbox ?? false;
+    if (routeThroughOutbox) {
+      const opId =
+        toTrimmedString(input.mutation?.opId || '') || this.createSignerOperationId('add-signer');
+      const idempotencyKey =
+        toTrimmedString(input.mutation?.idempotencyKey || '') ||
+        `add-signer:${signer.chainIdKey}:${signer.accountAddress}:${signer.signerId}:${signer.signerSlot}`;
+      await this.enqueueSignerOperationInTransaction(
+        tx.objectStore(DB_CONFIG.signerOpsOutboxStore),
+        {
+          opId,
+          idempotencyKey,
+          opType: 'add-signer',
+          chainIdKey: signer.chainIdKey,
+          accountAddress: signer.accountAddress,
+          signerId: signer.signerId,
+          payload: {
+            profileId: signer.profileId,
+            signerSlot: signer.signerSlot,
+            signerType: signer.signerType,
+            ...(signer.signerKind ? { signerKind: signer.signerKind } : {}),
+            ...(signer.signerAuthMethod ? { signerAuthMethod: signer.signerAuthMethod } : {}),
+            ...(signer.signerSource ? { signerSource: signer.signerSource } : {}),
+            ...(signer.metadata ? { signerMetadata: signer.metadata } : {}),
+            ...(input.mutation?.outboxPayload ? input.mutation.outboxPayload : {}),
+          },
+          status: input.mutation?.outboxStatus || 'queued',
+        },
+      );
+    }
+    await tx.done;
+
+    return {
+      signer,
+      signerSlot: plan.signerSlot,
+    };
+  }
+
+  async stageAccountSigner(input: StageAccountSignerInput): Promise<StageAccountSignerResult> {
+    const profileId = toTrimmedString(input.account.profileId || '');
+    const chainIdKey = normalizeChainIdKey(input.account.chainIdKey);
+    const accountAddress = normalizeAccountAddress(input.account.accountAddress);
+    const accountModel = normalizeAccountModel(input.account.accountModel);
+    const signerId = toTrimmedString(input.signer.signerId || '');
+    const signerKind = toTrimmedString(input.signer.signerKind || '') as SignerKind;
+    const signerAuthMethod = toTrimmedString(
+      input.signer.signerAuthMethod || '',
+    ) as SignerAuthMethod;
+    const signerSource = toTrimmedString(input.signer.signerSource || '') as SignerSource;
+    const signerSlot = Number(input.signer.signerSlot);
+    if (
+      !profileId ||
+      !chainIdKey ||
+      !accountAddress ||
+      !accountModel ||
+      !signerId ||
+      !signerKind ||
+      !signerAuthMethod ||
+      !signerSource
+    ) {
+      throw new Error(
+        'PasskeyClientDB: profileId, chainIdKey, accountAddress, accountModel, signerId, signerKind, signerAuthMethod, and signerSource are required',
+      );
+    }
+    if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
+      throw new Error('PasskeyClientDB: signerSlot must be an integer >= 1');
+    }
+
+    const db = await this.getDB();
+    const tx = db.transaction(
+      [
+        DB_CONFIG.profilesStore,
+        DB_CONFIG.chainAccountsStore,
+        DB_CONFIG.accountSignersStore,
+        DB_CONFIG.signerOpsOutboxStore,
+      ],
+      'readwrite',
+    );
+    const now = Date.now();
+    const chainAccount = await this.putChainAccountForSignerLifecycle({
+      tx,
+      profileId,
+      chainIdKey,
+      accountAddress,
+      accountModel,
+      now,
+    });
+    const signerStore = tx.objectStore(DB_CONFIG.accountSignersStore);
+    const existingSigner = (await signerStore.get([chainIdKey, accountAddress, signerId])) as
+      | AccountSignerRecord
+      | undefined;
+    if (existingSigner && existingSigner.profileId !== profileId) {
+      throw new DBConstraintError(
+        'CHAIN_ACCOUNT_PROFILE_MISMATCH',
+        `Signer row belongs to a different profile for ${chainIdKey}/${accountAddress}/${signerId}`,
+        {
+          expectedProfileId: profileId,
+          existingProfileId: existingSigner.profileId,
+          chainIdKey,
+          accountAddress,
+          signerId,
+        },
+      );
+    }
+
+    const signer = this.buildAccountSignerRecord({
+      profileId,
+      chainIdKey,
+      accountAddress,
+      signerId,
+      signerSlot,
+      signerType: input.signer.signerType as AccountSignerType,
+      signerKind,
+      signerAuthMethod,
+      signerSource,
+      status: 'pending',
+      existing: existingSigner,
+      now,
+      ...(input.signer.metadata ? { metadata: input.signer.metadata } : {}),
+    });
+    await this.assertSignerWriteInvariants(signerStore, {
+      next: signer,
+      accountModel: chainAccount.accountModel,
+      existingSignerId: existingSigner?.signerId,
+      existingStatus: existingSigner?.status,
+    });
+    await signerStore.put(signer);
+
+    const routeThroughOutbox = input.mutation?.routeThroughOutbox ?? false;
+    if (routeThroughOutbox) {
+      const opId =
+        toTrimmedString(input.mutation?.opId || '') || this.createSignerOperationId('add-signer');
+      const idempotencyKey =
+        toTrimmedString(input.mutation?.idempotencyKey || '') ||
+        `add-signer:${signer.chainIdKey}:${signer.accountAddress}:${signer.signerId}:${signer.signerSlot}`;
+      await this.enqueueSignerOperationInTransaction(
+        tx.objectStore(DB_CONFIG.signerOpsOutboxStore),
+        {
+          opId,
+          idempotencyKey,
+          opType: 'add-signer',
+          chainIdKey: signer.chainIdKey,
+          accountAddress: signer.accountAddress,
+          signerId: signer.signerId,
+          payload: {
+            profileId: signer.profileId,
+            signerSlot: signer.signerSlot,
+            signerType: signer.signerType,
+            ...(signer.signerKind ? { signerKind: signer.signerKind } : {}),
+            ...(signer.signerAuthMethod ? { signerAuthMethod: signer.signerAuthMethod } : {}),
+            ...(signer.signerSource ? { signerSource: signer.signerSource } : {}),
+            ...(signer.metadata ? { signerMetadata: signer.metadata } : {}),
+            ...(input.mutation?.outboxPayload ? input.mutation.outboxPayload : {}),
+          },
+          status: input.mutation?.outboxStatus || 'queued',
+        },
+      );
+    }
+    await tx.done;
+
+    return {
+      signer,
+      signerSlot,
+    };
   }
 
   async listAccountSigners(args: {
@@ -1414,6 +1894,7 @@ export class PasskeyClientDBManager {
     signerId: string;
     status: AccountSignerStatus;
     removedAt?: number;
+    revocationReason?: string;
   }): Promise<AccountSignerRecord | null> {
     const chainIdKey = normalizeChainIdKey(args.chainIdKey);
     const accountAddress = normalizeAccountAddress(args.accountAddress);
@@ -1467,6 +1948,9 @@ export class PasskeyClientDBManager {
       status: args.status,
       updatedAt: Date.now(),
       ...(removedAt != null ? { removedAt } : {}),
+      ...(args.revocationReason
+        ? { revocationReason: toTrimmedString(args.revocationReason) }
+        : {}),
     };
     await this.assertSignerWriteInvariants(store, {
       next: updated,
@@ -1485,9 +1969,17 @@ export class PasskeyClientDBManager {
     signerId: string;
     status: AccountSignerStatus;
     removedAt?: number;
+    revocationReason?: string;
     mutation?: SignerMutationOptions;
   }): Promise<AccountSignerRecord | null> {
-    const updated = await this.setAccountSignerStatusDirect(args);
+    const updated = await this.setAccountSignerStatusDirect({
+      chainIdKey: args.chainIdKey,
+      accountAddress: args.accountAddress,
+      signerId: args.signerId,
+      status: args.status,
+      ...(args.removedAt != null ? { removedAt: args.removedAt } : {}),
+      ...(args.revocationReason ? { revocationReason: args.revocationReason } : {}),
+    });
     if (!updated) return null;
 
     const routeThroughOutbox = args.mutation?.routeThroughOutbox ?? true;
@@ -1510,6 +2002,7 @@ export class PasskeyClientDBManager {
         signerSlot: updated.signerSlot,
         status: updated.status,
         ...(updated.removedAt != null ? { removedAt: updated.removedAt } : {}),
+        ...(updated.revocationReason ? { revocationReason: updated.revocationReason } : {}),
         ...(args.mutation?.outboxPayload ? args.mutation.outboxPayload : {}),
       },
       status: args.mutation?.outboxStatus || 'queued',
@@ -1577,7 +2070,7 @@ export class PasskeyClientDBManager {
         `lastProfileState profile does not exist: ${state.profileId}`,
         {
           profileId: state.profileId,
-          deviceNumber: state.deviceNumber,
+          activeSignerSlot: state.activeSignerSlot,
         },
       );
     }
@@ -1589,15 +2082,15 @@ export class PasskeyClientDBManager {
     await signerTx.done;
     if (!signerRows.length) return;
     const hasMatchingSignerSlot = signerRows.some(
-      (row) => row.signerSlot === state.deviceNumber && row.status !== 'revoked',
+      (row) => row.signerSlot === state.activeSignerSlot && row.status !== 'revoked',
     );
     if (!hasMatchingSignerSlot) {
       throw new DBConstraintError(
         'INVALID_LAST_PROFILE_STATE',
-        `lastProfileState signer slot ${state.deviceNumber} was not found for profile ${state.profileId}`,
+        `lastProfileState signer slot ${state.activeSignerSlot} was not found for profile ${state.profileId}`,
         {
           profileId: state.profileId,
-          deviceNumber: state.deviceNumber,
+          activeSignerSlot: state.activeSignerSlot,
         },
       );
     }

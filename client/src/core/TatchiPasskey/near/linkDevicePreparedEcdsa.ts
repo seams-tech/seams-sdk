@@ -1,4 +1,6 @@
 import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import { isPlainObject } from '@shared/utils/validation';
 import type { PasskeyManagerContext } from '../interfaces';
 import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
@@ -30,10 +32,6 @@ type PreparedLinkDeviceSessionPayload = {
   preparedLinkedAccounts?: PreparedLinkDeviceLinkedAccount[];
 };
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -47,12 +45,17 @@ function parseParticipantIds(raw: unknown): number[] | undefined {
 }
 
 function parsePreparedThresholdEcdsa(raw: unknown): PreparedLinkDeviceThresholdEcdsa | null {
-  if (!isObject(raw)) return null;
+  if (!isPlainObject(raw)) return null;
   const clientAdditiveShare32B64u = String(raw.clientAdditiveShare32B64u || '').trim();
   const relayerKeyId = String(raw.relayerKeyId || '').trim();
   const thresholdEcdsaPublicKeyB64u = String(raw.thresholdEcdsaPublicKeyB64u || '').trim();
   const ethereumAddress = String(raw.ethereumAddress || '').trim();
-  if (!clientAdditiveShare32B64u || !relayerKeyId || !thresholdEcdsaPublicKeyB64u || !ethereumAddress) {
+  if (
+    !clientAdditiveShare32B64u ||
+    !relayerKeyId ||
+    !thresholdEcdsaPublicKeyB64u ||
+    !ethereumAddress
+  ) {
     return null;
   }
   return {
@@ -71,9 +74,13 @@ function parsePreparedLinkedAccounts(raw: unknown): PreparedLinkDeviceLinkedAcco
   const out: PreparedLinkDeviceLinkedAccount[] = [];
   const seen = new Set<string>();
   for (const value of raw) {
-    if (!isObject(value)) continue;
-    const chainIdKey = String(value.chainIdKey || '').trim().toLowerCase();
-    const chain = String(value.chain || '').trim().toLowerCase();
+    if (!isPlainObject(value)) continue;
+    const chainIdKey = String(value.chainIdKey || '')
+      .trim()
+      .toLowerCase();
+    const chain = String(value.chain || '')
+      .trim()
+      .toLowerCase();
     const chainId = Math.floor(Number(value.chainId));
     const accountAddress = String(value.accountAddress || '').trim();
     const accountModel = String(value.accountModel || '').trim();
@@ -116,7 +123,7 @@ async function fetchPreparedLinkDeviceSession(input: {
   const response = await fetch(url, { method: 'GET' });
   if (!response.ok) return null;
   const body: unknown = await response.json().catch(() => ({}));
-  if (!isObject(body) || body.ok !== true || !isObject(body.session)) return null;
+  if (!isPlainObject(body) || body.ok !== true || !isPlainObject(body.session)) return null;
   const preparedThresholdEcdsa = parsePreparedThresholdEcdsa(body.session.preparedThresholdEcdsa);
   const preparedLinkedAccounts = parsePreparedLinkedAccounts(body.session.preparedLinkedAccounts);
   if (!preparedThresholdEcdsa || preparedLinkedAccounts.length === 0) return null;
@@ -138,7 +145,9 @@ async function upsertPreparedLinkedAccounts(input: {
       ...(account.factory ? { factory: account.factory } : {}),
       ...(account.entryPoint ? { entryPoint: account.entryPoint } : {}),
       ...(account.salt ? { salt: account.salt } : {}),
-      ...(account.counterfactualAddress ? { counterfactualAddress: account.counterfactualAddress } : {}),
+      ...(account.counterfactualAddress
+        ? { counterfactualAddress: account.counterfactualAddress }
+        : {}),
     });
   }
 }
@@ -148,13 +157,14 @@ export async function persistPreparedLinkDeviceSmartAccountSigners(args: {
   indexedDB: UnifiedIndexedDBManager;
   accountId: string;
   sessionId: string;
-  deviceNumber: number;
+  signerSlot: number;
   relayerUrl?: string;
   pollIntervalMs?: number;
   maxWaitMs?: number;
 }): Promise<{ seededSignerCount: number }> {
-  const relayerUrl =
-    stripTrailingSlashes(String(args.relayerUrl || args.context?.configs?.network.relayer?.url || '').trim());
+  const relayerUrl = stripTrailingSlashes(
+    String(args.relayerUrl || args.context?.configs?.network.relayer?.url || '').trim(),
+  );
   if (!relayerUrl) {
     throw new Error('Missing relayer url for link-device prepared signer sync');
   }
@@ -192,32 +202,41 @@ export async function persistPreparedLinkDeviceSmartAccountSigners(args: {
 
   let seededSignerCount = 0;
   for (const account of prepared.preparedLinkedAccounts) {
-    await args.indexedDB.upsertAccountSigner({
-      profileId: nearContext.profileId,
-      chainIdKey: account.chainIdKey,
-      accountAddress: account.accountAddress,
-      signerId: prepared.preparedThresholdEcdsa.ethereumAddress,
-      signerSlot: Math.max(1, Math.floor(Number(args.deviceNumber) || 1)),
-      signerType: 'threshold',
-      status: 'pending',
-      metadata: {
+    const signerSlot = Math.max(1, Math.floor(Number(args.signerSlot) || 1));
+    await args.indexedDB.stageAccountSigner({
+      account: {
+        profileId: nearContext.profileId,
+        chainIdKey: account.chainIdKey,
+        accountAddress: account.accountAddress,
         accountModel: account.accountModel,
-        ownerAddress: prepared.preparedThresholdEcdsa.ethereumAddress,
-        relayerKeyId: prepared.preparedThresholdEcdsa.relayerKeyId,
-        thresholdEcdsaPublicKeyB64u: prepared.preparedThresholdEcdsa.thresholdEcdsaPublicKeyB64u,
-        deviceNumber: Math.max(1, Math.floor(Number(args.deviceNumber) || 1)),
-        chain: account.chain,
-        chainId: account.chainId,
-        ...(Array.isArray(prepared.preparedThresholdEcdsa.participantIds)
-          ? { participantIds: [...prepared.preparedThresholdEcdsa.participantIds] }
-          : {}),
-        ...(account.factory ? { factory: account.factory } : {}),
-        ...(account.entryPoint ? { entryPoint: account.entryPoint } : {}),
-        ...(account.salt ? { salt: account.salt } : {}),
-        ...(account.counterfactualAddress
-          ? { counterfactualAddress: account.counterfactualAddress }
-          : {}),
       },
+      signer: {
+        signerId: prepared.preparedThresholdEcdsa.ethereumAddress,
+        signerSlot,
+        signerType: 'threshold',
+        signerKind: SIGNER_KINDS.thresholdEcdsa,
+        signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
+        signerSource: SIGNER_SOURCES.passkeyRegistration,
+        metadata: {
+          accountModel: account.accountModel,
+          ownerAddress: prepared.preparedThresholdEcdsa.ethereumAddress,
+          relayerKeyId: prepared.preparedThresholdEcdsa.relayerKeyId,
+          thresholdEcdsaPublicKeyB64u: prepared.preparedThresholdEcdsa.thresholdEcdsaPublicKeyB64u,
+          signerSlot,
+          chain: account.chain,
+          chainId: account.chainId,
+          ...(Array.isArray(prepared.preparedThresholdEcdsa.participantIds)
+            ? { participantIds: [...prepared.preparedThresholdEcdsa.participantIds] }
+            : {}),
+          ...(account.factory ? { factory: account.factory } : {}),
+          ...(account.entryPoint ? { entryPoint: account.entryPoint } : {}),
+          ...(account.salt ? { salt: account.salt } : {}),
+          ...(account.counterfactualAddress
+            ? { counterfactualAddress: account.counterfactualAddress }
+            : {}),
+        },
+      },
+      mutation: { routeThroughOutbox: false },
     });
     seededSignerCount += 1;
   }

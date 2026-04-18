@@ -4,7 +4,7 @@ export type KeyMaterialKind = 'threshold_share_v1' | string;
 
 export interface KeyMaterialPayloadEnvelopeAAD {
   profileId: string;
-  deviceNumber: number;
+  signerSlot: number;
   chainIdKey: string;
   keyKind: string;
   schemaVersion: number;
@@ -23,7 +23,7 @@ export interface KeyMaterialPayloadEnvelope {
 
 export interface KeyMaterialRecord {
   profileId: string;
-  deviceNumber: number;
+  signerSlot: number;
   chainIdKey: string;
   keyKind: KeyMaterialKind;
   algorithm: KeyMaterialAlgorithm;

@@ -82,7 +82,7 @@ export async function registerPasskeyInternal(
     const registrationSession =
       await context.signingEngine.requestRegistrationCredentialConfirmation({
         nearAccountId: String(nearAccountId),
-        deviceNumber: 1,
+        signerSlot: 1,
         confirmerText: options?.confirmerText,
         confirmationConfigOverride: confirmationConfig,
       });
@@ -96,7 +96,7 @@ export async function registerPasskeyInternal(
       message: 'WebAuthn ceremony successful',
     });
 
-    const deviceNumber = 1;
+    const signerSlot = 1;
     let thresholdPrfFirstB64u: string | null = null;
 
     const rpId = signingEngine.getRpId();
@@ -206,7 +206,7 @@ export async function registerPasskeyInternal(
       message: 'Confirming threshold key…',
       thresholdPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
       relayerKeyId: completedThresholdEd25519Registration.registered.relayerKeyId,
-      deviceNumber,
+      signerSlot,
     });
 
     onEvent?.({
@@ -217,7 +217,7 @@ export async function registerPasskeyInternal(
       thresholdKeyReady: true,
       thresholdPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
       relayerKeyId: completedThresholdEd25519Registration.registered.relayerKeyId,
-      deviceNumber,
+      signerSlot,
     });
 
     // Step 8: Store user data + authenticator locally
@@ -237,7 +237,7 @@ export async function registerPasskeyInternal(
     await persistRegisteredThresholdEd25519Session({
       signingEngine,
       nearAccountId,
-      deviceNumber,
+      signerSlot,
       rpId,
       relayerUrl: context.configs.network.relayer.url,
       prfFirstB64u: thresholdPrfFirstB64u,
@@ -270,7 +270,7 @@ export async function registerPasskeyInternal(
       context,
       credential,
       nearAccountId,
-      deviceNumber,
+      signerSlot,
     }).catch(() => undefined);
 
     // Initialize current user for immediate use (best-effort).
@@ -527,13 +527,10 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   const thresholdSessionJwt = String(
     args.completedThresholdEd25519Registration.registered.session?.jwt || '',
   ).trim();
-  const thresholdSessionId = String(
-    args.completedThresholdEd25519Registration.registered.session?.sessionId || '',
-  ).trim();
   const runtimePolicyScope =
     args.completedThresholdEd25519Registration.registered.session?.runtimePolicyScope;
 
-  if (!relayerUrl || !thresholdSessionJwt || !thresholdSessionId) {
+  if (!relayerUrl || !thresholdSessionJwt) {
     logTelemetry({
       outcome: 'skipped',
       reason: 'missing_ed25519_session_auth',
@@ -547,35 +544,44 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
       throw new Error('Failed to derive threshold ECDSA client root share from credential');
     }
 
-    const bootstrapStartedAt = performance.now();
-    const bootstrap = await args.signingEngine.bootstrapEcdsaSession({
-      nearAccountId: args.nearAccountId,
-      chain: canonicalChain,
-      source: 'registration',
-      relayerUrl,
-      sessionKind: 'jwt',
-      sessionId: thresholdSessionId,
-      clientRootShare32B64u,
-      authorizationJwt: thresholdSessionJwt,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    });
-    timings.bootstrapThresholdEcdsaMs = Math.round(performance.now() - bootstrapStartedAt);
+    let canonicalEcdsaThresholdKeyId = '';
+    for (const chain of ['tempo', 'evm'] as const) {
+      const bootstrapStartedAt = performance.now();
+      const bootstrap = await args.signingEngine.bootstrapEcdsaSession({
+        nearAccountId: args.nearAccountId,
+        chain,
+        source: 'registration',
+        relayerUrl,
+        sessionKind: 'jwt',
+        ...(canonicalEcdsaThresholdKeyId
+          ? { ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId }
+          : {}),
+        clientRootShare32B64u,
+        authorizationJwt: thresholdSessionJwt,
+        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      });
+      timings[`bootstrapThresholdEcdsa${chain === 'tempo' ? 'Tempo' : 'Evm'}Ms`] = Math.round(
+        performance.now() - bootstrapStartedAt,
+      );
 
-    const keyRef = bootstrap.thresholdEcdsaKeyRef;
-    const thresholdSessionJwtSource = String(keyRef.thresholdSessionJwt || '').trim()
-      ? 'ecdsa'
-      : 'none';
-    console.info('[Registration] threshold ECDSA background provisioned', {
-      nearAccountId: args.nearAccountId,
-      chain: canonicalChain,
-      ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
-      relayerKeyId: keyRef.backendBinding?.relayerKeyId,
-      thresholdSessionId: keyRef.thresholdSessionId,
-      thresholdSessionJwtSource,
-      accountAddress:
-        bootstrap.keygen.counterfactualAddress || bootstrap.keygen.ethereumAddress || null,
-      durationMs: timings.bootstrapThresholdEcdsaMs,
-    });
+      const keyRef = bootstrap.thresholdEcdsaKeyRef;
+      canonicalEcdsaThresholdKeyId =
+        String(keyRef.ecdsaThresholdKeyId || canonicalEcdsaThresholdKeyId || '').trim();
+      const thresholdSessionJwtSource = String(keyRef.thresholdSessionJwt || '').trim()
+        ? 'ecdsa'
+        : 'none';
+      console.info('[Registration] threshold ECDSA background provisioned', {
+        nearAccountId: args.nearAccountId,
+        chain,
+        ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
+        relayerKeyId: keyRef.backendBinding?.relayerKeyId,
+        thresholdSessionId: keyRef.thresholdSessionId,
+        thresholdSessionJwtSource,
+        accountAddress:
+          bootstrap.keygen.counterfactualAddress || bootstrap.keygen.ethereumAddress || null,
+        durationMs: timings[`bootstrapThresholdEcdsa${chain === 'tempo' ? 'Tempo' : 'Evm'}Ms`],
+      });
+    }
     logTelemetry({
       outcome: 'success',
     });

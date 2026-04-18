@@ -45,7 +45,7 @@ export type PendingEmailRecoveryStatus =
 
 export type PendingEmailRecovery = {
   accountId: AccountId;
-  deviceNumber: number;
+  signerSlot: number;
   requestId: string;
   recoverySessionId: RecoverySubjectBinding['recoverySessionId'];
   ecdsaThresholdKeyId: string;

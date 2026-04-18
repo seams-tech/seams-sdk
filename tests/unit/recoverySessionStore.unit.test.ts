@@ -26,7 +26,7 @@ test.describe('recovery session canonical store', () => {
         sessionId: 'ABC123',
         userId: 'alice.testnet',
         nearAccountId: 'alice.testnet',
-        deviceNumber: 7,
+        signerSlot: 7,
         newNearPublicKey: 'ed25519:recovery-key',
         newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
         recoveryDeadlineEpochSeconds: 1_893_456_000,

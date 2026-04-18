@@ -1,0 +1,86 @@
+import { EMAIL_OTP_CHANNEL } from './emailOtpDomain';
+import { normalizeOptionalTrimmedString } from './normalize';
+
+export const SIGNER_KINDS = {
+  thresholdEd25519: 'threshold-ed25519',
+  thresholdEcdsa: 'threshold-ecdsa',
+} as const;
+
+export type SignerKind = (typeof SIGNER_KINDS)[keyof typeof SIGNER_KINDS];
+
+export const SIGNER_AUTH_METHODS = {
+  passkey: 'passkey',
+  emailOtp: EMAIL_OTP_CHANNEL,
+} as const;
+
+export type SignerAuthMethod =
+  (typeof SIGNER_AUTH_METHODS)[keyof typeof SIGNER_AUTH_METHODS];
+
+export const WALLET_AUTH_METHODS = {
+  passkey: 'passkey',
+  emailOtp: EMAIL_OTP_CHANNEL,
+} as const;
+
+export type WalletAuthMethod =
+  (typeof WALLET_AUTH_METHODS)[keyof typeof WALLET_AUTH_METHODS];
+
+export const WALLET_AUTH_PROOF_METHODS = {
+  passkey: SIGNER_AUTH_METHODS.passkey,
+  emailOtp: SIGNER_AUTH_METHODS.emailOtp,
+  session: 'session',
+} as const;
+
+export type WalletAuthProofMethod =
+  (typeof WALLET_AUTH_PROOF_METHODS)[keyof typeof WALLET_AUTH_PROOF_METHODS];
+
+export const SIGNING_SESSION_RETENTIONS = {
+  session: 'session',
+  singleUse: 'single_use',
+} as const;
+
+export type SigningSessionRetention =
+  (typeof SIGNING_SESSION_RETENTIONS)[keyof typeof SIGNING_SESSION_RETENTIONS];
+
+export const SIGNER_SOURCES = {
+  passkeyRegistration: 'passkey_registration',
+  emailOtpRegistration: 'email_otp_registration',
+  selfHostedImport: 'self_hosted_import',
+} as const;
+
+export type SignerSource = (typeof SIGNER_SOURCES)[keyof typeof SIGNER_SOURCES];
+
+export const SIGNER_KIND_VALUES = Object.values(SIGNER_KINDS) as readonly SignerKind[];
+export const SIGNER_AUTH_METHOD_VALUES = Object.values(
+  SIGNER_AUTH_METHODS,
+) as readonly SignerAuthMethod[];
+export const WALLET_AUTH_METHOD_VALUES = Object.values(
+  WALLET_AUTH_METHODS,
+) as readonly WalletAuthMethod[];
+export const WALLET_AUTH_PROOF_METHOD_VALUES = Object.values(
+  WALLET_AUTH_PROOF_METHODS,
+) as readonly WalletAuthProofMethod[];
+export const SIGNER_SOURCE_VALUES = Object.values(SIGNER_SOURCES) as readonly SignerSource[];
+
+function normalized(value: unknown): string {
+  return normalizeOptionalTrimmedString(value)?.toLowerCase() || '';
+}
+
+export function isSignerKind(value: unknown): value is SignerKind {
+  return (SIGNER_KIND_VALUES as readonly string[]).includes(normalized(value));
+}
+
+export function isSignerAuthMethod(value: unknown): value is SignerAuthMethod {
+  return (SIGNER_AUTH_METHOD_VALUES as readonly string[]).includes(normalized(value));
+}
+
+export function isWalletAuthMethod(value: unknown): value is WalletAuthMethod {
+  return (WALLET_AUTH_METHOD_VALUES as readonly string[]).includes(normalized(value));
+}
+
+export function isWalletAuthProofMethod(value: unknown): value is WalletAuthProofMethod {
+  return (WALLET_AUTH_PROOF_METHOD_VALUES as readonly string[]).includes(normalized(value));
+}
+
+export function isSignerSource(value: unknown): value is SignerSource {
+  return (SIGNER_SOURCE_VALUES as readonly string[]).includes(normalized(value));
+}

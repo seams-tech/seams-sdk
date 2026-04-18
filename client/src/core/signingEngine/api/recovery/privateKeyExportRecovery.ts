@@ -5,7 +5,7 @@ import type {
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
 import type { ThemeName } from '@/core/types/tatchi';
-import { getLastLoggedInDeviceNumber } from '../../signers/webauthn/device/getDeviceNumber';
+import { getLastLoggedInSignerSlot } from '../../signers/webauthn/device/signerSlot';
 
 type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 type ExportScheme = 'ed25519' | 'secp256k1';
@@ -29,14 +29,14 @@ function createExportRecoveryError(args: {
 function emitExportRecoveryTelemetry(args: {
   event: 'signer.export.worker_boundary_required';
   nearAccountId: string;
-  deviceNumber?: number;
+  signerSlot?: number;
   reason: string;
 }): void {
   // Structured logs are currently the canonical low-overhead telemetry surface in wallet origin.
   console.warn('[signer-export-telemetry]', {
     event: args.event,
     nearAccountId: args.nearAccountId,
-    ...(typeof args.deviceNumber === 'number' ? { deviceNumber: args.deviceNumber } : {}),
+    ...(typeof args.signerSlot === 'number' ? { signerSlot: args.signerSlot } : {}),
     reason: args.reason,
     timestamp: Date.now(),
   });
@@ -48,13 +48,13 @@ function isEvmOrTempoChain(chain: ExportKeypairChain): chain is 'evm' | 'tempo' 
 
 function throwExportWorkerBoundaryRequired(args: {
   nearAccountId: string;
-  deviceNumber?: number;
+  signerSlot?: number;
   reason: string;
 }): never {
   emitExportRecoveryTelemetry({
     event: 'signer.export.worker_boundary_required',
     nearAccountId: args.nearAccountId,
-    deviceNumber: args.deviceNumber,
+    signerSlot: args.signerSlot,
     reason: args.reason,
   });
   throw createExportRecoveryError({
@@ -96,11 +96,11 @@ async function runExportWorkerOperation(
   }
   const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
+  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.indexedDB.clientDB).catch(
     () => null as number | null,
   );
-  if (deviceNumber == null) {
-    throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
+  if (signerSlot == null) {
+    throw new Error(`No signerSlot found for account ${accountId} (export/decrypt)`);
   }
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
@@ -109,7 +109,7 @@ async function runExportWorkerOperation(
       }
       return await requestExportPrivateKeysWithUi({
         nearAccountId: accountId,
-        deviceNumber,
+        signerSlot,
         chain: args.options.chain,
         variant: args.options.variant,
         theme: resolvedTheme,
@@ -121,7 +121,7 @@ async function runExportWorkerOperation(
       ) {
         throwExportWorkerBoundaryRequired({
           nearAccountId: accountId,
-          deviceNumber,
+          signerSlot,
           reason: 'worker_missing_export_operation',
         });
       }
@@ -178,18 +178,18 @@ export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
   }
 
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
+  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.indexedDB.clientDB).catch(
     () => null as number | null,
   );
-  if (deviceNumber == null) {
-    throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
+  if (signerSlot == null) {
+    throw new Error(`No signerSlot found for account ${accountId} (export/decrypt)`);
   }
 
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
       return await requestExportPrivateKeysWithUi({
         nearAccountId: accountId,
-        deviceNumber,
+        signerSlot,
         chain: 'near',
         artifactKind: 'near-ed25519-seed-v1',
         expectedPublicKey,
@@ -204,7 +204,7 @@ export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
       ) {
         throwExportWorkerBoundaryRequired({
           nearAccountId: accountId,
-          deviceNumber,
+          signerSlot,
           reason: 'worker_missing_export_operation',
         });
       }
@@ -281,11 +281,11 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   }
   const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const deviceNumber = await getLastLoggedInDeviceNumber(accountId, deps.indexedDB.clientDB).catch(
+  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.indexedDB.clientDB).catch(
     () => null as number | null,
   );
-  if (deviceNumber == null) {
-    throw new Error(`No deviceNumber found for account ${accountId} (export/decrypt)`);
+  if (signerSlot == null) {
+    throw new Error(`No signerSlot found for account ${accountId} (export/decrypt)`);
   }
 
   const artifactKind = String(args.artifact.artifactKind || '').trim();
@@ -303,7 +303,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
     try {
       return await requestExportPrivateKeysWithUi({
         nearAccountId: accountId,
-        deviceNumber,
+        signerSlot,
         chain: args.artifact.chain,
         artifactKind,
         publicKeyHex,
@@ -319,7 +319,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
       ) {
         throwExportWorkerBoundaryRequired({
           nearAccountId: accountId,
-          deviceNumber,
+          signerSlot,
           reason: 'worker_missing_export_operation',
         });
       }

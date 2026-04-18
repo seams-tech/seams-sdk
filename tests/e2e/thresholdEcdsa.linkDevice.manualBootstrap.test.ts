@@ -188,7 +188,7 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
             signingEngine: pm.getContext().signingEngine,
             nearAccountId: accountId,
             relayerUrl,
-            deviceNumber: 2,
+            signerSlot: 2,
             rpId: 'example.localhost',
             credentialIdB64u: 'link-device-browser-cred-b64u',
             thresholdEcdsa: manualBootstrap,

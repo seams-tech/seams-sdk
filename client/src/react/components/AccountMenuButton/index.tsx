@@ -118,6 +118,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const [currentConfirmConfig, setCurrentConfirmConfig] = useState<any>(null);
   const [exportKeysLoading, setExportKeysLoading] = useState(false);
   const [exportChainLoading, setExportChainLoading] = useState<'near' | 'evm' | null>(null);
+  const [exportRestrictionMessage, setExportRestrictionMessage] = useState<string | null>(null);
 
   // State management
   const { isOpen, refs, handleToggle, handleClose } = useProfileState({
@@ -250,6 +251,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         onClick: () => {
           setExportKeysLoading(false);
           setExportChainLoading(null);
+          setExportRestrictionMessage(null);
           setShowExportKeyTypeModal(true);
         },
         keepOpenOnClick: true,
@@ -296,7 +298,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [loginState.isLoggedIn, theme, handleToggleTheme, exportKeysLoading]);
+  }, [loginState.authMethod, loginState.isLoggedIn, theme, handleToggleTheme, exportKeysLoading]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;
@@ -412,10 +414,13 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             onClose={() => {
               setShowExportKeyTypeModal(false);
               setExportChainLoading(null);
+              setExportRestrictionMessage(null);
             }}
             onSelectChain={(chain) => {
+              if (exportRestrictionMessage) return;
               void startExportKeyFlow(chain);
             }}
+            restrictionMessage={exportRestrictionMessage}
           />,
           portalHost!,
         )}

@@ -275,15 +275,15 @@
   border-top-color: var(--w3a-colors-surface);
 }
 
-/* Inline device row layout */
-.w3a-device-row {
+/* Inline signer row layout */
+.w3a-signer-row {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
-/* Device badge */
-.w3a-device-badge {
+/* Signer badge */
+.w3a-signer-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -297,7 +297,7 @@
   line-height: 1;
 }
 
-.w3a-current-device-text {
+.w3a-current-signer-text {
   opacity: 0.85;
 }
 

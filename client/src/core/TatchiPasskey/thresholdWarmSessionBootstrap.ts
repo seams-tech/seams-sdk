@@ -21,6 +21,7 @@ import { getStoredThresholdEd25519SessionRecordForAccount } from '../signingEngi
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
+  type ThresholdRuntimePolicyScope,
 } from '../signingEngine/threshold/session/sessionPolicy';
 import type { PasskeyManagerContext } from './index';
 import {
@@ -55,6 +56,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     relayerKeyId?: string;
     sessionId: string;
     participantIds?: number[];
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
     ttlMs: number;
     remainingUses: number;
   };
@@ -309,7 +311,7 @@ export function completeRegisteredThresholdEd25519Registration(args: {
 
 export async function storeThresholdEd25519KeyMaterial(args: {
   nearAccountId: AccountId | string;
-  deviceNumber: number;
+  signerSlot: number;
   publicKey: string;
   relayerKeyId: string;
   keyVersion: string;
@@ -325,8 +327,8 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   if (!nearAccountId) {
     throw new Error('Threshold Ed25519 key persistence requires nearAccountId');
   }
-  if (!Number.isSafeInteger(args.deviceNumber) || args.deviceNumber < 1) {
-    throw new Error('Threshold Ed25519 key persistence requires deviceNumber >= 1');
+  if (!Number.isSafeInteger(args.signerSlot) || args.signerSlot < 1) {
+    throw new Error('Threshold Ed25519 key persistence requires signerSlot >= 1');
   }
   if (!publicKey) {
     throw new Error('Threshold Ed25519 key persistence requires publicKey');
@@ -342,7 +344,7 @@ export async function storeThresholdEd25519KeyMaterial(args: {
     },
     {
       nearAccountId: nearAccountId as AccountId,
-      deviceNumber: args.deviceNumber,
+      signerSlot: args.signerSlot,
       publicKey,
       relayerKeyId,
       keyVersion,
@@ -365,7 +367,7 @@ export async function storeThresholdEd25519KeyMaterial(args: {
 export async function persistRegisteredThresholdEd25519Session(args: {
   signingEngine: PasskeyManagerContext['signingEngine'];
   nearAccountId: AccountId;
-  deviceNumber: number;
+  signerSlot: number;
   rpId: string;
   relayerUrl: string;
   prfFirstB64u: string | null;
@@ -374,7 +376,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
 }): Promise<void> {
   await storeThresholdEd25519KeyMaterial({
     nearAccountId: args.nearAccountId,
-    deviceNumber: args.deviceNumber,
+    signerSlot: args.signerSlot,
     publicKey: args.completedRegistration.registered.publicKey,
     relayerKeyId: args.completedRegistration.registered.relayerKeyId,
     keyVersion: args.completedRegistration.registered.keyVersion,
@@ -406,6 +408,8 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     : normalizeThresholdEd25519ParticipantIds(args.registrationSessionPolicy.participantIds) || [
         ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
       ];
+  const runtimePolicyScope =
+    session.runtimePolicyScope || args.registrationSessionPolicy.runtimePolicyScope;
 
   persistWarmSessionEd25519Capability({
     nearAccountId: String(args.nearAccountId),
@@ -418,7 +422,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     expiresAtMs,
     remainingUses,
     jwt,
-    ...(session.runtimePolicyScope ? { runtimePolicyScope: session.runtimePolicyScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     source: 'registration',
   });
 
@@ -513,12 +517,12 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
   context: PasskeyManagerContext;
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
   nearAccountId: AccountId | string;
-  deviceNumber: number;
+  signerSlot: number;
 }): Promise<void> {
   const nearAccountId = String(args.nearAccountId || '').trim();
-  const deviceNumber = Number(args.deviceNumber);
+  const signerSlot = Number(args.signerSlot);
   if (!nearAccountId) return;
-  if (!Number.isInteger(deviceNumber) || deviceNumber <= 0) return;
+  if (!Number.isInteger(signerSlot) || signerSlot <= 0) return;
 
   const sessionRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
   if (!sessionRecord) return;
@@ -540,7 +544,7 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
         accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
       },
       toAccountId(nearAccountId),
-      deviceNumber,
+      signerSlot,
     ).catch(() => null);
     if (!thresholdKeyMaterial) return;
 
@@ -633,6 +637,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     normalizeThresholdEd25519ParticipantIds(args.participantIdsHint) || [
       ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
     ];
+  const runtimePolicyScope = args.session?.runtimePolicyScope;
   const prfFirstB64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
   if (!prfFirstB64u) {
     throw new Error('Missing PRF.first output from credential for threshold session hydration');
@@ -649,6 +654,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,
     jwt: sessionJwt,
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     source: 'bootstrap',
   });
   await args.context.signingEngine.hydrateSigningSession({

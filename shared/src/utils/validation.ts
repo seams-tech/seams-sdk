@@ -1,3 +1,5 @@
+import { normalizeOptionalTrimmedString } from './normalize';
+
 export interface ValidationResult {
   valid: boolean;
   error?: string;
@@ -28,6 +30,18 @@ export {
 
 export function isObject(x: unknown): x is Record<string, unknown> {
   return x !== null && typeof x === 'object';
+}
+
+export function isPlainObject(x: unknown): x is Record<string, unknown> {
+  return isObject(x) && !Array.isArray(x);
+}
+
+export function toOptionalRecordString(
+  record: unknown,
+  key: string,
+): string | undefined {
+  if (!isPlainObject(record)) return undefined;
+  return normalizeOptionalTrimmedString(record[key]);
 }
 
 export function isString(x: unknown): x is string {

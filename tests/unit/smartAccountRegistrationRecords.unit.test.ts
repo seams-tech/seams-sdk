@@ -24,7 +24,7 @@ test.describe('smart-account registration canonical records', () => {
       const built = buildRegistrationSmartAccountRecords({
         userId: 'alice.testnet',
         nearAccountId: 'alice.testnet',
-        deviceNumber: 2,
+        signerSlot: 2,
         credentialIdB64u: 'cred-b64u',
         rpId: 'wallet.example.test',
         relayerKeyId: 'rk-1',
@@ -95,7 +95,7 @@ test.describe('smart-account registration canonical records', () => {
     expect(result.signersByUser[0]?.signerId).toBe(`0x${'aa'.repeat(20)}`);
     expect(result.signersByUser[0]?.metadata?.relayerKeyId).toBe('rk-1');
     expect(result.signersByUser[0]?.metadata?.thresholdEcdsaPublicKeyB64u).toBe('group-public-key');
-    expect(result.signersByUser[0]?.metadata?.deviceNumber).toBe(2);
+    expect(result.signersByUser[0]?.metadata?.signerSlot).toBe(2);
 
     expect(result.recoverySubjects[0]?.nearAccountId).toBe('alice.testnet');
     expect(result.recoverySubjects[0]?.metadata?.accountModel).toBe('erc4337');
@@ -109,7 +109,7 @@ test.describe('smart-account registration canonical records', () => {
       return buildRegistrationSmartAccountRecords({
         userId: 'alice.testnet',
         nearAccountId: 'alice.testnet',
-        deviceNumber: 1,
+        signerSlot: 1,
         credentialIdB64u: 'cred-b64u',
         rpId: 'wallet.example.test',
         relayerKeyId: 'rk-1',

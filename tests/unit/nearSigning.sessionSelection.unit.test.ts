@@ -89,7 +89,7 @@ test.describe('near signing session selection', () => {
                 accountKeyMaterialDB: {
                   getKeyMaterial: async () => ({
                     profileId: 'profile-alice',
-                    deviceNumber: 1,
+                    signerSlot: 1,
                     chainIdKey: 'near:testnet',
                     keyKind: 'threshold_share_v1' as const,
                     algorithm: 'ed25519' as const,
@@ -176,7 +176,7 @@ test.describe('near signing session selection', () => {
         },
         {
           rpcCall: { nearAccountId: 'alice.testnet' },
-          deviceNumber: 1,
+          signerSlot: 1,
           transactions: [
             {
               receiverId: 'alice.testnet',

@@ -112,19 +112,19 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
       const url = String(input);
       const body = JSON.parse(String(init?.body || '{}'));
       fetchCalls.push({ url, body });
-      if (url.endsWith('/wallet/email-otp/challenge')) {
+      if (url.endsWith('/wallet/email-otp/login/challenge')) {
         return new Response(JSON.stringify({ ok: true, challenge: { challengeId: 'challenge-1' } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      if (url.endsWith('/wallet/email-otp/enroll/challenge')) {
+      if (url.endsWith('/wallet/email-otp/registration/challenge')) {
         return new Response(JSON.stringify({ ok: true, challenge: { challengeId: 'enroll-1' } }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      if (url.endsWith('/wallet/email-otp/verify')) {
+      if (url.endsWith('/wallet/email-otp/login/verify')) {
         return new Response(
           JSON.stringify({ ok: true, loginGrant: 'grant-1', emailOtpEscrowBlob: 'escrow-1' }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -140,8 +140,8 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
               email: 'alice@example.com',
               runtimePolicyScope: {
                 orgId: 'org_test',
-                environmentId: 'env_test',
                 projectId: 'project_test',
+                envId: 'env_test',
               },
             },
           }),
@@ -185,6 +185,7 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
         accountMode: 'register',
         sessionKind: 'cookie',
         runtimeEnvironmentId: 'env_test',
+        forceNewDevWallet: true,
         fetchImpl,
       }),
     ).resolves.toEqual({
@@ -194,16 +195,16 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
         email: 'alice@example.com',
         runtimePolicyScope: {
           orgId: 'org_test',
-          environmentId: 'env_test',
           projectId: 'project_test',
+          envId: 'env_test',
         },
       },
     });
 
     expect(fetchCalls.map((call) => call.url)).toEqual([
-      'https://relay.example/wallet/email-otp/challenge',
-      'https://relay.example/wallet/email-otp/enroll/challenge',
-      'https://relay.example/wallet/email-otp/verify',
+      'https://relay.example/wallet/email-otp/login/challenge',
+      'https://relay.example/wallet/email-otp/registration/challenge',
+      'https://relay.example/wallet/email-otp/login/verify',
       'https://relay.example/session/exchange',
     ]);
     expect(fetchCalls[3]?.body).toEqual({
@@ -213,6 +214,7 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
         type: 'oidc_jwt',
         provider: 'google',
         account_mode: 'register',
+        force_new_dev_wallet: true,
         token: 'google-id-token-1',
       },
     });

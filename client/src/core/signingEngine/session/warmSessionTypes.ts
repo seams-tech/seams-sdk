@@ -38,6 +38,7 @@ export type WarmSessionEd25519CapabilityState = {
   record: ThresholdEd25519SessionRecord | null;
   auth: WarmSessionEd25519AuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext | null;
   state: 'missing' | 'ready' | 'auth_missing' | 'prf_missing' | 'prf_unavailable';
 };
 
@@ -66,15 +67,14 @@ export type WarmSessionEnvelope = {
 function assertCapabilityStateInvariant(args: {
   accountId: AccountId;
   label: string;
-  capability:
-    | WarmSessionEd25519CapabilityState
-    | WarmSessionEcdsaCapabilityState;
+  capability: WarmSessionEd25519CapabilityState | WarmSessionEcdsaCapabilityState;
 }): void {
   const { capability } = args;
   const record = capability.record;
   const auth = capability.auth;
   const prfClaim = capability.prfClaim;
-  const emailOtpAuthContext = 'emailOtpAuthContext' in capability ? capability.emailOtpAuthContext : null;
+  const emailOtpAuthContext =
+    'emailOtpAuthContext' in capability ? capability.emailOtpAuthContext : null;
   const sessionId = String(record?.thresholdSessionId || '').trim();
 
   if (!record) {
@@ -123,11 +123,7 @@ function assertCapabilityStateInvariant(args: {
         `[WarmSessionManager] invalid ${args.label} capability: auth capability does not match capability state`,
       );
     }
-    if (
-      capability.capability === 'ecdsa' &&
-      'chain' in auth &&
-      auth.chain !== capability.chain
-    ) {
+    if (capability.capability === 'ecdsa' && 'chain' in auth && auth.chain !== capability.chain) {
       throw new Error(
         `[WarmSessionManager] invalid ${args.label} capability: auth chain does not match capability chain`,
       );
@@ -170,17 +166,24 @@ function assertCapabilityStateInvariant(args: {
     record.source === 'email_otp' &&
     emailOtpAuthContext?.retention === 'single_use' &&
     Number(emailOtpAuthContext.consumedAtMs) > 0;
-  const expectedState = !auth || (requiresJwt && !hasJwt)
-    ? 'auth_missing'
-    : emailOtpSingleUseConsumed
-      ? 'prf_missing'
-    : !prfClaim
-      ? 'prf_missing'
-      : prfClaim.state === 'unavailable'
-        ? 'prf_unavailable'
-        : prfClaim.state !== 'warm'
-          ? 'prf_missing'
-          : 'ready';
+  const emailOtpHasWorkerOwnedClientBase =
+    record.source === 'email_otp' &&
+    !emailOtpSingleUseConsumed &&
+    Boolean(String((record as { xClientBaseB64u?: unknown }).xClientBaseB64u || '').trim());
+  const expectedState =
+    !auth || (requiresJwt && !hasJwt)
+      ? 'auth_missing'
+      : emailOtpSingleUseConsumed
+        ? 'prf_missing'
+        : emailOtpHasWorkerOwnedClientBase
+          ? 'ready'
+          : !prfClaim
+            ? 'prf_missing'
+            : prfClaim.state === 'unavailable'
+              ? 'prf_unavailable'
+              : prfClaim.state !== 'warm'
+                ? 'prf_missing'
+                : 'ready';
   if (capability.state !== expectedState) {
     throw new Error(
       `[WarmSessionManager] invalid ${args.label} capability: state=${capability.state} does not match derived state=${expectedState}`,
@@ -188,7 +191,9 @@ function assertCapabilityStateInvariant(args: {
   }
 }
 
-export function assertWarmSessionEnvelopeInvariant(envelope: WarmSessionEnvelope): WarmSessionEnvelope {
+export function assertWarmSessionEnvelopeInvariant(
+  envelope: WarmSessionEnvelope,
+): WarmSessionEnvelope {
   assertCapabilityStateInvariant({
     accountId: envelope.accountId,
     label: 'ed25519',

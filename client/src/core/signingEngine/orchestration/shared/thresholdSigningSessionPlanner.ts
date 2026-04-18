@@ -1,4 +1,3 @@
-import type { SigningAuthMode } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import {
   formatThresholdSigningSessionAvailabilityError,
   formatThresholdSigningSessionStatusError,
@@ -95,14 +94,4 @@ export async function assertThresholdSigningSessionReady(args: {
     thresholdSessionId,
     usesNeeded: args.usesNeeded,
   });
-}
-
-export async function resolveThresholdSigningAuthMode(args: {
-  needsWebAuthn: boolean;
-  touchConfirm: WarmSessionStatusReader;
-  sessionId: unknown;
-  usesNeeded?: number;
-}): Promise<SigningAuthMode> {
-  if (args.needsWebAuthn) return 'webauthn';
-  return 'warmSession';
 }

@@ -29,10 +29,21 @@ function decodeChallengeB64u(challengeB64u: string): Uint8Array {
   return decoded;
 }
 
+let webAuthnPromptQueue: Promise<void> = Promise.resolve();
+
+async function enqueueWebAuthnPrompt<T>(operation: () => Promise<T>): Promise<T> {
+  const run = webAuthnPromptQueue.then(operation, operation);
+  webAuthnPromptQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return await run;
+}
+
 interface RegisterCredentialsArgs {
   nearAccountId: string; // NEAR account ID for PRF salts and keypair derivation (always base account)
   challengeB64u: string;
-  deviceNumber?: number; // Optional device number for device-specific user ID (0, 1, 2, etc.)
+  signerSlot?: number;
 }
 
 interface AuthenticateCredentialsForChallengeB64uArgs {
@@ -104,127 +115,131 @@ export class TouchIdPrompt {
     allowCredentials = [],
     includeSecondPrfOutput = false,
   }: AuthenticateCredentialsForChallengeB64uArgs): Promise<WebAuthnAuthenticationCredential> {
-    // New controller per get() call
-    this.abortController = new AbortController();
-    this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
-    const rpId = this.getRpId();
+    return await enqueueWebAuthnPrompt(async () => {
+      // New controller per get() call
+      this.abortController = new AbortController();
+      this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
+      const rpId = this.getRpId();
 
-    const challengeBytes = decodeChallengeB64u(challengeB64u);
+      const challengeBytes = decodeChallengeB64u(challengeB64u);
 
-    const publicKey: PublicKeyCredentialRequestOptions = {
-      challenge: challengeBytes as BufferSource,
-      rpId,
-      userVerification: 'preferred' as UserVerificationRequirement,
-      timeout: 60000,
-      extensions: {
-        prf: {
-          eval: {
-            first: getPrfFirstSaltV1() as BufferSource,
-            second: getPrfSecondSaltV1() as BufferSource,
+      const publicKey: PublicKeyCredentialRequestOptions = {
+        challenge: challengeBytes as BufferSource,
+        rpId,
+        userVerification: 'preferred' as UserVerificationRequirement,
+        timeout: 60000,
+        extensions: {
+          prf: {
+            eval: {
+              first: getPrfFirstSaltV1() as BufferSource,
+              second: getPrfSecondSaltV1() as BufferSource,
+            },
           },
         },
-      },
-    };
-    if (allowCredentials.length > 0) {
-      publicKey.allowCredentials = allowCredentials.map((credential) => ({
-        id: base64UrlDecode(credential.id) as BufferSource,
-        type: 'public-key' as PublicKeyCredentialType,
-        transports: credential.transports,
-      }));
-    }
-
-    try {
-      const credentialMaybe = (await executeWebAuthnWithParentFallbacksSafari('get', publicKey, {
-        rpId,
-        inIframe: TouchIdPrompt._inIframe(),
-        timeoutMs: publicKey.timeout as number | undefined,
-        permitGetBridgeOnAncestorError: this.safariGetWebauthnRegistrationFallback,
-        abortSignal: this.abortController.signal,
-      })) as unknown;
-
-      // Support parent-bridge fallback returning an already-serialized credential
-      if (isSerializedAuthenticationCredential(credentialMaybe)) {
-        return credentialMaybe;
+      };
+      if (allowCredentials.length > 0) {
+        publicKey.allowCredentials = allowCredentials.map((credential) => ({
+          id: base64UrlDecode(credential.id) as BufferSource,
+          type: 'public-key' as PublicKeyCredentialType,
+          transports: credential.transports,
+        }));
       }
 
-      return serializeAuthenticationCredentialWithPRF({
-        credential: credentialMaybe as PublicKeyCredential,
-        firstPrfOutput: true,
-        secondPrfOutput: includeSecondPrfOutput,
-      });
-    } finally {
-      this.removePageAbortHandlers?.();
-      this.removePageAbortHandlers = undefined;
-      this.removeExternalAbortListener?.();
-      this.removeExternalAbortListener = undefined;
-      this.abortController = undefined;
-    }
+      try {
+        const credentialMaybe = (await executeWebAuthnWithParentFallbacksSafari('get', publicKey, {
+          rpId,
+          inIframe: TouchIdPrompt._inIframe(),
+          timeoutMs: publicKey.timeout as number | undefined,
+          permitGetBridgeOnAncestorError: this.safariGetWebauthnRegistrationFallback,
+          abortSignal: this.abortController.signal,
+        })) as unknown;
+
+        // Support parent-bridge fallback returning an already-serialized credential.
+        const serialized = isSerializedAuthenticationCredential(credentialMaybe)
+          ? credentialMaybe
+          : serializeAuthenticationCredentialWithPRF({
+              credential: credentialMaybe as PublicKeyCredential,
+              firstPrfOutput: true,
+              secondPrfOutput: includeSecondPrfOutput,
+            });
+        assertSerializedAuthenticationCredentialChallenge(serialized, challengeB64u);
+        return serialized;
+      } finally {
+        this.removePageAbortHandlers?.();
+        this.removePageAbortHandlers = undefined;
+        this.removeExternalAbortListener?.();
+        this.removeExternalAbortListener = undefined;
+        this.abortController = undefined;
+      }
+    });
   }
 
   /**
    * Internal method for generating WebAuthn registration credentials with PRF output
    * @param nearAccountId - NEAR account ID for PRF salts and keypair derivation (always base account)
    * @param challenge - Random challenge bytes for the registration ceremony
-   * @param deviceNumber - Device number for device-specific user ID.
+   * @param signerSlot - Local signer slot for WebAuthn user-handle disambiguation.
    * @returns Credential with PRF output
    */
   async generateRegistrationCredentialsInternal({
     nearAccountId,
     challengeB64u,
-    deviceNumber,
+    signerSlot,
   }: RegisterCredentialsArgs): Promise<PublicKeyCredential> {
-    // New controller per create() call
-    this.abortController = new AbortController();
-    this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
-    // Single source of truth for rpId: use getRpId().
-    const rpId = this.getRpId();
-    const publicKey: PublicKeyCredentialCreationOptions = {
-      challenge: decodeChallengeB64u(challengeB64u) as BufferSource,
-      rp: {
-        name: 'WebAuthn Passkey',
-        id: rpId,
-      },
-      user: {
-        id: new TextEncoder().encode(generateDeviceSpecificUserId(nearAccountId, deviceNumber)),
-        name: generateDeviceSpecificUserId(nearAccountId, deviceNumber),
-        displayName: generateUserFriendlyDisplayName(nearAccountId, deviceNumber),
-      },
-      pubKeyCredParams: [
-        { alg: -7, type: 'public-key' },
-        { alg: -257, type: 'public-key' },
-      ],
-      authenticatorSelection: {
-        residentKey: 'required',
-        userVerification: 'preferred',
-      },
-      timeout: 60000,
-      attestation: 'none',
-      extensions: {
-        prf: {
-          eval: {
-            // Fixed, versioned salts. Account-scoping happens at the HKDF derivation layer.
-            first: getPrfFirstSaltV1() as BufferSource,
-            second: getPrfSecondSaltV1() as BufferSource,
+    return await enqueueWebAuthnPrompt(async () => {
+      // New controller per create() call
+      this.abortController = new AbortController();
+      this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
+      // Single source of truth for rpId: use getRpId().
+      const rpId = this.getRpId();
+      const publicKey: PublicKeyCredentialCreationOptions = {
+        challenge: decodeChallengeB64u(challengeB64u) as BufferSource,
+        rp: {
+          name: 'WebAuthn Passkey',
+          id: rpId,
+        },
+        user: {
+          id: new TextEncoder().encode(generateSignerSlotUserId(nearAccountId, signerSlot)),
+          name: generateSignerSlotUserId(nearAccountId, signerSlot),
+          displayName: generateSignerSlotDisplayName(nearAccountId, signerSlot),
+        },
+        pubKeyCredParams: [
+          { alg: -7, type: 'public-key' },
+          { alg: -257, type: 'public-key' },
+        ],
+        authenticatorSelection: {
+          residentKey: 'required',
+          userVerification: 'preferred',
+        },
+        timeout: 60000,
+        attestation: 'none',
+        extensions: {
+          prf: {
+            eval: {
+              // Fixed, versioned salts. Account-scoping happens at the HKDF derivation layer.
+              first: getPrfFirstSaltV1() as BufferSource,
+              second: getPrfSecondSaltV1() as BufferSource,
+            },
           },
         },
-      },
-    };
-    try {
-      const result = await executeWebAuthnWithParentFallbacksSafari('create', publicKey, {
-        rpId,
-        inIframe: TouchIdPrompt._inIframe(),
-        timeoutMs: publicKey.timeout as number | undefined,
-        // Pass AbortSignal through when supported; Safari bridge path may ignore it.
-        abortSignal: this.abortController.signal,
-      });
-      return result as PublicKeyCredential;
-    } finally {
-      this.removePageAbortHandlers?.();
-      this.removePageAbortHandlers = undefined;
-      this.removeExternalAbortListener?.();
-      this.removeExternalAbortListener = undefined;
-      this.abortController = undefined;
-    }
+      };
+      try {
+        const result = await executeWebAuthnWithParentFallbacksSafari('create', publicKey, {
+          rpId,
+          inIframe: TouchIdPrompt._inIframe(),
+          timeoutMs: publicKey.timeout as number | undefined,
+          // Pass AbortSignal through when supported; Safari bridge path may ignore it.
+          abortSignal: this.abortController.signal,
+        });
+        return result as PublicKeyCredential;
+      } finally {
+        this.removePageAbortHandlers?.();
+        this.removePageAbortHandlers = undefined;
+        this.removeExternalAbortListener?.();
+        this.removeExternalAbortListener = undefined;
+        this.abortController = undefined;
+      }
+    });
   }
 }
 
@@ -236,24 +251,83 @@ function isSerializedAuthenticationCredential(x: unknown): x is WebAuthnAuthenti
   return typeof resp?.authenticatorData === 'string';
 }
 
+function normalizeChallengeB64uForComparison(value: unknown): string {
+  return String(value || '')
+    .trim()
+    .replace(/=+$/g, '');
+}
+
+function readSerializedAuthenticationChallenge(
+  credential: WebAuthnAuthenticationCredential,
+): string {
+  const clientDataJsonB64u = String(credential.response?.clientDataJSON || '').trim();
+  if (!clientDataJsonB64u) {
+    throw new Error('WebAuthn authentication response missing clientDataJSON');
+  }
+  let decoded = '';
+  try {
+    decoded = new TextDecoder().decode(base64UrlDecode(clientDataJsonB64u));
+  } catch (error) {
+    throw new Error(
+      `WebAuthn authentication response has invalid clientDataJSON encoding: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoded);
+  } catch (error) {
+    throw new Error(
+      `WebAuthn authentication response has invalid clientDataJSON JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  const challenge =
+    parsed && typeof parsed === 'object'
+      ? (parsed as { challenge?: unknown }).challenge
+      : undefined;
+  if (typeof challenge !== 'string' || !challenge.trim()) {
+    throw new Error('WebAuthn authentication response clientDataJSON missing challenge');
+  }
+  return challenge;
+}
+
+function assertSerializedAuthenticationCredentialChallenge(
+  credential: WebAuthnAuthenticationCredential,
+  expectedChallengeB64u: string,
+): void {
+  const actual = normalizeChallengeB64uForComparison(
+    readSerializedAuthenticationChallenge(credential),
+  );
+  const expected = normalizeChallengeB64uForComparison(expectedChallengeB64u);
+  if (actual !== expected) {
+    throw new Error(
+      `Unexpected authentication response challenge "${actual}", expected "${expected}"`,
+    );
+  }
+}
+
 /**
- * Generate device-specific user ID to prevent Chrome sync conflicts
+ * Generate signer-slot-specific user ID to prevent Chrome sync conflicts
  * Creates technical identifiers with full account context
  *
  * @param nearAccountId - The NEAR account ID (e.g., "serp1.w3a-relayer.testnet")
- * @param deviceNumber - The device number (optional, undefined for device 1, 2 for device 2, etc.)
+ * @param signerSlot - The signer slot (optional, undefined for signer slot 1, 2 for signer slot 2, etc.)
  * @returns Technical identifier:
- *   - Device 1: "serp120.web3-authn.testnet"
- *   - Device 2: "serp120.web3-authn.testnet (2)"
- *   - Device 3: "serp120.web3-authn.testnet (3)"
+ *   - Signer slot 1: "serp120.web3-authn.testnet"
+ *   - Signer slot 2: "serp120.web3-authn.testnet (2)"
+ *   - Signer slot 3: "serp120.web3-authn.testnet (3)"
  */
-function generateDeviceSpecificUserId(nearAccountId: string, deviceNumber?: number): string {
-  // If no device number provided or device number is 1, this is the first device
-  if (deviceNumber === undefined || deviceNumber === 1) {
+function generateSignerSlotUserId(nearAccountId: string, signerSlot?: number): string {
+  // The first signer slot keeps the historical account-scoped WebAuthn user ID.
+  if (signerSlot === undefined || signerSlot === 1) {
     return nearAccountId;
   }
-  // For additional devices, add device number in parentheses
-  return `${nearAccountId} (${deviceNumber})`;
+  return `${nearAccountId} (${signerSlot})`;
 }
 
 /**
@@ -261,21 +335,19 @@ function generateDeviceSpecificUserId(nearAccountId: string, deviceNumber?: numb
  * Creates clean, intuitive names that users will see
  *
  * @param nearAccountId - The NEAR account ID (e.g., "serp1.w3a-relayer.testnet")
- * @param deviceNumber - The device number (optional, undefined for device 1, 2 for device 2, etc.)
+ * @param signerSlot - The signer slot (optional, undefined for signer slot 1, 2 for signer slot 2, etc.)
  * @returns User-friendly display name:
- *   - Device 1: "serp120"
- *   - Device 2: "serp120 (device 2)"
- *   - Device 3: "serp120 (device 3)"
+ *   - Signer slot 1: "serp120"
+ *   - Signer slot 2: "serp120 (signer 2)"
+ *   - Signer slot 3: "serp120 (signer 3)"
  */
-function generateUserFriendlyDisplayName(nearAccountId: string, deviceNumber?: number): string {
+function generateSignerSlotDisplayName(nearAccountId: string, signerSlot?: number): string {
   // Extract the base username (everything before the first dot)
   const baseUsername = nearAccountId.split('.')[0];
-  // If no device number provided or device number is 1, this is the first device
-  if (deviceNumber === undefined || deviceNumber === 1) {
+  if (signerSlot === undefined || signerSlot === 1) {
     return baseUsername;
   }
-  // For additional devices, add device number with friendly label
-  return `${baseUsername} (device ${deviceNumber})`;
+  return `${baseUsername} (signer ${signerSlot})`;
 }
 
 // Abort native WebAuthn when page is being hidden or unloaded.

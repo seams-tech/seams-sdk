@@ -6,7 +6,7 @@ Monorepo for `@tatchi-xyz/sdk`: an embedded passkey wallet SDK for NEAR.
 
 ```bash
 pnpm install
-pnpm -C sdk build
+pnpm build:sdk-full
 ```
 
 Run examples from the repo root:
@@ -29,7 +29,9 @@ pnpm run server
 
 ### Useful commands
 
-- Build SDK (dev): `pnpm -C sdk build`
+- Build WASM workers: `pnpm build:wasm`
+- Build SDK from existing WASM outputs: `pnpm build:sdk`
+- Build WASM workers + SDK: `pnpm build:sdk-full`
 - Build SDK (prod/release-style): `pnpm -C sdk build:prod`
 - SDK watch mode: `pnpm -C sdk dev`
 - Tests: `pnpm -C sdk test`

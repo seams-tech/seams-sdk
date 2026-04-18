@@ -27,6 +27,7 @@ import {
   validateThresholdEcdsaSessionInputs,
 } from '../../commonRouterUtils';
 import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
+import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 
 type EcdsaRuntimePolicyScope = NonNullable<
   ThresholdEcdsaHssPrepareRequest['sessionPolicy']
@@ -201,7 +202,7 @@ async function resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
   ).trim();
   if (
     enrollment.enrollment.userId !== appSessionClaims.sub ||
-    enrollment.enrollment.otpChannel !== 'email_otp' ||
+    enrollment.enrollment.otpChannel !== EMAIL_OTP_CHANNEL ||
     !verifier
   ) {
     return undefined;
@@ -209,7 +210,7 @@ async function resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
   return {
     walletId: enrollment.enrollment.walletId,
     userId: enrollment.enrollment.userId,
-    otpChannel: 'email_otp',
+    otpChannel: EMAIL_OTP_CHANNEL,
     thresholdEcdsaClientVerifyingShareB64u: verifier,
   };
 }

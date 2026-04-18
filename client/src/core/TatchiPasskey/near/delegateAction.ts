@@ -74,7 +74,7 @@ export async function signDelegateAction(args: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(context.configs.network.chains),
           nearAccountId: String(nearAccountId),
         },
-        deviceNumber: options?.deviceNumber,
+        signerSlot: options?.signerSlot,
         confirmationConfigOverride: options?.confirmationConfig,
         title,
         body,

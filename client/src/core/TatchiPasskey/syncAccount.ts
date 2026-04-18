@@ -7,7 +7,7 @@ import { toAccountId } from '../types/accountIds';
 import { redactCredentialExtensionOutputs } from '../signingEngine/signers/webauthn/credentials';
 import type { WebAuthnAllowCredential } from '../signingEngine/signers/webauthn/credentials';
 import { base64UrlDecode } from '@shared/utils/base64';
-import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
+import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
 import { restoreLocalLoginState } from './restoreLocalLoginState';
@@ -192,7 +192,7 @@ export async function syncAccount(
       );
     }
 
-    const deviceNumber = coerceDeviceNumber(verifyJson.deviceNumber, {
+    const signerSlot = coerceSignerSlot(verifyJson.signerSlot, {
       min: 1,
       fallback: 1,
     });
@@ -211,7 +211,7 @@ export async function syncAccount(
     const normalizedAccountId = toAccountId(syncedAccountId);
     await context.signingEngine.storeUserData({
       nearAccountId: normalizedAccountId,
-      deviceNumber,
+      signerSlot,
       operationalPublicKey: publicKey,
       lastUpdated: Date.now(),
       passkeyCredential: {
@@ -228,7 +228,7 @@ export async function syncAccount(
       name: `Passkey for ${syncedAccountId}`,
       registered: new Date().toISOString(),
       syncedAt: new Date().toISOString(),
-      deviceNumber,
+      signerSlot,
     });
 
     emit({
@@ -253,7 +253,7 @@ export async function syncAccount(
 
       await storeThresholdEd25519KeyMaterial({
         nearAccountId: normalizedAccountId,
-        deviceNumber,
+        signerSlot,
         publicKey,
         relayerKeyId,
         keyVersion: thresholdKeyVersion,
@@ -309,7 +309,7 @@ export async function syncAccount(
     const restoredLogin = await restoreLocalLoginState({
       context,
       nearAccountId: normalizedAccountId,
-      deviceNumber,
+      signerSlot,
     });
     const isLoggedIn = restoredLogin.isLoggedIn;
 

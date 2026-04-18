@@ -184,7 +184,7 @@ function createExportTestEngine() {
           }),
           getLastProfileState: async () => ({
             profileId: 'profile-1',
-            deviceNumber: 5,
+            activeSignerSlot: 5,
           }),
         },
       },
@@ -477,6 +477,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
             accountRef: { chainIdKey: 'near:testnet', accountAddress: ACCOUNT_ID },
           }),
         },
+        stageAccountSigner: async () => undefined,
         upsertAccountSigner: async () => undefined,
       } as any,
       signingEngine: {
@@ -486,7 +487,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       },
       nearAccountId: ACCOUNT_ID,
       relayerUrl: RELAYER_URL,
-      deviceNumber: 2,
+      signerSlot: 2,
       rpId: RP_ID,
       credentialIdB64u: 'cred-b64u',
       thresholdEcdsa: {

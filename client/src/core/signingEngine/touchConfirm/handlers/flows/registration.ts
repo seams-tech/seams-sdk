@@ -87,18 +87,18 @@ export async function handleRegistrationFlow(
 
     // 4) Collect registration credentials (with duplicate retry)
     let credential: PublicKeyCredential | undefined;
-    let deviceNumber = request.payload?.deviceNumber ?? 1;
+    let signerSlot = request.payload?.signerSlot ?? 1;
 
-    const tryCreate = async (dn?: number): Promise<PublicKeyCredential> => {
+    const tryCreate = async (slot?: number): Promise<PublicKeyCredential> => {
       return await adapters.webauthn.createRegistrationCredential({
         nearAccountId,
         challengeB64u,
-        deviceNumber: dn,
+        signerSlot: slot,
       });
     };
 
     try {
-      credential = await tryCreate(deviceNumber);
+      credential = await tryCreate(signerSlot);
     } catch (e: unknown) {
       const err = toError(e);
       const name = String(err?.name || '');
@@ -107,19 +107,19 @@ export async function handleRegistrationFlow(
         name === 'InvalidStateError' || /excluded|already\s*registered/i.test(msg);
 
       if (isDuplicate) {
-        const nextDeviceNumber =
-          deviceNumber !== undefined && Number.isFinite(deviceNumber) ? deviceNumber + 1 : 2;
-        // Keep request payload and intentDigest in sync with the deviceNumber retry.
-        deviceNumber = nextDeviceNumber;
-        getRegisterAccountPayload(request).deviceNumber = nextDeviceNumber;
+        const nextSignerSlot =
+          signerSlot !== undefined && Number.isFinite(signerSlot) ? signerSlot + 1 : 2;
+        // Keep request payload and intentDigest in sync with the signer-slot retry.
+        signerSlot = nextSignerSlot;
+        getRegisterAccountPayload(request).signerSlot = nextSignerSlot;
         request.intentDigest =
           request.type === 'registerAccount'
-            ? `register:${nearAccountId}:${nextDeviceNumber}`
-            : `device2-register:${nearAccountId}:${nextDeviceNumber}`;
+            ? `register:${nearAccountId}:${nextSignerSlot}`
+            : `device2-register:${nearAccountId}:${nextSignerSlot}`;
 
         challengeB64u = await computeBoundIntentDigestB64u();
 
-        credential = await tryCreate(nextDeviceNumber);
+        credential = await tryCreate(nextSignerSlot);
       } else {
         console.error('[RegistrationFlow] credentials.create failed (non-duplicate)', {
           name,

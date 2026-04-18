@@ -320,7 +320,9 @@ export async function mintEd25519AuthSession(args: {
   sessionKind: Ed25519SessionKind;
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
-  webauthnAuthentication: WebAuthnAuthenticationCredential;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
+  appSessionJwt?: string;
+  useAppSessionCookie?: boolean;
   runtimeEnvironmentId?: string;
   publishableKey?: string;
 }): Promise<{
@@ -351,7 +353,9 @@ export async function mintEd25519AuthSession(args: {
   }
 
   // Never send PRF outputs to the relay.
-  const webauthn_authentication = redactCredentialExtensionOutputs(args.webauthnAuthentication);
+  const webauthn_authentication = args.webauthnAuthentication
+    ? redactCredentialExtensionOutputs(args.webauthnAuthentication)
+    : undefined;
 
   type ThresholdEd25519SessionMintResponseBody = Partial<{
     ok: boolean;
@@ -367,20 +371,26 @@ export async function mintEd25519AuthSession(args: {
   try {
     const url = `${relayerUrl}/threshold-ed25519/session`;
     const runtimeEnvironmentId = String(args.runtimeEnvironmentId || '').trim() || undefined;
+    const appSessionJwt = String(args.appSessionJwt || '').trim() || undefined;
+    const useAppSessionCookie = args.useAppSessionCookie === true;
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(publishableKey ? { Authorization: `Bearer ${publishableKey}` } : {}),
+        ...(appSessionJwt
+          ? { Authorization: `Bearer ${appSessionJwt}` }
+          : publishableKey
+            ? { Authorization: `Bearer ${publishableKey}` }
+            : {}),
       },
-      credentials: args.sessionKind === 'cookie' ? 'include' : 'omit',
+      credentials: useAppSessionCookie || args.sessionKind === 'cookie' ? 'include' : 'omit',
       body: JSON.stringify({
         sessionKind: args.sessionKind,
         relayerKeyId: args.relayerKeyId,
         sessionPolicy: args.sessionPolicy,
         ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
-        webauthn_authentication,
+        ...(webauthn_authentication ? { webauthn_authentication } : {}),
       }),
     });
 

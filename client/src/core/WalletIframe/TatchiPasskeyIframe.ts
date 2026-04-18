@@ -400,7 +400,7 @@ export class TatchiPasskeyIframe {
         nearAccountId,
         options: {
           onEvent: options?.onEvent,
-          deviceNumber: options?.deviceNumber,
+          signerSlot: options?.signerSlot,
           session: options?.session,
           signingSession: options?.signingSession,
         }, // Progress events flow back to parent
@@ -477,7 +477,7 @@ export class TatchiPasskeyIframe {
         nearAccountId: args.nearAccountId,
         transactions: args.transactions,
         options: {
-          deviceNumber: args.options?.deviceNumber,
+          signerSlot: args.options?.signerSlot,
           confirmerText: args.options?.confirmerText,
           confirmationConfig: args.options?.confirmationConfig,
           onEvent: args.options?.onEvent, // Progress events: user-confirmation, webauthn-authentication, etc.
@@ -505,7 +505,7 @@ export class TatchiPasskeyIframe {
         recipient: args.params.recipient,
         state: args.params.state,
         options: {
-          deviceNumber: args.options?.deviceNumber,
+          signerSlot: args.options?.signerSlot,
           onEvent: args.options?.onEvent,
           confirmerText: args.options?.confirmerText,
           confirmationConfig: args.options?.confirmationConfig,
@@ -533,7 +533,7 @@ export class TatchiPasskeyIframe {
         nearAccountId: args.nearAccountId,
         delegate: args.delegate,
         options: {
-          deviceNumber: options?.deviceNumber,
+          signerSlot: options?.signerSlot,
           onEvent: options?.onEvent,
           confirmationConfig: options?.confirmationConfig,
           confirmerText: options?.confirmerText,
@@ -584,7 +584,7 @@ export class TatchiPasskeyIframe {
 
     const signOptions: DelegateActionHooksOptions | undefined = options
       ? {
-          deviceNumber: options.deviceNumber,
+          signerSlot: options.signerSlot,
           onEvent: options.onEvent,
           onError: options.onError,
           waitUntil: options.waitUntil,

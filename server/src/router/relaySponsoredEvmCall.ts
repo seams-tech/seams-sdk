@@ -65,10 +65,7 @@ import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeJson } from './routeResponses';
 import type { ConsoleWebhookService } from '../console/webhooks';
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { isPlainObject } from '@shared/utils/validation';
 
 type SponsoredEvmExecution = {
   txHash: `0x${string}`;
@@ -302,7 +299,7 @@ function parseSponsoredEvmRequestBody(
 ): SponsoredEvmCallRequest {
   const environmentId = extractRelayEnvironmentId(headers);
   const normalizedBody =
-    isObject(body)
+    isPlainObject(body)
       ? ({
           ...body,
           environmentId: environmentId || body.environmentId,

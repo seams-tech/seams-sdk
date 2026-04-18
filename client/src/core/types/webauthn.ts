@@ -8,7 +8,7 @@ export interface StoredAuthenticator {
   userId: string;
   name?: string;
   registered: Date;
-  deviceNumber?: number;
+  signerSlot?: number;
 }
 
 /** WebAuthn authentication data structure for relay verification */

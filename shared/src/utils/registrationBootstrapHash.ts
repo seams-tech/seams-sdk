@@ -3,7 +3,7 @@ import { sha256BytesUtf8 } from './digests';
 
 const REGISTRATION_BOOTSTRAP_HASH_FIELDS = [
   'new_account_id',
-  'device_number',
+  'signer_slot',
   'threshold_ed25519',
   'threshold_ecdsa',
   'rp_id',

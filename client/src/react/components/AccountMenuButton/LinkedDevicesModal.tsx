@@ -10,7 +10,7 @@ interface LinkedDevicesModalProps {
 }
 
 type RelayAuthenticatorRow = {
-  deviceNumber?: number;
+  signerSlot?: number;
   publicKey?: string;
 };
 
@@ -26,17 +26,17 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     [theme, tokens],
   );
   const pageSize = 3;
-  // Authenticators list: credentialId + device number
+  // Authenticators list: credentialId + signer slot
   const [authRows, setAuthRows] = useState<
     Array<{
       credentialId: string;
-      deviceNumber: number;
+      signerSlot: number;
       nearPublicKey: string | null;
     }>
   >([
     {
       credentialId: 'placeholder',
-      deviceNumber: 0,
+      signerSlot: 0,
       nearPublicKey: null,
     },
   ]);
@@ -44,7 +44,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tooltipVisible, setTooltipVisible] = useState<number | null>(null);
-  const [currentDeviceNumber, setCurrentDeviceNumber] = useState<number | null>(null);
+  const [currentSignerSlot, setCurrentSignerSlot] = useState<number | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -78,24 +78,24 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     setError(null);
 
     try {
-      // Resolve current device number for highlighting
-      let currentDeviceNumberFromState: number | null = null;
+      // Resolve current signer slot for highlighting
+      let currentSignerSlotFromState: number | null = null;
       try {
         const { login } = await tatchi.auth.getWalletSession(nearAccountId);
-        const dn = (login as any)?.userData?.deviceNumber;
-        currentDeviceNumberFromState =
-          typeof dn === 'number' && Number.isFinite(dn) ? Math.floor(dn) : null;
+        const slot = (login as any)?.userData?.signerSlot;
+        currentSignerSlotFromState =
+          typeof slot === 'number' && Number.isFinite(slot) ? Math.floor(slot) : null;
       } catch {
-        currentDeviceNumberFromState = null;
+        currentSignerSlotFromState = null;
       }
-      setCurrentDeviceNumber(currentDeviceNumberFromState);
+      setCurrentSignerSlot(currentSignerSlotFromState);
 
       const keys = await viewAccessKeyList(nearAccountId);
 
-      const keyMetaByPublicKey = new Map<string, { deviceNumber?: number }>();
+      const keyMetaByPublicKey = new Map<string, { signerSlot?: number }>();
 
-      // Best-effort: fetch device metadata from relay-private WebAuthn stores (auth-protected).
-      // This annotates access keys with device numbers.
+      // Best-effort: fetch signer metadata from relay-private WebAuthn stores (auth-protected).
+      // This annotates access keys with signer slots.
       const relayMetaByPublicKey = new Map<string, RelayAuthenticatorRow>();
       try {
         const relayerUrl = String((tatchi as any)?.configs?.network.relayer?.url || '')
@@ -114,12 +114,12 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
             for (const row of list) {
               const pk = typeof row?.publicKey === 'string' ? row.publicKey.trim() : '';
               if (!pk) continue;
-              const deviceNumber =
-                typeof row?.deviceNumber === 'number' && Number.isFinite(row.deviceNumber)
-                  ? Math.floor(row.deviceNumber)
+              const signerSlot =
+                typeof row?.signerSlot === 'number' && Number.isFinite(row.signerSlot)
+                  ? Math.floor(row.signerSlot)
                   : undefined;
               keyMetaByPublicKey.set(pk, {
-                ...(deviceNumber ? { deviceNumber } : {}),
+                ...(signerSlot ? { signerSlot } : {}),
               });
             }
           } catch {
@@ -149,10 +149,10 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 
       const currentKey = loginState?.nearPublicKey || null;
 
-      const nextDeviceNumber = (() => {
+      const nextSignerSlot = (() => {
         let next = 1;
         return () => {
-          while (currentDeviceNumberFromState != null && next === currentDeviceNumberFromState)
+          while (currentSignerSlotFromState != null && next === currentSignerSlotFromState)
             next++;
           return next++;
         };
@@ -160,7 +160,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 
       const rows: Array<{
         credentialId: string;
-        deviceNumber: number;
+        signerSlot: number;
         nearPublicKey: string | null;
       }> = [];
       const items = Array.isArray((keys as any)?.keys)
@@ -171,35 +171,35 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
         const isCurrent = !!publicKey && !!currentKey && publicKey === currentKey;
         const keyMeta = publicKey ? keyMetaByPublicKey.get(publicKey) : undefined;
         const relayMeta = publicKey ? relayMetaByPublicKey.get(publicKey) : undefined;
-        const metaDeviceNumber =
+        const metaSignerSlot =
           keyMeta &&
-          typeof keyMeta.deviceNumber === 'number' &&
-          Number.isFinite(keyMeta.deviceNumber)
-            ? Math.floor(keyMeta.deviceNumber)
+          typeof keyMeta.signerSlot === 'number' &&
+          Number.isFinite(keyMeta.signerSlot)
+            ? Math.floor(keyMeta.signerSlot)
             : null;
-        const relayDeviceNumber =
+        const relaySignerSlot =
           relayMeta &&
-          typeof relayMeta.deviceNumber === 'number' &&
-          Number.isFinite(relayMeta.deviceNumber)
-            ? Math.floor(relayMeta.deviceNumber)
+          typeof relayMeta.signerSlot === 'number' &&
+          Number.isFinite(relayMeta.signerSlot)
+            ? Math.floor(relayMeta.signerSlot)
             : null;
-        const deviceNumber =
-          isCurrent && currentDeviceNumberFromState != null
-            ? currentDeviceNumberFromState
-            : metaDeviceNumber && metaDeviceNumber >= 1
-              ? metaDeviceNumber
-              : relayDeviceNumber && relayDeviceNumber >= 1
-                ? relayDeviceNumber
-                : nextDeviceNumber();
+        const signerSlot =
+          isCurrent && currentSignerSlotFromState != null
+            ? currentSignerSlotFromState
+            : metaSignerSlot && metaSignerSlot >= 1
+              ? metaSignerSlot
+              : relaySignerSlot && relaySignerSlot >= 1
+                ? relaySignerSlot
+                : nextSignerSlot();
         rows.push({
-          credentialId: publicKey || `access-key-${deviceNumber}`,
-          deviceNumber,
+          credentialId: publicKey || `access-key-${signerSlot}`,
+          signerSlot,
           nearPublicKey: publicKey,
         });
       }
       setAuthRows(rows);
     } catch (err: any) {
-      setError(err.message || 'Failed to load linked devices or access keys');
+      setError(err.message || 'Failed to load linked signers or access keys');
     } finally {
       setIsLoading(false);
     }
@@ -257,7 +257,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           onMouseUp={(e) => e.stopPropagation()}
         >
           <div className="w3a-access-keys-modal-header">
-            <h2 className="w3a-access-keys-modal-title">Linked Devices</h2>
+            <h2 className="w3a-access-keys-modal-title">Linked Signers</h2>
           </div>
           <button
             className="w3a-access-keys-modal-close"
@@ -290,7 +290,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
             !error &&
             authRows.filter((r) => r.credentialId !== 'placeholder').length === 0 && (
               <div className="w3a-access-keys-empty">
-                <p>No linked devices found.</p>
+                <p>No linked signers found.</p>
               </div>
             )}
 
@@ -299,12 +299,12 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
               {(() => {
                 const rows = authRows.filter((r) => r.credentialId !== 'placeholder');
                 const current =
-                  currentDeviceNumber != null
-                    ? rows.find((r) => r.deviceNumber === currentDeviceNumber)
+                  currentSignerSlot != null
+                    ? rows.find((r) => r.signerSlot === currentSignerSlot)
                     : null;
                 const othersAll =
-                  currentDeviceNumber != null
-                    ? rows.filter((r) => r.deviceNumber !== currentDeviceNumber)
+                  currentSignerSlot != null
+                    ? rows.filter((r) => r.signerSlot !== currentSignerSlot)
                     : rows;
 
                 const totalOthers = othersAll.length;
@@ -320,15 +320,15 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                   const index = 0;
                   const currentKey = current.nearPublicKey || loginState?.nearPublicKey || null;
                   items.push(
-                    <div key={`current-${current.deviceNumber}`} className="w3a-key-item">
+                    <div key={`current-${current.signerSlot}`} className="w3a-key-item">
                       <div className="w3a-key-content">
                         <div className="w3a-key-details">
                           <div className="w3a-key-header">
-                            <div className="mono w3a-device-row">
-                              <span className="w3a-device-badge">
-                                Device {current.deviceNumber}
+                            <div className="mono w3a-signer-row">
+                              <span className="w3a-signer-badge">
+                                Signer {current.signerSlot}
                               </span>
-                              <span className="w3a-current-device-text">(current device)</span>
+                              <span className="w3a-current-signer-text">(active signer)</span>
                             </div>
                           </div>
                           {currentKey && (
@@ -357,12 +357,12 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                 others.forEach((item, i) => {
                   const globalIndex = startIndex + i;
                   items.push(
-                    <div key={`other-${item.deviceNumber}-${i}`} className="w3a-key-item">
+                    <div key={`other-${item.signerSlot}-${i}`} className="w3a-key-item">
                       <div className="w3a-key-content">
                         <div className="w3a-key-details">
                           <div className="w3a-key-header">
-                            <div className="mono w3a-device-row">
-                              <span className="w3a-device-badge">Device {item.deviceNumber}</span>
+                            <div className="mono w3a-signer-row">
+                              <span className="w3a-signer-badge">Signer {item.signerSlot}</span>
                             </div>
                           </div>
                           {item.nearPublicKey && (
@@ -398,12 +398,12 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
             (() => {
               const rows = authRows.filter((r) => r.credentialId !== 'placeholder');
               const current =
-                currentDeviceNumber != null
-                  ? rows.find((r) => r.deviceNumber === currentDeviceNumber)
+                currentSignerSlot != null
+                  ? rows.find((r) => r.signerSlot === currentSignerSlot)
                   : null;
               const othersAll =
-                currentDeviceNumber != null && current
-                  ? rows.filter((r) => r.deviceNumber !== currentDeviceNumber)
+                currentSignerSlot != null && current
+                  ? rows.filter((r) => r.signerSlot !== currentSignerSlot)
                   : rows;
               const totalOthers = othersAll.length;
               const totalPages = Math.max(1, Math.ceil(totalOthers / pageSize));

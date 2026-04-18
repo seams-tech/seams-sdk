@@ -10,6 +10,7 @@ import type { CfEnv, CfExecutionContext, FetchHandler } from './types';
 import { json, withCors } from './http';
 import { handleThresholdEd25519 } from './routes/thresholdEd25519';
 import { handleThresholdEcdsa } from './routes/thresholdEcdsa';
+import { isPlainObject } from '@shared/utils/validation';
 
 type SelfHostedCloudflareRelayContext = Parameters<typeof handleThresholdEd25519>[0];
 
@@ -80,10 +81,6 @@ function notFound(): Response {
   return new Response('Not Found', { status: 404 });
 }
 
-function isObject(input: unknown): input is Record<string, unknown> {
-  return Boolean(input && typeof input === 'object' && !Array.isArray(input));
-}
-
 async function readJson(request: Request): Promise<unknown> {
   try {
     return await request.json();
@@ -131,11 +128,11 @@ async function authorizeSigningRootAdmin(
   config: SelfHostedSigningRootAdminRoutes,
 ): Promise<Response | null> {
   const auth = await config.authenticate({ request });
-  if (auth === true || (isObject(auth) && auth.ok === true)) return null;
-  const status = isObject(auth) && typeof auth.status === 'number' ? auth.status : 401;
-  const code = isObject(auth) && typeof auth.code === 'string' ? auth.code : 'unauthorized';
+  if (auth === true || (isPlainObject(auth) && auth.ok === true)) return null;
+  const status = isPlainObject(auth) && typeof auth.status === 'number' ? auth.status : 401;
+  const code = isPlainObject(auth) && typeof auth.code === 'string' ? auth.code : 'unauthorized';
   const message =
-    isObject(auth) && typeof auth.message === 'string'
+    isPlainObject(auth) && typeof auth.message === 'string'
       ? auth.message
       : 'self-host signing-root admin authorization failed';
   return json({ ok: false, code, message }, { status });
@@ -147,7 +144,7 @@ function requireQueryParam(url: URL, name: string): string | null {
 }
 
 function requireBodyString(body: unknown, name: string): string | null {
-  if (!isObject(body)) return null;
+  if (!isPlainObject(body)) return null;
   const value = typeof body[name] === 'string' ? body[name].trim() : '';
   return value || null;
 }
@@ -160,15 +157,18 @@ function resolveSelfHostedWalletVerifier(
   ctx: SelfHostedCloudflareRelayContext,
 ): SelfHostedEcdsaSigningRootWalletVerifier | null {
   const candidate = ctx.opts.threshold as unknown;
-  if (isObject(candidate) && typeof candidate.verifyEcdsaSigningRootWalletAddress === 'function') {
+  if (
+    isPlainObject(candidate) &&
+    typeof candidate.verifyEcdsaSigningRootWalletAddress === 'function'
+  ) {
     return candidate as SelfHostedEcdsaSigningRootWalletVerifier;
   }
   return null;
 }
 
 function selfHostedSigningRootResultStatus(result: unknown): number {
-  if (isObject(result) && result.ok === true) return 200;
-  const code = isObject(result) && typeof result.code === 'string' ? result.code : '';
+  if (isPlainObject(result) && result.ok === true) return 200;
+  const code = isPlainObject(result) && typeof result.code === 'string' ? result.code : '';
   if (code === 'not_configured' || code === 'not_implemented') return 501;
   if (code === 'unauthorized') return 403;
   if (code === 'invalid_body' || code === 'invalid_request') return 400;
@@ -204,9 +204,9 @@ async function handleSigningRootAdminRoutes(
   if (ctx.method === 'POST' && ctx.pathname === '/self-host/signing-root/import') {
     const body = await readJson(ctx.request);
     const record =
-      isObject(body) && 'record' in body
+      isPlainObject(body) && 'record' in body
         ? body.record
-        : isObject(body) && 'bundle' in body
+        : isPlainObject(body) && 'bundle' in body
           ? body.bundle
           : body;
     const result = await callSigningRootAdminDo(config, {

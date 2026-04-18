@@ -107,15 +107,15 @@ export async function linkDeviceWithScannedQRData(
           const session = response.session && typeof response.session === 'object'
             ? (response.session as Record<string, unknown>)
             : {};
-          const deviceNumber = Math.floor(Number(session.deviceNumber));
-          if (Number.isFinite(deviceNumber) && deviceNumber > 0) {
+          const signerSlot = Math.floor(Number(session.signerSlot));
+          if (Number.isFinite(signerSlot) && signerSlot > 0) {
             try {
               await persistPreparedLinkDeviceSmartAccountSigners({
                 context,
                 indexedDB: IndexedDBManager,
                 accountId: String(device1AccountId),
                 sessionId,
-                deviceNumber,
+                signerSlot,
               });
               await IndexedDBManager.repairSignerMutationSagasWithRuntime({
                 limit: 64,

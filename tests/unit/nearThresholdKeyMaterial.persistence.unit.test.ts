@@ -30,7 +30,9 @@ test.describe('NEAR threshold key material persistence', () => {
         const clientDB = new PasskeyClientDBManager();
         clientDB.setDbName(`PasskeyClientDB-nearThresholdCanonical-${suffix}`);
         const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
-        accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-nearThresholdCanonical-${suffix}`);
+        accountKeyMaterialDB.setDbName(
+          `PasskeyAccountKeyMaterial-nearThresholdCanonical-${suffix}`,
+        );
         const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
         const nearAccountId = 'alice.testnet';
         const chainIdKey = 'near:testnet';
@@ -38,7 +40,7 @@ test.describe('NEAR threshold key material persistence', () => {
 
         await clientDB.upsertProfile({
           profileId,
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: {
             id: 'credential-id',
             rawId: 'credential-raw-id',
@@ -57,7 +59,10 @@ test.describe('NEAR threshold key material persistence', () => {
           accountAddress: nearAccountId,
           signerId: 'ed25519:threshold-operational',
           signerSlot: 1,
-          signerType: 'passkey',
+          signerType: 'threshold',
+          signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
           status: 'active',
           mutation: { routeThroughOutbox: false },
         });
@@ -66,7 +71,7 @@ test.describe('NEAR threshold key material persistence', () => {
           { clientDB, accountKeyMaterialDB },
           {
             nearAccountId,
-            deviceNumber: 1,
+            signerSlot: 1,
             publicKey: 'ed25519:threshold-operational',
             relayerKeyId: 'rk-1',
             keyVersion: 'threshold-ed25519-hss-v1',
@@ -130,7 +135,7 @@ test.describe('NEAR threshold key material persistence', () => {
     expect(result.rawHasRecoveryExportCapable).toBe(false);
     expect(result.material).toMatchObject({
       nearAccountId: 'alice.testnet',
-      deviceNumber: 1,
+      signerSlot: 1,
       kind: 'threshold_ed25519_v1',
       publicKey: 'ed25519:threshold-operational',
       relayerKeyId: 'rk-1',
@@ -165,7 +170,7 @@ test.describe('NEAR threshold key material persistence', () => {
 
         await clientDB.upsertProfile({
           profileId,
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: {
             id: 'credential-id',
             rawId: 'credential-raw-id',
@@ -184,7 +189,10 @@ test.describe('NEAR threshold key material persistence', () => {
           accountAddress: nearAccountId,
           signerId: 'ed25519:threshold-operational',
           signerSlot: 1,
-          signerType: 'passkey',
+          signerType: 'threshold',
+          signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
           status: 'active',
           mutation: { routeThroughOutbox: false },
         });
@@ -199,7 +207,7 @@ test.describe('NEAR threshold key material persistence', () => {
 
         await accountKeyMaterialDB.storeKeyMaterial({
           profileId: context.profileId,
-          deviceNumber: 1,
+          signerSlot: 1,
           chainIdKey: context.accountRef.chainIdKey,
           keyKind: 'threshold_share_v1',
           algorithm: 'ed25519',
@@ -212,7 +220,11 @@ test.describe('NEAR threshold key material persistence', () => {
           schemaVersion: 1,
         });
 
-        const material = await getNearThresholdKeyMaterial({ clientDB, accountKeyMaterialDB }, nearAccountId, 1);
+        const material = await getNearThresholdKeyMaterial(
+          { clientDB, accountKeyMaterialDB },
+          nearAccountId,
+          1,
+        );
         return material;
       },
       { paths: IMPORT_PATHS },
@@ -220,7 +232,7 @@ test.describe('NEAR threshold key material persistence', () => {
 
     expect(result).toMatchObject({
       nearAccountId: 'alice.testnet',
-      deviceNumber: 1,
+      signerSlot: 1,
       kind: 'threshold_ed25519_v1',
       publicKey: 'ed25519:threshold-operational',
       relayerKeyId: 'rk-1',

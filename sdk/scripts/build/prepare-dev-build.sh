@@ -9,7 +9,7 @@ cd "$SDK_ROOT"
 source "$SDK_ROOT/build-paths.sh"
 
 if [ ! -d "$BUILD_ROOT" ]; then
-  pnpm run build
+  pnpm run build:sdk-full
   exit 0
 fi
 
@@ -18,4 +18,4 @@ if "$SCRIPT_DIR/check-build-freshness.sh" >/dev/null 2>&1; then
   exit 0
 fi
 
-pnpm run build
+pnpm run build:sdk-full

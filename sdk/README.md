@@ -27,7 +27,9 @@ yarn add @tatchi-xyz/sdk
 ```bash
 # From repo root
 pnpm install
-pnpm -C sdk build     # Builds WASM + bundles
+pnpm build:wasm       # Builds Rust/WASM packages
+pnpm build:sdk        # Builds SDK dist from existing WASM outputs
+pnpm build:sdk-full   # Builds WASM packages + SDK dist
 pnpm -C sdk dev       # Watch mode
 ```
 

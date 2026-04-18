@@ -7,6 +7,7 @@ import {
 import type { InitInput } from '../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import type { Logger } from './logger';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type {
   SigningRootSecretDecryptAdapter,
   SigningRootSecretResolverAdapters,
@@ -591,12 +592,12 @@ export interface WebAuthnRegistrationCredential {
 export interface CreateAccountAndRegisterRequest {
   new_account_id: string;
   /**
-   * Device number used during registration.
+   * Signer slot used during registration.
    *
    * This is used to deterministically derive the registration WebAuthn challenge
-   * in WebAuthn-only mode (e.g. `sha256("register:${accountId}:${deviceNumber}")`).
+   * in WebAuthn-only mode (e.g. `sha256("register:${accountId}:${signerSlot}")`).
    */
-  device_number?: number;
+  signer_slot?: number;
   threshold_ed25519?: {
     key_version: string;
     recovery_export_capable: boolean;
@@ -986,7 +987,7 @@ export interface ThresholdEcdsaHssPrepareRequest {
   emailOtpEnrollmentClaims?: {
     walletId: string;
     userId: string;
-    otpChannel: 'email_otp';
+    otpChannel: WalletEmailOtpChannel;
     thresholdEcdsaClientVerifyingShareB64u: string;
   };
   /**

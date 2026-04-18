@@ -9,9 +9,9 @@ import {
   redactCredentialExtensionOutputs,
 } from '@/core/signingEngine/signers/webauthn/credentials/credentialExtensions';
 import {
-  getLastLoggedInDeviceNumber,
-  parseDeviceNumber,
-} from '@/core/signingEngine/signers/webauthn/device/getDeviceNumber';
+  getLastLoggedInSignerSlot,
+  parseSignerSlot,
+} from '@/core/signingEngine/signers/webauthn/device/signerSlot';
 
 export const PRF_MISSING_ERROR =
   'Missing PRF.first output from credential (requires a PRF-enabled passkey)';
@@ -38,7 +38,7 @@ export function requirePrfFirstFromCredential(
 
 export type ResolvedNearSigningMaterials = {
   nearAccountId: AccountId;
-  resolvedDeviceNumber: number;
+  resolvedSignerSlot: number;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial | null;
   warnings: string[];
 };
@@ -46,7 +46,7 @@ export type ResolvedNearSigningMaterials = {
 export async function resolveNearSigningMaterials(args: {
   ctx: SigningRuntimeDeps;
   nearAccountId: string;
-  deviceNumber?: number;
+  signerSlot?: number;
   operationLabel: string;
   warnings?: string[];
 }): Promise<ResolvedNearSigningMaterials> {
@@ -54,13 +54,13 @@ export async function resolveNearSigningMaterials(args: {
   const relayerUrl = args.ctx.relayerUrl;
   const warnings = args.warnings ?? [];
 
-  const parsedDeviceNumber = parseDeviceNumber(args.deviceNumber, { min: 1 });
-  if (args.deviceNumber !== undefined && parsedDeviceNumber === null) {
-    throw new Error(`Invalid deviceNumber for ${args.operationLabel}: ${args.deviceNumber}`);
+  const parsedSignerSlot = parseSignerSlot(args.signerSlot, { min: 1 });
+  if (args.signerSlot !== undefined && parsedSignerSlot === null) {
+    throw new Error(`Invalid signerSlot for ${args.operationLabel}: ${args.signerSlot}`);
   }
-  const resolvedDeviceNumber =
-    parsedDeviceNumber ??
-    (await getLastLoggedInDeviceNumber(nearAccountId, args.ctx.indexedDB.clientDB));
+  const resolvedSignerSlot =
+    parsedSignerSlot ??
+    (await getLastLoggedInSignerSlot(nearAccountId, args.ctx.indexedDB.clientDB));
 
   const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
     {
@@ -68,7 +68,7 @@ export async function resolveNearSigningMaterials(args: {
       accountKeyMaterialDB: args.ctx.indexedDB.accountKeyMaterialDB,
     },
     nearAccountId,
-    resolvedDeviceNumber,
+    resolvedSignerSlot,
   );
   if (!thresholdKeyMaterial) {
     throw new Error('[SigningEngine] threshold key material is unavailable');
@@ -76,7 +76,7 @@ export async function resolveNearSigningMaterials(args: {
 
   return {
     nearAccountId,
-    resolvedDeviceNumber,
+    resolvedSignerSlot,
     thresholdKeyMaterial,
     warnings,
   };

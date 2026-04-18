@@ -131,4 +131,23 @@ test.describe('threshold ECDSA legacy-surface guard', () => {
     expect(secp256k1Content.includes("trigger: 'post_sign_success'")).toBe(true);
     expect(evmSigningContent.includes("phase: 'presign-refill-scheduled'")).toBe(true);
   });
+
+  test('persisted ECDSA replay validates signing-root metadata before session release', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+    const servicePath = path.join(
+      repoRoot,
+      'server/src/core/ThresholdService/ThresholdSigningService.ts',
+    );
+    const source = fs.readFileSync(servicePath, 'utf8');
+
+    expect(source).toContain('private async deriveEcdsaKeyMaterialFromPersistedBackend');
+    expect(source).toContain('signingRootMetadata: {');
+    expect(source).toContain('signingRootId: input.integratedKey.signingRootId');
+    expect(source).toContain('const expectedSigningRootMetadata = createEcdsaSigningRootMetadata(');
+    expect(source).toContain('derived.value.signingRootMetadata');
+    expect(source).toContain(
+      "message: 'threshold_ecdsa.session_policy signing root does not match integrated key'",
+    );
+    expect(source).toContain('ecdsaThresholdKeyId signing root does not match threshold session scope');
+  });
 });

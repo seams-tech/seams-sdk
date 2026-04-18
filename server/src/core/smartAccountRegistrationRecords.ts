@@ -60,7 +60,7 @@ function toAccountModel(chain: SmartAccountChain): 'erc4337' | 'tempo-native' {
 export function buildRegistrationSmartAccountRecords(input: {
   userId: string;
   nearAccountId: string;
-  deviceNumber: number;
+  signerSlot: number;
   credentialIdB64u: string;
   rpId: string;
   ecdsaThresholdKeyId?: string;
@@ -123,7 +123,7 @@ export function buildRegistrationSmartAccountRecords(input: {
           ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
           relayerKeyId,
           thresholdEcdsaPublicKeyB64u,
-          deviceNumber: input.deviceNumber,
+          signerSlot: input.signerSlot,
           credentialIdB64u,
           rpId,
           chain: target.chain,

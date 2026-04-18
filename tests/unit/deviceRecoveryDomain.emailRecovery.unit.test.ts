@@ -124,12 +124,12 @@ function createLocalDomain(options?: {
       storeAuthenticator: async (input: any) => {
         storeAuthenticatorCalls.push(input);
       },
-      setLastUser: async (nearAccountId: string, deviceNumber: number) => {
+      setLastUser: async (nearAccountId: string, signerSlot: number) => {
         const accountId = String(nearAccountId || '');
         const stored = usersByAccount.get(accountId) || {};
         lastUser = {
           nearAccountId: accountId,
-          deviceNumber,
+          signerSlot,
           operationalPublicKey: String(stored?.operationalPublicKey || 'ed25519:recovery-key'),
         };
       },
@@ -266,7 +266,7 @@ test.describe('EmailRecoveryDomain', () => {
       expect(pendingStore.setCalls[0]?.ecdsaThresholdKeyId).toBe('ehss-email-recovery-1');
       expect(pendingStore.setCalls[0]?.newEvmOwnerAddress).toBe(`0x${'11'.repeat(20)}`);
       expect(pendingStore.setCalls[0]?.recoverySessionId).toBe('ABC123');
-      expect(pendingStore.setCalls[0]?.deviceNumber).toBe(7);
+      expect(pendingStore.setCalls[0]?.signerSlot).toBe(7);
       expect(events.map((ev) => ev.phase)).toEqual([
         EmailRecoveryPhase.STEP_1_PREPARATION,
         EmailRecoveryPhase.STEP_2_TOUCH_ID_REGISTRATION,
@@ -300,7 +300,7 @@ test.describe('EmailRecoveryDomain', () => {
       requestId: 'ABC123',
       credential: {},
       createdAt: Date.now(),
-      deviceNumber: 1,
+      signerSlot: 1,
       status: 'awaiting-email',
     });
     const events: any[] = [];

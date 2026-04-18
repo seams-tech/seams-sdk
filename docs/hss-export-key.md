@@ -287,7 +287,8 @@ The fix was to make the relay load the dedicated optimized server package from:
 using the build/runtime wiring in:
 
 - [server/src/core/ThresholdService/ed25519HssWasm.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/core/ThresholdService/ed25519HssWasm.ts)
-- [sdk/scripts/build/build-dev.sh](/Users/pta/Dev/rust/simple-threshold-signer/sdk/scripts/build/build-dev.sh)
+- [sdk/scripts/build/build-sdk.sh](/Users/pta/Dev/rust/simple-threshold-signer/sdk/scripts/build/build-sdk.sh)
+- [sdk/scripts/build/build-wasm.sh](/Users/pta/Dev/rust/simple-threshold-signer/sdk/scripts/build/build-wasm.sh)
 - [sdk/scripts/build/build-prod.sh](/Users/pta/Dev/rust/simple-threshold-signer/sdk/scripts/build/build-prod.sh)
 
 ### Was The Server Building The WASM Worker Dynamically?

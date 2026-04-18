@@ -1,4 +1,5 @@
 import type { AccountId } from '../types/accountIds';
+import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { PasskeyClientDBManager } from './passkeyClientDB/manager';
 import type {
@@ -11,15 +12,17 @@ import type {
   SignerMutationOptions,
   SignerOperationStatus,
   SignerOpOutboxRecord,
-  UpsertAccountSignerInput,
   UpsertChainAccountInput,
   UpsertProfileInput,
 } from './passkeyClientDB.types';
+import type {
+  ActivateAccountSignerInput as AccountSignerLifecycleInput,
+  ActivateAccountSignerResult as AccountSignerLifecycleResult,
+  StageAccountSignerInput,
+  StageAccountSignerResult,
+} from './accountSignerLifecycle';
 import type { AccountKeyMaterialDBManager } from './accountKeyMaterialDB/manager';
-import {
-  type KeyMaterialKind,
-  type KeyMaterialRecord,
-} from './accountKeyMaterialDB.types';
+import { type KeyMaterialKind, type KeyMaterialRecord } from './accountKeyMaterialDB.types';
 import { passkeyClientDB, accountKeyMaterialDB } from './singletons';
 
 export interface UnifiedIndexedDBManagerDeps {
@@ -49,6 +52,34 @@ type DeployedSignerMutationRuntime = {
     now: number;
   }) => Promise<{ txHash?: string | null }>;
 };
+
+export type LocalSignerReconciliationIssueCode =
+  | 'duplicate_active_signer_slot'
+  | 'active_signer_missing_key_material'
+  | 'key_material_without_active_signer'
+  | 'stale_pending_signer';
+
+export type LocalSignerReconciliationIssue = {
+  code: LocalSignerReconciliationIssueCode;
+  profileId: string;
+  chainIdKey?: string;
+  accountAddress?: string;
+  signerId?: string;
+  signerSlot?: number;
+  keyKind?: string;
+  message: string;
+};
+
+export type LocalSignerReconciliationSummary = {
+  scannedProfiles: number;
+  scannedSigners: number;
+  scannedKeyMaterials: number;
+  issues: LocalSignerReconciliationIssue[];
+  repairs: string[];
+};
+
+const DEFAULT_STALE_PENDING_SIGNER_MS = 24 * 60 * 60_000;
+const KEY_MATERIAL_SIGNER_KINDS = new Set<string>(Object.values(SIGNER_KINDS));
 
 /**
  * Unified IndexedDB interface providing access to both databases
@@ -90,6 +121,11 @@ export class UnifiedIndexedDBManager {
       } catch (error) {
         console.warn('IndexedDB saga repair failed during initialize:', error);
       }
+      try {
+        await this.reconcileLocalSignerState({ limitProfiles: 64, logIssues: true });
+      } catch (error) {
+        console.warn('IndexedDB local signer reconciliation failed during initialize:', error);
+      }
 
       this._initialized = true;
     } catch (error) {
@@ -118,6 +154,10 @@ export class UnifiedIndexedDBManager {
     return this.clientDB.getProfile(profileId);
   }
 
+  async listProfiles(args?: { limit?: number }): Promise<ProfileRecord[]> {
+    return this.clientDB.listProfiles(args);
+  }
+
   async upsertProfile(input: UpsertProfileInput): Promise<ProfileRecord> {
     return this.clientDB.upsertProfile(input);
   }
@@ -134,8 +174,14 @@ export class UnifiedIndexedDBManager {
     return this.clientDB.getChainAccount(args);
   }
 
-  async upsertAccountSigner(input: UpsertAccountSignerInput): Promise<AccountSignerRecord> {
-    return this.clientDB.upsertAccountSigner(input);
+  async activateAccountSigner(
+    input: AccountSignerLifecycleInput,
+  ): Promise<AccountSignerLifecycleResult> {
+    return this.clientDB.activateAccountSigner(input);
+  }
+
+  async stageAccountSigner(input: StageAccountSignerInput): Promise<StageAccountSignerResult> {
+    return this.clientDB.stageAccountSigner(input);
   }
 
   async listAccountSigners(args: {
@@ -195,11 +241,159 @@ export class UnifiedIndexedDBManager {
 
   async getKeyMaterial(
     profileId: string,
-    deviceNumber: number,
+    signerSlot: number,
     chainIdKey: string,
     keyKind: KeyMaterialKind,
   ): Promise<KeyMaterialRecord | null> {
-    return this.accountKeyMaterialDB.getKeyMaterial(profileId, deviceNumber, chainIdKey, keyKind);
+    return this.accountKeyMaterialDB.getKeyMaterial(profileId, signerSlot, chainIdKey, keyKind);
+  }
+
+  async listKeyMaterialByProfile(
+    profileId: string,
+    chainIdKey?: string,
+  ): Promise<KeyMaterialRecord[]> {
+    return this.accountKeyMaterialDB.listKeyMaterialByProfile(profileId, chainIdKey);
+  }
+
+  async reconcileLocalSignerState(args?: {
+    profileId?: string;
+    limitProfiles?: number;
+    stalePendingSignerMs?: number;
+    now?: number;
+    logIssues?: boolean;
+  }): Promise<LocalSignerReconciliationSummary> {
+    const now = typeof args?.now === 'number' ? args.now : Date.now();
+    const stalePendingSignerMs =
+      Number.isSafeInteger(args?.stalePendingSignerMs) && Number(args?.stalePendingSignerMs) > 0
+        ? Number(args?.stalePendingSignerMs)
+        : DEFAULT_STALE_PENDING_SIGNER_MS;
+    const profileId = toTrimmedString(args?.profileId || '');
+    const profiles = profileId
+      ? (await this.clientDB.getProfile(profileId).then((profile) => (profile ? [profile] : [])))
+      : await this.clientDB.listProfiles({ limit: args?.limitProfiles });
+    const summary: LocalSignerReconciliationSummary = {
+      scannedProfiles: 0,
+      scannedSigners: 0,
+      scannedKeyMaterials: 0,
+      issues: [],
+      repairs: [],
+    };
+
+    const pushIssue = (issue: LocalSignerReconciliationIssue): void => {
+      summary.issues.push(issue);
+    };
+
+    for (const profile of profiles) {
+      summary.scannedProfiles += 1;
+      const signers = await this.clientDB.listAccountSignersByProfile({
+        profileId: profile.profileId,
+      });
+      const keyMaterials = await this.accountKeyMaterialDB.listKeyMaterialByProfile(
+        profile.profileId,
+      );
+      summary.scannedSigners += signers.length;
+      summary.scannedKeyMaterials += keyMaterials.length;
+
+      const activeByAccountSlot = new Map<string, AccountSignerRecord[]>();
+      const activeSlotKeys = new Set<string>();
+      for (const signer of signers) {
+        if (signer.status !== 'active') continue;
+        const slotKey = [
+          signer.chainIdKey,
+          signer.accountAddress,
+          String(signer.signerSlot),
+        ].join('\0');
+        activeSlotKeys.add(slotKey);
+        const existing = activeByAccountSlot.get(slotKey) || [];
+        existing.push(signer);
+        activeByAccountSlot.set(slotKey, existing);
+      }
+
+      for (const [slotKey, slotSigners] of activeByAccountSlot.entries()) {
+        if (slotSigners.length <= 1) continue;
+        const [chainIdKey, accountAddress, signerSlotRaw] = slotKey.split('\0');
+        pushIssue({
+          code: 'duplicate_active_signer_slot',
+          profileId: profile.profileId,
+          chainIdKey,
+          accountAddress,
+          signerSlot: Number(signerSlotRaw),
+          message: `Multiple active signers share slot ${signerSlotRaw} for ${chainIdKey}/${accountAddress}`,
+        });
+      }
+
+      for (const signer of signers) {
+        if (signer.status === 'pending' && now - Number(signer.addedAt || 0) > stalePendingSignerMs) {
+          pushIssue({
+            code: 'stale_pending_signer',
+            profileId: profile.profileId,
+            chainIdKey: signer.chainIdKey,
+            accountAddress: signer.accountAddress,
+            signerId: signer.signerId,
+            signerSlot: signer.signerSlot,
+            message: `Pending signer ${signer.signerId} has been pending longer than ${stalePendingSignerMs}ms`,
+          });
+        }
+
+        if (
+          signer.status === 'active' &&
+          KEY_MATERIAL_SIGNER_KINDS.has(String(signer.signerKind || ''))
+        ) {
+          const matchingKeys = keyMaterials.filter(
+            (key) =>
+              key.chainIdKey === signer.chainIdKey &&
+              key.signerSlot === signer.signerSlot &&
+              key.keyKind === 'threshold_share_v1',
+          );
+          if (matchingKeys.length === 0) {
+            pushIssue({
+              code: 'active_signer_missing_key_material',
+              profileId: profile.profileId,
+              chainIdKey: signer.chainIdKey,
+              accountAddress: signer.accountAddress,
+              signerId: signer.signerId,
+              signerSlot: signer.signerSlot,
+              message: `Active ${signer.signerKind} signer ${signer.signerId} has no threshold key material`,
+            });
+          }
+        }
+      }
+
+      for (const keyMaterial of keyMaterials) {
+        const slotKey = [
+          keyMaterial.chainIdKey,
+          keyMaterial.payloadEnvelope?.aad?.accountAddress || '',
+          String(keyMaterial.signerSlot),
+        ].join('\0');
+        const hasActiveSignerAtSameSlot =
+          activeSlotKeys.has(slotKey) ||
+          signers.some(
+            (signer) =>
+              signer.status === 'active' &&
+              signer.chainIdKey === keyMaterial.chainIdKey &&
+              signer.signerSlot === keyMaterial.signerSlot,
+          );
+        if (!hasActiveSignerAtSameSlot) {
+          pushIssue({
+            code: 'key_material_without_active_signer',
+            profileId: profile.profileId,
+            chainIdKey: keyMaterial.chainIdKey,
+            signerSlot: keyMaterial.signerSlot,
+            keyKind: keyMaterial.keyKind,
+            message: `Key material ${keyMaterial.keyKind} at slot ${keyMaterial.signerSlot} has no active signer`,
+          });
+        }
+      }
+    }
+
+    if (args?.logIssues && summary.issues.length > 0) {
+      console.warn('[IndexedDB] local signer reconciliation found issues', {
+        issueCount: summary.issues.length,
+        issues: summary.issues.slice(0, 20),
+      });
+    }
+
+    return summary;
   }
 
   private computeSignerOpRetryDelayMs(nextAttemptCount: number): number {
@@ -251,9 +445,7 @@ export class UnifiedIndexedDBManager {
         signerId: op.signerId,
       });
       const profileIdRaw = toTrimmedString(signer?.profileId || payload.profileId || '');
-      const signerSlotRaw = Number(
-        payload.signerSlot ?? payload.deviceNumber ?? signer?.signerSlot,
-      );
+      const signerSlotRaw = Number(payload.signerSlot ?? signer?.signerSlot);
       const signerSlot =
         Number.isSafeInteger(signerSlotRaw) && signerSlotRaw >= 1 ? signerSlotRaw : null;
 
@@ -312,7 +504,7 @@ export class UnifiedIndexedDBManager {
             await markDeadLetter('Missing chain account row for add-signer operation');
             continue;
           }
-          const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
+          const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndSignerSlot(
             profileIdRaw,
             signerSlot,
             op.chainIdKey,
@@ -426,7 +618,7 @@ export class UnifiedIndexedDBManager {
               });
             }
             if (profileIdRaw && signerSlot != null) {
-              const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
+              const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndSignerSlot(
                 profileIdRaw,
                 signerSlot,
                 op.chainIdKey,
@@ -434,7 +626,7 @@ export class UnifiedIndexedDBManager {
               for (const key of keys) {
                 await this.accountKeyMaterialDB.deleteKeyMaterial(
                   key.profileId,
-                  key.deviceNumber,
+                  key.signerSlot,
                   key.chainIdKey,
                   key.keyKind,
                 );
@@ -462,7 +654,7 @@ export class UnifiedIndexedDBManager {
               });
             }
             if (profileIdRaw && signerSlot != null) {
-              const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
+              const keys = await this.accountKeyMaterialDB.listKeyMaterialByProfileAndSignerSlot(
                 profileIdRaw,
                 signerSlot,
                 op.chainIdKey,
@@ -470,7 +662,7 @@ export class UnifiedIndexedDBManager {
               for (const key of keys) {
                 await this.accountKeyMaterialDB.deleteKeyMaterial(
                   key.profileId,
-                  key.deviceNumber,
+                  key.signerSlot,
                   key.chainIdKey,
                   key.keyKind,
                 );

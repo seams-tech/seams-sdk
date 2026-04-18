@@ -64,6 +64,10 @@ import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
 } from '../types/webauthn';
+import type {
+  WalletEmailOtpChannel,
+  WalletEmailOtpLoginOperation,
+} from '@shared/utils/emailOtpDomain';
 
 export type SignTempoArgs = {
   nearAccountId: string;
@@ -168,6 +172,10 @@ export type BootstrapThresholdEcdsaSessionArgs = {
     relayerUrl?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
+    runtimeScopeBootstrap?: {
+      environmentId: string;
+      publishableKey: string;
+    };
     ttlMs?: number;
     remainingUses?: number;
     smartAccount?: {
@@ -182,13 +190,13 @@ export type BootstrapThresholdEcdsaSessionArgs = {
 
 export type EmailOtpChallengeResult = {
   challengeId: string;
-  otpChannel: 'email_otp';
+  otpChannel: WalletEmailOtpChannel;
 };
 
 export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
   challengeId: string;
-  otpChannel: 'email_otp';
+  otpChannel: WalletEmailOtpChannel;
   emailOtpKeyVersion: string;
   unlockPublicKeyB64u: string;
   unlockKeyVersion: string;
@@ -221,6 +229,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   sessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
+  registrationAttemptId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
@@ -258,6 +267,7 @@ export interface AuthCapability {
     nearAccountId: string;
     relayUrl?: string;
     appSessionJwt?: string;
+    operation?: WalletEmailOtpLoginOperation;
   }): Promise<EmailOtpChallengeResult>;
   requestEmailOtpEnrollmentChallenge(args: {
     nearAccountId: string;
@@ -269,6 +279,7 @@ export interface AuthCapability {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
+    forceNewDevWallet?: boolean;
   }): Promise<GoogleEmailOtpSessionExchangeResult>;
   enrollEmailOtp(args: {
     nearAccountId: string;

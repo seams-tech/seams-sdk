@@ -10,7 +10,7 @@ import type {
 import { DeviceLinkingPhase, DeviceLinkingStatus } from '../../types/sdkSentEvents';
 import type { DeviceLinkingSSEEvent } from '../../types/sdkSentEvents';
 import { toAccountId } from '../../types/accountIds';
-import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
+import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { errorMessage } from '@shared/utils/errors';
 import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize';
 import { IndexedDBManager } from '../../indexedDB';
@@ -57,7 +57,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function parseDeviceNumberFromIntentDigest(intentDigest: string, fallback: number): number {
+function parseSignerSlotFromIntentDigest(intentDigest: string, fallback: number): number {
   const raw = String(intentDigest || '').trim();
   if (!raw) return fallback;
   const parts = raw.split(':');
@@ -175,7 +175,7 @@ export class LinkDeviceFlow {
 
   private async fetchClaimedSessionFromRelay(
     sessionId: string,
-  ): Promise<{ accountId: string; deviceNumber?: number } | null> {
+  ): Promise<{ accountId: string; signerSlot?: number } | null> {
     const relayerUrl = stripTrailingSlashes(
       String(this.context?.configs?.network.relayer?.url || '').trim(),
     );
@@ -218,20 +218,20 @@ export class LinkDeviceFlow {
       });
       return null;
     }
-    const deviceNumberRaw = session.deviceNumber;
-    const deviceNumberParsed = Number(deviceNumberRaw);
-    const deviceNumber = Number.isFinite(deviceNumberParsed)
-      ? Math.floor(deviceNumberParsed)
+    const signerSlotRaw = session.signerSlot;
+    const signerSlotParsed = Number(signerSlotRaw);
+    const signerSlot = Number.isFinite(signerSlotParsed)
+      ? Math.floor(signerSlotParsed)
       : undefined;
     console.debug('[LinkDeviceFlow] relay poll ok', {
       sessionId,
       url,
       claimed: !!claimedAccountId,
       ...(claimedAccountId ? { accountId: claimedAccountId } : {}),
-      ...(deviceNumber ? { deviceNumber } : {}),
+      ...(signerSlot ? { signerSlot } : {}),
     });
     return claimedAccountId
-      ? { accountId: claimedAccountId, ...(deviceNumber ? { deviceNumber } : {}) }
+      ? { accountId: claimedAccountId, ...(signerSlot ? { signerSlot } : {}) }
       : null;
   }
 
@@ -302,7 +302,7 @@ export class LinkDeviceFlow {
           pollMs,
         });
       }
-      let claimed: { accountId: string; deviceNumber?: number } | null = null;
+      let claimed: { accountId: string; signerSlot?: number } | null = null;
       try {
         claimed = await this.fetchClaimedSessionFromRelay(session.sessionId);
       } catch (e) {
@@ -314,18 +314,18 @@ export class LinkDeviceFlow {
       }
       if (claimed?.accountId) {
         const accountId = toAccountId(claimed.accountId);
-        const deviceNumber = Number.isFinite(claimed.deviceNumber)
-          ? claimed.deviceNumber
-          : session.deviceNumber;
+        const signerSlot = Number.isFinite(claimed.signerSlot)
+          ? claimed.signerSlot
+          : session.signerSlot;
         console.debug('[LinkDeviceFlow] claim detected; starting completion', {
           sessionId: session.sessionId,
           accountId: String(accountId),
-          ...(deviceNumber ? { deviceNumber } : {}),
+          ...(signerSlot ? { signerSlot } : {}),
         });
         this.session = {
           ...session,
           accountId,
-          ...(deviceNumber ? { deviceNumber } : {}),
+          ...(signerSlot ? { signerSlot } : {}),
           phase: DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED,
         };
         this.safeOnEvent({
@@ -355,7 +355,7 @@ export class LinkDeviceFlow {
     console.debug('[LinkDeviceFlow] completeLinking start', {
       sessionId: session.sessionId,
       accountId: String(session.accountId),
-      deviceNumber: session.deviceNumber,
+      signerSlot: session.signerSlot,
     });
 
     const nearAccountId = toAccountId(String(session.accountId));
@@ -368,14 +368,12 @@ export class LinkDeviceFlow {
     const rpId = this.context.signingEngine.getRpId();
     if (!rpId) throw new Error('Missing rpId for link-device flow');
 
-    const deviceNumberHint = coerceDeviceNumber(
-      session.deviceNumber ?? this.options?.deviceNumber ?? 2,
-    );
+    const signerSlotHint = coerceSignerSlot(session.signerSlot ?? this.options?.signerSlot ?? 2);
 
     this.session = {
       ...session,
       accountId: nearAccountId,
-      deviceNumber: deviceNumberHint,
+      signerSlot: signerSlotHint,
       phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
     };
     this.safeOnEvent({
@@ -387,14 +385,14 @@ export class LinkDeviceFlow {
 
     const confirm = await this.context.signingEngine.requestRegistrationCredentialConfirmation({
       nearAccountId,
-      deviceNumber: deviceNumberHint,
+      signerSlot: signerSlotHint,
       confirmerText: this.options?.options?.confirmerText,
       confirmationConfigOverride: this.options?.options?.confirmationConfig,
     });
     const credential = confirm.credential;
-    const resolvedDeviceNumber = parseDeviceNumberFromIntentDigest(
+    const resolvedSignerSlot = parseSignerSlotFromIntentDigest(
       confirm.intentDigest,
-      deviceNumberHint,
+      signerSlotHint,
     );
 
     const thresholdWarmPolicy = createThresholdWarmSessionPolicyDraft(this.context);
@@ -456,7 +454,7 @@ export class LinkDeviceFlow {
       body: JSON.stringify({
         account_id: String(nearAccountId),
         ...(this.session?.sessionId ? { session_id: this.session.sessionId } : {}),
-        device_number: resolvedDeviceNumber,
+        signer_slot: resolvedSignerSlot,
         threshold_ed25519: thresholdWarmSessionRequest,
         ...(thresholdEcdsaClientRootShare32B64u && thresholdEcdsaSessionPolicy
           ? {
@@ -576,7 +574,7 @@ export class LinkDeviceFlow {
     this.session = {
       ...session,
       accountId: nearAccountId,
-      deviceNumber: resolvedDeviceNumber,
+      signerSlot: resolvedSignerSlot,
       credential,
       phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
     };
@@ -590,7 +588,7 @@ export class LinkDeviceFlow {
     );
     await storeThresholdEd25519KeyMaterial({
       nearAccountId,
-      deviceNumber: resolvedDeviceNumber,
+      signerSlot: resolvedSignerSlot,
       publicKey: thresholdPublicKey,
       relayerKeyId,
       keyVersion: thresholdKeyVersion,
@@ -637,7 +635,7 @@ export class LinkDeviceFlow {
         signingEngine: this.context.signingEngine,
         nearAccountId,
         relayerUrl,
-        deviceNumber: resolvedDeviceNumber,
+        signerSlot: resolvedSignerSlot,
         rpId,
         credentialIdB64u,
         thresholdEcdsa: thresholdEcdsaSection,
@@ -646,7 +644,7 @@ export class LinkDeviceFlow {
     }
 
     // Auto-login: set last-user + warm login state so the device is immediately usable.
-    await this.attemptAutoLogin({ accountId: nearAccountId, deviceNumber: resolvedDeviceNumber });
+    await this.attemptAutoLogin({ accountId: nearAccountId, signerSlot: resolvedSignerSlot });
 
     if (this.session?.tempPrivateKey) {
       this.session.tempPrivateKey = '';
@@ -672,16 +670,16 @@ export class LinkDeviceFlow {
    */
   private async attemptAutoLogin(input: {
     accountId: string;
-    deviceNumber: number;
+    signerSlot: number;
   }): Promise<void> {
     try {
       if (this.cancelled) return;
       const nearAccountId = toAccountId(String(input.accountId));
-      const deviceNumber = coerceDeviceNumber(input.deviceNumber);
+      const signerSlot = coerceSignerSlot(input.signerSlot);
 
       console.debug('[LinkDeviceFlow] auto-login start', {
         accountId: String(nearAccountId),
-        deviceNumber,
+        signerSlot,
       });
       this.safeOnEvent({
         step: 8,
@@ -693,7 +691,7 @@ export class LinkDeviceFlow {
       const restored = await restoreLocalLoginState({
         context: this.context,
         nearAccountId,
-        deviceNumber,
+        signerSlot,
       });
       if (!restored.isLoggedIn) {
         throw new Error(`Auto-login did not mark ${String(nearAccountId)} as logged in`);
@@ -707,7 +705,7 @@ export class LinkDeviceFlow {
       });
       console.debug('[LinkDeviceFlow] auto-login complete', {
         accountId: String(nearAccountId),
-        deviceNumber,
+        signerSlot,
       });
     } catch (e: unknown) {
       const msg = errorMessage(e) || 'Auto-login failed after device linking';
@@ -773,13 +771,13 @@ export class LinkDeviceFlow {
           ? `ldsess-${crypto.randomUUID()}`
           : `ldsess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-      const deviceNumber = coerceDeviceNumber(this.options?.deviceNumber ?? 2);
+      const signerSlot = coerceSignerSlot(this.options?.signerSlot ?? 2);
       const tempKeypair = await this.context.signingEngine.generateEphemeralNearKeypair();
 
       this.session = {
         sessionId,
         accountId: null,
-        deviceNumber,
+        signerSlot,
         nearPublicKey: tempKeypair.publicKey,
         credential: null,
         tempPrivateKey: tempKeypair.privateKey,
@@ -831,14 +829,14 @@ export class LinkDeviceFlow {
       throw new Error('LinkDeviceFlow: missing session (cannot store device authenticator)');
     }
     const accountIdRaw = this.session.accountId;
-    const deviceNumberRaw = this.session.deviceNumber;
+    const signerSlotRaw = this.session.signerSlot;
     const credential = deterministicKeysResult.credential ?? this.session.credential;
     const nearPublicKey = String(
       deterministicKeysResult.nearPublicKey ?? this.session.nearPublicKey ?? '',
     ).trim();
 
     const nearAccountId = toAccountId(String(accountIdRaw || '').trim());
-    const deviceNumber = coerceDeviceNumber(deviceNumberRaw);
+    const signerSlot = coerceSignerSlot(signerSlotRaw);
     if (!credential) throw new Error('LinkDeviceFlow: missing credential');
     if (!nearPublicKey) throw new Error('LinkDeviceFlow: missing nearPublicKey');
 
@@ -854,7 +852,7 @@ export class LinkDeviceFlow {
     // 1) Store user data first (also sets last-user/profile pointer).
     await this.context.signingEngine.storeUserData({
       nearAccountId,
-      deviceNumber,
+      signerSlot,
       operationalPublicKey: nearPublicKey,
       lastUpdated: nowMs(),
       passkeyCredential: {
@@ -875,7 +873,7 @@ export class LinkDeviceFlow {
       name: `Passkey for ${nearAccountId}`,
       registered: new Date().toISOString(),
       syncedAt: new Date().toISOString(),
-      deviceNumber,
+      signerSlot,
     });
   }
 

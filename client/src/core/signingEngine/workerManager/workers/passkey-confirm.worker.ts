@@ -158,10 +158,10 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
   const payload = asRecord(value);
   if (!payload) return null;
   const nearAccountId = normalizeOptionalTrimmedString(payload.nearAccountId);
-  const deviceNumber = Math.floor(Number(payload.deviceNumber));
+  const signerSlot = Math.floor(Number(payload.signerSlot));
   const chain = coerceExportChain(payload.chain);
   const artifactKind = normalizeOptionalNonEmptyString(payload.artifactKind);
-  if (!nearAccountId || !Number.isFinite(deviceNumber) || deviceNumber < 1) return null;
+  if (!nearAccountId || !Number.isFinite(signerSlot) || signerSlot < 1) return null;
   if (!chain) return null;
   const variant = coerceVariant(payload.variant);
   const theme = coerceTheme(payload.theme);
@@ -174,7 +174,7 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
       }
       return {
         nearAccountId,
-        deviceNumber,
+        signerSlot,
         chain: 'near',
         artifactKind,
         expectedPublicKey,
@@ -194,7 +194,7 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
     }
     return {
       nearAccountId,
-      deviceNumber,
+      signerSlot,
       chain,
       artifactKind,
       publicKeyHex,
@@ -206,7 +206,7 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
   }
   return {
     nearAccountId,
-    deviceNumber,
+    signerSlot,
     chain,
     variant,
     theme,
@@ -511,7 +511,7 @@ async function runExportPrivateKeysWithUi(
   const exportPublicKey =
     nearSeedPayload?.expectedPublicKey || ecdsaHssExportPayload?.publicKeyHex || '';
   const requestId = toSessionId('export-keys');
-  const intentDigest = `export-keys:${nearAccountId}:${payload.deviceNumber}`;
+  const intentDigest = `export-keys:${nearAccountId}:${payload.signerSlot}`;
 
   let prfSecondB64u = '';
   const exportKeys: ExportPrivateKeyDisplayEntry[] = [];

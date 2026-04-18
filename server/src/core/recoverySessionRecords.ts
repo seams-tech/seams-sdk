@@ -13,7 +13,7 @@ export function buildPreparedRecoverySessionRecord(input: {
   sessionId: string;
   userId: string;
   nearAccountId: string;
-  deviceNumber: number;
+  signerSlot: number;
   newNearPublicKey: string;
   newEvmOwnerAddress: string;
   recoveryDeadlineEpochSeconds: number;
@@ -31,7 +31,7 @@ export function buildPreparedRecoverySessionRecord(input: {
   const recoveryDeadlineEpochSeconds = Math.floor(Number(input.recoveryDeadlineEpochSeconds));
   const recoveryEmailPayloadHash = toOptionalTrimmedString(input.recoveryEmailPayloadHash);
   const scope = toOptionalTrimmedString(input.scope);
-  const deviceNumber = Math.floor(Number(input.deviceNumber));
+  const signerSlot = Math.floor(Number(input.signerSlot));
   const nowMs = Number.isFinite(Number(input.nowMs)) ? Math.floor(Number(input.nowMs)) : Date.now();
   const expiresAtMs = Number.isFinite(Number(input.expiresAtMs))
     ? Math.floor(Number(input.expiresAtMs))
@@ -47,7 +47,7 @@ export function buildPreparedRecoverySessionRecord(input: {
   ) {
     return null;
   }
-  if (!Number.isFinite(deviceNumber) || deviceNumber < 1) return null;
+  if (!Number.isFinite(signerSlot) || signerSlot < 1) return null;
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return null;
   if (!Number.isFinite(recoveryDeadlineEpochSeconds) || recoveryDeadlineEpochSeconds <= 0) {
     return null;
@@ -58,7 +58,7 @@ export function buildPreparedRecoverySessionRecord(input: {
     sessionId,
     userId,
     nearAccountId,
-    deviceNumber,
+    signerSlot,
     status: 'prepared',
     createdAtMs: nowMs,
     updatedAtMs: nowMs,

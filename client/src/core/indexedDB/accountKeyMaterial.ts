@@ -17,7 +17,7 @@ export type ResolveAccountKeyMaterialTargetInput = {
 };
 
 export type StoreAccountKeyMaterialInput = ResolveAccountKeyMaterialTargetInput & {
-  deviceNumber: number;
+  signerSlot: number;
   keyKind: KeyMaterialKind;
   algorithm: KeyMaterialAlgorithm;
   publicKey: string;
@@ -79,7 +79,7 @@ export async function resolveAccountKeyMaterialTarget(
 export async function getAccountKeyMaterial(args: {
   deps: AccountKeyMaterialDeps;
   accountRefs: AccountRef[];
-  deviceNumber: number;
+  signerSlot: number;
   keyKind: KeyMaterialKind;
 }): Promise<KeyMaterialRecord | null> {
   const target = await resolveAccountKeyMaterialTarget(args.deps.clientDB, {
@@ -88,7 +88,7 @@ export async function getAccountKeyMaterial(args: {
   if (!target?.profileId || !target.chainIdKey) return null;
   return args.deps.accountKeyMaterialDB.getKeyMaterial(
     target.profileId,
-    args.deviceNumber,
+    args.signerSlot,
     target.chainIdKey,
     args.keyKind,
   );
@@ -98,8 +98,8 @@ export async function storeAccountKeyMaterial(
   deps: AccountKeyMaterialDeps,
   input: StoreAccountKeyMaterialInput,
 ): Promise<void> {
-  if (!Number.isSafeInteger(input.deviceNumber) || input.deviceNumber < 1) {
-    throw new Error('IndexedDBManager: Invalid deviceNumber for key write');
+  if (!Number.isSafeInteger(input.signerSlot) || input.signerSlot < 1) {
+    throw new Error('IndexedDBManager: Invalid signerSlot for key write');
   }
   const keyKind = toTrimmedString(input.keyKind || '');
   if (!keyKind) {
@@ -130,7 +130,7 @@ export async function storeAccountKeyMaterial(
 
   await deps.accountKeyMaterialDB.storeKeyMaterial({
     profileId: target.profileId,
-    deviceNumber: input.deviceNumber,
+    signerSlot: input.signerSlot,
     chainIdKey: target.chainIdKey,
     keyKind,
     algorithm,

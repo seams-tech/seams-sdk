@@ -1,4 +1,5 @@
 import { cacheSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   collectAuthenticationCredentialForChallengeB64u,
@@ -12,6 +13,67 @@ import type { ThresholdRuntimePolicyScope } from '../session/sessionPolicy';
 import { mintEd25519AuthSession } from '../session/ed25519AuthSession';
 import type { Ed25519SessionKind } from '../session/ed25519SessionTypes';
 import { persistWarmSessionEd25519Capability } from '../../session/warmSessionPersistence';
+import {
+  createEmailOtpWalletAuthAdapter,
+  createPasskeyWalletAuthAdapter,
+  createWalletAuthModeResolver,
+} from '../../auth';
+
+function joinUrlPath(baseUrl: string, path: string): string {
+  const base = String(baseUrl || '').replace(/\/+$/, '');
+  const suffix = String(path || '').replace(/^\/?/, '/');
+  return `${base}${suffix}`;
+}
+
+async function readJsonObject(response: Response): Promise<Record<string, unknown>> {
+  const data = (await response.json().catch(() => ({}))) as unknown;
+  return data && typeof data === 'object' && !Array.isArray(data)
+    ? (data as Record<string, unknown>)
+    : {};
+}
+
+async function resolveManagedRuntimePolicyScope(args: {
+  relayerUrl: string;
+  environmentId: string;
+  publishableKey: string;
+  nearAccountId: string;
+  rpId: string;
+}): Promise<ThresholdRuntimePolicyScope> {
+  const response = await fetch(joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.publishableKey}`,
+    },
+    body: JSON.stringify({
+      environmentId: args.environmentId,
+      newAccountId: args.nearAccountId,
+      rpId: args.rpId,
+      flow: 'registration_v1',
+    }),
+  });
+  const data = await readJsonObject(response);
+  if (!response.ok || data.ok === false) {
+    throw new Error(
+      String(
+        data.message ||
+          data.code ||
+          `Managed runtime scope lookup failed with HTTP ${response.status}`,
+      ),
+    );
+  }
+  const grant =
+    data.grant && typeof data.grant === 'object' && !Array.isArray(data.grant)
+      ? (data.grant as Record<string, unknown>)
+      : {};
+  const orgId = String(grant.orgId || '').trim();
+  const projectId = String(grant.projectId || '').trim();
+  const envId = String(grant.envId || '').trim();
+  if (!orgId || !projectId || !envId) {
+    throw new Error('Managed runtime scope lookup response missing canonical runtime scope');
+  }
+  return { orgId, projectId, envId };
+}
 
 /**
  * Wallet-origin helper:
@@ -40,6 +102,9 @@ export async function connectEd25519Session(args: {
   sessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
+  appSessionJwt?: string;
+  useAppSessionCookie?: boolean;
+  localPrfCredential?: WebAuthnAuthenticationCredential;
   workerCtx?: WorkerOperationContext;
 }): Promise<{
   ok: boolean;
@@ -56,25 +121,87 @@ export async function connectEd25519Session(args: {
   if (!rpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
   }
+  const runtimePolicyScope =
+    args.runtimePolicyScope ||
+    (args.runtimeScopeBootstrap
+      ? await resolveManagedRuntimePolicyScope({
+          relayerUrl: args.relayerUrl,
+          environmentId: args.runtimeScopeBootstrap.environmentId,
+          publishableKey: args.runtimeScopeBootstrap.publishableKey,
+          nearAccountId: args.nearAccountId,
+          rpId,
+        })
+      : undefined);
 
   const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
     nearAccountId: args.nearAccountId,
     rpId,
     relayerKeyId: args.relayerKeyId,
-    ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     participantIds: args.participantIds,
     sessionId: args.sessionId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
   });
 
-  // 1) Collect WebAuthn assertion for challenge=sessionPolicyDigest32 and include PRF outputs.
-  const credential = await collectAuthenticationCredentialForChallengeB64u({
-    indexedDB: args.indexedDB,
-    touchIdPrompt: args.touchIdPrompt,
-    nearAccountId: args.nearAccountId,
-    challengeB64u: sessionPolicyDigest32,
-  });
+  let credential: WebAuthnAuthenticationCredential | undefined = args.localPrfCredential;
+  const appSessionJwt = String(args.appSessionJwt || '').trim();
+  const hasAppSessionAuth = Boolean(appSessionJwt || args.useAppSessionCookie === true);
+  if (!hasAppSessionAuth) {
+    const walletAuthResolver = createWalletAuthModeResolver({
+      passkey: createPasskeyWalletAuthAdapter({
+        challenge: async () =>
+          await collectAuthenticationCredentialForChallengeB64u({
+            indexedDB: args.indexedDB,
+            touchIdPrompt: args.touchIdPrompt,
+            nearAccountId: args.nearAccountId,
+            challengeB64u: sessionPolicyDigest32,
+          }),
+        complete: async ({ response }) => ({
+          method: 'passkey',
+          webauthnAuthentication: response,
+        }),
+      }),
+      emailOtp: createEmailOtpWalletAuthAdapter({
+        challenge: async () => {
+          throw new Error('Email OTP Ed25519 session mint is handled by the Email OTP login flow');
+        },
+        complete: async () => {
+          throw new Error('Email OTP Ed25519 session mint is handled by the Email OTP login flow');
+        },
+      }),
+    });
+    const walletAuthPlan = await walletAuthResolver.resolveWalletAuthPlan({
+      accountId: args.nearAccountId,
+      accountAuth: {
+        primaryAuthMethod: 'passkey',
+        linkedAuthMethods: ['passkey'],
+      },
+      intent: 'session_mint',
+      curve: 'ed25519',
+    });
+    if (walletAuthPlan.kind !== 'passkeyReauth') {
+      return {
+        ok: false,
+        code: 'unsupported',
+        message: 'Ed25519 session mint requires passkey authorization',
+      };
+    }
+
+    // Collect WebAuthn assertion for challenge=sessionPolicyDigest32 when no app session is
+    // available. Login warm-up uses the app-session JWT instead to avoid a second prompt.
+    const credentialChallenge = await walletAuthPlan.challenge();
+    const walletAuthProof = await walletAuthPlan.complete(credentialChallenge);
+    credential = walletAuthProof.webauthnAuthentication as WebAuthnAuthenticationCredential;
+  }
+
+  if (!credential) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Ed25519 session mint with app session requires local PRF credential material',
+    };
+  }
 
   const prfFirstB64u = getPrfFirstB64uFromCredential(credential);
   if (!prfFirstB64u) {
@@ -91,7 +218,12 @@ export async function connectEd25519Session(args: {
     sessionKind,
     relayerKeyId: args.relayerKeyId,
     sessionPolicy: policy,
-    webauthnAuthentication: credential,
+    ...(appSessionJwt || args.useAppSessionCookie === true
+      ? {
+          ...(appSessionJwt ? { appSessionJwt } : {}),
+          ...(args.useAppSessionCookie ? { useAppSessionCookie: args.useAppSessionCookie } : {}),
+        }
+      : { webauthnAuthentication: credential }),
     runtimeEnvironmentId: args.runtimeScopeBootstrap?.environmentId,
     publishableKey: args.runtimeScopeBootstrap?.publishableKey,
   });
@@ -106,12 +238,13 @@ export async function connectEd25519Session(args: {
   // Sealed-refresh persistence resolves relayer transport from this record.
   const expiresAtMs = minted.expiresAtMs ?? Date.now() + policy.ttlMs;
   const remainingUses = minted.remainingUses ?? policy.remainingUses;
+  const mintedRuntimePolicyScope = minted.runtimePolicyScope || runtimePolicyScope;
   persistWarmSessionEd25519Capability({
     nearAccountId: args.nearAccountId,
     rpId,
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.relayerKeyId,
-    ...(minted.runtimePolicyScope ? { runtimePolicyScope: minted.runtimePolicyScope } : {}),
+    ...(mintedRuntimePolicyScope ? { runtimePolicyScope: mintedRuntimePolicyScope } : {}),
     participantIds: args.participantIds,
     sessionKind,
     sessionId: resolvedSessionId,

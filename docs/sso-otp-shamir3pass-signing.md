@@ -92,7 +92,7 @@ Therefore:
 
 1. `passkey` is the recommended default
 2. `email_otp` must be labeled as lower-security convenience signing in product copy
-3. sensitive actions must still require stronger auth than Email-OTP-only auth
+3. sensitive actions must require explicit step-up policy, either fresh `per_operation` Email OTP or passkey depending on project policy
 4. passkey and `email_otp` must not be described as equivalent trust models
 
 ## Secret Source Model
@@ -285,7 +285,7 @@ At minimum, the specs must allow:
 
 1. step-up auth
 2. forced `per_operation`
-3. passkey requirement for especially sensitive actions
+3. passkey requirement for especially sensitive actions when project policy does not allow Email OTP fallback
 
 ### Warm-session modeling requirements
 
@@ -478,7 +478,7 @@ Recommended payload:
   "sessionHash": "base64url-hash",
   "appSessionVersion": "v7",
   "channel": "email_otp",
-  "action": "wallet_email_otp_authorize"
+  "action": "wallet_email_otp_login"
 }
 ```
 
@@ -525,7 +525,7 @@ Enrollment authorization:
 1. Google SSO Email OTP registration and re-enrollment are authorized by:
    - a valid Google-SSO-backed `app_session_v1`
    - `walletId` bound to the session `walletId` claim
-   - a fresh 6-digit Email OTP challenge for `action = wallet_email_otp_enroll`
+   - a fresh 6-digit Email OTP challenge for `action = wallet_email_otp_registration`
 2. Google SSO Email OTP registration does not require passkey authentication.
 3. Google SSO Email OTP re-enrollment does not require passkey authentication, because Email OTP-only accounts may not have a passkey yet.
 4. passkey step-up applies when a non-Google/passkey session modifies an existing Email OTP enrollment after the wallet was last unlocked by Email OTP.
@@ -554,11 +554,11 @@ Keep the canonical route planes:
 
 Minimum route set:
 
-1. `POST /wallet/email-otp/enroll/challenge`
-2. `POST /wallet/email-otp/enroll/seal`
-3. `POST /wallet/email-otp/enroll/verify`
-4. `POST /wallet/email-otp/challenge`
-5. `POST /wallet/email-otp/verify`
+1. `POST /wallet/email-otp/registration/challenge`
+2. `POST /wallet/email-otp/registration/seal`
+3. `POST /wallet/email-otp/registration/finalize`
+4. `POST /wallet/email-otp/login/challenge`
+5. `POST /wallet/email-otp/login/verify`
 6. `POST /wallet/email-otp/unseal`
 7. `POST /wallet/unlock/challenge`
 8. `POST /wallet/unlock/verify`
@@ -574,9 +574,9 @@ Minimum route set:
 
 ### Sensitive actions
 
-Require stronger auth than Email OTP alone for:
+Require explicit step-up policy for:
 
-1. key export
+1. key export with fresh export-scoped `per_operation` Email OTP, unless project policy requires passkey
 2. login-method changes
 3. passkey removal
 4. disabling login fallbacks
@@ -588,7 +588,8 @@ Recommended defaults:
 
 1. default Email OTP policy: `session`
 2. optional high-security apps: `per_operation`
-3. sensitive actions: stronger auth or forced `per_operation`
+3. sensitive actions: passkey by default for mixed accounts, with Email OTP fallback only when project policy allows it
+4. Email OTP-only key export: fresh export-scoped `per_operation` OTP plus server-side `export_key` authorization
 
 ## Observability
 

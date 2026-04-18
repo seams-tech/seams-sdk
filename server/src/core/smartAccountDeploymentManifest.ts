@@ -12,7 +12,7 @@ export type CanonicalSmartAccountDeploymentManifestOwner = {
   signerId: string;
   signerType: string;
   status: AccountSignerStatus;
-  deviceNumber?: number;
+  signerSlot?: number;
   relayerKeyId?: string;
   thresholdEcdsaPublicKeyB64u?: string;
   participantIds?: number[];
@@ -95,21 +95,21 @@ function statusPriority(status: AccountSignerStatus): number {
   }
 }
 
-function signerDeviceNumber(record: AccountSignerRecord): number | null {
+function signerSlot(record: AccountSignerRecord): number | null {
   const metadata = asObject(record.metadata);
-  return normalizePositiveInteger(metadata.deviceNumber);
+  return normalizePositiveInteger(metadata.signerSlot);
 }
 
 function compareManifestSignerOrder(left: AccountSignerRecord, right: AccountSignerRecord): number {
   const statusDelta = statusPriority(left.status) - statusPriority(right.status);
   if (statusDelta !== 0) return statusDelta;
 
-  const leftDeviceNumber = signerDeviceNumber(left);
-  const rightDeviceNumber = signerDeviceNumber(right);
-  if (leftDeviceNumber !== rightDeviceNumber) {
-    if (leftDeviceNumber === null) return 1;
-    if (rightDeviceNumber === null) return -1;
-    return leftDeviceNumber - rightDeviceNumber;
+  const leftSignerSlot = signerSlot(left);
+  const rightSignerSlot = signerSlot(right);
+  if (leftSignerSlot !== rightSignerSlot) {
+    if (leftSignerSlot === null) return 1;
+    if (rightSignerSlot === null) return -1;
+    return leftSignerSlot - rightSignerSlot;
   }
 
   if (left.createdAtMs !== right.createdAtMs) {
@@ -145,8 +145,8 @@ function toManifestOwner(
     signerId,
     signerType: toOptionalTrimmedString(signer.signerType) || 'threshold',
     status: signer.status,
-    ...(Number.isFinite(Number(metadata.deviceNumber)) && Number(metadata.deviceNumber) > 0
-      ? { deviceNumber: Math.floor(Number(metadata.deviceNumber)) }
+    ...(Number.isFinite(Number(metadata.signerSlot)) && Number(metadata.signerSlot) > 0
+      ? { signerSlot: Math.floor(Number(metadata.signerSlot)) }
       : {}),
     ...(toOptionalTrimmedString(metadata.relayerKeyId)
       ? { relayerKeyId: toOptionalTrimmedString(metadata.relayerKeyId)! }
@@ -186,7 +186,7 @@ function toUndeployedSmartAccountSignerSet(input: {
     signerId: owner.signerId,
     signerType: owner.signerType,
     status: owner.status === 'pending' ? 'pending' : 'active',
-    ...(typeof owner.deviceNumber === 'number' ? { deviceNumber: owner.deviceNumber } : {}),
+    ...(typeof owner.signerSlot === 'number' ? { signerSlot: owner.signerSlot } : {}),
     ...(owner.relayerKeyId ? { relayerKeyId: owner.relayerKeyId } : {}),
     ...(owner.thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u: owner.thresholdEcdsaPublicKeyB64u } : {}),
     ...(Array.isArray(owner.participantIds) && owner.participantIds.length

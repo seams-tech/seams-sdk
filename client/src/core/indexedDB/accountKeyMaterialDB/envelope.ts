@@ -20,7 +20,7 @@ export function sanitizePayload(value: unknown): Record<string, unknown> | undef
 
 export function buildEnvelopeAAD(args: {
   profileId: string;
-  deviceNumber: number;
+  signerSlot: number;
   chainIdKey: string;
   keyKind: string;
   schemaVersion: number;
@@ -29,7 +29,7 @@ export function buildEnvelopeAAD(args: {
   const signerId = toTrimmedString(args.signerId || '');
   return {
     profileId: toTrimmedString(args.profileId || ''),
-    deviceNumber: args.deviceNumber,
+    signerSlot: args.signerSlot,
     chainIdKey: toTrimmedString(args.chainIdKey || '').toLowerCase(),
     keyKind: toTrimmedString(args.keyKind || ''),
     schemaVersion: args.schemaVersion,
@@ -53,16 +53,16 @@ function normalizeEnvelopeAAD(
     Number.isSafeInteger(schemaVersionRaw) && schemaVersionRaw >= 1
       ? schemaVersionRaw
       : expected.schemaVersion;
-  const deviceNumberRaw = Number(record?.deviceNumber ?? expected.deviceNumber);
-  const deviceNumber =
-    Number.isSafeInteger(deviceNumberRaw) && deviceNumberRaw >= 1
-      ? deviceNumberRaw
-      : expected.deviceNumber;
+  const signerSlotRaw = Number(record?.signerSlot ?? expected.signerSlot);
+  const signerSlot =
+    Number.isSafeInteger(signerSlotRaw) && signerSlotRaw >= 1
+      ? signerSlotRaw
+      : expected.signerSlot;
   const signerId = String(record?.signerId ?? expected.signerId ?? '').trim();
   const accountAddress = toTrimmedString(record?.accountAddress || '').toLowerCase();
   const normalized: KeyMaterialPayloadEnvelopeAAD = {
     profileId,
-    deviceNumber,
+    signerSlot,
     chainIdKey,
     keyKind,
     schemaVersion,
@@ -72,7 +72,7 @@ function normalizeEnvelopeAAD(
 
   const matchesExpected =
     normalized.profileId === expected.profileId &&
-    normalized.deviceNumber === expected.deviceNumber &&
+    normalized.signerSlot === expected.signerSlot &&
     normalized.chainIdKey === expected.chainIdKey &&
     normalized.keyKind === expected.keyKind &&
     normalized.schemaVersion === expected.schemaVersion &&
@@ -130,14 +130,14 @@ export function normalizeStoredPayloadRecord(
   const signerId = toTrimmedString(rec.signerId || '');
   const wrapKeySalt = toTrimmedString(rec.wrapKeySalt || '');
   if (!profileId || !chainIdKey || !keyKind || !algorithm || !publicKey) return null;
-  if (!Number.isSafeInteger(rec.deviceNumber) || rec.deviceNumber < 1) return null;
+  if (!Number.isSafeInteger(rec.signerSlot) || rec.signerSlot < 1) return null;
   if (typeof rec.timestamp !== 'number') return null;
   if (!Number.isSafeInteger(rec.schemaVersion) || rec.schemaVersion < 1) return null;
 
   const payload = sanitizePayload(rec.payload);
   const expectedAAD = buildEnvelopeAAD({
     profileId,
-    deviceNumber: rec.deviceNumber,
+    signerSlot: rec.signerSlot,
     chainIdKey,
     keyKind,
     schemaVersion: rec.schemaVersion,
@@ -146,7 +146,7 @@ export function normalizeStoredPayloadRecord(
   const payloadEnvelope = normalizePayloadEnvelope(
     rec.payloadEnvelope,
     expectedAAD,
-    `${profileId}/${rec.deviceNumber}/${chainIdKey}/${keyKind}`,
+    `${profileId}/${rec.signerSlot}/${chainIdKey}/${keyKind}`,
   );
 
   return {

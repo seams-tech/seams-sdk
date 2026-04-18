@@ -54,7 +54,7 @@ export async function signDelegateAction({
   title,
   body,
   sessionId: providedSessionId,
-  deviceNumber,
+  signerSlot,
 }: {
   ctx: SigningRuntimeDeps;
   delegate: DelegateActionInput;
@@ -64,7 +64,7 @@ export async function signDelegateAction({
   title?: string;
   body?: string;
   sessionId?: string;
-  deviceNumber?: number;
+  signerSlot?: number;
 }): Promise<{
   signedDelegate: WasmSignedDelegate;
   hash: string;
@@ -110,7 +110,7 @@ export async function signDelegateAction({
   const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
     ctx,
     nearAccountId,
-    deviceNumber,
+    signerSlot,
     operationLabel: 'delegate signing',
     warnings,
   });
@@ -150,14 +150,12 @@ export async function signDelegateAction({
     status: ActionStatus.PROGRESS,
     message: 'Opening confirmation prompt...',
   });
-  const signingAuthMode = thresholdAuthPlan?.signingAuthMode;
-
   const confirmation = await touchConfirm.orchestrateSigningConfirmation({
     ctx: { touchConfirm },
     sessionId,
     chain: 'near',
     kind: 'delegate',
-    ...(signingAuthMode ? { signingAuthMode } : {}),
+    ...(thresholdAuthPlan?.touchConfirmAuthPayload ?? {}),
     nearAccountId,
     delegate: {
       senderId: delegate.senderId || nearAccountId,

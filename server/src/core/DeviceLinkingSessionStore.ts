@@ -19,7 +19,7 @@ export type DeviceLinkingSessionRecord = {
   expiresAtMs: number;
   claimedAtMs?: number;
   accountId?: string;
-  deviceNumber?: number;
+  signerSlot?: number;
   addKeyTxHash?: string;
   preparedThresholdEcdsa?: DeviceLinkingPreparedThresholdEcdsaRecord;
   preparedLinkedAccounts?: DeviceLinkingPreparedLinkedAccountRecord[];
@@ -167,15 +167,15 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
         ? raw.claimedAtMs
         : Number(raw.claimedAtMs);
   const accountId = toOptionalTrimmedString(raw.accountId);
-  const deviceNumberRaw =
-    raw.deviceNumber == null
+  const signerSlotRaw =
+    raw.signerSlot == null
       ? undefined
-      : typeof raw.deviceNumber === 'number'
-        ? raw.deviceNumber
-        : Number(raw.deviceNumber);
-  const deviceNumber =
-    Number.isFinite(deviceNumberRaw as number) && (deviceNumberRaw as number) > 0
-      ? Math.floor(deviceNumberRaw as number)
+      : typeof raw.signerSlot === 'number'
+        ? raw.signerSlot
+        : Number(raw.signerSlot);
+  const signerSlot =
+    Number.isFinite(signerSlotRaw as number) && (signerSlotRaw as number) > 0
+      ? Math.floor(signerSlotRaw as number)
       : undefined;
   const addKeyTxHash = toOptionalTrimmedString(raw.addKeyTxHash);
   const preparedThresholdEcdsa = parsePreparedThresholdEcdsaRecord(raw.preparedThresholdEcdsa);
@@ -191,7 +191,7 @@ function parseDeviceLinkingSessionRecord(raw: unknown): DeviceLinkingSessionReco
       ? { claimedAtMs: Math.floor(claimedAtMs!) }
       : {}),
     ...(accountId ? { accountId } : {}),
-    ...(deviceNumber ? { deviceNumber } : {}),
+    ...(signerSlot ? { signerSlot } : {}),
     ...(addKeyTxHash ? { addKeyTxHash } : {}),
     ...(preparedThresholdEcdsa ? { preparedThresholdEcdsa } : {}),
     ...(preparedLinkedAccounts ? { preparedLinkedAccounts } : {}),

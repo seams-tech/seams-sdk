@@ -14,7 +14,7 @@ import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/we
 import { getPrfFirstB64uFromCredential } from '../../signingEngine/threshold/webauthn';
 import { EmailRecoveryPendingStore } from '../../../utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
-import { coerceDeviceNumber } from '@shared/utils/deviceNumber';
+import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { isObject } from '@shared/utils/validation';
 import { prepareRecoveryEmails, getLocalRecoveryEmails } from '../../../utils/emailRecovery';
 import { restoreLocalLoginState } from '../restoreLocalLoginState';
@@ -233,7 +233,7 @@ export class EmailRecoveryDomain {
       });
 
       const requestId = generateEmailRecoveryRequestId();
-      const initialDeviceNumber = 1;
+      const initialSignerSlot = 1;
 
       this.emitEmailRecoveryEvent({
         step: 2,
@@ -245,18 +245,18 @@ export class EmailRecoveryDomain {
       const registrationSession =
         await context.signingEngine.requestRegistrationCredentialConfirmation({
           nearAccountId: String(nearAccountId),
-          deviceNumber: initialDeviceNumber,
+          signerSlot: initialSignerSlot,
           confirmerText: this.emailRecoveryOptions?.confirmerText,
           confirmationConfigOverride: this.emailRecoveryOptions?.confirmationConfig,
         });
 
       const credential = registrationSession.credential;
       const intentDigest = String(registrationSession.intentDigest || '').trim();
-      const deviceNumber = (() => {
+      const signerSlot = (() => {
         const parts = intentDigest.split(':');
         const last = parts[parts.length - 1];
         const n = Number(last);
-        return Number.isFinite(n) && n >= 1 ? Math.floor(n) : initialDeviceNumber;
+        return Number.isFinite(n) && n >= 1 ? Math.floor(n) : initialSignerSlot;
       })();
 
       const thresholdWarmPolicy = createThresholdWarmSessionPolicyDraft(context);
@@ -281,7 +281,7 @@ export class EmailRecoveryDomain {
         body: JSON.stringify({
           account_id: String(nearAccountId),
           request_id: requestId,
-          device_number: deviceNumber,
+          signer_slot: signerSlot,
           threshold_ed25519: thresholdWarmSessionRequest,
           threshold_ecdsa: {
             client_root_share32_b64u: clientRootShare32B64u,
@@ -355,7 +355,7 @@ export class EmailRecoveryDomain {
       const relayerParticipantId = Number(thresholdSection.relayerParticipantId);
       await context.signingEngine.storeUserData({
         nearAccountId,
-        deviceNumber,
+        signerSlot,
         operationalPublicKey: thresholdPublicKey,
         lastUpdated: Date.now(),
         passkeyCredential: {
@@ -374,7 +374,7 @@ export class EmailRecoveryDomain {
         name: `Passkey for ${String(nearAccountId)}`,
         registered: new Date().toISOString(),
         syncedAt: new Date().toISOString(),
-        deviceNumber,
+        signerSlot,
       });
 
       const { keyVersion: thresholdKeyVersion } = requireThresholdEd25519WarmSessionKeyVersion(
@@ -383,7 +383,7 @@ export class EmailRecoveryDomain {
       );
       await storeThresholdEd25519KeyMaterial({
         nearAccountId,
-        deviceNumber,
+        signerSlot,
         publicKey: thresholdPublicKey,
         relayerKeyId,
         keyVersion: thresholdKeyVersion,
@@ -424,7 +424,7 @@ export class EmailRecoveryDomain {
 
       this.pendingEmailRecovery = {
         accountId: nearAccountId,
-        deviceNumber,
+        signerSlot,
         requestId,
         recoverySessionId,
         ecdsaThresholdKeyId,
@@ -518,11 +518,11 @@ export class EmailRecoveryDomain {
         throw new Error('Timed out waiting for AddKey');
       }
 
-      const deviceNumber = coerceDeviceNumber(pending?.deviceNumber, {
+      const signerSlot = coerceSignerSlot(pending?.signerSlot, {
         min: 1,
         fallback: 1,
       });
-      await this.tryAutoLoginAfterRecovery({ accountId, deviceNumber });
+      await this.tryAutoLoginAfterRecovery({ accountId, signerSlot });
 
       this.emitEmailRecoveryEvent({
         step: 6,
@@ -552,12 +552,12 @@ export class EmailRecoveryDomain {
 
   private async tryAutoLoginAfterRecovery(args: {
     accountId: string;
-    deviceNumber: number;
+    signerSlot: number;
   }): Promise<void> {
     const context = this.getContext();
     try {
       const nearAccountId = toAccountId(String(args.accountId));
-      const deviceNumber = coerceDeviceNumber(args.deviceNumber, {
+      const signerSlot = coerceSignerSlot(args.signerSlot, {
         min: 1,
         fallback: 1,
       });
@@ -572,7 +572,7 @@ export class EmailRecoveryDomain {
       const restored = await restoreLocalLoginState({
         context,
         nearAccountId,
-        deviceNumber,
+        signerSlot,
       });
       if (!restored.isLoggedIn) {
         throw new Error(`Auto-login did not mark ${String(nearAccountId)} as logged in`);

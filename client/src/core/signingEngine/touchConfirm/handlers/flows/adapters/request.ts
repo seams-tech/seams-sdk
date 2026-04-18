@@ -1,11 +1,12 @@
-import type {
-  EmailOtpConfirmPrompt,
-  RegisterAccountPayload,
-  SigningAuthMode,
-  UserConfirmRequest,
-  SignIntentDigestPayload,
-  SignNep413Payload,
-  SignTransactionPayload,
+import {
+  signingAuthModeFromSigningAuthPlan,
+  type EmailOtpConfirmPrompt,
+  type RegisterAccountPayload,
+  type SigningAuthMode,
+  type UserConfirmRequest,
+  type SignIntentDigestPayload,
+  type SignNep413Payload,
+  type SignTransactionPayload,
 } from '../../../shared/confirmTypes';
 import { UserConfirmationType } from '../../../shared/confirmTypes';
 import { isObject, isString } from '@shared/utils/validation';
@@ -119,26 +120,44 @@ export function getDisplayModel(request: UserConfirmRequest): TxDisplayModel | u
 
 export function getSigningAuthMode(request: UserConfirmRequest): SigningAuthMode | undefined {
   if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
-    return getSignTransactionPayload(request).signingAuthMode;
+    const payload = getSignTransactionPayload(request);
+    return payload.signingAuthPlan
+      ? signingAuthModeFromSigningAuthPlan(payload.signingAuthPlan)
+      : payload.signingAuthMode;
   }
   if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
-    return (request.payload as SignNep413Payload).signingAuthMode;
+    const payload = request.payload as SignNep413Payload;
+    return payload.signingAuthPlan
+      ? signingAuthModeFromSigningAuthPlan(payload.signingAuthPlan)
+      : payload.signingAuthMode;
   }
   if (request.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
-    return (request.payload as SignIntentDigestPayload).signingAuthMode;
+    const payload = request.payload as SignIntentDigestPayload;
+    return payload.signingAuthPlan
+      ? signingAuthModeFromSigningAuthPlan(payload.signingAuthPlan)
+      : payload.signingAuthMode;
   }
   return undefined;
 }
 
 export function getEmailOtpPrompt(request: UserConfirmRequest): EmailOtpConfirmPrompt | undefined {
   if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
-    return getSignTransactionPayload(request).emailOtpPrompt;
+    const payload = getSignTransactionPayload(request);
+    return payload.signingAuthPlan?.kind === 'emailOtpReauth'
+      ? payload.signingAuthPlan.emailOtpPrompt
+      : payload.emailOtpPrompt;
   }
   if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
-    return (request.payload as SignNep413Payload).emailOtpPrompt;
+    const payload = request.payload as SignNep413Payload;
+    return payload.signingAuthPlan?.kind === 'emailOtpReauth'
+      ? payload.signingAuthPlan.emailOtpPrompt
+      : payload.emailOtpPrompt;
   }
   if (request.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
-    return (request.payload as SignIntentDigestPayload).emailOtpPrompt;
+    const payload = request.payload as SignIntentDigestPayload;
+    return payload.signingAuthPlan?.kind === 'emailOtpReauth'
+      ? payload.signingAuthPlan.emailOtpPrompt
+      : payload.emailOtpPrompt;
   }
   return undefined;
 }

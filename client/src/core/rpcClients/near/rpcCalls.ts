@@ -344,7 +344,7 @@ export async function exchangeSession(
 
 export interface DeviceLinkingResult {
   linkedAccountId: string;
-  deviceNumber: number;
+  signerSlot: number;
 }
 
 export interface CredentialIdsResult {

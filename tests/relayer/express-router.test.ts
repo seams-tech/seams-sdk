@@ -1834,9 +1834,17 @@ test.describe('relayer router (express) – P0', () => {
         email: 'alice@example.com',
         name: 'Alice Example',
       }),
-      resolveOidcWalletId: async (input) => {
+      resolveGoogleEmailOtpSession: async (input) => {
         resolvedInput = input as Record<string, unknown>;
-        return 'alice-example-com-1712345678901.testnet';
+        return {
+          ok: true,
+          mode: 'register_started',
+          walletId: 'alice-example-com-1712345678901.testnet',
+          providerSubject: 'google:user-1',
+          email: 'alice@example.com',
+          registrationAttemptId: 'attempt-google-register',
+          expiresAtMs: 1_893_456_000_000,
+        };
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
@@ -1852,6 +1860,7 @@ test.describe('relayer router (express) – P0', () => {
             type: 'oidc_jwt',
             provider: 'google',
             account_mode: 'register',
+            force_new_dev_wallet: true,
             token: 'google.id.token',
           },
         }),
@@ -1861,11 +1870,16 @@ test.describe('relayer router (express) – P0', () => {
       expect(getPath(res.json, 'session', 'walletId')).toBe(
         'alice-example-com-1712345678901.testnet',
       );
+      expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toMatchObject({
+        mode: 'register_started',
+        registrationAttemptId: 'attempt-google-register',
+      });
       expect(resolvedInput).toMatchObject({
         providerSubject: 'google:user-1',
         sub: 'user-1',
         email: 'alice@example.com',
         accountMode: 'register',
+        forceNewDevWallet: true,
       });
     } finally {
       await srv.close();
@@ -1889,22 +1903,42 @@ test.describe('relayer router (express) – P0', () => {
         sub: 'user-scoped-1',
         email: 'scoped@example.com',
       }),
-      resolveOidcWalletId: async () => 'scoped-example-com-1712345678901.testnet',
+      resolveGoogleEmailOtpSession: async () => ({
+        ok: true,
+        mode: 'register_started',
+        walletId: 'scoped-example-com-1712345678901.testnet',
+        providerSubject: 'google:user-scoped-1',
+        email: 'scoped@example.com',
+        registrationAttemptId: 'attempt-google-scoped',
+        expiresAtMs: 1_893_456_000_000,
+      }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+    });
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const orgCtx = {
+      orgId: 'org_test_scoped',
+      actorUserId: 'session-exchange-test',
+      roles: ['admin'],
+    };
+    await orgProjectEnv.upsertOrganization(orgCtx, { name: 'Scoped Org' });
+    await orgProjectEnv.createProject(orgCtx, {
+      id: 'proj_test_scoped',
+      name: 'Scoped Project',
     });
     const router = createRelayRouter(service, {
       session,
+      orgProjectEnv,
       publishableKeyAuth: {
         authenticate: async (input) => {
           expect(input.secret).toBe('pk_test_scoped');
           expect(input.origin).toBe('https://wallet.example.test');
-          expect(input.environmentId).toBe('env_test_scoped');
+          expect(input.environmentId).toBe('proj_test_scoped:dev');
           return {
             ok: true,
             principal: {
               apiKeyId: 'pk_1',
               orgId: 'org_test_scoped',
-              environmentId: 'env_test_scoped',
+              environmentId: 'proj_test_scoped:dev',
               scopes: [],
             },
           };
@@ -1922,7 +1956,7 @@ test.describe('relayer router (express) – P0', () => {
         },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          runtimeEnvironmentId: 'env_test_scoped',
+          runtimeEnvironmentId: 'proj_test_scoped:dev',
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -1934,11 +1968,13 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.status).toBe(200);
       expect(getPath(res.json, 'session', 'runtimePolicyScope')).toEqual({
         orgId: 'org_test_scoped',
-        environmentId: 'env_test_scoped',
+        projectId: 'proj_test_scoped',
+        envId: 'dev',
       });
       expect(signedExtra?.runtimePolicyScope).toEqual({
         orgId: 'org_test_scoped',
-        environmentId: 'env_test_scoped',
+        projectId: 'proj_test_scoped',
+        envId: 'dev',
       });
     } finally {
       await srv.close();
@@ -1956,12 +1992,11 @@ test.describe('relayer router (express) – P0', () => {
         sub: 'user-1',
         email: 'alice@example.com',
       }),
-      resolveOidcWalletId: async () => 'alice-example-com-1712345678901.testnet',
-      readEmailOtpEnrollment: async () => ({
-        ok: false,
-        code: 'not_found',
-        message: 'Email OTP enrollment not found',
-      }),
+      resolveGoogleEmailOtpSession: async () => {
+        const error = new Error('Email OTP enrollment not found') as Error & { code?: string };
+        error.code = 'not_found';
+        throw error;
+      },
     });
     const router = createRelayRouter(service, { session });
     const srv = await startExpressRouter(router);
@@ -1982,6 +2017,58 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.status).toBe(404);
       expect(res.json?.code).toBe('not_found');
       expect(res.json?.message).toBe('Email OTP enrollment not found');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /wallet/email-otp/dev/cleanup-google-registration verifies Google token before cleanup', async () => {
+    let cleanupInput: Record<string, unknown> | null = null;
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async (request) => {
+        expect(request.idToken).toBe('google.id.token');
+        return {
+          ok: true,
+          verified: true,
+          userId: 'google:user-cleanup',
+          providerSubject: 'google:user-cleanup',
+          sub: 'user-cleanup',
+          email: 'cleanup@example.com',
+        };
+      },
+      cleanupGoogleEmailOtpDevRegistrationState: async (input) => {
+        cleanupInput = input as Record<string, unknown>;
+        return {
+          ok: true,
+          providerSubject: 'google:user-cleanup',
+          expiredRegistrationAttemptsDeleted: 2,
+          linkedWalletId: 'cleanup.relayer.testnet',
+          orphanedWalletMappingRemoved: true,
+        };
+      },
+    });
+    const router = createRelayRouter(service);
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/wallet/email-otp/dev/cleanup-google-registration`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idToken: 'google.id.token',
+          walletId: 'cleanup.relayer.testnet',
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json).toMatchObject({
+        ok: true,
+        providerSubject: 'google:user-cleanup',
+        expiredRegistrationAttemptsDeleted: 2,
+        orphanedWalletMappingRemoved: true,
+      });
+      expect(cleanupInput).toMatchObject({
+        providerSubject: 'google:user-cleanup',
+        walletId: 'cleanup.relayer.testnet',
+      });
     } finally {
       await srv.close();
     }

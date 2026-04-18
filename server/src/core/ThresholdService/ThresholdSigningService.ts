@@ -697,6 +697,74 @@ function parseThresholdEd25519SessionRequest(
   };
 }
 
+type ThresholdEd25519SessionWalletAuthProof =
+  | {
+      method: 'app_session';
+      claims: ReturnType<typeof parseAppSessionClaims>;
+      sessionWalletId: string;
+    }
+  | {
+      method: 'threshold_ecdsa_session';
+      claims: ReturnType<typeof parseThresholdEcdsaSessionClaims>;
+    }
+  | {
+      method: 'passkey';
+      webauthnAuthentication: WebAuthnAuthenticationCredential;
+    };
+
+function resolveThresholdEd25519SessionWalletAuthProof(input: {
+  request: ThresholdEd25519SessionRequest;
+  appSessionClaims: ReturnType<typeof parseAppSessionClaims>;
+  sessionWalletId: string;
+  ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>;
+  hasAppSessionAuth: boolean;
+  hasEcdsaSessionAuth: boolean;
+}): ParseResult<ThresholdEd25519SessionWalletAuthProof> {
+  if (input.hasAppSessionAuth) {
+    return {
+      ok: true,
+      value: {
+        method: 'app_session',
+        claims: input.appSessionClaims,
+        sessionWalletId: input.sessionWalletId,
+      },
+    };
+  }
+
+  if (input.ecdsaSessionClaims) {
+    if (!input.hasEcdsaSessionAuth) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'threshold-ecdsa session does not match threshold-ed25519 session scope',
+      };
+    }
+    return {
+      ok: true,
+      value: {
+        method: 'threshold_ecdsa_session',
+        claims: input.ecdsaSessionClaims,
+      },
+    };
+  }
+
+  if (!input.request.webauthn_authentication) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'webauthn_authentication is required for threshold-ed25519 session mint',
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      method: 'passkey',
+      webauthnAuthentication: input.request.webauthn_authentication,
+    },
+  };
+}
+
 function parseThresholdEd25519HssCanonicalContext(
   raw: unknown,
 ): ParseResult<ThresholdEd25519HssCanonicalContext> {
@@ -3780,35 +3848,33 @@ export class ThresholdSigningService {
         }
       }
 
-      if (hasAppSessionAuth) {
-        if (appSessionClaims?.sub !== nearAccountId && sessionWalletId !== nearAccountId) {
+      const walletAuthProof = resolveThresholdEd25519SessionWalletAuthProof({
+        request,
+        appSessionClaims,
+        sessionWalletId,
+        ecdsaSessionClaims,
+        hasAppSessionAuth,
+        hasEcdsaSessionAuth,
+      });
+      if (!walletAuthProof.ok) return walletAuthProof;
+
+      if (walletAuthProof.value.method === 'app_session') {
+        if (
+          walletAuthProof.value.claims?.sub !== nearAccountId &&
+          walletAuthProof.value.sessionWalletId !== nearAccountId
+        ) {
           return {
             ok: false,
             code: 'unauthorized',
             message: 'app session does not match threshold-ed25519 session scope',
           };
         }
-      } else if (ecdsaSessionClaims) {
-        if (!hasEcdsaSessionAuth) {
-          return {
-            ok: false,
-            code: 'unauthorized',
-            message: 'threshold-ecdsa session does not match threshold-ed25519 session scope',
-          };
-        }
-      } else {
-        if (!request.webauthn_authentication) {
-          return {
-            ok: false,
-            code: 'invalid_body',
-            message: 'webauthn_authentication is required for threshold-ed25519 session mint',
-          };
-        }
+      } else if (walletAuthProof.value.method === 'passkey') {
         const verification = await this.verifyWebAuthnAuthenticationLite!({
           nearAccountId,
           rpId,
           expectedChallenge,
-          webauthn_authentication: request.webauthn_authentication,
+          webauthn_authentication: walletAuthProof.value.webauthnAuthentication,
         });
 
         if (!verification.success || !verification.verified) {

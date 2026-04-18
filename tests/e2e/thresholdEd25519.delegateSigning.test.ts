@@ -59,6 +59,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
           accountsOnChain.add(accountId);
         },
         session: managedRegistrationHarness.session,
+        runtimePolicyScope: managedRegistrationHarness.runtimePolicyScope,
       });
 
       await installFastNearRpcMock(page, {

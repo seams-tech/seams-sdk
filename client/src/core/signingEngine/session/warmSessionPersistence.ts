@@ -5,6 +5,7 @@ import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   type ThresholdEd25519SessionRecord,
   type ThresholdEd25519SessionStoreSource,
+  type ThresholdEcdsaEmailOtpAuthContext,
   upsertStoredThresholdEd25519SessionRecord,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
 import {
@@ -26,6 +27,7 @@ export type PersistWarmSessionEd25519CapabilityArgs = {
   remainingUses: number;
   jwt?: string;
   xClientBaseB64u?: string;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   updatedAtMs?: number;
   source?: ThresholdEd25519SessionStoreSource;
 };
@@ -56,7 +58,9 @@ export function persistWarmSessionEd25519Capability(
 
   const jwt = String(args.jwt || '').trim();
   const runtimePolicyScope =
-    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(jwt);
+    args.runtimePolicyScope ||
+    parseThresholdRuntimePolicyScopeFromJwt(jwt) ||
+    existingRecord?.runtimePolicyScope;
   const xClientBaseB64u =
     String(args.xClientBaseB64u || '').trim() ||
     String(existingRecord?.xClientBaseB64u || '').trim();
@@ -74,6 +78,7 @@ export function persistWarmSessionEd25519Capability(
     ...(jwt ? { thresholdSessionJwt: jwt } : {}),
     expiresAtMs,
     remainingUses,
+    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     updatedAtMs: Math.floor(Number(args.updatedAtMs ?? Date.now()) || 0),
     source: args.source || 'manual-connect',
   });

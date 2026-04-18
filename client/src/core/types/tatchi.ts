@@ -5,6 +5,15 @@ import type { AuthenticatorOptions } from './authenticatorOptions';
 import type { ClientUserData } from '../accountData/near/types';
 import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
+import type {
+  SigningSessionRetention,
+  WalletAuthMethod,
+} from '@shared/utils';
+
+export type {
+  SigningSessionRetention,
+  WalletAuthMethod,
+} from '@shared/utils';
 
 export type SigningSessionPersistenceMode = 'none' | 'sealed_refresh_v1';
 export type EmailOtpAuthPolicy = 'session' | 'per_operation';
@@ -299,6 +308,7 @@ export interface LoginState {
   nearAccountId: AccountId | null;
   publicKey: string | null;
   userData: ClientUserData | null;
+  authMethod?: WalletAuthMethod | null;
   thresholdEcdsaEthereumAddress?: string | null;
   thresholdEcdsaPublicKeyB64u?: string | null;
 }
@@ -395,6 +405,8 @@ export interface SigningSessionStatus {
   sessionId: string;
   status: 'active' | 'exhausted' | 'expired' | 'not_found' | 'unavailable';
   statusCode?: string;
+  authMethod?: WalletAuthMethod | null;
+  retention?: SigningSessionRetention | null;
   remainingUses?: number;
   expiresAtMs?: number;
   createdAtMs?: number;
@@ -412,6 +424,8 @@ export interface ThresholdWarmLoginAndCreateSessionResult extends LoginAndCreate
 export interface WalletSession {
   login: LoginState;
   signingSession: SigningSessionStatus | null;
+  authMethod?: WalletAuthMethod | null;
+  retention?: SigningSessionRetention | null;
 }
 
 export interface ActionResult {
@@ -433,7 +447,7 @@ export interface GetRecentUnlocksResult {
   accountIds: string[];
   lastUsedAccount: {
     nearAccountId: AccountId;
-    deviceNumber: number;
+    signerSlot: number;
   } | null;
 }
 

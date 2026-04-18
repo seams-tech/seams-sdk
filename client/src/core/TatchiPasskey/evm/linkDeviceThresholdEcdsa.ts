@@ -1,4 +1,5 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
 import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/profileAccountProjection';
@@ -91,16 +92,22 @@ function buildThresholdEcdsaBootstrap(args: {
   const session = args.thresholdEcdsa.session || {};
   const ecdsaThresholdKeyId = String(args.thresholdEcdsa.ecdsaThresholdKeyId || '').trim();
   const relayerKeyId = String(args.thresholdEcdsa.relayerKeyId || '').trim();
-  const thresholdEcdsaPublicKeyB64u = String(args.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '').trim();
+  const thresholdEcdsaPublicKeyB64u = String(
+    args.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '',
+  ).trim();
   const ethereumAddress = String(args.thresholdEcdsa.ethereumAddress || '').trim();
   const relayerVerifyingShareB64u = String(
     args.thresholdEcdsa.relayerVerifyingShareB64u || '',
   ).trim();
-  const clientVerifyingShareB64u = String(args.thresholdEcdsa.clientVerifyingShareB64u || '').trim();
+  const clientVerifyingShareB64u = String(
+    args.thresholdEcdsa.clientVerifyingShareB64u || '',
+  ).trim();
   const clientAdditiveShare32B64u = String(
     args.thresholdEcdsa.clientAdditiveShare32B64u || '',
   ).trim();
-  const sessionKind = String(session.sessionKind || '').trim().toLowerCase();
+  const sessionKind = String(session.sessionKind || '')
+    .trim()
+    .toLowerCase();
   const sessionId = String(session.sessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   const remainingUses = Number(session.remainingUses);
@@ -112,7 +119,12 @@ function buildThresholdEcdsaBootstrap(args: {
   if (!ecdsaThresholdKeyId) {
     throw new Error('link-device thresholdEcdsa payload missing ecdsaThresholdKeyId');
   }
-  if (!relayerKeyId || !thresholdEcdsaPublicKeyB64u || !ethereumAddress || !relayerVerifyingShareB64u) {
+  if (
+    !relayerKeyId ||
+    !thresholdEcdsaPublicKeyB64u ||
+    !ethereumAddress ||
+    !relayerVerifyingShareB64u
+  ) {
     throw new Error('link-device thresholdEcdsa payload missing keygen fields');
   }
   if (!clientVerifyingShareB64u) {
@@ -182,7 +194,7 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
   signingEngine: LinkDeviceThresholdEcdsaSigningPort;
   nearAccountId: AccountId | string;
   relayerUrl: string;
-  deviceNumber: number;
+  signerSlot: number;
   rpId: string;
   credentialIdB64u: string;
   thresholdEcdsa: PreparedLinkDeviceThresholdEcdsa;
@@ -199,6 +211,7 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
   });
   const thresholdOwnerAddress = String(args.thresholdEcdsa.ethereumAddress || '').trim();
   const uniqueChains = [...new Set(linkedAccounts.map((account) => account.chain))];
+  const signerSlot = Math.max(1, Math.floor(Number(args.signerSlot) || 1));
 
   for (const chain of uniqueChains) {
     args.signingEngine.upsertThresholdEcdsaSessionFromBootstrap({
@@ -231,40 +244,47 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
     buildNearAccountRefs(nearAccountId),
   );
   if (!nearContext?.profileId) {
-    throw new Error(
-      `[link-device] missing profile/account mapping for ${String(nearAccountId)}`,
-    );
+    throw new Error(`[link-device] missing profile/account mapping for ${String(nearAccountId)}`);
   }
 
   for (const account of linkedAccounts) {
-    await args.indexedDB.upsertAccountSigner({
-      profileId: nearContext.profileId,
-      chainIdKey: account.chainIdKey,
-      accountAddress: account.accountAddress,
-      signerId: thresholdOwnerAddress,
-      signerSlot: args.deviceNumber,
-      signerType: 'threshold',
-      status: 'pending',
-      metadata: {
+    await args.indexedDB.stageAccountSigner({
+      account: {
+        profileId: nearContext.profileId,
+        chainIdKey: account.chainIdKey,
+        accountAddress: account.accountAddress,
         accountModel: account.accountModel,
-        ownerAddress: thresholdOwnerAddress,
-        ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
-        relayerKeyId: String(args.thresholdEcdsa.relayerKeyId || '').trim(),
-        thresholdEcdsaPublicKeyB64u: String(args.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '').trim(),
-        deviceNumber: args.deviceNumber,
-        credentialIdB64u: String(args.credentialIdB64u || '').trim(),
-        rpId: String(args.rpId || '').trim(),
-        chain: account.chain,
-        chainId: account.chainId,
-        ...(Array.isArray(bootstrap.keygen.participantIds)
-          ? { participantIds: [...bootstrap.keygen.participantIds] }
-          : {}),
-        ...(account.factory ? { factory: account.factory } : {}),
-        ...(account.entryPoint ? { entryPoint: account.entryPoint } : {}),
-        ...(account.salt ? { salt: account.salt } : {}),
-        ...(account.counterfactualAddress
-          ? { counterfactualAddress: account.counterfactualAddress }
-          : {}),
+      },
+      signer: {
+        signerId: thresholdOwnerAddress,
+        signerSlot,
+        signerType: 'threshold',
+        signerKind: SIGNER_KINDS.thresholdEcdsa,
+        signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
+        signerSource: SIGNER_SOURCES.passkeyRegistration,
+        metadata: {
+          accountModel: account.accountModel,
+          ownerAddress: thresholdOwnerAddress,
+          ecdsaThresholdKeyId: bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
+          relayerKeyId: String(args.thresholdEcdsa.relayerKeyId || '').trim(),
+          thresholdEcdsaPublicKeyB64u: String(
+            args.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '',
+          ).trim(),
+          signerSlot,
+          credentialIdB64u: String(args.credentialIdB64u || '').trim(),
+          rpId: String(args.rpId || '').trim(),
+          chain: account.chain,
+          chainId: account.chainId,
+          ...(Array.isArray(bootstrap.keygen.participantIds)
+            ? { participantIds: [...bootstrap.keygen.participantIds] }
+            : {}),
+          ...(account.factory ? { factory: account.factory } : {}),
+          ...(account.entryPoint ? { entryPoint: account.entryPoint } : {}),
+          ...(account.salt ? { salt: account.salt } : {}),
+          ...(account.counterfactualAddress
+            ? { counterfactualAddress: account.counterfactualAddress }
+            : {}),
+        },
       },
       mutation: { routeThroughOutbox: false },
     });

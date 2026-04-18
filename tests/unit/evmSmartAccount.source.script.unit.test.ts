@@ -98,7 +98,7 @@ test.describe('source-backed EVM smart-account verification', () => {
             createdAtMs: 40,
             updatedAtMs: 40,
             metadata: {
-              deviceNumber: 4,
+              signerSlot: 4,
             },
           },
           {
@@ -112,7 +112,7 @@ test.describe('source-backed EVM smart-account verification', () => {
             createdAtMs: 20,
             updatedAtMs: 20,
             metadata: {
-              deviceNumber: 2,
+              signerSlot: 2,
             },
           },
           {
@@ -126,7 +126,7 @@ test.describe('source-backed EVM smart-account verification', () => {
             createdAtMs: 10,
             updatedAtMs: 10,
             metadata: {
-              deviceNumber: 1,
+              signerSlot: 1,
             },
           },
           {
@@ -174,7 +174,7 @@ test.describe('source-backed EVM smart-account verification', () => {
             owners: manifest?.owners?.map((owner) => ({
               signerId: owner.signerId,
               status: owner.status,
-              deviceNumber: owner.deviceNumber ?? null,
+              signerSlot: owner.signerSlot ?? null,
             })) || null,
             initOwners: ownerWords,
           }),
@@ -195,7 +195,7 @@ test.describe('source-backed EVM smart-account verification', () => {
       owners: Array<{
         signerId: string;
         status: string;
-        deviceNumber: number | null;
+        signerSlot: number | null;
       }> | null;
       initOwners: string[];
     };
@@ -210,22 +210,22 @@ test.describe('source-backed EVM smart-account verification', () => {
       {
         signerId: `0x${'bb'.repeat(20)}`,
         status: 'active',
-        deviceNumber: 1,
+        signerSlot: 1,
       },
       {
         signerId: `0x${'cc'.repeat(20)}`,
         status: 'active',
-        deviceNumber: 2,
+        signerSlot: 2,
       },
       {
         signerId: `0x${'dd'.repeat(20)}`,
         status: 'pending',
-        deviceNumber: 4,
+        signerSlot: 4,
       },
       {
         signerId: `0x${'aa'.repeat(20)}`,
         status: 'pending',
-        deviceNumber: null,
+        signerSlot: null,
       },
     ]);
     expect(parsed.initOwners).toEqual(parsed.ownerAddresses);

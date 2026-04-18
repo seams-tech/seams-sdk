@@ -7,12 +7,12 @@ import type { PasskeyManagerContext } from './index';
 export async function restoreLocalLoginState(args: {
   context: PasskeyManagerContext;
   nearAccountId: AccountId | string;
-  deviceNumber: number;
-}): Promise<{ nearAccountId: AccountId; deviceNumber: number; isLoggedIn: boolean }> {
+  signerSlot: number;
+}): Promise<{ nearAccountId: AccountId; signerSlot: number; isLoggedIn: boolean }> {
   const nearAccountId = toAccountId(args.nearAccountId);
-  const deviceNumber = normalizePositiveInteger(args.deviceNumber) ?? 1;
+  const signerSlot = normalizePositiveInteger(args.signerSlot) ?? 1;
 
-  await args.context.signingEngine.setLastUser(nearAccountId, deviceNumber).catch(() => undefined);
+  await args.context.signingEngine.setLastUser(nearAccountId, signerSlot).catch(() => undefined);
   await args.context.signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
   await args.context.signingEngine
     .initializeCurrentUser(nearAccountId, args.context.nearClient)
@@ -21,7 +21,7 @@ export async function restoreLocalLoginState(args: {
   const { login } = await getWalletSession(args.context, nearAccountId);
   return {
     nearAccountId,
-    deviceNumber,
+    signerSlot,
     isLoggedIn: Boolean(login?.isLoggedIn),
   };
 }

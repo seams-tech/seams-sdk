@@ -28,7 +28,7 @@ export interface DeviceLinkingQRData {
 export interface DeviceLinkingSession {
   sessionId?: string;
   accountId: AccountId | null; // Null until discovered from contract logs (Option F) or provided upfront (Option E)
-  deviceNumber?: number; // Device number assigned by Device1 for device linking
+  signerSlot?: number;
   nearPublicKey: string;
   credential: WebAuthnRegistrationCredential | null; // Null for Option F until real account discovered
   phase: DeviceLinkingPhase;
@@ -72,10 +72,10 @@ export type StartDevice2LinkingFlowArgs = {
    */
   accountId?: AccountId;
   /**
-   * Optional preferred device number for the new passkey credential (1-indexed).
+   * Optional preferred signer slot for the new passkey credential (1-indexed).
    * When omitted, device2 will attempt `2` and auto-increment on duplicate.
    */
-  deviceNumber?: number;
+  signerSlot?: number;
 } & StartDeviceLinkingOptionsDevice2;
 
 export interface StartDevice2LinkingFlowResults {

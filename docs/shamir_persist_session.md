@@ -191,7 +191,8 @@ Rules:
 - [x] Add wasm runtime crate/package for `shamir-3-pass-rs` worker use (replace current BigInt runtime backend).
 - [x] Wire SDK build scripts to compile and copy new wasm artifact(s):
   - `sdk/build-paths.ts`
-  - `sdk/scripts/build/build-dev.sh`
+  - `sdk/scripts/build/build-sdk.sh`
+  - `sdk/scripts/build/build-wasm.sh`
   - `sdk/scripts/build/build-prod.sh`
 - [x] Ensure runtime is lazy-loaded only when `sealed_refresh_v1` is enabled.
 

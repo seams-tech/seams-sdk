@@ -9,7 +9,6 @@ import {
   type TransactionSummary,
   type SigningUserConfirmRequest,
   type IntentDigestUserConfirmRequest,
-  type SigningAuthMode,
 } from '../../shared/confirmTypes';
 import {
   isUserCancelledUserConfirm,
@@ -20,6 +19,7 @@ import {
   getNearAccountId,
   getIntentDigest,
   getNearPublicKeyStr,
+  getSigningAuthMode,
   getTxCount,
   getSignTransactionPayload,
 } from './adapters/request';
@@ -33,12 +33,12 @@ import {
   type IntentDigestPreparationResult,
 } from '@/core/signingEngine/touchConfirm/intentDigestPreparationRegistry';
 
-function getTransactionSigningAuthMode(request: SigningUserConfirmRequest): SigningAuthMode {
+function getTransactionSigningAuthMode(request: SigningUserConfirmRequest) {
   if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
-    return getSignTransactionPayload(request).signingAuthMode ?? 'webauthn';
+    return getSigningAuthMode(request) ?? 'webauthn';
   }
   if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
-    return request.payload.signingAuthMode ?? 'webauthn';
+    return getSigningAuthMode(request) ?? 'webauthn';
   }
   return 'webauthn';
 }
@@ -326,8 +326,8 @@ export async function handleTransactionSigningFlow(
   }
 }
 
-function getIntentDigestSigningAuthMode(request: IntentDigestUserConfirmRequest): SigningAuthMode {
-  return request.payload.signingAuthMode ?? 'webauthn';
+function getIntentDigestSigningAuthMode(request: IntentDigestUserConfirmRequest) {
+  return getSigningAuthMode(request) ?? 'webauthn';
 }
 
 export async function handleIntentDigestSigningFlow(

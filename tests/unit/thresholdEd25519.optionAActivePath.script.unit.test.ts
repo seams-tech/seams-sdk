@@ -361,7 +361,7 @@ function seedThresholdEd25519Session(args?: { xClientBaseB64u?: string }): void 
 function makeThresholdKeyMaterial(publicKey: string) {
   return {
     nearAccountId: NEAR_ACCOUNT_ID,
-    deviceNumber: 1,
+    signerSlot: 1,
     kind: 'threshold_ed25519_v1' as const,
     publicKey,
     relayerKeyId: RELAYER_KEY_ID,
@@ -382,7 +382,7 @@ function makeThresholdKeyMaterial(publicKey: string) {
 function makeThresholdKeyMaterialRecord(publicKey: string) {
   return {
     profileId: 'profile-1',
-    deviceNumber: 1,
+    signerSlot: 1,
     chainIdKey: `near:${NEAR_ACCOUNT_ID}`,
     keyKind: 'threshold_share_v1',
     algorithm: 'ed25519',
@@ -400,7 +400,7 @@ function makeThresholdKeyMaterialRecord(publicKey: string) {
 function makeIndexedDbThresholdDeps(publicKey: string) {
   return {
     clientDB: {
-      getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 1 }),
+      getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 1 }),
       resolveProfileAccountContext: async (accountRef: {
         chainIdKey: string;
         accountAddress: string;
@@ -795,7 +795,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           } as TransactionInputWasm,
         ],
         rpcCall: { nearAccountId: NEAR_ACCOUNT_ID },
-        deviceNumber: 1,
+        signerSlot: 1,
         sessionId: THRESHOLD_SESSION_ID,
       });
 
@@ -968,7 +968,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           } as TransactionInputWasm,
         ],
         rpcCall: { nearAccountId: NEAR_ACCOUNT_ID },
-        deviceNumber: 1,
+        signerSlot: 1,
         sessionId: THRESHOLD_SESSION_ID,
       });
 
@@ -1420,7 +1420,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           } as TransactionInputWasm,
         ],
         rpcCall: { nearAccountId: NEAR_ACCOUNT_ID },
-        deviceNumber: 1,
+        signerSlot: 1,
         sessionId: THRESHOLD_SESSION_ID,
       });
 

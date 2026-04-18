@@ -40,6 +40,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
       await installCreateAccountAndRegisterUserMock(page, {
         relayerBaseUrl: relayerUrl,
         session: managedRegistrationHarness.session,
+        runtimePolicyScope: managedRegistrationHarness.runtimePolicyScope,
         threshold,
         onNewPublicKey: (pk) => {
           if (!operationalNearPublicKey) operationalNearPublicKey = pk;

@@ -4,7 +4,11 @@ import { setupBasicPasskeyTest, SDK_ESM_PATHS } from '../setup';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
-import type { ThresholdStoreConfigInput } from '@server/core/types';
+import type {
+  AccountCreationRequest,
+  AccountCreationResult,
+  ThresholdStoreConfigInput,
+} from '@server/core/types';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
 import { makeSessionAdapter, startExpressRouter } from '../relayer/helpers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
@@ -39,6 +43,10 @@ const DEFAULT_ACCOUNTS_ON_CHAIN = new Set<string>(
   [DEFAULT_TEST_CONFIG.relayerAccount].filter((id): id is string => !!id),
 );
 const THRESHOLD_ED25519_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
+export const TEST_RELAYER_ACCOUNT_ID = 'relayer.testnet';
+export const TEST_RELAYER_PUBLIC_KEY = 'ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB';
+export const TEST_RELAYER_PRIVATE_KEY =
+  'ed25519:99eUso3aSbE9tqGSTXzo3TLfKb9RkMTURrHKQ1K7Zh3StnzFNUx8FKCPPPPpR479qsw5zv2WNBKmgiz7WqgAJfM';
 
 export function makeAuthServiceForThreshold(
   keysOnChain: Set<string>,
@@ -64,8 +72,8 @@ export function makeAuthServiceForThreshold(
   };
 
   const svc = new AuthService({
-    relayerAccount: 'relayer.testnet',
-    relayerPrivateKey: 'ed25519:dummy',
+    relayerAccount: TEST_RELAYER_ACCOUNT_ID,
+    relayerPrivateKey: TEST_RELAYER_PRIVATE_KEY,
     nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
     networkId: DEFAULT_TEST_CONFIG.nearNetwork,
     accountInitialBalance: '1',
@@ -82,16 +90,64 @@ export function makeAuthServiceForThreshold(
       ) => Promise<{ success: boolean; verified: boolean }>;
     }
   ).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
+  (svc as unknown as { createAccount: (request: AccountCreationRequest) => Promise<AccountCreationResult> })
+    .createAccount = async (request: AccountCreationRequest) => {
+      const publicKey = String(request.publicKey || '').trim();
+      const recoveryPublicKey = String(request.recoveryPublicKey || '').trim();
+      if (publicKey) keysOnChain.add(publicKey);
+      if (recoveryPublicKey) keysOnChain.add(recoveryPublicKey);
+      return {
+        success: true,
+        transactionHash: `mock-create-account-${Date.now()}`,
+        accountId: request.accountId,
+        message: `Mock account ${request.accountId} created`,
+      };
+    };
 
-  (
-    svc as unknown as { nearClient: { viewAccessKeyList: (accountId: string) => Promise<unknown> } }
-  ).nearClient.viewAccessKeyList = async (_accountId: string) => {
+  keysOnChain.add(TEST_RELAYER_PUBLIC_KEY);
+  const blockHash = bs58.encode(Buffer.alloc(32, 7));
+  const nearClient = (
+    svc as unknown as {
+      nearClient: {
+        viewAccessKey: (accountId: string, publicKey: string) => Promise<unknown>;
+        viewAccessKeyList: (accountId: string) => Promise<unknown>;
+        viewBlock: () => Promise<unknown>;
+        sendTransaction: () => Promise<unknown>;
+        txStatus: () => Promise<unknown>;
+      };
+    }
+  ).nearClient;
+  nearClient.viewAccessKey = async (_accountId: string, publicKey: string) => ({
+    block_hash: blockHash,
+    block_height: 424242,
+    nonce: keysOnChain.has(publicKey) ? 1 : 0,
+    permission: 'FullAccess' as const,
+  });
+  nearClient.viewAccessKeyList = async (_accountId: string) => {
     const keys = Array.from(keysOnChain).map((publicKey) => ({
       public_key: publicKey,
       access_key: { nonce: 0, permission: 'FullAccess' as const },
     }));
     return { keys };
   };
+  nearClient.viewBlock = async () => ({
+    header: {
+      hash: blockHash,
+      height: 424242,
+    },
+  });
+  nearClient.sendTransaction = async () => ({
+    status: { SuccessValue: '' },
+    transaction: { hash: `mock-server-tx-${Date.now()}` },
+    transaction_outcome: { id: `mock-server-tx-outcome-${Date.now()}` },
+    receipts_outcome: [],
+  });
+  nearClient.txStatus = async () => ({
+    status: { SuccessValue: '' },
+    transaction: { hash: `mock-server-tx-status-${Date.now()}` },
+    transaction_outcome: { id: `mock-server-tx-status-outcome-${Date.now()}` },
+    receipts_outcome: [],
+  });
   const threshold = createThresholdSigningService({
     authService: svc,
     thresholdStore: thresholdConfig,
@@ -209,6 +265,11 @@ export async function setupManagedThresholdRegistrationHarness(args: {
     environmentId: string;
     publishableKey: string;
   };
+  runtimePolicyScope: {
+    orgId: string;
+    projectId: string;
+    envId: string;
+  };
   close: () => Promise<void>;
 }> {
   const session = args.session || createInMemoryJwtSessionAdapter();
@@ -229,7 +290,8 @@ export async function setupManagedThresholdRegistrationHarness(args: {
   );
   const orgId = String(args.orgId || 'org_threshold_wallet_iframe').trim();
   const projectId = String(args.projectId || 'proj_threshold_wallet_iframe').trim();
-  const environmentId = `${projectId}:dev`;
+  const envId = 'dev';
+  const environmentId = `${projectId}:${envId}`;
   const bootstrapAdminCtx = {
     orgId,
     actorUserId: `user_${projectId}`,
@@ -290,6 +352,11 @@ export async function setupManagedThresholdRegistrationHarness(args: {
     baseUrl: server.baseUrl,
     session,
     managedRegistration,
+    runtimePolicyScope: {
+      orgId,
+      projectId,
+      envId,
+    },
     close: server.close,
   };
 }

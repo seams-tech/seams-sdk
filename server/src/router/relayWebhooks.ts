@@ -1,13 +1,8 @@
 import type { NormalizedRouterLogger } from './logger';
 import type { RelayWebhookOptions } from './relay';
+import { toOptionalTrimmedString } from '@shared/utils/validation';
 
 const DEFAULT_ORG_ID_CLAIM_KEYS = ['orgId', 'org_id', 'tenantId', 'tenant_id'] as const;
-
-function toOptionalTrimmedString(input: unknown): string | null {
-  if (typeof input !== 'string') return null;
-  const value = input.trim();
-  return value ? value : null;
-}
 
 function resolveOrgIdFromClaims(
   claims: Record<string, unknown> | null | undefined,

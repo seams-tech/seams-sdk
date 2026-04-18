@@ -216,6 +216,11 @@
   text-align: center;
 }
 
+.w3a-google-account-name-note {
+  margin-top: 8px;
+  font-size: 0.82rem;
+}
+
 .w3a-social-stack {
   margin-top: 0;
 }

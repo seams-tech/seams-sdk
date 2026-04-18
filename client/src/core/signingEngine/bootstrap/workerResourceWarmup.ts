@@ -3,7 +3,7 @@ import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import { getLastLoggedInDeviceNumber } from '../signers/webauthn/device/getDeviceNumber';
+import { getLastLoggedInSignerSlot } from '../signers/webauthn/device/signerSlot';
 
 export type WorkerResourceWarmupDeps = {
   workerBaseOrigin: string;
@@ -43,7 +43,7 @@ export async function warmCriticalResources(
   // Best-effort: open IndexedDB and warm key data for the account.
   if (nearAccountId) {
     const accountId = toAccountId(nearAccountId);
-    const deviceNumber = await getLastLoggedInDeviceNumber(
+    const signerSlot = await getLastLoggedInSignerSlot(
       accountId,
       deps.indexedDB.clientDB,
     ).catch(() => 1);
@@ -53,7 +53,7 @@ export async function warmCriticalResources(
         accountKeyMaterialDB: deps.indexedDB.accountKeyMaterialDB,
       },
       accountId,
-      deviceNumber,
+      signerSlot,
     ).catch(() => null);
   }
 

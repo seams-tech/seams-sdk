@@ -22,7 +22,7 @@ export interface NearKeyMaterialDeps {
 
 export interface StoreNearKeyMaterialInput {
   nearAccountId: AccountId;
-  deviceNumber: number;
+  signerSlot: number;
   keyKind: KeyMaterialKind;
   algorithm?: KeyMaterialAlgorithm;
   publicKey: string;
@@ -37,7 +37,7 @@ export interface StoreNearKeyMaterialInput {
 
 export interface StoreNearThresholdKeyMaterialInput {
   nearAccountId: AccountId;
-  deviceNumber: number;
+  signerSlot: number;
   publicKey: string;
   relayerKeyId: string;
   keyVersion: string;
@@ -51,7 +51,7 @@ export interface StoreNearThresholdKeyMaterialInput {
 
 function mapThresholdNearKey(
   nearAccountId: AccountId,
-  deviceNumber: number,
+  signerSlot: number,
   rec: KeyMaterialRecord | null,
 ): ThresholdEd25519KeyMaterial | null {
   if (!rec) return null;
@@ -69,7 +69,7 @@ function mapThresholdNearKey(
     });
   return {
     nearAccountId,
-    deviceNumber,
+    signerSlot,
     kind: 'threshold_ed25519_v1',
     publicKey: rec.publicKey,
     relayerKeyId,
@@ -82,15 +82,15 @@ function mapThresholdNearKey(
 export async function getNearThresholdKeyMaterial(
   deps: NearKeyMaterialDeps,
   nearAccountId: AccountId,
-  deviceNumber: number,
+  signerSlot: number,
 ): Promise<ThresholdEd25519KeyMaterial | null> {
   const keyRecord = await getAccountKeyMaterial({
     deps,
     accountRefs: buildNearAccountRefs(nearAccountId),
-    deviceNumber,
+    signerSlot,
     keyKind: 'threshold_share_v1',
   });
-  return mapThresholdNearKey(nearAccountId, deviceNumber, keyRecord);
+  return mapThresholdNearKey(nearAccountId, signerSlot, keyRecord);
 }
 
 export async function storeNearKeyMaterial(
@@ -101,8 +101,8 @@ export async function storeNearKeyMaterial(
   if (!accountAddress) {
     throw new Error('IndexedDBManager: Missing nearAccountId for key write');
   }
-  if (!Number.isSafeInteger(input.deviceNumber) || input.deviceNumber < 1) {
-    throw new Error('IndexedDBManager: Invalid deviceNumber for key write');
+  if (!Number.isSafeInteger(input.signerSlot) || input.signerSlot < 1) {
+    throw new Error('IndexedDBManager: Invalid signerSlot for key write');
   }
   const keyKind = toTrimmedString(input.keyKind || '');
   if (!keyKind) {
@@ -120,7 +120,7 @@ export async function storeNearKeyMaterial(
 
   await storeAccountKeyMaterial(deps, {
     accountRefs: buildNearAccountRefs(accountAddress as AccountId),
-    deviceNumber: input.deviceNumber,
+    signerSlot: input.signerSlot,
     keyKind,
     algorithm,
     publicKey,
@@ -149,7 +149,7 @@ export async function storeNearThresholdKeyMaterial(
 
   await storeNearKeyMaterial(deps, {
     nearAccountId: input.nearAccountId,
-    deviceNumber: input.deviceNumber,
+    signerSlot: input.signerSlot,
     keyKind: 'threshold_share_v1',
     publicKey: input.publicKey,
     signerId: input.signerId,

@@ -57,6 +57,7 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
           accountsOnChain.add(accountId);
         },
         session: managedRegistrationHarness.session,
+        runtimePolicyScope: managedRegistrationHarness.runtimePolicyScope,
       });
 
       await installFastNearRpcMock(page, {

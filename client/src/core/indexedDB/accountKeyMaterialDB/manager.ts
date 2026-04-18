@@ -98,8 +98,10 @@ export class AccountKeyMaterialDBManager {
     if (!profileId) {
       throw new Error('PasskeyAccountKeyMaterialDB: Missing profileId for key material record');
     }
-    if (!Number.isSafeInteger(data.deviceNumber) || data.deviceNumber < 1) {
-      throw new Error('PasskeyAccountKeyMaterialDB: Invalid deviceNumber for key material record');
+    if (!Number.isSafeInteger(data.signerSlot) || data.signerSlot < 1) {
+      throw new Error(
+        'PasskeyAccountKeyMaterialDB: Invalid signerSlot for key material record',
+      );
     }
     if (!chainIdKey) {
       throw new Error('PasskeyAccountKeyMaterialDB: Missing chainIdKey for key material record');
@@ -123,7 +125,7 @@ export class AccountKeyMaterialDBManager {
     const payload = sanitizePayload(data.payload);
     const expectedAAD = buildEnvelopeAAD({
       profileId,
-      deviceNumber: data.deviceNumber,
+      signerSlot: data.signerSlot,
       chainIdKey,
       keyKind,
       schemaVersion: data.schemaVersion,
@@ -132,12 +134,12 @@ export class AccountKeyMaterialDBManager {
     const payloadEnvelope = normalizePayloadEnvelope(
       data.payloadEnvelope,
       expectedAAD,
-      `${profileId}/${data.deviceNumber}/${chainIdKey}/${keyKind}`,
+      `${profileId}/${data.signerSlot}/${chainIdKey}/${keyKind}`,
     );
 
     const toStore: KeyMaterialRecord = {
       profileId,
-      deviceNumber: data.deviceNumber,
+      signerSlot: data.signerSlot,
       chainIdKey,
       keyKind,
       algorithm,
@@ -154,7 +156,7 @@ export class AccountKeyMaterialDBManager {
 
   async getKeyMaterial(
     profileId: string,
-    deviceNumber: number,
+    signerSlot: number,
     chainIdKey: string,
     keyKind: KeyMaterialKind,
   ): Promise<KeyMaterialRecord | null> {
@@ -165,7 +167,7 @@ export class AccountKeyMaterialDBManager {
     if (!normalizedProfileId || !normalizedChainIdKey || !normalizedKeyKind) return null;
     const rec = (await db.get(this.config.storeName, [
       normalizedProfileId,
-      deviceNumber,
+      signerSlot,
       normalizedChainIdKey,
       normalizedKeyKind,
     ])) as KeyMaterialRecord | undefined;
@@ -173,21 +175,21 @@ export class AccountKeyMaterialDBManager {
     return normalizeStoredPayloadRecordValue(rec);
   }
 
-  async listKeyMaterialByProfileAndDevice(
+  async listKeyMaterialByProfileAndSignerSlot(
     profileId: string,
-    deviceNumber: number,
+    signerSlot: number,
     chainIdKey?: string,
   ): Promise<KeyMaterialRecord[]> {
     const db = await this.getDB();
     const normalizedProfileId = toTrimmedString(profileId || '');
     const normalizedChainIdKey = toTrimmedString(chainIdKey || '').toLowerCase();
     if (!normalizedProfileId) return [];
-    if (!Number.isSafeInteger(deviceNumber) || deviceNumber < 1) return [];
+    if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) return [];
 
     const tx = db.transaction(this.config.storeName, 'readonly');
     const rows = (await tx.store
-      .index('profileId_deviceNumber')
-      .getAll([normalizedProfileId, deviceNumber])) as KeyMaterialRecord[];
+      .index('profileId_signerSlot')
+      .getAll([normalizedProfileId, signerSlot])) as KeyMaterialRecord[];
     await tx.done;
 
     const hydratedRows = (rows || [])
@@ -199,9 +201,29 @@ export class AccountKeyMaterialDBManager {
     );
   }
 
+  async listKeyMaterialByProfile(
+    profileId: string,
+    chainIdKey?: string,
+  ): Promise<KeyMaterialRecord[]> {
+    const db = await this.getDB();
+    const normalizedProfileId = toTrimmedString(profileId || '');
+    const normalizedChainIdKey = toTrimmedString(chainIdKey || '').toLowerCase();
+    if (!normalizedProfileId) return [];
+
+    const rows = (await db.getAll(this.config.storeName)) as KeyMaterialRecord[];
+    const hydratedRows = (rows || [])
+      .map((row) => normalizeStoredPayloadRecordValue(row))
+      .filter((row): row is KeyMaterialRecord => !!row)
+      .filter((row) => row.profileId === normalizedProfileId);
+    if (!normalizedChainIdKey) return hydratedRows;
+    return hydratedRows.filter(
+      (row) => String(row.chainIdKey).trim().toLowerCase() === normalizedChainIdKey,
+    );
+  }
+
   async deleteKeyMaterial(
     profileId: string,
-    deviceNumber: number,
+    signerSlot: number,
     chainIdKey: string,
     keyKind: KeyMaterialKind,
   ): Promise<void> {
@@ -210,10 +232,10 @@ export class AccountKeyMaterialDBManager {
     const normalizedChainIdKey = toTrimmedString(chainIdKey || '').toLowerCase();
     const normalizedKeyKind = toTrimmedString(keyKind || '');
     if (!normalizedProfileId || !normalizedChainIdKey || !normalizedKeyKind) return;
-    if (!Number.isSafeInteger(deviceNumber) || deviceNumber < 1) return;
+    if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) return;
     await db.delete(this.config.storeName, [
       normalizedProfileId,
-      deviceNumber,
+      signerSlot,
       normalizedChainIdKey,
       normalizedKeyKind,
     ]);

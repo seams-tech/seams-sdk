@@ -47,6 +47,8 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(result.emailOtpLogin?.warmState).toBe('ready');
       expect(result.otpCounters?.enrollChallengeCount).toBe(1);
       expect(result.otpCounters?.loginChallengeCount).toBe(1);
+      expect(result.webauthnCounters?.createCount).toBe(0);
+      expect(result.webauthnCounters?.getCount).toBe(0);
       expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
       expect(result.firstSign?.chain).toBe('tempo');
       expect(result.firstSign?.kind).toBe('tempoTransaction');
@@ -98,6 +100,8 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(result.emailOtpLogin?.warmState).toBe('ready');
       expect(result.otpCounters?.enrollChallengeCount).toBe(1);
       expect(result.otpCounters?.loginChallengeCount).toBe(1);
+      expect(result.webauthnCounters?.createCount).toBe(0);
+      expect(result.webauthnCounters?.getCount).toBe(0);
       expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
       expect(result.firstSign?.chain).toBe('tempo');
       expect(result.firstSign?.kind).toBe('tempoTransaction');
@@ -142,6 +146,8 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
       expect(result.emailOtpLogin?.policy).toBe('session');
       expect(result.emailOtpLogin?.retention).toBe('session');
+      expect(result.webauthnCounters?.createCount).toBe(0);
+      expect(result.webauthnCounters?.getCount).toBe(0);
       expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
       expect(result.firstSign?.chain).toBe('evm');
       expect(result.firstSign?.kind).toBe('eip1559');
@@ -187,6 +193,8 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
       expect(result.emailOtpLogin?.policy).toBe('per_operation');
       expect(result.emailOtpLogin?.retention).toBe('single_use');
+      expect(result.webauthnCounters?.createCount).toBe(0);
+      expect(result.webauthnCounters?.getCount).toBe(0);
       expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
       expect(result.firstSign?.chain).toBe('evm');
       expect(result.firstSign?.kind).toBe('eip1559');

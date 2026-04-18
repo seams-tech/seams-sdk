@@ -4,7 +4,7 @@ export type UndeployedSmartAccountSigner = {
   signerId: string;
   signerType: string;
   status: UndeployedSmartAccountSignerStatus;
-  deviceNumber?: number;
+  signerSlot?: number;
   relayerKeyId?: string;
   thresholdEcdsaPublicKeyB64u?: string;
   participantIds?: number[];

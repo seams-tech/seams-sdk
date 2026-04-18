@@ -50,7 +50,7 @@ export async function signNep413Message({
     nonce: string;
     state: string | null;
     accountId: string;
-    deviceNumber?: number;
+    signerSlot?: number;
     title?: string;
     body?: string;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
@@ -72,7 +72,7 @@ export async function signNep413Message({
     const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
       ctx,
       nearAccountId,
-      deviceNumber: payload.deviceNumber,
+      signerSlot: payload.signerSlot,
       operationLabel: 'NEP-413 signing',
     });
     const touchConfirm = ctx.touchConfirm;
@@ -100,14 +100,12 @@ export async function signNep413Message({
           operationLabel: 'NEP-413 signing',
         })
       : null;
-    const signingAuthMode = thresholdAuthPlan?.signingAuthMode;
-
     const confirmation = await touchConfirm.orchestrateSigningConfirmation({
       ctx: { touchConfirm },
       sessionId,
       chain: 'near',
       kind: 'nep413',
-      ...(signingAuthMode ? { signingAuthMode } : {}),
+      ...(thresholdAuthPlan?.touchConfirmAuthPayload ?? {}),
       nearAccountId,
       nearPublicKeyStr: signingContext.nearPublicKey,
       message: payload.message,

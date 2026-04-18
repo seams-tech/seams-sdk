@@ -9,6 +9,7 @@ interface ExportKeyTypeModalProps {
   loadingChain: ExportChain | null;
   onClose: () => void;
   onSelectChain: (chain: ExportChain) => void;
+  restrictionMessage?: string | null;
 }
 
 export const ExportKeyTypeModal: React.FC<ExportKeyTypeModalProps> = ({
@@ -16,6 +17,7 @@ export const ExportKeyTypeModal: React.FC<ExportKeyTypeModalProps> = ({
   loadingChain,
   onClose,
   onSelectChain,
+  restrictionMessage,
 }) => {
   const { theme, tokens } = useTheme();
   const scopedTokens = React.useMemo(
@@ -38,6 +40,7 @@ export const ExportKeyTypeModal: React.FC<ExportKeyTypeModalProps> = ({
   if (!isOpen) return null;
 
   const isBusy = loadingChain !== null;
+  const isRestricted = Boolean(restrictionMessage);
 
   return (
     <Theme theme={theme} tokens={scopedTokens}>
@@ -76,11 +79,16 @@ export const ExportKeyTypeModal: React.FC<ExportKeyTypeModalProps> = ({
           <p className="w3a-export-key-type-modal-subtitle">
             Choose which threshold key set to export.
           </p>
+          {restrictionMessage && (
+            <div className="w3a-export-key-type-restriction" role="status">
+              {restrictionMessage}
+            </div>
+          )}
           <div className="w3a-export-key-type-options">
             <button
               type="button"
               className="w3a-export-key-type-option"
-              disabled={isBusy}
+              disabled={isBusy || isRestricted}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -100,7 +108,7 @@ export const ExportKeyTypeModal: React.FC<ExportKeyTypeModalProps> = ({
             <button
               type="button"
               className="w3a-export-key-type-option"
-              disabled={isBusy}
+              disabled={isBusy || isRestricted}
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();

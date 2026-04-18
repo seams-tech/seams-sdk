@@ -6,6 +6,8 @@ import {
   makeAuthServiceForThreshold,
   setupManagedThresholdRegistrationHarness,
   setupThresholdE2ePage,
+  TEST_RELAYER_ACCOUNT_ID,
+  TEST_RELAYER_PUBLIC_KEY,
 } from '../e2e/thresholdEd25519.testUtils';
 
 const SHAMIR_PRIME_B64U = '_____________________________________v___C8';
@@ -73,6 +75,10 @@ export type EmailOtpEcdsaTempoFlowResult = {
     enrollChallengeCount: number;
     loginChallengeCount: number;
   };
+  webauthnCounters?: {
+    createCount: number;
+    getCount: number;
+  };
   firstSign?: {
     ok: boolean;
     chain?: string;
@@ -105,6 +111,9 @@ export async function setupEmailOtpEcdsaTempoHarness(
   const keysOnChain = new Set<string>();
   const nonceByPublicKey = new Map<string, number>();
   const accountsOnChain = new Set<string>();
+  keysOnChain.add(TEST_RELAYER_PUBLIC_KEY);
+  nonceByPublicKey.set(TEST_RELAYER_PUBLIC_KEY, 0);
+  accountsOnChain.add(TEST_RELAYER_ACCOUNT_ID);
   const session = createInMemoryJwtSessionAdapter();
   const { service, threshold } = makeAuthServiceForThreshold(keysOnChain, {
     THRESHOLD_NODE_ROLE: 'coordinator',
@@ -250,6 +259,28 @@ export async function runEmailOtpEcdsaTempoFlow(
       enrollChallengeCount: 0,
       loginChallengeCount: 0,
     };
+    const webauthnState = {
+      createCount: 0,
+      getCount: 0,
+    };
+    const originalCredentialsCreate = globalThis.navigator?.credentials?.create?.bind(
+      globalThis.navigator.credentials,
+    );
+    const originalCredentialsGet = globalThis.navigator?.credentials?.get?.bind(
+      globalThis.navigator.credentials,
+    );
+    if (globalThis.navigator?.credentials && originalCredentialsCreate) {
+      globalThis.navigator.credentials.create = (async (...args: unknown[]) => {
+        webauthnState.createCount += 1;
+        return await originalCredentialsCreate(...(args as [CredentialCreationOptions]));
+      }) as CredentialsContainer['create'];
+    }
+    if (globalThis.navigator?.credentials && originalCredentialsGet) {
+      globalThis.navigator.credentials.get = (async (...args: unknown[]) => {
+        webauthnState.getCount += 1;
+        return await originalCredentialsGet(...(args as [CredentialRequestOptions]));
+      }) as CredentialsContainer['get'];
+    }
 
     const relayerUrl = String(input.relayerUrl || '').trim();
     const shamirPrimeB64u = String(input.shamirPrimeB64u || '').trim();
@@ -265,7 +296,7 @@ export async function runEmailOtpEcdsaTempoFlow(
       `${String(base || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
 
     const requestEmailOtpChallengeWithOutbox = async (args: {
-      route: '/wallet/email-otp/enroll/challenge' | '/wallet/email-otp/challenge';
+      route: '/wallet/email-otp/registration/challenge' | '/wallet/email-otp/login/challenge';
       appSessionJwt: string;
       walletId: string;
       target: 'enroll' | 'login';
@@ -313,7 +344,7 @@ export async function runEmailOtpEcdsaTempoFlow(
 
     const requestEnrollmentOtp = async () =>
       await requestEmailOtpChallengeWithOutbox({
-        route: '/wallet/email-otp/enroll/challenge',
+        route: '/wallet/email-otp/registration/challenge',
         appSessionJwt: enrollAppSessionJwt,
         walletId: accountId,
         target: 'enroll',
@@ -321,7 +352,7 @@ export async function runEmailOtpEcdsaTempoFlow(
 
     const requestLoginOtp = async () =>
       await requestEmailOtpChallengeWithOutbox({
-        route: '/wallet/email-otp/challenge',
+        route: '/wallet/email-otp/login/challenge',
         appSessionJwt: loginAppSessionJwt,
         walletId: accountId,
         target: 'login',
@@ -581,6 +612,7 @@ export async function runEmailOtpEcdsaTempoFlow(
           enrollChallengeCount: otpState.enrollChallengeCount,
           loginChallengeCount: otpState.loginChallengeCount,
         },
+        webauthnCounters: webauthnState,
         firstSign: firstSignResult,
         ...(secondSignResult ? { secondSign: secondSignResult } : {}),
         ...(nearSignResult ? { nearSign: nearSignResult } : {}),

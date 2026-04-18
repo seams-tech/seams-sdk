@@ -29,7 +29,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
               profileId: 'profile-1',
               accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
             }),
-            getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 9 }),
+            getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 9 }),
           },
         } as any,
         requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
@@ -52,7 +52,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
     expect(requestExportState.callCount).toBe(1);
     expect(requestExportState.lastPayload).toMatchObject({
       nearAccountId: 'alice.testnet',
-      deviceNumber: 9,
+      signerSlot: 9,
       chain: 'near',
       variant: 'drawer',
       artifactKind: 'near-ed25519-seed-v1',
@@ -85,7 +85,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
               profileId: 'profile-1',
               accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
             }),
-            getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 4 }),
+            getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 4 }),
           },
         } as any,
         requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
@@ -113,7 +113,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
     expect(requestExportState.callCount).toBe(1);
     expect(requestExportState.lastPayload).toMatchObject({
       nearAccountId: 'alice.testnet',
-      deviceNumber: 4,
+      signerSlot: 4,
       chain: 'evm',
       artifactKind: 'ecdsa-hss-secp256k1-key-v1',
       publicKeyHex: `0x${'02'}${'11'.repeat(32)}`,

@@ -5,6 +5,10 @@ import {
   clearIntentDigestPreparation,
   consumeIntentDigestPreparation,
 } from '@/core/signingEngine/touchConfirm/intentDigestPreparationRegistry';
+import {
+  getEmailOtpPrompt,
+  getSigningAuthMode,
+} from '@/core/signingEngine/touchConfirm/handlers/flows/adapters/request';
 
 test.describe('touchConfirm orchestration manager bridge', () => {
   test('uses ctx.touchConfirm.requestUserConfirmation', async () => {
@@ -50,6 +54,44 @@ test.describe('touchConfirm orchestration manager bridge', () => {
         intentDigest: 'intent-missing',
       }),
     ).rejects.toThrow('UserConfirm manager request bridge is unavailable');
+  });
+
+  test('forwards signing auth plans and prefers them over legacy auth modes', async () => {
+    let capturedRequest: any;
+
+    await orchestrateSigningConfirmation({
+      ctx: {
+        touchConfirm: {
+          requestUserConfirmation: async (request: any) => {
+            capturedRequest = request;
+            return {
+              requestId: request.requestId,
+              confirmed: true,
+              intentDigest: request.intentDigest,
+            };
+          },
+        },
+      } as any,
+      sessionId: 'session-email-otp-plan',
+      chain: 'evm',
+      kind: 'intentDigest',
+      signerAccountId: 'alice.testnet',
+      challengeB64u: 'AQ',
+      intentDigest: 'intent-email-otp-plan',
+      signingAuthMode: 'webauthn',
+      signingAuthPlan: {
+        kind: 'emailOtpReauth',
+        method: 'email_otp',
+        emailOtpPrompt: {
+          challengeId: 'email-otp-plan-challenge',
+          emailHint: 'a***e@example.com',
+        },
+      },
+    });
+
+    expect(capturedRequest?.payload?.signingAuthPlan?.kind).toBe('emailOtpReauth');
+    expect(getSigningAuthMode(capturedRequest)).toBe('emailOtp');
+    expect(getEmailOtpPrompt(capturedRequest)?.challengeId).toBe('email-otp-plan-challenge');
   });
 
   test('near warmSession transaction uses placeholder digest and prepares real digest in background', async () => {
@@ -102,6 +144,69 @@ test.describe('touchConfirm orchestration manager bridge', () => {
       expect(capturedRequest?.summary?.intentDigest).toBeUndefined();
       expect(result.intentDigest).toBeTruthy();
       expect(result.intentDigest).not.toBe(PENDING_INTENT_DIGEST);
+    } finally {
+      clearIntentDigestPreparation(sessionId);
+    }
+  });
+
+  test('near warmSession transaction can be driven by signingAuthPlan without legacy mode', async () => {
+    const sessionId = 'session-near-warm-plan';
+    let capturedRequest: any;
+
+    try {
+      await orchestrateSigningConfirmation({
+        ctx: {
+          touchConfirm: {
+            requestUserConfirmation: async (request: any) => {
+              capturedRequest = request;
+              const preparation = consumeIntentDigestPreparation(request.requestId);
+              expect(preparation).toBeTruthy();
+              const prepared = await preparation!;
+              return {
+                requestId: request.requestId,
+                confirmed: true,
+                intentDigest: prepared.intentDigest,
+                transactionContext: {
+                  nearPublicKeyStr: 'pk',
+                  accessKeyInfo: { nonce: 1 },
+                  nextNonce: '2',
+                  txBlockHeight: '100',
+                  txBlockHash: 'hash100',
+                },
+              };
+            },
+          },
+        } as any,
+        sessionId,
+        chain: 'near',
+        kind: 'transaction',
+        signingAuthPlan: {
+          kind: 'warmSession',
+          method: 'passkey',
+          accountId: 'alice.testnet',
+          intent: 'transaction_sign',
+          curve: 'ed25519',
+          sessionId: 'threshold-session-1',
+          retention: 'session',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+        },
+        txSigningRequests: [
+          {
+            receiverId: 'receiver.testnet',
+            actions: [{ action_type: 2, method_name: 'ping', args: '', gas: '1', deposit: '0' }],
+          } as any,
+        ],
+        rpcCall: {
+          nearRpcUrl: 'https://rpc.testnet.near.org',
+          nearAccountId: 'alice.testnet',
+        } as any,
+        nearPublicKeyStr: 'ed25519:warm-session-key',
+      });
+
+      expect(capturedRequest?.payload?.intentDigest).toBe(PENDING_INTENT_DIGEST);
+      expect(capturedRequest?.payload?.signingAuthMode).toBeUndefined();
+      expect(capturedRequest?.payload?.signingAuthPlan?.kind).toBe('warmSession');
     } finally {
       clearIntentDigestPreparation(sessionId);
     }

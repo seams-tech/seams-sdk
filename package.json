@@ -4,8 +4,10 @@
   "type": "module",
   "scripts": {
     "install-all": "pnpm -r install",
-    "build:sdk": "pnpm -C sdk build",
-    "build:sdk-prod": "pnpm -C sdk build:prod",
+  "build:wasm": "pnpm -C sdk build:wasm",
+  "build:sdk": "pnpm -C sdk build",
+  "build:sdk-full": "pnpm -C sdk build:sdk-full",
+  "build:sdk-prod": "pnpm -C sdk build:prod",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",

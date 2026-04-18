@@ -1,4 +1,8 @@
-import type { SigningSessionStatus } from '@/core/types/tatchi';
+import type {
+  SigningSessionRetention,
+  SigningSessionStatus,
+  WalletAuthMethod,
+} from '@/core/types/tatchi';
 import type {
   WarmSessionStatusBatchReader,
   WarmSessionStatusReader,
@@ -142,6 +146,7 @@ export function deriveEd25519CapabilityState(args: {
   record: WarmSessionEd25519CapabilityState['record'];
   auth: WarmSessionEd25519AuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
+  emailOtpAuthContext?: WarmSessionEd25519CapabilityState['emailOtpAuthContext'];
 }): WarmSessionEd25519CapabilityState['state'] {
   if (!args.record) return 'missing';
   if (
@@ -149,6 +154,19 @@ export function deriveEd25519CapabilityState(args: {
     (args.record.thresholdSessionKind === 'jwt' && !args.auth.thresholdSessionJwt)
   ) {
     return 'auth_missing';
+  }
+  if (
+    args.record.source === 'email_otp' &&
+    args.emailOtpAuthContext?.retention === 'single_use' &&
+    Number(args.emailOtpAuthContext.consumedAtMs) > 0
+  ) {
+    return 'prf_missing';
+  }
+  if (
+    args.record.source === 'email_otp' &&
+    String(args.record.xClientBaseB64u || '').trim()
+  ) {
+    return 'ready';
   }
   if (!args.prfClaim) return 'prf_missing';
   if (args.prfClaim.state === 'unavailable') return 'prf_unavailable';
@@ -210,29 +228,38 @@ export function formatWarmSessionClaimUnavailableError(args: {
 export function toSigningSessionStatus(args: {
   sessionId: string;
   claim: WarmSessionPrfClaim | null;
+  authMethod?: WalletAuthMethod | null;
+  retention?: SigningSessionRetention | null;
 }): SigningSessionStatus {
   const sessionId = String(args.sessionId || '').trim();
   const claim = args.claim;
+  const metadata = {
+    ...(args.authMethod ? { authMethod: args.authMethod } : {}),
+    ...(args.retention ? { retention: args.retention } : {}),
+  };
   if (!claim) {
-    return { sessionId, status: 'not_found' };
+    return { sessionId, status: 'not_found', ...metadata };
   }
   if (claim.state === 'unavailable') {
     return {
       sessionId,
       status: 'unavailable',
       statusCode: claim.code,
+      ...metadata,
     };
   }
   if (claim.state === 'warm') {
     return {
       sessionId,
       status: 'active',
+      ...metadata,
       remainingUses: claim.remainingUses,
       expiresAtMs: claim.expiresAtMs,
     };
   }
   return {
     sessionId,
+    ...metadata,
     status:
       claim.state === 'expired'
         ? 'expired'

@@ -16,14 +16,14 @@ export async function requestRegistrationCredentialConfirmation(
   deps: RegistrationSessionDeps,
   params: {
     nearAccountId: string;
-    deviceNumber: number;
+    signerSlot: number;
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
   },
 ): Promise<RegistrationCredentialConfirmationPayload> {
   return await deps.touchConfirm.requestRegistrationCredentialConfirmation({
     nearAccountId: params.nearAccountId,
-    deviceNumber: params.deviceNumber,
+    signerSlot: params.signerSlot,
     confirmerText: params.confirmerText,
     confirmationConfigOverride: params.confirmationConfigOverride,
     nearRpcUrl: deps.nearRpcUrl,

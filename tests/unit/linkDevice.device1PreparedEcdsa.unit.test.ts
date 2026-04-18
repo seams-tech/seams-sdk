@@ -13,7 +13,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
-  test('seeds pending signer rows and queues outbox ops from relay session payload', async ({
+  test('seeds pending signer rows without routing outbox ops from relay session payload', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -44,7 +44,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
 
           await clientDB.upsertProfile({
             profileId,
-            defaultDeviceNumber: 1,
+            defaultSignerSlot: 1,
             passkeyCredential: {
               id: 'cred-device1',
               rawId: 'cred-device1-b64u',
@@ -63,7 +63,10 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
             accountAddress: nearAccountRef.accountAddress,
             signerId: 'ed25519:pk-device1',
             signerSlot: 1,
-            signerType: 'passkey',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'active',
             mutation: { routeThroughOutbox: false },
           });
@@ -77,6 +80,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
                 ok: true,
                 session: {
                   preparedThresholdEcdsa: {
+                    clientAdditiveShare32B64u: 'client-additive-share-b64u',
                     relayerKeyId: 'rk-evm',
                     thresholdEcdsaPublicKeyB64u: 'group-public-key',
                     ethereumAddress: `0x${'aa'.repeat(20)}`,
@@ -118,7 +122,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
               indexedDB,
               accountId: nearAccountId,
               sessionId: 'session-123',
-              deviceNumber: 2,
+              signerSlot: 2,
               pollIntervalMs: 10,
               maxWaitMs: 50,
             });
@@ -161,12 +165,10 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
     expect(result.signers).toHaveLength(1);
     expect(result.signers[0]?.status).toBe('pending');
     expect(result.signers[0]?.signerId).toBe(`0x${'aa'.repeat(20)}`);
-    expect(result.outbox).toHaveLength(1);
-    expect(result.outbox[0]?.opType).toBe('add-signer');
-    expect(result.outbox[0]?.status).toBe('queued');
+    expect(result.outbox).toHaveLength(0);
   });
 
-  test('promotes the prepared EVM owner through deployed add-signer execution', async ({
+  test('keeps the prepared EVM owner pending until an explicit signer mutation is queued', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -189,7 +191,9 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-linkDevicePreparedPromote-${suffix}`);
           const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
-          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-linkDevicePreparedPromote-${suffix}`);
+          accountKeyMaterialDB.setDbName(
+            `PasskeyAccountKeyMaterial-linkDevicePreparedPromote-${suffix}`,
+          );
           const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
           const nearAccountRef = {
             chainIdKey: 'near:testnet',
@@ -199,7 +203,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
 
           await clientDB.upsertProfile({
             profileId,
-            defaultDeviceNumber: 1,
+            defaultSignerSlot: 1,
             passkeyCredential: {
               id: 'cred-device1',
               rawId: 'cred-device1-b64u',
@@ -218,7 +222,10 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
             accountAddress: nearAccountRef.accountAddress,
             signerId: 'ed25519:pk-device1',
             signerSlot: 1,
-            signerType: 'passkey',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'active',
             mutation: { routeThroughOutbox: false },
           });
@@ -240,6 +247,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
                 ok: true,
                 session: {
                   preparedThresholdEcdsa: {
+                    clientAdditiveShare32B64u: 'client-additive-share-b64u',
                     relayerKeyId: 'rk-evm',
                     thresholdEcdsaPublicKeyB64u: 'group-public-key',
                     ethereumAddress: signerId,
@@ -281,7 +289,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
               indexedDB,
               accountId: nearAccountId,
               sessionId: 'session-456',
-              deviceNumber: 2,
+              signerSlot: 2,
               pollIntervalMs: 10,
               maxWaitMs: 50,
             });
@@ -290,7 +298,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
             if (!context?.profileId) throw new Error('missing near account context');
             await accountKeyMaterialDB.storeKeyMaterial({
               profileId: context.profileId,
-              deviceNumber: 2,
+              signerSlot: 2,
               chainIdKey: 'evm:11155111',
               keyKind: 'threshold_share_v1',
               algorithm: 'webauthn-p256',
@@ -330,7 +338,7 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
               statuses: ['queued', 'submitted', 'failed', 'confirmed', 'dead-letter'],
               limit: 10,
             });
-            const keyMaterial = await accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
+            const keyMaterial = await accountKeyMaterialDB.listKeyMaterialByProfileAndSignerSlot(
               context.profileId,
               2,
               'evm:11155111',
@@ -358,21 +366,14 @@ test.describe('link-device prepared ECDSA seeding on device1', () => {
     expect(result.error).toBeUndefined();
     expect(result.seeded?.seededSignerCount).toBe(1);
     expect(result.summary).toEqual({
-      scanned: 1,
-      confirmed: 1,
+      scanned: 0,
+      confirmed: 0,
       failed: 0,
       deadLettered: 0,
     });
-    expect(result.outboxBefore.length).toBeGreaterThan(0);
-    expect(result.runtimeCalls).toEqual([
-      {
-        ownerAccountId: 'alice.testnet',
-        opType: 'add-signer',
-        signerId: `0x${'aa'.repeat(20)}`,
-        accountAddress: `0x${'11'.repeat(20)}`,
-      },
-    ]);
-    expect(result.signer?.status).toBe('active');
+    expect(result.outboxBefore).toHaveLength(0);
+    expect(result.runtimeCalls).toEqual([]);
+    expect(result.signer?.status).toBe('pending');
     expect(result.keyMaterial).toHaveLength(1);
   });
 });

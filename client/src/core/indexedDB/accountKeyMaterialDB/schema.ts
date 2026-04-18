@@ -10,15 +10,17 @@ export interface PasskeyAccountKeyMaterialDBConfig {
 export const DB_CONFIG: PasskeyAccountKeyMaterialDBConfig = {
   // Breaking reset accepted: use the chain-generic physical DB name.
   dbName: 'PasskeyAccountKeyMaterial',
-  // v8: rename chain key fields from chainId -> chainIdKey in key-material records
-  dbVersion: 8,
-  storeName: 'keyMaterialV2',
-  storeKeyPath: ['profileId', 'deviceNumber', 'chainIdKey', 'keyKind'],
+  // v10: reset key-material store around canonical signerSlot naming.
+  dbVersion: 10,
+  storeName: 'keyMaterialV4',
+  storeKeyPath: ['profileId', 'signerSlot', 'chainIdKey', 'keyKind'],
 } as const;
 
 function ensureStoreIndexes(store: any): void {
   try {
-    store.createIndex('profileId_deviceNumber', ['profileId', 'deviceNumber'], { unique: false });
+    store.createIndex('profileId_signerSlot', ['profileId', 'signerSlot'], {
+      unique: false,
+    });
   } catch {}
   try {
     store.createIndex('chainIdKey_keyKind', ['chainIdKey', 'keyKind'], { unique: false });
@@ -43,6 +45,16 @@ export function upgradePasskeyAccountKeyMaterialDBSchema(db: IDBPDatabase, trans
   try {
     if (db.objectStoreNames.contains('keyMaterial')) {
       db.deleteObjectStore('keyMaterial');
+    }
+  } catch {}
+  try {
+    if (db.objectStoreNames.contains('keyMaterialV2')) {
+      db.deleteObjectStore('keyMaterialV2');
+    }
+  } catch {}
+  try {
+    if (db.objectStoreNames.contains('keyMaterialV3')) {
+      db.deleteObjectStore('keyMaterialV3');
     }
   } catch {}
 }

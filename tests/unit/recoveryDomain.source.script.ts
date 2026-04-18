@@ -44,7 +44,7 @@ const request: EmailRecoveryRequest = {
 
 const pending: PendingEmailRecovery = {
   accountId: subject.nearAccountId,
-  deviceNumber: 1,
+  signerSlot: 1,
   requestId: 'REQ123',
   recoverySessionId: subject.recoverySessionId,
   nearPublicKey: targetKeys.newNearPublicKey,

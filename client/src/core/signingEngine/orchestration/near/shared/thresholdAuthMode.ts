@@ -1,4 +1,4 @@
-import type { SigningAuthMode } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+import type { SigningAuthPlan } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import {
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
   type WarmSessionEd25519SigningAuthPlan,
@@ -7,7 +7,8 @@ import {
 
 export type NearThresholdSigningAuthPlan = {
   sessionId: string;
-  signingAuthMode: SigningAuthMode;
+  signingAuthPlan?: SigningAuthPlan;
+  touchConfirmAuthPayload: { signingAuthPlan: SigningAuthPlan };
   warmSessionReady: boolean;
 };
 export { THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR };
@@ -24,5 +25,48 @@ export async function resolveNearThresholdSigningAuthPlan(args: {
       usesNeeded: args.usesNeeded,
       operationLabel: args.operationLabel,
     });
-  return plan;
+  return {
+    ...plan,
+    ...resolveSigningAuthPlanEnvelope(plan),
+  };
+}
+
+function resolveSigningAuthPlanEnvelope(
+  plan: WarmSessionEd25519SigningAuthPlan,
+): Pick<NearThresholdSigningAuthPlan, 'signingAuthPlan' | 'touchConfirmAuthPayload'> {
+  if (plan.kind === 'warmSession') {
+    const signingAuthPlan: SigningAuthPlan = {
+      kind: 'warmSession',
+      method: plan.method,
+      accountId: plan.accountId,
+      intent: 'transaction_sign',
+      curve: 'ed25519',
+      sessionId: plan.sessionId,
+      ...(plan.retention !== undefined ? { retention: plan.retention } : {}),
+      expiresAtMs: plan.expiresAtMs,
+      remainingUses: plan.remainingUses,
+    };
+    return {
+      signingAuthPlan,
+      touchConfirmAuthPayload: { signingAuthPlan },
+    };
+  }
+  if (plan.kind === 'passkeyReauth') {
+    const signingAuthPlan: SigningAuthPlan = {
+      kind: 'passkeyReauth',
+      method: 'passkey',
+    };
+    return {
+      signingAuthPlan,
+      touchConfirmAuthPayload: { signingAuthPlan },
+    };
+  }
+  const signingAuthPlan: SigningAuthPlan = {
+    kind: 'emailOtpReauth',
+    method: 'email_otp',
+  };
+  return {
+    signingAuthPlan,
+    touchConfirmAuthPayload: { signingAuthPlan },
+  };
 }

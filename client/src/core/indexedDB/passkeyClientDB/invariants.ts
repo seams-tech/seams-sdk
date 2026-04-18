@@ -1,7 +1,6 @@
 import type { IDBPDatabase } from 'idb';
 import { toTrimmedString } from '@shared/utils/validation';
 import type {
-  AccountModel,
   AccountSignerRecord,
   AccountSignerStatus,
   ChainAccountRecord,
@@ -172,7 +171,6 @@ export async function validateAndQuarantineInvariantViolations(
   let checked = 0;
   const profileIds = new Set<string>();
   const chainAccounts = new Set<string>();
-  const chainAccountModelByRef = new Map<string, AccountModel>();
   const primaryByProfileChain = new Map<string, unknown>();
   const profileSignerSlots = new Set<string>();
   const activeSignerByAccountSlot = new Map<string, { signerId: string }>();
@@ -255,7 +253,6 @@ export async function validateAndQuarantineInvariantViolations(
       }
       const accountRef = chainAccountKey(profileId, chainIdKey, accountAddress);
       chainAccounts.add(accountRef);
-      chainAccountModelByRef.set(accountRef, accountModel);
       if (row?.isPrimary) {
         const primaryKey = profileChainIdKey(profileId, chainIdKey);
         if (primaryByProfileChain.has(primaryKey)) {
@@ -376,27 +373,6 @@ export async function validateAndQuarantineInvariantViolations(
     await tx.done;
   }
 
-  for (const [accountRef, activeRows] of activeSignerRowsByAccount.entries()) {
-    if (normalizeAccountModel(chainAccountModelByRef.get(accountRef) || '') !== 'eoa') {
-      continue;
-    }
-    if (activeRows.length <= 1) continue;
-    const keep = activeRows.slice().sort((a, b) => {
-      const addedAtDelta = Number(a.row.addedAt || 0) - Number(b.row.addedAt || 0);
-      if (addedAtDelta !== 0) return addedAtDelta;
-      return String(a.row.signerId || '').localeCompare(String(b.row.signerId || ''));
-    })[0];
-    for (const rowRef of activeRows) {
-      if (rowRef.primaryKey === keep.primaryKey) continue;
-      addViolation({
-        sourceStore: args.stores.accountSignersStore,
-        sourcePrimaryKey: rowRef.primaryKey,
-        reason: `EOA account has multiple active signers for ${accountRef}`,
-        record: rowRef.row,
-      });
-    }
-  }
-
   {
     const tx = db.transaction(args.stores.profileAuthenticatorStore, 'readonly');
     let cursor = await tx.store.openCursor();
@@ -405,7 +381,7 @@ export async function validateAndQuarantineInvariantViolations(
       const row = cursor.value as ProfileAuthenticatorRecord;
       const profileId = toTrimmedString(row?.profileId || '');
       const credentialId = toTrimmedString((row as any)?.credentialId || '');
-      const deviceNumber = Number((row as any)?.deviceNumber);
+      const signerSlot = Number((row as any)?.signerSlot);
       if (!profileId || !credentialId) {
         addViolation({
           sourceStore: args.stores.profileAuthenticatorStore,
@@ -416,11 +392,11 @@ export async function validateAndQuarantineInvariantViolations(
         cursor = await cursor.continue();
         continue;
       }
-      if (!Number.isSafeInteger(deviceNumber) || deviceNumber < 1) {
+      if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
         addViolation({
           sourceStore: args.stores.profileAuthenticatorStore,
           sourcePrimaryKey: cursor.primaryKey,
-          reason: `Invalid deviceNumber: ${String((row as any)?.deviceNumber)}`,
+          reason: `Invalid signerSlot: ${String((row as any)?.signerSlot)}`,
           record: row,
         });
         cursor = await cursor.continue();
@@ -506,11 +482,11 @@ export async function validateAndQuarantineInvariantViolations(
           cursor = await cursor.continue();
           continue;
         }
-        if (!profileSignerSlots.has(`${parsed.profileId}::${parsed.deviceNumber}`)) {
+        if (!profileSignerSlots.has(`${parsed.profileId}::${parsed.activeSignerSlot}`)) {
           addViolation({
             sourceStore: args.stores.appStateStore,
             sourcePrimaryKey: cursor.primaryKey,
-            reason: `lastProfileState references missing signer slot ${parsed.profileId}/${parsed.deviceNumber}`,
+            reason: `lastProfileState references missing signer slot ${parsed.profileId}/${parsed.activeSignerSlot}`,
             record: row,
           });
           cursor = await cursor.continue();

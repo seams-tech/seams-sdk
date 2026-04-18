@@ -4,6 +4,7 @@
 // (by re-exporting from their Worker entrypoint) without vendoring the code.
 
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { isPlainObject } from '@shared/utils/validation';
 import {
   computeSigningRootContextHashB64u,
   parseSigningRootRecord,
@@ -123,7 +124,7 @@ function err(code: string, message: string): DoErr {
 }
 
 function isDoErr(input: unknown): input is DoErr {
-  return isObject(input) && input.ok === false;
+  return isPlainObject(input) && input.ok === false;
 }
 
 function toKey(input: unknown): string {
@@ -136,10 +137,6 @@ function toTtlSeconds(ttlMs: unknown): number | null {
   const n = Number(ttlMs);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.max(1, Math.ceil(n / 1000));
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return !!v && typeof v === 'object' && !Array.isArray(v);
 }
 
 function signingRootRecordKey(input: {
@@ -270,11 +267,11 @@ async function deleteSigningRootRecord(
 }
 
 function parseAuthEntry(raw: unknown): AuthEntry | null {
-  if (!isObject(raw)) return null;
+  if (!isPlainObject(raw)) return null;
   const record = (raw as { record?: unknown }).record;
   const remainingUses = (raw as { remainingUses?: unknown }).remainingUses;
   const expiresAtMs = (raw as { expiresAtMs?: unknown }).expiresAtMs;
-  if (!isObject(record)) return null;
+  if (!isPlainObject(record)) return null;
   if (typeof remainingUses !== 'number' || !Number.isFinite(remainingUses)) return null;
   if (typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
   // Minimal record shape check (full validation happens on the service layer).
@@ -291,7 +288,7 @@ function parseAuthEntry(raw: unknown): AuthEntry | null {
 }
 
 function parsePresignSessionRecord(raw: unknown): PresignSessionRecord | null {
-  if (!isObject(raw)) return null;
+  if (!isPlainObject(raw)) return null;
   const expiresAtMs = (raw as { expiresAtMs?: unknown }).expiresAtMs;
   const version = (raw as { version?: unknown }).version;
   if (typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
@@ -329,7 +326,7 @@ export class ThresholdStoreDurableObject {
     } catch {
       body = null;
     }
-    if (!isObject(body)) return json(err('invalid_body', 'Expected JSON object'));
+    if (!isPlainObject(body)) return json(err('invalid_body', 'Expected JSON object'));
     const op = (body as { op?: unknown }).op;
     if (typeof op !== 'string') return json(err('invalid_body', 'Missing op'));
 
@@ -489,7 +486,7 @@ export class ThresholdStoreDurableObject {
         const item = list.shift();
         await store.put(listKey, list);
 
-        const presignatureId = isObject(item)
+        const presignatureId = isPlainObject(item)
           ? toKey((item as { presignatureId?: unknown }).presignatureId)
           : '';
         if (presignatureId) {
@@ -519,7 +516,7 @@ export class ThresholdStoreDurableObject {
         let pickedIndex = -1;
         for (let i = 0; i < list.length; i += 1) {
           const item = list[i];
-          const itemPresignatureId = isObject(item)
+          const itemPresignatureId = isPlainObject(item)
             ? toKey((item as { presignatureId?: unknown }).presignatureId)
             : '';
           if (itemPresignatureId === presignatureId) {

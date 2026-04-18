@@ -81,6 +81,17 @@
   font-size: 0.95rem;
 }
 
+.w3a-export-key-type-restriction {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid oklch(0.64 0.15 20 / 0.45);
+  border-radius: 0.85rem;
+  background: oklch(0.68 0.12 20 / 0.12);
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 .w3a-export-key-type-options {
   display: grid;
   gap: 0.75rem;

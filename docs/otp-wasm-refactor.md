@@ -251,12 +251,12 @@ Email OTP networking should move into the worker so the secret-bearing flow stay
 
 The worker should directly call:
 
-1. `/wallet/email-otp/challenge`
-2. `/wallet/email-otp/verify`
+1. `/wallet/email-otp/login/challenge`
+2. `/wallet/email-otp/login/verify`
 3. `/wallet/email-otp/unseal`
-4. `/wallet/email-otp/enroll/challenge`
-5. `/wallet/email-otp/enroll/seal`
-6. `/wallet/email-otp/enroll/verify`
+4. `/wallet/email-otp/registration/challenge`
+5. `/wallet/email-otp/registration/seal`
+6. `/wallet/email-otp/registration/finalize`
 7. `/wallet/unlock/challenge`
 8. `/wallet/unlock/verify`
 

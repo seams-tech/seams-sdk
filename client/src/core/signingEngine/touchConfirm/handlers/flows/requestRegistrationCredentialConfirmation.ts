@@ -13,14 +13,14 @@ import type { TouchConfirmSecureConfirmationPort } from '../../types';
 export async function requestRegistrationCredentialConfirmation({
   touchConfirm,
   nearAccountId,
-  deviceNumber,
+  signerSlot,
   confirmerText,
   nearRpcUrl,
   confirmationConfig,
 }: {
   touchConfirm: Pick<TouchConfirmSecureConfirmationPort, 'requestUserConfirmation'>;
   nearAccountId: string;
-  deviceNumber: number;
+  signerSlot: number;
   confirmerText?: { title?: string; body?: string };
   nearRpcUrl: string;
   confirmationConfig?: Partial<ConfirmationConfig>;
@@ -43,7 +43,7 @@ export async function requestRegistrationCredentialConfirmation({
   const request: UserConfirmRequest<
     {
       nearAccountId: string;
-      deviceNumber: number;
+      signerSlot: number;
       rpcCall: { nearRpcUrl: string; nearAccountId: string };
     },
     RegistrationSummary
@@ -52,20 +52,20 @@ export async function requestRegistrationCredentialConfirmation({
     type: UserConfirmationType.REGISTER_ACCOUNT,
     summary: {
       nearAccountId,
-      deviceNumber,
+      signerSlot,
       ...(title != null ? { title } : {}),
       ...(body != null ? { body } : {}),
     },
     payload: {
       nearAccountId,
-      deviceNumber,
+      signerSlot,
       rpcCall: {
         nearRpcUrl,
         nearAccountId,
       },
     },
     confirmationConfig,
-    intentDigest: `register:${nearAccountId}:${deviceNumber}`,
+    intentDigest: `register:${nearAccountId}:${signerSlot}`,
   };
 
   const decision = await touchConfirm.requestUserConfirmation(request);

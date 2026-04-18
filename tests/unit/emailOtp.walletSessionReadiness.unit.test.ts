@@ -42,13 +42,15 @@ test.describe('Email OTP wallet-session readiness', () => {
             signingEngine: {
               assertSealedRefreshStartupParity: async () => undefined,
               getLastUser: async () => null,
-              getUserByDevice: async () => null,
+              getUserBySignerSlot: async () => null,
               getWarmThresholdEd25519SessionStatus: async () => null,
               getWarmThresholdEcdsaSessionStatus: async (_accountId: string, chain: string) =>
                 chain === 'tempo'
                   ? {
                       sessionId: 'email-otp-ecdsa-session',
                       status: 'active',
+                      authMethod: 'email_otp',
+                      retention: 'session',
                       remainingUses: 3,
                       expiresAtMs: now + 60_000,
                       createdAtMs: now,
@@ -81,6 +83,11 @@ test.describe('Email OTP wallet-session readiness', () => {
     expect(result.login?.thresholdEcdsaPublicKeyB64u).toBe('threshold-ecdsa-public-key');
     expect(result.signingSession?.status).toBe('active');
     expect(result.signingSession?.sessionId).toBe('email-otp-ecdsa-session');
+    expect(result.signingSession?.authMethod).toBe('email_otp');
+    expect(result.signingSession?.retention).toBe('session');
+    expect(result.authMethod).toBe('email_otp');
+    expect(result.retention).toBe('session');
+    expect(result.login?.authMethod).toBe('email_otp');
   });
 
   test('does not expose a stale NEAR public key for ECDSA-only Email OTP sessions', async ({
@@ -117,12 +124,12 @@ test.describe('Email OTP wallet-session readiness', () => {
               assertSealedRefreshStartupParity: async () => undefined,
               getLastUser: async () => ({
                 nearAccountId,
-                deviceNumber: 1,
+                signerSlot: 1,
                 operationalPublicKey: 'ed25519:stale-near-key',
               }),
-              getUserByDevice: async () => ({
+              getUserBySignerSlot: async () => ({
                 nearAccountId,
-                deviceNumber: 1,
+                signerSlot: 1,
                 operationalPublicKey: 'ed25519:stale-near-key',
               }),
               getWarmThresholdEd25519SessionStatus: async () => null,
@@ -131,6 +138,8 @@ test.describe('Email OTP wallet-session readiness', () => {
                   ? {
                       sessionId: 'email-otp-ecdsa-session',
                       status: 'active',
+                      authMethod: 'email_otp',
+                      retention: 'session',
                       remainingUses: 3,
                       expiresAtMs: now + 60_000,
                       createdAtMs: now,
@@ -163,5 +172,8 @@ test.describe('Email OTP wallet-session readiness', () => {
     expect(result.login?.thresholdEcdsaPublicKeyB64u).toBe('threshold-ecdsa-public-key');
     expect(result.signingSession?.status).toBe('active');
     expect(result.signingSession?.sessionId).toBe('email-otp-ecdsa-session');
+    expect(result.signingSession?.authMethod).toBe('email_otp');
+    expect(result.authMethod).toBe('email_otp');
+    expect(result.login?.authMethod).toBe('email_otp');
   });
 });

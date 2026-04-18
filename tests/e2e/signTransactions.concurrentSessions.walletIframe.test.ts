@@ -51,6 +51,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
       await installCreateAccountAndRegisterUserMock(page, {
         relayerBaseUrl: relayerUrl,
         session: managedRegistrationHarness.session,
+        runtimePolicyScope: managedRegistrationHarness.runtimePolicyScope,
         threshold,
         accountsOnChain,
         onNewPublicKey: (pk) => {
@@ -151,7 +152,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
               nearAccountId: accountId,
               transactions: [{ receiverId, actions: [action] }],
               options: {
-                deviceNumber: 1,
+                signerSlot: 1,
                 confirmationConfig: confirmConfig as any,
               },
             });

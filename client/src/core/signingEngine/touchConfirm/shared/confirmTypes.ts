@@ -8,6 +8,11 @@ import {
 } from '@/core/types/webauthn';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 import { isObject, isString } from '@shared/utils/validation';
+import type { SigningSessionRetention, WalletAuthMethod } from '@/core/types/tatchi';
+import type {
+  WalletAuthCurve,
+  WalletAuthIntent,
+} from '@/core/signingEngine/auth/walletAuthModeResolver';
 
 // === SECURE CONFIRM TYPES (V2) ===
 
@@ -124,6 +129,35 @@ export interface EmailOtpConfirmPrompt {
   helperText?: string;
 }
 
+export type SigningAuthPlan =
+  | {
+      kind: 'warmSession';
+      method: WalletAuthMethod;
+      accountId: string;
+      intent: WalletAuthIntent;
+      curve?: WalletAuthCurve;
+      signingRootId?: string;
+      sessionId: string;
+      retention?: SigningSessionRetention | null;
+      expiresAtMs: number;
+      remainingUses: number;
+    }
+  | {
+      kind: 'passkeyReauth';
+      method: 'passkey';
+    }
+  | {
+      kind: 'emailOtpReauth';
+      method: 'email_otp';
+      emailOtpPrompt?: EmailOtpConfirmPrompt;
+    };
+
+export function signingAuthModeFromSigningAuthPlan(plan: SigningAuthPlan): SigningAuthMode {
+  if (plan.kind === 'warmSession') return 'warmSession';
+  if (plan.kind === 'emailOtpReauth') return 'emailOtp';
+  return 'webauthn';
+}
+
 // V2 summaries (render-oriented / UI hints)
 export interface TxSummary {
   totalAmount?: string;
@@ -132,7 +166,7 @@ export interface TxSummary {
 }
 export interface RegistrationSummary {
   nearAccountId: string;
-  deviceNumber?: number;
+  signerSlot?: number;
   title?: string;
   body?: string;
 }
@@ -206,12 +240,13 @@ export interface SignTransactionPayload {
    * - `warmSession`: skip WebAuthn when a wallet-origin warm session is available (e.g. cached PRF.first).
    */
   signingAuthMode?: SigningAuthMode;
+  signingAuthPlan?: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 
 export interface RegisterAccountPayload {
   nearAccountId: string;
-  deviceNumber?: number;
+  signerSlot?: number;
   rpcCall: RpcCallPayload;
 }
 
@@ -263,6 +298,7 @@ export interface SignNep413Payload {
    * See `SignTransactionPayload.signingAuthMode`.
    */
   signingAuthMode?: SigningAuthMode;
+  signingAuthPlan?: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 
@@ -274,6 +310,7 @@ export interface SignIntentDigestPayload {
   challengeB64u: string;
   displayModel?: TxDisplayModel;
   signingAuthMode?: SigningAuthMode;
+  signingAuthPlan?: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }
 

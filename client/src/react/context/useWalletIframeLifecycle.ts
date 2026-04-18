@@ -45,6 +45,7 @@ export function useWalletIframeLifecycle(args: {
                   isLoggedIn: true,
                   nearAccountId: status.nearAccountId,
                   nearPublicKey: state.publicKey || null,
+                  authMethod: session.authMethod || state.authMethod || null,
                   thresholdEcdsaEthereumAddress: state.thresholdEcdsaEthereumAddress || null,
                   thresholdEcdsaPublicKeyB64u: state.thresholdEcdsaPublicKeyB64u || null,
                 }));
@@ -54,6 +55,7 @@ export function useWalletIframeLifecycle(args: {
                   isLoggedIn: false,
                   nearAccountId: null,
                   nearPublicKey: null,
+                  authMethod: null,
                   thresholdEcdsaEthereumAddress: null,
                   thresholdEcdsaPublicKeyB64u: null,
                 }));
@@ -64,6 +66,7 @@ export function useWalletIframeLifecycle(args: {
                 isLoggedIn: false,
                 nearAccountId: null,
                 nearPublicKey: null,
+                authMethod: null,
                 thresholdEcdsaEthereumAddress: null,
                 thresholdEcdsaPublicKeyB64u: null,
               }));
@@ -87,6 +90,7 @@ export function useWalletIframeLifecycle(args: {
                   isLoggedIn: true,
                   nearAccountId: state.nearAccountId,
                   nearPublicKey: state.publicKey || null,
+                  authMethod: session.authMethod || state.authMethod || null,
                   thresholdEcdsaEthereumAddress: state.thresholdEcdsaEthereumAddress || null,
                   thresholdEcdsaPublicKeyB64u: state.thresholdEcdsaPublicKeyB64u || null,
                 }));
@@ -99,6 +103,7 @@ export function useWalletIframeLifecycle(args: {
             isLoggedIn: false,
             nearAccountId: null,
             nearPublicKey: null,
+            authMethod: null,
             thresholdEcdsaEthereumAddress: null,
             thresholdEcdsaPublicKeyB64u: null,
           }));
@@ -112,6 +117,7 @@ export function useWalletIframeLifecycle(args: {
             isLoggedIn: true,
             nearAccountId: st.nearAccountId,
             nearPublicKey: st.publicKey || null,
+            authMethod: session.authMethod || st.authMethod || null,
             thresholdEcdsaEthereumAddress: st.thresholdEcdsaEthereumAddress || null,
             thresholdEcdsaPublicKeyB64u: st.thresholdEcdsaPublicKeyB64u || null,
           }));

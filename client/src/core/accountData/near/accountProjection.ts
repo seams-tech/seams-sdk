@@ -1,5 +1,6 @@
 import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import { toTrimmedString } from '@shared/utils/validation';
 import { DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
 import type { ClientUserData, StoreUserDataInput } from './types';
@@ -12,63 +13,55 @@ import {
 } from '../../indexedDB/profileAccountProjection';
 import type {
   AccountSignerRecord,
-  ChainAccountRecord,
   ProfileContinuitySnapshot,
   ProfileAuthenticatorRecord,
   ProfileRecord,
-  UpsertAccountSignerInput,
-  UpsertChainAccountInput,
   UpsertProfileInput,
   UserPreferences,
 } from '../../indexedDB/passkeyClientDB.types';
+import type {
+  ActivateAccountSignerInput,
+  ActivateAccountSignerResult,
+} from '../../indexedDB/accountSignerLifecycle';
 import type { PasskeyClientDBManager } from '../../indexedDB/passkeyClientDB/manager';
 import { getNearChainCandidates, inferNearChainIdKey } from './accountRefs';
 import { buildNearProfileId } from './profileId';
-import {
-  normalizeIndexedDbAccountAddress as normalizeAccountAddress,
-} from '../../indexedDB/normalization';
+import { normalizeIndexedDbAccountAddress as normalizeAccountAddress } from '../../indexedDB/normalization';
 
 export interface UpsertNearProjectionOperations {
   upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
-  upsertChainAccount: (input: UpsertChainAccountInput) => Promise<unknown>;
   getAccountSigner: (args: {
     chainIdKey: string;
     accountAddress: string;
     signerId: string;
   }) => Promise<AccountSignerRecord | null>;
-  upsertAccountSigner: (input: UpsertAccountSignerInput) => Promise<unknown>;
+  activateAccountSigner: (
+    input: ActivateAccountSignerInput,
+  ) => Promise<ActivateAccountSignerResult>;
 }
 
 export async function upsertNearAccountProjectionRecords(args: {
   userData: ClientUserData;
   ops: UpsertNearProjectionOperations;
-}): Promise<void> {
+}): Promise<{ signerSlot: number }> {
   const { userData, ops } = args;
   const accountId = toAccountId(userData.nearAccountId);
-  const deviceNumber = Number(userData.deviceNumber);
-  if (!Number.isSafeInteger(deviceNumber) || deviceNumber < 1) {
-    throw new Error('PasskeyClientDB: deviceNumber must be an integer >= 1');
+  const signerSlot = Number(userData.signerSlot);
+  if (!Number.isSafeInteger(signerSlot) || signerSlot < 1) {
+    throw new Error('PasskeyClientDB: signerSlot must be an integer >= 1');
   }
 
   const profileId = buildNearProfileId(accountId);
   const chainIdKey = inferNearChainIdKey(accountId, userData.preferences?.useNetwork);
   const accountAddress = normalizeAccountAddress(accountId);
   const signerId =
-    toTrimmedString(userData.passkeyCredential?.rawId || '') || `device-${deviceNumber}`;
+    toTrimmedString(userData.passkeyCredential?.rawId || '') || `signer-${signerSlot}`;
 
   await ops.upsertProfile({
     profileId,
-    defaultDeviceNumber: deviceNumber,
+    defaultSignerSlot: signerSlot,
     passkeyCredential: userData.passkeyCredential,
     ...(userData.preferences ? { preferences: userData.preferences } : {}),
-  });
-
-  await ops.upsertChainAccount({
-    profileId,
-    chainIdKey,
-    accountAddress,
-    accountModel: 'near-native',
-    isPrimary: true,
   });
 
   const existingSigner = await ops
@@ -78,22 +71,39 @@ export async function upsertNearAccountProjectionRecords(args: {
       signerId,
     })
     .catch(() => null);
-  await ops.upsertAccountSigner({
-    profileId,
-    chainIdKey,
-    accountAddress,
-    signerId,
-    signerSlot: deviceNumber,
-    signerType: 'passkey',
-    status: 'active',
-    metadata: {
-      ...(existingSigner?.metadata || {}),
-      operationalPublicKey: userData.operationalPublicKey,
-      passkeyCredentialId: userData.passkeyCredential?.id,
-      passkeyCredentialRawId: userData.passkeyCredential?.rawId,
+  const activation = await ops.activateAccountSigner({
+    account: {
+      profileId,
+      chainIdKey,
+      accountAddress,
+      accountModel: 'near-native',
     },
+    signer: {
+      signerId,
+      signerType: 'threshold',
+      signerKind: SIGNER_KINDS.thresholdEd25519,
+      signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
+      signerSource: SIGNER_SOURCES.passkeyRegistration,
+      metadata: {
+        ...(existingSigner?.metadata || {}),
+        operationalPublicKey: userData.operationalPublicKey,
+        passkeyCredentialId: userData.passkeyCredential?.id,
+        passkeyCredentialRawId: userData.passkeyCredential?.rawId,
+      },
+    },
+    activationPolicy: { mode: 'allocate_next_free' },
+    preferredSlot: signerSlot,
     mutation: { routeThroughOutbox: false },
   });
+  if (activation.signerSlot !== signerSlot) {
+    await ops.upsertProfile({
+      profileId,
+      defaultSignerSlot: activation.signerSlot,
+      passkeyCredential: userData.passkeyCredential,
+      ...(userData.preferences ? { preferences: userData.preferences } : {}),
+    });
+  }
+  return { signerSlot: activation.signerSlot };
 }
 
 type NearAccountContext = {
@@ -113,9 +123,8 @@ type NearAccountClientDbPort = Pick<
   | 'listAccountSigners'
   | 'getProfileContinuitySnapshot'
   | 'upsertProfile'
-  | 'upsertChainAccount'
   | 'getAccountSigner'
-  | 'upsertAccountSigner'
+  | 'activateAccountSigner'
   | 'updatePreferences'
 >;
 
@@ -180,7 +189,7 @@ export async function resolveNearAccountProfileContinuity(
 export async function getNearAccountProjection(
   clientDB: NearAccountClientDbPort,
   nearAccountId: AccountId,
-  deviceNumber?: number,
+  signerSlot?: number,
 ): Promise<ClientUserData | null> {
   const accountId = toAccountId(nearAccountId);
   const accountAddress = normalizeAccountAddress(accountId);
@@ -190,7 +199,7 @@ export async function getNearAccountProjection(
       chainIdKey,
       accountAddress,
     })),
-    deviceNumber,
+    signerSlot,
   });
   if (!projection) return null;
 
@@ -208,7 +217,7 @@ export async function getNearAccountProjection(
 
   return {
     nearAccountId: accountId,
-    deviceNumber: projection.selectedSigner.signerSlot,
+    signerSlot: projection.selectedSigner.signerSlot,
     version: 2,
     registeredAt: projection.profile.createdAt,
     lastLogin: projection.profile.updatedAt,
@@ -223,11 +232,8 @@ export async function getNearAccountProjection(
 }
 
 export async function getLastSelectedNearAccount(
-  clientDB: Pick<
-    PasskeyClientDBManager,
-    'getLastProfileState' | 'listChainAccountsByProfile'
-  >,
-): Promise<{ nearAccountId: AccountId; profileId: string; deviceNumber: number } | null> {
+  clientDB: Pick<PasskeyClientDBManager, 'getLastProfileState' | 'listChainAccountsByProfile'>,
+): Promise<{ nearAccountId: AccountId; profileId: string; signerSlot: number } | null> {
   const last = await getLastSelectedProfileAccountByChain(clientDB, {
     chainIdKeys: ['near:testnet', 'near:mainnet'],
   });
@@ -241,7 +247,7 @@ export async function getLastSelectedNearAccount(
   return {
     nearAccountId,
     profileId: last.profileId,
-    deviceNumber: last.deviceNumber,
+    signerSlot: last.signerSlot,
   };
 }
 
@@ -250,7 +256,7 @@ export async function getLastSelectedNearAccountProjection(
 ): Promise<ClientUserData | null> {
   const last = await getLastSelectedNearAccount(clientDB).catch(() => null);
   if (!last) return null;
-  return getNearAccountProjection(clientDB, last.nearAccountId, last.deviceNumber);
+  return getNearAccountProjection(clientDB, last.nearAccountId, last.signerSlot);
 }
 
 export async function listNearAccountProjections(
@@ -284,11 +290,11 @@ export async function setLastProfileStateForNearAccount(
     'resolveProfileAccountContext' | 'setLastProfileStateForProfile'
   >,
   nearAccountId: AccountId,
-  deviceNumber: number,
+  signerSlot: number,
 ): Promise<void> {
-  const normalizedDeviceNumber = Number(deviceNumber);
-  if (!Number.isSafeInteger(normalizedDeviceNumber) || normalizedDeviceNumber < 1) {
-    throw new Error('PasskeyClientDB: deviceNumber must be an integer >= 1');
+  const normalizedSignerSlot = Number(signerSlot);
+  if (!Number.isSafeInteger(normalizedSignerSlot) || normalizedSignerSlot < 1) {
+    throw new Error('PasskeyClientDB: signerSlot must be an integer >= 1');
   }
   const context = await resolveNearAccountContext(clientDB, nearAccountId);
   if (!context?.profileId) {
@@ -296,7 +302,7 @@ export async function setLastProfileStateForNearAccount(
       `PasskeyClientDB: Missing profile/account mapping for NEAR account ${String(nearAccountId)}`,
     );
   }
-  await clientDB.setLastProfileStateForProfile(context.profileId, normalizedDeviceNumber);
+  await clientDB.setLastProfileStateForProfile(context.profileId, normalizedSignerSlot);
 }
 
 export async function upsertNearAccountProjection(
@@ -305,12 +311,12 @@ export async function upsertNearAccountProjection(
 ): Promise<ClientUserData> {
   const accountId = toAccountId(input.nearAccountId);
   const now = Date.now();
-  const deviceNumber = Number(input.deviceNumber);
-  const normalizedDeviceNumber =
-    Number.isSafeInteger(deviceNumber) && deviceNumber >= 1 ? deviceNumber : 1;
+  const signerSlot = Number(input.signerSlot);
+  const normalizedSignerSlot =
+    Number.isSafeInteger(signerSlot) && signerSlot >= 1 ? signerSlot : 1;
   const userData: ClientUserData = {
     nearAccountId: accountId,
-    deviceNumber: normalizedDeviceNumber,
+    signerSlot: normalizedSignerSlot,
     version: input.version || 2,
     registeredAt: now,
     lastLogin: now,
@@ -324,23 +330,30 @@ export async function upsertNearAccountProjection(
     },
   };
 
-  await upsertNearAccountProjectionRecords({
+  const activation = await upsertNearAccountProjectionRecords({
     userData,
     ops: {
       upsertProfile: (record) => clientDB.upsertProfile(record),
-      upsertChainAccount: (record) => clientDB.upsertChainAccount(record),
       getAccountSigner: (args) => clientDB.getAccountSigner(args),
-      upsertAccountSigner: (record) => clientDB.upsertAccountSigner(record),
+      activateAccountSigner: (record) => clientDB.activateAccountSigner(record),
     },
   });
-  await setLastProfileStateForNearAccount(clientDB, accountId, normalizedDeviceNumber);
-  return (await getNearAccountProjection(clientDB, accountId, normalizedDeviceNumber)) || userData;
+  await setLastProfileStateForNearAccount(clientDB, accountId, activation.signerSlot);
+  return (
+    (await getNearAccountProjection(clientDB, accountId, activation.signerSlot)) || {
+      ...userData,
+      signerSlot: activation.signerSlot,
+    }
+  );
 }
 
 export async function touchLastLoginForNearAccount(
   clientDB: Pick<
     PasskeyClientDBManager,
-    'resolveProfileAccountContext' | 'getLastProfileState' | 'getProfile' | 'setLastProfileStateForProfile'
+    | 'resolveProfileAccountContext'
+    | 'getLastProfileState'
+    | 'getProfile'
+    | 'setLastProfileStateForProfile'
   >,
   nearAccountId: AccountId,
 ): Promise<void> {
@@ -350,21 +363,18 @@ export async function touchLastLoginForNearAccount(
     clientDB.getLastProfileState().catch(() => null),
     clientDB.getProfile(context.profileId).catch(() => null),
   ]);
-  const defaultDeviceNumber = Number(profile?.defaultDeviceNumber);
-  const deviceNumber =
+  const defaultSignerSlot = Number(profile?.defaultSignerSlot);
+  const signerSlot =
     lastProfileState?.profileId === context.profileId
-      ? lastProfileState.deviceNumber
-      : Number.isSafeInteger(defaultDeviceNumber) && defaultDeviceNumber >= 1
-        ? defaultDeviceNumber
+      ? lastProfileState.activeSignerSlot
+      : Number.isSafeInteger(defaultSignerSlot) && defaultSignerSlot >= 1
+        ? defaultSignerSlot
         : 1;
-  await clientDB.setLastProfileStateForProfile(context.profileId, deviceNumber);
+  await clientDB.setLastProfileStateForProfile(context.profileId, signerSlot);
 }
 
 export async function updateNearAccountPreferences(
-  clientDB: Pick<
-    PasskeyClientDBManager,
-    'resolveProfileAccountContext' | 'updatePreferences'
-  >,
+  clientDB: Pick<PasskeyClientDBManager, 'resolveProfileAccountContext' | 'updatePreferences'>,
   nearAccountId: AccountId,
   preferences: Partial<UserPreferences>,
 ): Promise<void> {

@@ -61,7 +61,7 @@ export type WarmSessionClaimResult =
 
 export type RequestRegistrationCredentialConfirmationParams = {
   nearAccountId: string;
-  deviceNumber: number;
+  signerSlot: number;
   confirmerText?: { title?: string; body?: string };
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   nearRpcUrl: string;

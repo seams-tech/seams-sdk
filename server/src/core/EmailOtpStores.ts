@@ -1,12 +1,28 @@
 import type { NormalizedLogger } from './logger';
-import type { ThresholdStoreConfigInput } from './types';
+import type { ThresholdRuntimePolicyScope, ThresholdStoreConfigInput } from './types';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
-import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
+import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
+import type {
+  WalletEmailOtpChannel,
+  WalletEmailOtpLoginOperation,
+  WalletEmailOtpOperation,
+} from '@shared/utils/emailOtpDomain';
+import {
+  EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+  isWalletEmailOtpLoginOperation,
+} from '@shared/utils/emailOtpDomain';
 
-export type EmailOtpChannel = 'email_otp';
-export type EmailOtpGrantAction = 'wallet_email_otp_unseal';
-export type EmailOtpChallengeAction = 'wallet_email_otp_authorize' | 'wallet_email_otp_enroll';
+export type EmailOtpChannel = WalletEmailOtpChannel;
+export type EmailOtpGrantAction = typeof WALLET_EMAIL_OTP_ACTIONS.unseal;
+export type EmailOtpChallengeAction =
+  | typeof WALLET_EMAIL_OTP_ACTIONS.login
+  | typeof WALLET_EMAIL_OTP_ACTIONS.registration;
+export type EmailOtpChallengeOperation = WalletEmailOtpOperation;
+export type EmailOtpLoginChallengeOperation = WalletEmailOtpLoginOperation;
 
 export type EmailOtpChallengeRecord = {
   version: 'email_otp_challenge_v1';
@@ -20,6 +36,7 @@ export type EmailOtpChallengeRecord = {
   sessionHash: string;
   appSessionVersion: string;
   action: EmailOtpChallengeAction;
+  operation: EmailOtpChallengeOperation;
   createdAtMs: number;
   expiresAtMs: number;
   attemptCount: number;
@@ -97,15 +114,45 @@ export interface EmailOtpUnlockChallengeStore {
   del(challengeId: string): Promise<void>;
 }
 
+export type GoogleEmailOtpRegistrationAttemptState =
+  | 'started'
+  | 'key_finalized'
+  | 'active'
+  | 'failed'
+  | 'expired';
+
+export type GoogleEmailOtpRegistrationAttemptRecord = {
+  version: 'google_email_otp_registration_attempt_v1';
+  attemptId: string;
+  providerSubject: string;
+  email: string;
+  walletId: string;
+  state: GoogleEmailOtpRegistrationAttemptState;
+  createdAtMs: number;
+  updatedAtMs: number;
+  expiresAtMs: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  finalizedPublicKey?: string;
+  failureCode?: string;
+};
+
+export interface EmailOtpRegistrationAttemptStore {
+  put(record: GoogleEmailOtpRegistrationAttemptRecord): Promise<void>;
+  get(attemptId: string): Promise<GoogleEmailOtpRegistrationAttemptRecord | null>;
+  findStartedBySubjectEmail(input: {
+    providerSubject: string;
+    email: string;
+    nowMs: number;
+  }): Promise<GoogleEmailOtpRegistrationAttemptRecord | null>;
+  hasLiveStartedWalletAttempt(input: { walletId: string; nowMs: number }): Promise<boolean>;
+  deleteExpired(nowMs: number): Promise<number>;
+}
+
 type EmailOtpStoreFactoryInput = {
   config?: ThresholdStoreConfigInput | null;
   logger?: NormalizedLogger;
   isNode?: boolean;
 };
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return isObjectLoose(v);
-}
 
 function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
   const p = toOptionalTrimmedString(prefix);
@@ -125,7 +172,7 @@ function toEmailOtpPrefix(config: Record<string, unknown>): string {
 }
 
 function getStoreConfig(input?: EmailOtpStoreFactoryInput): Record<string, unknown> {
-  return (isObject(input?.config) ? input.config : {}) as Record<string, unknown>;
+  return (isPlainObject(input?.config) ? input.config : {}) as Record<string, unknown>;
 }
 
 function resolvePostgresEmailOtpStore(
@@ -181,14 +228,25 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   const sessionHash = toOptionalTrimmedString(obj.sessionHash);
   const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
   const action = toOptionalTrimmedString(obj.action);
+  const operationRaw = toOptionalTrimmedString(obj.operation);
   const createdAtMs = Number(obj.createdAtMs);
   const expiresAtMs = Number(obj.expiresAtMs);
   const attemptCount = Number(obj.attemptCount);
   const maxAttempts = Number(obj.maxAttempts);
   if (version !== 'email_otp_challenge_v1') return null;
   if (!challengeId || !userId || !walletId || !email || !otpCode || !sessionHash) return null;
-  if (otpChannel !== 'email_otp') return null;
-  if (action !== 'wallet_email_otp_authorize' && action !== 'wallet_email_otp_enroll') return null;
+  if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
+  if (
+    action !== WALLET_EMAIL_OTP_ACTIONS.login &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.registration
+  )
+    return null;
+  const operation: EmailOtpChallengeOperation =
+    operationRaw && isWalletEmailOtpLoginOperation(operationRaw)
+      ? operationRaw
+      : operationRaw === WALLET_EMAIL_OTP_REGISTRATION_OPERATION
+      ? operationRaw
+      : WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   if (!appSessionVersion) return null;
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
@@ -200,12 +258,13 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
     userId,
     walletId,
     ...(orgId ? { orgId } : {}),
-    otpChannel: 'email_otp',
+    otpChannel: EMAIL_OTP_CHANNEL,
     email,
     otpCode,
     sessionHash,
     appSessionVersion,
     action,
+    operation,
     createdAtMs: Math.floor(createdAtMs),
     expiresAtMs: Math.floor(expiresAtMs),
     attemptCount: Math.floor(attemptCount),
@@ -232,8 +291,8 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
   if (version !== 'email_otp_grant_v1') return null;
   if (!grantToken || !userId || !walletId || !challengeId || !sessionHash || !appSessionVersion)
     return null;
-  if (otpChannel !== 'email_otp') return null;
-  if (action !== 'wallet_email_otp_unseal') return null;
+  if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
+  if (action !== WALLET_EMAIL_OTP_ACTIONS.unseal) return null;
   if (!Number.isFinite(issuedAtMs) || issuedAtMs <= 0) return null;
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
   return {
@@ -243,10 +302,10 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
     walletId,
     ...(orgId ? { orgId } : {}),
     challengeId,
-    otpChannel: 'email_otp',
+    otpChannel: EMAIL_OTP_CHANNEL,
     sessionHash,
     appSessionVersion,
-    action: 'wallet_email_otp_unseal',
+    action: WALLET_EMAIL_OTP_ACTIONS.unseal,
     issuedAtMs: Math.floor(issuedAtMs),
     expiresAtMs: Math.floor(expiresAtMs),
   };
@@ -282,7 +341,7 @@ function parseEnrollmentRecord(raw: unknown): EmailOtpEnrollmentRecord | null {
   if (version !== 'email_otp_enrollment_v1') return null;
   if (!walletId || !userId || !emailOtpEscrowBlob || !emailOtpKeyVersion) return null;
   if (!unlockPublicKey || !unlockKeyVersion) return null;
-  if (otpChannel !== 'email_otp') return null;
+  if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
   if (otpFailureCount != null && (!Number.isFinite(otpFailureCount) || otpFailureCount < 0)) {
@@ -306,7 +365,7 @@ function parseEnrollmentRecord(raw: unknown): EmailOtpEnrollmentRecord | null {
     userId,
     ...(orgId ? { orgId } : {}),
     ...(enrollmentDeviceId ? { enrollmentDeviceId } : {}),
-    otpChannel: 'email_otp',
+    otpChannel: EMAIL_OTP_CHANNEL,
     emailOtpEscrowBlob,
     emailOtpKeyVersion,
     unlockPublicKey,
@@ -347,6 +406,65 @@ function parseUnlockChallengeRecord(raw: unknown): EmailOtpUnlockChallengeRecord
     challengeB64u,
     createdAtMs: Math.floor(createdAtMs),
     expiresAtMs: Math.floor(expiresAtMs),
+  };
+}
+
+function parseRuntimePolicyScope(raw: unknown): ThresholdRuntimePolicyScope | undefined {
+  raw = parseJsonRecord(raw);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const orgId = toOptionalTrimmedString(obj.orgId);
+  const projectId = toOptionalTrimmedString(obj.projectId);
+  const envId = toOptionalTrimmedString(obj.envId);
+  if (!orgId || !projectId || !envId) return undefined;
+  return { orgId, projectId, envId };
+}
+
+function parseRegistrationAttemptRecord(
+  raw: unknown,
+): GoogleEmailOtpRegistrationAttemptRecord | null {
+  raw = parseJsonRecord(raw);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const version = toOptionalTrimmedString(obj.version);
+  const attemptId = toOptionalTrimmedString(obj.attemptId);
+  const providerSubject = toOptionalTrimmedString(obj.providerSubject);
+  const email = toOptionalTrimmedString(obj.email);
+  const walletId = toOptionalTrimmedString(obj.walletId);
+  const state = toOptionalTrimmedString(obj.state);
+  const createdAtMs = Number(obj.createdAtMs);
+  const updatedAtMs = Number(obj.updatedAtMs);
+  const expiresAtMs = Number(obj.expiresAtMs);
+  const runtimePolicyScope = parseRuntimePolicyScope(obj.runtimePolicyScope);
+  const finalizedPublicKey = toOptionalTrimmedString(obj.finalizedPublicKey) || undefined;
+  const failureCode = toOptionalTrimmedString(obj.failureCode) || undefined;
+  if (version !== 'google_email_otp_registration_attempt_v1') return null;
+  if (!attemptId || !providerSubject || !email || !walletId) return null;
+  if (
+    state !== 'started' &&
+    state !== 'key_finalized' &&
+    state !== 'active' &&
+    state !== 'failed' &&
+    state !== 'expired'
+  ) {
+    return null;
+  }
+  if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
+  if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
+  return {
+    version: 'google_email_otp_registration_attempt_v1',
+    attemptId,
+    providerSubject,
+    email,
+    walletId,
+    state,
+    createdAtMs: Math.floor(createdAtMs),
+    updatedAtMs: Math.floor(updatedAtMs),
+    expiresAtMs: Math.floor(expiresAtMs),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(finalizedPublicKey ? { finalizedPublicKey } : {}),
+    ...(failureCode ? { failureCode } : {}),
   };
 }
 
@@ -441,6 +559,65 @@ class InMemoryEmailOtpUnlockChallengeStore implements EmailOtpUnlockChallengeSto
     const id = toOptionalTrimmedString(challengeId);
     if (!id) return;
     this.map.delete(id);
+  }
+}
+
+class InMemoryEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAttemptStore {
+  private readonly map = new Map<string, GoogleEmailOtpRegistrationAttemptRecord>();
+
+  async put(record: GoogleEmailOtpRegistrationAttemptRecord): Promise<void> {
+    const parsed = parseRegistrationAttemptRecord(record);
+    if (!parsed) throw new Error('Invalid Google Email OTP registration attempt record');
+    this.map.set(parsed.attemptId, cloneRecord(parsed));
+  }
+
+  async get(attemptId: string): Promise<GoogleEmailOtpRegistrationAttemptRecord | null> {
+    const id = toOptionalTrimmedString(attemptId);
+    if (!id) return null;
+    const record = this.map.get(id);
+    return record ? cloneRecord(record) : null;
+  }
+
+  async findStartedBySubjectEmail(input: {
+    providerSubject: string;
+    email: string;
+    nowMs: number;
+  }): Promise<GoogleEmailOtpRegistrationAttemptRecord | null> {
+    for (const record of this.map.values()) {
+      if (
+        record.providerSubject === input.providerSubject &&
+        record.email === input.email &&
+        record.state === 'started' &&
+        record.expiresAtMs > input.nowMs
+      ) {
+        return cloneRecord(record);
+      }
+    }
+    return null;
+  }
+
+  async hasLiveStartedWalletAttempt(input: { walletId: string; nowMs: number }): Promise<boolean> {
+    for (const record of this.map.values()) {
+      if (
+        record.walletId === input.walletId &&
+        record.state === 'started' &&
+        record.expiresAtMs > input.nowMs
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async deleteExpired(nowMs: number): Promise<number> {
+    let deleted = 0;
+    for (const [attemptId, record] of this.map.entries()) {
+      if (record.expiresAtMs <= nowMs || record.state === 'expired') {
+        this.map.delete(attemptId);
+        deleted += 1;
+      }
+    }
+    return deleted;
   }
 }
 
@@ -658,6 +835,128 @@ class PostgresEmailOtpUnlockChallengeStore implements EmailOtpUnlockChallengeSto
   }
 }
 
+class PostgresEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAttemptStore {
+  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
+  private readonly namespace: string;
+
+  constructor(input: { postgresUrl: string; namespace: string }) {
+    this.poolPromise = getPostgresPool(input.postgresUrl);
+    this.namespace = input.namespace;
+  }
+
+  async put(record: GoogleEmailOtpRegistrationAttemptRecord): Promise<void> {
+    const parsed = parseRegistrationAttemptRecord(record);
+    if (!parsed) throw new Error('Invalid Google Email OTP registration attempt record');
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO email_otp_registration_attempts (
+          namespace,
+          attempt_id,
+          provider_subject,
+          email,
+          wallet_id,
+          state,
+          record_json,
+          expires_at_ms,
+          updated_at_ms
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+        ON CONFLICT (namespace, attempt_id)
+        DO UPDATE SET
+          provider_subject = EXCLUDED.provider_subject,
+          email = EXCLUDED.email,
+          wallet_id = EXCLUDED.wallet_id,
+          state = EXCLUDED.state,
+          record_json = EXCLUDED.record_json,
+          expires_at_ms = EXCLUDED.expires_at_ms,
+          updated_at_ms = EXCLUDED.updated_at_ms
+      `,
+      [
+        this.namespace,
+        parsed.attemptId,
+        parsed.providerSubject,
+        parsed.email,
+        parsed.walletId,
+        parsed.state,
+        JSON.stringify(parsed),
+        parsed.expiresAtMs,
+        parsed.updatedAtMs,
+      ],
+    );
+  }
+
+  async get(attemptId: string): Promise<GoogleEmailOtpRegistrationAttemptRecord | null> {
+    const id = toOptionalTrimmedString(attemptId);
+    if (!id) return null;
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json
+        FROM email_otp_registration_attempts
+        WHERE namespace = $1 AND attempt_id = $2
+      `,
+      [this.namespace, id],
+    );
+    const parsed = parseRegistrationAttemptRecord(rows[0]?.record_json);
+    if (!parsed) return null;
+    return cloneRecord(parsed);
+  }
+
+  async findStartedBySubjectEmail(input: {
+    providerSubject: string;
+    email: string;
+    nowMs: number;
+  }): Promise<GoogleEmailOtpRegistrationAttemptRecord | null> {
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json
+        FROM email_otp_registration_attempts
+        WHERE namespace = $1
+          AND provider_subject = $2
+          AND email = $3
+          AND state = 'started'
+          AND expires_at_ms > $4
+        ORDER BY updated_at_ms DESC
+        LIMIT 1
+      `,
+      [this.namespace, input.providerSubject, input.email, input.nowMs],
+    );
+    const parsed = parseRegistrationAttemptRecord(rows[0]?.record_json);
+    return parsed ? cloneRecord(parsed) : null;
+  }
+
+  async hasLiveStartedWalletAttempt(input: { walletId: string; nowMs: number }): Promise<boolean> {
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT 1
+        FROM email_otp_registration_attempts
+        WHERE namespace = $1
+          AND wallet_id = $2
+          AND state = 'started'
+          AND expires_at_ms > $3
+        LIMIT 1
+      `,
+      [this.namespace, input.walletId, input.nowMs],
+    );
+    return rows.length > 0;
+  }
+
+  async deleteExpired(nowMs: number): Promise<number> {
+    const pool = await this.poolPromise;
+    const result = await pool.query(
+      `
+        DELETE FROM email_otp_registration_attempts
+        WHERE namespace = $1 AND (expires_at_ms <= $2 OR state = 'expired')
+      `,
+      [this.namespace, nowMs],
+    );
+    return Number(result.rowCount || 0);
+  }
+}
+
 export function createEmailOtpChallengeStore(
   input?: EmailOtpStoreFactoryInput,
 ): EmailOtpChallengeStore {
@@ -702,4 +1001,16 @@ export function createEmailOtpUnlockChallengeStore(
   }
   input?.logger?.info('[email-otp] Using in-memory unlock challenge store (non-persistent)');
   return new InMemoryEmailOtpUnlockChallengeStore();
+}
+
+export function createEmailOtpRegistrationAttemptStore(
+  input?: EmailOtpStoreFactoryInput,
+): EmailOtpRegistrationAttemptStore {
+  const postgres = resolvePostgresEmailOtpStore(input, 'registration attempt');
+  if (postgres) {
+    input?.logger?.info('[email-otp] Using Postgres registration attempt store');
+    return new PostgresEmailOtpRegistrationAttemptStore(postgres);
+  }
+  input?.logger?.info('[email-otp] Using in-memory registration attempt store (non-persistent)');
+  return new InMemoryEmailOtpRegistrationAttemptStore();
 }

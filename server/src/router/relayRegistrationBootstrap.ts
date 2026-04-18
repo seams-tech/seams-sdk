@@ -23,10 +23,7 @@ import { routeError, routeJson } from './routeResponses';
 import { readCanonicalSmartAccountDeploymentManifest } from './smartAccountDeploymentManifest';
 import { syncSmartAccountRecoverySubjectDeployments } from './smartAccountRecoverySubjectDeploymentSync';
 import { executeSmartAccountDeploy } from './smartAccountDeploy';
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+import { isPlainObject } from '@shared/utils/validation';
 
 interface RelayRegistrationBootstrapServices {
   authService: AuthService;
@@ -89,7 +86,7 @@ function normalizeRegistrationSmartAccountTargets(
   const seenChains = new Set<string>();
   for (let index = 0; index < raw.length; index += 1) {
     const entry = raw[index];
-    if (!isObject(entry)) {
+    if (!isPlainObject(entry)) {
       return {
         ok: false,
         message: `threshold_ecdsa.smart_account_targets[${index}] must be an object`,
@@ -320,17 +317,17 @@ export async function handleRelayRegistrationBootstrap(
 ): Promise<
   RouteResponse<CreateAccountAndRegisterResult | Record<string, unknown> | RouteErrorBody>
 > {
-  if (!isObject(input.body)) {
+  if (!isPlainObject(input.body)) {
     return routeError(400, 'invalid_body', 'JSON body required');
   }
 
   const body = input.body as CreateAccountAndRegisterRequest & Record<string, unknown>;
   const new_account_id = String(body.new_account_id || '').trim();
-  const device_number = body.device_number;
+  const signer_slot = body.signer_slot;
   const threshold_ed25519 = body.threshold_ed25519;
   const threshold_ecdsa = body.threshold_ecdsa;
   const rp_id = typeof body.rp_id === 'string' ? String(body.rp_id || '').trim() : '';
-  const webauthn_registration = isObject(body.webauthn_registration)
+  const webauthn_registration = isPlainObject(body.webauthn_registration)
     ? body.webauthn_registration
     : null;
   const authenticator_options = body.authenticator_options;
@@ -345,7 +342,7 @@ export async function handleRelayRegistrationBootstrap(
     return routeError(400, 'invalid_body', 'Missing or invalid webauthn_registration');
   }
   const smartAccountTargetsResult = normalizeRegistrationSmartAccountTargets(
-    isObject(body.threshold_ecdsa) ? body.threshold_ecdsa.smart_account_targets : undefined,
+    isPlainObject(body.threshold_ecdsa) ? body.threshold_ecdsa.smart_account_targets : undefined,
   );
   if (!smartAccountTargetsResult.ok) {
     return routeError(400, 'invalid_body', smartAccountTargetsResult.message);
@@ -400,10 +397,10 @@ export async function handleRelayRegistrationBootstrap(
     envId: routePrincipal.principal.envId || routePrincipal.principal.environmentId,
   };
   const thresholdEd25519Request =
-    threshold_ed25519 && isObject(threshold_ed25519)
+    threshold_ed25519 && isPlainObject(threshold_ed25519)
       ? {
           ...threshold_ed25519,
-          session_policy: isObject(threshold_ed25519.session_policy)
+          session_policy: isPlainObject(threshold_ed25519.session_policy)
             ? {
                 ...threshold_ed25519.session_policy,
                 runtimePolicyScope,
@@ -412,10 +409,10 @@ export async function handleRelayRegistrationBootstrap(
         }
       : threshold_ed25519;
   const thresholdEcdsaRequest =
-    threshold_ecdsa && isObject(threshold_ecdsa)
+    threshold_ecdsa && isPlainObject(threshold_ecdsa)
       ? {
           ...threshold_ecdsa,
-          session_policy: isObject(threshold_ecdsa.session_policy)
+          session_policy: isPlainObject(threshold_ecdsa.session_policy)
             ? {
                 ...threshold_ecdsa.session_policy,
                 runtimePolicyScope,
@@ -426,7 +423,7 @@ export async function handleRelayRegistrationBootstrap(
 
   const result = await input.services.authService.createAccountAndRegisterUser({
     new_account_id,
-    device_number,
+    signer_slot,
     ...(thresholdEd25519Request ? { threshold_ed25519: thresholdEd25519Request } : {}),
     ...(thresholdEcdsaRequest ? { threshold_ecdsa: thresholdEcdsaRequest } : {}),
     rp_id,

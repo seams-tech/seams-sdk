@@ -188,7 +188,7 @@ function createCloudflareFetchImpl(
 async function requestEmailOtpWithOutbox(args: {
   fetchImpl: typeof fetch;
   relayUrl: string;
-  route: '/wallet/email-otp/enroll/challenge' | '/wallet/email-otp/challenge';
+  route: '/wallet/email-otp/registration/challenge' | '/wallet/email-otp/login/challenge';
   service: AuthService;
   appSessionJwt: string;
   walletId?: string;
@@ -252,7 +252,7 @@ function createEmailOtpRouteWorkerCtx(args: {
     const verified = await postWorkerJson({
       fetchImpl: args.fetchImpl,
       relayUrl: args.relayUrl,
-      path: '/wallet/email-otp/verify',
+      path: '/wallet/email-otp/login/verify',
       appSessionJwt: payload.appSessionJwt,
       body: {
         walletId,
@@ -336,7 +336,7 @@ function createEmailOtpRouteWorkerCtx(args: {
         const enrollSeal = await postWorkerJson({
           fetchImpl: args.fetchImpl,
           relayUrl: args.relayUrl,
-          path: '/wallet/email-otp/enroll/seal',
+          path: '/wallet/email-otp/registration/seal',
           appSessionJwt: payload.appSessionJwt,
           body: {
             walletId,
@@ -360,7 +360,7 @@ function createEmailOtpRouteWorkerCtx(args: {
         await postWorkerJson({
           fetchImpl: args.fetchImpl,
           relayUrl: args.relayUrl,
-          path: '/wallet/email-otp/enroll/verify',
+          path: '/wallet/email-otp/registration/finalize',
           appSessionJwt: payload.appSessionJwt,
           body: {
             walletId,
@@ -529,7 +529,7 @@ test.describe('Email OTP bootstrap integration', () => {
     const enrollOtp = await requestEmailOtpWithOutbox({
       fetchImpl: cfFetch,
       relayUrl,
-      route: '/wallet/email-otp/enroll/challenge',
+      route: '/wallet/email-otp/registration/challenge',
       service,
       appSessionJwt: 'app-session-enroll',
     });
@@ -551,7 +551,7 @@ test.describe('Email OTP bootstrap integration', () => {
     const recoveryOtp = await requestEmailOtpWithOutbox({
       fetchImpl: cfFetch,
       relayUrl,
-      route: '/wallet/email-otp/challenge',
+      route: '/wallet/email-otp/login/challenge',
       service,
       appSessionJwt: 'app-session-recover',
     });
@@ -662,7 +662,7 @@ test.describe('Email OTP bootstrap integration', () => {
       const enrollOtp = await requestEmailOtpWithOutbox({
         fetchImpl: fetch,
         relayUrl: srv.baseUrl,
-        route: '/wallet/email-otp/enroll/challenge',
+        route: '/wallet/email-otp/registration/challenge',
         service,
         appSessionJwt: 'app-session-enroll',
       });
@@ -684,7 +684,7 @@ test.describe('Email OTP bootstrap integration', () => {
       const recoveryOtp = await requestEmailOtpWithOutbox({
         fetchImpl: fetch,
         relayUrl: srv.baseUrl,
-        route: '/wallet/email-otp/challenge',
+        route: '/wallet/email-otp/login/challenge',
         service,
         appSessionJwt: 'app-session-recover',
       });
@@ -744,7 +744,7 @@ test.describe('Email OTP bootstrap integration', () => {
       const enrollOtp = await requestEmailOtpWithOutbox({
         fetchImpl: fetch,
         relayUrl: srv.baseUrl,
-        route: '/wallet/email-otp/enroll/challenge',
+        route: '/wallet/email-otp/registration/challenge',
         service,
         appSessionJwt: 'app-session',
       });
@@ -798,7 +798,7 @@ test.describe('Email OTP bootstrap integration', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      const enrollChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/enroll/challenge`, {
+      const enrollChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/registration/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -818,7 +818,7 @@ test.describe('Email OTP bootstrap integration', () => {
 
       const plaintextSecretB64u = makeClientSecret32B64u(23);
       const enrollWrappedCiphertext = addClientSeal(plaintextSecretB64u);
-      const enrollSeal = await fetchJson(`${srv.baseUrl}/wallet/email-otp/enroll/seal`, {
+      const enrollSeal = await fetchJson(`${srv.baseUrl}/wallet/email-otp/registration/seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -844,7 +844,7 @@ test.describe('Email OTP bootstrap integration', () => {
       const thresholdEcdsaClientVerifyingShareB64u = base64UrlEncode(
         await secp256k1PrivateKey32ToPublicKey33(base64UrlDecode(expectedClientRootShare32B64u)),
       );
-      const enrollVerify = await fetchJson(`${srv.baseUrl}/wallet/email-otp/enroll/verify`, {
+      const enrollVerify = await fetchJson(`${srv.baseUrl}/wallet/email-otp/registration/finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -865,7 +865,7 @@ test.describe('Email OTP bootstrap integration', () => {
       const recoveryOtp = await requestEmailOtpWithOutbox({
         fetchImpl: fetch,
         relayUrl: srv.baseUrl,
-        route: '/wallet/email-otp/challenge',
+        route: '/wallet/email-otp/login/challenge',
         service,
         appSessionJwt: 'app-session',
       });

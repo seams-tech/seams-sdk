@@ -17,7 +17,7 @@ export const SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX = 'status_nextAttemptAt
 
 export const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 27, // v27: full IndexedDB reset on upgrade; canonical stores only
+  dbVersion: 29, // v29: full IndexedDB reset for profile authenticator signerSlot records
   appStateStore: 'appState',
   profileAuthenticatorStore: 'profileAuthenticators',
   profilesStore: 'profiles',
@@ -38,7 +38,7 @@ export const DB_MULTICHAIN_MIGRATION_LOCK_NAME =
 export const DB_MULTICHAIN_MIGRATION_LOCK_TTL_MS = 2 * 60_000;
 export const DB_MULTICHAIN_MIGRATION_HEARTBEAT_INTERVAL_MS = 5_000;
 export const DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION = 8 as const;
-const DB_FULL_RESET_ON_UPGRADE_VERSION = 27 as const;
+const DB_FULL_RESET_ON_UPGRADE_VERSION = 29 as const;
 
 const OBSOLETE_CLIENT_STORES_TO_DROP = [
   'users',
@@ -66,7 +66,7 @@ export function upgradePasskeyClientDBSchema(
   {
     const profileAuthenticators = !db.objectStoreNames.contains(DB_CONFIG.profileAuthenticatorStore)
       ? db.createObjectStore(DB_CONFIG.profileAuthenticatorStore, {
-          keyPath: ['profileId', 'deviceNumber', 'credentialId'],
+          keyPath: ['profileId', 'signerSlot', 'credentialId'],
         })
       : transaction.objectStore(DB_CONFIG.profileAuthenticatorStore);
     try {
@@ -81,7 +81,7 @@ export function upgradePasskeyClientDBSchema(
       });
     } catch {}
     try {
-      profileAuthenticators.createIndex('profileId_deviceNumber', ['profileId', 'deviceNumber'], {
+      profileAuthenticators.createIndex('profileId_signerSlot', ['profileId', 'signerSlot'], {
         unique: false,
       });
     } catch {}

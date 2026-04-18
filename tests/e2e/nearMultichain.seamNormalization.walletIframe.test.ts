@@ -49,6 +49,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
       await installCreateAccountAndRegisterUserMock(page, {
         relayerBaseUrl: relayerUrl,
         session: managedRegistrationHarness.session,
+        runtimePolicyScope: managedRegistrationHarness.runtimePolicyScope,
         threshold,
         accountsOnChain,
         onNewPublicKey: (pk) => {
@@ -126,7 +127,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
             nearAccountId: accountId,
             transactions: [{ receiverId: rawReceiverId, actions: [transferAction] }],
             options: {
-              deviceNumber: 1,
+              signerSlot: 1,
               confirmationConfig: confirmationConfig as any,
             },
           });

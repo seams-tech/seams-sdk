@@ -1,14 +1,14 @@
-export function parseDeviceNumber(value: unknown, options: { min?: number } = {}): number | null {
-  const deviceNumber = Number(value);
+export function parseSignerSlot(value: unknown, options: { min?: number } = {}): number | null {
+  const signerSlot = Number(value);
   const minRaw = options.min;
   const min = Number.isSafeInteger(minRaw) && Number(minRaw) >= 1 ? Number(minRaw) : 1;
-  if (!Number.isSafeInteger(deviceNumber) || deviceNumber < min) {
+  if (!Number.isSafeInteger(signerSlot) || signerSlot < min) {
     return null;
   }
-  return deviceNumber;
+  return signerSlot;
 }
 
-export function coerceDeviceNumber(
+export function coerceSignerSlot(
   value: unknown,
   options: { min?: number; fallback?: number } = {},
 ): number {

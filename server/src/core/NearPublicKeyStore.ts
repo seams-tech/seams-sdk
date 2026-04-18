@@ -9,7 +9,7 @@ export type NearPublicKeyRecord = {
   userId: string;
   publicKey: string;
   kind: NearPublicKeyKind;
-  deviceNumber?: number;
+  signerSlot?: number;
   credentialIdB64u?: string;
   rpId?: string;
   createdAtMs: number;
@@ -50,9 +50,9 @@ function parseNearPublicKeyRecord(raw: unknown): NearPublicKeyRecord | null {
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
 
-  const deviceNumberRaw = (raw as any).deviceNumber;
-  const deviceNumber =
-    typeof deviceNumberRaw === 'number' ? deviceNumberRaw : Number(deviceNumberRaw);
+  const signerSlotRaw = (raw as any).signerSlot;
+  const signerSlot =
+    typeof signerSlotRaw === 'number' ? signerSlotRaw : Number(signerSlotRaw);
   const credentialIdB64u = toOptionalTrimmedString((raw as any).credentialIdB64u);
   const rpId = toOptionalTrimmedString((raw as any).rpId);
   const addedTxHash = toOptionalTrimmedString((raw as any).addedTxHash);
@@ -64,8 +64,8 @@ function parseNearPublicKeyRecord(raw: unknown): NearPublicKeyRecord | null {
     userId,
     publicKey,
     kind,
-    ...(Number.isFinite(deviceNumber) && deviceNumber >= 1
-      ? { deviceNumber: Math.floor(deviceNumber) }
+    ...(Number.isFinite(signerSlot) && signerSlot >= 1
+      ? { signerSlot: Math.floor(signerSlot) }
       : {}),
     ...(credentialIdB64u ? { credentialIdB64u } : {}),
     ...(rpId ? { rpId } : {}),
@@ -98,7 +98,7 @@ class InMemoryNearPublicKeyStore implements NearPublicKeyStore {
     const out = Array.from(bucket.values())
       .map((r) => parseNearPublicKeyRecord(r))
       .filter(Boolean) as NearPublicKeyRecord[];
-    out.sort((a, b) => (a.deviceNumber || 0) - (b.deviceNumber || 0));
+    out.sort((a, b) => (a.signerSlot || 0) - (b.signerSlot || 0));
     return out;
   }
 }
@@ -153,7 +153,7 @@ class PostgresNearPublicKeyStore implements NearPublicKeyStore {
       const parsed = parseNearPublicKeyRecord((r as any)?.record_json);
       if (parsed) out.push(parsed);
     }
-    out.sort((a, b) => (a.deviceNumber || 0) - (b.deviceNumber || 0));
+    out.sort((a, b) => (a.signerSlot || 0) - (b.signerSlot || 0));
     return out;
   }
 }

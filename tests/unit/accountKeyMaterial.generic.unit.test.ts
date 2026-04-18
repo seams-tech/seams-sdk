@@ -32,7 +32,7 @@ test.describe('generic account key material helpers', () => {
 
         await clientDB.upsertProfile({
           profileId: 'profile-evm-key-material',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: {
             id: 'evm-key-material-credential-id',
             rawId: 'evm-key-material-credential-raw-id',
@@ -55,7 +55,7 @@ test.describe('generic account key material helpers', () => {
           { clientDB, accountKeyMaterialDB },
           {
             accountRefs,
-            deviceNumber: 1,
+            signerSlot: 1,
             keyKind: 'secp256k1_share_v1',
             algorithm: 'secp256k1',
             publicKey: '0xpubkey-secp256k1',
@@ -73,7 +73,7 @@ test.describe('generic account key material helpers', () => {
         const material = await getAccountKeyMaterial({
           deps: { clientDB, accountKeyMaterialDB },
           accountRefs,
-          deviceNumber: 1,
+          signerSlot: 1,
           keyKind: 'secp256k1_share_v1',
         });
         const raw = await accountKeyMaterialDB.getKeyMaterial(
@@ -90,7 +90,7 @@ test.describe('generic account key material helpers', () => {
 
     expect(result.material).toMatchObject({
       profileId: 'profile-evm-key-material',
-      deviceNumber: 1,
+      signerSlot: 1,
       chainIdKey: 'evm:11155111',
       keyKind: 'secp256k1_share_v1',
       algorithm: 'secp256k1',
@@ -130,7 +130,7 @@ test.describe('generic account key material helpers', () => {
 
         await clientDB.upsertProfile({
           profileId: 'profile-evm-explicit',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: {
             id: 'explicit-mismatch-credential-id',
             rawId: 'explicit-mismatch-credential-raw-id',
@@ -151,7 +151,7 @@ test.describe('generic account key material helpers', () => {
               accountRefs: [{ chainIdKey: 'evm:11155111', accountAddress: '0xabc123' }],
               explicitProfileId: 'profile-other',
               explicitChainIdKey: 'evm:11155111',
-              deviceNumber: 1,
+              signerSlot: 1,
               keyKind: 'secp256k1_share_v1',
               algorithm: 'secp256k1',
               publicKey: '0xpubkey-secp256k1',

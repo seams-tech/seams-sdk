@@ -38,10 +38,13 @@ export type ThresholdEcdsaBootstrapIndexedDbPort = {
     resolveProfileAccountContext: (args: {
       chainIdKey: string;
       accountAddress: string;
-    }) => Promise<{ profileId: string; accountRef: { chainIdKey: string; accountAddress: string } } | null>;
-    getProfile?: (profileId: string) => Promise<{ defaultDeviceNumber?: number } | null>;
+    }) => Promise<{
+      profileId: string;
+      accountRef: { chainIdKey: string; accountAddress: string };
+    } | null>;
+    getProfile?: (profileId: string) => Promise<{ defaultSignerSlot?: number } | null>;
     upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
-    setLastProfileStateForProfile: (profileId: string, deviceNumber: number) => Promise<void>;
+    setLastProfileStateForProfile: (profileId: string, signerSlot: number) => Promise<void>;
   };
   upsertChainAccount: (input: UpsertChainAccountInput) => Promise<ChainAccountRecord>;
 };
@@ -104,7 +107,9 @@ export function buildThresholdEcdsaBootstrapUndeployedSignerSet(args: {
           : {}),
         ...(typeof args.bootstrap.keygen.thresholdEcdsaPublicKeyB64u === 'string' &&
         args.bootstrap.keygen.thresholdEcdsaPublicKeyB64u.trim()
-          ? { thresholdEcdsaPublicKeyB64u: args.bootstrap.keygen.thresholdEcdsaPublicKeyB64u.trim() }
+          ? {
+              thresholdEcdsaPublicKeyB64u: args.bootstrap.keygen.thresholdEcdsaPublicKeyB64u.trim(),
+            }
           : {}),
         ...(participantIds.length ? { participantIds } : {}),
       },
@@ -122,11 +127,13 @@ async function ensureEmailOtpNearProfileAccountMapping(args: {
     buildNearAccountRefs(nearAccountId),
   );
   if (existing?.profileId) {
-    const profile = await args.indexedDB.clientDB.getProfile?.(existing.profileId).catch(() => null);
-    const deviceNumber = Number(profile?.defaultDeviceNumber);
+    const profile = await args.indexedDB.clientDB
+      .getProfile?.(existing.profileId)
+      .catch(() => null);
+    const signerSlot = Number(profile?.defaultSignerSlot);
     await args.indexedDB.clientDB.setLastProfileStateForProfile(
       existing.profileId,
-      Number.isSafeInteger(deviceNumber) && deviceNumber >= 1 ? deviceNumber : 1,
+      Number.isSafeInteger(signerSlot) && signerSlot >= 1 ? signerSlot : 1,
     );
     return;
   }
@@ -143,7 +150,7 @@ async function ensureEmailOtpNearProfileAccountMapping(args: {
 
   await args.indexedDB.clientDB.upsertProfile({
     profileId,
-    defaultDeviceNumber: 1,
+    defaultSignerSlot: 1,
     preferences: {
       useRelayer: false,
       useNetwork,

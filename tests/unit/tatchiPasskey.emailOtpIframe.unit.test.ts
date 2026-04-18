@@ -47,17 +47,22 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
         nearAccountId: accountId || null,
         publicKey: null,
         userData: null,
+        authMethod: accountId && warmCapabilityActive ? 'email_otp' : null,
       },
       signingSession: accountId && warmCapabilityActive
         ? {
           status: 'active',
           sessionId: 'email-otp-session-1',
+          authMethod: 'email_otp',
+          retention: 'session',
           thresholdEcdsa: {
             evm: { state: 'ready', sessionId: 'email-otp-session-1' },
             tempo: { state: 'ready', sessionId: 'email-otp-session-1' },
           },
         }
         : null,
+      authMethod: accountId && warmCapabilityActive ? 'email_otp' : null,
+      retention: accountId && warmCapabilityActive ? 'session' : null,
     };
   };
 
@@ -217,11 +222,23 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
           return;
         }
         respond({
-          chain: 'evm',
-          kind: 'eip1559',
+          chain: data.payload?.request?.chain || 'evm',
+          kind: data.payload?.request?.kind || 'eip1559',
           txHashHex: '0x' + 'ab'.repeat(32),
-          rawTxHex: '0x02',
+          rawTxHex: data.payload?.request?.chain === 'tempo' ? '0x76' : '0x02',
         });
+      }
+      if (data.type === 'PM_SIGN_TXS_WITH_ACTIONS') {
+        if (!warmCapabilityActive) {
+          reject('threshold_ed25519_session_not_ready', 'Fresh Email OTP verification required');
+          return;
+        }
+        respond([
+          {
+            nearAccountId: data.payload?.nearAccountId || 'alice.testnet',
+            logs: ['signed-by-wallet-origin-email-otp'],
+          },
+        ]);
       }
     };
   };
@@ -345,9 +362,42 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           request: signRequest,
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
+        const nearSigned = await pm.near.signTransactionsWithActions({
+          nearAccountId,
+          transactions: [
+            {
+              receiverId: nearAccountId,
+              actions: [{ action_type: 'Transfer', deposit: '1' }],
+            },
+          ],
+          options: { confirmationConfig: { uiMode: 'modal' } },
+        });
+        const walletSession = await pm.auth.getWalletSession(nearAccountId);
         const perOperationSigned = await pm.tempo.signTempo({
           nearAccountId,
           request: { ...signRequest, tx: { ...signRequest.tx, nonce: 1n } },
+          options: { confirmationConfig: { uiMode: 'modal' } },
+        });
+        const tempoSigned = await pm.tempo.signTempo({
+          nearAccountId,
+          request: {
+            chain: 'tempo',
+            kind: 'tempoTransaction',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 11155111,
+              maxPriorityFeePerGas: 1n,
+              maxFeePerGas: 2n,
+              gasLimit: 21_000n,
+              calls: [{ to: '0x' + '22'.repeat(20), value: 0n, input: '0x' }],
+              accessList: [],
+              nonceKey: 1n,
+              nonce: 1n,
+              validBefore: null,
+              validAfter: null,
+              feePayerSignature: { kind: 'none' },
+            },
+          },
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
         const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
@@ -388,7 +438,9 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           perOperationLogin,
           enrollAndLogin,
           sessionSigned,
+          nearSigned,
           perOperationSigned,
+          tempoSigned,
         });
 
         return {
@@ -401,7 +453,16 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           enrollAndLoginKeyVersion: enrollAndLogin.enrollment.emailOtpKeyVersion,
           appOriginSecretRejection,
           sessionSignedKind: sessionSigned.kind,
+          nearSignedCount: Array.isArray(nearSigned) ? nearSigned.length : 0,
+          nearSignedNearAccountId: nearSigned?.[0]?.nearAccountId || null,
           perOperationSignedKind: perOperationSigned.kind,
+          tempoSignedKind: tempoSigned.kind,
+          tempoSignedChain: tempoSigned.chain,
+          walletSessionAuthMethod: walletSession.authMethod,
+          walletSessionRetention: walletSession.retention,
+          loginAuthMethod: walletSession.login.authMethod,
+          signingSessionAuthMethod: walletSession.signingSession?.authMethod || null,
+          signingSessionRetention: walletSession.signingSession?.retention || null,
           appOriginForbiddenFields,
           clientDbDisabled: IndexedDBManager.clientDB.isDisabled(),
           accountKeyMaterialDbDisabled: IndexedDBManager.accountKeyMaterialDB.isDisabled(),
@@ -421,7 +482,16 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
       appOriginSecretRejection:
         '[TatchiPasskey] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
       sessionSignedKind: 'eip1559',
+      nearSignedCount: 1,
+      nearSignedNearAccountId: 'alice.testnet',
       perOperationSignedKind: 'eip1559',
+      tempoSignedKind: 'tempoTransaction',
+      tempoSignedChain: 'tempo',
+      walletSessionAuthMethod: 'email_otp',
+      walletSessionRetention: 'session',
+      loginAuthMethod: 'email_otp',
+      signingSessionAuthMethod: 'email_otp',
+      signingSessionRetention: 'session',
       appOriginForbiddenFields: [],
       clientDbDisabled: true,
       accountKeyMaterialDbDisabled: true,
@@ -484,12 +554,31 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
     const signMessages = messages.filter(
       (message: { type: string }) => message.type === 'PM_SIGN_TEMPO',
     );
-    expect(signMessages).toHaveLength(2);
+    expect(signMessages).toHaveLength(3);
     expect(
       signMessages.map(
         (message: { payload: { nearAccountId: string } }) => message.payload.nearAccountId,
       ),
-    ).toEqual(['alice.testnet', 'alice.testnet']);
+    ).toEqual(['alice.testnet', 'alice.testnet', 'alice.testnet']);
+    expect(
+      signMessages.map(
+        (message: { payload: { request: { chain: string; kind: string } } }) =>
+          `${message.payload.request.chain}:${message.payload.request.kind}`,
+      ),
+    ).toEqual(['evm:eip1559', 'evm:eip1559', 'tempo:tempoTransaction']);
+    const nearSignMessages = messages.filter(
+      (message: { type: string }) => message.type === 'PM_SIGN_TXS_WITH_ACTIONS',
+    );
+    expect(nearSignMessages).toHaveLength(1);
+    expect(nearSignMessages[0]?.payload).toMatchObject({
+      nearAccountId: 'alice.testnet',
+      transactions: [
+        {
+          receiverId: 'alice.testnet',
+          actions: [{ action_type: 'Transfer', deposit: '1' }],
+        },
+      ],
+    });
   });
 
   test('reload restores nonsecret account metadata but requires fresh OTP for signing', async ({

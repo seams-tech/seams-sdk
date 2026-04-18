@@ -33,13 +33,13 @@ export function selectPrimaryChainAccount(
 export function selectAccountSigner(args: {
   profile: ProfileRecord;
   activeSigners: AccountSignerRecord[];
-  deviceNumber?: number;
+  signerSlot?: number;
 }): AccountSignerRecord | null {
-  if (typeof args.deviceNumber === 'number') {
-    return args.activeSigners.find((row) => row.signerSlot === args.deviceNumber) || null;
+  if (typeof args.signerSlot === 'number') {
+    return args.activeSigners.find((row) => row.signerSlot === args.signerSlot) || null;
   }
-  const preferredSlot = Number.isSafeInteger(args.profile.defaultDeviceNumber)
-    ? args.profile.defaultDeviceNumber
+  const preferredSlot = Number.isSafeInteger(args.profile.defaultSignerSlot)
+    ? args.profile.defaultSignerSlot
     : 1;
   return (
     args.activeSigners.find((row) => row.signerSlot === preferredSlot) ||
@@ -74,7 +74,7 @@ export async function resolveProfileAccountProjection(
   clientDB: ProfileAccountProjectionPort,
   args: {
     accountRefs: AccountRef[];
-    deviceNumber?: number;
+    signerSlot?: number;
   },
 ): Promise<ResolvedProfileAccountProjection | null> {
   const context = await resolveProfileAccountContextFromCandidates(clientDB, args.accountRefs);
@@ -93,7 +93,7 @@ export async function resolveProfileAccountProjection(
   const selectedSigner = selectAccountSigner({
     profile,
     activeSigners,
-    deviceNumber: args.deviceNumber,
+    signerSlot: args.signerSlot,
   });
   if (!selectedSigner) return null;
 
@@ -131,7 +131,7 @@ export async function getLastSelectedProfileAccountByChain(
   },
 ): Promise<{
   profileId: string;
-  deviceNumber: number;
+  signerSlot: number;
   chainAccount: ChainAccountRecord;
 } | null> {
   const lastProfileState = await clientDB.getLastProfileState().catch(() => null);
@@ -145,7 +145,7 @@ export async function getLastSelectedProfileAccountByChain(
 
   return {
     profileId: lastProfileState.profileId,
-    deviceNumber: lastProfileState.deviceNumber,
+    signerSlot: lastProfileState.activeSignerSlot,
     chainAccount,
   };
 }

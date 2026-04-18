@@ -58,14 +58,14 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           const context = {
             signingEngine: {
               assertSealedRefreshStartupParity: async () => undefined,
-              getUserByDevice: async () => ({
+              getUserBySignerSlot: async () => ({
                 nearAccountId,
-                deviceNumber: 1,
+                signerSlot: 1,
                 operationalPublicKey: 'ed25519:registration-user',
               }),
               getLastUser: async () => ({
                 nearAccountId,
-                deviceNumber: 1,
+                signerSlot: 1,
                 operationalPublicKey: 'ed25519:registration-user',
               }),
               getWarmThresholdEd25519SessionStatus: async () =>
@@ -98,7 +98,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: context.signingEngine,
             nearAccountId,
-            deviceNumber: 1,
+            signerSlot: 1,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             prfFirstB64u: 'prf-first-registration',
@@ -222,14 +222,14 @@ test.describe('threshold Ed25519 registration warm-session', () => {
               assertSealedRefreshStartupParity: async () => {
                 throw new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502');
               },
-              getUserByDevice: async () => ({
+              getUserBySignerSlot: async () => ({
                 nearAccountId,
-                deviceNumber: 1,
+                signerSlot: 1,
                 operationalPublicKey: 'ed25519:registration-user',
               }),
               getLastUser: async () => ({
                 nearAccountId,
-                deviceNumber: 1,
+                signerSlot: 1,
                 operationalPublicKey: 'ed25519:registration-user',
               }),
               getWarmThresholdEd25519SessionStatus: async () =>
@@ -260,7 +260,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: context.signingEngine,
             nearAccountId,
-            deviceNumber: 1,
+            signerSlot: 1,
             rpId: 'example.localhost',
             relayerUrl: 'https://relay.example',
             prfFirstB64u: 'prf-first-registration',

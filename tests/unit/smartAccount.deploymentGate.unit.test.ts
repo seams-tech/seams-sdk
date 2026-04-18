@@ -26,7 +26,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-observe',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-observe', rawId: 'raw-observe' },
         });
         await dbm.upsertChainAccount({
@@ -91,7 +91,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-deploy',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-deploy', rawId: 'raw-deploy' },
         });
         await dbm.upsertChainAccount({
@@ -160,7 +160,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-report',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-report', rawId: 'raw-report' },
         });
         await dbm.upsertChainAccount({
@@ -228,7 +228,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-promote',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-promote', rawId: 'raw-promote' },
         });
         await dbm.upsertChainAccount({
@@ -253,6 +253,9 @@ test.describe('smart-account deployment gate helper', () => {
           signerId: `0x${'dd'.repeat(20)}`,
           signerSlot: 2,
           signerType: 'threshold',
+          signerKind: 'threshold-ecdsa',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
           status: 'pending',
         });
 
@@ -319,7 +322,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-already',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-already', rawId: 'raw-already' },
         });
         await dbm.upsertChainAccount({
@@ -384,7 +387,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-autofill',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-autofill', rawId: 'raw-autofill' },
         });
         await dbm.upsertChainAccount({
@@ -467,7 +470,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-retry',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-retry', rawId: 'raw-retry' },
         });
         await dbm.upsertChainAccount({
@@ -533,7 +536,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-fail',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-fail', rawId: 'raw-fail' },
         });
         await dbm.upsertChainAccount({
@@ -593,7 +596,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-dedupe',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-dedupe', rawId: 'raw-dedupe' },
         });
         await dbm.upsertChainAccount({
@@ -697,7 +700,7 @@ test.describe('smart-account deployment gate helper', () => {
 
         await dbm.upsertProfile({
           profileId: 'profile-smartacct-dedupe-keys',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-dedupe-keys', rawId: 'raw-dedupe-keys' },
         });
         await dbm.upsertChainAccount({

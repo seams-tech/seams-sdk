@@ -10,6 +10,8 @@ type GetReq = { requestId?: string; publicKey?: PublicKeyCredentialRequestOption
 
 type BridgeResultType = 'WALLET_WEBAUTHN_CREATE_RESULT' | 'WALLET_WEBAUTHN_GET_RESULT';
 
+let bridgeOperationQueue: Promise<void> = Promise.resolve();
+
 export function postBridgeResult(
   source: WindowProxy | null,
   type: BridgeResultType,
@@ -29,14 +31,20 @@ export function handleWebAuthnBridgeMessage(
   e: MessageEvent,
 ): void {
   if (kind === WebAuthnBridgeMessage.Create) {
-    void handleWebAuthnCreate(raw as CreateReq, e);
+    enqueueBridgeOperation(() => handleWebAuthnCreate(raw as CreateReq, e));
     return;
   }
-  void handleWebAuthnGet(raw as GetReq, e);
+  enqueueBridgeOperation(() => handleWebAuthnGet(raw as GetReq, e));
 }
 
 function formatBridgeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function enqueueBridgeOperation(operation: () => Promise<void>): void {
+  const run = bridgeOperationQueue.then(operation, operation);
+  bridgeOperationQueue = run.catch(() => undefined);
+  void run;
 }
 
 async function handleWebAuthnCreate(req: CreateReq, e: MessageEvent): Promise<void> {

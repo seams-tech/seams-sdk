@@ -4,6 +4,23 @@ export { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
 export { passkeyClientDB, accountKeyMaterialDB } from './singletons';
 
 export type {
+  ActivateAccountSignerInput,
+  ActivateAccountSignerResult,
+  AccountSignerActivationPlan,
+  SignerActivationPolicy,
+  SignerAuthMethod,
+  SignerKind,
+  SignerSource,
+  StageAccountSignerInput,
+  StageAccountSignerResult,
+} from './accountSignerLifecycle';
+
+export {
+  SIGNER_MATERIAL_FINGERPRINT_METADATA_KEY,
+  planAccountSignerActivation,
+} from './accountSignerLifecycle';
+
+export type {
   UserPreferences,
   ProfileAuthenticatorRecord,
   ProfileContinuitySnapshot,

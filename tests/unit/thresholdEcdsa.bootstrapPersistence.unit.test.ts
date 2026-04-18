@@ -175,8 +175,8 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
           profileCalls.push(input);
           return {};
         },
-        setLastProfileStateForProfile: async (profileId, deviceNumber) => {
-          lastProfileSelections.push({ profileId, deviceNumber });
+        setLastProfileStateForProfile: async (profileId, signerSlot) => {
+          lastProfileSelections.push({ profileId, signerSlot });
         },
       },
       upsertChainAccount: async (input) => {
@@ -213,7 +213,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     expect(profileCalls).toHaveLength(1);
     expect(profileCalls[0]).toMatchObject({
       profileId: 'near-profile:google-user.testnet',
-      defaultDeviceNumber: 1,
+      defaultSignerSlot: 1,
       preferences: {
         useRelayer: false,
         useNetwork: 'testnet',
@@ -227,7 +227,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
       accountModel: 'near-native',
     });
     expect(lastProfileSelections).toEqual([
-      { profileId: 'near-profile:google-user.testnet', deviceNumber: 1 },
+      { profileId: 'near-profile:google-user.testnet', signerSlot: 1 },
     ]);
     expect(calls.map((call) => call.chainIdKey)).toEqual([
       'near:testnet',

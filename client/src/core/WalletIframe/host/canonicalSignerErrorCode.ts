@@ -7,6 +7,9 @@ export type CanonicalWalletSignerErrorCode =
   | 'threshold_ecdsa_session_not_ready'
   | 'threshold_session_kind_mismatch'
   | 'session_not_ready'
+  | 'fresh_email_otp_required'
+  | 'passkey_step_up_required'
+  | 'operation_blocked_by_policy'
   | 'deployment_in_progress'
   | 'deployment_failed'
   | 'nonce_conflict_retryable'
@@ -22,6 +25,9 @@ const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
   'threshold_ecdsa_session_not_ready',
   'threshold_session_kind_mismatch',
   'session_not_ready',
+  'fresh_email_otp_required',
+  'passkey_step_up_required',
+  'operation_blocked_by_policy',
   'deployment_in_progress',
   'deployment_failed',
   'nonce_conflict_retryable',
@@ -74,6 +80,12 @@ const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, st
     'Threshold signing session kind mismatch. Refresh the signing session and retry.',
   session_not_ready:
     'Threshold signing session is not ready. Refresh the signing session and retry.',
+  fresh_email_otp_required:
+    'Fresh Email OTP verification is required before this operation can continue.',
+  passkey_step_up_required:
+    'Passkey authentication is required before this operation can continue.',
+  operation_blocked_by_policy:
+    'This operation is blocked by wallet policy.',
   deployment_in_progress: 'Smart-account deployment is already in progress.',
   deployment_failed: 'Smart-account deployment failed before signing.',
   nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',
@@ -170,6 +182,30 @@ function inferCanonicalCodeFromRawCode(args: {
   }
 
   if (
+    rawCode === 'fresh_email_otp_required' ||
+    rawCode === 'email_otp_required' ||
+    rawCode === 'email_otp_reauth_required'
+  ) {
+    return 'fresh_email_otp_required';
+  }
+
+  if (
+    rawCode === 'passkey_step_up_required' ||
+    rawCode === 'passkey_required' ||
+    rawCode === 'stronger_auth_required'
+  ) {
+    return 'passkey_step_up_required';
+  }
+
+  if (
+    rawCode === 'operation_blocked_by_policy' ||
+    rawCode === 'policy_blocked' ||
+    (rawCode.includes('operation') && rawCode.includes('blocked') && rawCode.includes('policy'))
+  ) {
+    return 'operation_blocked_by_policy';
+  }
+
+  if (
     rawCode === 'commit_queue_overflow' ||
     (rawCode.includes('commit') && rawCode.includes('queue') && rawCode.includes('overflow'))
   ) {
@@ -247,6 +283,32 @@ function inferCanonicalCodeFromMessage(args: {
 
   if (looksLikeUserCancellationMessage(message)) {
     return 'cancelled';
+  }
+
+  if (
+    message.includes('fresh email otp') ||
+    message.includes('verify email otp again') ||
+    message.includes('requires fresh email otp verification') ||
+    (message.includes('email otp') && message.includes('per_operation'))
+  ) {
+    return 'fresh_email_otp_required';
+  }
+
+  if (
+    message.includes('passkey step-up') ||
+    message.includes('requires fresh passkey authentication') ||
+    message.includes('passkey authentication is required') ||
+    message.includes('requires passkey authentication after email otp login')
+  ) {
+    return 'passkey_step_up_required';
+  }
+
+  if (
+    message.includes('operation blocked by policy') ||
+    message.includes('blocked by wallet policy') ||
+    (message.includes('operation') && message.includes('blocked') && message.includes('policy'))
+  ) {
+    return 'operation_blocked_by_policy';
   }
 
   if (

@@ -31,6 +31,7 @@ import type { PreferencesChangedPayload } from '../WalletIframe/shared/messages'
 import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
 import { toError } from '@shared/utils/errors';
 import { coerceThemeName } from '@shared/utils/theme';
+import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '../config/chains';
 import { WalletIframeCoordinator } from './walletIframeCoordinator';
@@ -45,6 +46,7 @@ import {
 } from './authSessions';
 import type {
   AuthCapability,
+  EmailOtpChallengeResult,
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
@@ -461,7 +463,7 @@ export class TatchiPasskey {
 
   /**
    * Unlock wallet state and optionally mint a warm signing session.
-   * - Sets the active account/deviceNumber (IndexedDB last-user pointer)
+   * - Sets the active account signer slot (IndexedDB last-user pointer)
    * - Optional: mints a relay app-session (JWT/cookie) via BYO exchange
    * - In `threshold-signer` mode with warm-session policy enabled, threshold warm-up
    *   (ed25519 + ECDSA) is part of unlock and must succeed.
@@ -509,7 +511,8 @@ export class TatchiPasskey {
     nearAccountId: string;
     relayUrl?: string;
     appSessionJwt?: string;
-  }): Promise<{ challengeId: string; otpChannel: 'email_otp' }> {
+    operation?: WalletEmailOtpLoginOperation;
+  }): Promise<EmailOtpChallengeResult> {
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(args.nearAccountId);
       return await router.requestEmailOtpChallenge(args);
@@ -518,6 +521,7 @@ export class TatchiPasskey {
       relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
       walletId: String(args.nearAccountId || '').trim(),
       ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+      ...(args.operation ? { operation: args.operation } : {}),
     });
   }
 
@@ -525,7 +529,7 @@ export class TatchiPasskey {
     nearAccountId: string;
     relayUrl?: string;
     appSessionJwt?: string;
-  }): Promise<{ challengeId: string; otpChannel: 'email_otp' }> {
+  }): Promise<EmailOtpChallengeResult> {
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(args.nearAccountId);
       return await router.requestEmailOtpEnrollmentChallenge(args);
@@ -542,6 +546,7 @@ export class TatchiPasskey {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
+    forceNewDevWallet?: boolean;
   }): Promise<Awaited<ReturnType<typeof exchangeGoogleEmailOtpSession>>> {
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter();
@@ -554,6 +559,7 @@ export class TatchiPasskey {
       idToken: args.idToken,
       accountMode: args.accountMode,
       ...(args.sessionKind ? { sessionKind: args.sessionKind } : {}),
+      ...(args.forceNewDevWallet === true ? { forceNewDevWallet: true } : {}),
       ...(managedRegistration
         ? {
             runtimeEnvironmentId: managedRegistration.environmentId,
@@ -636,6 +642,7 @@ export class TatchiPasskey {
     ttlMs?: number;
     remainingUses?: number;
     clientSecret32?: Uint8Array;
+    registrationAttemptId?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
   }): Promise<
     Awaited<ReturnType<SigningEngine['enrollAndLoginWithEmailOtpEcdsaCapabilityInternal']>>

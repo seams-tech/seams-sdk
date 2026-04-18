@@ -30,7 +30,10 @@ const accountSigners = [
     accountAddress: 'alice.testnet',
     signerId: 'near-passkey-1',
     signerSlot: 1,
-    signerType: 'passkey',
+    signerType: 'threshold',
+    signerKind: 'threshold-ed25519',
+    signerAuthMethod: 'passkey',
+    signerSource: 'passkey_registration',
     status: 'active',
   },
   {
@@ -40,6 +43,9 @@ const accountSigners = [
     signerId: `0x${'aa'.repeat(20)}`,
     signerSlot: 1,
     signerType: 'threshold',
+    signerKind: 'threshold-ecdsa',
+    signerAuthMethod: 'passkey',
+    signerSource: 'passkey_registration',
     status: 'active',
   },
   {
@@ -49,6 +55,9 @@ const accountSigners = [
     signerId: `0x${'bb'.repeat(20)}`,
     signerSlot: 2,
     signerType: 'threshold',
+    signerKind: 'threshold-ecdsa',
+    signerAuthMethod: 'passkey',
+    signerSource: 'passkey_registration',
     status: 'pending',
   },
 ];
@@ -58,7 +67,7 @@ const fakeManager = {
     if (profileId !== 'profile-alice') return null;
     return {
       profileId,
-      defaultDeviceNumber: 1,
+      defaultSignerSlot: 1,
       passkeyCredential: { id: 'cred-alice', rawId: 'raw-alice' },
       createdAt: 1,
       updatedAt: 2,
@@ -74,7 +83,9 @@ const fakeManager = {
   },
   async resolveProfileAccountContext(args: { chainIdKey: string; accountAddress: string }) {
     const chainIdKey = String(args.chainIdKey || '').trim();
-    const accountAddress = String(args.accountAddress || '').trim().toLowerCase();
+    const accountAddress = String(args.accountAddress || '')
+      .trim()
+      .toLowerCase();
     if (chainIdKey !== 'near:testnet' || accountAddress !== 'alice.testnet') return null;
     return {
       profileId: 'profile-alice',

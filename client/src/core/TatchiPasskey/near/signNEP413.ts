@@ -63,9 +63,9 @@ export async function signNEP413Message(args: {
   const confirmerText = options?.confirmerText;
   const confirmationConfigOverride = options?.confirmationConfig;
   const { signingEngine } = context;
-  const deviceNumber = options?.deviceNumber;
-  const hasValidDeviceNumber =
-    typeof deviceNumber === 'number' && Number.isSafeInteger(deviceNumber) && deviceNumber >= 1;
+  const signerSlot = options?.signerSlot;
+  const hasValidSignerSlot =
+    typeof signerSlot === 'number' && Number.isSafeInteger(signerSlot) && signerSlot >= 1;
 
   try {
     // Emit preparation event
@@ -77,11 +77,11 @@ export async function signNEP413Message(args: {
     });
 
     // Get user data for NEP-413 signing.
-    if (deviceNumber !== undefined && !hasValidDeviceNumber) {
-      throw new Error(`Invalid deviceNumber for NEP-413 signing: ${deviceNumber}`);
+    if (signerSlot !== undefined && !hasValidSignerSlot) {
+      throw new Error(`Invalid signerSlot for NEP-413 signing: ${signerSlot}`);
     }
-    const userData = hasValidDeviceNumber
-      ? await signingEngine.getUserByDevice(nearAccountId, deviceNumber)
+    const userData = hasValidSignerSlot
+      ? await signingEngine.getUserBySignerSlot(nearAccountId, signerSlot)
       : await signingEngine.getLastUser();
     if (!userData || !userData.operationalPublicKey) {
       throw new Error(`Operational NEAR key data not found for ${nearAccountId}`);
@@ -115,7 +115,7 @@ export async function signNEP413Message(args: {
         nonce,
         state: params.state || null,
         accountId: nearAccountId,
-        deviceNumber: hasValidDeviceNumber ? deviceNumber : undefined,
+        signerSlot: hasValidSignerSlot ? signerSlot : undefined,
         title: confirmerText?.title,
         body: confirmerText?.body,
         confirmationConfigOverride,

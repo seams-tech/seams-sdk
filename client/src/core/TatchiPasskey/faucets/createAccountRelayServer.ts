@@ -815,7 +815,7 @@ function normalizeThresholdEd25519RegistrationResult(
 
 export interface CreateAccountAndRegisterUserRequest {
   new_account_id: string;
-  device_number: number;
+  signer_slot: number;
   threshold_ed25519?: {
     key_version: string;
     recovery_export_capable: boolean;
@@ -887,7 +887,7 @@ export async function createAccountAndRegisterWithRelayServer(
 
     const requestData: CreateAccountAndRegisterUserRequest = {
       new_account_id: nearAccountId,
-      device_number: 1, // First device gets device number 1 (1-indexed)
+      signer_slot: 1,
       ...(thresholdEd25519Request ? { threshold_ed25519: thresholdEd25519Request } : {}),
       rp_id: String(rpId || '').trim(),
       webauthn_registration: serializedCredential,

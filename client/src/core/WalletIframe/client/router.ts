@@ -137,6 +137,7 @@ import type { AccessKeyList } from '../../rpcClients/near/NearClient';
 import type { SignNEP413MessageResult } from '../../TatchiPasskey/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../config/defaultConfigs';
 import { cloneResolvedChainConfig } from '../../config/chains';
+import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 
 // Simple, framework-agnostic service iframe client.
 // Responsibilities split:
@@ -658,7 +659,7 @@ export class WalletIframeRouter {
     nearAccountId: string;
     transactions: TransactionInput[];
     options: {
-      deviceNumber?: number;
+      signerSlot?: number;
       onEvent?: (ev: ActionSSEEvent) => void;
       onError?: (error: Error) => void;
       afterCall?: AfterCall<SignTransactionResult[]>;
@@ -669,8 +670,8 @@ export class WalletIframeRouter {
   }): Promise<SignTransactionResult[]> {
     // Do not forward non-cloneable functions in options; host emits its own PROGRESS messages
     const safeOptions = {
-      ...(typeof payload.options.deviceNumber === 'number'
-        ? { deviceNumber: payload.options.deviceNumber }
+      ...(typeof payload.options.signerSlot === 'number'
+        ? { signerSlot: payload.options.signerSlot }
         : {}),
       ...(payload.options.confirmationConfig
         ? { confirmationConfig: payload.options.confirmationConfig }
@@ -693,7 +694,7 @@ export class WalletIframeRouter {
     nearAccountId: string;
     delegate: DelegateActionInput;
     options: {
-      deviceNumber?: number;
+      signerSlot?: number;
       onEvent?: (ev: ActionSSEEvent) => void;
       onError?: (error: Error) => void;
       afterCall?: AfterCall<any>;
@@ -702,8 +703,8 @@ export class WalletIframeRouter {
     };
   }): Promise<SignDelegateActionResult> {
     const safeOptions = {
-      ...(typeof payload.options.deviceNumber === 'number'
-        ? { deviceNumber: payload.options.deviceNumber }
+      ...(typeof payload.options.signerSlot === 'number'
+        ? { signerSlot: payload.options.signerSlot }
         : {}),
       ...(payload.options.confirmationConfig
         ? { confirmationConfig: payload.options.confirmationConfig }
@@ -817,7 +818,7 @@ export class WalletIframeRouter {
     nearAccountId: string;
     options?: {
       onEvent?: (ev: LoginSSEvent) => void;
-      deviceNumber?: number;
+      signerSlot?: number;
       // Forward session config so host can mint JWT/cookie
       session?: {
         kind: 'jwt' | 'cookie';
@@ -862,6 +863,7 @@ export class WalletIframeRouter {
     nearAccountId: string;
     relayUrl?: string;
     appSessionJwt?: string;
+    operation?: WalletEmailOtpLoginOperation;
   }): Promise<EmailOtpChallengeResult> {
     const res = await this.post<EmailOtpChallengeResult>({
       type: 'PM_REQUEST_EMAIL_OTP_CHALLENGE',
@@ -887,6 +889,7 @@ export class WalletIframeRouter {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
+    forceNewDevWallet?: boolean;
   }): Promise<GoogleEmailOtpSessionExchangeResult> {
     const res = await this.post<GoogleEmailOtpSessionExchangeResult>({
       type: 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION',
@@ -977,15 +980,15 @@ export class WalletIframeRouter {
     recipient: string;
     state?: string;
     options: {
-      deviceNumber?: number;
+      signerSlot?: number;
       onEvent?: (ev: ActionSSEEvent) => void;
       confirmerText?: { title?: string; body?: string };
       confirmationConfig?: Partial<ConfirmationConfig>;
     };
   }): Promise<SignNEP413MessageResult> {
     const safeOptions = {
-      ...(typeof payload.options.deviceNumber === 'number'
-        ? { deviceNumber: payload.options.deviceNumber }
+      ...(typeof payload.options.signerSlot === 'number'
+        ? { signerSlot: payload.options.signerSlot }
         : {}),
       ...(payload.options.confirmerText ? { confirmerText: payload.options.confirmerText } : {}),
       ...(payload.options.confirmationConfig
@@ -1214,7 +1217,7 @@ export class WalletIframeRouter {
     const safeOptions = {
       waitUntil: options.waitUntil,
       confirmationConfig: options.confirmationConfig,
-      ...(typeof options.deviceNumber === 'number' ? { deviceNumber: options.deviceNumber } : {}),
+      ...(typeof options.signerSlot === 'number' ? { signerSlot: options.signerSlot } : {}),
       ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),
     };
 
@@ -1419,8 +1422,8 @@ export class WalletIframeRouter {
         ...(payload?.ui ? { ui: payload.ui } : {}),
         ...(payload?.cameraId ? { cameraId: payload.cameraId } : {}),
         ...(payload?.accountId ? { accountId: String(payload.accountId) } : {}),
-        ...(typeof payload?.deviceNumber === 'number'
-          ? { deviceNumber: payload.deviceNumber }
+        ...(typeof payload?.signerSlot === 'number'
+          ? { signerSlot: payload.signerSlot }
           : {}),
         ...(payload?.options
           ? {
@@ -1476,7 +1479,7 @@ export class WalletIframeRouter {
       waitUntil: options.waitUntil,
       executionWait: options.executionWait,
       confirmationConfig: options.confirmationConfig,
-      ...(typeof options.deviceNumber === 'number' ? { deviceNumber: options.deviceNumber } : {}),
+      ...(typeof options.signerSlot === 'number' ? { signerSlot: options.signerSlot } : {}),
       ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),
     };
 

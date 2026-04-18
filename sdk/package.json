@@ -137,7 +137,9 @@
     "**/*.css"
   ],
   "scripts": {
-    "build": "./scripts/build/build-dev.sh",
+    "build": "./scripts/build/build-sdk.sh",
+    "build:wasm": "./scripts/build/build-wasm.sh",
+    "build:sdk-full": "./scripts/build/build-full.sh",
     "build:prod": "./scripts/build/build-prod.sh",
     "build:prepare": "bash ./scripts/build/prepare-dev-build.sh",
     "build:rolldown": "rolldown -c rolldown.config.ts",

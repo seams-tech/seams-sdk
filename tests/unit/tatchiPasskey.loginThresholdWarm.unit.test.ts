@@ -19,17 +19,17 @@ function createBaseContext(args?: {
   return {
     signingEngine: {
       assertSealedRefreshStartupParity: async () => undefined,
-      getUserByDevice: async () => ({
+      getUserBySignerSlot: async () => ({
         nearAccountId: 'alice.testnet',
-        deviceNumber: 1,
+        signerSlot: 1,
         operationalPublicKey: 'ed25519:alice',
       }),
       getLastUser: async () => ({
         nearAccountId: 'alice.testnet',
-        deviceNumber: 1,
+        signerSlot: 1,
         operationalPublicKey: 'ed25519:alice',
       }),
-      getAuthenticatorsByUser: async () => [{ credentialId: 'cred-1', deviceNumber: 1 }],
+      getAuthenticatorsByUser: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
       connectEd25519Session: async () => ({
         ok: true,
         sessionId: 'session-1',
@@ -137,7 +137,7 @@ async function withMockedMostRecentProjection<T>(
       : null;
   accountKeyMaterialDb.getKeyMaterial = async () => ({
     profileId: 'legacy-near:alice.testnet',
-    deviceNumber: 1,
+    signerSlot: 1,
     chainIdKey: 'near:testnet',
     keyKind: 'threshold_share_v1',
     algorithm: 'ed25519',
@@ -224,7 +224,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(bootstrapCalls).toBe(2);
     expect(bootstrapChains).toEqual(['tempo', 'evm']);
     expect(String(bootstrapArgs?.['source'] || '')).toBe('login');
-    expect(String(bootstrapArgs?.['sessionId'] || '')).toBe('session-1');
+    expect('sessionId' in (bootstrapArgs || {})).toBe(false);
     expect(String(bootstrapArgs?.['authorizationJwt'] || '')).toBe('jwt-ed25519');
     expect(String(bootstrapArgs?.['clientRootShare32B64u'] || '')).toBe(
       ECDSA_CLIENT_ROOT_SHARE32_B64U,
@@ -355,7 +355,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(bootstrapCalls).toBe(0);
   });
 
-  test('login warm-up mints a fresh shared threshold session id even when canonical ECDSA state exists', async () => {
+  test('login warm-up mints a fresh Ed25519 session id even when canonical ECDSA state exists', async () => {
     let capturedConnectArgs: Record<string, unknown> | null = null;
     const context = createBaseContext({
       signingEngine: {
@@ -598,6 +598,101 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
+  test('passkey_assertion warm-up reuses app session authorization and local PRF credential', async () => {
+    const originalFetch = globalThis.fetch;
+    let credentialPrompts = 0;
+    let capturedConnectArgs: Record<string, unknown> | null = null;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === 'https://relay.example/wallet/unlock/challenge') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              challengeId: 'challenge-passkey-warm',
+              challengeB64u: 'challenge-passkey-warm-b64u',
+              expiresAtMs: Date.now() + 60_000,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (url === 'https://relay.example/session/exchange') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              session: { kind: 'app_session_v1', userId: 'alice.testnet' },
+              jwt: 'app-jwt-passkey-warm',
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: false, message: 'not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      const loginCredential = {
+        id: 'cred-warm',
+        rawId: 'cred-warm',
+        type: 'public-key',
+        authenticatorAttachment: undefined,
+        response: {
+          clientDataJSON: 'client-data-json',
+          authenticatorData: 'authenticator-data',
+          signature: 'signature',
+          userHandle: undefined,
+          clientExtensionResults: { shouldRedact: true },
+        },
+        clientExtensionResults: {
+          prf: {
+            results: {
+              first: 'prf-first-warm',
+            },
+          },
+        },
+      };
+      const context = createBaseContext({
+        signingEngine: {
+          getRpId: () => 'example.localhost',
+          getAuthenticationCredentialsSerialized: async () => {
+            credentialPrompts += 1;
+            return loginCredential;
+          },
+          connectEd25519Session: async (args: Record<string, unknown>) => {
+            capturedConnectArgs = args;
+            return {
+              ok: true,
+              sessionId: 'session-passkey-warm',
+              jwt: 'jwt-ed25519',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60_000,
+              ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            };
+          },
+        },
+      });
+
+      const result = await withMockedMostRecentProjection(
+        async () =>
+          await unlock(context, ACCOUNT_ID, {
+            session: {
+              kind: 'jwt',
+              exchange: { type: 'passkey_assertion' },
+            },
+          }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(credentialPrompts).toBe(1);
+      expect(capturedConnectArgs).not.toBeNull();
+      expect(String(capturedConnectArgs?.appSessionJwt || '')).toBe('app-jwt-passkey-warm');
+      expect(capturedConnectArgs?.localPrfCredential).toBe(loginCredential);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('uses app session JWT for existing-key ECDSA warm-up after session exchange', async () => {
     const originalFetch = globalThis.fetch;
     let bootstrapCalls = 0;
@@ -683,6 +778,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.jwt).toBe('app-jwt-oidc-1');
       expect(bootstrapCalls).toBe(2);
       expect(String(bootstrapArgs?.authorizationJwt || '')).toBe('app-jwt-oidc-1');
+      expect('sessionId' in (bootstrapArgs || {})).toBe(false);
       expect(String(bootstrapArgs?.clientRootShare32B64u || '')).toBe(
         ECDSA_CLIENT_ROOT_SHARE32_B64U,
       );
@@ -868,6 +964,96 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(captured).toHaveLength(2);
       expect(captured[1]!.url).toBe('https://relay.example/session/exchange');
       expect(captured[1]!.init?.credentials).toBe('include');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test('cookie-mode passkey_assertion warm-up uses app session cookie authorization', async () => {
+    const originalFetch = globalThis.fetch;
+    let capturedConnectArgs: Record<string, unknown> | null = null;
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === 'https://relay.example/wallet/unlock/challenge') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              challengeId: 'challenge-passkey-cookie-warm',
+              challengeB64u: 'challenge-passkey-cookie-warm-b64u',
+              expiresAtMs: Date.now() + 60_000,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (url === 'https://relay.example/session/exchange') {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              session: { kind: 'app_session_v1', userId: 'alice.testnet' },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        return new Response(JSON.stringify({ ok: false, message: 'not found' }), {
+          status: 404,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      const loginCredential = {
+        id: 'cred-cookie-warm',
+        rawId: 'cred-cookie-warm',
+        type: 'public-key',
+        authenticatorAttachment: undefined,
+        response: {
+          clientDataJSON: 'client-data-json',
+          authenticatorData: 'authenticator-data',
+          signature: 'signature',
+          userHandle: undefined,
+          clientExtensionResults: { shouldRedact: true },
+        },
+        clientExtensionResults: {
+          prf: {
+            results: {
+              first: 'prf-first-cookie-warm',
+            },
+          },
+        },
+      };
+      const context = createBaseContext({
+        signingEngine: {
+          getRpId: () => 'example.localhost',
+          getAuthenticationCredentialsSerialized: async () => loginCredential,
+          connectEd25519Session: async (args: Record<string, unknown>) => {
+            capturedConnectArgs = args;
+            return {
+              ok: true,
+              sessionId: 'session-cookie-warm',
+              jwt: 'jwt-ed25519',
+              remainingUses: 3,
+              expiresAtMs: Date.now() + 60_000,
+              ecdsaHssClientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            };
+          },
+        },
+      });
+
+      const result = await withMockedMostRecentProjection(
+        async () =>
+          await unlock(context, ACCOUNT_ID, {
+            session: {
+              kind: 'cookie',
+              exchange: { type: 'passkey_assertion' },
+            },
+          }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(capturedConnectArgs).not.toBeNull();
+      expect(String(capturedConnectArgs?.appSessionJwt || '')).toBe('');
+      expect(capturedConnectArgs?.useAppSessionCookie).toBe(true);
+      expect(capturedConnectArgs?.localPrfCredential).toBe(loginCredential);
     } finally {
       globalThis.fetch = originalFetch;
     }

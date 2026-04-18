@@ -27,6 +27,7 @@ import type { SponsorshipSpendPricingService } from '../sponsorship';
 import type { CanonicalSmartAccountDeploymentManifest } from '../core/smartAccountDeploymentManifest';
 import type { CanonicalEvmSmartAccountDeploymentPlan } from '../core/evmSmartAccountDeploymentPlan';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
+import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { ApiCredentialScope } from '../../../shared/src/console/apiKeyScopes';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 
@@ -151,6 +152,45 @@ export interface RelayWebhookOptions {
    * Claim keys checked in order when deriving orgId from session claims.
    */
   orgIdClaimKeys?: string[];
+}
+
+export type RelayEmailOtpExportPolicyPhase = 'challenge' | 'verify';
+
+export type RelayEmailOtpExportPolicyDecision =
+  | {
+      ok: true;
+      decision: 'ALLOW';
+      policyId?: string;
+      approvalId?: string;
+      reason?: string;
+    }
+  | {
+      ok: false;
+      decision: 'DENY';
+      code?: string;
+      message: string;
+      policyId?: string;
+      approvalId?: string;
+      reason?: string;
+    };
+
+export interface RelayEmailOtpExportPolicyInput {
+  operation: typeof WALLET_EMAIL_OTP_EXPORT_OPERATION;
+  phase: RelayEmailOtpExportPolicyPhase;
+  userId: string;
+  walletId: string;
+  orgId?: string;
+  projectId?: string;
+  environmentId?: string;
+  appSessionVersion: string;
+  challengeId?: string;
+  sourceIp?: string;
+}
+
+export interface RelayEmailOtpExportPolicyAdapter {
+  authorize(
+    input: RelayEmailOtpExportPolicyInput,
+  ): Promise<RelayEmailOtpExportPolicyDecision> | RelayEmailOtpExportPolicyDecision;
 }
 
 export type RelayApiKeyAuthFailureCode =
@@ -425,6 +465,13 @@ export interface RelayRouterOptions {
   runtimeSnapshots?: RelayRuntimeSnapshotConsumer | null;
   // Optional: webhook emitter for relay session/wallet lifecycle events.
   relayWebhooks?: RelayWebhookOptions | null;
+  /**
+   * Optional policy adapter for Email OTP key-export authorization.
+   *
+   * When omitted, local/dev deployments allow `export_key` by default but still
+   * emit export-specific audit events with `policySource=default_allow`.
+   */
+  emailOtpExportPolicy?: RelayEmailOtpExportPolicyAdapter | null;
   // Optional observability ingestion adapter used by sponsorship runtime signals.
   observabilityIngestion?: ConsoleObservabilityIngestionService | null;
   /**

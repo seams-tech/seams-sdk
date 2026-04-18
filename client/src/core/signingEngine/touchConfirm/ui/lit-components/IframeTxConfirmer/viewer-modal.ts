@@ -164,8 +164,13 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     return this.signingAuthMode === 'emailOtp';
   }
 
+  private _isWarmSessionMode(): boolean {
+    return this.signingAuthMode === 'warmSession';
+  }
+
   private _authHeadingFallback(): string {
-    if (this._isEmailOtpMode()) return 'Confirm with Email OTP';
+    if (this._isEmailOtpMode()) return 'Enter email code to sign';
+    if (this._isWarmSessionMode()) return 'Review transaction';
     const operationCount = Array.isArray(this.model?.operations) ? this.model.operations.length : 0;
     const isRegistration = operationCount === 0;
     return isRegistration ? 'Register with Passkey' : 'Confirm with Passkey';
@@ -181,7 +186,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     if (!this._isEmailOtpMode()) return '';
     const helper =
       String(this.emailOtpPrompt?.helperText || '').trim() ||
-      'Enter the 6-digit code sent to your email to authorize this transaction.';
+      'Enter the 6-digit code sent to your email to sign this transaction.';
     return html`
       <div class="email-otp-confirm">
         <label class="email-otp-confirm__label" for="email-otp-confirm-code">Email code</label>
@@ -327,8 +332,10 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
         <div class="modal-container-root">
           <div class="responsive-card">
             <div class="hero">
-              ${this._isEmailOtpMode()
-                ? html`<div class="email-otp-confirm__icon" aria-hidden="true">6</div>`
+              ${this._isEmailOtpMode() || this._isWarmSessionMode()
+                ? html`<div class="email-otp-confirm__icon" aria-hidden="true">
+                    ${this._isEmailOtpMode() ? '6' : '✓'}
+                  </div>`
                 : html`<w3a-passkey-halo-loading
                     .theme=${this.theme}
                     .animated=${!this.errorMessage ? true : false}
@@ -349,7 +356,9 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                   const promptTitle = String(this.emailOtpPrompt?.title || '').trim();
                   const heading = this._isEmailOtpMode()
                     ? promptTitle || fallback
-                    : titleText || fallback;
+                    : this.signingAuthMode === 'webauthn' || this._isWarmSessionMode()
+                      ? fallback
+                      : titleText || fallback;
                   return html`<h2 class="hero-heading">${heading}</h2>`;
                 })()}
                 ${this.errorMessage

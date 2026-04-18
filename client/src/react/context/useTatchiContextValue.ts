@@ -94,6 +94,7 @@ export function useTatchiContextValue(args: {
               isLoggedIn,
               nearAccountId: isLoggedIn ? login.nearAccountId || null : null,
               nearPublicKey: isLoggedIn ? login.publicKey || null : null,
+              authMethod: isLoggedIn ? session.authMethod || login.authMethod || null : null,
               thresholdEcdsaEthereumAddress: isLoggedIn
                 ? login.thresholdEcdsaEthereumAddress || null
                 : null,

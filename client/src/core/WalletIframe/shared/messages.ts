@@ -14,6 +14,7 @@ import type {
 } from '../../signingEngine/signers/wasm/hssClientSignerWasm';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
 import type { EmailOtpAuthPolicy, TatchiConfigsInput } from '../../types/tatchi';
+import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -123,6 +124,10 @@ export interface PMBootstrapThresholdEcdsaSessionPayload {
     relayerUrl?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
+    runtimeScopeBootstrap?: {
+      environmentId: string;
+      publishableKey: string;
+    };
     ttlMs?: number;
     remainingUses?: number;
     smartAccount?: {
@@ -144,7 +149,7 @@ export interface PMSignTxsPayload {
   nearAccountId: string;
   transactions: TransactionInput[];
   options: {
-    deviceNumber?: number;
+    signerSlot?: number;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
     [key: string]: unknown;
@@ -155,7 +160,7 @@ export interface PMSignAndSendTxsPayload {
   nearAccountId: string;
   transactions: TransactionInput[];
   options: {
-    deviceNumber?: number;
+    signerSlot?: number;
     // Keep only serializable fields; functions are bridged via PROGRESS
     waitUntil?:
       | 'NONE'
@@ -182,7 +187,7 @@ export interface PMExecuteActionPayload {
   actionArgs: ActionArgs | ActionArgs[];
   options: {
     waitUntil?: unknown;
-    deviceNumber?: number;
+    signerSlot?: number;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
     [key: string]: unknown;
@@ -193,7 +198,7 @@ export interface PMSignDelegateActionPayload {
   nearAccountId: string;
   delegate: DelegateActionInput;
   options: {
-    deviceNumber?: number;
+    signerSlot?: number;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
     [key: string]: unknown;
@@ -204,7 +209,7 @@ export interface PMSignNep413Payload {
   nearAccountId: string;
   params: { message: string; recipient: string; state?: string };
   options: {
-    deviceNumber?: number;
+    signerSlot?: number;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
     [key: string]: unknown;
@@ -282,6 +287,7 @@ export interface PMEmailOtpChallengePayload {
   nearAccountId: string;
   relayUrl?: string;
   appSessionJwt?: string;
+  operation?: WalletEmailOtpLoginOperation;
 }
 
 export interface PMExchangeGoogleEmailOtpSessionPayload {
@@ -289,6 +295,7 @@ export interface PMExchangeGoogleEmailOtpSessionPayload {
   accountMode: 'register' | 'login';
   relayUrl?: string;
   sessionKind?: 'jwt' | 'cookie';
+  forceNewDevWallet?: boolean;
 }
 
 export interface PMEnrollEmailOtpPayload {
@@ -472,7 +479,7 @@ export type ParentToChildEnvelope =
         ui?: 'modal' | 'inline';
         cameraId?: string;
         accountId?: string;
-        deviceNumber?: number;
+        signerSlot?: number;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };

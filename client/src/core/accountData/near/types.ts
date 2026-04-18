@@ -7,7 +7,7 @@ import type {
 
 export interface ClientUserData {
   nearAccountId: AccountId;
-  deviceNumber: number;
+  signerSlot: number;
   version?: number;
   registeredAt?: number;
   lastLogin?: number;
@@ -19,9 +19,9 @@ export interface ClientUserData {
 
 export type StoreUserDataInput = Omit<
   ClientUserData,
-  'deviceNumber' | 'lastLogin' | 'registeredAt'
+  'signerSlot' | 'lastLogin' | 'registeredAt'
 > & {
-  deviceNumber?: number;
+  signerSlot?: number;
   version?: number;
 };
 
@@ -31,7 +31,7 @@ export interface ClientAuthenticatorData {
   transports?: string[];
   name?: string;
   nearAccountId: AccountId;
-  deviceNumber: number;
+  signerSlot: number;
   registered: string;
   syncedAt: string;
 }
@@ -45,7 +45,7 @@ export interface RecoveryEmailRecord {
 
 export interface ThresholdEd25519KeyMaterial {
   nearAccountId: AccountId;
-  deviceNumber: number;
+  signerSlot: number;
   kind: 'threshold_ed25519_v1';
   publicKey: string;
   relayerKeyId: string;

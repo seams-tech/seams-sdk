@@ -218,6 +218,29 @@ export async function ensurePostgresSchema(input: {
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_otp_registration_attempts (
+        namespace TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        provider_subject TEXT NOT NULL,
+        email TEXT NOT NULL,
+        wallet_id TEXT NOT NULL,
+        state TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, attempt_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_otp_registration_attempts_subject_idx
+      ON email_otp_registration_attempts (namespace, provider_subject, email, state, expires_at_ms)
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_otp_registration_attempts_wallet_idx
+      ON email_otp_registration_attempts (namespace, wallet_id, state, expires_at_ms)
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS threshold_ed25519_keys (
         namespace TEXT NOT NULL,
         relayer_key_id TEXT NOT NULL,

@@ -64,6 +64,8 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     expect(status).toEqual({
       sessionId: 'ecdsa-expired-session',
       status: 'expired',
+      authMethod: 'email_otp',
+      retention: 'session',
     });
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('missing');
     expect(ecdsaStore.recordsByLane.size).toBe(0);
@@ -193,6 +195,67 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     ).rejects.toThrow(
       '[SigningEngine] evm signing requires fresh Email OTP verification with per_operation policy',
+    );
+    expect(provisionCalls).toEqual([]);
+  });
+
+  test('blocks implicit Tempo reconnect after single-use Email OTP capability is consumed', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'tempo-erin.testnet',
+      chain: 'tempo',
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        policy: 'per_operation',
+        retention: 'single_use',
+        reason: 'sign',
+        authMethod: 'email_otp',
+        stepUpRequired: true,
+      },
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'tempo-erin.testnet',
+        chain: 'tempo',
+        sessionId: 'tempo-ecdsa-consumed-single-use-session',
+        sessionJwt: 'jwt:tempo-ecdsa-consumed-single-use-session',
+      }),
+    });
+
+    const provisionCalls: string[] = [];
+    const manager = createWarmSessionManager({
+      touchConfirm: {
+        clearWarmSessionMaterial: async () => undefined,
+      },
+      markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args) => {
+        markThresholdEcdsaEmailOtpSessionConsumedForAccount(ecdsaStore, args);
+      },
+      clearThresholdEcdsaSigningArtifactsForLane: () => undefined,
+      getThresholdEcdsaKeyRefForSigning: () => recordToKeyRef(record),
+      provisionThresholdEcdsaSession: async () => {
+        provisionCalls.push('provision');
+        return createThresholdEcdsaBootstrapFixture({
+          nearAccountId: 'tempo-erin.testnet',
+          chain: 'tempo',
+          sessionId: 'unexpected-tempo-reconnect',
+          sessionJwt: 'jwt:unexpected-tempo-reconnect',
+        });
+      },
+    });
+
+    await manager.applyEcdsaPostSignPolicy({
+      nearAccountId: 'tempo-erin.testnet',
+      chain: 'tempo',
+      thresholdSessionId: record.thresholdSessionId,
+    });
+
+    await expect(
+      manager.ensureEcdsaCapabilityReady({
+        nearAccountId: 'tempo-erin.testnet',
+        chain: 'tempo',
+      }),
+    ).rejects.toThrow(
+      '[SigningEngine] tempo signing requires fresh Email OTP verification with per_operation policy',
     );
     expect(provisionCalls).toEqual([]);
   });

@@ -24,7 +24,7 @@ export type WebAuthnCredentialBindingRecord = {
   rpId: string;
   credentialIdB64u: string;
   userId: string;
-  deviceNumber: number;
+  signerSlot: number;
   /** NEAR ed25519 public key (e.g. `ed25519:...`). In threshold-signer mode, this is the group public key. */
   publicKey: string;
   /** Threshold relayer key id (often equal to `publicKey`). */
@@ -43,7 +43,7 @@ export interface WebAuthnCredentialBindingStore {
   get(rpId: string, credentialIdB64u: string): Promise<WebAuthnCredentialBindingRecord | null>;
   put(record: WebAuthnCredentialBindingRecord): Promise<void>;
   del(rpId: string, credentialIdB64u: string): Promise<void>;
-  getMaxDeviceNumber?(input: { userId: string; rpId?: string }): Promise<number | null>;
+  getMaxSignerSlot?(input: { userId: string; rpId?: string }): Promise<number | null>;
   /**
    * List credential bindings for a user (optionally scoped to an RP ID).
    *
@@ -83,9 +83,9 @@ function parseWebAuthnCredentialBindingRecord(
   const credentialIdB64u = toOptionalTrimmedString(raw.credentialIdB64u);
   const userId = toOptionalTrimmedString(raw.userId);
   const publicKey = toOptionalTrimmedString(raw.publicKey);
-  const deviceNumberRaw = (raw as { deviceNumber?: unknown }).deviceNumber;
-  const deviceNumber =
-    typeof deviceNumberRaw === 'number' ? deviceNumberRaw : Number(deviceNumberRaw);
+  const signerSlotRaw = (raw as { signerSlot?: unknown }).signerSlot;
+  const signerSlot =
+    typeof signerSlotRaw === 'number' ? signerSlotRaw : Number(signerSlotRaw);
   const createdAtMsRaw = (raw as { createdAtMs?: unknown }).createdAtMs;
   const updatedAtMsRaw = (raw as { updatedAtMs?: unknown }).updatedAtMs;
   const createdAtMs = typeof createdAtMsRaw === 'number' ? createdAtMsRaw : Number(createdAtMsRaw);
@@ -93,7 +93,7 @@ function parseWebAuthnCredentialBindingRecord(
 
   if (version !== 'webauthn_credential_binding_v1') return null;
   if (!rpId || !credentialIdB64u || !userId || !publicKey) return null;
-  if (!Number.isFinite(deviceNumber) || deviceNumber < 1) return null;
+  if (!Number.isFinite(signerSlot) || signerSlot < 1) return null;
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
 
@@ -136,7 +136,7 @@ function parseWebAuthnCredentialBindingRecord(
     rpId,
     credentialIdB64u,
     userId,
-    deviceNumber: Math.floor(deviceNumber),
+    signerSlot: Math.floor(signerSlot),
     publicKey,
     ...(relayerKeyId ? { relayerKeyId } : {}),
     ...(keyVersion ? { keyVersion } : {}),
@@ -204,7 +204,7 @@ class InMemoryWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
       if (rpId && parsed.rpId !== rpId) continue;
       out.push(parsed);
     }
-    out.sort((a, b) => a.deviceNumber - b.deviceNumber);
+    out.sort((a, b) => a.signerSlot - b.signerSlot);
     return out;
   }
 }
@@ -352,14 +352,14 @@ class PostgresWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
     );
   }
 
-  async getMaxDeviceNumber(input: { userId: string; rpId?: string }): Promise<number | null> {
+  async getMaxSignerSlot(input: { userId: string; rpId?: string }): Promise<number | null> {
     const userId = toOptionalTrimmedString(input.userId);
     if (!userId) return null;
     const rpId = toOptionalTrimmedString(input.rpId);
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
-        SELECT MAX((record_json->>'deviceNumber')::int) AS max_device_number
+        SELECT MAX((record_json->>'signerSlot')::int) AS max_signer_slot
         FROM webauthn_credential_bindings
         WHERE namespace = $1
         ${rpId ? 'AND rp_id = $2' : ''}
@@ -367,7 +367,7 @@ class PostgresWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
       `,
       rpId ? [this.namespace, rpId, userId] : [this.namespace, userId],
     );
-    const raw = rows[0]?.max_device_number;
+    const raw = rows[0]?.max_signer_slot;
     const n = typeof raw === 'number' ? raw : Number(raw);
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
   }
@@ -385,13 +385,13 @@ class PostgresWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
           SELECT record_json
           FROM webauthn_credential_bindings
           WHERE namespace = $1 AND rp_id = $2 AND record_json->>'userId' = $3
-          ORDER BY (record_json->>'deviceNumber')::int ASC
+          ORDER BY (record_json->>'signerSlot')::int ASC
         `
       : `
           SELECT record_json
           FROM webauthn_credential_bindings
           WHERE namespace = $1 AND record_json->>'userId' = $2
-          ORDER BY (record_json->>'deviceNumber')::int ASC
+          ORDER BY (record_json->>'signerSlot')::int ASC
         `;
     const values = rpId ? [this.namespace, rpId, userId] : [this.namespace, userId];
     const { rows } = await pool.query(query, values);
@@ -400,7 +400,7 @@ class PostgresWebAuthnCredentialBindingStore implements WebAuthnCredentialBindin
       const parsed = parseWebAuthnCredentialBindingRecord(row?.record_json);
       if (parsed) out.push(parsed);
     }
-    out.sort((a, b) => a.deviceNumber - b.deviceNumber);
+    out.sort((a, b) => a.signerSlot - b.signerSlot);
     return out;
   }
 }

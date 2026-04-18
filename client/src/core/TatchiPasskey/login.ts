@@ -8,6 +8,7 @@ import type {
   LoginState,
   SigningSessionStatus,
   ThresholdWarmLoginAndCreateSessionResult,
+  WalletAuthMethod,
 } from '../types/tatchi';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
@@ -19,7 +20,12 @@ import { getNearAccountProjection, resolveNearAccountProfileContinuity } from '.
 import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import type { ClientUserData } from '../accountData/near/types';
 import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/rpcCalls';
-import { parseDeviceNumber } from '../signingEngine/signers/webauthn/device/getDeviceNumber';
+import { parseSignerSlot } from '../signingEngine/signers/webauthn/device/signerSlot';
+import {
+  createEmailOtpWalletAuthAdapter,
+  createPasskeyWalletAuthAdapter,
+  createWalletAuthModeResolver,
+} from '../signingEngine/auth';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordForAccount,
@@ -32,7 +38,7 @@ import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarm
  * Core login function (passkey identity + relay-issued sessions).
  *
  * Responsibilities:
- * - Select the active account + passkey deviceNumber (last-user pointer).
+ * - Select the active account + signer slot (last-user pointer).
  * - Optionally mint a relayer app session (JWT/cookie) via session exchange.
  *
  * Note: signing flows still perform their own UserConfirm/WebAuthn prompting as needed.
@@ -68,11 +74,11 @@ export async function unlock(
       });
     }
 
-    const deviceNumberHint = parseDeviceNumber(options?.deviceNumber, { min: 1 });
+    const signerSlotHint = parseSignerSlot(options?.signerSlot, { min: 1 });
 
     const hintUserPromise: Promise<ClientUserData | null> =
-      deviceNumberHint !== null
-        ? signingEngine.getUserByDevice(nearAccountId, deviceNumberHint).catch(() => null)
+      signerSlotHint !== null
+        ? signingEngine.getUserBySignerSlot(nearAccountId, signerSlotHint).catch(() => null)
         : Promise.resolve(null);
 
     const [hintUser, lastUser, latestByAccount, authenticators] = await Promise.all([
@@ -96,7 +102,7 @@ export async function unlock(
     } else if (lastUser && lastUser.nearAccountId === nearAccountId) {
       userData = lastUser;
     } else {
-      userData = await signingEngine.getUserByDevice(nearAccountId, 1).catch(() => null);
+      userData = await signingEngine.getUserBySignerSlot(nearAccountId, 1).catch(() => null);
     }
 
     if (!userData) {
@@ -110,10 +116,10 @@ export async function unlock(
       );
     }
 
-    const baseDeviceNumber =
-      deviceNumberHint ??
-      (Number.isFinite(userData.deviceNumber) && userData.deviceNumber >= 1
-        ? userData.deviceNumber
+    const baseSignerSlot =
+      signerSlotHint ??
+      (Number.isFinite(userData.signerSlot) && userData.signerSlot >= 1
+        ? userData.signerSlot
         : 1);
 
     const signingSessionPolicy = (() => {
@@ -149,8 +155,9 @@ export async function unlock(
     };
 
     const maybeWarmThresholdSigningSessions = async (args: {
-      deviceNumber: number;
+      signerSlot: number;
       appSessionJwt?: string;
+      useAppSessionCookie?: boolean;
     }): Promise<void> => {
       if (!requireThresholdWarmup) return;
 
@@ -172,11 +179,11 @@ export async function unlock(
           accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
         },
         nearAccountId,
-        args.deviceNumber,
+        args.signerSlot,
       ).catch(() => null);
       if (!thresholdKeyMaterial) {
         throw new Error(
-          `[login] threshold warm-up requires threshold key material for ${nearAccountId} device ${args.deviceNumber}`,
+          `[login] threshold warm-up requires threshold key material for ${nearAccountId} signer slot ${args.signerSlot}`,
         );
       }
 
@@ -215,6 +222,7 @@ export async function unlock(
         signersToWarm,
         preferredEd25519SessionId,
         appSessionJwt: args.appSessionJwt,
+        useAppSessionCookie: args.useAppSessionCookie,
       });
 
       const warmStatus = await signingEngine
@@ -242,8 +250,8 @@ export async function unlock(
       };
     };
 
-    const persistSuccessfulLoginState = async (deviceNumber: number): Promise<void> => {
-      await signingEngine.setLastUser(nearAccountId, deviceNumber).catch(() => undefined);
+    const persistSuccessfulLoginState = async (signerSlot: number): Promise<void> => {
+      await signingEngine.setLastUser(nearAccountId, signerSlot).catch(() => undefined);
       await signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
     };
 
@@ -333,14 +341,44 @@ export async function unlock(
             transports: [],
           }));
 
-          const webauthnAuthentication = await signingEngine.getAuthenticationCredentialsSerialized(
-            {
-              nearAccountId,
-              challengeB64u,
-              allowCredentials,
-              includeSecondPrfOutput: false,
+          const walletAuthResolver = createWalletAuthModeResolver({
+            passkey: createPasskeyWalletAuthAdapter({
+              challenge: async () =>
+                await signingEngine.getAuthenticationCredentialsSerialized({
+                  nearAccountId,
+                  challengeB64u,
+                  allowCredentials,
+                  includeSecondPrfOutput: false,
+                }),
+              complete: async ({ response }) => ({
+                method: 'passkey',
+                webauthnAuthentication: response,
+              }),
+            }),
+            emailOtp: createEmailOtpWalletAuthAdapter({
+              challenge: async () => {
+                throw new Error('Email OTP wallet unlock uses the Email OTP login flow');
+              },
+              complete: async () => {
+                throw new Error('Email OTP wallet unlock uses the Email OTP login flow');
+              },
+            }),
+          });
+          const walletAuthPlan = await walletAuthResolver.resolveWalletAuthPlan({
+            accountId: nearAccountId,
+            accountAuth: {
+              primaryAuthMethod: 'passkey',
+              linkedAuthMethods: ['passkey'],
             },
-          );
+            intent: 'wallet_unlock',
+          });
+          if (walletAuthPlan.kind !== 'passkeyReauth') {
+            throw new Error('Passkey session exchange requires passkey authorization');
+          }
+          const walletAuthChallenge = await walletAuthPlan.challenge();
+          const walletAuthProof = await walletAuthPlan.complete(walletAuthChallenge);
+          const webauthnAuthentication =
+            walletAuthProof.webauthnAuthentication as import('../types').WebAuthnAuthenticationCredential;
           loginCredential = webauthnAuthentication;
           const expectedOrigin = String(
             exchange.expectedOrigin ??
@@ -368,17 +406,18 @@ export async function unlock(
 
         if (requireThresholdWarmup) {
           await maybeWarmThresholdSigningSessions({
-            deviceNumber: baseDeviceNumber,
+            signerSlot: baseSignerSlot,
             appSessionJwt: exchanged.jwt,
+            useAppSessionCookie: session.kind === 'cookie' && !!loginCredential,
           });
         }
-        await persistSuccessfulLoginState(baseDeviceNumber);
+        await persistSuccessfulLoginState(baseSignerSlot);
         if (loginCredential) {
           void prewarmThresholdEd25519ClientBaseFromCredential({
             context,
             credential: loginCredential,
             nearAccountId,
-            deviceNumber: baseDeviceNumber,
+            signerSlot: baseSignerSlot,
           }).catch(() => undefined);
         }
 
@@ -433,17 +472,17 @@ export async function unlock(
 
     if (requireThresholdWarmup) {
       await maybeWarmThresholdSigningSessions({
-        deviceNumber: baseDeviceNumber,
+        signerSlot: baseSignerSlot,
       });
     }
 
-    await persistSuccessfulLoginState(baseDeviceNumber);
+    await persistSuccessfulLoginState(baseSignerSlot);
     if (loginCredential) {
       void prewarmThresholdEd25519ClientBaseFromCredential({
         context,
         credential: loginCredential,
         nearAccountId,
-        deviceNumber: baseDeviceNumber,
+        signerSlot: baseSignerSlot,
       }).catch(() => undefined);
     }
 
@@ -617,6 +656,7 @@ async function primeThresholdLoginWarmSigners(args: {
   signersToWarm?: ThresholdLoginWarmSigner[];
   preferredEd25519SessionId?: string;
   appSessionJwt?: string;
+  useAppSessionCookie?: boolean;
 }): Promise<void> {
   const signersToWarm = buildThresholdLoginWarmSignerSelection(args.signersToWarm);
   const warmState: {
@@ -639,6 +679,9 @@ async function primeThresholdLoginWarmSigners(args: {
           nearAccountId: args.nearAccountId,
           relayerUrl: args.relayerUrl,
           relayerKeyId: args.relayerKeyId,
+          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+          ...(args.useAppSessionCookie ? { useAppSessionCookie: args.useAppSessionCookie } : {}),
+          ...(args.credential ? { localPrfCredential: args.credential } : {}),
           ...(args.canonicalEcdsaContext.runtimePolicyScope
             ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
             : {}),
@@ -646,13 +689,10 @@ async function primeThresholdLoginWarmSigners(args: {
             ? { runtimeScopeBootstrap: args.managedRuntimeScopeBootstrap }
             : {}),
           participantIds: args.participantIds,
-          sessionKind: 'jwt',
+          sessionKind: args.useAppSessionCookie ? 'cookie' : 'jwt',
           ttlMs: args.ttlMs,
           remainingUses: args.remainingUses,
-          sessionId:
-            args.preferredEd25519SessionId ||
-            args.canonicalEcdsaContext.thresholdSessionId ||
-            undefined,
+          sessionId: args.preferredEd25519SessionId || undefined,
         });
         if (!connected.ok) {
           const details = String(
@@ -661,9 +701,7 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error(`[login] threshold Ed25519 warm-up failed: ${details}`);
         }
 
-        const connectedSessionId = String(
-          connected.sessionId || args.canonicalEcdsaContext.thresholdSessionId || '',
-        ).trim();
+        const connectedSessionId = String(connected.sessionId || '').trim();
         if (!connectedSessionId) {
           throw new Error('[login] threshold Ed25519 warm-up did not return a sessionId');
         }
@@ -696,7 +734,8 @@ async function primeThresholdLoginWarmSigners(args: {
         try {
           const appSessionJwt = String(args.appSessionJwt || '').trim();
           const useAppSessionBootstrapJwt =
-            !!appSessionJwt && !!String(args.canonicalEcdsaContext.ecdsaThresholdKeyId || '').trim();
+            !!appSessionJwt &&
+            !!String(args.canonicalEcdsaContext.ecdsaThresholdKeyId || '').trim();
           const ecdsaAuthorizationJwt = useAppSessionBootstrapJwt ? appSessionJwt : warmState.jwt;
           for (const chain of ['tempo', 'evm'] as const) {
             await args.signingEngine.bootstrapEcdsaSession({
@@ -711,7 +750,6 @@ async function primeThresholdLoginWarmSigners(args: {
               sessionKind: 'jwt',
               ttlMs: args.ttlMs,
               remainingUses: args.remainingUses,
-              sessionId: warmState.sessionId,
               clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
               authorizationJwt: ecdsaAuthorizationJwt,
               ...(args.canonicalEcdsaContext.runtimePolicyScope
@@ -759,7 +797,17 @@ export async function getWalletSession(
   const signingSession = login?.nearAccountId
     ? await resolveWarmSigningSessionStatusForUi(context, login.nearAccountId).catch(() => null)
     : null;
-  return { login, signingSession };
+  const authMethod: WalletAuthMethod | null =
+    signingSession?.authMethod ||
+    login.authMethod ||
+    (login.isLoggedIn && login.publicKey ? 'passkey' : null);
+  const retention = signingSession?.retention || null;
+  return {
+    login: { ...login, authMethod },
+    signingSession,
+    authMethod,
+    retention,
+  };
 }
 
 async function resolveThresholdEcdsaEthereumAddress(
@@ -982,6 +1030,7 @@ async function getLoginStateInternal(
         nearAccountId: null,
         publicKey: null,
         userData: null,
+        authMethod: null,
         thresholdEcdsaEthereumAddress: null,
         thresholdEcdsaPublicKeyB64u: null,
       };
@@ -997,7 +1046,7 @@ async function getLoginStateInternal(
       (lastUser && lastUser.nearAccountId === targetAccountId
         ? lastUser
         : latestByAccount) ||
-      (await signingEngine.getUserByDevice(targetAccountId, 1).catch(() => null));
+      (await signingEngine.getUserBySignerSlot(targetAccountId, 1).catch(() => null));
     const resolvedNearAccountId = targetAccountId;
     const thresholdMetadata = await resolveThresholdEcdsaLoginMetadata(context, resolvedNearAccountId);
     const requiresWarmSession = shouldRequireThresholdWarmSession(context);
@@ -1035,6 +1084,7 @@ async function getLoginStateInternal(
           nearAccountId: resolvedNearAccountId,
           publicKey: null,
           userData: null,
+          authMethod: null,
           thresholdEcdsaEthereumAddress: null,
           thresholdEcdsaPublicKeyB64u: null,
         };
@@ -1046,6 +1096,7 @@ async function getLoginStateInternal(
       nearAccountId: resolvedNearAccountId,
       publicKey,
       userData,
+      authMethod: isLoggedIn && publicKey ? 'passkey' : null,
       thresholdEcdsaEthereumAddress: thresholdMetadata.ethereumAddress,
       thresholdEcdsaPublicKeyB64u: thresholdMetadata.thresholdEcdsaPublicKeyB64u,
     };
@@ -1056,6 +1107,7 @@ async function getLoginStateInternal(
       nearAccountId: nearAccountId || null,
       publicKey: null,
       userData: null,
+      authMethod: null,
       thresholdEcdsaEthereumAddress: null,
       thresholdEcdsaPublicKeyB64u: null,
     };

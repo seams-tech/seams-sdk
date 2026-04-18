@@ -60,6 +60,10 @@ export interface IdentityStore {
     userId: string;
     subject: string;
   }): Promise<UnlinkIdentityResult>;
+  deleteSubjectLinkForDevCleanup(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult>;
 
   /**
    * Returns the current app session version for a user.
@@ -332,6 +336,40 @@ class InMemoryIdentityStore implements IdentityStore {
       createdAtMs: userRec?.createdAtMs || now,
       updatedAtMs: now,
     });
+
+    return { ok: true };
+  }
+
+  async deleteSubjectLinkForDevCleanup(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult> {
+    const userId = toOptionalTrimmedString(input.userId);
+    const subject = toOptionalTrimmedString(input.subject);
+    if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+    if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+
+    const existing = this.subjectToUser.get(this.subjectKey(subject)) || null;
+    if (!existing || existing.userId !== userId) {
+      return { ok: false, code: 'not_found', message: 'Subject is not linked to this user' };
+    }
+
+    this.subjectToUser.delete(this.subjectKey(subject));
+    const now = Date.now();
+    const userRec = this.userToSubjects.get(this.userKey(userId)) || null;
+    const nextSubjects = (userRec?.subjects || []).filter((s) => s !== subject);
+    if (nextSubjects.length > 0) {
+      nextSubjects.sort();
+      this.userToSubjects.set(this.userKey(userId), {
+        version: 'identity_user_v1',
+        userId,
+        subjects: nextSubjects,
+        createdAtMs: userRec?.createdAtMs || now,
+        updatedAtMs: now,
+      });
+    } else {
+      this.userToSubjects.delete(this.userKey(userId));
+    }
 
     return { ok: true };
   }
@@ -609,6 +647,38 @@ abstract class KvBackedIdentityStore implements IdentityStore {
       createdAtMs: userRec?.createdAtMs || Date.now(),
       updatedAtMs: Date.now(),
     } satisfies IdentityUserRecord);
+    await this.del(this.subjectKey(subject));
+    return { ok: true };
+  }
+
+  async deleteSubjectLinkForDevCleanup(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult> {
+    const userId = toOptionalTrimmedString(input.userId);
+    const subject = toOptionalTrimmedString(input.subject);
+    if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+    if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+
+    const subjectRec = parseIdentitySubjectRecord(await this.getJson(this.subjectKey(subject)));
+    if (!subjectRec || subjectRec.userId !== userId) {
+      return { ok: false, code: 'not_found', message: 'Subject is not linked to this user' };
+    }
+
+    const userRec = parseIdentityUserRecord(await this.getJson(this.userKey(userId)));
+    const nextSubjects = (userRec?.subjects || []).filter((s) => s !== subject);
+    if (nextSubjects.length > 0) {
+      nextSubjects.sort();
+      await this.setJson(this.userKey(userId), {
+        version: 'identity_user_v1',
+        userId,
+        subjects: nextSubjects,
+        createdAtMs: userRec?.createdAtMs || Date.now(),
+        updatedAtMs: Date.now(),
+      } satisfies IdentityUserRecord);
+    } else {
+      await this.del(this.userKey(userId));
+    }
     await this.del(this.subjectKey(subject));
     return { ok: true };
   }
@@ -917,6 +987,34 @@ class PostgresIdentityStore implements IdentityStore {
         ok: false,
         code: 'internal',
         message: e instanceof Error ? e.message : 'Failed to unlink identity',
+      };
+    }
+  }
+
+  async deleteSubjectLinkForDevCleanup(input: {
+    userId: string;
+    subject: string;
+  }): Promise<UnlinkIdentityResult> {
+    const userId = toOptionalTrimmedString(input.userId);
+    const subject = toOptionalTrimmedString(input.subject);
+    if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+    if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+
+    const pool = await this.poolPromise;
+    try {
+      const result = await pool.query(
+        'DELETE FROM identity_links WHERE namespace = $1 AND subject = $2 AND user_id = $3',
+        [this.namespace, subject, userId],
+      );
+      if (!result.rowCount) {
+        return { ok: false, code: 'not_found', message: 'Subject is not linked to this user' };
+      }
+      return { ok: true };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: e instanceof Error ? e.message : 'Failed to delete identity link',
       };
     }
   }

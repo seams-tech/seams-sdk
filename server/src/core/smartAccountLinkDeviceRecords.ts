@@ -66,7 +66,7 @@ function toLinkedSmartAccountRecord(
 
 export function buildLinkDeviceSmartAccountRecords(input: {
   userId: string;
-  deviceNumber: number;
+  signerSlot: number;
   credentialIdB64u: string;
   rpId: string;
   relayerKeyId: string;
@@ -117,7 +117,7 @@ export function buildLinkDeviceSmartAccountRecords(input: {
         ownerAddress: thresholdOwnerAddress,
         relayerKeyId,
         thresholdEcdsaPublicKeyB64u,
-        deviceNumber: input.deviceNumber,
+        signerSlot: input.signerSlot,
         credentialIdB64u,
         rpId,
         chain: linked.chain,

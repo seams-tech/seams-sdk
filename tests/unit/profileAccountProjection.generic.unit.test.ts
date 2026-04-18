@@ -15,10 +15,8 @@ test.describe('generic profile/account projection helpers', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { PasskeyClientDBManager } = await import(paths.clientDb);
-        const {
-          resolveProfileAccountContextFromCandidates,
-          resolveProfileAccountProjection,
-        } = await import(paths.projection);
+        const { resolveProfileAccountContextFromCandidates, resolveProfileAccountProjection } =
+          await import(paths.projection);
 
         const suffix =
           typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -29,7 +27,7 @@ test.describe('generic profile/account projection helpers', () => {
 
         await clientDB.upsertProfile({
           profileId: 'profile-evm-projection',
-          defaultDeviceNumber: 2,
+          defaultSignerSlot: 2,
           passkeyCredential: {
             id: 'projection-credential-id',
             rawId: 'projection-credential-raw-id',
@@ -48,7 +46,10 @@ test.describe('generic profile/account projection helpers', () => {
           accountAddress: '0xabc123',
           signerId: 'signer-device-1',
           signerSlot: 1,
-          signerType: 'device',
+          signerType: 'threshold',
+          signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
           status: 'active',
           mutation: { routeThroughOutbox: false },
         });
@@ -58,7 +59,10 @@ test.describe('generic profile/account projection helpers', () => {
           accountAddress: '0xabc123',
           signerId: 'signer-device-2',
           signerSlot: 2,
-          signerType: 'device',
+          signerType: 'threshold',
+          signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
           status: 'active',
           mutation: { routeThroughOutbox: false },
         });
@@ -71,7 +75,7 @@ test.describe('generic profile/account projection helpers', () => {
         const projection = await resolveProfileAccountProjection(clientDB, { accountRefs });
         const explicitProjection = await resolveProfileAccountProjection(clientDB, {
           accountRefs,
-          deviceNumber: 1,
+          signerSlot: 1,
         });
 
         return {
@@ -111,7 +115,7 @@ test.describe('generic profile/account projection helpers', () => {
 
         await clientDB.upsertProfile({
           profileId: 'profile-last-selected',
-          defaultDeviceNumber: 3,
+          defaultSignerSlot: 3,
           passkeyCredential: {
             id: 'last-selected-credential-id',
             rawId: 'last-selected-credential-raw-id',
@@ -137,7 +141,10 @@ test.describe('generic profile/account projection helpers', () => {
           accountAddress: '0xprimary',
           signerId: 'signer-device-3',
           signerSlot: 3,
-          signerType: 'device',
+          signerType: 'threshold',
+          signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
           status: 'active',
           mutation: { routeThroughOutbox: false },
         });
@@ -152,7 +159,7 @@ test.describe('generic profile/account projection helpers', () => {
 
     expect(result).toMatchObject({
       profileId: 'profile-last-selected',
-      deviceNumber: 3,
+      signerSlot: 3,
       chainAccount: {
         chainIdKey: 'evm:11155111',
         accountAddress: '0xprimary',

@@ -171,7 +171,7 @@ async function seedEmailOtpEnrollment(service: AuthService): Promise<void> {
 async function consumeEmailOtpChallengeRateLimit(service: AuthService, clientIp: string) {
   return (service as any).consumeEmailOtpRateLimit({
     scope: 'challenge',
-    action: 'wallet_email_otp_authorize',
+    action: 'wallet_email_otp_login',
     userId: USER_ID,
     walletId: WALLET_ID,
     clientIp,
@@ -265,6 +265,57 @@ test.describe('AuthService Email OTP policy', () => {
     expect(enrolledChallenge.ok).toBe(true);
   });
 
+  test('Email OTP login challenges bind export_key operation through verification', async () => {
+    const service = makeService();
+    await seedEmailOtpEnrollment(service);
+    const challenge = await service.createEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      email: EMAIL,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+      operation: 'export_key',
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    expect(challenge.challenge.operation).toBe('export_key');
+
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: USER_ID,
+      walletId: WALLET_ID,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) return;
+
+    const wrongOperation = await service.verifyEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      challengeId: challenge.challenge.challengeId,
+      otpCode: outbox.otpCode,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+      operation: 'transaction_sign',
+    });
+    expect(wrongOperation.ok).toBe(false);
+    if (wrongOperation.ok) return;
+    expect(wrongOperation.code).toBe('challenge_binding_mismatch');
+
+    const verified = await service.verifyEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      challengeId: challenge.challenge.challengeId,
+      otpCode: outbox.otpCode,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+      operation: 'export_key',
+    });
+    expect(verified.ok).toBe(true);
+  });
+
   test.describe('Postgres durable stores', () => {
     const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
     const enabled = Boolean(postgresUrl);
@@ -311,7 +362,7 @@ test.describe('AuthService Email OTP policy', () => {
         otpCode: '169670',
         sessionHash: SESSION_HASH,
         appSessionVersion: APP_SESSION_VERSION,
-        action: 'wallet_email_otp_enroll',
+        action: 'wallet_email_otp_registration',
         createdAtMs: nowMs,
         expiresAtMs,
         attemptCount: 0,

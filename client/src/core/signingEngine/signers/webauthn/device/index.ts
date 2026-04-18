@@ -1,1 +1,1 @@
-export * from './getDeviceNumber';
+export * from './signerSlot';

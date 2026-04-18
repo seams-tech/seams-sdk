@@ -27,6 +27,7 @@ import type { TempoSigningDeps } from '../api/tempoSigning';
 import type { ThresholdEd25519LifecycleDeps } from '../api/thresholdLifecycle/thresholdEd25519Lifecycle';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
+  type ThresholdEd25519SessionRecord,
   type ThresholdEcdsaSessionRecord,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
 import type {
@@ -84,18 +85,32 @@ export type CreateOrchestrationDependencyBundleArgs = {
   }) => ThresholdEcdsaSessionRecord;
   requestEmailOtpChallengeForSigning?: (args: {
     nearAccountId: AccountId | string;
-    chain: 'tempo' | 'evm';
+    chain: 'near' | 'tempo' | 'evm';
+    operation?: 'transaction_sign' | 'export_key';
+    appSessionJwt?: string;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
+  loginWithEmailOtpEd25519CapabilityForSigning?: (args: {
+    nearAccountId: AccountId | string;
+    challengeId: string;
+    otpCode: string;
+    record: ThresholdEd25519SessionRecord;
+    operation?: 'transaction_sign' | 'export_key';
+  }) => Promise<{ sessionId: string }>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
     challengeId: string;
     otpCode: string;
     record: ThresholdEcdsaSessionRecord;
+    operation?: 'transaction_sign' | 'export_key';
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
+  }) => void;
+  markThresholdEd25519EmailOtpSessionConsumedForAccount?: (args: {
+    nearAccountId: AccountId | string;
+    thresholdSessionId?: string;
   }) => void;
   clearThresholdEcdsaSessionRecordForLane: (args: {
     nearAccountId: AccountId | string;
@@ -183,6 +198,33 @@ export function createOrchestrationDependencyBundle(
     },
     createSigningSessionId: (prefix: string): string => generateSessionIdValue(prefix),
     getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
+    requestEmailOtpChallengeForSigning: ({ nearAccountId, chain, operation, appSessionJwt }) =>
+      args.requestEmailOtpChallengeForSigning?.({
+        nearAccountId,
+        chain,
+        ...(operation ? { operation } : {}),
+        ...(appSessionJwt ? { appSessionJwt } : {}),
+      }) ||
+      Promise.reject(new Error('Email OTP signing challenge is not configured')),
+    loginWithEmailOtpEd25519CapabilityForSigning: ({
+      nearAccountId,
+      challengeId,
+      otpCode,
+      record,
+      operation,
+    }) =>
+      args.loginWithEmailOtpEd25519CapabilityForSigning?.({
+        nearAccountId,
+        challengeId,
+        otpCode,
+        record,
+        operation,
+      }) || Promise.reject(new Error('Email OTP Ed25519 signing bootstrap is not configured')),
+    markThresholdEd25519EmailOtpSessionConsumedForAccount: ({ nearAccountId, thresholdSessionId }) =>
+      args.markThresholdEd25519EmailOtpSessionConsumedForAccount?.({
+        nearAccountId,
+        thresholdSessionId,
+      }),
     withThresholdEd25519CommitQueue: (queueArgs) =>
       args.withThresholdEd25519CommitQueue(queueArgs),
   };
@@ -215,8 +257,13 @@ export function createOrchestrationDependencyBundle(
         args.getThresholdEcdsaKeyRefForSigning({ nearAccountId, chain }),
       getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
         args.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
-      requestEmailOtpChallengeForSigning: ({ nearAccountId, chain }) =>
-        args.requestEmailOtpChallengeForSigning?.({ nearAccountId, chain }) ||
+      requestEmailOtpChallengeForSigning: ({ nearAccountId, chain, operation, appSessionJwt }) =>
+        args.requestEmailOtpChallengeForSigning?.({
+          nearAccountId,
+          chain,
+          ...(operation ? { operation } : {}),
+          ...(appSessionJwt ? { appSessionJwt } : {}),
+        }) ||
         Promise.reject(new Error('Email OTP signing challenge is not configured')),
       loginWithEmailOtpEcdsaCapabilityForSigning: ({
         nearAccountId,
@@ -224,6 +271,7 @@ export function createOrchestrationDependencyBundle(
         challengeId,
         otpCode,
         record,
+        operation,
       }) =>
         args.loginWithEmailOtpEcdsaCapabilityForSigning?.({
           nearAccountId,
@@ -231,6 +279,7 @@ export function createOrchestrationDependencyBundle(
           challengeId,
           otpCode,
           record,
+          operation,
         }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({ nearAccountId, chain }) =>
         args.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({ nearAccountId, chain }),

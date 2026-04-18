@@ -70,7 +70,8 @@ export type ThresholdEd25519SessionStoreSource =
   | 'login'
   | 'registration'
   | 'manual-connect'
-  | 'bootstrap';
+  | 'bootstrap'
+  | 'email_otp';
 
 export type ThresholdEd25519SessionRecord = {
   nearAccountId: AccountId;
@@ -85,6 +86,7 @@ export type ThresholdEd25519SessionRecord = {
   thresholdSessionJwt?: string;
   expiresAtMs: number;
   remainingUses: number;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   updatedAtMs: number;
   source: ThresholdEd25519SessionStoreSource;
 };
@@ -583,9 +585,14 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     sourceRaw === 'login' ||
     sourceRaw === 'registration' ||
     sourceRaw === 'manual-connect' ||
-    sourceRaw === 'bootstrap'
+    sourceRaw === 'bootstrap' ||
+    sourceRaw === 'email_otp'
       ? sourceRaw
       : 'manual-connect';
+  const emailOtpAuthContext =
+    source === 'email_otp'
+      ? normalizeThresholdEcdsaEmailOtpAuthContext(obj.emailOtpAuthContext)
+      : null;
 
   if (!rpId || !relayerUrl || !relayerKeyId || !participantIds || !thresholdSessionId) {
     throw new Error('Invalid threshold Ed25519 canonical session record');
@@ -613,6 +620,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
     expiresAtMs,
     remainingUses,
+    ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
     updatedAtMs,
     source,
   };
@@ -1212,6 +1220,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   thresholdSessionJwt?: string;
   expiresAtMs: number;
   remainingUses: number;
+  emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   updatedAtMs?: number;
   source?: ThresholdEd25519SessionStoreSource;
 }): ThresholdEd25519SessionRecord | null {
@@ -1234,6 +1243,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
       : {}),
     expiresAtMs: Math.floor(Number(args.expiresAtMs) || 0),
     remainingUses: Math.floor(Number(args.remainingUses) || 0),
+    ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
     updatedAtMs: Math.floor(Number(args.updatedAtMs ?? Date.now()) || 0),
     source: args.source || 'manual-connect',
   });
@@ -1277,6 +1287,9 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
     thresholdSessionJwt: existing.thresholdSessionJwt,
     expiresAtMs: existing.expiresAtMs,
     remainingUses: existing.remainingUses,
+    ...(existing.emailOtpAuthContext
+      ? { emailOtpAuthContext: existing.emailOtpAuthContext }
+      : {}),
     updatedAtMs: args.updatedAtMs ?? Date.now(),
     source: existing.source,
   });
@@ -1305,6 +1318,40 @@ export function getStoredThresholdEd25519SessionRecordForAccount(
   } catch {
     return null;
   }
+}
+
+export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
+  nearAccountId: AccountId | string;
+  thresholdSessionId?: string;
+  nowMs?: number;
+}): ThresholdEd25519SessionRecord | null {
+  const record = getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
+  if (!record || record.source !== 'email_otp' || !record.emailOtpAuthContext) return null;
+  const expectedSessionId = String(args.thresholdSessionId || '').trim();
+  const actualSessionId = String(record.thresholdSessionId || '').trim();
+  if (expectedSessionId && actualSessionId && expectedSessionId !== actualSessionId) {
+    return null;
+  }
+  const nowMs = Math.max(0, Math.floor(Number(args.nowMs ?? Date.now()) || 0));
+  return upsertStoredThresholdEd25519SessionRecord({
+    nearAccountId: record.nearAccountId,
+    rpId: record.rpId,
+    relayerUrl: record.relayerUrl,
+    relayerKeyId: record.relayerKeyId,
+    participantIds: record.participantIds,
+    ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    thresholdSessionKind: record.thresholdSessionKind,
+    thresholdSessionId: record.thresholdSessionId,
+    ...(record.thresholdSessionJwt ? { thresholdSessionJwt: record.thresholdSessionJwt } : {}),
+    expiresAtMs: record.expiresAtMs,
+    remainingUses: record.remainingUses,
+    emailOtpAuthContext: {
+      ...record.emailOtpAuthContext,
+      consumedAtMs: nowMs,
+    },
+    updatedAtMs: nowMs,
+    source: 'email_otp',
+  });
 }
 
 export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(

@@ -53,6 +53,11 @@ async function installThresholdRegistrationBootstrapMock(
     relayerBaseUrl: string;
     threshold: unknown;
     session: { signJwt: (sub: string, extra?: Record<string, unknown>) => Promise<string> };
+    runtimePolicyScope: {
+      orgId: string;
+      projectId: string;
+      envId: string;
+    };
     onNewPublicKey: (publicKey: string) => void;
     onNewAccountId?: (accountId: string) => void;
   },
@@ -98,12 +103,24 @@ async function installThresholdRegistrationBootstrapMock(
 
     if (accountId) input.onNewAccountId?.(accountId);
 
+    const resolveRuntimePolicyScope = (policy: Record<string, unknown>): typeof input.runtimePolicyScope => {
+      const scope =
+        policy.runtimePolicyScope && typeof policy.runtimePolicyScope === 'object'
+          ? (policy.runtimePolicyScope as Partial<typeof input.runtimePolicyScope>)
+          : {};
+      const orgId = String(scope.orgId || input.runtimePolicyScope.orgId || '').trim();
+      const projectId = String(scope.projectId || input.runtimePolicyScope.projectId || '').trim();
+      const envId = String(scope.envId || input.runtimePolicyScope.envId || '').trim();
+      return { orgId, projectId, envId };
+    };
+
     const signThresholdSessionJwt = async (args: {
       kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
       sessionId: string;
       relayerKeyId: string;
       participantIds: number[];
       expiresAtMs: number;
+      runtimePolicyScope: typeof input.runtimePolicyScope;
     }): Promise<string> => {
       const nowSec = Math.floor(nowMs / 1000);
       const expSec = Math.floor(args.expiresAtMs / 1000);
@@ -114,6 +131,7 @@ async function installThresholdRegistrationBootstrapMock(
         rpId,
         participantIds: args.participantIds,
         thresholdExpiresAtMs: args.expiresAtMs,
+        runtimePolicyScope: args.runtimePolicyScope,
         iat: nowSec,
         exp: expSec,
       });
@@ -136,12 +154,14 @@ async function installThresholdRegistrationBootstrapMock(
       const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
       const expiresAtMs = nowMs + ttlMs;
       const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
+      const runtimePolicyScope = resolveRuntimePolicyScope(policy);
       const jwt = await signThresholdSessionJwt({
         kind: 'threshold_ed25519_session_v1',
         sessionId,
         relayerKeyId: thresholdEdRelayerKeyId,
         participantIds,
         expiresAtMs,
+        runtimePolicyScope,
       });
       thresholdEdResponse = {
         keyVersion: thresholdEdKeyVersion,
@@ -157,6 +177,7 @@ async function installThresholdRegistrationBootstrapMock(
           expiresAtMs,
           participantIds,
           remainingUses,
+          runtimePolicyScope,
           jwt,
         },
       };
@@ -178,6 +199,7 @@ async function installThresholdRegistrationBootstrapMock(
       const ttlMs = positiveInt(policy?.ttlMs || policy?.ttl_ms, 60_000);
       const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
       const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
+      const runtimePolicyScope = resolveRuntimePolicyScope(policy);
       const bootstrap = (await bootstrapEcdsaFromRegistrationMaterial({
         userId: accountId,
         rpId,
@@ -190,6 +212,7 @@ async function installThresholdRegistrationBootstrapMock(
           ttlMs,
           remainingUses,
           participantIds,
+          runtimePolicyScope,
         },
       })) as Record<string, unknown>;
       if (!bootstrap?.ok) {
@@ -221,6 +244,7 @@ async function installThresholdRegistrationBootstrapMock(
             ? bootstrap.participantIds
             : participantIds,
           remainingUses: Number(bootstrap.remainingUses || remainingUses),
+          runtimePolicyScope,
           jwt: String(bootstrap.jwt || ''),
         },
       };
@@ -340,7 +364,13 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
     roles: ['admin'],
   } as const;
   const bootstrapProjectId = 'proj_threshold_sealed_refresh';
-  const managedRegistrationEnvironmentId = `${bootstrapProjectId}:dev`;
+  const bootstrapEnvId = 'dev';
+  const runtimePolicyScope = {
+    orgId: bootstrapAdminCtx.orgId,
+    projectId: bootstrapProjectId,
+    envId: bootstrapEnvId,
+  } as const;
+  const managedRegistrationEnvironmentId = `${bootstrapProjectId}:${bootstrapEnvId}`;
   await orgProjectEnv.upsertOrganization(bootstrapAdminCtx, {
     name: 'Threshold Sealed Refresh Org',
     slug: 'threshold-sealed-refresh-org',
@@ -450,6 +480,7 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
       relayerBaseUrl: relayerUrl,
       threshold,
       session,
+      runtimePolicyScope,
       onNewPublicKey: (publicKey) => {
         keysOnChain.add(publicKey);
         nonceByPublicKey.set(publicKey, 0);
@@ -1766,17 +1797,17 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 IndexedDBManager.clientDB.getProfile(accountContext.profileId).catch(() => null),
                 IndexedDBManager.clientDB.getLastProfileState().catch(() => null),
               ]);
-              const preferredDeviceNumber =
+              const preferredSignerSlot =
                 lastProfileState?.profileId === accountContext.profileId
-                  ? Number(lastProfileState.deviceNumber)
-                  : Number(profile?.defaultDeviceNumber);
-              const deviceNumber =
-                Number.isFinite(preferredDeviceNumber) && preferredDeviceNumber >= 1
-                  ? Math.max(1, Math.floor(preferredDeviceNumber))
+                  ? Number(lastProfileState.signerSlot)
+                  : Number(profile?.defaultSignerSlot);
+              const signerSlot =
+                Number.isFinite(preferredSignerSlot) && preferredSignerSlot >= 1
+                  ? Math.max(1, Math.floor(preferredSignerSlot))
                   : 1;
               const thresholdKeyMaterial = await IndexedDBManager.accountKeyMaterialDB.getKeyMaterial(
                 accountContext.profileId,
-                deviceNumber,
+                signerSlot,
                 accountContext.accountRef.chainIdKey,
                 'threshold_share_v1',
               );

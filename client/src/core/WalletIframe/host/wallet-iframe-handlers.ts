@@ -110,11 +110,12 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_REQUEST_EMAIL_OTP_CHALLENGE: async (req: Req<'PM_REQUEST_EMAIL_OTP_CHALLENGE'>) => {
       const pm = getTatchiPasskey();
-      const { nearAccountId, relayUrl, appSessionJwt } = req.payload!;
+      const { nearAccountId, relayUrl, appSessionJwt, operation } = req.payload!;
       const result = await pm.auth.requestEmailOtpChallenge({
         nearAccountId,
         ...(relayUrl ? { relayUrl } : {}),
         ...(appSessionJwt ? { appSessionJwt } : {}),
+        ...(operation ? { operation } : {}),
       });
       respondOkResult(req.requestId, result);
     },
@@ -576,14 +577,14 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_START_DEVICE2_LINKING_FLOW: async (req: Req<'PM_START_DEVICE2_LINKING_FLOW'>) => {
       const pm = getTatchiPasskey();
-      const { ui, cameraId, accountId, deviceNumber, options } = req.payload || {};
+      const { ui, cameraId, accountId, signerSlot, options } = req.payload || {};
       const accountIdValue = accountId ? toAccountId(accountId) : undefined;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.startDevice2LinkingFlow({
         ...(ui ? { ui } : {}),
         ...(cameraId ? { cameraId } : {}),
         ...(accountIdValue ? { accountId: accountIdValue } : {}),
-        ...(typeof deviceNumber === 'number' ? { deviceNumber } : {}),
+        ...(typeof signerSlot === 'number' ? { signerSlot } : {}),
         options: {
           ...withProgress(req.requestId, options || {}),
         },

@@ -87,7 +87,10 @@ test.describe('private key export recovery hardening', () => {
                     profileId: 'profile-1',
                     accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
                   }),
-                  getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 7 }),
+                  getLastProfileState: async () => ({
+                    profileId: 'profile-1',
+                    activeSignerSlot: 7,
+                  }),
                 },
               } as any,
               relayerUrl: 'https://relay.example.test',
@@ -116,7 +119,7 @@ test.describe('private key export recovery hardening', () => {
             code: String(error?.code || ''),
             telemetryEvent: String((telemetry[1] as any)?.event || ''),
             telemetryReason: String((telemetry[1] as any)?.reason || ''),
-            telemetryDeviceNumber: Number((telemetry[1] as any)?.deviceNumber || 0),
+            telemetrySignerSlot: Number((telemetry[1] as any)?.signerSlot || 0),
           };
         } finally {
           console.warn = originalWarn;
@@ -130,7 +133,7 @@ test.describe('private key export recovery hardening', () => {
     expect(result.code).toBe('SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED');
     expect(result.telemetryEvent).toBe('signer.export.worker_boundary_required');
     expect(result.telemetryReason).toBe('worker_missing_export_operation');
-    expect(result.telemetryDeviceNumber).toBe(7);
+    expect(result.telemetrySignerSlot).toBe(7);
   });
 
   test('routes successful Option A seed export through the worker with canonical payload', async ({
@@ -149,7 +152,10 @@ test.describe('private key export recovery hardening', () => {
                   profileId: 'profile-1',
                   accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
                 }),
-                getLastProfileState: async () => ({ profileId: 'profile-1', deviceNumber: 3 }),
+                getLastProfileState: async () => ({
+                  profileId: 'profile-1',
+                  activeSignerSlot: 3,
+                }),
               },
             } as any,
             relayerUrl: 'https://relay.example.test',
@@ -188,7 +194,7 @@ test.describe('private key export recovery hardening', () => {
     });
     expect(result.payload).toMatchObject({
       nearAccountId: 'alice.testnet',
-      deviceNumber: 3,
+      signerSlot: 3,
       chain: 'near',
       artifactKind: 'near-ed25519-seed-v1',
       expectedPublicKey: 'ed25519:op-pub',

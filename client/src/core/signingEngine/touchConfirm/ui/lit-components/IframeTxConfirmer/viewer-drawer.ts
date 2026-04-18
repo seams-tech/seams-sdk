@@ -148,6 +148,10 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     return this.signingAuthMode === 'emailOtp';
   }
 
+  private _isWarmSessionMode(): boolean {
+    return this.signingAuthMode === 'warmSession';
+  }
+
   private _onOtpInput = (event: Event): void => {
     const input = event.currentTarget as HTMLInputElement | null;
     this.otpCode = String(input?.value || '').replace(/\D/g, '').slice(0, 6);
@@ -158,7 +162,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     if (!this._isEmailOtpMode()) return '';
     const helper =
       String(this.emailOtpPrompt?.helperText || '').trim() ||
-      'Enter the 6-digit code sent to your email to authorize this transaction.';
+      'Enter the 6-digit code sent to your email to sign this transaction.';
     return html`
       <div class="email-otp-confirm">
         <label class="email-otp-confirm__label" for="drawer-email-otp-confirm-code">Email code</label>
@@ -368,7 +372,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                   : 0;
                 const isRegistration = operationCount === 0;
                 const fallback = this._isEmailOtpMode()
-                  ? 'Confirm with Email OTP'
+                  ? 'Enter email code to sign'
+                  : this._isWarmSessionMode()
+                    ? 'Review transaction'
                   : isRegistration
                     ? 'Register with Passkey'
                     : 'Confirm with Passkey';
@@ -376,7 +382,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                 const promptTitle = String(this.emailOtpPrompt?.title || '').trim();
                 const heading = this._isEmailOtpMode()
                   ? promptTitle || fallback
-                  : titleText || fallback;
+                  : this.signingAuthMode === 'webauthn' || this._isWarmSessionMode()
+                    ? fallback
+                    : titleText || fallback;
                 return html`<h2 class="drawer-title">${heading}</h2>`;
               })()}
             </div>

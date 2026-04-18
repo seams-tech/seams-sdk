@@ -59,8 +59,15 @@ export async function ensureThresholdEd25519HssClientBase(args: {
       'Threshold Ed25519 session is bound to canonical Option A scope but is missing threshold session JWT for HSS reconstruction',
     );
   }
-  if (!signingRootId || !thresholdSessionJwt) {
-    return undefined;
+  if (!signingRootId) {
+    throw new Error(
+      'Threshold Ed25519 session is missing signing-root scope for Option A HSS reconstruction',
+    );
+  }
+  if (!thresholdSessionJwt) {
+    throw new Error(
+      'Threshold Ed25519 session is missing threshold session JWT for Option A HSS reconstruction',
+    );
   }
 
   const keyPurpose =

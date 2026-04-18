@@ -29,7 +29,9 @@ test.describe('signer mutation saga pending behavior', () => {
           const clientDB = new PasskeyClientDBManager();
           clientDB.setDbName(`PasskeyClientDB-signerSagaUndeployed-${suffix}`);
           const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
-          accountKeyMaterialDB.setDbName(`PasskeyAccountKeyMaterial-signerSagaUndeployed-${suffix}`);
+          accountKeyMaterialDB.setDbName(
+            `PasskeyAccountKeyMaterial-signerSagaUndeployed-${suffix}`,
+          );
           const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
           const nearAccountRef = {
             chainIdKey: 'near:testnet',
@@ -39,7 +41,7 @@ test.describe('signer mutation saga pending behavior', () => {
 
           await clientDB.upsertProfile({
             profileId,
-            defaultDeviceNumber: 2,
+            defaultSignerSlot: 2,
             passkeyCredential: {
               id: 'cred-id',
               rawId: 'cred-raw-id',
@@ -58,7 +60,10 @@ test.describe('signer mutation saga pending behavior', () => {
             accountAddress: nearAccountRef.accountAddress,
             signerId: 'ed25519:device-2',
             signerSlot: 2,
-            signerType: 'passkey',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'active',
             mutation: { routeThroughOutbox: false },
           });
@@ -80,11 +85,14 @@ test.describe('signer mutation saga pending behavior', () => {
             signerId: `0x${'aa'.repeat(20)}`,
             signerSlot: 2,
             signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'pending',
           });
           await accountKeyMaterialDB.storeKeyMaterial({
             profileId: context.profileId,
-            deviceNumber: 2,
+            signerSlot: 2,
             chainIdKey: 'evm:11155111',
             keyKind: 'threshold_share_v1',
             algorithm: 'webauthn-p256',
@@ -163,7 +171,7 @@ test.describe('signer mutation saga pending behavior', () => {
 
           await clientDB.upsertProfile({
             profileId,
-            defaultDeviceNumber: 2,
+            defaultSignerSlot: 2,
             passkeyCredential: {
               id: 'cred-id',
               rawId: 'cred-raw-id',
@@ -182,7 +190,10 @@ test.describe('signer mutation saga pending behavior', () => {
             accountAddress: nearAccountRef.accountAddress,
             signerId: 'ed25519:device-2',
             signerSlot: 2,
-            signerType: 'passkey',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'active',
             mutation: { routeThroughOutbox: false },
           });
@@ -204,11 +215,14 @@ test.describe('signer mutation saga pending behavior', () => {
             signerId: `0x${'bb'.repeat(20)}`,
             signerSlot: 2,
             signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'pending',
           });
           await accountKeyMaterialDB.storeKeyMaterial({
             profileId: context.profileId,
-            deviceNumber: 2,
+            signerSlot: 2,
             chainIdKey: 'evm:11155111',
             keyKind: 'threshold_share_v1',
             algorithm: 'webauthn-p256',
@@ -296,7 +310,7 @@ test.describe('signer mutation saga pending behavior', () => {
 
           await clientDB.upsertProfile({
             profileId,
-            defaultDeviceNumber: 1,
+            defaultSignerSlot: 1,
             passkeyCredential: {
               id: 'cred-id',
               rawId: 'cred-raw-id',
@@ -315,7 +329,10 @@ test.describe('signer mutation saga pending behavior', () => {
             accountAddress: nearAccountRef.accountAddress,
             signerId: 'ed25519:device-1',
             signerSlot: 1,
-            signerType: 'passkey',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'active',
             mutation: { routeThroughOutbox: false },
           });
@@ -337,11 +354,14 @@ test.describe('signer mutation saga pending behavior', () => {
             signerId: `0x${'cc'.repeat(20)}`,
             signerSlot: 2,
             signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'pending',
           });
           await accountKeyMaterialDB.storeKeyMaterial({
             profileId: context.profileId,
-            deviceNumber: 2,
+            signerSlot: 2,
             chainIdKey: 'evm:11155111',
             keyKind: 'threshold_share_v1',
             algorithm: 'webauthn-p256',
@@ -440,7 +460,7 @@ test.describe('signer mutation saga pending behavior', () => {
 
           await clientDB.upsertProfile({
             profileId,
-            defaultDeviceNumber: 1,
+            defaultSignerSlot: 1,
             passkeyCredential: {
               id: 'cred-id',
               rawId: 'cred-raw-id',
@@ -459,7 +479,10 @@ test.describe('signer mutation saga pending behavior', () => {
             accountAddress: nearAccountRef.accountAddress,
             signerId: 'ed25519:device-1',
             signerSlot: 1,
-            signerType: 'passkey',
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'active',
             mutation: { routeThroughOutbox: false },
           });
@@ -481,12 +504,15 @@ test.describe('signer mutation saga pending behavior', () => {
             signerId: `0x${'dd'.repeat(20)}`,
             signerSlot: 2,
             signerType: 'threshold',
+            signerKind: 'threshold-ecdsa',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             status: 'active',
             mutation: { routeThroughOutbox: false },
           });
           await accountKeyMaterialDB.storeKeyMaterial({
             profileId: context.profileId,
-            deviceNumber: 2,
+            signerSlot: 2,
             chainIdKey: 'evm:11155111',
             keyKind: 'threshold_share_v1',
             algorithm: 'webauthn-p256',
@@ -527,7 +553,7 @@ test.describe('signer mutation saga pending behavior', () => {
             accountAddress: `0x${'44'.repeat(20)}`,
             signerId: `0x${'dd'.repeat(20)}`,
           });
-          const keys = await accountKeyMaterialDB.listKeyMaterialByProfileAndDevice(
+          const keys = await accountKeyMaterialDB.listKeyMaterialByProfileAndSignerSlot(
             context.profileId,
             2,
             'evm:11155111',

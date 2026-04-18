@@ -101,7 +101,8 @@ import {
 } from './stripeBillingProvider.js';
 
 const relayServerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-dotenv.config({ path: resolve(relayServerDir, '.env') });
+const relayDotenvPath = resolve(relayServerDir, '.env');
+dotenv.config({ path: relayDotenvPath, override: true });
 
 let server: ReturnType<Express['listen']> | null = null;
 let recoveryAuthorityRunner: ReturnType<typeof createRecoveryAuthorityIntervalRunner> | null = null;
@@ -874,6 +875,11 @@ async function main() {
   };
   const startupHost = config.host || '0.0.0.0';
   console.log(`[relay-server] startup target http://${startupHost}:${config.port}`);
+  const emailOtpGoogleRegistrationWalletIdPolicy =
+    String(env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY || 'stable').trim() || 'stable';
+  console.log(
+    `[relay-server] Email OTP Google registration wallet-id policy: ${emailOtpGoogleRegistrationWalletIdPolicy}`,
+  );
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromEnv(env);
   const requiresAtomicSponsoredSettlement = Boolean(sponsoredEvmCallConfig);
   const recoveryAuthorityContinuationEnabled = parseBooleanFlag(

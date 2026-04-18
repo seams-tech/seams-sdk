@@ -53,6 +53,12 @@ function formatGoogleSsoEmailOtpError(error: unknown): string {
   const code = String((error as any)?.code || '').trim();
   const status = Number((error as any)?.status);
   const message = error instanceof Error ? error.message : String((error as any)?.message || '');
+  if (code === 'wallet_id_collision') {
+    return 'This Google SSO registration hit an existing wallet id that is not controlled by the new Email OTP signer. Try a fresh dev wallet or use the existing account signer to add this login method.';
+  }
+  if (code === 'registration_incomplete') {
+    return 'This Google account has an incomplete Email OTP registration. Retry registration after the stale attempt expires, or clear the local dev registration state.';
+  }
   if ((code === 'not_found' || status === 404) && /Email OTP enrollment not found/i.test(message)) {
     return 'No Email OTP wallet is enrolled for this Google account yet. Use Register with Google SSO first.';
   }
@@ -237,17 +243,31 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     const emailHint = String(exchange.session?.email || '').trim();
     const displayHint = emailHint || walletId;
 
+    const googleResolution = exchange.session.googleEmailOtpResolution;
+    const otpFlow: 'enroll' | 'login' =
+      googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
+    if (isRegister && otpFlow === 'login') {
+      toast.info('Existing Email OTP wallet found for this Google account. Sending a login code instead.', {
+        id: 'google-sso',
+      });
+    } else if (otpFlow === 'enroll') {
+      toast.info('Creating a new Email OTP wallet for this Google account. Sending the setup code now.', {
+        id: 'google-sso',
+      });
+    }
     const challenge = await (async () => {
       try {
-        return isRegister
-          ? await tatchi.auth.requestEmailOtpEnrollmentChallenge({
-              nearAccountId: walletId,
-              relayUrl: relayerBaseUrl,
-            })
-          : await tatchi.auth.requestEmailOtpChallenge({
-              nearAccountId: walletId,
-              relayUrl: relayerBaseUrl,
-            });
+        if (otpFlow === 'login') {
+          return await tatchi.auth.requestEmailOtpChallenge({
+            nearAccountId: walletId,
+            relayUrl: relayerBaseUrl,
+          });
+        }
+
+        return await tatchi.auth.requestEmailOtpEnrollmentChallenge({
+          nearAccountId: walletId,
+          relayUrl: relayerBaseUrl,
+        });
       } catch (error: unknown) {
         const message = formatGoogleSsoEmailOtpError(error);
         toast.error(message, { id: 'google-sso' });
@@ -269,7 +289,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         onSubmit: async (otpCode: string) => {
           const toastId = 'google-email-otp';
           toast.loading('Unlocking wallet with email code…', { id: toastId });
-          if (isRegister) {
+          if (otpFlow === 'enroll') {
             await tatchi.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
               nearAccountId: walletId,
               chain: 'tempo',
@@ -278,6 +298,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               relayUrl: relayerBaseUrl,
               sessionKind: 'cookie',
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
+              ...(googleResolution?.registrationAttemptId
+                ? { registrationAttemptId: googleResolution.registrationAttemptId }
+                : {}),
               ...(exchange.session.runtimePolicyScope
                 ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
                 : {}),

@@ -1,6 +1,11 @@
 import type { AccountId } from '../types/accountIds';
 import type { ConfirmationConfig } from '../types/signer-worker';
-import type { UndeployedSmartAccountSignerSet } from '@shared/utils';
+import type {
+  SignerAuthMethod,
+  SignerKind,
+  SignerSource,
+  UndeployedSmartAccountSignerSet,
+} from '@shared/utils';
 
 export interface PasskeyCredentialRecord {
   id: string;
@@ -16,7 +21,7 @@ export interface UserPreferences {
 
 export interface LastProfileState {
   profileId: string;
-  deviceNumber: number;
+  activeSignerSlot: number;
   scope?: string | null;
 }
 
@@ -28,7 +33,7 @@ export interface IndexedDBEvent {
 
 export interface ProfileAuthenticatorRecord {
   profileId: string;
-  deviceNumber: number;
+  signerSlot: number;
   credentialId: string;
   credentialPublicKey: Uint8Array;
   transports?: string[];
@@ -65,9 +70,10 @@ export interface AccountRef {
   accountAddress: AccountAddress;
 }
 
-export type AccountModel = 'near-native' | 'erc4337' | 'eoa' | 'tempo-native' | string;
+export type AccountModel = 'near-native' | 'erc4337' | 'tempo-native' | string;
 export type AccountSignerType = 'passkey' | 'threshold' | 'session' | 'recovery' | string;
 export type AccountSignerStatus = 'active' | 'pending' | 'revoked';
+export type { SignerAuthMethod, SignerKind, SignerSource };
 export interface AccountModelCapabilities {
   supportsMultiSigner: boolean;
   supportsAddRemoveSigner: boolean;
@@ -83,8 +89,8 @@ export type DBConstraintErrorCode =
   | 'SIGNER_MUTATION_NOT_SUPPORTED'
   | 'SESSION_SIGNER_NOT_SUPPORTED'
   | 'RECOVERY_SIGNER_NOT_SUPPORTED'
+  | 'MISSING_SIGNER_KIND'
   | 'DUPLICATE_ACTIVE_SIGNER_SLOT'
-  | 'EOA_ACTIVE_SIGNER_LIMIT'
   | 'INVALID_SIGNER_STATUS_TRANSITION'
   | 'REVOKED_SIGNER_REQUIRES_REMOVED_AT'
   | 'INVALID_LAST_PROFILE_STATE';
@@ -98,7 +104,7 @@ export type SignerOperationStatus = 'queued' | 'submitted' | 'confirmed' | 'fail
 
 export interface ProfileRecord {
   profileId: ProfileId;
-  defaultDeviceNumber: number;
+  defaultSignerSlot: number;
   passkeyCredential?: PasskeyCredentialRecord;
   preferences?: UserPreferences;
   createdAt: number;
@@ -130,10 +136,14 @@ export interface AccountSignerRecord {
   signerId: SignerId;
   signerSlot: number;
   signerType: AccountSignerType;
+  signerKind: SignerKind;
+  signerAuthMethod: SignerAuthMethod;
+  signerSource: SignerSource;
   status: AccountSignerStatus;
   addedAt: number;
   updatedAt: number;
   removedAt?: number;
+  revocationReason?: string;
   metadata?: Record<string, unknown>;
 }
 
@@ -162,7 +172,7 @@ export interface SignerOpOutboxRecord {
 
 export type UpsertProfileInput = {
   profileId: ProfileId;
-  defaultDeviceNumber?: number;
+  defaultSignerSlot?: number;
   passkeyCredential?: PasskeyCredentialRecord;
   preferences?: UserPreferences;
 };
@@ -190,8 +200,12 @@ export type UpsertAccountSignerInput = {
   signerId: SignerId;
   signerSlot: number;
   signerType: AccountSignerType;
+  signerKind: SignerKind;
+  signerAuthMethod: SignerAuthMethod;
+  signerSource: SignerSource;
   status: AccountSignerStatus;
   removedAt?: number;
+  revocationReason?: string;
   metadata?: Record<string, unknown>;
   mutation?: SignerMutationOptions;
 };

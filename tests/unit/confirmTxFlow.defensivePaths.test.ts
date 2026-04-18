@@ -285,7 +285,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
           summary: {},
           payload: {
             nearAccountId: 'cancel-reg.testnet',
-            deviceNumber: 1,
+            signerSlot: 1,
             rpcCall: { method: 'register', argsJson: {} },
           },
           intentDigest: 'register:cancel-reg.testnet:1',
@@ -553,8 +553,8 @@ test.describe('confirmTxFlow – defensive paths', () => {
         const types = await import(paths.types);
         const handleLocalOnlyFlow = mod.handleLocalOnlyFlow as Function;
 
-        const authOld = { credentialId: 'cred-old', deviceNumber: 3, transports: [] };
-        const authNew = { credentialId: 'cred-new', deviceNumber: 6, transports: [] };
+        const authOld = { credentialId: 'cred-old', signerSlot: 3, transports: [] };
+        const authNew = { credentialId: 'cred-new', signerSlot: 6, transports: [] };
         let capturedAllow: any[] | null = null;
 
         const ctx: any = {
@@ -775,14 +775,14 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
               }),
-              getLastUser: async () => ({ nearAccountId: 'error.testnet', deviceNumber: 1 }),
-              getUserByDevice: async () => ({ deviceNumber: 1 }),
+              getLastUser: async () => ({ nearAccountId: 'error.testnet', signerSlot: 1 }),
+              getUserBySignerSlot: async () => ({ signerSlot: 1 }),
             },
             nearKeysDB: {
               getKeyMaterial: async () => ({
                 kind: 'local_near_sk_v3',
                 nearAccountId: 'error.testnet',
-                deviceNumber: 1,
+                signerSlot: 1,
                 publicKey: 'ed25519:pk',
                 encryptedSk: 'ciphertext-b64u',
                 chacha20NonceB64u: 'nonce-b64u',
@@ -902,7 +902,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
           summary: {},
           payload: {
             nearAccountId: 'error-reg.testnet',
-            deviceNumber: 1,
+            signerSlot: 1,
             rpcCall: { method: 'register', argsJson: {} },
           },
           intentDigest: 'register:error-reg.testnet:1',

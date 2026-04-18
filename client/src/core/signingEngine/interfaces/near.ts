@@ -10,6 +10,14 @@ import type {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { SigningRuntimeDeps } from './runtime';
+import type { WalletAuthPlan } from '../auth';
+
+export type NearEmailOtpSigningHook = {
+  challengeId: string;
+  emailHint?: string;
+  complete: (otpCode: string) => Promise<{ sessionId: string }>;
+  markConsumed?: (thresholdSessionId?: string) => void;
+};
 
 export type NearTransactionsWithActionsPayload = {
   ctx: SigningRuntimeDeps;
@@ -20,7 +28,9 @@ export type NearTransactionsWithActionsPayload = {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
-  deviceNumber?: number;
+  signerSlot?: number;
+  emailOtpSigning?: NearEmailOtpSigningHook;
+  walletAuthPlan?: WalletAuthPlan;
 };
 
 export type NearDelegateActionPayload = {
@@ -32,7 +42,7 @@ export type NearDelegateActionPayload = {
   title?: string;
   body?: string;
   sessionId?: string;
-  deviceNumber?: number;
+  signerSlot?: number;
 };
 
 export type NearNep413Payload = {
@@ -43,7 +53,7 @@ export type NearNep413Payload = {
     nonce: string;
     state: string | null;
     accountId: string;
-    deviceNumber?: number;
+    signerSlot?: number;
     title?: string;
     body?: string;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;

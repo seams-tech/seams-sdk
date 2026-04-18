@@ -62,6 +62,27 @@ test.describe('key export legacy-surface guard', () => {
     expect(content.includes("chain: 'near'")).toBe(true);
   });
 
+  test('account menu does not block Email OTP accounts from opening export drawer', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+    const accountMenuPath = path.join(
+      repoRoot,
+      'client/src/react/components/AccountMenuButton/index.tsx',
+    );
+    const modalPath = path.join(
+      repoRoot,
+      'client/src/react/components/AccountMenuButton/ExportKeyTypeModal.tsx',
+    );
+    const accountMenu = fs.readFileSync(accountMenuPath, 'utf8');
+    const modal = fs.readFileSync(modalPath, 'utf8');
+
+    expect(accountMenu.includes("loginState.authMethod === 'email_otp'")).toBe(false);
+    expect(accountMenu.includes('setExportRestrictionMessage(')).toBe(true);
+    expect(accountMenu.includes('Key export requires a passkey-authenticated account.')).toBe(false);
+    expect(accountMenu.includes('if (exportRestrictionMessage) return;')).toBe(true);
+    expect(modal.includes('restrictionMessage')).toBe(true);
+    expect(modal.includes('disabled={isBusy || isRestricted}')).toBe(true);
+  });
+
   test('account menu export modal uses the resolved portal host', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const accountMenuPath = path.join(

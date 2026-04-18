@@ -33,7 +33,7 @@ test.describe('smart-account bootstrap persistence', () => {
         );
         await IndexedDBManager.clientDB.upsertProfile({
           profileId: 'profile-smartacct-bootstrap',
-          defaultDeviceNumber: 1,
+          defaultSignerSlot: 1,
           passkeyCredential: { id: 'cred-bootstrap', rawId: 'raw-bootstrap' },
         });
         await IndexedDBManager.clientDB.upsertChainAccount({

@@ -1923,9 +1923,17 @@ test.describe('relayer router (cloudflare) – P0', () => {
         email: 'alice@example.com',
         name: 'Alice Example',
       }),
-      resolveOidcWalletId: async (input) => {
+      resolveGoogleEmailOtpSession: async (input) => {
         resolvedInput = input as Record<string, unknown>;
-        return 'alice-example-com-1712345678901.testnet';
+        return {
+          ok: true,
+          mode: 'register_started',
+          walletId: 'alice-example-com-1712345678901.testnet',
+          providerSubject: 'google:user-cf-1',
+          email: 'alice@example.com',
+          registrationAttemptId: 'attempt-google-register-cf',
+          expiresAtMs: 1_893_456_000_000,
+        };
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
@@ -1944,6 +1952,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
           type: 'oidc_jwt',
           provider: 'google',
           account_mode: 'register',
+          force_new_dev_wallet: true,
           token: 'google.id.token',
         },
       },
@@ -1954,11 +1963,16 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(getPath(res.json, 'session', 'walletId')).toBe(
       'alice-example-com-1712345678901.testnet',
     );
+    expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toMatchObject({
+      mode: 'register_started',
+      registrationAttemptId: 'attempt-google-register-cf',
+    });
     expect(resolvedInput).toMatchObject({
       providerSubject: 'google:user-cf-1',
       sub: 'user-cf-1',
       email: 'alice@example.com',
       accountMode: 'register',
+      forceNewDevWallet: true,
     });
   });
 
@@ -1979,23 +1993,43 @@ test.describe('relayer router (cloudflare) – P0', () => {
         sub: 'user-cf-scoped-1',
         email: 'scoped@example.com',
       }),
-      resolveOidcWalletId: async () => 'scoped-example-com-1712345678901.testnet',
+      resolveGoogleEmailOtpSession: async () => ({
+        ok: true,
+        mode: 'register_started',
+        walletId: 'scoped-example-com-1712345678901.testnet',
+        providerSubject: 'google:user-cf-scoped-1',
+        email: 'scoped@example.com',
+        registrationAttemptId: 'attempt-google-scoped-cf',
+        expiresAtMs: 1_893_456_000_000,
+      }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+    });
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const orgCtx = {
+      orgId: 'org_test_scoped',
+      actorUserId: 'session-exchange-test',
+      roles: ['admin'],
+    };
+    await orgProjectEnv.upsertOrganization(orgCtx, { name: 'Scoped Org' });
+    await orgProjectEnv.createProject(orgCtx, {
+      id: 'proj_test_scoped',
+      name: 'Scoped Project',
     });
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://wallet.example.test'],
       session,
+      orgProjectEnv,
       publishableKeyAuth: {
         authenticate: async (input) => {
           expect(input.secret).toBe('pk_test_scoped');
           expect(input.origin).toBe('https://wallet.example.test');
-          expect(input.environmentId).toBe('env_test_scoped');
+          expect(input.environmentId).toBe('proj_test_scoped:dev');
           return {
             ok: true,
             principal: {
               apiKeyId: 'pk_1',
               orgId: 'org_test_scoped',
-              environmentId: 'env_test_scoped',
+              environmentId: 'proj_test_scoped:dev',
               scopes: [],
             },
           };
@@ -2010,7 +2044,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       headers: { Authorization: 'Bearer pk_test_scoped' },
       body: {
         sessionKind: 'jwt',
-        runtimeEnvironmentId: 'env_test_scoped',
+        runtimeEnvironmentId: 'proj_test_scoped:dev',
         exchange: {
           type: 'oidc_jwt',
           provider: 'google',
@@ -2023,11 +2057,13 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(200);
     expect(getPath(res.json, 'session', 'runtimePolicyScope')).toEqual({
       orgId: 'org_test_scoped',
-      environmentId: 'env_test_scoped',
+      projectId: 'proj_test_scoped',
+      envId: 'dev',
     });
     expect(signedExtra?.runtimePolicyScope).toEqual({
       orgId: 'org_test_scoped',
-      environmentId: 'env_test_scoped',
+      projectId: 'proj_test_scoped',
+      envId: 'dev',
     });
   });
 
@@ -2042,12 +2078,11 @@ test.describe('relayer router (cloudflare) – P0', () => {
         sub: 'user-cf-1',
         email: 'alice@example.com',
       }),
-      resolveOidcWalletId: async () => 'alice-example-com-1712345678901.testnet',
-      readEmailOtpEnrollment: async () => ({
-        ok: false,
-        code: 'not_found',
-        message: 'Email OTP enrollment not found',
-      }),
+      resolveGoogleEmailOtpSession: async () => {
+        const error = new Error('Email OTP enrollment not found') as Error & { code?: string };
+        error.code = 'not_found';
+        throw error;
+      },
     });
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
@@ -2072,6 +2107,58 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(404);
     expect(res.json?.code).toBe('not_found');
     expect(res.json?.message).toBe('Email OTP enrollment not found');
+  });
+
+  test('POST /wallet/email-otp/dev/cleanup-google-registration verifies Google token before cleanup', async () => {
+    let cleanupInput: Record<string, unknown> | null = null;
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async (request) => {
+        expect(request.idToken).toBe('google.id.token');
+        return {
+          ok: true,
+          verified: true,
+          userId: 'google:user-cleanup-cf',
+          providerSubject: 'google:user-cleanup-cf',
+          sub: 'user-cleanup-cf',
+          email: 'cleanup@example.com',
+        };
+      },
+      cleanupGoogleEmailOtpDevRegistrationState: async (input) => {
+        cleanupInput = input as Record<string, unknown>;
+        return {
+          ok: true,
+          providerSubject: 'google:user-cleanup-cf',
+          expiredRegistrationAttemptsDeleted: 2,
+          linkedWalletId: 'cleanup.relayer.testnet',
+          orphanedWalletMappingRemoved: true,
+        };
+      },
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/email-otp/dev/cleanup-google-registration',
+      origin: 'https://example.localhost',
+      body: {
+        idToken: 'google.id.token',
+        walletId: 'cleanup.relayer.testnet',
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json).toMatchObject({
+      ok: true,
+      providerSubject: 'google:user-cleanup-cf',
+      expiredRegistrationAttemptsDeleted: 2,
+      orphanedWalletMappingRemoved: true,
+    });
+    expect(cleanupInput).toMatchObject({
+      providerSubject: 'google:user-cleanup-cf',
+      walletId: 'cleanup.relayer.testnet',
+    });
   });
 
   test('POST /session/exchange: Google Email OTP requires account_mode', async () => {

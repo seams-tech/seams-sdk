@@ -10,9 +10,11 @@ export function parseLastProfileState(raw: unknown): LastProfileState | null {
       : '';
   if (!profileId) return null;
 
-  const deviceNumber = Number((raw as { deviceNumber?: unknown }).deviceNumber);
-  if (!Number.isSafeInteger(deviceNumber) || deviceNumber < 1) return null;
+  const activeSignerSlot = Number((raw as { activeSignerSlot?: unknown }).activeSignerSlot);
+  if (!Number.isSafeInteger(activeSignerSlot) || activeSignerSlot < 1) return null;
 
   const scope = normalizeLastUserScope((raw as { scope?: unknown }).scope);
-  return scope != null ? { profileId, deviceNumber, scope } : { profileId, deviceNumber };
+  return scope != null
+    ? { profileId, activeSignerSlot, scope }
+    : { profileId, activeSignerSlot };
 }

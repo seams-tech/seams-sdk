@@ -20,9 +20,21 @@ export class EvmSigner implements EvmSignerCapability {
   }
 
   async bootstrapEcdsaSession(args: Parameters<EvmSignerCapability['bootstrapEcdsaSession']>[0]) {
+    const context = this.getContext();
+    const managedRegistration =
+      context.configs.registration.mode === 'managed' ? context.configs.registration : null;
+    const runtimeScopeBootstrap =
+      args.options?.runtimeScopeBootstrap ||
+      (managedRegistration
+        ? {
+            environmentId: managedRegistration.environmentId,
+            publishableKey: managedRegistration.publishableKey,
+          }
+        : undefined);
     const options = {
       ...(args.options || {}),
       chain: 'evm' as const,
+      ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
     };
 
     return await routeWalletIframeOrLocal({
@@ -35,23 +47,13 @@ export class EvmSigner implements EvmSignerCapability {
         });
       },
       local: async () => {
-        const context = this.getContext();
-        const managedRegistration =
-          context.configs.registration.mode === 'managed' ? context.configs.registration : null;
         return await context.signingEngine.bootstrapEcdsaSession({
           nearAccountId: toAccountId(args.nearAccountId),
           chain: options.chain,
           relayerUrl: options.relayerUrl,
           participantIds: options.participantIds,
           sessionKind: options.sessionKind,
-          ...(managedRegistration
-            ? {
-                runtimeScopeBootstrap: {
-                  environmentId: managedRegistration.environmentId,
-                  publishableKey: managedRegistration.publishableKey,
-                },
-              }
-            : {}),
+          ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
           ttlMs: options.ttlMs,
           remainingUses: options.remainingUses,
           smartAccount: options.smartAccount ? { ...options.smartAccount } : undefined,
