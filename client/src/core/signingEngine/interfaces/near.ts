@@ -11,12 +11,18 @@ import type {
 } from '@/core/types/signer-worker';
 import type { SigningRuntimeDeps } from './runtime';
 import type { WalletAuthPlan } from '../auth';
+import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 
 export type NearEmailOtpSigningHook = {
   challengeId: string;
   emailHint?: string;
   complete: (otpCode: string) => Promise<{ sessionId: string }>;
   markConsumed?: (thresholdSessionId?: string) => void;
+};
+
+export type NearEd25519WarmupHook = {
+  isPending: () => boolean;
+  waitForReady: () => Promise<boolean>;
 };
 
 export type NearTransactionsWithActionsPayload = {
@@ -30,7 +36,9 @@ export type NearTransactionsWithActionsPayload = {
   body?: string;
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
+  ed25519Warmup?: NearEd25519WarmupHook;
   walletAuthPlan?: WalletAuthPlan;
+  sensitivePolicy?: SensitiveOperationPolicy;
 };
 
 export type NearDelegateActionPayload = {

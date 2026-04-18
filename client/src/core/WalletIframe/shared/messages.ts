@@ -15,6 +15,7 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
 import type { EmailOtpAuthPolicy, TatchiConfigsInput } from '../../types/tatchi';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -316,7 +317,7 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  authorizationJwt?: string;
+  thresholdRouteAuth?: AppOrThresholdSessionAuth;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';

@@ -557,7 +557,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
           ? { ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId }
           : {}),
         clientRootShare32B64u,
-        authorizationJwt: thresholdSessionJwt,
+        thresholdRouteAuth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       });
       timings[`bootstrapThresholdEcdsa${chain === 'tempo' ? 'Tempo' : 'Evm'}Ms`] = Math.round(

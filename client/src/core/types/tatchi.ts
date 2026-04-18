@@ -6,17 +6,23 @@ import type { ClientUserData } from '../accountData/near/types';
 import type { WasmSignedDelegate } from './signer-worker';
 import type { EcdsaSignerProvisioningDefaults } from './ecdsaSignerProvisioningDefaults';
 import type {
+  AuthMethod,
+  SensitiveOperationPolicy,
+  SigningSessionPolicy,
   SigningSessionRetention,
   WalletAuthMethod,
 } from '@shared/utils';
 
 export type {
+  AuthMethod,
+  SensitiveOperationPolicy,
+  SigningSessionPolicy,
   SigningSessionRetention,
   WalletAuthMethod,
 } from '@shared/utils';
 
 export type SigningSessionPersistenceMode = 'none' | 'sealed_refresh_v1';
-export type EmailOtpAuthPolicy = 'session' | 'per_operation';
+export type EmailOtpAuthPolicy = SigningSessionPolicy;
 
 export interface SigningSessionSealConfigInput {
   keyVersion?: string;
@@ -180,7 +186,7 @@ export interface TatchiConfigsInput {
    */
   signingSessionPersistenceMode?: SigningSessionPersistenceMode;
   /**
-   * Email OTP auth retention policy.
+   * Email OTP signing-session policy.
    *
    * - `session`: recover once after OTP and keep warm signing material in memory until expiry/logout.
    * - `per_operation`: recover on demand, use once, and discard immediately after the operation.

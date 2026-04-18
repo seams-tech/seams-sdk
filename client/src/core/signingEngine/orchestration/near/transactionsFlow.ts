@@ -14,7 +14,7 @@ import {
 } from '@/core/types/signer-worker';
 import { AccountId } from '@/core/types/accountIds';
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
-import type { NearEmailOtpSigningHook } from '../../interfaces/near';
+import type { NearEd25519WarmupHook, NearEmailOtpSigningHook } from '../../interfaces/near';
 import type { WalletAuthPlan } from '../../auth';
 import {
   emailOtpSigningAuthPlan,
@@ -89,6 +89,7 @@ export async function signTransactionsWithActions({
   body,
   signerSlot,
   emailOtpSigning,
+  ed25519Warmup,
   walletAuthPlan,
 }: {
   ctx: SigningRuntimeDeps;
@@ -102,6 +103,7 @@ export async function signTransactionsWithActions({
   body?: string;
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
+  ed25519Warmup?: NearEd25519WarmupHook;
   walletAuthPlan?: WalletAuthPlan;
 }): Promise<
   Array<{
@@ -113,6 +115,28 @@ export async function signTransactionsWithActions({
   const sessionId = providedSessionId ?? generateSessionId();
   const nearAccountId = toAccountId(rpcCall.nearAccountId);
   const relayerUrl = ctx.relayerUrl;
+  const ed25519WarmupPromise =
+    ed25519Warmup?.isPending() === true
+      ? ed25519Warmup.waitForReady().then(() => undefined)
+      : undefined;
+  if (ed25519WarmupPromise) {
+    onEvent?.({
+      step: 2,
+      phase: ActionPhase.STEP_2_USER_CONFIRMATION,
+      status: ActionStatus.PROGRESS,
+      message: 'Finalizing NEAR signing session...',
+    });
+    void ed25519WarmupPromise
+      .then(() => {
+        onEvent?.({
+          step: 2,
+          phase: ActionPhase.STEP_2_USER_CONFIRMATION,
+          status: ActionStatus.SUCCESS,
+          message: 'NEAR signing session finalized',
+        });
+      })
+      .catch(() => undefined);
+  }
 
   const warnings: string[] = [];
   const signingStartedAt = performance.now();
@@ -226,6 +250,16 @@ export async function signTransactionsWithActions({
     confirmationConfigOverride,
     title,
     body,
+    ...(ed25519WarmupPromise
+      ? {
+          confirmationReadiness: {
+            promise: ed25519WarmupPromise,
+            body: body
+              ? `${body}\n\nFinalizing NEAR signing session...`
+              : 'Finalizing NEAR signing session...',
+          },
+        }
+      : {}),
     ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
   });
 

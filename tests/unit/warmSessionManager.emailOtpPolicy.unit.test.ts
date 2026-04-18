@@ -26,7 +26,6 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         retention: 'session',
         reason: 'login',
         authMethod: 'email_otp',
-        stepUpRequired: true,
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'alice.testnet',
@@ -89,7 +88,6 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         retention: 'single_use',
         reason: 'sign',
         authMethod: 'email_otp',
-        stepUpRequired: true,
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'bob.testnet',
@@ -151,7 +149,6 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         retention: 'single_use',
         reason: 'sign',
         authMethod: 'email_otp',
-        stepUpRequired: true,
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'erin.testnet',
@@ -212,7 +209,6 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         retention: 'single_use',
         reason: 'sign',
         authMethod: 'email_otp',
-        stepUpRequired: true,
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'tempo-erin.testnet',
@@ -260,7 +256,75 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     expect(provisionCalls).toEqual([]);
   });
 
-  test('blocks sensitive operations for Email OTP sessions that still require passkey step-up', async () => {
+  test('allows sensitive operations that inherit a valid Email OTP session policy', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'inherit-policy.testnet',
+      chain: 'evm',
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'inherit-policy.testnet',
+        chain: 'evm',
+        sessionId: 'ecdsa-inherit-policy-session',
+        sessionJwt: 'jwt:ecdsa-inherit-policy-session',
+      }),
+    });
+
+    const manager = createWarmSessionManager();
+
+    await expect(
+      manager.assertEcdsaOperationAllowed({
+        nearAccountId: 'inherit-policy.testnet',
+        chain: 'evm',
+        operationLabel: 'ordinary threshold signing',
+        sensitivePolicy: 'inherit_session_policy',
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  test('allows sensitive operations that require fresh same-method auth when Email OTP is single-use', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'fresh-same-method.testnet',
+      chain: 'evm',
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        policy: 'per_operation',
+        retention: 'single_use',
+        reason: 'sign',
+        authMethod: 'email_otp',
+      },
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'fresh-same-method.testnet',
+        chain: 'evm',
+        sessionId: 'ecdsa-fresh-same-method-session',
+        sessionJwt: 'jwt:ecdsa-fresh-same-method-session',
+      }),
+    });
+
+    const manager = createWarmSessionManager();
+
+    await expect(
+      manager.assertEcdsaOperationAllowed({
+        nearAccountId: 'fresh-same-method.testnet',
+        chain: 'evm',
+        operationLabel: 'sensitive threshold signing',
+        sensitivePolicy: 'require_fresh_same_method',
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  test('blocks sensitive operations for Email OTP sessions when passkey is required', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -273,7 +337,6 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         retention: 'session',
         reason: 'login',
         authMethod: 'email_otp',
-        stepUpRequired: true,
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'carol.testnet',
@@ -290,10 +353,46 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         nearAccountId: 'carol.testnet',
         chain: 'evm',
         operationLabel: 'threshold-ecdsa key export',
-        sensitivePolicy: 'passkey',
+        sensitivePolicy: 'require_passkey',
       }),
     ).rejects.toThrow(
       '[SigningEngine] threshold-ecdsa key export requires fresh passkey authentication after Email OTP login',
+    );
+  });
+
+  test('blocks sensitive operations when Email OTP is denied by policy', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'deny-email-otp.testnet',
+      chain: 'evm',
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'deny-email-otp.testnet',
+        chain: 'evm',
+        sessionId: 'ecdsa-deny-email-otp-session',
+        sessionJwt: 'jwt:ecdsa-deny-email-otp-session',
+      }),
+    });
+
+    const manager = createWarmSessionManager();
+
+    await expect(
+      manager.assertEcdsaOperationAllowed({
+        nearAccountId: 'deny-email-otp.testnet',
+        chain: 'evm',
+        operationLabel: 'blocked threshold operation',
+        sensitivePolicy: 'deny_email_otp',
+      }),
+    ).rejects.toThrow(
+      '[SigningEngine] blocked threshold operation requires fresh passkey authentication after Email OTP login',
     );
   });
 
@@ -310,7 +409,6 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         retention: 'session',
         reason: 'login',
         authMethod: 'email_otp',
-        stepUpRequired: true,
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'dana.testnet',
@@ -327,7 +425,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         nearAccountId: 'dana.testnet',
         chain: 'evm',
         operationLabel: 'sensitive threshold signing',
-        sensitivePolicy: 'per_operation',
+        sensitivePolicy: 'require_fresh_same_method',
       }),
     ).rejects.toThrow(
       '[SigningEngine] sensitive threshold signing requires fresh Email OTP verification with per_operation policy',

@@ -84,7 +84,7 @@ export type EvmFamilySigningDeps = {
     chain: 'tempo' | 'evm';
     operation?: 'transaction_sign' | 'export_key';
     appSessionJwt?: string;
-  }) => Promise<{ challengeId: string; emailHint?: string }>;
+  }) => Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
@@ -92,6 +92,7 @@ export type EvmFamilySigningDeps = {
     otpCode: string;
     record: ThresholdEcdsaSessionRecord;
     operation?: 'transaction_sign' | 'export_key';
+    appSessionJwt?: string;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: string;
@@ -555,9 +556,11 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
   emailOtpSigning?: {
     challengeId: string;
     emailHint?: string;
+    appSessionJwt?: string;
     complete: (otpCode: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   };
 }> {
+  const appSessionJwtByChallengeId = new Map<string, string>();
   const resolver = createWalletAuthModeResolver({
     passkey: createPasskeyWalletAuthAdapter({
       challenge: async () => ({}),
@@ -585,6 +588,10 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
         if (!challengeId) {
           throw new Error('[SigningEngine] Email OTP challenge response did not include challengeId');
         }
+        const appSessionJwt = String(challenge.appSessionJwt || '').trim();
+        if (appSessionJwt) {
+          appSessionJwtByChallengeId.set(challengeId, appSessionJwt);
+        }
         args.onEvent?.({
           step: 2,
           phase: 'email-otp-challenge',
@@ -610,6 +617,9 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
           otpCode: code,
           record: args.record,
           operation: 'transaction_sign',
+          ...(appSessionJwtByChallengeId.get(challengeId)
+            ? { appSessionJwt: appSessionJwtByChallengeId.get(challengeId)! }
+            : {}),
         });
         return {
           method: 'email_otp',
@@ -623,10 +633,7 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
         if (args.senderSignatureAlgorithm !== 'secp256k1' || !record) {
           return null;
         }
-        if (
-          record.emailOtpAuthContext?.retention === 'single_use' &&
-          Number(record.emailOtpAuthContext.consumedAtMs) > 0
-        ) {
+        if (record.emailOtpAuthContext?.retention === 'single_use') {
           return null;
         }
         const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
@@ -669,6 +676,9 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
     emailOtpSigning: {
       challengeId: challenge.challengeId,
       ...(challenge.email ? { emailHint: challenge.email } : {}),
+      ...(appSessionJwtByChallengeId.get(challenge.challengeId)
+        ? { appSessionJwt: appSessionJwtByChallengeId.get(challenge.challengeId)! }
+        : {}),
       complete: async (otpCode: string) => {
         const proof = await walletAuthPlan.complete({
           challengeId: challenge.challengeId,

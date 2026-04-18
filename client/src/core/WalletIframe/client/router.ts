@@ -439,14 +439,31 @@ export class WalletIframeRouter {
   }
 
   private attachExportUiClosedListener = (walletOrigin: string): (() => void) => {
+    let exportViewerOpened = false;
     const onUiClosed = (ev: MessageEvent) => {
       if (ev.origin !== walletOrigin) return;
       const data = ev.data;
       if (!isObject(data)) return;
-      if ((data as { type?: unknown }).type !== 'WALLET_UI_CLOSED') return;
+      const type = (data as { type?: unknown }).type;
+      if (type === 'WALLET_EXPORT_VIEWER_OPENED') {
+        exportViewerOpened = true;
+        this.overlayState.controller.setSticky(true);
+        this.showFrameForActivation();
+        return;
+      }
+      if (type === 'EXPORT_KEYPAIR_CANCELLED') {
+        this.overlayState.controller.setSticky(false);
+        this.hideFrameForActivation();
+        globalThis.removeEventListener?.('message', onUiClosed);
+        return;
+      }
+      if (type !== 'WALLET_UI_CLOSED') return;
       const uiError = (data as { error?: unknown }).error;
       if (typeof uiError === 'string' && uiError.trim().length > 0) {
         console.error('[WalletIframeRouter] Export UI closed with error:', uiError);
+      }
+      if (!exportViewerOpened && !(typeof uiError === 'string' && uiError.trim().length > 0)) {
+        return;
       }
       this.overlayState.controller.setSticky(false);
       this.hideFrameForActivation();

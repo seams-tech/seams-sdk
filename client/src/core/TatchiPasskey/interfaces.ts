@@ -7,6 +7,7 @@ import type {
 } from '../signingEngine/SigningEngine';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
 import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmSessionTypes';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
 import type {
   ActionResult,
@@ -209,6 +210,11 @@ export type GoogleEmailOtpSessionExchangeResult = {
     walletId: string;
     email?: string;
     name?: string;
+    googleEmailOtpResolution?: {
+      mode: 'existing_wallet' | 'register_started';
+      registrationAttemptId?: string;
+      expiresAt?: string;
+    };
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
   };
 };
@@ -222,7 +228,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  authorizationJwt?: string;
+  thresholdRouteAuth?: AppOrThresholdSessionAuth;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';

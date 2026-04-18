@@ -1,6 +1,6 @@
 # SSO + Email OTP + `shamir3pass` Wallet Signing Spec
 
-Date updated: April 16, 2026
+Date updated: April 18, 2026
 
 ## Objective
 
@@ -21,7 +21,7 @@ First-release scope:
 3. `email_otp` uses exactly 6 decimal digits
 4. threshold signing scope is threshold ECDSA only
 5. `S = randombytes(32)`
-6. Email OTP supports both `session` and `per_operation` retention policies
+6. Email OTP supports both `session` and `per_operation` signing-session policies
 
 ## Product Decision
 
@@ -62,8 +62,51 @@ auth grant + server-stored escrow blob -> server-assisted shamir3pass unseal
 client recovers S
 S -> threshold derivation branches
 S -> wallet unlock proof
-S -> WarmSessionManager retention policy
+S -> WarmSessionManager signing-session policy
 S -> resumed ECDSA bootstrap
+```
+
+Session-token boundaries:
+
+1. `app_session_v1` authenticates the app/user session and authorizes Email OTP challenge, verification, and bootstrap authorization.
+2. threshold-session JWTs authenticate an already-bootstrapped threshold signing capability and authorize threshold signing/export routes.
+3. Email OTP verification alone is not a threshold session. It is an intermediate authorization step that lets the worker unseal `S` and bootstrap a signing capability.
+4. the client may use one discriminated route-auth type, but each route must require the correct variant:
+
+```ts
+type RouteAuth =
+  | { kind: 'app_session'; jwt: string }
+  | { kind: 'threshold_session'; jwt: string };
+```
+
+Email OTP flow:
+
+```mermaid
+sequenceDiagram
+  participant UI as "App / UI"
+  participant Server as "Relay server"
+  participant OTP as "Email OTP delivery"
+  participant Worker as "Email OTP + shamir3pass worker"
+  participant Threshold as "Threshold signer"
+
+  UI->>Server: "Google SSO / OIDC exchange"
+  Server-->>UI: "app_session_v1 JWT or cookie"
+
+  UI->>Server: "Request Email OTP challenge using app-session auth"
+  Server->>OTP: "Send or log 6-digit code"
+  Server-->>UI: "challengeId"
+
+  UI->>Server: "Verify OTP using app-session auth + challengeId + code"
+  Server-->>UI: "OTP grant / authorization"
+
+  UI->>Worker: "Start Email OTP unseal/bootstrap"
+  Worker->>Server: "Server-assisted shamir3pass unseal using OTP authorization"
+  Worker-->>Worker: "Recover S inside worker"
+
+  Worker->>Threshold: "Bootstrap signing capability from S-derived material"
+  Threshold-->>UI: "threshold-session JWT / signing-session metadata"
+
+  UI->>Threshold: "Sign or export using threshold-session auth"
 ```
 
 This system is intentionally parallel to the passkey signing path:
@@ -92,7 +135,7 @@ Therefore:
 
 1. `passkey` is the recommended default
 2. `email_otp` must be labeled as lower-security convenience signing in product copy
-3. sensitive actions must require explicit step-up policy, either fresh `per_operation` Email OTP or passkey depending on project policy
+3. private-key export and link-device/add-signer actions must require explicit step-up policy, either fresh `per_operation` Email OTP or passkey depending on project policy
 4. passkey and `email_otp` must not be described as equivalent trust models
 
 ## Secret Source Model
@@ -202,9 +245,9 @@ Rules:
 4. Email OTP must not have an offline path
 5. secret-bearing login, unseal, and bootstrap calls must accept the `challengeId` from the already-issued OTP challenge; they must not require creating a second challenge after the user has entered a code
 
-## Warm-session Retention Policies
+## Signing-Session Policies
 
-Email OTP supports two retention policies. Both use the same Google SSO + Email OTP + `shamir3pass` unseal flow. The only difference is how long recovered signing material is retained in memory.
+Email OTP supports two signing-session policies. Both use the same Google SSO + Email OTP + `shamir3pass` unseal flow. The only difference is how long recovered signing material is retained in memory.
 
 Canonical policy field:
 
@@ -259,7 +302,7 @@ In practice this means:
 3. client-side warm-session TTL or use counters must never extend beyond the limits imposed by the server
 4. switching device, storage, or runtime must not bypass server-side lockouts or strong-auth policy
 
-### Required retention semantics
+### Required discard semantics
 
 If the policy says to discard, that means:
 
@@ -279,13 +322,16 @@ When `email_otp_auth_policy = session`, the system must define:
 
 ### Sensitive-operation overrides
 
-The system must support forcing stronger requirements for sensitive operations even when default policy is `session`.
+The system must support forcing fresh authorization for sensitive operations even when default policy is `session`.
 
 At minimum, the specs must allow:
 
-1. step-up auth
-2. forced `per_operation`
-3. passkey requirement for especially sensitive actions when project policy does not allow Email OTP fallback
+1. private-key export step-up
+2. link-device or add-signer step-up
+3. forced `per_operation` retention for projects that require every sign operation to re-authenticate
+4. passkey requirement for especially sensitive actions when project policy does not allow Email OTP fallback
+
+Normal transaction signing must not treat Email OTP as requiring implicit step-up after wallet unlock. If the unlocked signing session is valid, Email OTP and passkey sessions follow the same signing-session policy.
 
 ### Warm-session modeling requirements
 
@@ -294,11 +340,28 @@ At minimum, the specs must allow:
 It should model explicit policy and context, for example:
 
 ```text
-retention: 'session' | 'single_use'
-reason: 'login' | 'sign'
-authMethod: 'passkey' | 'email_otp'
-stepUpRequired: boolean
+type SigningSessionPolicy = 'session' | 'per_operation'
+
+type AuthMethod = 'passkey' | 'email_otp'
+
+type SensitiveOperationPolicy =
+  | 'inherit_session_policy'
+  | 'require_fresh_same_method'
+  | 'require_passkey'
+  | 'deny_email_otp'
 ```
+
+`SigningSessionPolicy` is auth-method neutral. It applies the same way to passkey and Email OTP sessions:
+
+1. `session` means unlock once, keep the warm signing capability in memory until TTL, logout, revocation, or invalidation.
+2. `per_operation` means authenticate for each operation, use the recovered signing material once, then discard it.
+
+`SensitiveOperationPolicy` is separate from ordinary signing-session policy:
+
+1. `inherit_session_policy` means the operation follows the active signing session.
+2. `require_fresh_same_method` means the user must re-authenticate with the same account method for this operation.
+3. `require_passkey` means Email OTP is not sufficient and a passkey-authenticated signer must authorize the operation.
+4. `deny_email_otp` means Email OTP-authenticated sessions cannot perform the operation.
 
 This keeps policy readable and prevents accidental drift.
 
@@ -431,7 +494,24 @@ If an OIDC exchange is not a Google Email OTP registration flow, the server may 
     - explicit `ecdsaThresholdKeyId`
     - exact `sessionPolicy.participantIds` match against the active integrated ECDSA signer set
 16. the warm ECDSA capability must reach `ready`
-17. `WarmSessionManager` applies either `session` retention or `per_operation` retention according to policy
+17. `WarmSessionManager` applies either `session` or `per_operation` according to signing-session policy
+
+### Authorization lanes
+
+| Step | Auth lane | Why |
+| --- | --- | --- |
+| Google SSO exchange | Google OIDC assertion | proves app identity and Google subject |
+| Email OTP challenge | `app_session_v1` | binds OTP challenge to current app user, wallet, session, and operation |
+| Email OTP verify | `app_session_v1` | verifies the code against the same app-session context that requested it |
+| `shamir3pass` unseal authorization | `app_session_v1` plus OTP grant | proves the user is allowed to recover `S` for this operation |
+| threshold ECDSA bootstrap from Email OTP | `app_session_v1` | bootstrap is authorized by fresh OTP verification and app-session binding |
+| threshold ECDSA signing/export after bootstrap | threshold-session JWT | proves an active threshold signing capability exists |
+
+Rules:
+
+1. never substitute a threshold-session JWT where an app-session JWT is required for Email OTP challenge, verification, or bootstrap authorization
+2. never substitute an app-session JWT where a threshold-session JWT is required for threshold signing or threshold HSS export
+3. `authorizationJwt` is not an acceptable generic field name for new Email OTP or ECDSA HSS boundaries; use explicit `RouteAuth` variants or lane-specific names
 
 ### Why there is still a wallet unlock proof
 
@@ -528,7 +608,7 @@ Enrollment authorization:
    - a fresh 6-digit Email OTP challenge for `action = wallet_email_otp_registration`
 2. Google SSO Email OTP registration does not require passkey authentication.
 3. Google SSO Email OTP re-enrollment does not require passkey authentication, because Email OTP-only accounts may not have a passkey yet.
-4. passkey step-up applies when a non-Google/passkey session modifies an existing Email OTP enrollment after the wallet was last unlocked by Email OTP.
+4. passkey or Email OTP step-up applies only when the operation is an explicit sensitive flow such as private-key export or link-device/add-signer.
 
 Persisted server-side data:
 
@@ -574,13 +654,12 @@ Minimum route set:
 
 ### Sensitive actions
 
-Require explicit step-up policy for:
+Require explicit step-up policy only for:
 
 1. key export with fresh export-scoped `per_operation` Email OTP, unless project policy requires passkey
-2. login-method changes
-3. passkey removal
-4. disabling login fallbacks
-5. high-risk admin actions
+2. link-device/add-signer flows with the project-selected fresh-auth method
+
+Normal transaction signing is not a step-up flow. It follows the unlocked signing-session policy.
 
 ### Policy defaults
 
@@ -632,7 +711,7 @@ The implementation must preserve these invariants:
 4. use 6-digit `email_otp` as the only OTP channel in first release
 5. support threshold ECDSA as the only product signing capability in first release
 6. fix `S` to 32 random bytes in first release
-7. support both `session` and `per_operation` Email OTP retention policies through `WarmSessionManager`
+7. support both `session` and `per_operation` Email OTP signing-session policies through `WarmSessionManager`
 8. do not add any `PIN + OPRF` layer to this flow
 9. do not store `E_ks(S)` on the client
 10. do not enable any offline Email OTP path
@@ -648,7 +727,7 @@ The implementation must preserve these invariants:
 7. threshold ECDSA derivation is deterministic from the recovered client secret
 8. `wallet/unlock/verify` accepts only public unlock proof material
 9. Email OTP signing reaches a `ready` ECDSA warm capability through the canonical warm-session runtime
-10. `WarmSessionManager` supports both `session` and `per_operation` retention for Email OTP
+10. `WarmSessionManager` supports both `session` and `per_operation` signing-session policies for Email OTP
 11. OTP challenges and grants are rate-limited, expiring, and single-use
 12. passkey, `password`, and Email OTP coexist without duplicate legacy route or symbol pollution
 
@@ -671,11 +750,10 @@ The implementation must preserve these invariants:
    - `retention`
    - `reason`
    - `authMethod`
-   - `stepUpRequired`
 12. Email OTP bootstrap now threads explicit policy metadata through the client runtime and ECDSA session store
 13. the current Email OTP login bridge defaults `per_operation` to a one-use ECDSA session budget when the caller does not override `remainingUses`
 14. the shared EVM and Tempo signing path now delegates single-use Email OTP post-sign discard to `WarmSessionManager`
-15. `WarmSessionManager` now actively enforces Email OTP retention semantics instead of only surfacing metadata:
+15. `WarmSessionManager` now actively enforces Email OTP signing-session semantics instead of only surfacing metadata:
    - `single_use` Email OTP capabilities are discarded after successful ECDSA signing
    - Email OTP capabilities are invalidated when warm-session status becomes `missing`, `expired`, or `exhausted`
 16. Email OTP session TTL and invalidation semantics now clear stale local lane state and worker warm material when the client-side warm session is no longer valid
@@ -1031,7 +1109,7 @@ The upgrade flow should be modeled as four distinct steps:
 3. `verifyPasskeyUpgrade`
    - requires fresh passkey auth with the newly enrolled passkey
    - marks the passkey upgrade as complete
-   - clears `stepUpRequired`
+   - marks the passkey path as verified
 4. `disableEmailOtpAfterPasskeyUpgrade`
    - requires fresh passkey auth
    - may remove or disable the Email OTP path only after the passkey is already verified
@@ -1042,14 +1120,14 @@ This separation is required so `addKey(new_passkey)` and `removeKey(old_email_ot
 
 1. define the upgrade mutation surface as separate begin, complete, verify, and disable steps
 2. freeze the rule that passkey proof must happen before any Email OTP removal or downgrade
-3. freeze the rule that fresh passkey auth is the event that clears `stepUpRequired`
+3. freeze the rule that fresh passkey auth is required before any Email OTP removal or downgrade
 
 ### TODO
 
 1. add a first-class `Upgrade to Passkey` product flow for accounts that currently use Email OTP
-2. allow an Email OTP-authenticated session to invoke `beginPasskeyUpgrade` while `stepUpRequired = true`
+2. allow an Email OTP-authenticated session to invoke `beginPasskeyUpgrade` without treating normal signing sessions as needing step-up
 3. implement `completePasskeyUpgradeRegistration` so it adds the passkey-backed path without immediately removing Email OTP
-4. implement `verifyPasskeyUpgrade` so fresh passkey proof marks the upgrade complete and clears `stepUpRequired`
+4. implement `verifyPasskeyUpgrade` so fresh passkey proof marks the upgrade complete
 5. implement `disableEmailOtpAfterPasskeyUpgrade` with a hard requirement for fresh passkey auth
 6. ensure the account model can represent `passkey_pending_verification` without ambiguity
 7. add UI copy that positions Email OTP as the low-friction onboarding method and passkey as the stronger recommended upgrade

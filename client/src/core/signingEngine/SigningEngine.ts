@@ -44,7 +44,19 @@ import {
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
-import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import {
+  isAppSessionJwt,
+  isSessionJwtUnexpired,
+  requireThresholdSessionJwt,
+  type AppOrThresholdSessionAuth,
+} from '@shared/utils/sessionTokens';
+import {
+  SENSITIVE_OPERATION_POLICIES,
+  type SensitiveOperationPolicy,
+  SIGNER_AUTH_METHODS,
+  SIGNER_KINDS,
+  SIGNER_SOURCES,
+} from '@shared/utils/signerDomain';
 import type { UserPreferencesManager } from './api/userPreferences';
 import type {
   ThresholdEcdsaCanonicalExportArtifact,
@@ -173,10 +185,7 @@ import {
 import { initializeRuntimeBootstrap } from './bootstrap/runtimeBootstrap';
 import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
-import {
-  createWarmSessionManager,
-  type WarmSessionSensitiveOperationPolicy,
-} from './session/WarmSessionManager';
+import { createWarmSessionManager } from './session/WarmSessionManager';
 import type { WarmSessionEcdsaCapabilityState } from './session/warmSessionTypes';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
@@ -298,6 +307,25 @@ function isEmailOtpPasskeyStepUpError(error: unknown): boolean {
   return (
     message.includes('requires fresh passkey authentication after Email OTP login') ||
     message.includes('requires passkey authentication after Email OTP login')
+  );
+}
+
+function isRetryableSealedRefreshCapabilityFetchError(error: unknown): boolean {
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '').trim()
+      : '';
+  if (
+    code === 'sealed_refresh_parity_fetch_failed' ||
+    code === 'sealed_refresh_parity_http_error' ||
+    code === 'sealed_refresh_parity_aborted'
+  ) {
+    return true;
+  }
+  const message = String(error instanceof Error ? error.message : error || '');
+  return (
+    message.includes('Failed to fetch relayer well-known capabilities') ||
+    /Well-known endpoint returned HTTP 5\d\d/.test(message)
   );
 }
 
@@ -465,6 +493,11 @@ export class SigningEngine {
   private readonly thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>> = new Map();
   private readonly thresholdEcdsaCommitQueueByKey: ThresholdEcdsaCommitQueueByKey = new Map();
   private readonly thresholdEd25519CommitQueueByKey: ThresholdEd25519CommitQueueByKey = new Map();
+  private emailOtpAppSessionJwtByAccount: Map<string, string> = new Map();
+  private emailOtpEd25519WarmupByAccount: Map<
+    string,
+    Promise<EmailOtpThresholdEd25519ProvisioningResult>
+  > = new Map();
   private readonly thresholdEcdsaSessionByLane: Map<string, ThresholdEcdsaSessionRecord> =
     new Map();
   private readonly thresholdEcdsaExportArtifactByLane: Map<
@@ -526,6 +559,10 @@ export class SigningEngine {
       getThresholdEcdsaSessionRecordForSigning: (args) =>
         this.getThresholdEcdsaSessionRecordForSigning(args),
       requestEmailOtpChallengeForSigning: (args) => this.requestEmailOtpChallengeForSigning(args),
+      isEmailOtpEd25519WarmupPending: (args) =>
+        this.isEmailOtpEd25519WarmupPending(args),
+      waitForPendingEmailOtpEd25519Warmup: (args) =>
+        this.waitForPendingEmailOtpEd25519Warmup(args),
       loginWithEmailOtpEd25519CapabilityForSigning: (args) =>
         this.loginWithEmailOtpEd25519CapabilityForSigning(args),
       loginWithEmailOtpEcdsaCapabilityForSigning: (args) =>
@@ -689,6 +726,79 @@ export class SigningEngine {
       .catch(() => undefined);
   }
 
+  private rememberEmailOtpAppSessionJwt(args: {
+    nearAccountId: AccountId | string;
+    appSessionJwt?: string;
+  }): void {
+    const jwt = String(args.appSessionJwt || '').trim();
+    if (!jwt) return;
+    if (!isAppSessionJwt(jwt)) return;
+    const accountId = String(args.nearAccountId || '').trim();
+    if (!accountId) return;
+    if (!(this.emailOtpAppSessionJwtByAccount instanceof Map)) {
+      this.emailOtpAppSessionJwtByAccount = new Map();
+    }
+    this.emailOtpAppSessionJwtByAccount.set(accountId, jwt);
+  }
+
+  private async resolveEmailOtpAppSessionJwt(args: {
+    nearAccountId: AccountId | string;
+    relayUrl: string;
+  }): Promise<string> {
+    const accountId = String(args.nearAccountId || '').trim();
+    if (!(this.emailOtpAppSessionJwtByAccount instanceof Map)) {
+      this.emailOtpAppSessionJwtByAccount = new Map();
+    }
+    const cached = accountId
+      ? String(this.emailOtpAppSessionJwtByAccount.get(accountId) || '').trim()
+      : '';
+    if (
+      cached &&
+      isAppSessionJwt(cached) &&
+      isSessionJwtUnexpired(cached, { skewMs: 30_000 })
+    ) {
+      return cached;
+    }
+    if (accountId) this.emailOtpAppSessionJwtByAccount.delete(accountId);
+    const refreshed = await this.refreshAppSessionJwtForEmailOtpWorker({ relayUrl: args.relayUrl });
+    if (accountId && refreshed) {
+      this.emailOtpAppSessionJwtByAccount.set(accountId, refreshed);
+    }
+    return refreshed;
+  }
+
+  private normalizeWarmupAccountId(nearAccountId: AccountId | string): string {
+    return String(nearAccountId || '').trim();
+  }
+
+  private getEmailOtpEd25519WarmupMap(): Map<
+    string,
+    Promise<EmailOtpThresholdEd25519ProvisioningResult>
+  > {
+    if (!(this.emailOtpEd25519WarmupByAccount instanceof Map)) {
+      this.emailOtpEd25519WarmupByAccount = new Map();
+    }
+    return this.emailOtpEd25519WarmupByAccount;
+  }
+
+  private isEmailOtpEd25519WarmupPending(args: {
+    nearAccountId: AccountId | string;
+  }): boolean {
+    const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
+    return Boolean(accountId && this.getEmailOtpEd25519WarmupMap().has(accountId));
+  }
+
+  private async waitForPendingEmailOtpEd25519Warmup(args: {
+    nearAccountId: AccountId | string;
+  }): Promise<boolean> {
+    const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
+    if (!accountId) return false;
+    const pending = this.getEmailOtpEd25519WarmupMap().get(accountId);
+    if (!pending) return false;
+    await pending;
+    return true;
+  }
+
   private async ensureSealedRefreshStartupParity(): Promise<void> {
     await this.sealedRefreshStartupParityPromise;
     if (this.sealedRefreshStartupParityError) {
@@ -710,6 +820,21 @@ export class SigningEngine {
         const message = error instanceof Error ? error.message : String(error || 'unknown error');
         console.warn(
           '[threshold-ecdsa] registration bootstrap skipped sealed-refresh startup parity enforcement',
+          {
+            nearAccountId: String(args.nearAccountId || '').trim(),
+            chain: args.chain || 'tempo',
+            error: message,
+          },
+        );
+        return;
+      }
+      if (
+        args.emailOtpAuthContext?.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
+        isRetryableSealedRefreshCapabilityFetchError(error)
+      ) {
+        const message = error instanceof Error ? error.message : String(error || 'unknown error');
+        console.warn(
+          '[threshold-ecdsa] Email OTP bootstrap skipped retryable sealed-refresh capability fetch failure',
           {
             nearAccountId: String(args.nearAccountId || '').trim(),
             chain: args.chain || 'tempo',
@@ -1075,7 +1200,8 @@ export class SigningEngine {
       const exportRelayUrl = String(
         currentRecord.relayerUrl || args.keyRef.relayerUrl || this.tatchiPasskeyConfigs.network.relayer?.url || '',
       ).trim();
-      const exportAppSessionJwt = await this.refreshAppSessionJwtForEmailOtpWorker({
+      const exportAppSessionJwt = await this.resolveEmailOtpAppSessionJwt({
+        nearAccountId: args.nearAccountId,
         relayUrl: exportRelayUrl,
       });
       const authorization = await this.requestEmailOtpExportAuthorization({
@@ -1100,29 +1226,37 @@ export class SigningEngine {
       });
       const workerCtx =
         this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
-      const artifact = await workerCtx.requestWorkerOperation({
-        kind: 'emailOtp',
-        request: {
-          type: 'exportThresholdEcdsaHssKeyFromEmailOtpWarmSession',
-          timeoutMs: 60_000,
-          payload: {
-            relayUrl: String(refreshedRecord.relayerUrl || exportRelayUrl || '').trim(),
-            userId: String(args.nearAccountId),
-            rpId,
-            sessionId: refreshedRecord.thresholdSessionId,
-            ...(String(refreshedRecord.thresholdSessionJwt || exportAppSessionJwt).trim()
-              ? {
-                  authorizationJwt: String(
-                    refreshedRecord.thresholdSessionJwt || exportAppSessionJwt,
-                  ).trim(),
-                }
-              : {}),
-            sessionKind: refreshedRecord.thresholdSessionKind,
-            ecdsaThresholdKeyId: refreshedRecord.ecdsaThresholdKeyId,
-            chain: args.chain,
+      let artifact: any;
+      try {
+        artifact = await workerCtx.requestWorkerOperation({
+          kind: 'emailOtp',
+          request: {
+            type: 'exportThresholdEcdsaHssKeyFromEmailOtpWarmSession',
+            timeoutMs: 60_000,
+            payload: {
+              relayUrl: String(refreshedRecord.relayerUrl || exportRelayUrl || '').trim(),
+              userId: String(args.nearAccountId),
+              rpId,
+              sessionId: refreshedRecord.thresholdSessionId,
+              ...(String(refreshedRecord.thresholdSessionJwt || '').trim()
+                ? {
+                    thresholdSessionJwt: requireThresholdSessionJwt(
+                      String(refreshedRecord.thresholdSessionJwt || '').trim(),
+                    ),
+                  }
+                : {}),
+              sessionKind: refreshedRecord.thresholdSessionKind,
+              ecdsaThresholdKeyId: refreshedRecord.ecdsaThresholdKeyId,
+              chain: args.chain,
+            },
           },
-        },
-      });
+        });
+      } finally {
+        this.markThresholdEcdsaEmailOtpSessionConsumedForAccount({
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+        });
+      }
       if ((artifact as { ok?: unknown }).ok === false) {
         throw new Error(
           String((artifact as { message?: unknown }).message || 'Email OTP ECDSA export failed'),
@@ -1136,10 +1270,6 @@ export class SigningEngine {
         ethereumAddress: String(artifact.ethereumAddress || '').trim(),
         variant: args.options.variant,
         theme: args.options.theme,
-      });
-      this.markThresholdEcdsaEmailOtpSessionConsumedForAccount({
-        nearAccountId: args.nearAccountId,
-        chain: args.chain,
       });
       return {
         accountId: String(args.nearAccountId),
@@ -1161,7 +1291,7 @@ export class SigningEngine {
         chain: args.chain,
         thresholdSessionId: args.keyRef.thresholdSessionId,
         operationLabel: 'threshold-ecdsa key export',
-        sensitivePolicy: 'passkey',
+        sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requirePasskey,
       });
     } catch (error: unknown) {
       if (isEmailOtpPasskeyStepUpError(error)) {
@@ -1275,7 +1405,7 @@ export class SigningEngine {
       rpId,
       operation: 'explicit_key_export',
       ecdsaThresholdKeyId,
-      authorizationJwt: thresholdSessionJwt,
+      auth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
       sessionKind,
     });
     if (!prepare.ok) {
@@ -1331,7 +1461,7 @@ export class SigningEngine {
     const respond = await thresholdEcdsaHssRespond(relayerUrl, {
       ceremonyId,
       requestMessageB64u,
-      authorizationJwt: thresholdSessionJwt,
+      auth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
       sessionKind,
     });
     if (!respond.ok) {
@@ -1379,7 +1509,7 @@ export class SigningEngine {
     const finalized = await thresholdEcdsaHssFinalize(relayerUrl, {
       ceremonyId,
       clientFinalizeMessageB64u,
-      authorizationJwt: thresholdSessionJwt,
+      auth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
       sessionKind,
     });
     if (!finalized.ok) {
@@ -1878,7 +2008,8 @@ export class SigningEngine {
 
     try {
       if (sessionRecord?.source === SIGNER_AUTH_METHODS.emailOtp) {
-        const exportAppSessionJwt = await this.refreshAppSessionJwtForEmailOtpWorker({
+        const exportAppSessionJwt = await this.resolveEmailOtpAppSessionJwt({
+          nearAccountId,
           relayUrl: relayerUrl,
         });
         const authorization = await this.requestEmailOtpExportAuthorization({
@@ -1918,7 +2049,7 @@ export class SigningEngine {
             participantIds,
           thresholdSessionId: refreshedRecord.thresholdSessionId,
           thresholdSessionJwt: String(
-            refreshedRecord.thresholdSessionJwt || thresholdSessionJwt || exportAppSessionJwt,
+            refreshedRecord.thresholdSessionJwt || thresholdSessionJwt,
           ),
           relayerUrl: String(refreshedRecord.relayerUrl || relayerUrl),
           relayerKeyId: String(refreshedRecord.relayerKeyId || relayerKeyId),
@@ -2091,8 +2222,8 @@ export class SigningEngine {
           ...(provisionArgs.ecdsaThresholdKeyId
             ? { ecdsaThresholdKeyId: provisionArgs.ecdsaThresholdKeyId }
             : {}),
-          ...(provisionArgs.authorizationJwt
-            ? { authorizationJwt: provisionArgs.authorizationJwt }
+          ...(provisionArgs.thresholdRouteAuth
+            ? { thresholdRouteAuth: provisionArgs.thresholdRouteAuth }
             : {}),
           ...(provisionArgs.runtimePolicyScope
             ? { runtimePolicyScope: provisionArgs.runtimePolicyScope }
@@ -2120,7 +2251,7 @@ export class SigningEngine {
       participantIds: args.participantIds,
       sessionKind: args.sessionKind,
       sessionId: args.sessionId,
-      authorizationJwt: args.authorizationJwt,
+      thresholdRouteAuth: args.thresholdRouteAuth,
       runtimePolicyScope: args.runtimePolicyScope,
       runtimeScopeBootstrap: args.runtimeScopeBootstrap,
       clientRootShare32: args.clientRootShare32,
@@ -2140,7 +2271,7 @@ export class SigningEngine {
     chain: 'near' | ThresholdEcdsaActivationChain;
     operation?: EmailOtpSigningOperation;
     appSessionJwt?: string;
-  }): Promise<{ challengeId: string; emailHint?: string }> {
+  }): Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }> {
     void args.chain;
     const nearAccountId = toAccountId(args.nearAccountId);
     const relayUrl = String(this.tatchiPasskeyConfigs.network.relayer?.url || '').trim();
@@ -2152,6 +2283,12 @@ export class SigningEngine {
     if (!workerCtx) {
       throw new Error('Email OTP signing requires the dedicated emailOtp worker');
     }
+    const appSessionJwt =
+      String(args.appSessionJwt || '').trim() ||
+      (await this.resolveEmailOtpAppSessionJwt({
+        nearAccountId,
+        relayUrl,
+      }));
     const response = await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
@@ -2160,7 +2297,7 @@ export class SigningEngine {
         payload: {
           relayUrl,
           walletId: String(nearAccountId),
-          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+          ...(appSessionJwt ? { appSessionJwt } : {}),
           otpChannel: EMAIL_OTP_CHANNEL,
           operation: args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
         },
@@ -2170,7 +2307,10 @@ export class SigningEngine {
     if (!challengeId) {
       throw new Error('Email OTP signing challenge response did not include challengeId');
     }
-    return { challengeId };
+    return {
+      challengeId,
+      ...(appSessionJwt ? { appSessionJwt } : {}),
+    };
   }
 
   private async loginWithEmailOtpEcdsaCapabilityForSigning(args: {
@@ -2183,7 +2323,10 @@ export class SigningEngine {
     appSessionJwt?: string;
   }): Promise<ThresholdEcdsaSecp256k1KeyRef> {
     const record = args.record;
-    const appSessionJwt = String(args.appSessionJwt || record.thresholdSessionJwt || '').trim();
+    const appSessionJwt = String(args.appSessionJwt || '').trim();
+    const thresholdRouteAuth: AppOrThresholdSessionAuth | undefined = appSessionJwt
+      ? { kind: 'app_session', jwt: appSessionJwt }
+      : undefined;
     await this.loginWithEmailOtpEcdsaCapabilityInternal({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
@@ -2196,12 +2339,8 @@ export class SigningEngine {
       participantIds: record.participantIds,
       sessionKind: record.thresholdSessionKind,
       sessionId: record.thresholdSessionId,
-      ...(appSessionJwt
-        ? {
-            authorizationJwt: appSessionJwt,
-            appSessionJwt,
-          }
-        : {}),
+      ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
+      ...(appSessionJwt ? { appSessionJwt } : {}),
       remainingUses: 1,
       ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
     });
@@ -2245,7 +2384,8 @@ export class SigningEngine {
     if (!workerCtx) {
       throw new Error('Email OTP Ed25519 signing requires the dedicated emailOtp worker');
     }
-    const appSessionJwt = String(args.appSessionJwt || args.record.thresholdSessionJwt || '').trim();
+    const appSessionJwt = String(args.appSessionJwt || '').trim();
+    this.rememberEmailOtpAppSessionJwt({ nearAccountId, appSessionJwt });
     const workerResult = await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
@@ -2273,7 +2413,6 @@ export class SigningEngine {
       retention: 'single_use',
       reason: 'sign',
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      stepUpRequired: true,
     };
     const provisioned = await this.provisionEmailOtpThresholdEd25519Capability({
       nearAccountId,
@@ -2302,7 +2441,7 @@ export class SigningEngine {
     operation?: WalletEmailOtpLoginOperation;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
-    authorizationJwt?: string;
+    thresholdRouteAuth?: AppOrThresholdSessionAuth;
     ecdsaThresholdKeyId?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -2325,7 +2464,6 @@ export class SigningEngine {
       retention: emailOtpAuthPolicy === 'per_operation' ? 'single_use' : 'session',
       reason: args.emailOtpAuthReason || 'login',
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      stepUpRequired: true,
     };
     const relayUrl = String(
       args.relayUrl || this.tatchiPasskeyConfigs.network.relayer?.url || '',
@@ -2347,7 +2485,7 @@ export class SigningEngine {
           : undefined;
     const workerCtx =
       this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext();
-    const authorizationJwt = String(args.authorizationJwt || '').trim();
+    const thresholdRouteAuth = args.thresholdRouteAuth;
     const sessionKind = args.sessionKind || 'jwt';
     const rpId =
       typeof (this.touchIdPrompt as { getRpId?: unknown } | undefined)?.getRpId === 'function'
@@ -2357,13 +2495,22 @@ export class SigningEngine {
     if (!workerCtx) {
       throw new Error('Email OTP login requires the dedicated emailOtp worker');
     }
-    if (!authorizationJwt && sessionKind !== 'cookie') {
-      throw new Error('Email OTP login requires an authorization JWT for JWT ECDSA bootstrap');
+    if (!thresholdRouteAuth && sessionKind !== 'cookie') {
+      throw new Error('Email OTP ECDSA bootstrap requires app-session route auth for JWT sessions');
+    }
+    if (thresholdRouteAuth && thresholdRouteAuth.kind !== 'app_session') {
+      throw new Error('Email OTP ECDSA bootstrap requires app-session route auth');
     }
     if (!rpId) {
       throw new Error('Email OTP login requires an RP ID for ECDSA bootstrap');
     }
-    const appSessionJwt = String(args.appSessionJwt || authorizationJwt || '').trim();
+    const appSessionJwt = String(
+      args.appSessionJwt ||
+        (thresholdRouteAuth?.kind === 'app_session' && isAppSessionJwt(thresholdRouteAuth.jwt)
+          ? thresholdRouteAuth.jwt
+          : ''),
+    ).trim();
+    this.rememberEmailOtpAppSessionJwt({ nearAccountId, appSessionJwt });
     const workerResult = await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
@@ -2377,6 +2524,7 @@ export class SigningEngine {
           otpCode: args.otpCode,
           shamirPrimeB64u,
           ...(appSessionJwt ? { appSessionJwt } : {}),
+          ...(args.operation ? { operation: args.operation } : {}),
           otpChannel: EMAIL_OTP_CHANNEL,
           rpId,
           ...(args.ecdsaThresholdKeyId ? { ecdsaThresholdKeyId: args.ecdsaThresholdKeyId } : {}),
@@ -2385,7 +2533,7 @@ export class SigningEngine {
             : {}),
           sessionKind,
           ...(args.sessionId ? { sessionId: args.sessionId } : {}),
-          ...(authorizationJwt ? { authorizationJwt } : {}),
+          ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
           ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
           ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
           ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
@@ -2404,7 +2552,7 @@ export class SigningEngine {
       workerResult.recovery?.thresholdEd25519PrfFirstB64u || '',
     ).trim();
     if (thresholdEd25519PrfFirstB64u) {
-      await this.provisionEmailOtpThresholdEd25519Capability({
+      this.scheduleEmailOtpThresholdEd25519CapabilityProvisioning({
         nearAccountId,
         relayUrl,
         rpId,
@@ -2732,6 +2880,29 @@ export class SigningEngine {
     };
   }
 
+  private scheduleEmailOtpThresholdEd25519CapabilityProvisioning(args: Parameters<
+    SigningEngine['provisionEmailOtpThresholdEd25519Capability']
+  >[0]): void {
+    const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
+    if (!accountId) return;
+    const warmupMap = this.getEmailOtpEd25519WarmupMap();
+    if (warmupMap.has(accountId)) return;
+    const pending = this.provisionEmailOtpThresholdEd25519Capability(args);
+    warmupMap.set(accountId, pending);
+    void pending.catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error || 'unknown error');
+      console.warn('[email-otp] background threshold-ed25519 warm-up failed', {
+        nearAccountId: accountId,
+        message,
+      });
+    }).finally(() => {
+      const currentWarmupMap = this.getEmailOtpEd25519WarmupMap();
+      if (currentWarmupMap.get(accountId) === pending) {
+        currentWarmupMap.delete(accountId);
+      }
+    });
+  }
+
   private async persistEmailOtpThresholdEd25519LocalMetadata(args: {
     nearAccountId: AccountId;
     rpId: string;
@@ -2829,7 +3000,7 @@ export class SigningEngine {
     challengeId?: string;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
-    authorizationJwt?: string;
+    thresholdRouteAuth?: AppOrThresholdSessionAuth;
     ecdsaThresholdKeyId?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -2855,7 +3026,6 @@ export class SigningEngine {
       retention: emailOtpAuthPolicy === 'per_operation' ? 'single_use' : 'session',
       reason: 'login',
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      stepUpRequired: true,
     };
     const relayUrl = String(
       args.relayUrl || this.tatchiPasskeyConfigs.network.relayer?.url || '',
@@ -2869,11 +3039,11 @@ export class SigningEngine {
     if (!shamirPrimeB64u) {
       throw new Error('Missing shamir prime for Email OTP runtime');
     }
-    const authorizationJwt = String(args.authorizationJwt || '').trim();
+    const thresholdRouteAuth = args.thresholdRouteAuth;
     const sessionKind = args.sessionKind || 'jwt';
-    if (!authorizationJwt && sessionKind !== 'cookie') {
+    if (!thresholdRouteAuth && sessionKind !== 'cookie') {
       throw new Error(
-        'Email OTP enrollment login requires an authorization JWT for JWT ECDSA bootstrap',
+        'Email OTP enrollment login requires threshold route auth for JWT ECDSA bootstrap',
       );
     }
     const workerCtx =
@@ -2888,7 +3058,13 @@ export class SigningEngine {
     if (!rpId) {
       throw new Error('Email OTP enrollment login requires an RP ID for ECDSA bootstrap');
     }
-    const appSessionJwt = String(args.appSessionJwt || authorizationJwt || '').trim();
+    const appSessionJwt = String(
+      args.appSessionJwt ||
+        (thresholdRouteAuth?.kind === 'app_session' && isAppSessionJwt(thresholdRouteAuth.jwt)
+          ? thresholdRouteAuth.jwt
+          : ''),
+    ).trim();
+    this.rememberEmailOtpAppSessionJwt({ nearAccountId, appSessionJwt });
     const remainingUses =
       typeof args.remainingUses === 'number'
         ? args.remainingUses
@@ -2921,7 +3097,7 @@ export class SigningEngine {
               : {}),
             sessionKind,
             ...(args.sessionId ? { sessionId: args.sessionId } : {}),
-            ...(authorizationJwt ? { authorizationJwt } : {}),
+            ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
             ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
             ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
             ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
@@ -3023,7 +3199,7 @@ export class SigningEngine {
         await warmSessionManager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
           chain,
           thresholdSessionId,
-          required: Boolean(String(args.authorizationJwt || '').trim()),
+          required: Boolean(args.thresholdRouteAuth),
           errorContext: 'threshold-ecdsa bootstrap seal persistence',
         });
       }
@@ -3321,7 +3497,7 @@ export class SigningEngine {
     chain: 'tempo' | 'evm';
     operationLabel: string;
     thresholdSessionId?: string;
-    sensitivePolicy?: WarmSessionSensitiveOperationPolicy;
+    sensitivePolicy?: SensitiveOperationPolicy;
   }): Promise<void> {
     await createWarmSessionManager({
       touchConfirm: this.touchConfirm,

@@ -36,7 +36,6 @@ export type ThresholdEcdsaEmailOtpAuthContext = {
   retention: 'session' | 'single_use';
   reason: 'login' | 'sign';
   authMethod: 'email_otp';
-  stepUpRequired: boolean;
   consumedAtMs?: number;
 };
 
@@ -556,7 +555,6 @@ function normalizeThresholdEcdsaEmailOtpAuthContext(
     retention,
     reason,
     authMethod: 'email_otp',
-    stepUpRequired: obj.stepUpRequired === false ? false : true,
     ...(consumedAtMs ? { consumedAtMs } : {}),
   };
 }

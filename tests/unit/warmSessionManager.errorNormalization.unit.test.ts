@@ -54,7 +54,10 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
         chain: 'evm',
         source: 'manual-bootstrap',
         sessionId: record.thresholdSessionId,
-        authorizationJwt: 'jwt:bootstrap-error-session',
+        thresholdRouteAuth: {
+          kind: 'threshold_session',
+          jwt: 'jwt:bootstrap-error-session',
+        },
       }),
     ).rejects.toThrow(
       'Missing warm PRF material for threshold-ecdsa authorization bootstrap (missing)',

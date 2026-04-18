@@ -37,7 +37,7 @@ export interface PasskeyAuthMenuProps {
   onRegister?: () => void | Promise<unknown>;
   /** Return a Promise to keep the waiting screen visible until the flow completes. */
   onSyncAccount?: () => void | Promise<unknown>;
-  /** App-selected Email OTP retention policy exposed through the auth menu. */
+  /** App-selected Email OTP signing-session policy exposed through the auth menu. */
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   /** Display SDK progress event messages under the waiting screen. */
   showSDKEvents?: boolean;

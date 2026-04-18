@@ -5,7 +5,9 @@ import {
   thresholdEcdsaHssFinalize,
   thresholdEcdsaHssPrepare,
   thresholdEcdsaHssRespond,
+  type ThresholdEcdsaHssRouteAuth,
 } from '@/core/rpcClients/relayer/thresholdEcdsa';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import { cacheSigningSessionPrfFirstBestEffort } from '@/core/signingEngine/api/session/signingSessionState';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
@@ -130,7 +132,7 @@ export async function bootstrapEcdsaSession(args: {
   sessionId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
-  bootstrapAuthorizationJwt?: string;
+  bootstrapAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -175,13 +177,12 @@ export async function bootstrapEcdsaSession(args: {
   }
 
   const keygenSessionId = generateKeygenSessionId();
-  const bootstrapAuthorizationJwt = String(args.bootstrapAuthorizationJwt || '').trim();
   const requestedSessionId = String(args.sessionId || '').trim();
   const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
   const providedClientRootShare32 =
     args.clientRootShare32 instanceof Uint8Array ? args.clientRootShare32 : undefined;
   const providedClientRootShare32B64u = String(args.clientRootShare32B64u || '').trim();
-  const useAuthorizationBootstrap = bootstrapAuthorizationJwt.length > 0;
+  const useAuthorizationBootstrap = Boolean(args.bootstrapAuth);
   if (useAuthorizationBootstrap && !providedClientRootShare32 && !providedClientRootShare32B64u) {
     return {
       ok: false,
@@ -241,9 +242,13 @@ export async function bootstrapEcdsaSession(args: {
       managedBootstrapGrant?.runtimePolicyScope;
     const sessionId = requestedSessionId || generateThresholdSessionId();
     const webauthnAuthentication = useAuthorizationBootstrap ? undefined : (credential as any);
-    const authorizationJwt = useAuthorizationBootstrap
-      ? bootstrapAuthorizationJwt
-      : managedBootstrapGrant?.token || runtimeScopePublishableKey || undefined;
+    const routeAuth: ThresholdEcdsaHssRouteAuth | undefined = useAuthorizationBootstrap
+      ? args.bootstrapAuth
+      : managedBootstrapGrant?.token
+        ? { kind: 'bootstrap_grant', token: managedBootstrapGrant.token }
+        : runtimeScopePublishableKey
+          ? { kind: 'publishable_key', token: runtimeScopePublishableKey }
+          : undefined;
     const prepare = await thresholdEcdsaHssPrepare(args.relayerUrl, {
       userId,
       rpId,
@@ -251,7 +256,7 @@ export async function bootstrapEcdsaSession(args: {
       ...(useAuthorizationBootstrap && ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
       keygenSessionId,
       webauthnAuthentication,
-      authorizationJwt,
+      auth: routeAuth,
       ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
       sessionPolicy: {
         version: THRESHOLD_SESSION_POLICY_VERSION,
@@ -341,7 +346,7 @@ export async function bootstrapEcdsaSession(args: {
     const respond = await thresholdEcdsaHssRespond(args.relayerUrl, {
       ceremonyId,
       requestMessageB64u,
-      authorizationJwt,
+      auth: routeAuth,
       sessionKind,
     });
     if (!respond.ok) {
@@ -394,7 +399,7 @@ export async function bootstrapEcdsaSession(args: {
     const bootstrap = await thresholdEcdsaHssFinalize(args.relayerUrl, {
       ceremonyId,
       clientFinalizeMessageB64u: finalizeMessageB64u,
-      authorizationJwt,
+      auth: routeAuth,
       sessionKind,
     });
     if (!bootstrap.ok) {

@@ -42,7 +42,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         participantIds: [1, 2],
         sessionKind: 'jwt',
         sessionId: 'ecdsa-session-1',
-        bootstrapAuthorizationJwt: 'app-session-jwt',
+        bootstrapAuth: { kind: 'app_session', jwt: 'app-session-jwt' },
         clientRootShare32B64u,
         workerCtx: {
           requestWorkerOperation: async () => {

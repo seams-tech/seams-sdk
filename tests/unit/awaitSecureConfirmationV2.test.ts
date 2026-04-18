@@ -211,6 +211,90 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
     expect(result.confirmed).toBe(true);
   });
 
+  test('preserves Email OTP code and challenge id across the worker confirmation bridge', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ workerPath }) => {
+        await import(workerPath);
+        const awaitV2 = (globalThis as any).awaitUserConfirmationV2 as (
+          req: any,
+          opts?: any,
+        ) => Promise<any>;
+
+        const request = {
+          requestId: 'email-otp-export-1',
+          type: 'signIntentDigest',
+          summary: {
+            operation: 'Export Private Key',
+            accountId: 'alice.testnet',
+            publicKey: 'ed25519:test',
+            warning: 'Exporting this private key grants full control of the account.',
+          },
+          payload: {
+            nearAccountId: 'alice.testnet',
+            challengeB64u: 'challenge-1',
+            signingAuthPlan: {
+              kind: 'emailOtpReauth',
+              method: 'email_otp',
+              emailOtpPrompt: {
+                challengeId: 'email-otp-challenge-1',
+                title: 'Enter email code to export',
+                body: 'This one-time code authorizes private key export only.',
+              },
+            },
+          },
+          intentDigest: 'export-keys:alice.testnet:near:ed25519:email-otp',
+        };
+
+        const originalAdd = self.addEventListener.bind(self);
+        self.addEventListener = ((type: string, listener: any, options?: any) => {
+          if (type === 'message') {
+            const wrapped = (ev: MessageEvent) => {
+              const data: any = ev.data;
+              if (data?.type === 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD') {
+                self.dispatchEvent(
+                  new MessageEvent('message', {
+                    data: {
+                      type: 'USER_PASSKEY_CONFIRM_RESPONSE',
+                      requestId: data.requestId,
+                      channelToken: data.channelToken,
+                      data: {
+                        requestId: data.data.requestId,
+                        confirmed: true,
+                        otpCode: '565253',
+                        emailOtpChallengeId: 'email-otp-challenge-1',
+                      },
+                    },
+                  }),
+                );
+              }
+              listener(ev);
+            };
+            return originalAdd(type, wrapped, options);
+          }
+          return originalAdd(type, listener, options);
+        }) as any;
+
+        const resp = await awaitV2(request, { timeoutMs: 250 });
+        return {
+          requestId: resp?.request_id,
+          confirmed: resp?.confirmed,
+          otpCode: resp?.otp_code,
+          emailOtpChallengeId: resp?.email_otp_challenge_id,
+        };
+      },
+      { workerPath: WORKER_PATH },
+    );
+
+    expect(result).toEqual({
+      requestId: 'email-otp-export-1',
+      confirmed: true,
+      otpCode: '565253',
+      emailOtpChallengeId: 'email-otp-challenge-1',
+    });
+  });
+
   test('ignores response with mismatched channel token', async ({ page }) => {
     const result = await page.evaluate(
       async ({ workerPath }) => {

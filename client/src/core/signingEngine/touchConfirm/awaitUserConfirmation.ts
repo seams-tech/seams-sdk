@@ -23,6 +23,8 @@ type ConfirmResponsePayload = {
   confirmed: boolean;
   intentDigest?: string;
   credential?: SerializableCredential;
+  otpCode?: string;
+  emailOtpChallengeId?: string;
   transactionContext?: TransactionContext;
   error?: string;
 };
@@ -97,6 +99,8 @@ export function awaitUserConfirmationV2(
         intent_digest: env.data.intentDigest,
         confirmed: env.data.confirmed,
         credential: env.data.credential,
+        otp_code: env.data.otpCode,
+        email_otp_challenge_id: env.data.emailOtpChallengeId,
         transaction_context: env.data.transactionContext,
         error: env.data.error,
       };

@@ -228,7 +228,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         idToken,
         accountMode: isRegister ? 'register' : 'login',
         relayUrl: relayerBaseUrl,
-        sessionKind: 'cookie',
+        sessionKind: 'jwt',
       });
     } catch (error: unknown) {
       const formatted = formatGoogleSsoEmailOtpError(error);
@@ -242,6 +242,10 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     }
     const emailHint = String(exchange.session?.email || '').trim();
     const displayHint = emailHint || walletId;
+    const appSessionJwt = String(exchange.jwt || '').trim();
+    if (!appSessionJwt) {
+      throw new Error('Google SSO did not return an app session token for Email OTP wallet unlock');
+    }
 
     const googleResolution = exchange.session.googleEmailOtpResolution;
     const otpFlow: 'enroll' | 'login' =
@@ -261,12 +265,14 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           return await tatchi.auth.requestEmailOtpChallenge({
             nearAccountId: walletId,
             relayUrl: relayerBaseUrl,
+            appSessionJwt,
           });
         }
 
         return await tatchi.auth.requestEmailOtpEnrollmentChallenge({
           nearAccountId: walletId,
           relayUrl: relayerBaseUrl,
+          appSessionJwt,
         });
       } catch (error: unknown) {
         const message = formatGoogleSsoEmailOtpError(error);
@@ -296,7 +302,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               challengeId: challenge.challengeId,
               otpCode,
               relayUrl: relayerBaseUrl,
-              sessionKind: 'cookie',
+              sessionKind: 'jwt',
+              appSessionJwt,
+              thresholdRouteAuth: { kind: 'app_session', jwt: appSessionJwt },
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
               ...(googleResolution?.registrationAttemptId
                 ? { registrationAttemptId: googleResolution.registrationAttemptId }
@@ -312,7 +320,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               challengeId: challenge.challengeId,
               otpCode,
               relayUrl: relayerBaseUrl,
-              sessionKind: 'cookie',
+              sessionKind: 'jwt',
+              appSessionJwt,
+              thresholdRouteAuth: { kind: 'app_session', jwt: appSessionJwt },
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
               ...(exchange.session.runtimePolicyScope
                 ? { runtimePolicyScope: exchange.session.runtimePolicyScope }

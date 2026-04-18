@@ -470,6 +470,95 @@ test.describe('Email OTP routes', () => {
     }
   });
 
+  test('Express: Email OTP verify tolerates app-session JWT refresh with same stable scope', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
+    const stableClaims = {
+      kind: 'app_session_v1',
+      sub: 'alice.testnet',
+      appSessionVersion,
+      walletId: 'alice.testnet',
+      provider: 'oidc',
+      oidcProvider: 'google',
+      providerSubject: 'google:alice',
+      email: 'alice@example.com',
+    };
+    const router = createRelayRouter(service, {
+      session: makeTokenBoundAppSessionAdapter({
+        'app-session-before-refresh': {
+          ...stableClaims,
+          googleEmailOtpRegistrationAttemptId: 'registration-attempt-before-refresh',
+          googleEmailOtpResolutionMode: 'register_started',
+          name: 'Alice Before Refresh',
+          deviceId: 'device-before-refresh',
+          iat: 1776498000,
+          exp: 1776501600,
+          jti: 'session-before-refresh',
+        },
+        'app-session-after-refresh': {
+          ...stableClaims,
+          googleEmailOtpRegistrationAttemptId: 'registration-attempt-after-refresh',
+          googleEmailOtpResolutionMode: 'existing_wallet',
+          name: 'Alice After Refresh',
+          deviceId: 'device-after-refresh',
+          iat: 1776498060,
+          exp: 1776501660,
+          jti: 'session-after-refresh',
+        },
+      }),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      await enrollEmailOtpOverExpress({
+        baseUrl: srv.baseUrl,
+        authToken: 'app-session-before-refresh',
+      });
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer app-session-before-refresh',
+        },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          otpChannel: 'email_otp',
+          operation: 'export_key',
+        }),
+      });
+      expect(challenge.status).toBe(200);
+      const challengeId = String(challenge.json?.challenge?.challengeId || '');
+      const outbox = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/dev/otp-outbox?challengeId=${encodeURIComponent(challengeId)}&walletId=alice.testnet`,
+        {
+          method: 'GET',
+          headers: { Authorization: 'Bearer app-session-after-refresh' },
+        },
+      );
+      expect(outbox.status).toBe(200);
+      const otpCode = String(outbox.json?.otpCode || '');
+      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer app-session-after-refresh',
+        },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          challengeId,
+          otpChannel: 'email_otp',
+          otpCode,
+          operation: 'export_key',
+        }),
+      });
+      expect(verified.status).toBe(200);
+      expect(verified.json?.ok).toBe(true);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('Cloudflare: export_key Email OTP challenge can be denied by route policy and audited', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });

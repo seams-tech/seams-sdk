@@ -16,6 +16,8 @@ export const SIGNER_AUTH_METHODS = {
 export type SignerAuthMethod =
   (typeof SIGNER_AUTH_METHODS)[keyof typeof SIGNER_AUTH_METHODS];
 
+export type AuthMethod = SignerAuthMethod;
+
 export const WALLET_AUTH_METHODS = {
   passkey: 'passkey',
   emailOtp: EMAIL_OTP_CHANNEL,
@@ -41,6 +43,24 @@ export const SIGNING_SESSION_RETENTIONS = {
 export type SigningSessionRetention =
   (typeof SIGNING_SESSION_RETENTIONS)[keyof typeof SIGNING_SESSION_RETENTIONS];
 
+export const SIGNING_SESSION_POLICIES = {
+  session: 'session',
+  perOperation: 'per_operation',
+} as const;
+
+export type SigningSessionPolicy =
+  (typeof SIGNING_SESSION_POLICIES)[keyof typeof SIGNING_SESSION_POLICIES];
+
+export const SENSITIVE_OPERATION_POLICIES = {
+  inheritSessionPolicy: 'inherit_session_policy',
+  requireFreshSameMethod: 'require_fresh_same_method',
+  requirePasskey: 'require_passkey',
+  denyEmailOtp: 'deny_email_otp',
+} as const;
+
+export type SensitiveOperationPolicy =
+  (typeof SENSITIVE_OPERATION_POLICIES)[keyof typeof SENSITIVE_OPERATION_POLICIES];
+
 export const SIGNER_SOURCES = {
   passkeyRegistration: 'passkey_registration',
   emailOtpRegistration: 'email_otp_registration',
@@ -60,6 +80,12 @@ export const WALLET_AUTH_PROOF_METHOD_VALUES = Object.values(
   WALLET_AUTH_PROOF_METHODS,
 ) as readonly WalletAuthProofMethod[];
 export const SIGNER_SOURCE_VALUES = Object.values(SIGNER_SOURCES) as readonly SignerSource[];
+export const SIGNING_SESSION_POLICY_VALUES = Object.values(
+  SIGNING_SESSION_POLICIES,
+) as readonly SigningSessionPolicy[];
+export const SENSITIVE_OPERATION_POLICY_VALUES = Object.values(
+  SENSITIVE_OPERATION_POLICIES,
+) as readonly SensitiveOperationPolicy[];
 
 function normalized(value: unknown): string {
   return normalizeOptionalTrimmedString(value)?.toLowerCase() || '';
@@ -83,4 +109,12 @@ export function isWalletAuthProofMethod(value: unknown): value is WalletAuthProo
 
 export function isSignerSource(value: unknown): value is SignerSource {
   return (SIGNER_SOURCE_VALUES as readonly string[]).includes(normalized(value));
+}
+
+export function isSigningSessionPolicy(value: unknown): value is SigningSessionPolicy {
+  return (SIGNING_SESSION_POLICY_VALUES as readonly string[]).includes(normalized(value));
+}
+
+export function isSensitiveOperationPolicy(value: unknown): value is SensitiveOperationPolicy {
+  return (SENSITIVE_OPERATION_POLICY_VALUES as readonly string[]).includes(normalized(value));
 }

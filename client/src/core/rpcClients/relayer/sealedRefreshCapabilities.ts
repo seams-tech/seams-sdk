@@ -248,7 +248,10 @@ export async function verifySealedRefreshStartupParity(
         'sealed_refresh_parity_mismatch',
       );
     }
-  })();
+  })().catch((error: unknown) => {
+    parityCheckByConfigKey.delete(configKey);
+    throw error;
+  });
 
   parityCheckByConfigKey.set(configKey, task);
   await task;

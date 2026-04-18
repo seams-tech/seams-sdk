@@ -235,7 +235,7 @@ async function stagedSessionBootstrapThresholdEcdsa(args: {
   clientRootShare32B64u: string;
   sessionId: string;
   participantIds: number[];
-  authorizationJwt: string;
+  bearerJwt: string;
   ecdsaThresholdKeyId?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -244,7 +244,7 @@ async function stagedSessionBootstrapThresholdEcdsa(args: {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${args.authorizationJwt}`,
+      Authorization: `Bearer ${args.bearerJwt}`,
     },
     body: JSON.stringify({
       userId: args.userId,
@@ -295,7 +295,7 @@ async function stagedSessionBootstrapThresholdEcdsa(args: {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${args.authorizationJwt}`,
+      Authorization: `Bearer ${args.bearerJwt}`,
     },
     body: JSON.stringify({
       ceremonyId,
@@ -323,7 +323,7 @@ async function stagedSessionBootstrapThresholdEcdsa(args: {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${args.authorizationJwt}`,
+      Authorization: `Bearer ${args.bearerJwt}`,
     },
     body: JSON.stringify({
       ceremonyId,
@@ -1148,7 +1148,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         clientRootShare32B64u,
         sessionId: `ecdsa-first-${Date.now()}`,
         participantIds,
-        authorizationJwt: firstEd25519Jwt,
+        bearerJwt: firstEd25519Jwt,
       });
       expect(firstBootstrap.status, firstBootstrap.text).toBe(200);
       expect(firstBootstrap.json?.ok, firstBootstrap.text).toBe(true);
@@ -1197,7 +1197,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         clientRootShare32B64u,
         sessionId: `ecdsa-second-${Date.now()}`,
         participantIds,
-        authorizationJwt: appSessionJwt,
+        bearerJwt: appSessionJwt,
         ecdsaThresholdKeyId,
       });
       expect(resumedBootstrap.status, resumedBootstrap.text).toBe(200);

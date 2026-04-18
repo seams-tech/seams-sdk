@@ -78,7 +78,7 @@ test.describe('WarmSessionManager ECDSA bootstrap resolution', () => {
       sessionKind: 'cookie',
       sessionId: 'sess-ecdsa-cookie',
     });
-    expect('authorizationJwt' in fallbackBootstrap).toBe(false);
+    expect('thresholdRouteAuth' in fallbackBootstrap).toBe(false);
 
     expect(primaryBootstrap).toMatchObject({
       nearAccountId: 'primary.testnet',
@@ -87,7 +87,10 @@ test.describe('WarmSessionManager ECDSA bootstrap resolution', () => {
       participantIds: [1, 2],
       sessionKind: 'jwt',
       sessionId: 'sess-ecdsa-jwt',
-      authorizationJwt: 'jwt-ecdsa-primary',
+      thresholdRouteAuth: {
+        kind: 'threshold_session',
+        jwt: 'jwt-ecdsa-primary',
+      },
     });
   });
 });

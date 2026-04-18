@@ -425,7 +425,6 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
             retention: 'session',
             reason: 'login',
             authMethod: 'email_otp',
-            stepUpRequired: true,
           },
           bootstrap: {
             thresholdEcdsaKeyRef: {

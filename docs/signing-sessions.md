@@ -1,15 +1,123 @@
 # Threshold Signing Warm Sessions
 
-Last updated: 2026-02-28
+Last updated: 2026-04-18
 
-## 1. Core Contract
+## 1. Core Rules
 
 1. Login performs one passkey assertion and uses that single `PRF.first` derivation to warm all enabled threshold signers.
 2. In current default config, login warms `ed25519` and `ecdsa` together, with `ecdsa` depending on `ed25519`.
 3. Tempo/EVM sign flows must not trigger hidden bootstrap as a normal path; they consume already-warm session state or use explicit reconnect flow.
 4. Confirmer UI must open immediately; network-dependent preparation is hydrated after mount.
 
-## 2. One-Touch Warmup Architecture
+## 2. Session Token Model
+
+Signing flows use two different session-token authority lanes. They are intentionally not interchangeable.
+
+### App-session JWT
+
+`app_session_v1` represents authenticated app/user state.
+
+It answers:
+
+```text
+Is this browser/app session currently authenticated as this user for this wallet/app?
+```
+
+Use app-session auth for:
+
+1. Google SSO or passkey app-session exchange.
+2. `session/*` routes such as refresh, state, revoke, and lock.
+3. Email OTP challenge issuance and verification.
+4. Email OTP `export_key` challenge issuance and verification.
+5. Email OTP bootstrap authorization, because OTP verification and app-session binding prove the user is allowed to begin unseal/bootstrap.
+6. Wallet metadata reads that require authenticated end-user context.
+
+Do not use app-session auth as generic signing authority. A valid app session means the user is logged in; it does not by itself prove an active threshold signer is ready or authorized to sign.
+
+### Threshold-session JWT
+
+Threshold-session JWTs represent active signing capability for a specific threshold signer family and session.
+
+They answer:
+
+```text
+Is this client allowed to use this already-bootstrapped threshold signing session?
+```
+
+Use threshold-session auth for:
+
+1. Threshold Ed25519 signing and HSS continuation routes after bootstrap.
+2. Threshold ECDSA signing, presign, and HSS export routes after bootstrap.
+3. Threshold key export routes that require an already-established threshold signing capability.
+4. Low-level threshold continuation routes whose authorization is scoped to threshold session claims.
+
+Do not use threshold-session auth as generic app/session authority. A valid threshold session means a signing capability exists; it must not be accepted for Email OTP challenge issuance, app-session refresh, app-session state, or other end-user session routes.
+
+### Shared Route Auth Type
+
+Client and worker plumbing should use one discriminated route-auth type while preserving the two security meanings:
+
+```ts
+type RouteAuth =
+  | { kind: 'app_session'; jwt: string }
+  | { kind: 'threshold_session'; jwt: string };
+```
+
+The shared type simplifies call sites, but each route must still require the correct variant. Wrong-token usage must fail closed before or at the route boundary.
+
+### Email OTP Session Flow
+
+```mermaid
+sequenceDiagram
+  participant UI as "App / UI"
+  participant Server as "Relay server"
+  participant OTP as "Email OTP delivery"
+  participant Worker as "Email OTP + shamir3pass worker"
+  participant Threshold as "Threshold signer"
+
+  UI->>Server: "Google SSO / OIDC exchange"
+  Server-->>UI: "app_session_v1 JWT or cookie"
+
+  UI->>Server: "Request Email OTP challenge using app-session auth"
+  Server->>OTP: "Send or log 6-digit code"
+  Server-->>UI: "challengeId"
+
+  UI->>Server: "Verify OTP using app-session auth + challengeId + code"
+  Server-->>UI: "OTP grant / authorization"
+
+  UI->>Worker: "Start Email OTP unseal/bootstrap"
+  Worker->>Server: "Server-assisted shamir3pass unseal using OTP authorization"
+  Worker-->>Worker: "Recover S inside worker"
+
+  Worker->>Threshold: "Bootstrap signing capability from S-derived material"
+  Threshold-->>UI: "threshold-session JWT / signing-session metadata"
+
+  UI->>Threshold: "Sign or export using threshold-session auth"
+```
+
+Practical rule:
+
+1. Fresh Email OTP authorization is reserved for private-key export and link-device/add-signer flows, or for ordinary signing only when the configured signing-session policy is `per_operation`.
+2. Successful bootstrap creates or refreshes threshold-session auth.
+3. Normal signing and threshold HSS export use threshold-session auth.
+4. Export with Email OTP uses both lanes: app-session auth for the export-scoped OTP challenge, then threshold-session auth for the threshold export protocol.
+5. Ordinary transaction signing must not force Email OTP step-up when a valid session-mode signing session already exists.
+
+Policy model:
+
+```ts
+type SigningSessionPolicy = 'session' | 'per_operation';
+
+type AuthMethod = 'passkey' | 'email_otp';
+
+type SensitiveOperationPolicy =
+  | 'inherit_session_policy'
+  | 'require_fresh_same_method'
+  | 'require_passkey'
+  | 'deny_email_otp';
+```
+
+## 3. One-Touch Warmup Architecture
 
 Primary implementation:
 
@@ -29,11 +137,11 @@ Current unlock warm path:
    - mints session JWT,
    - derives and returns `ecdsaHssClientRootShare32B64u`.
 5. `ecdsa` task calls `bootstrapEcdsaSession(...)` with:
-   - `sessionId` and `authorizationJwt` from the `ed25519` task,
+   - `sessionId` and explicit threshold-route auth from the `ed25519` task,
    - `clientRootShare32B64u` from the same passkey derivation.
 6. Login requires `getWarmSigningSessionStatus(...)` to return `active`; otherwise login fails closed.
 
-## 3. Enabled Signers and Dependency Graph
+## 4. Enabled Signers and Dependency Graph
 
 The warm planner already supports a signer set (`signersToWarm`) and dependency execution:
 
@@ -43,7 +151,7 @@ The warm planner already supports a signer set (`signersToWarm`) and dependency 
 
 This is the canonical place to extend when more signer families become configurable.
 
-## 4. Confirmer UX Contract (No Pre-Modal Blocking)
+## 5. Confirmer UX Contract (No Pre-Modal Blocking)
 
 Primary implementation:
 
@@ -66,7 +174,7 @@ Do not block modal mount on:
 3. Threshold key reconnect checks.
 4. Presign handshake/refill.
 
-## 5. Finalization Polling Issues to Watch
+## 6. Finalization Polling Issues to Watch
 
 Finalization bugs are usually post-broadcast issues, not signing failures.
 
@@ -76,7 +184,7 @@ Finalization bugs are usually post-broadcast issues, not signing failures.
 4. On Tempo flows, receipt polling alone can be noisy; keep state-based confirmation fallback (for example, expected contract state change) where available.
 5. Reset per-attempt UI state before each flow start so stale tx-hash metadata is never shown on a new transaction.
 
-## 6. Nonce Issues to Watch
+## 7. Nonce Issues to Watch
 
 Primary implementation:
 
@@ -92,7 +200,7 @@ Critical rules:
 5. Fail closed on ambiguous/misconfigured chain routing; do not guess network mapping.
 6. Do not reintroduce caller-managed nonce injection as default behavior.
 
-## 7. Regression Checklist
+## 8. Regression Checklist
 
 1. Login warmup with threshold mode enabled results in one TouchID prompt and active warm session.
 2. EVM and Tempo signer confirms open immediately while nonce/intent work continues in background.
@@ -101,7 +209,7 @@ Critical rules:
 5. Reconcile surfaces unresolved nonce gaps deterministically and dropped/replaced transitions recover lane progress.
 6. Finalization wait always terminates with either confirmed state or typed timeout/underpriced guidance.
 
-## 8. Sealed Refresh (`sealed_refresh_v1`) Integration
+## 9. Sealed Refresh (`sealed_refresh_v1`) Integration
 
 Use this only when the server-side PRF seal module is enabled.
 

@@ -450,7 +450,7 @@ export async function runEmailOtpEcdsaTempoFlow(
           challengeId: enrollmentOtp.challengeId,
           otpCode: enrollmentOtp.otpCode,
           appSessionJwt: enrollAppSessionJwt,
-          authorizationJwt: enrollAppSessionJwt,
+          thresholdRouteAuth: { kind: 'app_session', jwt: enrollAppSessionJwt },
           sessionKind: 'jwt',
           ...(requestedEcdsaThresholdKeyId
             ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
@@ -493,7 +493,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         challengeId: loginOtp.challengeId,
         otpCode: loginOtp.otpCode,
         appSessionJwt: loginAppSessionJwt,
-        authorizationJwt: loginAppSessionJwt,
+        thresholdRouteAuth: { kind: 'app_session', jwt: loginAppSessionJwt },
         ecdsaThresholdKeyId,
         participantIds: resolvedParticipantIds,
         sessionKind: 'jwt',

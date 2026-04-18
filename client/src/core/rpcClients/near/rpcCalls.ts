@@ -18,6 +18,7 @@ import type { FinalExecutionOutcome } from '@near-js/types';
 import { TransactionContext } from '../../types/rpc';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { errorMessage } from '@shared/utils/errors';
+import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
 import {
   joinNormalizedUrl,
   normalizeJwtCookieSessionKind,
@@ -504,6 +505,7 @@ export async function executeDeviceLinkingContractCalls({
           nearAccountId: device1AccountId,
         },
         confirmationConfigOverride,
+        sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requireFreshSameMethod,
         title: confirmerText?.title,
         body: confirmerText?.body,
         transactions: [

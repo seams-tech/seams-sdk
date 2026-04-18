@@ -15,6 +15,7 @@ import type { AccountId } from '../types/accountIds';
 import { getUserFriendlyErrorMessage, toError } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { isObject } from '@shared/utils/validation';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import { IndexedDBManager } from '../indexedDB';
 import { getNearAccountProjection, resolveNearAccountProfileContinuity } from '../accountData/near/accountProjection';
 import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
@@ -736,7 +737,12 @@ async function primeThresholdLoginWarmSigners(args: {
           const useAppSessionBootstrapJwt =
             !!appSessionJwt &&
             !!String(args.canonicalEcdsaContext.ecdsaThresholdKeyId || '').trim();
-          const ecdsaAuthorizationJwt = useAppSessionBootstrapJwt ? appSessionJwt : warmState.jwt;
+          const thresholdRouteAuth: AppOrThresholdSessionAuth | undefined =
+            useAppSessionBootstrapJwt && appSessionJwt
+              ? { kind: 'app_session', jwt: appSessionJwt }
+              : warmState.jwt
+                ? { kind: 'threshold_session', jwt: warmState.jwt }
+                : undefined;
           for (const chain of ['tempo', 'evm'] as const) {
             await args.signingEngine.bootstrapEcdsaSession({
               nearAccountId: args.nearAccountId,
@@ -751,7 +757,7 @@ async function primeThresholdLoginWarmSigners(args: {
               ttlMs: args.ttlMs,
               remainingUses: args.remainingUses,
               clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
-              authorizationJwt: ecdsaAuthorizationJwt,
+              ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
               ...(args.canonicalEcdsaContext.runtimePolicyScope
                 ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
                 : {}),

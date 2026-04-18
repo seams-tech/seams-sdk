@@ -17,6 +17,7 @@ import type {
 } from './thresholdSessionStore';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/session/sessionPolicy';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 
 export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
@@ -30,7 +31,7 @@ export type BootstrapEcdsaSessionArgs = {
   sessionId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
-  authorizationJwt?: string;
+  thresholdRouteAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -134,7 +135,7 @@ export async function bootstrapEcdsaSessionValue(
       sessionId: args.sessionId,
       clientRootShare32: args.clientRootShare32,
       clientRootShare32B64u: args.clientRootShare32B64u,
-      authorizationJwt: args.authorizationJwt,
+      thresholdRouteAuth: args.thresholdRouteAuth,
       runtimePolicyScope: args.runtimePolicyScope,
       runtimeScopeBootstrap: args.runtimeScopeBootstrap,
       ttlMs: args.ttlMs,

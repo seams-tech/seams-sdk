@@ -9,6 +9,11 @@ function readNearSigningSource(): string {
   return fs.readFileSync(filePath, 'utf8');
 }
 
+function readRepoSource(relativePath: string): string {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+  return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+}
+
 test.describe('threshold Ed25519 near signing queue guard', () => {
   test('threshold near signing routes through strict session-scoped queue wrapper', () => {
     const source = readNearSigningSource();
@@ -18,5 +23,24 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(source).toContain('enabled: true,');
     expect(source).not.toContain('signerMode');
     expect(wrapperCalls).toBeGreaterThanOrEqual(3);
+  });
+
+  test('Email OTP NEAR signing waits for pending Ed25519 warm-up instead of falling through', () => {
+    const nearSigning = readNearSigningSource();
+    const transactionsFlow = readRepoSource(
+      'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts',
+    );
+    const signingFlow = readRepoSource(
+      'client/src/core/signingEngine/touchConfirm/handlers/flows/signing.ts',
+    );
+
+    expect(nearSigning).toContain('isEmailOtpEd25519WarmupPending');
+    expect(nearSigning).toContain('waitForPendingEmailOtpEd25519Warmup');
+    expect(nearSigning).toContain('Finalizing NEAR signing session...');
+    expect(transactionsFlow).toContain('confirmationReadiness');
+    expect(transactionsFlow).toContain('ed25519Warmup.waitForReady()');
+    expect(signingFlow).toContain('consumeConfirmationReadiness');
+    expect(signingFlow).toContain('confirmationReadinessPending');
+    expect(signingFlow).toContain('loading: isConfirmationLoading()');
   });
 });

@@ -3,10 +3,14 @@ export interface GoogleIdCredentialResponse {
 }
 
 export interface GoogleIdPromptMomentNotification {
+  isDisplayMoment?: () => boolean;
+  isDisplayed?: () => boolean;
   isNotDisplayed?: () => boolean;
   isSkippedMoment?: () => boolean;
+  isDismissedMoment?: () => boolean;
   getNotDisplayedReason?: () => string;
   getSkippedReason?: () => string;
+  getDismissedReason?: () => string;
 }
 
 export interface GoogleAuthOptions {
@@ -24,6 +28,8 @@ export interface GoogleIdentityApi {
     use_fedcm_for_prompt?: boolean;
   }): void;
   prompt(notification?: (event: GoogleIdPromptMomentNotification) => void): void;
+  cancel?: () => void;
+  disableAutoSelect?: () => void;
 }
 
 declare global {
@@ -39,7 +45,9 @@ declare global {
 let googleIdentityScriptLoadPromise: Promise<void> | null = null;
 const GOOGLE_ID_TOKEN_TIMEOUT_MS = 60_000;
 const GOOGLE_IDENTITY_SCRIPT_TIMEOUT_MS = 15_000;
-const GOOGLE_IDENTITY_PROMPT_TIMEOUT_MS = 45_000;
+const GOOGLE_IDENTITY_PROMPT_DISPLAY_TIMEOUT_MS = 12_000;
+const GOOGLE_IDENTITY_FEDCM_PROMPT_DISPLAY_TIMEOUT_MS = 25_000;
+const GOOGLE_IDENTITY_PROMPT_TOTAL_TIMEOUT_MS = 60_000;
 
 function normalizeRelayBaseUrl(input: unknown): string {
   return String(input || '')
@@ -79,9 +87,10 @@ export async function fetchGoogleAuthOptions(relayerBaseUrl: string): Promise<Go
 }
 
 type GooglePromptStage = 'not_displayed' | 'skipped';
+type GooglePromptTerminalStage = GooglePromptStage | 'dismissed';
 
 type GooglePromptFailureDetails = {
-  stage: GooglePromptStage;
+  stage: GooglePromptTerminalStage;
   reason: string;
 };
 
@@ -97,15 +106,18 @@ function normalizeGooglePromptReason(value: unknown, fallback: string): string {
 }
 
 function buildGooglePromptErrorMessage(input: {
-  stage: 'not_displayed' | 'skipped';
+  stage: GooglePromptTerminalStage;
   reason: string;
 }): string {
   const { stage, reason } = input;
   if (reason === 'unknown_reason') {
-    return 'Google sign-in is blocked by browser sign-in settings (FedCM/third-party sign-in). Enable Google sign-in for this site and retry.';
+    return 'Google sign-in prompt did not appear. Check browser sign-in settings, popup blockers, or third-party sign-in settings and retry.';
   }
   if (stage === 'not_displayed') {
     return `Google sign-in is unavailable (${reason}).`;
+  }
+  if (stage === 'dismissed') {
+    return `Google sign-in was dismissed (${reason}).`;
   }
   return `Google sign-in was skipped (${reason}).`;
 }
@@ -179,30 +191,52 @@ function requestGoogleIdTokenWithPromptMode(
     }
 
     let settled = false;
-    let timeout: number | undefined;
+    let displayTimeout: number | undefined;
+    let totalTimeout: number | undefined;
+    let promptDisplayed = false;
+    const clearTimers = () => {
+      if (displayTimeout !== undefined) window.clearTimeout(displayTimeout);
+      if (totalTimeout !== undefined) window.clearTimeout(totalTimeout);
+      displayTimeout = undefined;
+      totalTimeout = undefined;
+    };
+    const cancelPrompt = () => {
+      try {
+        googleIdApi.cancel?.();
+      } catch {
+        // Best-effort cleanup; Google Identity does not guarantee cancel availability.
+      }
+    };
     const finishResolve = (token: string) => {
       if (settled) return;
       settled = true;
-      if (timeout !== undefined) window.clearTimeout(timeout);
+      clearTimers();
       resolve(token);
     };
     const finishReject = (input: string | Error) => {
       if (settled) return;
       settled = true;
-      if (timeout !== undefined) window.clearTimeout(timeout);
+      clearTimers();
+      cancelPrompt();
       if (input instanceof Error) {
         reject(input);
         return;
       }
       reject(new Error(input));
     };
-    timeout = window.setTimeout(() => {
+    displayTimeout = window.setTimeout(() => {
+      if (promptDisplayed) return;
+      finishReject(makeGooglePromptError({ stage: 'not_displayed', reason: 'unknown_reason' }));
+    }, useFedcmForPrompt
+      ? GOOGLE_IDENTITY_FEDCM_PROMPT_DISPLAY_TIMEOUT_MS
+      : GOOGLE_IDENTITY_PROMPT_DISPLAY_TIMEOUT_MS);
+    totalTimeout = window.setTimeout(() => {
       finishReject(
         new Error(
           'Timed out waiting for Google sign-in. Check browser sign-in settings or close the Google prompt and retry.',
         ),
       );
-    }, GOOGLE_IDENTITY_PROMPT_TIMEOUT_MS);
+    }, GOOGLE_IDENTITY_PROMPT_TOTAL_TIMEOUT_MS);
 
     googleIdApi.initialize({
       client_id: clientId,
@@ -223,8 +257,19 @@ function requestGoogleIdTokenWithPromptMode(
 
     googleIdApi.prompt((notification) => {
       if (settled) return;
+      const displayed =
+        notification?.isDisplayed?.() === true || notification?.isDisplayMoment?.() === true;
+      if (displayed) {
+        promptDisplayed = true;
+        if (displayTimeout !== undefined) {
+          window.clearTimeout(displayTimeout);
+          displayTimeout = undefined;
+        }
+        return;
+      }
       const notDisplayed = notification?.isNotDisplayed?.() === true;
       const skipped = notification?.isSkippedMoment?.() === true;
+      const dismissed = notification?.isDismissedMoment?.() === true;
       if (notDisplayed) {
         const reason = normalizeGooglePromptReason(
           notification?.getNotDisplayedReason?.(),
@@ -236,6 +281,14 @@ function requestGoogleIdTokenWithPromptMode(
       if (skipped) {
         const reason = normalizeGooglePromptReason(notification?.getSkippedReason?.(), 'skipped');
         finishReject(makeGooglePromptError({ stage: 'skipped', reason }));
+        return;
+      }
+      if (dismissed) {
+        const reason = normalizeGooglePromptReason(
+          notification?.getDismissedReason?.(),
+          'dismissed',
+        );
+        finishReject(makeGooglePromptError({ stage: 'dismissed', reason }));
       }
     });
   });

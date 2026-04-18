@@ -1198,7 +1198,7 @@ Decision: Ed25519 and ECDSA share one warm-session policy model.
 
 Implication:
 
-- Use the same `session` and `per_operation` retention semantics for both
+- Use the same `session` and `per_operation` signing-session semantics for both
   curves.
 - Curve-specific code may enforce different key handling details, but should not
   invent a separate policy model.

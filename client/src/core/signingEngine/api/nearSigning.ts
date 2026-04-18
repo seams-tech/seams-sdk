@@ -9,6 +9,10 @@ import type {
 import type { SignTransactionResult } from '@/core/types/tatchi';
 import type { TransactionInputWasm } from '@/core/types/actions';
 import {
+  SENSITIVE_OPERATION_POLICIES,
+  type SensitiveOperationPolicy,
+} from '@shared/utils/signerDomain';
+import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
@@ -61,6 +65,7 @@ export type SignTransactionsWithActionsInput = {
   body?: string;
   onEvent?: (update: onProgressEvents) => void;
   sessionId?: string;
+  sensitivePolicy?: SensitiveOperationPolicy;
 };
 
 export type SignDelegateActionInput = {
@@ -134,6 +139,10 @@ export type NearSigningApiDeps = {
     operation?: 'transaction_sign' | 'export_key';
     appSessionJwt?: string;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
+  isEmailOtpEd25519WarmupPending?: (args: { nearAccountId: AccountId | string }) => boolean;
+  waitForPendingEmailOtpEd25519Warmup?: (args: {
+    nearAccountId: AccountId | string;
+  }) => Promise<boolean>;
   loginWithEmailOtpEd25519CapabilityForSigning?: (args: {
     nearAccountId: AccountId | string;
     challengeId: string;
@@ -178,6 +187,7 @@ async function resolveNearTransactionWalletAuth(args: {
   nearAccountId: AccountId;
   record: ThresholdEd25519SessionRecord | null;
   onEvent?: (update: onProgressEvents) => void;
+  sensitivePolicy?: SensitiveOperationPolicy;
 }): Promise<{
   walletAuthPlan: WalletAuthPlan;
   emailOtpSigning?: {
@@ -187,6 +197,18 @@ async function resolveNearTransactionWalletAuth(args: {
     markConsumed: (thresholdSessionId?: string) => void;
   };
 }> {
+  const sensitivePolicy =
+    args.sensitivePolicy || SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy;
+  if (
+    args.record?.source === 'email_otp' &&
+    (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.requirePasskey ||
+      sensitivePolicy === SENSITIVE_OPERATION_POLICIES.denyEmailOtp)
+  ) {
+    throw new Error(
+      '[SigningEngine] NEAR operation requires passkey authentication after Email OTP login',
+    );
+  }
+
   const resolver = createWalletAuthModeResolver({
     passkey: createPasskeyWalletAuthAdapter({
       challenge: async () => ({}),
@@ -247,6 +269,7 @@ async function resolveNearTransactionWalletAuth(args: {
     }),
     warmSession: {
       resolveWarmSessionPlan: async (input) => {
+        if (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.requireFreshSameMethod) return null;
         const record = args.record;
         const isSingleUseEmailOtpRecord =
           record?.source === 'email_otp' &&
@@ -340,12 +363,34 @@ export async function signTransactionsWithActions(
   args: SignTransactionsWithActionsInput,
 ): Promise<SignTransactionResult[]> {
   const nearAccountId = toAccountId(args.rpcCall.nearAccountId);
-  const thresholdSessionRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+  let thresholdSessionRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+  const hasPendingEmailOtpEd25519Warmup = (): boolean =>
+    deps.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true;
+  if (!thresholdSessionRecord && hasPendingEmailOtpEd25519Warmup()) {
+    args.onEvent?.({
+      step: 1,
+      phase: ActionPhase.STEP_1_PREPARATION,
+      status: ActionStatus.PROGRESS,
+      message: 'Finalizing NEAR signing session...',
+    });
+    await deps.waitForPendingEmailOtpEd25519Warmup?.({ nearAccountId });
+    thresholdSessionRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+  }
+  const ed25519Warmup =
+    thresholdSessionRecord?.source === 'email_otp' &&
+    hasPendingEmailOtpEd25519Warmup() &&
+    typeof deps.waitForPendingEmailOtpEd25519Warmup === 'function'
+      ? {
+          isPending: hasPendingEmailOtpEd25519Warmup,
+          waitForReady: () => deps.waitForPendingEmailOtpEd25519Warmup!({ nearAccountId }),
+        }
+      : undefined;
   const { walletAuthPlan, emailOtpSigning } = await resolveNearTransactionWalletAuth({
     deps,
     nearAccountId,
     record: thresholdSessionRecord,
     onEvent: args.onEvent,
+    sensitivePolicy: args.sensitivePolicy,
   });
   const resolvedSessionId = resolveSigningRequestSessionId({
     deps,
@@ -373,6 +418,7 @@ export async function signTransactionsWithActions(
           sessionId: resolvedSessionId,
           walletAuthPlan,
           ...(emailOtpSigning ? { emailOtpSigning } : {}),
+          ...(ed25519Warmup ? { ed25519Warmup } : {}),
         },
       })) as unknown as SignTransactionResult[];
     },

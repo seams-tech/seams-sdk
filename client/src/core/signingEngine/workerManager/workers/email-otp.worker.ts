@@ -11,7 +11,9 @@ import {
   thresholdEcdsaHssFinalize,
   thresholdEcdsaHssPrepare,
   thresholdEcdsaHssRespond,
+  type ThresholdEcdsaHssRouteAuth,
 } from '@/core/rpcClients/relayer/thresholdEcdsa';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/orchestration/thresholdActivation';
 import {
   clampThresholdSessionPolicy,
@@ -133,7 +135,7 @@ type EmailOtpWorkerRequest =
         participantIds?: number[];
         sessionKind?: 'jwt' | 'cookie';
         sessionId?: string;
-        authorizationJwt?: string;
+        thresholdRouteAuth?: AppOrThresholdSessionAuth;
         ttlMs?: number;
         remainingUses?: number;
         runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -157,7 +159,7 @@ type EmailOtpWorkerRequest =
         participantIds?: number[];
         sessionKind?: 'jwt' | 'cookie';
         sessionId?: string;
-        authorizationJwt?: string;
+        thresholdRouteAuth?: AppOrThresholdSessionAuth;
         ttlMs?: number;
         remainingUses?: number;
         runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -200,7 +202,7 @@ type EmailOtpWorkerRequest =
         userId: string;
         rpId: string;
         sessionId: string;
-        authorizationJwt?: string;
+        thresholdSessionJwt?: string;
         sessionKind?: 'jwt' | 'cookie';
         ecdsaThresholdKeyId: string;
         chain: 'evm' | 'tempo';
@@ -270,6 +272,17 @@ function readString(value: unknown, label: string): string {
 function readOptionalString(value: unknown): string | undefined {
   const parsed = typeof value === 'string' ? value.trim() : '';
   return parsed || undefined;
+}
+
+function readOptionalThresholdRouteAuth(
+  value: AppOrThresholdSessionAuth | undefined,
+): AppOrThresholdSessionAuth | undefined {
+  if (!value) return undefined;
+  const jwt = readOptionalString(value.jwt);
+  if (!jwt) return undefined;
+  if (value.kind === 'app_session') return { kind: 'app_session', jwt };
+  if (value.kind === 'threshold_session') return { kind: 'threshold_session', jwt };
+  return undefined;
 }
 
 function zeroizeBytes(bytes?: Uint8Array | null): void {
@@ -992,7 +1005,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
-  authorizationJwt?: string;
+  thresholdRouteAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
   remainingUses?: number;
@@ -1001,12 +1014,13 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   const relayerUrl = readString(args.relayUrl, 'relayUrl');
   const userId = readString(args.userId, 'userId');
   const rpId = readString(args.rpId, 'rpId');
-  const authorizationJwt = readOptionalString(args.authorizationJwt);
+  const routeAuth: ThresholdEcdsaHssRouteAuth | undefined =
+    args.thresholdRouteAuth || (args.sessionKind === 'cookie' ? { kind: 'cookie' } : undefined);
   const operation = args.operation || 'session_bootstrap';
   const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
   const sessionKind = args.sessionKind || 'jwt';
-  if (!authorizationJwt && sessionKind !== 'cookie') {
-    throw new Error('authorizationJwt is required for JWT threshold bootstrap sessions');
+  if (!routeAuth && sessionKind !== 'cookie') {
+    throw new Error('thresholdRouteAuth is required for JWT threshold bootstrap sessions');
   }
   const keygenSessionId = generateKeygenSessionId();
   const requestedSessionId = String(args.sessionId || '').trim();
@@ -1024,7 +1038,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
     operation,
     ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
     keygenSessionId,
-    ...(authorizationJwt ? { authorizationJwt } : {}),
+    auth: routeAuth,
     sessionPolicy: {
       version: THRESHOLD_SESSION_POLICY_VERSION,
       userId,
@@ -1074,7 +1088,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   const respond = await thresholdEcdsaHssRespond(relayerUrl, {
     ceremonyId,
     requestMessageB64u,
-    ...(authorizationJwt ? { authorizationJwt } : {}),
+    auth: routeAuth,
     sessionKind,
   });
   if (!respond.ok) {
@@ -1106,7 +1120,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   const bootstrap = await thresholdEcdsaHssFinalize(relayerUrl, {
     ceremonyId,
     clientFinalizeMessageB64u: finalizeMessageB64u,
-    ...(authorizationJwt ? { authorizationJwt } : {}),
+    auth: routeAuth,
     sessionKind,
   });
   if (!bootstrap.ok) {
@@ -1238,7 +1252,7 @@ async function runThresholdEcdsaExplicitExportFromClientRootShare(args: {
   rpId: string;
   clientRootShare32: Uint8Array;
   ecdsaThresholdKeyId: string;
-  authorizationJwt?: string;
+  thresholdSessionJwt?: string;
   sessionKind?: 'jwt' | 'cookie';
 }): Promise<{
   publicKeyHex: string;
@@ -1250,18 +1264,24 @@ async function runThresholdEcdsaExplicitExportFromClientRootShare(args: {
   const userId = readString(args.userId, 'userId');
   const rpId = readString(args.rpId, 'rpId');
   const ecdsaThresholdKeyId = readString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId');
-  const authorizationJwt = readOptionalString(args.authorizationJwt);
+  const thresholdSessionJwt = readOptionalString(args.thresholdSessionJwt);
   const sessionKind = args.sessionKind || 'jwt';
-  if (!authorizationJwt && sessionKind !== 'cookie') {
-    throw new Error('authorizationJwt is required for JWT threshold export sessions');
+  if (!thresholdSessionJwt && sessionKind !== 'cookie') {
+    throw new Error('thresholdSessionJwt is required for JWT threshold export sessions');
   }
+  const routeAuth: ThresholdEcdsaHssRouteAuth | undefined =
+    thresholdSessionJwt
+      ? { kind: 'threshold_session', jwt: thresholdSessionJwt }
+      : sessionKind === 'cookie'
+        ? { kind: 'cookie' }
+        : undefined;
 
   const prepare = await thresholdEcdsaHssPrepare(relayerUrl, {
     userId,
     rpId,
     operation: 'explicit_key_export',
     ecdsaThresholdKeyId,
-    ...(authorizationJwt ? { authorizationJwt } : {}),
+    auth: routeAuth,
     sessionKind,
   });
   if (!prepare.ok) {
@@ -1301,7 +1321,7 @@ async function runThresholdEcdsaExplicitExportFromClientRootShare(args: {
   const respond = await thresholdEcdsaHssRespond(relayerUrl, {
     ceremonyId,
     requestMessageB64u,
-    ...(authorizationJwt ? { authorizationJwt } : {}),
+    auth: routeAuth,
     sessionKind,
   });
   if (!respond.ok) {
@@ -1333,7 +1353,7 @@ async function runThresholdEcdsaExplicitExportFromClientRootShare(args: {
   const finalized = await thresholdEcdsaHssFinalize(relayerUrl, {
     ceremonyId,
     clientFinalizeMessageB64u: finalizeMessageB64u,
-    ...(authorizationJwt ? { authorizationJwt } : {}),
+    auth: routeAuth,
     sessionKind,
   });
   if (!finalized.ok) {
@@ -1459,7 +1479,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         try {
           const runtimePolicyScope =
             normalizeThresholdRuntimePolicyScope(msg.payload.runtimePolicyScope) ||
-            parseThresholdRuntimePolicyScopeFromJwt(msg.payload.authorizationJwt) ||
+            parseThresholdRuntimePolicyScopeFromJwt(msg.payload.thresholdRouteAuth?.jwt) ||
             parseThresholdRuntimePolicyScopeFromJwt(msg.payload.appSessionJwt);
           const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
@@ -1473,8 +1493,8 @@ self.addEventListener('message', async (event: MessageEvent) => {
             participantIds: msg.payload.participantIds,
             sessionKind: msg.payload.sessionKind,
             sessionId: msg.payload.sessionId,
-            ...(msg.payload.authorizationJwt
-              ? { authorizationJwt: msg.payload.authorizationJwt }
+            ...(readOptionalThresholdRouteAuth(msg.payload.thresholdRouteAuth)
+              ? { thresholdRouteAuth: readOptionalThresholdRouteAuth(msg.payload.thresholdRouteAuth) }
               : {}),
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             ttlMs: msg.payload.ttlMs,
@@ -1584,7 +1604,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
         try {
           const runtimePolicyScope =
             normalizeThresholdRuntimePolicyScope(msg.payload.runtimePolicyScope) ||
-            parseThresholdRuntimePolicyScopeFromJwt(msg.payload.authorizationJwt) ||
+            parseThresholdRuntimePolicyScopeFromJwt(msg.payload.thresholdRouteAuth?.jwt) ||
             parseThresholdRuntimePolicyScopeFromJwt(msg.payload.appSessionJwt);
           const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
@@ -1598,8 +1618,8 @@ self.addEventListener('message', async (event: MessageEvent) => {
             participantIds: msg.payload.participantIds,
             sessionKind: msg.payload.sessionKind,
             sessionId: msg.payload.sessionId,
-            ...(msg.payload.authorizationJwt
-              ? { authorizationJwt: msg.payload.authorizationJwt }
+            ...(readOptionalThresholdRouteAuth(msg.payload.thresholdRouteAuth)
+              ? { thresholdRouteAuth: readOptionalThresholdRouteAuth(msg.payload.thresholdRouteAuth) }
               : {}),
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             ttlMs: msg.payload.ttlMs,
@@ -1702,7 +1722,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             rpId: readString(msg.payload.rpId, 'rpId'),
             clientRootShare32: claimed.clientRootShare32,
             ecdsaThresholdKeyId: readString(msg.payload.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
-            authorizationJwt: msg.payload.authorizationJwt,
+            thresholdSessionJwt: msg.payload.thresholdSessionJwt,
             sessionKind: msg.payload.sessionKind,
           });
           postToMainThread({

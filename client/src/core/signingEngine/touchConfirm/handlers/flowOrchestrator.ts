@@ -22,6 +22,11 @@ import {
   PENDING_INTENT_DIGEST,
   registerIntentDigestPreparation,
 } from '../intentDigestPreparationRegistry';
+import {
+  clearConfirmationReadiness,
+  registerConfirmationReadiness,
+  type ConfirmationReadiness,
+} from '../confirmationReadinessRegistry';
 
 export type SigningConfirmationChain = 'near' | 'evm' | 'tempo';
 
@@ -52,6 +57,7 @@ export interface OrchestrateSigningConfirmationBaseParams {
   signingAuthMode?: SigningAuthMode;
   signingAuthPlan?: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
+  confirmationReadiness?: ConfirmationReadiness;
   /**
    * Optional base64url-encoded 32-byte digest to bind a relayer session policy into the WebAuthn challenge.
    * When provided, it is forwarded to UserConfirm for challenge construction and intent binding.
@@ -461,8 +467,17 @@ export async function orchestrateSigningConfirmation(
     }
   }
 
+  if (params.confirmationReadiness) {
+    registerConfirmationReadiness({
+      requestId: sessionId,
+      readiness: params.confirmationReadiness,
+    });
+  }
+
   const decision = await requestUserConfirmation(request, {
     onProgress: params.onProgress,
+  }).finally(() => {
+    clearConfirmationReadiness(sessionId);
   });
 
   if (!decision?.confirmed) {

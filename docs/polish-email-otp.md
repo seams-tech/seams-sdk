@@ -27,7 +27,7 @@ Email OTP account:
 1. Google SSO authenticates the app/user session
 2. Email OTP authorizes server-assisted `shamir3pass` unseal
 3. the Email OTP worker recovers `S`, derives signing material, and owns secret-bearing runtime state
-4. `WarmSessionManager` applies `session` or `per_operation` retention
+4. `WarmSessionManager` applies the `session` or `per_operation` signing-session policy
 5. Email OTP is lower assurance than passkey and must be presented that way in UI copy
 
 ### Email OTP Policies
@@ -81,13 +81,35 @@ Default security posture:
 
 Mixed passkey plus Email OTP accounts default to passkey for sensitive actions. The UI may offer a small "use one-time password" text link when project policy allows Email OTP as an alternate step-up method.
 
+Step-up is not part of ordinary transaction signing. After wallet unlock, passkey and Email OTP sessions both follow the configured auth-method-neutral signing-session policy: `session` reuses the warm session until expiry/use exhaustion, and `per_operation` re-authenticates per operation.
+
+Sensitive-operation policy is separate:
+
+```ts
+type SensitiveOperationPolicy =
+  | 'inherit_session_policy'
+  | 'require_fresh_same_method'
+  | 'require_passkey'
+  | 'deny_email_otp';
+```
+
+### Link Device / Add Signer
+
+Link-device and add-signer flows are sensitive operations, not ordinary transaction signing.
+
+1. Device1 authorization must require fresh same-method auth.
+2. Passkey accounts satisfy this with fresh passkey authentication.
+3. Email OTP accounts satisfy this with a fresh Email OTP verification.
+4. A valid session-mode warm signing session must not silently authorize adding another signer.
+5. The implementation now passes `require_fresh_same_method` into the NEAR add-key authorization path used by link-device.
+
 ## Architecture Boundary
 
 Server is authoritative for:
 
 1. OTP challenge TTL, counters, lockouts, and revocation
 2. app-session and wallet-session authorization
-3. operation policy: `session`, `per_operation`, passkey step-up, and blocked sensitive actions
+3. operation policy: `inherit_session_policy`, `require_fresh_same_method`, `require_passkey`, and `deny_email_otp`
 4. audit events for OTP challenge issuance, verification, signing, export attempts, and denial
 
 Client is authoritative for:
@@ -115,7 +137,7 @@ Tasks:
 1. [x] Add or verify a canonical `authMethod` field in wallet session/readiness metadata with values `passkey` and `email_otp`.
 2. [x] Ensure direct SDK mode and wallet-iframe mode expose the same auth-mode metadata.
 3. [x] Persist only nonsecret auth-mode metadata in wallet-origin storage.
-4. [x] Ensure Email OTP ECDSA and Ed25519 sessions carry retention metadata: `session` or `single_use`.
+4. [x] Ensure Email OTP ECDSA and Ed25519 sessions carry nonsecret signing-session metadata; low-level stores may still encode this as `session` or `single_use`.
 5. [x] Add tests proving login state refresh preserves auth mode after page reload and iframe reconnect.
 6. [x] Remove any code path that infers Email OTP solely from account-id format or stale UI mode.
 
@@ -329,6 +351,8 @@ ECDSA Email OTP export uses two different authorization lanes:
 1. Email OTP `export_key` challenge and verification are bound to the current app-session JWT.
 2. ECDSA HSS export prepare/respond/finalize are authorized by the threshold-session JWT.
 
+See `docs/signing-sessions.md` for the canonical app-session vs threshold-session model and `docs/sso-otp-shamir3pass-signing.md` for the Email OTP flow diagram.
+
 Using one generic `authorizationJwt` field made those lanes easy to confuse. The server then correctly rejected an OTP challenge when the follow-up request presented a token whose stable app-session binding did not match the challenge.
 
 Todo:
@@ -364,7 +388,7 @@ Todo:
         injection, client SDK auth APIs, wallet-iframe messages/router,
         SigningEngine Email OTP auth calls, and Email OTP worker message
         payloads.
-4. [x] Audit wallet auth and signer-slot domain literals such as `passkey`, `session`, `email_otp`, `threshold-ed25519`, `threshold-ecdsa`, `passkey_registration`, and `email_otp_registration`; shared `signerDomain` now owns the wallet-auth method, wallet-auth proof method, signer kind, signer auth method, signer source, and signing-session retention domains.
+4. [x] Audit wallet auth and signer-slot domain literals such as `passkey`, `session`, `email_otp`, `threshold-ed25519`, `threshold-ecdsa`, `passkey_registration`, and `email_otp_registration`; shared `signerDomain` now owns the wallet-auth method, wallet-auth proof method, signer kind, signer auth method, signer source, signing-session policy, and sensitive-operation policy domains.
 5. [x] Update remaining router/client/server call sites to use the shared constants instead of repeated inline string unions.
         Guard coverage now includes server parser/store/routes plus client SDK,
         wallet-iframe, SigningEngine, and Email OTP worker boundaries, so

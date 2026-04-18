@@ -81,7 +81,6 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           retention: 'session',
           reason: 'login',
           authMethod: 'email_otp',
-          stepUpRequired: false,
         },
       });
 
@@ -263,7 +262,6 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           retention: 'single_use',
           reason: 'sign',
           authMethod: 'email_otp',
-          stepUpRequired: true,
           consumedAtMs: Date.now() - 1_000,
         },
       });
@@ -403,7 +401,6 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 retention: 'single_use',
                 reason: 'sign',
                 authMethod: 'email_otp',
-                stepUpRequired: true,
               },
             });
             return { sessionId: refreshedSessionId };
@@ -488,7 +485,6 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           retention: 'session',
           reason: 'login',
           authMethod: 'email_otp',
-          stepUpRequired: false,
         },
       });
 

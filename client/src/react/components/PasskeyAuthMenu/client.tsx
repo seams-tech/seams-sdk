@@ -127,12 +127,17 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
         waiting={controller.waiting}
         waitingText={
           controller.waitingReason === 'social'
-            ? 'Opening Google SSO…'
+            ? 'Waiting for Google sign-in…'
             : controller.mode === AuthMenuMode.Register
               ? 'Creating passkey wallet…'
               : controller.mode === AuthMenuMode.Sync
                 ? 'Syncing account…'
                 : 'Signing in…'
+        }
+        waitingSubtext={
+          controller.waitingReason === 'social'
+            ? 'Use the Google prompt if it appears. If nothing appears, go back and retry.'
+            : ''
         }
         waitingSDKEventsText={waitingSDKEventsText}
         backButton={

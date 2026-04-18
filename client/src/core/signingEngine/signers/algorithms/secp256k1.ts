@@ -16,7 +16,6 @@ import {
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId } from '../../session/WarmSessionManager';
-import { readWarmSessionCapabilityRecordsForAccount } from '../../session/warmSessionStore';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 type EcdsaSessionChain = 'tempo' | 'evm';
@@ -41,22 +40,6 @@ function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessi
   if (label === 'tempo' || label.startsWith('tempo:')) return 'tempo';
   if (label === 'evm' || label.startsWith('evm:')) return 'evm';
   return null;
-}
-
-function findConsumedSingleUseEmailOtpRecordForAccount(
-  nearAccountIdRaw: unknown,
-): { chain: EcdsaSessionChain } | null {
-  const accountId = String(nearAccountIdRaw || '').trim();
-  if (!accountId) return null;
-  const records = readWarmSessionCapabilityRecordsForAccount(accountId).ecdsa;
-  const consumedRecord = [records.evm, records.tempo].find(
-    (record) =>
-      record?.source === 'email_otp' &&
-      record.emailOtpAuthContext?.retention === 'single_use' &&
-      Number(record.emailOtpAuthContext?.consumedAtMs) > 0,
-  );
-  if (!consumedRecord) return null;
-  return { chain: consumedRecord.chain };
 }
 
 async function claimEmailOtpWorkerEcdsaSigningShare(args: {
@@ -214,14 +197,6 @@ export class Secp256k1Engine implements Signer {
         resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(keyRefThresholdSessionId);
       const canonicalRecord = resolvedAuthMaterial?.record || null;
       const requestChain = inferThresholdEcdsaSessionChainFromLabel(req.label);
-      const consumedSingleUseEmailOtpRecord = findConsumedSingleUseEmailOtpRecordForAccount(
-        keyRef.userId,
-      );
-      if (consumedSingleUseEmailOtpRecord) {
-        throw new Error(
-          `[SigningEngine] ${requestChain || consumedSingleUseEmailOtpRecord.chain} signing requires fresh Email OTP verification with per_operation policy`,
-        );
-      }
       const canonicalRecordMatchesKeyRefLane =
         !!canonicalRecord &&
         String(canonicalRecord.nearAccountId || '') === String(keyRef.userId || '') &&
@@ -256,6 +231,16 @@ export class Secp256k1Engine implements Signer {
       ) {
         throw new Error(
           '[multichain] threshold-ecdsa sessionId mismatch; reconnect threshold session via bootstrapEcdsaSession',
+        );
+      }
+      if (
+        canonicalRecordMatchesKeyRefLane &&
+        canonicalRecord?.source === 'email_otp' &&
+        canonicalRecord.emailOtpAuthContext?.retention === 'single_use' &&
+        Number(canonicalRecord.emailOtpAuthContext.consumedAtMs) > 0
+      ) {
+        throw new Error(
+          `[SigningEngine] ${requestChain || canonicalRecord.chain} signing requires fresh Email OTP verification with per_operation policy`,
         );
       }
 

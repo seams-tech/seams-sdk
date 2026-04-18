@@ -88,7 +88,11 @@ export type CreateOrchestrationDependencyBundleArgs = {
     chain: 'near' | 'tempo' | 'evm';
     operation?: 'transaction_sign' | 'export_key';
     appSessionJwt?: string;
-  }) => Promise<{ challengeId: string; emailHint?: string }>;
+  }) => Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }>;
+  isEmailOtpEd25519WarmupPending?: (args: { nearAccountId: AccountId | string }) => boolean;
+  waitForPendingEmailOtpEd25519Warmup?: (args: {
+    nearAccountId: AccountId | string;
+  }) => Promise<boolean>;
   loginWithEmailOtpEd25519CapabilityForSigning?: (args: {
     nearAccountId: AccountId | string;
     challengeId: string;
@@ -103,6 +107,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
     otpCode: string;
     record: ThresholdEcdsaSessionRecord;
     operation?: 'transaction_sign' | 'export_key';
+    appSessionJwt?: string;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: AccountId | string;
@@ -206,6 +211,10 @@ export function createOrchestrationDependencyBundle(
         ...(appSessionJwt ? { appSessionJwt } : {}),
       }) ||
       Promise.reject(new Error('Email OTP signing challenge is not configured')),
+    isEmailOtpEd25519WarmupPending: ({ nearAccountId }) =>
+      args.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true,
+    waitForPendingEmailOtpEd25519Warmup: ({ nearAccountId }) =>
+      args.waitForPendingEmailOtpEd25519Warmup?.({ nearAccountId }) || Promise.resolve(false),
     loginWithEmailOtpEd25519CapabilityForSigning: ({
       nearAccountId,
       challengeId,
@@ -272,6 +281,7 @@ export function createOrchestrationDependencyBundle(
         otpCode,
         record,
         operation,
+        appSessionJwt,
       }) =>
         args.loginWithEmailOtpEcdsaCapabilityForSigning?.({
           nearAccountId,
@@ -280,6 +290,7 @@ export function createOrchestrationDependencyBundle(
           otpCode,
           record,
           operation,
+          ...(appSessionJwt ? { appSessionJwt } : {}),
         }) || Promise.reject(new Error('Email OTP signing bootstrap is not configured')),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({ nearAccountId, chain }) =>
         args.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({ nearAccountId, chain }),

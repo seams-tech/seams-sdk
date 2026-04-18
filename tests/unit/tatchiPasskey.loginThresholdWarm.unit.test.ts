@@ -225,7 +225,10 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(bootstrapChains).toEqual(['tempo', 'evm']);
     expect(String(bootstrapArgs?.['source'] || '')).toBe('login');
     expect('sessionId' in (bootstrapArgs || {})).toBe(false);
-    expect(String(bootstrapArgs?.['authorizationJwt'] || '')).toBe('jwt-ed25519');
+    expect(bootstrapArgs?.['thresholdRouteAuth']).toEqual({
+      kind: 'threshold_session',
+      jwt: 'jwt-ed25519',
+    });
     expect(String(bootstrapArgs?.['clientRootShare32B64u'] || '')).toBe(
       ECDSA_CLIENT_ROOT_SHARE32_B64U,
     );
@@ -777,7 +780,10 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.success).toBe(true);
       expect(result.jwt).toBe('app-jwt-oidc-1');
       expect(bootstrapCalls).toBe(2);
-      expect(String(bootstrapArgs?.authorizationJwt || '')).toBe('app-jwt-oidc-1');
+      expect(bootstrapArgs?.thresholdRouteAuth).toEqual({
+        kind: 'app_session',
+        jwt: 'app-jwt-oidc-1',
+      });
       expect('sessionId' in (bootstrapArgs || {})).toBe(false);
       expect(String(bootstrapArgs?.clientRootShare32B64u || '')).toBe(
         ECDSA_CLIENT_ROOT_SHARE32_B64U,

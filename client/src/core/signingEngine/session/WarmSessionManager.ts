@@ -25,6 +25,11 @@ import type {
 } from '../orchestration/thresholdActivation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import type { ThresholdRuntimePolicyScope } from '../threshold/session/sessionPolicy';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import {
+  SENSITIVE_OPERATION_POLICIES,
+  type SensitiveOperationPolicy,
+} from '@shared/utils/signerDomain';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
@@ -43,7 +48,6 @@ import type {
 } from './warmSessionTypes';
 import {
   buildReusableEcdsaBootstrapResult,
-  getEcdsaCapabilityCandidates,
   getMatchingReadyEcdsaCapability,
   getPrimaryAndSecondaryEcdsaCapabilities,
   normalizeParticipantIds,
@@ -193,7 +197,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
-  authorizationJwt?: string;
+  thresholdRouteAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -212,7 +216,7 @@ export type WarmEcdsaBootstrapRequest = {
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
-  authorizationJwt?: string;
+  thresholdRouteAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -248,7 +252,6 @@ export type WarmSessionEd25519SigningAuthPlan = {
   remainingUses: number;
 };
 
-export type WarmSessionSensitiveOperationPolicy = 'inherit' | 'per_operation' | 'passkey';
 type WarmSessionEcdsaPolicyRecordHint = {
   source: ThresholdEcdsaSessionStoreSource;
   thresholdSessionId: string;
@@ -377,7 +380,7 @@ export type WarmSessionManager = {
     chain: ThresholdEcdsaActivationChain;
     operationLabel: string;
     thresholdSessionId?: string;
-    sensitivePolicy?: WarmSessionSensitiveOperationPolicy;
+    sensitivePolicy?: SensitiveOperationPolicy;
   }) => Promise<void>;
   resolveEcdsaSealTransportByThresholdSessionId: (
     thresholdSessionId: string,
@@ -712,10 +715,6 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     ): Promise<WarmEcdsaBootstrapRequest> {
       const nearAccountId = toAccountId(args.nearAccountId);
       const warmSession = await this.getWarmSession(nearAccountId);
-      const capabilityCandidates = getEcdsaCapabilityCandidates({
-        warmSession,
-        chain: args.chain,
-      });
       const { primary: primaryCapability, secondary: secondaryCapability } =
         getPrimaryAndSecondaryEcdsaCapabilities({
           warmSession,
@@ -723,14 +722,11 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         });
       const primaryWarmCapability =
         primaryCapability.prfClaim?.state === 'warm' ? primaryCapability : null;
-      const reusableWarmCapability =
-        primaryWarmCapability ||
-        capabilityCandidates.find((candidate) => candidate.prfClaim?.state === 'warm') ||
-        null;
+      const reusableWarmCapability = primaryWarmCapability;
 
       const explicitParticipantIds = normalizeParticipantIds(args.participantIds);
       const explicitRelayerUrl = toOptionalNonEmptyString(args.relayerUrl);
-      const explicitAuthorizationJwt = toOptionalNonEmptyString(args.authorizationJwt);
+      const explicitThresholdRouteAuth = args.thresholdRouteAuth;
       const explicitSessionId = toOptionalNonEmptyString(args.sessionId);
       const explicitThresholdKeyId = toOptionalNonEmptyString(args.ecdsaThresholdKeyId);
       const explicitClientRootShare32 = cloneOptionalFixed32Bytes(args.clientRootShare32);
@@ -804,14 +800,17 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
                 ).trim(),
               }
             : {}),
-        ...(explicitAuthorizationJwt
-          ? { authorizationJwt: explicitAuthorizationJwt }
+        ...(explicitThresholdRouteAuth
+          ? { thresholdRouteAuth: explicitThresholdRouteAuth }
           : toOptionalNonEmptyString(reusableWarmCapability?.auth?.thresholdSessionJwt)
             ? {
-                authorizationJwt: String(
-                  toOptionalNonEmptyString(reusableWarmCapability?.auth?.thresholdSessionJwt) ||
-                    '',
-                ).trim(),
+                thresholdRouteAuth: {
+                  kind: 'threshold_session',
+                  jwt: String(
+                    toOptionalNonEmptyString(reusableWarmCapability?.auth?.thresholdSessionJwt) ||
+                      '',
+                  ).trim(),
+                },
               }
             : {}),
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
@@ -830,14 +829,14 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     ): Promise<ThresholdEcdsaSessionBootstrapResult> {
       const nearAccountId = toAccountId(args.nearAccountId);
       const beforeWarmSession = await this.getWarmSession(nearAccountId);
-      const normalizedAuthorizationJwt = toOptionalNonEmptyString(args.authorizationJwt);
+      const hasThresholdRouteAuth = Boolean(args.thresholdRouteAuth);
       const normalizedClientRootShare32 =
         args.clientRootShare32 instanceof Uint8Array ? args.clientRootShare32 : undefined;
       const normalizedClientRootShare32B64u = toOptionalNonEmptyString(args.clientRootShare32B64u);
       const normalizedSessionId = toOptionalNonEmptyString(args.sessionId);
 
       if (
-        !normalizedAuthorizationJwt &&
+        !hasThresholdRouteAuth &&
         !normalizedClientRootShare32 &&
         !normalizedClientRootShare32B64u &&
         !normalizedSessionId
@@ -860,7 +859,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         participantIds: args.participantIds,
         sessionKind: args.sessionKind,
         sessionId: args.sessionId,
-        authorizationJwt: args.authorizationJwt,
+        thresholdRouteAuth: args.thresholdRouteAuth,
         runtimePolicyScope: args.runtimePolicyScope,
         runtimeScopeBootstrap: args.runtimeScopeBootstrap,
         clientRootShare32: args.clientRootShare32,
@@ -869,7 +868,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       if (
         !resolvedBootstrapRequest.clientRootShare32 &&
         !resolvedBootstrapRequest.clientRootShare32B64u &&
-        resolvedBootstrapRequest.authorizationJwt &&
+        resolvedBootstrapRequest.thresholdRouteAuth &&
         resolvedBootstrapRequest.sessionId
       ) {
         resolvedBootstrapRequest.clientRootShare32B64u =
@@ -1459,7 +1458,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       chain: ThresholdEcdsaActivationChain;
       operationLabel: string;
       thresholdSessionId?: string;
-      sensitivePolicy?: WarmSessionSensitiveOperationPolicy;
+      sensitivePolicy?: SensitiveOperationPolicy;
     }): Promise<void> {
       const accountId = toAccountId(args.nearAccountId);
       const record = resolveCurrentEcdsaRecord({
@@ -1495,17 +1494,20 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
           mode: 'per_operation',
         });
       }
-      const sensitivePolicy = args.sensitivePolicy || 'inherit';
-      if (sensitivePolicy === 'inherit') return;
-      if (sensitivePolicy === 'per_operation') {
+      const sensitivePolicy =
+        args.sensitivePolicy || SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy;
+      if (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy) return;
+      if (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.requireFreshSameMethod) {
         if (effectiveRecord.emailOtpAuthContext?.retention === 'single_use') return;
         throw formatEmailOtpSensitiveOperationError({
           operationLabel: args.operationLabel,
           mode: 'per_operation',
         });
       }
-      const stepUpRequired = effectiveRecord.emailOtpAuthContext?.stepUpRequired !== false;
-      if (stepUpRequired) {
+      if (
+        sensitivePolicy === SENSITIVE_OPERATION_POLICIES.requirePasskey ||
+        sensitivePolicy === SENSITIVE_OPERATION_POLICIES.denyEmailOtp
+      ) {
         throw formatEmailOtpSensitiveOperationError({
           operationLabel: args.operationLabel,
           mode: 'passkey',

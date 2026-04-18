@@ -105,7 +105,6 @@ test.describe('WarmSessionManager capability resolution', () => {
         retention: 'single_use',
         reason: 'login',
         authMethod: 'email_otp',
-        stepUpRequired: true,
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
         nearAccountId: 'email-otp-auth-state.testnet',
@@ -132,7 +131,6 @@ test.describe('WarmSessionManager capability resolution', () => {
       retention: 'single_use',
       reason: 'login',
       authMethod: 'email_otp',
-      stepUpRequired: true,
     });
   });
 
@@ -188,10 +186,13 @@ test.describe('WarmSessionManager capability resolution', () => {
     });
 
     expect('sessionId' in evmBootstrap).toBe(false);
-    expect('authorizationJwt' in evmBootstrap).toBe(false);
+    expect('thresholdRouteAuth' in evmBootstrap).toBe(false);
     expect(tempoBootstrap).toMatchObject({
       sessionId: 'ecdsa-warm-session',
-      authorizationJwt: 'jwt:ecdsa-warm-session',
+      thresholdRouteAuth: {
+        kind: 'threshold_session',
+        jwt: 'jwt:ecdsa-warm-session',
+      },
       ecdsaThresholdKeyId: 'ek-warm',
       chain: 'tempo',
     });

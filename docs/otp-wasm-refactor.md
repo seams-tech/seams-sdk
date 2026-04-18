@@ -513,12 +513,12 @@ The intended end state is that `client/src/core/TatchiPasskey/emailOtp.ts` becom
 ### Reason
 
 1. it is already the place where app-facing policy decisions live
-2. it controls warm-session lifecycle and retention policy
+2. it controls warm-session lifecycle and signing-session policy
 3. its state is product/runtime coordination state, not cryptographic primitive state
 
 ### Rule
 
-`WarmSessionManager` decides policy, but the worker runtime must enforce the cryptographic and secret-lifecycle side of the chosen policy.
+`WarmSessionManager` decides signing-session policy, but the worker runtime must enforce the cryptographic and secret-lifecycle side of the chosen policy.
 
 That means:
 

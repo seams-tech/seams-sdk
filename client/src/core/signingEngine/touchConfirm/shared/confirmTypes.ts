@@ -103,6 +103,8 @@ export interface WorkerConfirmationResponse {
   intent_digest?: string;
   confirmed: boolean;
   credential?: SerializableCredential;
+  otp_code?: string;
+  email_otp_challenge_id?: string;
   transaction_context?: TransactionContext; // NEAR data fetched during confirmation
   error?: string;
 }

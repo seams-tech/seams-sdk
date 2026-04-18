@@ -32,6 +32,7 @@ import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
 import { toError } from '@shared/utils/errors';
 import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '../config/chains';
 import { WalletIframeCoordinator } from './walletIframeCoordinator';
@@ -609,7 +610,7 @@ export class TatchiPasskey {
     otpCode: string;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
-    authorizationJwt?: string;
+    thresholdRouteAuth?: AppOrThresholdSessionAuth;
     ecdsaThresholdKeyId?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -634,7 +635,7 @@ export class TatchiPasskey {
     challengeId?: string;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
-    authorizationJwt?: string;
+    thresholdRouteAuth?: AppOrThresholdSessionAuth;
     ecdsaThresholdKeyId?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';

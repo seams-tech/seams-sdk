@@ -11,6 +11,7 @@ import type {
   WalletEmailOtpChannel,
   WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -239,7 +240,7 @@ export interface EmailOtpWorkerOperationMap {
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
       sessionId?: string;
-      authorizationJwt?: string;
+      thresholdRouteAuth?: AppOrThresholdSessionAuth;
       ttlMs?: number;
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -274,7 +275,7 @@ export interface EmailOtpWorkerOperationMap {
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
       sessionId?: string;
-      authorizationJwt?: string;
+      thresholdRouteAuth?: AppOrThresholdSessionAuth;
       ttlMs?: number;
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -332,7 +333,7 @@ export interface EmailOtpWorkerOperationMap {
       userId: string;
       rpId: string;
       sessionId: string;
-      authorizationJwt?: string;
+      thresholdSessionJwt?: string;
       sessionKind?: 'jwt' | 'cookie';
       ecdsaThresholdKeyId: string;
       chain: 'evm' | 'tempo';

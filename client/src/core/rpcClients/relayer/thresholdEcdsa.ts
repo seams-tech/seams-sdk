@@ -1,6 +1,12 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import { errorMessage } from '@shared/utils/errors';
 import { normalizeJwtCookieSessionKind, stripTrailingSlashes } from '@shared/utils/normalize';
+import {
+  requireAppSessionJwt,
+  requireThresholdSessionJwt,
+  type AppOrThresholdSessionAuth,
+  type CookieSessionAuth,
+} from '@shared/utils/sessionTokens';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
 
@@ -58,19 +64,32 @@ type ThresholdEcdsaHssFinalizeHttpResponse = {
   canonicalEthereumAddress?: string;
 };
 
+export type ThresholdEcdsaHssRouteAuth =
+  | AppOrThresholdSessionAuth
+  | CookieSessionAuth
+  | { kind: 'bootstrap_grant'; token: string }
+  | { kind: 'publishable_key'; token: string };
+
+function resolveBearerToken(auth?: ThresholdEcdsaHssRouteAuth): string {
+  if (!auth || auth.kind === 'cookie') return '';
+  if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
+  if (auth.kind === 'threshold_session') return requireThresholdSessionJwt(auth.jwt);
+  return String(auth.token || '').trim();
+}
+
 function buildRelayRequestInit(args: {
-  authorizationJwt?: string;
+  auth?: ThresholdEcdsaHssRouteAuth;
   sessionKind?: 'jwt' | 'cookie';
   body: unknown;
 }): RequestInit {
   const sessionKind = normalizeJwtCookieSessionKind(args.sessionKind);
-  const authorizationJwt = String(args.authorizationJwt || '').trim();
+  const bearerToken = resolveBearerToken(args.auth);
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (authorizationJwt) headers.Authorization = `Bearer ${authorizationJwt}`;
+  if (bearerToken) headers.Authorization = `Bearer ${bearerToken}`;
   return {
     method: 'POST',
     headers,
-    credentials: authorizationJwt ? 'omit' : sessionKind === 'cookie' ? 'include' : 'omit',
+    credentials: bearerToken ? 'omit' : sessionKind === 'cookie' ? 'include' : 'omit',
     body: JSON.stringify(args.body),
   };
 }
@@ -94,7 +113,7 @@ export async function thresholdEcdsaHssPrepare(
     sessionPolicy?: ThresholdSessionPolicyV1;
     webauthnAuthentication?: WebAuthnAuthenticationCredential;
     runtimeEnvironmentId?: string;
-    authorizationJwt?: string;
+    auth?: ThresholdEcdsaHssRouteAuth;
     sessionKind?: 'jwt' | 'cookie';
   },
 ): Promise<
@@ -114,7 +133,7 @@ export async function thresholdEcdsaHssPrepare(
     const response = await fetch(
       `${base}/threshold-ecdsa/hss/prepare`,
       buildRelayRequestInit({
-        authorizationJwt: args.authorizationJwt,
+        auth: args.auth,
         sessionKind: args.sessionKind,
         body: {
           userId,
@@ -157,7 +176,7 @@ export async function thresholdEcdsaHssRespond(
   args: {
     ceremonyId: string;
     requestMessageB64u: string;
-    authorizationJwt?: string;
+    auth?: ThresholdEcdsaHssRouteAuth;
     sessionKind?: 'jwt' | 'cookie';
   },
 ): Promise<
@@ -175,7 +194,7 @@ export async function thresholdEcdsaHssRespond(
     const response = await fetch(
       `${base}/threshold-ecdsa/hss/respond`,
       buildRelayRequestInit({
-        authorizationJwt: args.authorizationJwt,
+        auth: args.auth,
         sessionKind: args.sessionKind,
         body: { ceremonyId, requestMessageB64u },
       }),
@@ -200,7 +219,7 @@ export async function thresholdEcdsaHssFinalize(
   args: {
     ceremonyId: string;
     clientFinalizeMessageB64u: string;
-    authorizationJwt?: string;
+    auth?: ThresholdEcdsaHssRouteAuth;
     sessionKind?: 'jwt' | 'cookie';
   },
 ): Promise<
@@ -218,7 +237,7 @@ export async function thresholdEcdsaHssFinalize(
     const response = await fetch(
       `${base}/threshold-ecdsa/hss/finalize`,
       buildRelayRequestInit({
-        authorizationJwt: args.authorizationJwt,
+        auth: args.auth,
         sessionKind: args.sessionKind,
         body: { ceremonyId, clientFinalizeMessageB64u },
       }),

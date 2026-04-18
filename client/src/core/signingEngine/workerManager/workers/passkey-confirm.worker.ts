@@ -935,6 +935,8 @@ function toDecisionFromWorkerResponse(
     intentDigest: response.intent_digest,
     confirmed: !!response.confirmed,
     credential: response.credential,
+    otpCode: response.otp_code,
+    emailOtpChallengeId: response.email_otp_challenge_id,
     transactionContext: response.transaction_context,
     error: response.error,
   };

@@ -16,7 +16,7 @@ export interface PasskeyAuthMenuSkeletonProps {
   defaultMode?: AuthMenuMode;
   /** Best-effort to match the hydrated UI headings. */
   headings?: AuthMenuHeadings;
-  /** Best-effort to match the hydrated UI Email OTP retention policy. */
+  /** Best-effort to match the hydrated UI Email OTP signing-session policy. */
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
 }
 

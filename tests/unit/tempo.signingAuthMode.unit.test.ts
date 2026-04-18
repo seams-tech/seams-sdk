@@ -182,6 +182,9 @@ test.describe('tempo signing auth-mode resolution', () => {
               } as any;
             },
           },
+          ensureThresholdEcdsaKeyRefReady: async () => {
+            throw new Error('stale per-operation Email OTP session should not be reconnected');
+          },
           engines: {
             secp256k1: {
               algorithm: 'secp256k1',

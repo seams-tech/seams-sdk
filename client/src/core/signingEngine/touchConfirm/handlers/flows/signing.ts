@@ -32,6 +32,7 @@ import {
   PENDING_INTENT_DIGEST,
   type IntentDigestPreparationResult,
 } from '@/core/signingEngine/touchConfirm/intentDigestPreparationRegistry';
+import { consumeConfirmationReadiness } from '@/core/signingEngine/touchConfirm/confirmationReadinessRegistry';
 
 function getTransactionSigningAuthMode(request: SigningUserConfirmRequest) {
   if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
@@ -120,6 +121,26 @@ export async function handleTransactionSigningFlow(
     const promptReady = new Promise<void>((resolve) => {
       resolvePromptReady = resolve;
     });
+    let decisionResolved = false;
+    let nearContextReady = false;
+    let nearContextFailed = false;
+    let intentPreparationPending = !!intentPreparation;
+    const confirmationReadiness = consumeConfirmationReadiness(request.requestId);
+    let confirmationReadinessPending = !!confirmationReadiness;
+    let confirmationReadinessError: Error | null = null;
+    const originalBody = String(transactionSummary.body || '').trim();
+    const confirmationReadinessBody = String(confirmationReadiness?.body || '').trim();
+    const isConfirmationLoading = () =>
+      !nearContextFailed &&
+      (!nearContextReady || intentPreparationPending || confirmationReadinessPending);
+    const restoreOriginalBody = () => ({ body: originalBody });
+    const confirmationReadinessPromise = confirmationReadiness
+      ? Promise.resolve(confirmationReadiness.promise).catch((error: unknown) => {
+          confirmationReadinessError =
+            error instanceof Error ? error : new Error(String(error || 'Unknown error'));
+          throw confirmationReadinessError;
+        })
+      : undefined;
     const markPromptReady = () => {
       resolvePromptReady?.();
       resolvePromptReady = undefined;
@@ -129,14 +150,16 @@ export async function handleTransactionSigningFlow(
       loading: true,
       onMounted: () => {
         markPromptReady();
+        if (confirmationReadinessPending && confirmationReadinessBody) {
+          session.updateUI({
+            loading: true,
+            body: confirmationReadinessBody,
+          });
+        }
       },
     });
     void promptDecisionPromise.finally(markPromptReady);
 
-    let decisionResolved = false;
-    let nearContextReady = false;
-    let nearContextFailed = false;
-    let intentPreparationPending = !!intentPreparation;
     let nearRpcResolved:
       | {
           transactionContext: TransactionContext | null;
@@ -163,7 +186,7 @@ export async function handleTransactionSigningFlow(
         ...(prepared.title ? { title: prepared.title } : {}),
         ...(prepared.body ? { body: prepared.body } : {}),
         ...(resolvedIntentDigest ? { intentDigest: resolvedIntentDigest } : {}),
-        loading: nearContextFailed ? false : !nearContextReady,
+        loading: isConfirmationLoading(),
       });
     };
 
@@ -184,8 +207,34 @@ export async function handleTransactionSigningFlow(
           intentPreparationPending = false;
           if (decisionResolved) return;
           session.updateUI({
-            loading: nearContextFailed ? false : !nearContextReady,
+            loading: isConfirmationLoading(),
             errorMessage: String(toError(error)?.message || error || 'Failed to prepare intent'),
+          });
+        });
+    }
+    if (confirmationReadinessPromise) {
+      void confirmationReadinessPromise
+        .then(async () => {
+          confirmationReadinessPending = false;
+          await promptReady;
+          if (decisionResolved) return;
+          session.updateUI({
+            ...restoreOriginalBody(),
+            loading: isConfirmationLoading(),
+            errorMessage: '',
+          });
+        })
+        .catch(async (error: unknown) => {
+          confirmationReadinessPending = false;
+          await promptReady;
+          if (decisionResolved) return;
+          const message = String(
+            toError(error)?.message || 'NEAR signing session could not be finalized',
+          );
+          session.updateUI({
+            ...restoreOriginalBody(),
+            loading: false,
+            errorMessage: `NEAR signing session could not be finalized: ${message}`,
           });
         });
     }
@@ -217,7 +266,7 @@ export async function handleTransactionSigningFlow(
       // Keep confirm disabled until intent preparation also completes.
       session.updateUI({
         securityContext,
-        loading: intentPreparationPending,
+        loading: isConfirmationLoading(),
       });
     });
 
@@ -262,6 +311,21 @@ export async function handleTransactionSigningFlow(
       applyPreparedIntentData(prepared);
     }
 
+    if (confirmationReadinessPromise) {
+      try {
+        await confirmationReadinessPromise;
+      } catch (error: unknown) {
+        const message = String(
+          toError(error)?.message || 'NEAR signing session could not be finalized',
+        );
+        return session.confirmAndCloseModal({
+          requestId: request.requestId,
+          intentDigest: resolvedIntentDigestForResponse,
+          confirmed: false,
+          error: `NEAR signing session could not be finalized: ${message}`,
+        });
+      }
+    }
     if (signingAuthMode === 'emailOtp') {
       session.confirmAndCloseModal({
         requestId: request.requestId,

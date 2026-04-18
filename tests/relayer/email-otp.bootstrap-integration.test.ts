@@ -438,7 +438,7 @@ async function bootstrapEmailOtpViaRouteWorker(args: {
   challengeId: string;
   otpCode: string;
   appSessionJwt: string;
-  authorizationJwt: string;
+  thresholdRouteAuth: { kind: 'app_session'; jwt: string };
   sessionId: string;
   ecdsaThresholdKeyId: string;
   participantIds: number[];
@@ -471,7 +471,7 @@ async function bootstrapEmailOtpViaRouteWorker(args: {
       participantIds: args.participantIds,
       sessionKind: args.sessionKind,
       sessionId: args.sessionId,
-      authorizationJwt: args.authorizationJwt,
+      thresholdRouteAuth: args.thresholdRouteAuth,
       clientRootShare32,
     });
     return {
@@ -563,7 +563,7 @@ test.describe('Email OTP bootstrap integration', () => {
       challengeId: recoveryOtp.challengeId,
       otpCode: recoveryOtp.otpCode,
       appSessionJwt: 'app-session-recover',
-      authorizationJwt: 'bootstrap-auth-jwt',
+      thresholdRouteAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
       sessionId: 'ecdsa-session-cf-1',
       ecdsaThresholdKeyId: 'ecdsa-key-cf-1',
       participantIds: [1, 2],
@@ -621,7 +621,7 @@ test.describe('Email OTP bootstrap integration', () => {
       participantIds: [1, 2],
       sessionKind: 'jwt',
       sessionId: 'ecdsa-session-cf-1',
-      authorizationJwt: 'bootstrap-auth-jwt',
+      thresholdRouteAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
       clientRootShare32: base64UrlDecode(expectedClientRootShare32B64u),
     });
   });
@@ -876,7 +876,7 @@ test.describe('Email OTP bootstrap integration', () => {
         challengeId: recoveryOtp.challengeId,
         otpCode: recoveryOtp.otpCode,
         appSessionJwt: 'app-session',
-        authorizationJwt: 'bootstrap-auth-jwt',
+        thresholdRouteAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
         sessionId: 'ecdsa-session-otp-1',
         ecdsaThresholdKeyId: 'ecdsa-key-otp-1',
         participantIds: [1, 2],
@@ -933,7 +933,7 @@ test.describe('Email OTP bootstrap integration', () => {
         participantIds: [1, 2],
         sessionKind: 'jwt',
         sessionId: 'ecdsa-session-otp-1',
-        authorizationJwt: 'bootstrap-auth-jwt',
+        thresholdRouteAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
         clientRootShare32: base64UrlDecode(expectedClientRootShare32B64u),
       });
     } finally {

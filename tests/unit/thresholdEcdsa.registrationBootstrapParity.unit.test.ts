@@ -63,4 +63,76 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
       }),
     ).rejects.toThrow('Well-known endpoint returned HTTP 502');
   });
+
+  test('Email OTP bootstrap soft-fails retryable well-known fetch errors', async () => {
+    const engine = Object.create(SigningEngine.prototype) as SigningEngine & {
+      ensureSealedRefreshStartupParity: () => Promise<void>;
+      ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (args: {
+        nearAccountId: string;
+        chain?: 'tempo' | 'evm';
+        source?: 'login' | 'registration' | 'manual-bootstrap';
+        emailOtpAuthContext?: { authMethod: 'email_otp' };
+      }) => Promise<void>;
+    };
+    engine.ensureSealedRefreshStartupParity = async () => {
+      throw Object.assign(
+        new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502'),
+        { code: 'sealed_refresh_parity_http_error' },
+      );
+    };
+
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      await expect(
+        engine.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+          source: 'login',
+          emailOtpAuthContext: { authMethod: 'email_otp' },
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings).toHaveLength(1);
+    expect(String(warnings[0]?.[0] || '')).toContain(
+      'Email OTP bootstrap skipped retryable sealed-refresh capability fetch failure',
+    );
+    expect(warnings[0]?.[1]).toMatchObject({
+      nearAccountId: 'alice.testnet',
+      chain: 'evm',
+      error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
+    });
+  });
+
+  test('Email OTP bootstrap still fails closed on parity mismatches', async () => {
+    const engine = Object.create(SigningEngine.prototype) as SigningEngine & {
+      ensureSealedRefreshStartupParity: () => Promise<void>;
+      ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (args: {
+        nearAccountId: string;
+        source?: 'login' | 'registration' | 'manual-bootstrap';
+        emailOtpAuthContext?: { authMethod: 'email_otp' };
+      }) => Promise<void>;
+    };
+    engine.ensureSealedRefreshStartupParity = async () => {
+      throw Object.assign(
+        new Error('[sealed-refresh-parity] Client/server mismatch for fields: keyVersion'),
+        { code: 'sealed_refresh_parity_mismatch' },
+      );
+    };
+
+    await expect(
+      engine.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap({
+        nearAccountId: 'alice.testnet',
+        source: 'login',
+        emailOtpAuthContext: { authMethod: 'email_otp' },
+      }),
+    ).rejects.toThrow('Client/server mismatch');
+  });
 });

@@ -102,6 +102,69 @@ test.describe('sealed refresh startup parity', () => {
     expect(result.fetchCalls).toBe(1);
   });
 
+  test('does not cache transient well-known failures', async ({ page }) => {
+    const config = buildConfig({
+      relayerUrl: 'https://relay-transient.example',
+      keyVersion: 'kek-s-2026-02',
+      shamirPrimeB64u: 'AQAB',
+    });
+    const result = await page.evaluate(async ({ importPath, config }) => {
+      const mod = await import(importPath);
+
+      const originalFetch = window.fetch.bind(window);
+      let fetchCalls = 0;
+      window.fetch = (async (_input: RequestInfo | URL): Promise<Response> => {
+        fetchCalls += 1;
+        if (fetchCalls === 1) {
+          return new Response('bad gateway', { status: 502 });
+        }
+        return new Response(
+          JSON.stringify({
+            origins: [],
+            capabilities: {
+              signingSessionSeal: {
+                mode: 'sealed_refresh_v1',
+                keyVersion: 'kek-s-2026-02',
+                shamirPrimeB64u: 'AQAB',
+              },
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }) as typeof fetch;
+
+      try {
+        let firstCode = '';
+        try {
+          await mod.verifySealedRefreshStartupParity({
+            configs: config,
+            timeoutMs: 2_000,
+          });
+        } catch (error: unknown) {
+          firstCode = String((error as { code?: unknown })?.code || '');
+        }
+        await mod.verifySealedRefreshStartupParity({
+          configs: config,
+          timeoutMs: 2_000,
+        });
+        return { ok: true, fetchCalls, firstCode };
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          fetchCalls,
+          message: error instanceof Error ? error.message : String(error),
+          code: String((error as { code?: unknown })?.code || ''),
+        };
+      } finally {
+        window.fetch = originalFetch;
+      }
+    }, { importPath: IMPORT_PATH, config });
+
+    expect(result.ok).toBe(true);
+    expect(result.fetchCalls).toBe(2);
+    expect(result.firstCode).toBe('sealed_refresh_parity_http_error');
+  });
+
   test('fails closed with field-level mismatch diagnostics', async ({ page }) => {
     const config = buildConfig({
       relayerUrl: 'https://relay.example',
