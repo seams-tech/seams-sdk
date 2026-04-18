@@ -220,6 +220,16 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
             ) : (
               <p className="w3a-otp-helper">{controller.otpPrompt.helperText}</p>
             )}
+            {controller.otpPrompt.onResend ? (
+              <button
+                type="button"
+                className="w3a-otp-resend"
+                onClick={controller.otpPrompt.onResend}
+                disabled={controller.otpPrompt.resendDisabled}
+              >
+                {controller.otpPrompt.resendLabel || 'Resend code'}
+              </button>
+            ) : null}
             <button
               type="button"
               className="w3a-auth-method-btn w3a-auth-method-btn-primary"

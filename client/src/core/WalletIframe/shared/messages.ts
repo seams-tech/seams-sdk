@@ -296,7 +296,6 @@ export interface PMExchangeGoogleEmailOtpSessionPayload {
   accountMode: 'register' | 'login';
   relayUrl?: string;
   sessionKind?: 'jwt' | 'cookie';
-  forceNewDevWallet?: boolean;
 }
 
 export interface PMEnrollEmailOtpPayload {

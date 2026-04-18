@@ -557,7 +557,8 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
     challengeId: string;
     emailHint?: string;
     appSessionJwt?: string;
-    complete: (otpCode: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+    resend?: () => Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }>;
+    complete: (otpCode: string, challengeId?: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   };
 }> {
   const appSessionJwtByChallengeId = new Map<string, string>();
@@ -671,17 +672,29 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
   if (walletAuthPlan.kind !== 'emailOtpReauth') return { walletAuthPlan };
 
   const challenge = await walletAuthPlan.challenge();
+  let activeChallenge = challenge;
   return {
     walletAuthPlan,
     emailOtpSigning: {
-      challengeId: challenge.challengeId,
-      ...(challenge.email ? { emailHint: challenge.email } : {}),
-      ...(appSessionJwtByChallengeId.get(challenge.challengeId)
-        ? { appSessionJwt: appSessionJwtByChallengeId.get(challenge.challengeId)! }
+      challengeId: activeChallenge.challengeId,
+      ...(activeChallenge.email ? { emailHint: activeChallenge.email } : {}),
+      ...(appSessionJwtByChallengeId.get(activeChallenge.challengeId)
+        ? { appSessionJwt: appSessionJwtByChallengeId.get(activeChallenge.challengeId)! }
         : {}),
-      complete: async (otpCode: string) => {
+      resend: async () => {
+        activeChallenge = await walletAuthPlan.challenge();
+        return {
+          challengeId: activeChallenge.challengeId,
+          ...(activeChallenge.email ? { emailHint: activeChallenge.email } : {}),
+          ...(appSessionJwtByChallengeId.get(activeChallenge.challengeId)
+            ? { appSessionJwt: appSessionJwtByChallengeId.get(activeChallenge.challengeId)! }
+            : {}),
+        };
+      },
+      complete: async (otpCode: string, challengeId?: string) => {
+        const resolvedChallengeId = String(challengeId || activeChallenge.challengeId).trim();
         const proof = await walletAuthPlan.complete({
-          challengeId: challenge.challengeId,
+          challengeId: resolvedChallengeId,
           code: otpCode,
         });
         return proof.emailOtpAuthentication as ThresholdEcdsaSecp256k1KeyRef;

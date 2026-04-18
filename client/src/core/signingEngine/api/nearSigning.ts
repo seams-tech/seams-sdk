@@ -193,7 +193,8 @@ async function resolveNearTransactionWalletAuth(args: {
   emailOtpSigning?: {
     challengeId: string;
     emailHint?: string;
-    complete: (otpCode: string) => Promise<{ sessionId: string }>;
+    resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
+    complete: (otpCode: string, challengeId?: string) => Promise<{ sessionId: string }>;
     markConsumed: (thresholdSessionId?: string) => void;
   };
 }> {
@@ -304,14 +305,23 @@ async function resolveNearTransactionWalletAuth(args: {
   if (walletAuthPlan.kind !== 'emailOtpReauth') return { walletAuthPlan };
 
   const challenge = await walletAuthPlan.challenge();
+  let activeChallenge = challenge;
   return {
     walletAuthPlan,
     emailOtpSigning: {
-      challengeId: challenge.challengeId,
-      ...(challenge.email ? { emailHint: challenge.email } : {}),
-      complete: async (otpCode: string) => {
+      challengeId: activeChallenge.challengeId,
+      ...(activeChallenge.email ? { emailHint: activeChallenge.email } : {}),
+      resend: async () => {
+        activeChallenge = await walletAuthPlan.challenge();
+        return {
+          challengeId: activeChallenge.challengeId,
+          ...(activeChallenge.email ? { emailHint: activeChallenge.email } : {}),
+        };
+      },
+      complete: async (otpCode: string, challengeId?: string) => {
+        const resolvedChallengeId = String(challengeId || activeChallenge.challengeId).trim();
         const proof = await walletAuthPlan.complete({
-          challengeId: challenge.challengeId,
+          challengeId: resolvedChallengeId,
           code: otpCode,
         });
         return proof.emailOtpAuthentication as { sessionId: string };

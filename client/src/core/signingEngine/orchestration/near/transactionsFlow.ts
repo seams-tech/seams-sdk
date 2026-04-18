@@ -228,6 +228,7 @@ export async function signTransactionsWithActions({
         ...(emailOtpSigning.emailHint ? { emailHint: emailOtpSigning.emailHint } : {}),
         title: 'Enter email code to sign',
         helperText: 'Enter the 6-digit code sent to your email to sign this transaction.',
+        ...(emailOtpSigning.resend ? { onResend: emailOtpSigning.resend } : {}),
       }
     : undefined;
   const signingAuthPlan = walletAuthPlan
@@ -278,7 +279,7 @@ export async function signTransactionsWithActions({
     if (!/^\d{6}$/.test(otpCode)) {
       throw new Error('[SigningEngine] missing Email OTP code from touchConfirm');
     }
-    const refreshed = await emailOtpSigning.complete(otpCode);
+    const refreshed = await emailOtpSigning.complete(otpCode, confirmation.emailOtpChallengeId);
     const refreshedSessionId = String(refreshed.sessionId || '').trim();
     if (!refreshedSessionId) {
       throw new Error('[SigningEngine] Email OTP signing did not return a threshold session id');

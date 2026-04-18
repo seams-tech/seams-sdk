@@ -222,6 +222,122 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.kind).toBe('eip1559');
   });
 
+  test('EVM per-operation Email OTP resend uses the resent challenge for completion', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
+        let capturedInitialChallengeId = '';
+        let capturedResentChallengeId = '';
+        let completedOtpCode = '';
+        let completedChallengeId = '';
+        let signedWithSessionId = '';
+
+        const workerCtx = {
+          requestWorkerOperation: async ({ request }: { request: any }) => {
+            const type = String(request?.type || '');
+            if (type === 'computeEip1559TxHash') return new Uint8Array(32).buffer;
+            if (type === 'encodeEip1559SignedTxFromSignature65')
+              return new Uint8Array([0x02, 0xaa]).buffer;
+            throw new Error(`Unexpected worker operation: ${type}`);
+          },
+        };
+
+        const signed = await signEvmWithTouchConfirm({
+          ctx: { indexedDB: {} } as any,
+          workerCtx: workerCtx as any,
+          touchConfirm: {
+            getWarmSessionStatus: async () => {
+              throw new Error('warm-session status should not be read for emailOtp mode');
+            },
+            orchestrateSigningConfirmation: async (params: any) => {
+              capturedInitialChallengeId = String(params?.emailOtpPrompt?.challengeId || '');
+              const resent = await params.emailOtpPrompt.onResend();
+              capturedResentChallengeId = String(resent?.challengeId || '');
+              return {
+                sessionId: 'intent',
+                intentDigest: '0x' + '11'.repeat(32),
+                otpCode: '246810',
+                emailOtpChallengeId: capturedResentChallengeId,
+              };
+            },
+          } as any,
+          nearAccountId: 'alice.testnet',
+          request: {
+            chain: 'evm',
+            kind: 'eip1559',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 11155111,
+              nonce: 7n,
+              maxPriorityFeePerGas: 1_500_000_000n,
+              maxFeePerGas: 3_000_000_000n,
+              gasLimit: 21_000n,
+              to: '0x' + '22'.repeat(20),
+              value: 12_345n,
+              data: '0x',
+              accessList: [],
+            },
+          } as any,
+          emailOtpSigning: {
+            challengeId: 'evm-email-otp-challenge-1',
+            emailHint: 'a***e@example.com',
+            resend: async () => ({
+              challengeId: 'evm-email-otp-challenge-2',
+              emailHint: 'a***e@example.com',
+            }),
+            complete: async (otpCode: string, challengeId?: string) => {
+              completedOtpCode = otpCode;
+              completedChallengeId = String(challengeId || '');
+              return {
+                type: 'threshold-ecdsa-secp256k1',
+                userId: 'alice.testnet',
+                relayerUrl: 'https://relayer.example',
+                relayerKeyId: 'rk-email-otp',
+                clientVerifyingShareB64u: 'AQ',
+                thresholdSessionId: 'email-otp-resent-session',
+              } as any;
+            },
+          },
+          ensureThresholdEcdsaKeyRefReady: async () => {
+            throw new Error('stale per-operation Email OTP session should not be reconnected');
+          },
+          engines: {
+            secp256k1: {
+              algorithm: 'secp256k1',
+              sign: async (_signReq: unknown, keyRef: any) => {
+                signedWithSessionId = String(keyRef?.thresholdSessionId || '');
+                const sig = new Uint8Array(65);
+                sig[64] = 0;
+                return sig;
+              },
+            },
+          } as any,
+        });
+
+        return {
+          capturedInitialChallengeId,
+          capturedResentChallengeId,
+          completedOtpCode,
+          completedChallengeId,
+          signedWithSessionId,
+          chain: signed.chain,
+          kind: signed.kind,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.capturedInitialChallengeId).toBe('evm-email-otp-challenge-1');
+    expect(result.capturedResentChallengeId).toBe('evm-email-otp-challenge-2');
+    expect(result.completedOtpCode).toBe('246810');
+    expect(result.completedChallengeId).toBe('evm-email-otp-challenge-2');
+    expect(result.signedWithSessionId).toBe('email-otp-resent-session');
+    expect(result.chain).toBe('evm');
+    expect(result.kind).toBe('eip1559');
+  });
+
   test('abandons EVM Email OTP challenge on cancellation without completing or signing', async ({
     page,
   }) => {
@@ -1070,6 +1186,120 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.capturedChallengeId).toBe('tempo-email-otp-challenge');
     expect(result.completedOtpCode).toBe('123456');
     expect(result.signedWithSessionId).toBe('tempo-email-otp-refreshed-session');
+    expect(result.chain).toBe('tempo');
+    expect(result.kind).toBe('tempoTransaction');
+  });
+
+  test('Tempo per-operation Email OTP resend uses the resent challenge for completion', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { signTempoWithTouchConfirm } = await import(paths.signTempoWithTouchConfirm);
+        let capturedInitialChallengeId = '';
+        let capturedResentChallengeId = '';
+        let completedOtpCode = '';
+        let completedChallengeId = '';
+        let signedWithSessionId = '';
+
+        const workerCtx = {
+          requestWorkerOperation: async ({ request }: { request: any }) => {
+            const type = String(request?.type || '');
+            if (type === 'computeTempoSenderHash') return new Uint8Array(32).buffer;
+            if (type === 'encodeTempoSignedTx') return new Uint8Array([0x76, 0xaa]).buffer;
+            throw new Error(`Unexpected worker operation: ${type}`);
+          },
+        };
+
+        const signed = await signTempoWithTouchConfirm({
+          ctx: { indexedDB: {} } as any,
+          workerCtx: workerCtx as any,
+          touchConfirm: {
+            getWarmSessionStatus: async () => {
+              throw new Error('warm-session status should not be read for emailOtp mode');
+            },
+            orchestrateSigningConfirmation: async (params: any) => {
+              capturedInitialChallengeId = String(params?.emailOtpPrompt?.challengeId || '');
+              const resent = await params.emailOtpPrompt.onResend();
+              capturedResentChallengeId = String(resent?.challengeId || '');
+              return {
+                sessionId: 'intent',
+                intentDigest: '0x' + '11'.repeat(32),
+                otpCode: '135791',
+                emailOtpChallengeId: capturedResentChallengeId,
+              };
+            },
+          } as any,
+          nearAccountId: 'alice.testnet',
+          request: {
+            chain: 'tempo',
+            kind: 'tempoTransaction',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 11155111,
+              maxPriorityFeePerGas: 1n,
+              maxFeePerGas: 2n,
+              gasLimit: 21_000n,
+              calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+              accessList: [],
+              nonceKey: 1n,
+              nonce: 1n,
+              validBefore: null,
+              validAfter: null,
+              feePayerSignature: { kind: 'none' },
+            },
+          } as any,
+          emailOtpSigning: {
+            challengeId: 'tempo-email-otp-challenge-1',
+            emailHint: 'a***e@example.com',
+            resend: async () => ({
+              challengeId: 'tempo-email-otp-challenge-2',
+              emailHint: 'a***e@example.com',
+            }),
+            complete: async (otpCode: string, challengeId?: string) => {
+              completedOtpCode = otpCode;
+              completedChallengeId = String(challengeId || '');
+              return {
+                type: 'threshold-ecdsa-secp256k1',
+                userId: 'alice.testnet',
+                relayerUrl: 'https://relayer.example',
+                relayerKeyId: 'rk-email-otp',
+                clientVerifyingShareB64u: 'AQ',
+                thresholdSessionId: 'tempo-email-otp-resent-session',
+              } as any;
+            },
+          },
+          engines: {
+            secp256k1: {
+              algorithm: 'secp256k1',
+              sign: async (_signReq: unknown, keyRef: any) => {
+                signedWithSessionId = String(keyRef?.thresholdSessionId || '');
+                const sig = new Uint8Array(65);
+                sig[64] = 0;
+                return sig;
+              },
+            },
+          } as any,
+        });
+
+        return {
+          capturedInitialChallengeId,
+          capturedResentChallengeId,
+          completedOtpCode,
+          completedChallengeId,
+          signedWithSessionId,
+          chain: signed.chain,
+          kind: signed.kind,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.capturedInitialChallengeId).toBe('tempo-email-otp-challenge-1');
+    expect(result.capturedResentChallengeId).toBe('tempo-email-otp-challenge-2');
+    expect(result.completedOtpCode).toBe('135791');
+    expect(result.completedChallengeId).toBe('tempo-email-otp-challenge-2');
+    expect(result.signedWithSessionId).toBe('tempo-email-otp-resent-session');
     expect(result.chain).toBe('tempo');
     expect(result.kind).toBe('tempoTransaction');
   });

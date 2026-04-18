@@ -1741,17 +1741,23 @@ export class SigningEngine {
     curve: WalletAuthCurve;
     appSessionJwt?: string;
   }): Promise<{ challengeId: string; otpCode: string }> {
-    const challenge = await this.requestEmailOtpChallengeForSigning({
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
-      operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-      ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
-    });
-    const challengeId = String(challenge.challengeId || '').trim();
-    if (!challengeId) {
-      throw new Error('Email OTP export challenge response did not include challengeId');
-    }
-    const emailHint = String(challenge.emailHint || '').trim();
+    const requestExportChallenge = async () => {
+      const challenge = await this.requestEmailOtpChallengeForSigning({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+        operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+      });
+      const challengeId = String(challenge.challengeId || '').trim();
+      if (!challengeId) {
+        throw new Error('Email OTP export challenge response did not include challengeId');
+      }
+      return {
+        challengeId,
+        emailHint: String(challenge.emailHint || '').trim(),
+      };
+    };
+    let challenge = await requestExportChallenge();
     const decision = await this.touchConfirm.requestUserConfirmation({
       requestId: createExportUiRequestId(`export-${args.curve}-email-otp-auth`),
       type: UserConfirmationType.SIGN_INTENT_DIGEST,
@@ -1765,26 +1771,34 @@ export class SigningEngine {
       payload: {
         nearAccountId: args.nearAccountId,
         publicKey: args.publicKey,
-        challengeB64u: challengeId,
+        challengeB64u: challenge.challengeId,
         signingAuthPlan: {
           kind: 'emailOtpReauth',
           method: 'email_otp',
           emailOtpPrompt: {
-            challengeId,
-            ...(emailHint ? { emailHint } : {}),
+            challengeId: challenge.challengeId,
+            ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
             title: 'Enter email code to export',
             body: 'This one-time code authorizes private key export only.',
             helperText:
               'Key export is sensitive. The recovered export material is discarded after the viewer closes.',
+            onResend: async () => {
+              challenge = await requestExportChallenge();
+              return challenge;
+            },
           },
         },
         emailOtpPrompt: {
-          challengeId,
-          ...(emailHint ? { emailHint } : {}),
+          challengeId: challenge.challengeId,
+          ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
           title: 'Enter email code to export',
           body: 'This one-time code authorizes private key export only.',
           helperText:
             'Key export is sensitive. The recovered export material is discarded after the viewer closes.',
+          onResend: async () => {
+            challenge = await requestExportChallenge();
+            return challenge;
+          },
         },
       },
       intentDigest: `export-keys:${args.nearAccountId}:${args.chain}:${args.curve}:email-otp`,
@@ -1798,11 +1812,8 @@ export class SigningEngine {
     if (otpCode.length !== 6) {
       throw new Error('Email OTP export requires a 6-digit code');
     }
-    const responseChallengeId = String(decision.emailOtpChallengeId || challengeId).trim();
-    if (responseChallengeId !== challengeId) {
-      throw new Error('Email OTP export challenge mismatch');
-    }
-    return { challengeId, otpCode };
+    const responseChallengeId = String(decision.emailOtpChallengeId || challenge.challengeId).trim();
+    return { challengeId: responseChallengeId, otpCode };
   }
 
   private async showThresholdEcdsaExportViewer(args: {
@@ -2309,6 +2320,9 @@ export class SigningEngine {
     }
     return {
       challengeId,
+      ...(String(response.emailHint || '').trim()
+        ? { emailHint: String(response.emailHint || '').trim() }
+        : {}),
       ...(appSessionJwt ? { appSessionJwt } : {}),
     };
   }

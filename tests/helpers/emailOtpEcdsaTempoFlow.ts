@@ -47,6 +47,7 @@ export type EmailOtpEcdsaTempoFlowOptions = {
   signingKind?: 'tempoTransaction' | 'eip1559';
   signTwice?: boolean;
   signNearAfterLogin?: boolean;
+  resendLoginOtpBeforeSubmit?: boolean;
 };
 
 export type EmailOtpEcdsaTempoFlowResult = {
@@ -485,7 +486,8 @@ export async function runEmailOtpEcdsaTempoFlow(
 
       await signingEngine.clearWarmSigningSessions(accountId).catch(() => undefined);
 
-      const loginOtp = await requestLoginOtp();
+      const firstLoginOtp = await requestLoginOtp();
+      const loginOtp = input.resendLoginOtpBeforeSubmit === true ? await requestLoginOtp() : firstLoginOtp;
       const loggedIn = await signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         nearAccountId: accountId,
         chain: bootstrapChain,

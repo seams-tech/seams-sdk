@@ -16,6 +16,24 @@ import type {
   SigningAuthMode,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 
+function formatEmailOtpResendError(error: unknown): string {
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : '';
+  const retryAfterMs =
+    error && typeof error === 'object' && 'retryAfterMs' in error
+      ? Number((error as { retryAfterMs?: unknown }).retryAfterMs)
+      : NaN;
+  if (code === 'rate_limited') {
+    if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+      return `Too many requests. Try again in ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`;
+    }
+    return 'Too many requests. Try again shortly.';
+  }
+  return error instanceof Error && error.message ? error.message : 'Could not send code.';
+}
+
 /**
  * DrawerTxConfirmer: Drawer variant of the transaction confirmer
  */
@@ -45,6 +63,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     emailOtpPrompt: { attribute: false },
     otpCode: { type: String, attribute: false },
     otpError: { type: String, attribute: false },
+    otpResendBusy: { type: Boolean, attribute: false },
+    otpResendUntilMs: { type: Number, attribute: false },
+    otpResendStatus: { type: String, attribute: false },
   } as const;
 
   declare nearAccountId: string;
@@ -69,6 +90,10 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   declare emailOtpPrompt?: EmailOtpConfirmPrompt;
   otpCode = '';
   otpError = '';
+  otpResendBusy = false;
+  otpResendUntilMs = 0;
+  otpResendStatus = '';
+  private _otpResendTimer: number | null = null;
 
   // Keep essential custom elements from being tree-shaken
   private _ensureDrawerDefinition = DrawerElement;
@@ -158,6 +183,56 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     this.otpError = '';
   };
 
+  private _startOtpResendCountdown(durationMs: number): void {
+    if (this._otpResendTimer != null) window.clearInterval(this._otpResendTimer);
+    this.otpResendUntilMs = Date.now() + Math.max(1000, Math.floor(durationMs || 10_000));
+    this._otpResendTimer = window.setInterval(() => {
+      if (Date.now() >= this.otpResendUntilMs) {
+        if (this._otpResendTimer != null) window.clearInterval(this._otpResendTimer);
+        this._otpResendTimer = null;
+      }
+      this.requestUpdate();
+    }, 250);
+  }
+
+  private _otpResendLabel(): string {
+    if (this.otpResendBusy) return 'Sending...';
+    const remainingMs = this.otpResendUntilMs - Date.now();
+    if (remainingMs > 0) return `Resend in ${Math.ceil(remainingMs / 1000)}s`;
+    return this.otpResendStatus || 'Resend code';
+  }
+
+  private _onOtpResend = (): void => {
+    const resend = this.emailOtpPrompt?.onResend;
+    if (typeof resend !== 'function' || this.otpResendBusy || this.loading) return;
+    if (this.otpResendUntilMs > Date.now()) return;
+    this.otpError = '';
+    this.otpResendStatus = '';
+    this.otpResendBusy = true;
+    this._startOtpResendCountdown(Number(this.emailOtpPrompt?.resendDebounceMs) || 10_000);
+    this.requestUpdate();
+    void (async () => {
+      try {
+        const result = await resend();
+        const challengeId = String(result?.challengeId || '').trim();
+        const emailHint = String(result?.emailHint || '').trim();
+        if (challengeId) {
+          this.emailOtpPrompt = {
+            ...this.emailOtpPrompt,
+            challengeId,
+            ...(emailHint ? { emailHint } : {}),
+          };
+        }
+        this.otpResendStatus = 'Code sent';
+      } catch (error: unknown) {
+        this.otpError = formatEmailOtpResendError(error);
+      } finally {
+        this.otpResendBusy = false;
+        this.requestUpdate();
+      }
+    })();
+  };
+
   private _renderEmailOtpPrompt() {
     if (!this._isEmailOtpMode()) return '';
     const helper =
@@ -180,6 +255,16 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
         />
         <div class="email-otp-confirm__helper">${helper}</div>
         ${this.otpError ? html`<div class="email-otp-confirm__error">${this.otpError}</div>` : ''}
+        ${typeof this.emailOtpPrompt?.onResend === 'function'
+          ? html`<button
+              type="button"
+              class="email-otp-confirm__resend"
+              ?disabled=${this.loading || this.otpResendBusy || this.otpResendUntilMs > Date.now()}
+              @click=${this._onOtpResend}
+            >
+              ${this._otpResendLabel()}
+            </button>`
+          : ''}
       </div>
     `;
   }
@@ -268,6 +353,8 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   disconnectedCallback(): void {
     window.removeEventListener('keydown', this._onKeyDown);
     window.removeEventListener('message', this._onWindowMessage as EventListener);
+    if (this._otpResendTimer != null) window.clearInterval(this._otpResendTimer);
+    this._otpResendTimer = null;
     super.disconnectedCallback();
   }
 

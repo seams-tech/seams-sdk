@@ -185,7 +185,6 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
         accountMode: 'register',
         sessionKind: 'cookie',
         runtimeEnvironmentId: 'env_test',
-        forceNewDevWallet: true,
         fetchImpl,
       }),
     ).resolves.toEqual({
@@ -214,7 +213,6 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
         type: 'oidc_jwt',
         provider: 'google',
         account_mode: 'register',
-        force_new_dev_wallet: true,
         token: 'google-id-token-1',
       },
     });

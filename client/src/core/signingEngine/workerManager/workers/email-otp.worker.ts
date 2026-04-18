@@ -1396,12 +1396,17 @@ self.addEventListener('message', async (event: MessageEvent) => {
           },
         });
         const challenge = response.challenge as Record<string, unknown>;
+        const delivery = response.delivery as Record<string, unknown> | undefined;
+        const expiresAtMs = Number(challenge?.expiresAtMs);
+        const emailHint = String(delivery?.emailHint || '').trim();
         postToMainThread({
           id: msg.id,
           ok: true,
           result: {
             challengeId: readString(challenge?.challengeId, 'challengeId'),
             otpChannel: EMAIL_OTP_CHANNEL,
+            ...(emailHint ? { emailHint } : {}),
+            ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
           },
         });
         return;
@@ -1417,12 +1422,17 @@ self.addEventListener('message', async (event: MessageEvent) => {
           },
         });
         const challenge = response.challenge as Record<string, unknown>;
+        const delivery = response.delivery as Record<string, unknown> | undefined;
+        const expiresAtMs = Number(challenge?.expiresAtMs);
+        const emailHint = String(delivery?.emailHint || '').trim();
         postToMainThread({
           id: msg.id,
           ok: true,
           result: {
             challengeId: readString(challenge?.challengeId, 'challengeId'),
             otpChannel: EMAIL_OTP_CHANNEL,
+            ...(emailHint ? { emailHint } : {}),
+            ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
           },
         });
         return;

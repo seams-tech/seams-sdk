@@ -148,10 +148,10 @@ Goal: Email OTP login should complete wallet unlock without blank screens, stale
 Tasks:
 
 1. [x] Audit `PasskeyAuthMenu` state transitions for register/login mode, remembered account id, remembered auth method, and Google SSO enrollment-not-found handling.
-2. [x] Ensure Google SSO login mode reuses persisted Google-subject-to-wallet mapping and never creates a timestamped wallet id.
+2. [x] Ensure Google SSO login mode reuses persisted Google-subject-to-wallet mapping and never allocates a new wallet id.
 3. [x] Ensure Google SSO registration creates a valid relayer subaccount instead of a top-level `*.testnet` account.
 4. [x] Treat stale Google mappings to old top-level `*.testnet` accounts as not enrolled for login, and move them to relayer subaccounts during re-registration.
-5. [x] Keep timestamped Google SSO wallet ids only behind an explicit dev/test setting.
+5. [x] Replace email-derived and timestamped Google SSO wallet ids with privacy-preserving HMAC readable slugs.
 6. [x] After successful Email OTP submit, refresh wallet session state and require the session to be UI-ready before transitioning out of the OTP screen.
 7. [x] Ensure wallet-iframe mode performs Google SSO session exchange and Email OTP login through wallet-origin SDK calls.
 8. [x] Ensure app-origin IndexedDB disabled mode still completes Email OTP login/unlock.
@@ -162,7 +162,7 @@ Audit result:
 
 1. `PasskeyAuthMenu` state does not decide Email OTP vs passkey from account-id format. It delegates Google SSO to the social handler and receives an OTP prompt when required.
 2. Recent account prefill still derives the displayed username from the stored NEAR account id prefix. That is display/input prefill only, not auth routing.
-3. Google SSO registration now defaults to a stable relayer subaccount id. Timestamped Google wallet ids are gated behind `EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY=timestamped_dev` for collision testing only.
+3. Google SSO registration now defaults to a stable relayer subaccount id generated from a keyed HMAC readable slug; raw email and timestamped wallet ids are no longer supported.
 
 ### Phase 3: Transaction Confirmation Auth Routing
 
@@ -274,23 +274,23 @@ Tasks:
 7. [x] If the proposed NEAR account exists but the finalized threshold Ed25519 key is not active, fail with `wallet_id_collision`, leave identity mapping unchanged, and mark the registration attempt failed.
 8. [x] Replace ambiguous challenge routing with explicit route/API names for login OTP challenge, registration OTP challenge, and registration finalize.
 9. [x] Keep login strict: `account_mode=login` must require an active wallet mapping and active Email OTP enrollment, and must never allocate a wallet id or start registration.
-10. [x] Rename the dev wallet-id setting to describe registration behavior, for example `EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY=stable|timestamped_dev`.
-11. [x] In `timestamped_dev`, mint fresh wallet ids only for new registration attempts; do not let login use timestamped id generation.
-12. [x] Add an explicit dev-only "force new dev wallet" path if we want to create multiple wallets for the same Google account during local testing.
+10. [x] Remove the dev wallet-id setting that switched between stable and timestamped Google SSO wallet ids.
+11. [x] Use deterministic HMAC readable slugs for new Google SSO Email OTP registration attempts.
+12. [x] Remove the explicit dev-only "force new dev wallet" path; duplicate-wallet testing should use distinct test identities or reset local state.
 13. [x] Update `PasskeyAuthMenu` and the demo social handler to follow the server's typed resolution mode instead of inferring enroll vs login from the segmented-control tab.
 14. [x] Add UI copy for `existing_wallet`, `wallet_id_collision`, and `registration_incomplete` so users see whether to login, retry with a fresh dev wallet, or reset stale local state.
 15. [x] Add cleanup tooling for stale local dev registration attempts and orphaned dev wallet mappings.
 16. [x] Add unit tests proving Google SSO registration with an existing active wallet switches to login and does not run HSS registration.
 17. [x] Add unit tests proving login mode never creates wallets and never starts Email OTP enrollment.
-18. [x] Add unit tests proving timestamped dev registration creates fresh attempts even when an old stable mapping exists, without changing login semantics.
+18. [x] Add unit tests proving HMAC readable wallet ids do not contain raw email substrings and keep existing-wallet login semantics.
 19. [x] Add relayer tests proving identity mappings are committed only after successful wallet provisioning and signer activation.
-20. [ ] Add E2E coverage for stable registration, existing-wallet login handoff, timestamped dev registration, stale-attempt retry, and wallet-id collision errors.
+20. [ ] Add E2E coverage for HMAC-readable registration, existing-wallet login handoff, stale-attempt retry, and wallet-id collision errors.
 
 Implementation notes:
 
 1. Google Email OTP registration attempts now use the Email OTP store layer: Postgres when configured, in-memory otherwise.
 2. Email OTP routes now use explicit login and registration names; old ambiguous route names were removed rather than aliased.
-3. `EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY=timestamped_dev` applies only to registration attempts; login never uses timestamped id generation.
+3. Google Email OTP registration derives public NEAR account ids from `ACCOUNT_ID_DERIVATION_SECRET`; login never allocates wallet ids.
 4. Local development cleanup is exposed as `POST /wallet/email-otp/dev/cleanup-google-registration`; it verifies the Google id token, deletes expired registration attempts, and removes only orphaned Google-to-relayer-wallet mappings with no active Email OTP enrollment.
 5. Email OTP login operation parsing is centralized in `server/src/router/emailOtpRequestValidation.ts`. Login challenge/verify routes accept only `wallet_unlock`, `transaction_sign`, and `export_key`; registration routes do not accept login operations and remain `registration`-scoped through `AuthService`.
 

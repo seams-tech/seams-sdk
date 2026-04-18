@@ -292,6 +292,184 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toBe('123456');
   });
 
+  test('Email OTP resend preserves input, debounces clicks, and updates prompt metadata', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        await new Promise<void>((resolve, reject) => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = paths.reactStyles;
+          link.addEventListener('load', () => resolve());
+          link.addEventListener('error', () =>
+            reject(new Error(`Failed to load: ${paths.reactStyles}`)),
+          );
+          document.head.appendChild(link);
+        });
+
+        const mount = document.createElement('div');
+        mount.id = 'pam2-google-otp-resend-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://relay-server.localhost' },
+          iframeWallet: { walletOrigin: '' },
+        };
+
+        (window as any).__otpResendCalls = 0;
+        (window as any).__otpSubmitted = '';
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(
+            React.createElement(
+              Provider,
+              { config },
+              React.createElement(PasskeyAuthMenu, {
+                defaultMode: AuthMenuMode.Login,
+                socialLogin: {
+                  google: () => ({
+                    username: 'alice',
+                    otpPrompt: {
+                      title: 'Check your email to unlock your wallet',
+                      description: 'Enter the 6-digit code we sent to alice@example.com.',
+                      emailHint: 'alice@example.com',
+                      resendDebounceMs: 10_000,
+                      onResend: async () => {
+                        (window as any).__otpResendCalls += 1;
+                        return {
+                          challengeId: `challenge-${(window as any).__otpResendCalls}`,
+                          emailHint: 'new-alice@example.com',
+                        };
+                      },
+                      onSubmit: async (otpCode: string) => {
+                        (window as any).__otpSubmitted = otpCode;
+                      },
+                    },
+                  }),
+                },
+              }),
+            ),
+          );
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-google-otp-resend-mount');
+    await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
+    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
+    await expect(mount.getByText('alice@example.com', { exact: true })).toBeVisible();
+
+    const input = mount.getByLabel('Email code');
+    await input.fill('123');
+    await mount.getByRole('button', { name: 'Resend code' }).click();
+    await expect(input).toHaveValue('123');
+    await expect(mount.getByText('new-alice@example.com', { exact: true })).toBeVisible();
+    await expect(mount.getByRole('button', { name: /Resend in \d+s/ })).toBeDisabled();
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__otpResendCalls))
+      .toBe(1);
+
+    await input.fill('123456');
+    await mount.getByRole('button', { name: 'Unlock wallet' }).click();
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__otpSubmitted))
+      .toBe('123456');
+  });
+
+  test('Email OTP resend rate limits render retry copy', async ({ page }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        await new Promise<void>((resolve, reject) => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = paths.reactStyles;
+          link.addEventListener('load', () => resolve());
+          link.addEventListener('error', () =>
+            reject(new Error(`Failed to load: ${paths.reactStyles}`)),
+          );
+          document.head.appendChild(link);
+        });
+
+        const mount = document.createElement('div');
+        mount.id = 'pam2-google-otp-resend-rate-limit-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://relay-server.localhost' },
+          iframeWallet: { walletOrigin: '' },
+        };
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(
+            React.createElement(
+              Provider,
+              { config },
+              React.createElement(PasskeyAuthMenu, {
+                defaultMode: AuthMenuMode.Login,
+                socialLogin: {
+                  google: () => ({
+                    username: 'alice',
+                    otpPrompt: {
+                      title: 'Check your email to unlock your wallet',
+                      description: 'Enter the 6-digit code we sent to alice@example.com.',
+                      emailHint: 'alice@example.com',
+                      onResend: async () => {
+                        const error = new Error('Email OTP rate limit exceeded') as Error & {
+                          code?: string;
+                          retryAfterMs?: number;
+                        };
+                        error.code = 'rate_limited';
+                        error.retryAfterMs = 12_300;
+                        throw error;
+                      },
+                      onSubmit: async () => undefined,
+                    },
+                  }),
+                },
+              }),
+            ),
+          );
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-google-otp-resend-rate-limit-mount');
+    await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
+    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
+    await mount.getByRole('button', { name: 'Resend code' }).click();
+    await expect(mount.getByRole('alert')).toHaveText('Too many requests. Try again in 13s.');
+  });
+
   test('Google SSO Email OTP refreshes wallet state only after OTP success', async ({ page }) => {
     await page.evaluate(
       async ({ paths }) => {

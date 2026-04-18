@@ -36,6 +36,7 @@ const EMAIL_OTP_RATE_LIMIT_ENV_UNSET: Record<string, string | undefined> = {
   EMAIL_OTP_GRANT_RATE_LIMIT_MAX: undefined,
   EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS: undefined,
   EMAIL_OTP_RATE_LIMIT_KEY_PREFIX: undefined,
+  EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_CONTEXT: undefined,
 };
 
 function randPrefix(tag: string): string {
@@ -316,6 +317,154 @@ test.describe('AuthService Email OTP policy', () => {
     expect(verified.ok).toBe(true);
   });
 
+  test('Email OTP resend accepts any active matching code for the same context', async () => {
+    const service = makeService();
+    await withMockedNow(800_000, async () => {
+      const first = await createEmailOtpLoginChallenge(service);
+      const second = await createEmailOtpLoginChallenge(service);
+
+      const verifiedFirstViaLatestChallenge = await service.verifyEmailOtpChallenge({
+        userId: USER_ID,
+        walletId: WALLET_ID,
+        challengeId: second.challengeId,
+        otpCode: first.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: SESSION_HASH,
+        appSessionVersion: APP_SESSION_VERSION,
+      });
+      expect(verifiedFirstViaLatestChallenge.ok).toBe(true);
+      if (!verifiedFirstViaLatestChallenge.ok) return;
+      expect(verifiedFirstViaLatestChallenge.challengeId).toBe(first.challengeId);
+
+      const verifiedSecond = await service.verifyEmailOtpChallenge({
+        userId: USER_ID,
+        walletId: WALLET_ID,
+        challengeId: second.challengeId,
+        otpCode: second.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: SESSION_HASH,
+        appSessionVersion: APP_SESSION_VERSION,
+      });
+      expect(verifiedSecond.ok).toBe(true);
+      if (!verifiedSecond.ok) return;
+      expect(verifiedSecond.challengeId).toBe(second.challengeId);
+    });
+  });
+
+  test('Email OTP resend does not accept expired older codes while newer code remains valid', async () => {
+    const service = makeService();
+    await withMockedNow(1_000_000, async (setNowMs) => {
+      const first = await createEmailOtpLoginChallenge(service);
+      setNowMs(first.expiresAtMs + 1);
+      const second = await createEmailOtpLoginChallenge(service);
+
+      const expiredOlderCode = await service.verifyEmailOtpChallenge({
+        userId: USER_ID,
+        walletId: WALLET_ID,
+        challengeId: second.challengeId,
+        otpCode: first.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: SESSION_HASH,
+        appSessionVersion: APP_SESSION_VERSION,
+      });
+      expect(expiredOlderCode.ok).toBe(false);
+
+      const verifiedSecond = await service.verifyEmailOtpChallenge({
+        userId: USER_ID,
+        walletId: WALLET_ID,
+        challengeId: second.challengeId,
+        otpCode: second.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: SESSION_HASH,
+        appSessionVersion: APP_SESSION_VERSION,
+      });
+      expect(verifiedSecond.ok).toBe(true);
+    });
+  });
+
+  test('Email OTP resend cannot reuse an active code across app-session bindings', async () => {
+    const service = makeService();
+    await withMockedNow(850_000, async () => {
+      const first = await createEmailOtpLoginChallenge(service);
+      const second = await createEmailOtpLoginChallenge(service);
+
+      const wrongSession = await service.verifyEmailOtpChallenge({
+        userId: USER_ID,
+        walletId: WALLET_ID,
+        challengeId: second.challengeId,
+        otpCode: first.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: SESSION_HASH,
+        appSessionVersion: `${APP_SESSION_VERSION}:other`,
+      });
+      expect(wrongSession.ok).toBe(false);
+      if (wrongSession.ok) return;
+      expect(wrongSession.code).toBe('challenge_binding_mismatch');
+
+      const verifiedFirst = await service.verifyEmailOtpChallenge({
+        userId: USER_ID,
+        walletId: WALLET_ID,
+        challengeId: second.challengeId,
+        otpCode: first.otpCode,
+        otpChannel: 'email_otp',
+        sessionHash: SESSION_HASH,
+        appSessionVersion: APP_SESSION_VERSION,
+      });
+      expect(verifiedFirst.ok).toBe(true);
+    });
+  });
+
+  test('Email OTP challenge creation prunes the oldest active challenge past the context cap', async () => {
+    await withEnv(
+      {
+        EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_CONTEXT: '2',
+      },
+      async () => {
+        const service = makeService();
+        await withMockedNow(900_000, async (setNowMs) => {
+          const first = await createEmailOtpLoginChallenge(service);
+          setNowMs(901_000);
+          const second = await createEmailOtpLoginChallenge(service);
+          setNowMs(902_000);
+          const third = await createEmailOtpLoginChallenge(service);
+
+          const prunedFirst = await service.verifyEmailOtpChallenge({
+            userId: USER_ID,
+            walletId: WALLET_ID,
+            challengeId: third.challengeId,
+            otpCode: first.otpCode,
+            otpChannel: 'email_otp',
+            sessionHash: SESSION_HASH,
+            appSessionVersion: APP_SESSION_VERSION,
+          });
+          expect(prunedFirst.ok).toBe(false);
+
+          const verifiedSecond = await service.verifyEmailOtpChallenge({
+            userId: USER_ID,
+            walletId: WALLET_ID,
+            challengeId: third.challengeId,
+            otpCode: second.otpCode,
+            otpChannel: 'email_otp',
+            sessionHash: SESSION_HASH,
+            appSessionVersion: APP_SESSION_VERSION,
+          });
+          expect(verifiedSecond.ok).toBe(true);
+
+          const verifiedThird = await service.verifyEmailOtpChallenge({
+            userId: USER_ID,
+            walletId: WALLET_ID,
+            challengeId: third.challengeId,
+            otpCode: third.otpCode,
+            otpChannel: 'email_otp',
+            sessionHash: SESSION_HASH,
+            appSessionVersion: APP_SESSION_VERSION,
+          });
+          expect(verifiedThird.ok).toBe(true);
+        });
+      },
+    );
+  });
+
   test.describe('Postgres durable stores', () => {
     const postgresUrl = String(process.env.POSTGRES_URL || '').trim();
     const enabled = Boolean(postgresUrl);
@@ -561,6 +710,9 @@ test.describe('AuthService Email OTP policy', () => {
     (service as any).getEmailOtpChallengeStore = () => ({
       put: async () => {},
       get: async () => null,
+      deleteExpired: async () => [],
+      countActiveByContext: async () => 0,
+      deleteOldestActiveByContext: async () => null,
       del: async () => {},
     });
 

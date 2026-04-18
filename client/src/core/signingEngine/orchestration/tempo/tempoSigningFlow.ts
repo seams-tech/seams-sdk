@@ -67,7 +67,8 @@ export async function signTempoWithTouchConfirm(args: {
   emailOtpSigning?: {
     challengeId: string;
     emailHint?: string;
-    complete: (otpCode: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+    resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
+    complete: (otpCode: string, challengeId?: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   };
   walletAuthPlan?: WalletAuthPlan;
 }): Promise<TempoSignedResult> {
@@ -104,6 +105,7 @@ export async function signTempoWithTouchConfirm(args: {
         ...(args.emailOtpSigning.emailHint ? { emailHint: args.emailOtpSigning.emailHint } : {}),
         title: 'Enter email code to sign',
         helperText: 'Enter the 6-digit code sent to your email to sign this transaction.',
+        ...(args.emailOtpSigning.resend ? { onResend: args.emailOtpSigning.resend } : {}),
       }
     : undefined;
   const signingAuthPromise = resolveTouchConfirmSigningAuth({
@@ -229,7 +231,10 @@ export async function signTempoWithTouchConfirm(args: {
       if (!/^\d{6}$/.test(otpCode)) {
         throw new Error('[chains] missing Email OTP code from touchConfirm');
       }
-      const refreshed = await args.emailOtpSigning.complete(otpCode);
+      const refreshed = await args.emailOtpSigning.complete(
+        otpCode,
+        confirmation.emailOtpChallengeId,
+      );
       thresholdEcdsaKeyRef = refreshed;
       ensuredThresholdKeyRef = refreshed;
     }

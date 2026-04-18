@@ -1928,7 +1928,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         return {
           ok: true,
           mode: 'register_started',
-          walletId: 'alice-example-com-1712345678901.testnet',
+          walletId: 'brisk-maple-k7q9yh.testnet',
           providerSubject: 'google:user-cf-1',
           email: 'alice@example.com',
           registrationAttemptId: 'attempt-google-register-cf',
@@ -1952,7 +1952,6 @@ test.describe('relayer router (cloudflare) – P0', () => {
           type: 'oidc_jwt',
           provider: 'google',
           account_mode: 'register',
-          force_new_dev_wallet: true,
           token: 'google.id.token',
         },
       },
@@ -1961,7 +1960,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(200);
     expect(getPath(res.json, 'session', 'userId')).toBe('google:user-cf-1');
     expect(getPath(res.json, 'session', 'walletId')).toBe(
-      'alice-example-com-1712345678901.testnet',
+      'brisk-maple-k7q9yh.testnet',
     );
     expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toMatchObject({
       mode: 'register_started',
@@ -1972,7 +1971,6 @@ test.describe('relayer router (cloudflare) – P0', () => {
       sub: 'user-cf-1',
       email: 'alice@example.com',
       accountMode: 'register',
-      forceNewDevWallet: true,
     });
   });
 

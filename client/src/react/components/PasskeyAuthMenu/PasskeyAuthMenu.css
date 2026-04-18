@@ -383,6 +383,23 @@
   color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
 }
 
+.w3a-otp-resend {
+  align-self: center;
+  border: 0;
+  background: transparent;
+  color: var(--w3a-colors-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 2px 8px;
+}
+
+.w3a-otp-resend:disabled {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
+  cursor: not-allowed;
+}
+
 /* Passkey row */
 .w3a-passkey-row {
   position: relative;

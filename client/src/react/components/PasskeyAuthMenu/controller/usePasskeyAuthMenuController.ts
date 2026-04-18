@@ -24,6 +24,9 @@ export interface PasskeyAuthMenuOtpPromptController {
   code: string;
   submitting: boolean;
   error?: string;
+  resendLabel?: string;
+  resendDisabled: boolean;
+  onResend?: () => void;
   onCodeChange: (value: string) => void;
   onSubmit: () => void;
   onBack: () => void;
@@ -62,6 +65,8 @@ type ActiveOtpPromptState = {
   submitLabel: string;
   helperText: string;
   onSubmit: PasskeyAuthMenuOtpPrompt['onSubmit'];
+  onResend?: PasskeyAuthMenuOtpPrompt['onResend'];
+  resendDebounceMs: number;
 };
 
 function resolveOtpPrompt(
@@ -84,11 +89,31 @@ function resolveOtpPrompt(
     submitLabel,
     helperText,
     onSubmit: prompt.onSubmit,
+    ...(prompt.onResend ? { onResend: prompt.onResend } : {}),
+    resendDebounceMs: Math.max(1000, Math.floor(Number(prompt.resendDebounceMs) || 10_000)),
   };
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function formatEmailOtpResendError(error: unknown): string {
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : '';
+  const retryAfterMs =
+    error && typeof error === 'object' && 'retryAfterMs' in error
+      ? Number((error as { retryAfterMs?: unknown }).retryAfterMs)
+      : NaN;
+  if (code === 'rate_limited') {
+    if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+      return `Too many requests. Try again in ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`;
+    }
+    return 'Too many requests. Try again shortly.';
+  }
+  return getErrorMessage(error, 'Could not send code. Try again.');
 }
 
 export function usePasskeyAuthMenuController(
@@ -147,7 +172,21 @@ export function usePasskeyAuthMenuController(
   const [otpCode, setOtpCode] = React.useState('');
   const [otpSubmitting, setOtpSubmitting] = React.useState(false);
   const [otpError, setOtpError] = React.useState<string>('');
+  const [otpResendBusy, setOtpResendBusy] = React.useState(false);
+  const [otpResendUntilMs, setOtpResendUntilMs] = React.useState(0);
+  const [otpResendStatus, setOtpResendStatus] = React.useState('');
+  const [otpResendNowMs, setOtpResendNowMs] = React.useState(() => Date.now());
   const [methodError, setMethodError] = React.useState<string>('');
+
+  React.useEffect(() => {
+    if (!otpPromptState || !otpResendUntilMs) return;
+    if (Date.now() >= otpResendUntilMs) {
+      setOtpResendNowMs(Date.now());
+      return;
+    }
+    const timer = window.setInterval(() => setOtpResendNowMs(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [otpPromptState, otpResendUntilMs]);
 
   const clearPrefillMarkers = React.useCallback(() => {
     prefilledFromRecentRef.current = false;
@@ -262,6 +301,9 @@ export function usePasskeyAuthMenuController(
     setOtpError('');
     setMethodError('');
     setOtpSubmitting(false);
+    setOtpResendBusy(false);
+    setOtpResendUntilMs(0);
+    setOtpResendStatus('');
     if (showScanDevice) {
       closeLinkDeviceView('user');
     } else {
@@ -345,6 +387,9 @@ export function usePasskeyAuthMenuController(
           if (flowResult?.otpPrompt) {
             setOtpCode('');
             setOtpError('');
+            setOtpResendBusy(false);
+            setOtpResendUntilMs(0);
+            setOtpResendStatus('');
             setMethodError('');
             setOtpPromptState(resolveOtpPrompt(flowResult.otpPrompt, username || undefined));
           } else if (username) {
@@ -377,7 +422,36 @@ export function usePasskeyAuthMenuController(
     setOtpCode('');
     setOtpError('');
     setOtpSubmitting(false);
+    setOtpResendBusy(false);
+    setOtpResendUntilMs(0);
+    setOtpResendStatus('');
   }, []);
+
+  const onOtpResend = React.useCallback(() => {
+    const activePrompt = otpPromptState;
+    if (!activePrompt?.onResend || otpSubmitting || otpResendBusy) return;
+    const now = Date.now();
+    if (otpResendUntilMs && now < otpResendUntilMs) return;
+    setOtpResendBusy(true);
+    setOtpResendStatus('');
+    setOtpResendUntilMs(now + activePrompt.resendDebounceMs);
+    setOtpResendNowMs(now);
+    void (async () => {
+      try {
+        const result = await activePrompt.onResend?.();
+        const emailHint = String(result?.emailHint || '').trim();
+        if (emailHint) {
+          setOtpPromptState((current) => (current ? { ...current, emailHint } : current));
+        }
+        setOtpResendStatus('Code sent');
+      } catch (error: unknown) {
+        setOtpResendStatus('');
+        setOtpError(formatEmailOtpResendError(error));
+      } finally {
+        setOtpResendBusy(false);
+      }
+    })();
+  }, [otpPromptState, otpSubmitting, otpResendBusy, otpResendUntilMs]);
 
   const onOtpSubmit = React.useCallback(() => {
     const activePrompt = otpPromptState;
@@ -411,6 +485,11 @@ export function usePasskeyAuthMenuController(
 
   const otpPrompt: PasskeyAuthMenuOtpPromptController | null = React.useMemo(() => {
     if (!otpPromptState) return null;
+    const resendSeconds =
+      otpResendUntilMs > otpResendNowMs
+        ? Math.max(1, Math.ceil((otpResendUntilMs - otpResendNowMs) / 1000))
+        : 0;
+    const canResend = typeof otpPromptState.onResend === 'function';
     return {
       title: otpPromptState.title,
       description: otpPromptState.description,
@@ -420,6 +499,17 @@ export function usePasskeyAuthMenuController(
       code: otpCode,
       submitting: otpSubmitting,
       ...(otpError ? { error: otpError } : {}),
+      resendDisabled: !canResend || otpSubmitting || otpResendBusy || resendSeconds > 0,
+      ...(canResend
+        ? {
+            resendLabel: otpResendBusy
+              ? 'Sending…'
+              : resendSeconds > 0
+                ? `Resend in ${resendSeconds}s`
+                : otpResendStatus || 'Resend code',
+            onResend: onOtpResend,
+          }
+        : {}),
       onCodeChange: onOtpCodeChange,
       onSubmit: onOtpSubmit,
       onBack: onOtpPromptBack,
@@ -429,7 +519,12 @@ export function usePasskeyAuthMenuController(
     otpCode,
     otpSubmitting,
     otpError,
+    otpResendBusy,
+    otpResendUntilMs,
+    otpResendNowMs,
+    otpResendStatus,
     onOtpCodeChange,
+    onOtpResend,
     onOtpSubmit,
     onOtpPromptBack,
   ]);

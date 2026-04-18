@@ -129,6 +129,11 @@ export interface EmailOtpConfirmPrompt {
   title?: string;
   body?: string;
   helperText?: string;
+  resendDebounceMs?: number;
+  onResend?: () =>
+    | Promise<{ challengeId: string; emailHint?: string } | void>
+    | { challengeId: string; emailHint?: string }
+    | void;
 }
 
 export type SigningAuthPlan =

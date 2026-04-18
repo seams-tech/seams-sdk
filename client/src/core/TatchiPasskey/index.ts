@@ -547,7 +547,6 @@ export class TatchiPasskey {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
-    forceNewDevWallet?: boolean;
   }): Promise<Awaited<ReturnType<typeof exchangeGoogleEmailOtpSession>>> {
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter();
@@ -560,7 +559,6 @@ export class TatchiPasskey {
       idToken: args.idToken,
       accountMode: args.accountMode,
       ...(args.sessionKind ? { sessionKind: args.sessionKind } : {}),
-      ...(args.forceNewDevWallet === true ? { forceNewDevWallet: true } : {}),
       ...(managedRegistration
         ? {
             runtimeEnvironmentId: managedRegistration.environmentId,

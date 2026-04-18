@@ -623,6 +623,23 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   font-weight: 600;
 }
 
+.email-otp-confirm__resend {
+  justify-self: center;
+  border: 0;
+  background: transparent;
+  color: var(--w3a-colors-primary, var(--w3a-colors-textPrimary));
+  cursor: pointer;
+  font-family: var(--w3a-font-family);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+}
+
+.email-otp-confirm__resend:disabled {
+  color: var(--w3a-colors-textSecondary);
+  cursor: not-allowed;
+}
+
 .btn {
   background-color: var(--w3a-colors-surface);
   box-shadow: var(--w3a-modal__btn__box-shadow, none);

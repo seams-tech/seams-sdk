@@ -494,9 +494,6 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
               email: oidcEmail,
               accountMode: oidcAccountMode,
               runtimePolicyScope,
-              forceNewDevWallet:
-                (exchange as any).force_new_dev_wallet === true ||
-                (exchange as any).forceNewDevWallet === true,
             });
             if (!resolution.ok) {
               const status = resolution.code === 'wallet_id_collision' ? 409 : 409;

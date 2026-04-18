@@ -174,6 +174,8 @@ export async function requestEmailOtpChallenge(args: {
 }): Promise<{
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
+  emailHint?: string;
+  expiresAtMs?: number;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -203,9 +205,17 @@ export async function requestEmailOtpChallenge(args: {
     },
   });
   const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/login/challenge');
+  const delivery =
+    response.delivery == null
+      ? {}
+      : requireObjectJson(response.delivery, 'wallet/email-otp/login/challenge delivery');
+  const expiresAtMs = Number(challenge.expiresAtMs);
+  const emailHint = readOptionalString(delivery.emailHint);
   return {
     challengeId: readString(challenge.challengeId, 'wallet/email-otp/login/challenge challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
+    ...(emailHint ? { emailHint } : {}),
+    ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
   };
 }
 
@@ -219,6 +229,8 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
 }): Promise<{
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
+  emailHint?: string;
+  expiresAtMs?: number;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -246,12 +258,20 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
     },
   });
   const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/registration/challenge');
+  const delivery =
+    response.delivery == null
+      ? {}
+      : requireObjectJson(response.delivery, 'wallet/email-otp/registration/challenge delivery');
+  const expiresAtMs = Number(challenge.expiresAtMs);
+  const emailHint = readOptionalString(delivery.emailHint);
   return {
     challengeId: readString(
       challenge.challengeId,
       'wallet/email-otp/registration/challenge challengeId',
     ),
     otpChannel: EMAIL_OTP_CHANNEL,
+    ...(emailHint ? { emailHint } : {}),
+    ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
   };
 }
 
@@ -315,7 +335,6 @@ export async function exchangeGoogleEmailOtpSession(args: {
   sessionKind?: 'jwt' | 'cookie';
   runtimeEnvironmentId?: string;
   publishableKey?: string;
-  forceNewDevWallet?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<GoogleEmailOtpSessionExchangeResult> {
   const sessionKind = args.sessionKind === 'jwt' ? 'jwt' : 'cookie';
@@ -332,7 +351,6 @@ export async function exchangeGoogleEmailOtpSession(args: {
         type: 'oidc_jwt',
         provider: 'google',
         account_mode: accountMode,
-        ...(args.forceNewDevWallet === true ? { force_new_dev_wallet: true } : {}),
         token: readString(args.idToken, 'idToken'),
       },
     },

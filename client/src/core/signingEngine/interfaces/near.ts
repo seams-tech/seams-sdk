@@ -16,7 +16,8 @@ import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 export type NearEmailOtpSigningHook = {
   challengeId: string;
   emailHint?: string;
-  complete: (otpCode: string) => Promise<{ sessionId: string }>;
+  resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
+  complete: (otpCode: string, challengeId?: string) => Promise<{ sessionId: string }>;
   markConsumed?: (thresholdSessionId?: string) => void;
 };
 

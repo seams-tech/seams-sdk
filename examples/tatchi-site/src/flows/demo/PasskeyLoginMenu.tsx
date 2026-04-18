@@ -259,7 +259,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         id: 'google-sso',
       });
     }
-    const challenge = await (async () => {
+    const requestCurrentOtpChallenge = async () => {
       try {
         if (otpFlow === 'login') {
           return await tatchi.auth.requestEmailOtpChallenge({
@@ -279,7 +279,8 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         toast.error(message, { id: 'google-sso' });
         throw new Error(message);
       }
-    })();
+    };
+    let challenge = await requestCurrentOtpChallenge();
 
     toast.success('Email code sent', { id: 'google-sso' });
 
@@ -292,6 +293,14 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         submitLabel: 'Unlock wallet',
         helperText:
           'Google keeps you signed in. The email code unlocks wallet signing for this session.',
+        onResend: async () => {
+          challenge = await requestCurrentOtpChallenge();
+          toast.success('Email code sent', { id: 'google-email-otp-resend' });
+          return {
+            challengeId: challenge.challengeId,
+            ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
+          };
+        },
         onSubmit: async (otpCode: string) => {
           const toastId = 'google-email-otp';
           toast.loading('Unlocking wallet with email code…', { id: toastId });

@@ -18,6 +18,11 @@ export type PasskeyAuthMenuOtpPrompt = {
   submitLabel?: string;
   helperText?: string;
   onSubmit: (otpCode: string) => void | Promise<unknown>;
+  onResend?: () =>
+    | Promise<{ challengeId?: string; emailHint?: string } | void>
+    | { challengeId?: string; emailHint?: string }
+    | void;
+  resendDebounceMs?: number;
 };
 
 export type PasskeyAuthMenuSocialLoginResult = {

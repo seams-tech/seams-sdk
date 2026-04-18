@@ -147,6 +147,8 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       challengeId: string;
       otpChannel: WalletEmailOtpChannel;
+      emailHint?: string;
+      expiresAtMs?: number;
     };
   };
   requestEmailOtpEnrollmentChallenge: {
@@ -159,6 +161,8 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       challengeId: string;
       otpChannel: WalletEmailOtpChannel;
+      emailHint?: string;
+      expiresAtMs?: number;
     };
   };
   enrollEmailOtpWallet: {

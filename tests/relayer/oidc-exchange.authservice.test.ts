@@ -55,6 +55,7 @@ async function generateIssuerKeypair(kid: string): Promise<{
 }
 
 function makeService(): AuthService {
+  process.env.ACCOUNT_ID_DERIVATION_SECRET ||= 'test-account-id-derivation-secret';
   return new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
@@ -204,8 +205,21 @@ test.describe('AuthService OIDC exchange verification', () => {
     expect(registered.ok).toBe(true);
     if (!registered.ok) return;
     expect(registered.mode).toBe('register_started');
-    expect(registered.walletId).toBe('alice-example-demo-example-com.relayer.testnet');
+    expect(registered.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
+    expect(registered.walletId).not.toContain('alice');
+    expect(registered.walletId).not.toContain('example');
     expect(registered.registrationAttemptId).toBeTruthy();
+    const attempt = await (service as any)
+      .getEmailOtpRegistrationAttemptStore()
+      .get(registered.registrationAttemptId);
+    expect(attempt).toMatchObject({
+      walletId: registered.walletId,
+      providerSubject: 'google:subject-1',
+      email: 'alice.example+demo@example.com',
+      authProvider: 'google_oidc',
+      accountIdSlugVersion: 'hmac_readable_v1',
+      collisionCounter: 0,
+    });
 
     const identity = (service as any).getIdentityStore();
     await expect(identity.getUserIdBySubject('wallet:google:subject-1')).resolves.toBeNull();
@@ -373,86 +387,60 @@ test.describe('AuthService OIDC exchange verification', () => {
     expect(walletId).toBe(registered.walletId);
   });
 
-  test('keeps timestamped Google Email OTP wallet ids behind explicit dev setting', async () => {
+  test('Google Email OTP registration uses privacy-preserving HMAC account ids', async () => {
     const service = makeService();
-    const originalFormat = process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-    const originalNow = Date.now;
-    process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = 'timestamped_dev';
-    Date.now = () => 1_712_345_678_901;
-    try {
-      const registered = await service.resolveGoogleEmailOtpSession({
-        providerSubject: 'google:subject-timestamped-dev',
-        email: 'Alice.Example+demo@Example.COM',
-        accountMode: 'register',
-      });
-      expect(registered.ok).toBe(true);
-      if (!registered.ok) return;
-      expect(registered.mode).toBe('register_started');
-      expect(registered.walletId).toBe(
-        'alice-example-demo-example-com-1712345678901.relayer.testnet',
-      );
-    } finally {
-      if (originalFormat === undefined) {
-        delete process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-      } else {
-        process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = originalFormat;
-      }
-      Date.now = originalNow;
-    }
-  });
-
-  test('timestamped Google Email OTP registration creates fresh attempts with an existing stable dev mapping', async () => {
-    const service = makeService();
-    const stable = await service.resolveGoogleEmailOtpSession({
-      providerSubject: 'google:subject-dev-remint',
-      email: 'Dev.Remint@Example.COM',
+    const registered = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-privacy',
+      email: 'Alice.Example+demo@Example.COM',
       accountMode: 'register',
     });
-    expect(stable.ok).toBe(true);
-    if (!stable.ok || stable.mode !== 'register_started') return;
-    await service.completeGoogleEmailOtpRegistrationAttempt({
-      registrationAttemptId: stable.registrationAttemptId,
-      walletId: stable.walletId,
-    });
-
-    const originalFormat = process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-    const originalNow = Date.now;
-    process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = 'timestamped_dev';
-    Date.now = () => 1_712_345_678_903;
-    try {
-      const reminted = await service.resolveGoogleEmailOtpSession({
-        providerSubject: 'google:subject-dev-remint',
-        email: 'Dev.Remint@Example.COM',
-        accountMode: 'register',
-      });
-      expect(reminted.ok).toBe(true);
-      if (!reminted.ok) return;
-      expect(reminted.mode).toBe('register_started');
-      expect(reminted.walletId).toBe('dev-remint-example-com-1712345678903.relayer.testnet');
-      expect(reminted.walletId).not.toBe(stable.walletId);
-    } finally {
-      if (originalFormat === undefined) {
-        delete process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-      } else {
-        process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = originalFormat;
-      }
-      Date.now = originalNow;
-    }
+    expect(registered.ok).toBe(true);
+    if (!registered.ok) return;
+    expect(registered.mode).toBe('register_started');
+    expect(registered.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
+    expect(registered.walletId).not.toContain('alice');
+    expect(registered.walletId).not.toContain('example');
+    expect(registered.walletId).not.toContain('gmail');
+    expect(registered.walletId).not.toContain('google');
   });
 
-  test('timestamped Google Email OTP registration creates fresh attempts with an existing active stable wallet', async () => {
+  test('Google Email OTP registration is deterministic for the same provider subject', async () => {
+    const service = makeService();
+    const first = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-deterministic',
+      email: 'first@example.com',
+      accountMode: 'register',
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    await (service as any)
+      .getEmailOtpRegistrationAttemptStore()
+      .deleteExpired(Date.now() + 31 * 60 * 1000);
+
+    const second = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-deterministic',
+      email: 'second@example.com',
+      accountMode: 'register',
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.walletId).toBe(first.walletId);
+  });
+
+  test('Google Email OTP registration keeps existing active wallet login semantics', async () => {
     const service = makeService();
     const identity = (service as any).getIdentityStore();
     const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
     await identity.linkSubjectToUserId({
       userId: 'active-stable.relayer.testnet',
-      subject: 'wallet:google:subject-dev-active-stable',
+      subject: 'wallet:google:subject-active-stable',
       allowMoveIfSoleIdentity: false,
     });
     await enrollmentStore.put({
       version: 'email_otp_enrollment_v1',
       walletId: 'active-stable.relayer.testnet',
-      userId: 'google:subject-dev-active-stable',
+      userId: 'google:subject-active-stable',
       otpChannel: 'email_otp',
       emailOtpEscrowBlob: 'escrow',
       emailOtpKeyVersion: 'email-key-v1',
@@ -462,166 +450,15 @@ test.describe('AuthService OIDC exchange verification', () => {
       updatedAtMs: 1,
     });
 
-    const originalFormat = process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-    const originalNow = Date.now;
-    process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = 'timestamped_dev';
-    Date.now = () => 1_712_345_678_906;
-    try {
-      const reminted = await service.resolveGoogleEmailOtpSession({
-        providerSubject: 'google:subject-dev-active-stable',
-        email: 'Dev.Active.Stable@Example.COM',
-        accountMode: 'register',
-      });
-      expect(reminted.ok).toBe(true);
-      if (!reminted.ok) return;
-      expect(reminted.mode).toBe('register_started');
-      expect(reminted.walletId).toBe(
-        'dev-active-stable-example-com-1712345678906.relayer.testnet',
-      );
-      expect(reminted.walletId).not.toBe('active-stable.relayer.testnet');
-
-      const login = await service.resolveGoogleEmailOtpSession({
-        providerSubject: 'google:subject-dev-active-stable',
-        email: 'Dev.Active.Stable@Example.COM',
-        accountMode: 'login',
-      });
-      expect(login.ok).toBe(true);
-      if (!login.ok) return;
-      expect(login.mode).toBe('existing_wallet');
-      expect(login.walletId).toBe('active-stable.relayer.testnet');
-    } finally {
-      if (originalFormat === undefined) {
-        delete process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-      } else {
-        process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = originalFormat;
-      }
-      Date.now = originalNow;
-    }
-  });
-
-  test('timestamped Google Email OTP registration does not resume live stable attempts', async () => {
-    const service = makeService();
-    const stable = await service.resolveGoogleEmailOtpSession({
-      providerSubject: 'google:subject-dev-live-stable',
-      email: 'Dev.Live.Stable@Example.COM',
+    const resolved = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-active-stable',
+      email: 'Dev.Active.Stable@Example.COM',
       accountMode: 'register',
     });
-    expect(stable.ok).toBe(true);
-    if (!stable.ok || stable.mode !== 'register_started') return;
-
-    const originalFormat = process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-    const originalNow = Date.now;
-    process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = 'timestamped_dev';
-    Date.now = () => 1_712_345_678_905;
-    try {
-      const reminted = await service.resolveGoogleEmailOtpSession({
-        providerSubject: 'google:subject-dev-live-stable',
-        email: 'Dev.Live.Stable@Example.COM',
-        accountMode: 'register',
-      });
-      expect(reminted.ok).toBe(true);
-      if (!reminted.ok) return;
-      expect(reminted.mode).toBe('register_started');
-      expect(reminted.walletId).toBe('dev-live-stable-example-com-1712345678905.relayer.testnet');
-      expect(reminted.walletId).not.toBe(stable.walletId);
-      expect(reminted.registrationAttemptId).not.toBe(stable.registrationAttemptId);
-
-      const stableAttempt = await (service as any)
-        .getEmailOtpRegistrationAttemptStore()
-        .get(stable.registrationAttemptId);
-      expect(stableAttempt?.state).toBe('failed');
-      expect(stableAttempt?.failureCode).toBe('superseded_by_timestamped_dev_registration');
-    } finally {
-      if (originalFormat === undefined) {
-        delete process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-      } else {
-        process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = originalFormat;
-      }
-      Date.now = originalNow;
-    }
-  });
-
-  test('force-new dev registration bypasses existing wallet and live pending attempts', async () => {
-    const service = makeService();
-    const identity = (service as any).getIdentityStore();
-    const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
-    await identity.linkSubjectToUserId({
-      userId: 'force-existing.relayer.testnet',
-      subject: 'wallet:google:subject-force-dev',
-      allowMoveIfSoleIdentity: false,
-    });
-    await enrollmentStore.put({
-      version: 'email_otp_enrollment_v1',
-      walletId: 'force-existing.relayer.testnet',
-      userId: 'google:subject-force-dev',
-      otpChannel: 'email_otp',
-      emailOtpEscrowBlob: 'escrow',
-      emailOtpKeyVersion: 'email-key-v1',
-      unlockPublicKey: 'unlock-public',
-      unlockKeyVersion: 'unlock-key-v1',
-      createdAtMs: 1,
-      updatedAtMs: 1,
-    });
-
-    const originalFormat = process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-    const originalNow = Date.now;
-    process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = 'timestamped_dev';
-    Date.now = () => 1_712_345_678_904;
-    try {
-      const first = await service.resolveGoogleEmailOtpSession({
-        providerSubject: 'google:subject-force-dev',
-        email: 'Force.Dev@Example.COM',
-        accountMode: 'register',
-        forceNewDevWallet: true,
-      });
-      const second = await service.resolveGoogleEmailOtpSession({
-        providerSubject: 'google:subject-force-dev',
-        email: 'Force.Dev@Example.COM',
-        accountMode: 'register',
-        forceNewDevWallet: true,
-      });
-
-      expect(first.ok).toBe(true);
-      expect(second.ok).toBe(true);
-      if (!first.ok || !second.ok) return;
-      expect(first.mode).toBe('register_started');
-      expect(second.mode).toBe('register_started');
-      expect(first.walletId).toBe('force-dev-example-com-1712345678904.relayer.testnet');
-      expect(second.walletId).toBe('force-dev-example-com-1712345678904-2.relayer.testnet');
-      expect(first.walletId).not.toBe('force-existing.relayer.testnet');
-      expect(second.registrationAttemptId).not.toBe(first.registrationAttemptId);
-    } finally {
-      if (originalFormat === undefined) {
-        delete process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-      } else {
-        process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = originalFormat;
-      }
-      Date.now = originalNow;
-    }
-  });
-
-  test('force-new dev registration is rejected outside timestamped dev policy', async () => {
-    const service = makeService();
-    const originalFormat = process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-    delete process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-    try {
-      await expect(
-        service.resolveGoogleEmailOtpSession({
-          providerSubject: 'google:subject-force-dev-rejected',
-          email: 'force.rejected@example.com',
-          accountMode: 'register',
-          forceNewDevWallet: true,
-        }),
-      ).rejects.toMatchObject({
-        code: 'invalid_body',
-      });
-    } finally {
-      if (originalFormat === undefined) {
-        delete process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY;
-      } else {
-        process.env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY = originalFormat;
-      }
-    }
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.mode).toBe('existing_wallet');
+    expect(resolved.walletId).toBe('active-stable.relayer.testnet');
   });
 
   test('dev cleanup removes expired attempts and orphaned Google wallet mappings', async () => {
@@ -698,13 +535,13 @@ test.describe('AuthService OIDC exchange verification', () => {
     );
   });
 
-  test('falls back to hashed OIDC wallet id when no registration mapping exists', async () => {
+  test('falls back to HMAC-readable OIDC wallet id when no registration mapping exists', async () => {
     const service = makeService();
     const walletId = await service.resolveOidcWalletId({
       providerSubject: 'oidc:https://issuer.example.com:subject-no-registration',
       accountMode: 'login',
     });
-    expect(walletId).toMatch(/^g-[a-f0-9]{32}\.testnet$/);
+    expect(walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
   });
 
   test('Google Email OTP login does not fall back to a hashed wallet id without registration', async () => {
@@ -749,7 +586,9 @@ test.describe('AuthService OIDC exchange verification', () => {
       });
       expect(registered.ok).toBe(true);
       if (!registered.ok) return;
-      expect(registered.walletId).toBe('stale-example-com.relayer.testnet');
+      expect(registered.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
+      expect(registered.walletId).not.toContain('stale');
+      expect(registered.walletId).not.toContain('example');
     } finally {
       Date.now = originalNow;
     }

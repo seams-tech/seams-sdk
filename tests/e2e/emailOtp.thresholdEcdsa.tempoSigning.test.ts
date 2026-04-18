@@ -66,6 +66,50 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
     }
   });
 
+  test('session-mode Email OTP login accepts a resent unlock code before signing', async ({
+    page,
+  }) => {
+    const harness = await setupEmailOtpEcdsaTempoHarness(page);
+    const accountId = `emailotpresend${Date.now()}.w3a-v1.testnet`;
+    try {
+      const appSessionJwt = await harness.mintAppSessionJwt({
+        userId: accountId,
+        deviceId: 'email-otp-resend-device',
+      });
+
+      const result = await runEmailOtpEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+        shamirPrimeB64u: harness.shamirPrimeB64u,
+        accountId,
+        enrollAppSessionJwt: appSessionJwt,
+        loginAppSessionJwt: appSessionJwt,
+        clientSecretB64u: harness.defaultClientSecretB64u,
+        emailOtpAuthPolicy: 'session',
+        signTwice: false,
+        resendLoginOtpBeforeSubmit: true,
+      });
+
+      const failureContext = result.ok
+        ? result
+        : {
+            result,
+            enrollment: await harness.readEmailOtpEnrollment(accountId),
+          };
+      expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
+      expect(result.emailOtpLogin?.policy).toBe('session');
+      expect(result.emailOtpLogin?.retention).toBe('session');
+      expect(result.emailOtpLogin?.warmState).toBe('ready');
+      expect(result.otpCounters?.enrollChallengeCount).toBe(1);
+      expect(result.otpCounters?.loginChallengeCount).toBe(2);
+      expect(result.webauthnCounters?.createCount).toBe(0);
+      expect(result.webauthnCounters?.getCount).toBe(0);
+      expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
+      expect(result.firstSign?.chain).toBe('tempo');
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('per_operation Email OTP login signs once and then requires fresh OTP before the next sign', async ({
     page,
   }) => {

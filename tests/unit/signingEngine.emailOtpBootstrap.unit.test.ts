@@ -990,6 +990,66 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect(confirmationTypes).toEqual(['signIntentDigest', 'showSecurePrivateKeyUi']);
   });
 
+  test('Email OTP ECDSA export resend updates the challenge used for authorization', async () => {
+    const walletId = 'alice.testnet';
+    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engineAny = engine as any;
+    const challengeRequests: Array<Record<string, unknown>> = [];
+
+    engineAny.requestEmailOtpChallengeForSigning = async (input: Record<string, unknown>) => {
+      challengeRequests.push(input);
+      const issueNumber = challengeRequests.length;
+      return {
+        challengeId: `export-challenge-${issueNumber}`,
+        emailHint: `a***${issueNumber}@example.test`,
+      };
+    };
+    engineAny.touchConfirm = {
+      requestUserConfirmation: async (request: any) => {
+        expect(request.payload.signingAuthPlan.emailOtpPrompt.challengeId).toBe(
+          'export-challenge-1',
+        );
+        const resent = await request.payload.signingAuthPlan.emailOtpPrompt.onResend();
+        expect(resent).toEqual({
+          challengeId: 'export-challenge-2',
+          emailHint: 'a***2@example.test',
+        });
+        return {
+          confirmed: true,
+          otpCode: '654321',
+          emailOtpChallengeId: resent.challengeId,
+        };
+      },
+    };
+
+    await expect(
+      engineAny.requestEmailOtpExportAuthorization({
+        nearAccountId: walletId,
+        chain: 'evm',
+        publicKey: '02'.padEnd(66, '1'),
+        curve: 'ecdsa',
+        appSessionJwt: 'fresh-app-session-jwt',
+      }),
+    ).resolves.toEqual({
+      challengeId: 'export-challenge-2',
+      otpCode: '654321',
+    });
+    expect(challengeRequests).toEqual([
+      {
+        nearAccountId: walletId,
+        chain: 'evm',
+        operation: 'export_key',
+        appSessionJwt: 'fresh-app-session-jwt',
+      },
+      {
+        nearAccountId: walletId,
+        chain: 'evm',
+        operation: 'export_key',
+        appSessionJwt: 'fresh-app-session-jwt',
+      },
+    ]);
+  });
+
   test('consumes Email OTP ECDSA export session even when export viewer fails', async () => {
     const walletId = 'alice.testnet';
     const engine = Object.create(SigningEngine.prototype) as SigningEngine;

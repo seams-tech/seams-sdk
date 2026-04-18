@@ -875,11 +875,11 @@ async function main() {
   };
   const startupHost = config.host || '0.0.0.0';
   console.log(`[relay-server] startup target http://${startupHost}:${config.port}`);
-  const emailOtpGoogleRegistrationWalletIdPolicy =
-    String(env.EMAIL_OTP_GOOGLE_REGISTRATION_WALLET_ID_POLICY || 'stable').trim() || 'stable';
-  console.log(
-    `[relay-server] Email OTP Google registration wallet-id policy: ${emailOtpGoogleRegistrationWalletIdPolicy}`,
-  );
+  if (String(env.ACCOUNT_ID_DERIVATION_SECRET || '').trim()) {
+    console.log('[relay-server] Hosted account-id derivation: configured');
+  } else {
+    console.warn('[relay-server] ACCOUNT_ID_DERIVATION_SECRET is not set');
+  }
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromEnv(env);
   const requiresAtomicSponsoredSettlement = Boolean(sponsoredEvmCallConfig);
   const recoveryAuthorityContinuationEnabled = parseBooleanFlag(

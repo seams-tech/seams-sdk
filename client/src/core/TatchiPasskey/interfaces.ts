@@ -285,7 +285,6 @@ export interface AuthCapability {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
-    forceNewDevWallet?: boolean;
   }): Promise<GoogleEmailOtpSessionExchangeResult>;
   enrollEmailOtp(args: {
     nearAccountId: string;

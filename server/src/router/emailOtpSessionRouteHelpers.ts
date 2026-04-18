@@ -3,6 +3,7 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalRecordString, toOptionalTrimmedString } from '@shared/utils/validation';
 
 export type OidcAccountMode = 'register' | 'login';
+const EMAIL_OTP_RESEND_RETRY_AFTER_MS = 10_000;
 
 export function emailOtpStatusCode(code: string | undefined): number {
   if (code === 'internal') return 500;
@@ -80,6 +81,7 @@ export function emailOtpChallengeResponseBody(result: {
     operation: string;
   };
   delivery?: unknown;
+  retryAfterMs?: number;
 }): Record<string, unknown> {
   if (!result.ok || !result.challenge) return result as unknown as Record<string, unknown>;
   const challenge = result.challenge;
@@ -88,7 +90,9 @@ export function emailOtpChallengeResponseBody(result: {
     challenge: {
       challengeId: challenge.challengeId,
       issuedAt: new Date(challenge.issuedAtMs).toISOString(),
+      issuedAtMs: challenge.issuedAtMs,
       expiresAt: new Date(challenge.expiresAtMs).toISOString(),
+      expiresAtMs: challenge.expiresAtMs,
       userId: challenge.userId,
       walletId: challenge.walletId,
       ...(challenge.orgId ? { orgId: challenge.orgId } : {}),
@@ -99,5 +103,7 @@ export function emailOtpChallengeResponseBody(result: {
       operation: challenge.operation,
     },
     delivery: result.delivery,
+    retryAfterMs:
+      typeof result.retryAfterMs === 'number' ? result.retryAfterMs : EMAIL_OTP_RESEND_RETRY_AFTER_MS,
   };
 }

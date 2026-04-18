@@ -460,15 +460,15 @@ Registration therefore becomes:
 Google SSO -> account creation -> Email OTP enrollment -> client-secret generation -> server escrow
 ```
 
-During registration, the client marks the OIDC exchange as `account_mode = register`. The server then creates a NEAR-valid, email-derived wallet id with the current millisecond timestamp to avoid clashes, for example:
+During registration, the client marks the OIDC exchange as `account_mode = register`. The server then creates a NEAR-valid hosted wallet id from a keyed HMAC readable slug. The HMAC context binds the slug to the project, environment, auth provider, and provider subject, so the public wallet id is deterministic for the same identity but does not encode the raw email address:
 
 ```text
-alice-example-com-1712345678901.testnet
+brisk-maple-k7q9yh.testnet
 ```
 
-The server persists a mapping from the Google provider subject to that wallet id. Later logins mark the exchange as `account_mode = login` and must reuse the persisted wallet id. The timestamp is registration-time uniqueness only; it must not generate a fresh wallet id on every login.
+The server persists a mapping from the Google provider subject to that wallet id only after successful account provisioning and signer activation. Later logins mark the exchange as `account_mode = login` and must reuse the persisted wallet id.
 
-If an OIDC exchange is not a Google Email OTP registration flow, the server may fall back to the generic OIDC id shape `g-<sha256(subject)[0..32]>.<network-suffix>`, where the suffix is `testnet` on testnet/dev and `near` on mainnet. The raw Google subject and raw email are never used directly as the signing wallet id.
+If an OIDC exchange is not a Google Email OTP registration flow, the server still derives the hosted wallet id with the same keyed HMAC readable slug generator. Plain hashes and raw email-derived wallet ids are not supported.
 
 ## Login Flow
 
@@ -957,11 +957,10 @@ Product copy requirements:
    - Google SSO login-not-enrolled state offers a direct register switch
    - Email OTP copy describes unlock/signing rather than recovery in the normal login path
 10. run the existing `PasskeyAuthMenu` FOUC and Email OTP bootstrap tests after the redesign
-11. after all other core, worker, and UI-readiness tasks are complete, replace the temporary timestamped Google SSO wallet-id registration behavior:
+11. after all other core, worker, and UI-readiness tasks are complete, keep Google SSO wallet-id privacy behavior covered:
     - detect an existing Google-subject-to-wallet mapping during Google SSO registration attempts
     - automatically switch the user to the Google SSO login path instead of creating another Email OTP wallet for the same Google account
-    - remove timestamp suffixing from the default production Google SSO wallet-id format
-    - keep a development-only setting that can switch between timestamped and stable Google SSO wallet-id formats for regression testing
+    - keep hosted Google SSO wallet ids generated from keyed HMAC readable slugs, not raw email or timestamps
     - add tests proving repeated Google SSO registration attempts do not create duplicate Email OTP accounts by default
 
 ### Core status

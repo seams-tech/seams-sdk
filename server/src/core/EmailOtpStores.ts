@@ -46,6 +46,41 @@ export type EmailOtpChallengeRecord = {
 export interface EmailOtpChallengeStore {
   put(record: EmailOtpChallengeRecord): Promise<void>;
   get(challengeId: string): Promise<EmailOtpChallengeRecord | null>;
+  deleteExpired(nowMs: number): Promise<EmailOtpChallengeRecord[]>;
+  countActiveByContext(input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    nowMs: number;
+  }): Promise<number>;
+  deleteOldestActiveByContext(input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    nowMs: number;
+  }): Promise<EmailOtpChallengeRecord | null>;
+  findActiveByContext(input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    otpCode: string;
+    nowMs: number;
+  }): Promise<EmailOtpChallengeRecord | null>;
   del(challengeId: string): Promise<void>;
 }
 
@@ -127,6 +162,9 @@ export type GoogleEmailOtpRegistrationAttemptRecord = {
   providerSubject: string;
   email: string;
   walletId: string;
+  authProvider: string;
+  accountIdSlugVersion: 'hmac_readable_v1';
+  collisionCounter: number;
   state: GoogleEmailOtpRegistrationAttemptState;
   createdAtMs: number;
   updatedAtMs: number;
@@ -270,6 +308,33 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
     attemptCount: Math.floor(attemptCount),
     maxAttempts: Math.floor(maxAttempts),
   };
+}
+
+function challengeContextMatches(
+  record: EmailOtpChallengeRecord,
+  input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    nowMs: number;
+  },
+): boolean {
+  return (
+    record.expiresAtMs > input.nowMs &&
+    record.userId === input.userId &&
+    record.walletId === input.walletId &&
+    String(record.orgId || '') === String(input.orgId || '') &&
+    record.otpChannel === input.otpChannel &&
+    record.sessionHash === input.sessionHash &&
+    record.appSessionVersion === input.appSessionVersion &&
+    record.action === input.action &&
+    record.operation === input.operation
+  );
 }
 
 function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
@@ -431,6 +496,10 @@ function parseRegistrationAttemptRecord(
   const providerSubject = toOptionalTrimmedString(obj.providerSubject);
   const email = toOptionalTrimmedString(obj.email);
   const walletId = toOptionalTrimmedString(obj.walletId);
+  const authProvider = toOptionalTrimmedString(obj.authProvider) || 'google_oidc';
+  const accountIdSlugVersion =
+    toOptionalTrimmedString(obj.accountIdSlugVersion) || 'hmac_readable_v1';
+  const collisionCounter = Math.max(0, Math.floor(Number(obj.collisionCounter) || 0));
   const state = toOptionalTrimmedString(obj.state);
   const createdAtMs = Number(obj.createdAtMs);
   const updatedAtMs = Number(obj.updatedAtMs);
@@ -440,6 +509,7 @@ function parseRegistrationAttemptRecord(
   const failureCode = toOptionalTrimmedString(obj.failureCode) || undefined;
   if (version !== 'google_email_otp_registration_attempt_v1') return null;
   if (!attemptId || !providerSubject || !email || !walletId) return null;
+  if (accountIdSlugVersion !== 'hmac_readable_v1') return null;
   if (
     state !== 'started' &&
     state !== 'key_finalized' &&
@@ -458,6 +528,9 @@ function parseRegistrationAttemptRecord(
     providerSubject,
     email,
     walletId,
+    authProvider,
+    accountIdSlugVersion,
+    collisionCounter,
     state,
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
@@ -482,6 +555,76 @@ class InMemoryEmailOtpChallengeStore implements EmailOtpChallengeStore {
     if (!id) return null;
     const record = this.map.get(id);
     return record ? cloneRecord(record) : null;
+  }
+
+  async deleteExpired(nowMs: number): Promise<EmailOtpChallengeRecord[]> {
+    const deleted: EmailOtpChallengeRecord[] = [];
+    for (const [challengeId, record] of this.map.entries()) {
+      if (record.expiresAtMs > nowMs) continue;
+      this.map.delete(challengeId);
+      deleted.push(cloneRecord(record));
+    }
+    return deleted;
+  }
+
+  async countActiveByContext(input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    nowMs: number;
+  }): Promise<number> {
+    let count = 0;
+    for (const record of this.map.values()) {
+      if (!challengeContextMatches(record, input)) continue;
+      count += 1;
+    }
+    return count;
+  }
+
+  async deleteOldestActiveByContext(input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    nowMs: number;
+  }): Promise<EmailOtpChallengeRecord | null> {
+    let oldest: EmailOtpChallengeRecord | null = null;
+    for (const record of this.map.values()) {
+      if (!challengeContextMatches(record, input)) continue;
+      if (!oldest || record.createdAtMs < oldest.createdAtMs) oldest = record;
+    }
+    if (!oldest) return null;
+    this.map.delete(oldest.challengeId);
+    return cloneRecord(oldest);
+  }
+
+  async findActiveByContext(input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    otpCode: string;
+    nowMs: number;
+  }): Promise<EmailOtpChallengeRecord | null> {
+    for (const record of this.map.values()) {
+      if (!challengeContextMatches(record, input)) continue;
+      if (record.otpCode !== input.otpCode) continue;
+      return cloneRecord(record);
+    }
+    return null;
   }
 
   async del(challengeId: string): Promise<void> {
@@ -663,6 +806,165 @@ class PostgresEmailOtpChallengeStore implements EmailOtpChallengeStore {
       return null;
     }
     return cloneRecord(parsed);
+  }
+
+  async deleteExpired(nowMs: number): Promise<EmailOtpChallengeRecord[]> {
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        DELETE FROM email_otp_challenges
+        WHERE namespace = $1 AND expires_at_ms <= $2
+        RETURNING record_json
+      `,
+      [this.namespace, nowMs],
+    );
+    return rows
+      .map((row) => parseChallengeRecord(row.record_json))
+      .filter((record): record is EmailOtpChallengeRecord => Boolean(record))
+      .map((record) => cloneRecord(record));
+  }
+
+  async countActiveByContext(input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    nowMs: number;
+  }): Promise<number> {
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT COUNT(*) AS count
+        FROM email_otp_challenges
+        WHERE namespace = $1
+          AND expires_at_ms > $2
+          AND record_json->>'userId' = $3
+          AND record_json->>'walletId' = $4
+          AND COALESCE(record_json->>'orgId', '') = $5
+          AND record_json->>'otpChannel' = $6
+          AND record_json->>'sessionHash' = $7
+          AND record_json->>'appSessionVersion' = $8
+          AND record_json->>'action' = $9
+          AND record_json->>'operation' = $10
+      `,
+      [
+        this.namespace,
+        input.nowMs,
+        input.userId,
+        input.walletId,
+        String(input.orgId || ''),
+        input.otpChannel,
+        input.sessionHash,
+        input.appSessionVersion,
+        input.action,
+        input.operation,
+      ],
+    );
+    return Number(rows[0]?.count || 0);
+  }
+
+  async deleteOldestActiveByContext(input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    nowMs: number;
+  }): Promise<EmailOtpChallengeRecord | null> {
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        WITH oldest AS (
+          SELECT challenge_id
+          FROM email_otp_challenges
+          WHERE namespace = $1
+            AND expires_at_ms > $2
+            AND record_json->>'userId' = $3
+            AND record_json->>'walletId' = $4
+            AND COALESCE(record_json->>'orgId', '') = $5
+            AND record_json->>'otpChannel' = $6
+            AND record_json->>'sessionHash' = $7
+            AND record_json->>'appSessionVersion' = $8
+            AND record_json->>'action' = $9
+            AND record_json->>'operation' = $10
+          ORDER BY (record_json->>'createdAtMs')::bigint ASC, expires_at_ms ASC
+          LIMIT 1
+        )
+        DELETE FROM email_otp_challenges
+        WHERE namespace = $1 AND challenge_id IN (SELECT challenge_id FROM oldest)
+        RETURNING record_json
+      `,
+      [
+        this.namespace,
+        input.nowMs,
+        input.userId,
+        input.walletId,
+        String(input.orgId || ''),
+        input.otpChannel,
+        input.sessionHash,
+        input.appSessionVersion,
+        input.action,
+        input.operation,
+      ],
+    );
+    const parsed = parseChallengeRecord(rows[0]?.record_json);
+    return parsed ? cloneRecord(parsed) : null;
+  }
+
+  async findActiveByContext(input: {
+    userId: string;
+    walletId: string;
+    orgId?: string;
+    otpChannel: EmailOtpChannel;
+    sessionHash: string;
+    appSessionVersion: string;
+    action: EmailOtpChallengeAction;
+    operation: EmailOtpChallengeOperation;
+    otpCode: string;
+    nowMs: number;
+  }): Promise<EmailOtpChallengeRecord | null> {
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json
+        FROM email_otp_challenges
+        WHERE namespace = $1
+          AND expires_at_ms > $2
+          AND record_json->>'userId' = $3
+          AND record_json->>'walletId' = $4
+          AND COALESCE(record_json->>'orgId', '') = $5
+          AND record_json->>'otpChannel' = $6
+          AND record_json->>'sessionHash' = $7
+          AND record_json->>'appSessionVersion' = $8
+          AND record_json->>'action' = $9
+          AND record_json->>'operation' = $10
+          AND record_json->>'otpCode' = $11
+        ORDER BY expires_at_ms DESC
+        LIMIT 1
+      `,
+      [
+        this.namespace,
+        input.nowMs,
+        input.userId,
+        input.walletId,
+        String(input.orgId || ''),
+        input.otpChannel,
+        input.sessionHash,
+        input.appSessionVersion,
+        input.action,
+        input.operation,
+        input.otpCode,
+      ],
+    );
+    const parsed = parseChallengeRecord(rows[0]?.record_json);
+    return parsed ? cloneRecord(parsed) : null;
   }
 
   async del(challengeId: string): Promise<void> {

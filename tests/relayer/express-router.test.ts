@@ -1821,7 +1821,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/exchange: Google register forwards account mode to wallet id resolution', async () => {
+  test('POST /session/exchange: Google register ignores caller-provided wallet ids', async () => {
     let resolvedInput: Record<string, unknown> | null = null;
     const session = makeSessionAdapter({ signJwt: async () => 'google-register-jwt' });
     const service = makeFakeAuthService({
@@ -1839,7 +1839,7 @@ test.describe('relayer router (express) – P0', () => {
         return {
           ok: true,
           mode: 'register_started',
-          walletId: 'alice-example-com-1712345678901.testnet',
+          walletId: 'brisk-maple-k7q9yh.testnet',
           providerSubject: 'google:user-1',
           email: 'alice@example.com',
           registrationAttemptId: 'attempt-google-register',
@@ -1860,15 +1860,17 @@ test.describe('relayer router (express) – P0', () => {
             type: 'oidc_jwt',
             provider: 'google',
             account_mode: 'register',
-            force_new_dev_wallet: true,
             token: 'google.id.token',
+            walletId: 'alice-example-com.relayer.testnet',
+            newAccountId: 'alice-example-com.relayer.testnet',
+            new_account_id: 'alice-example-com.relayer.testnet',
           },
         }),
       });
       expect(res.status).toBe(200);
       expect(getPath(res.json, 'session', 'userId')).toBe('google:user-1');
       expect(getPath(res.json, 'session', 'walletId')).toBe(
-        'alice-example-com-1712345678901.testnet',
+        'brisk-maple-k7q9yh.testnet',
       );
       expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toMatchObject({
         mode: 'register_started',
@@ -1879,8 +1881,10 @@ test.describe('relayer router (express) – P0', () => {
         sub: 'user-1',
         email: 'alice@example.com',
         accountMode: 'register',
-        forceNewDevWallet: true,
       });
+      expect(resolvedInput).not.toHaveProperty('walletId');
+      expect(resolvedInput).not.toHaveProperty('newAccountId');
+      expect(resolvedInput).not.toHaveProperty('new_account_id');
     } finally {
       await srv.close();
     }
