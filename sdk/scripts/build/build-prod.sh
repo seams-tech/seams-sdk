@@ -11,7 +11,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SDK_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REPO_ROOT="$(cd "$SDK_ROOT/.." && pwd)"
 source "$SDK_ROOT/build-paths.sh"
-source "$SCRIPT_DIR/wasm-toolchain.sh"
 cd "$SDK_ROOT"
 
 echo "Starting production build for @tatchi-xyz/sdk..."
@@ -29,96 +28,17 @@ print_warning() { echo -e "${YELLOW}⚠️ $1${NC}"; }
 
 if command -v bun >/dev/null 2>&1; then BUN_BIN="$(command -v bun)"; elif [ -x "$HOME/.bun/bin/bun" ]; then BUN_BIN="$HOME/.bun/bin/bun"; else BUN_BIN=""; fi
 
-print_step "Checking WASM toolchain (C compiler for wasm32)..."
-ensure_wasm32_cc
-print_success "WASM toolchain ready"
-print_step "Preparing wasm-pack cache..."
-ensure_wasm_pack_cache
-print_success "wasm-pack cache ready: $WASM_PACK_CACHE"
-
 print_step "Cleaning previous build artifacts..."
 rm -rf "$BUILD_ROOT/"
 print_success "Build directory cleaned"
 
-print_step "Generating TypeScript types from Rust..."
-if WASM_PACK_BUILD_PROFILE=release "$SDK_ROOT/scripts/codegen/generate-types.sh"; then print_success "TypeScript types generated successfully"; else print_error "Type generation failed"; exit 1; fi
-
-print_step "Building WASM signer worker (release)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --release; then
-  print_success "WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
+print_step "Building production WASM packages..."
+if WASM_SDK_BUILD_MODE=prod "$SCRIPT_DIR/build-wasm.sh"; then
+  print_success "Production WASM packages built"
 else
-  print_error "WASM signer build failed"
+  print_error "Production WASM build failed"
   exit 1
 fi
-print_step "Building WASM signer worker for server HSS hot path (release)..."
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --no-opt --features hss-server-exports; then
-  print_success "Server HSS WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "Server HSS WASM signer build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building separate HSS client signer WASM (release)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name hss_client_signer --release; then
-  print_success "HSS client signer WASM built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "HSS client signer WASM build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building WASM eth signer (release)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --release; then
-  print_success "WASM eth signer built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "WASM eth signer build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building WASM tempo signer (release)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --release; then
-  print_success "WASM tempo signer built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "WASM tempo signer build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building WASM shamir3pass runtime (release)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name shamir3pass_runtime --release; then
-  print_success "WASM shamir3pass runtime built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "WASM shamir3pass runtime build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building WASM Email OTP runtime (release)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name email_otp_runtime --release; then
-  print_success "WASM Email OTP runtime built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "WASM Email OTP runtime build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building threshold-prf WASM (release)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name threshold_prf --release; then
-  print_success "threshold-prf WASM built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "threshold-prf WASM build failed"
-  exit 1
-fi
-popd >/dev/null
 
 print_step "Building TypeScript..."
 if npx tsc -p tsconfig.build.json; then print_success "TypeScript compilation completed"; else print_error "TypeScript compilation failed"; exit 1; fi

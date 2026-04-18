@@ -1,6 +1,10 @@
 #!/bin/bash
 
 # Build the Rust/WASM packages consumed by the SDK build.
+#
+# Modes:
+# - dev:  release NEAR/HSS browser hot paths; dev/no-opt auxiliary runtimes.
+# - prod: release all WASM packages.
 
 set -e
 
@@ -23,10 +27,102 @@ print_success() { echo -e "${GREEN}✅ $1${NC}"; }
 print_error() { echo -e "${RED}❌ $1${NC}"; }
 print_warning() { echo -e "${YELLOW}⚠️ $1${NC}"; }
 
+WASM_SDK_BUILD_MODE="${WASM_SDK_BUILD_MODE:-dev}"
+case "$WASM_SDK_BUILD_MODE" in
+  dev)
+    DEFAULT_WASM_PROFILE_ARGS=(--dev --no-opt)
+    DEFAULT_WASM_PROFILE_LABEL="dev"
+    ;;
+  prod)
+    DEFAULT_WASM_PROFILE_ARGS=(--release)
+    DEFAULT_WASM_PROFILE_LABEL="release"
+    ;;
+  *)
+    print_error "Unknown WASM_SDK_BUILD_MODE: $WASM_SDK_BUILD_MODE"
+    echo "Use one of: dev, prod"
+    exit 1
+    ;;
+esac
+
 require_file() {
   local path="$1"
   if [ ! -f "$path" ]; then
     print_error "Missing expected WASM build output: $path"
+    exit 1
+  fi
+}
+
+run_in_dir() {
+  local dir="$1"
+  shift
+  pushd "$SDK_ROOT/$dir" >/dev/null
+  "$@"
+  popd >/dev/null
+}
+
+build_near_signer() {
+  run_in_dir "$SOURCE_WASM_SIGNER" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
+    wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker --release
+
+  run_in_dir "$SOURCE_WASM_SIGNER" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" \
+    wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --no-opt --features hss-server-exports
+}
+
+build_hss_client_signer() {
+  run_in_dir "$SOURCE_WASM_HSS_CLIENT_SIGNER" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/Cargo.lock" \
+    wasm-pack build --target web --out-dir pkg --out-name hss_client_signer --release
+}
+
+build_profiled_wasm_crate() {
+  local source_dir="$1"
+  local out_name="$2"
+  run_in_dir "$source_dir" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$source_dir/Cargo.lock" \
+    wasm-pack build --target web --out-dir pkg --out-name "$out_name" "${DEFAULT_WASM_PROFILE_ARGS[@]}"
+}
+
+JOB_PIDS=()
+JOB_LABELS=()
+JOB_LOGS=()
+JOB_COUNT=0
+JOB_LOG_DIR=""
+
+start_job() {
+  local label="$1"
+  shift
+  local job_index="$JOB_COUNT"
+  local log_file="$JOB_LOG_DIR/job-$job_index.log"
+
+  JOB_LABELS[$job_index]="$label"
+  JOB_LOGS[$job_index]="$log_file"
+  (
+    set -e
+    echo "== $label =="
+    "$@"
+  ) >"$log_file" 2>&1 &
+  JOB_PIDS[$job_index]=$!
+  JOB_COUNT=$((JOB_COUNT + 1))
+}
+
+wait_for_jobs() {
+  local failed=0
+  local i
+
+  for i in "${!JOB_PIDS[@]}"; do
+    if wait "${JOB_PIDS[$i]}"; then
+      cat "${JOB_LOGS[$i]}"
+      print_success "${JOB_LABELS[$i]}"
+    else
+      cat "${JOB_LOGS[$i]}" >&2 || true
+      print_error "${JOB_LABELS[$i]} failed"
+      failed=1
+    fi
+  done
+
+  if [ "$failed" -ne 0 ]; then
     exit 1
   fi
 }
@@ -38,6 +134,7 @@ print_success "WASM toolchain ready"
 print_step "Preparing wasm-pack cache..."
 ensure_wasm_pack_cache
 print_success "wasm-pack cache ready: $WASM_PACK_CACHE"
+print_step "Using $WASM_SDK_BUILD_MODE WASM mode (default profile: $DEFAULT_WASM_PROFILE_LABEL)"
 
 print_step "Cleaning previous WASM package outputs..."
 rm -rf \
@@ -51,83 +148,17 @@ rm -rf \
   "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/pkg"
 print_success "WASM package outputs cleaned"
 
-print_step "Building WASM signer worker (release for active browser hot path)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name wasm_signer_worker --release; then
-  print_success "WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "WASM signer build failed"
-  exit 1
-fi
-
-print_step "Building WASM signer worker for server HSS hot path (release)..."
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg-server --out-name wasm_signer_worker --release --no-opt --features hss-server-exports; then
-  print_success "Server HSS WASM signer worker built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "Server HSS WASM signer build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building separate HSS client signer WASM (release for browser HSS path)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name hss_client_signer --release; then
-  print_success "HSS client signer WASM built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "HSS client signer WASM build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building WASM eth signer (dev)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ETH_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name eth_signer --dev --no-opt; then
-  print_success "WASM eth signer built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "WASM eth signer build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building WASM tempo signer (dev)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name tempo_signer --dev --no-opt; then
-  print_success "WASM tempo signer built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "WASM tempo signer build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building WASM shamir3pass runtime (dev)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_SHAMIR3PASS_RUNTIME/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name shamir3pass_runtime --dev --no-opt; then
-  print_success "WASM shamir3pass runtime built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "WASM shamir3pass runtime build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building WASM Email OTP runtime (dev)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name email_otp_runtime --dev --no-opt; then
-  print_success "WASM Email OTP runtime built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "WASM Email OTP runtime build failed"
-  exit 1
-fi
-popd >/dev/null
-
-print_step "Building threshold-prf WASM (dev)..."
-pushd "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF" >/dev/null
-if with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_THRESHOLD_PRF/Cargo.lock" wasm-pack build --target web --out-dir pkg --out-name threshold_prf --dev --no-opt; then
-  print_success "threshold-prf WASM built (wasm-bindgen ${WASM_BINDGEN_CLI_VERSION_RESOLVED})"
-else
-  print_error "threshold-prf WASM build failed"
-  exit 1
-fi
-popd >/dev/null
+print_step "Building WASM packages in parallel..."
+JOB_LOG_DIR="$(mktemp -d)"
+trap 'rm -rf "$JOB_LOG_DIR"' EXIT
+start_job "NEAR signer WASM (browser + server HSS release)" build_near_signer
+start_job "HSS client signer WASM (release)" build_hss_client_signer
+start_job "Eth signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_ETH_SIGNER" eth_signer
+start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
+start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
+start_job "Email OTP runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EMAIL_OTP_RUNTIME" email_otp_runtime
+start_job "threshold-prf WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_THRESHOLD_PRF" threshold_prf
+wait_for_jobs
 
 print_step "Optimizing wasm-pack metadata for tree-shaking..."
 if node "$SDK_ROOT/scripts/build/fix-wasm-pack-sideeffects.mjs" "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg"; then
