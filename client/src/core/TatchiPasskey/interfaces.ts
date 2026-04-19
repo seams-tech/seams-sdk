@@ -286,6 +286,7 @@ export interface AuthCapability {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
+    rerollRegistrationAttempt?: boolean;
   }): Promise<GoogleEmailOtpSessionExchangeResult>;
   enrollEmailOtp(args: {
     nearAccountId: string;

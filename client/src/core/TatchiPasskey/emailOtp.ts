@@ -334,6 +334,7 @@ export async function exchangeGoogleEmailOtpSession(args: {
   idToken: string;
   accountMode: 'register' | 'login';
   sessionKind?: 'jwt' | 'cookie';
+  rerollRegistrationAttempt?: boolean;
   runtimeEnvironmentId?: string;
   publishableKey?: string;
   fetchImpl?: FetchLike;
@@ -352,6 +353,7 @@ export async function exchangeGoogleEmailOtpSession(args: {
         type: 'oidc_jwt',
         provider: 'google',
         account_mode: accountMode,
+        ...(args.rerollRegistrationAttempt ? { reroll_registration_attempt: true } : {}),
         token: readString(args.idToken, 'idToken'),
       },
     },

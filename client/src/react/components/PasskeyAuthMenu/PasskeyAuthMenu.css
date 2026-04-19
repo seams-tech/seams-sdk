@@ -348,6 +348,55 @@
   white-space: nowrap;
 }
 
+.w3a-otp-account {
+  box-sizing: border-box;
+  align-self: center;
+  width: min(100%, 360px);
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 18%);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--w3a-colors-surface), transparent 12%);
+  display: grid;
+  gap: 2px;
+  text-align: left;
+}
+
+.w3a-otp-account-label {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 12%);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.w3a-otp-account-value {
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w3a-otp-reroll {
+  align-self: center;
+  border: 0;
+  background: transparent;
+  color: var(--w3a-colors-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0 8px;
+}
+
+.w3a-otp-reroll:disabled {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
+  cursor: not-allowed;
+}
+
 .w3a-otp-input {
   box-sizing: border-box;
   width: 100%;

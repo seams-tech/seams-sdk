@@ -547,6 +547,7 @@ export class TatchiPasskey {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
+    rerollRegistrationAttempt?: boolean;
   }): Promise<Awaited<ReturnType<typeof exchangeGoogleEmailOtpSession>>> {
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter();
@@ -558,6 +559,7 @@ export class TatchiPasskey {
       relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
       idToken: args.idToken,
       accountMode: args.accountMode,
+      ...(args.rerollRegistrationAttempt ? { rerollRegistrationAttempt: true } : {}),
       ...(args.sessionKind ? { sessionKind: args.sessionKind } : {}),
       ...(managedRegistration
         ? {

@@ -474,6 +474,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
             sub: oidcSub,
             email: oidcEmail,
             accountMode: oidcAccountMode,
+            rerollRegistrationAttempt: exchange.reroll_registration_attempt,
             runtimePolicyScope,
           });
           if (!resolution.ok) {

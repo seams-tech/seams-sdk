@@ -118,4 +118,37 @@ test.describe('hosted Google Email OTP account privacy', () => {
       failureCode: 'legacy_email_derived_wallet_id',
     });
   });
+
+  test('registration reroll retires the current attempt and allocates a different HMAC-readable wallet', async () => {
+    const service = makeService();
+    const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
+    const providerSubject = 'google:subject-reroll';
+
+    const first = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email: 'reroll@example.com',
+      accountMode: 'register',
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.mode).toBe('register_started');
+
+    const second = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email: 'reroll@example.com',
+      accountMode: 'register',
+      rerollRegistrationAttempt: true,
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.mode).toBe('register_started');
+    expect(second.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
+    expect(second.walletId).not.toBe(first.walletId);
+    expect(second.registrationAttemptId).not.toBe(first.registrationAttemptId);
+
+    await expect(attemptStore.get(first.registrationAttemptId)).resolves.toMatchObject({
+      state: 'failed',
+      failureCode: 'rerolled_by_user',
+    });
+  });
 });

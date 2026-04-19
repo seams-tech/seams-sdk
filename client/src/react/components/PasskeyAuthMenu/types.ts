@@ -19,6 +19,10 @@ export type PasskeyAuthMenuOtpPrompt = {
   submitLabel?: string;
   helperText?: string;
   onSubmit: (otpCode: string) => void | Promise<unknown>;
+  onRerollAccount?: () =>
+    | Promise<{ username?: string; accountId?: string; emailHint?: string } | void>
+    | { username?: string; accountId?: string; emailHint?: string }
+    | void;
   onResend?: () =>
     | Promise<{ challengeId?: string; emailHint?: string } | void>
     | { challengeId?: string; emailHint?: string }

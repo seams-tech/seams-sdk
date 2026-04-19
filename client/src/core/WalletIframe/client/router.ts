@@ -906,6 +906,7 @@ export class WalletIframeRouter {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
+    rerollRegistrationAttempt?: boolean;
   }): Promise<GoogleEmailOtpSessionExchangeResult> {
     const res = await this.post<GoogleEmailOtpSessionExchangeResult>({
       type: 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION',

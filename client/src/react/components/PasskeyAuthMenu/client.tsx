@@ -194,6 +194,24 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               {controller.otpPrompt.emailHint ? (
                 <div className="w3a-otp-email">{controller.otpPrompt.emailHint}</div>
               ) : null}
+              {controller.otpPrompt.accountId ? (
+                <div className="w3a-otp-account" title={controller.otpPrompt.accountId}>
+                  <span className="w3a-otp-account-label">Wallet</span>
+                  <span className="w3a-otp-account-value">
+                    {controller.otpPrompt.accountId}
+                  </span>
+                </div>
+              ) : null}
+              {controller.otpPrompt.onRerollAccount ? (
+                <button
+                  type="button"
+                  className="w3a-otp-reroll"
+                  onClick={controller.otpPrompt.onRerollAccount}
+                  disabled={controller.otpPrompt.rerollAccountDisabled}
+                >
+                  {controller.otpPrompt.rerollAccountLabel || 'Try another wallet name'}
+                </button>
+              ) : null}
             </div>
             <label className="w3a-field-label" htmlFor="w3a-email-otp-code">
               Email code

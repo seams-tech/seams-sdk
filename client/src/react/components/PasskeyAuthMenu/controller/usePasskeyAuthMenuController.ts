@@ -19,11 +19,15 @@ export interface PasskeyAuthMenuOtpPromptController {
   title: string;
   description: string;
   emailHint?: string;
+  accountId?: string;
   submitLabel: string;
   helperText: string;
   code: string;
   submitting: boolean;
   error?: string;
+  rerollAccountLabel?: string;
+  rerollAccountDisabled: boolean;
+  onRerollAccount?: () => void;
   resendLabel?: string;
   resendDisabled: boolean;
   onResend?: () => void;
@@ -66,6 +70,7 @@ type ActiveOtpPromptState = {
   submitLabel: string;
   helperText: string;
   onSubmit: PasskeyAuthMenuOtpPrompt['onSubmit'];
+  onRerollAccount?: PasskeyAuthMenuOtpPrompt['onRerollAccount'];
   onResend?: PasskeyAuthMenuOtpPrompt['onResend'];
   resendDebounceMs: number;
 };
@@ -92,6 +97,7 @@ function resolveOtpPrompt(
     submitLabel,
     helperText,
     onSubmit: prompt.onSubmit,
+    ...(prompt.onRerollAccount ? { onRerollAccount: prompt.onRerollAccount } : {}),
     ...(prompt.onResend ? { onResend: prompt.onResend } : {}),
     resendDebounceMs: Math.max(1000, Math.floor(Number(prompt.resendDebounceMs) || 10_000)),
   };
@@ -175,6 +181,7 @@ export function usePasskeyAuthMenuController(
   const [otpCode, setOtpCode] = React.useState('');
   const [otpSubmitting, setOtpSubmitting] = React.useState(false);
   const [otpError, setOtpError] = React.useState<string>('');
+  const [otpRerollBusy, setOtpRerollBusy] = React.useState(false);
   const [otpResendBusy, setOtpResendBusy] = React.useState(false);
   const [otpResendUntilMs, setOtpResendUntilMs] = React.useState(0);
   const [otpResendStatus, setOtpResendStatus] = React.useState('');
@@ -304,6 +311,7 @@ export function usePasskeyAuthMenuController(
     setOtpError('');
     setMethodError('');
     setOtpSubmitting(false);
+    setOtpRerollBusy(false);
     setOtpResendBusy(false);
     setOtpResendUntilMs(0);
     setOtpResendStatus('');
@@ -390,6 +398,7 @@ export function usePasskeyAuthMenuController(
           if (flowResult?.otpPrompt) {
             setOtpCode('');
             setOtpError('');
+            setOtpRerollBusy(false);
             setOtpResendBusy(false);
             setOtpResendUntilMs(0);
             setOtpResendStatus('');
@@ -425,6 +434,7 @@ export function usePasskeyAuthMenuController(
     setOtpCode('');
     setOtpError('');
     setOtpSubmitting(false);
+    setOtpRerollBusy(false);
     setOtpResendBusy(false);
     setOtpResendUntilMs(0);
     setOtpResendStatus('');
@@ -432,7 +442,7 @@ export function usePasskeyAuthMenuController(
 
   const onOtpResend = React.useCallback(() => {
     const activePrompt = otpPromptState;
-    if (!activePrompt?.onResend || otpSubmitting || otpResendBusy) return;
+    if (!activePrompt?.onResend || otpSubmitting || otpRerollBusy || otpResendBusy) return;
     const now = Date.now();
     if (otpResendUntilMs && now < otpResendUntilMs) return;
     setOtpResendBusy(true);
@@ -454,7 +464,40 @@ export function usePasskeyAuthMenuController(
         setOtpResendBusy(false);
       }
     })();
-  }, [otpPromptState, otpSubmitting, otpResendBusy, otpResendUntilMs]);
+  }, [otpPromptState, otpSubmitting, otpRerollBusy, otpResendBusy, otpResendUntilMs]);
+
+  const onOtpRerollAccount = React.useCallback(() => {
+    const activePrompt = otpPromptState;
+    if (!activePrompt?.onRerollAccount || otpSubmitting || otpRerollBusy || otpResendBusy) return;
+    setOtpRerollBusy(true);
+    setOtpCode('');
+    setOtpError('');
+    setOtpResendStatus('');
+    void (async () => {
+      try {
+        const result = await activePrompt.onRerollAccount?.();
+        const username = String(result?.username || result?.accountId || '').trim();
+        const accountId = String(result?.accountId || result?.username || '').trim();
+        const emailHint = String(result?.emailHint || '').trim();
+        if (username) setCurrentValue(username);
+        setOtpPromptState((current) =>
+          current
+            ? {
+                ...current,
+                ...(username ? { username } : {}),
+                ...(accountId ? { accountId } : {}),
+                ...(emailHint ? { emailHint } : {}),
+              }
+            : current,
+        );
+        setOtpResendStatus('Code sent');
+      } catch (error: unknown) {
+        setOtpError(getErrorMessage(error, 'Could not choose another wallet name. Try again.'));
+      } finally {
+        setOtpRerollBusy(false);
+      }
+    })();
+  }, [otpPromptState, otpSubmitting, otpRerollBusy, otpResendBusy, setCurrentValue]);
 
   const onOtpSubmit = React.useCallback(() => {
     const activePrompt = otpPromptState;
@@ -493,16 +536,26 @@ export function usePasskeyAuthMenuController(
         ? Math.max(1, Math.ceil((otpResendUntilMs - otpResendNowMs) / 1000))
         : 0;
     const canResend = typeof otpPromptState.onResend === 'function';
+    const canRerollAccount = typeof otpPromptState.onRerollAccount === 'function';
     return {
       title: otpPromptState.title,
       description: otpPromptState.description,
       ...(otpPromptState.emailHint ? { emailHint: otpPromptState.emailHint } : {}),
+      ...(otpPromptState.accountId ? { accountId: otpPromptState.accountId } : {}),
       submitLabel: otpPromptState.submitLabel,
       helperText: otpPromptState.helperText,
       code: otpCode,
       submitting: otpSubmitting,
       ...(otpError ? { error: otpError } : {}),
-      resendDisabled: !canResend || otpSubmitting || otpResendBusy || resendSeconds > 0,
+      rerollAccountDisabled: !canRerollAccount || otpSubmitting || otpRerollBusy || otpResendBusy,
+      ...(canRerollAccount
+        ? {
+            rerollAccountLabel: otpRerollBusy ? 'Choosing another name…' : 'Try another wallet name',
+            onRerollAccount: onOtpRerollAccount,
+          }
+        : {}),
+      resendDisabled:
+        !canResend || otpSubmitting || otpRerollBusy || otpResendBusy || resendSeconds > 0,
       ...(canResend
         ? {
             resendLabel: otpResendBusy
@@ -522,11 +575,13 @@ export function usePasskeyAuthMenuController(
     otpCode,
     otpSubmitting,
     otpError,
+    otpRerollBusy,
     otpResendBusy,
     otpResendUntilMs,
     otpResendNowMs,
     otpResendStatus,
     onOtpCodeChange,
+    onOtpRerollAccount,
     onOtpResend,
     onOtpSubmit,
     onOtpPromptBack,

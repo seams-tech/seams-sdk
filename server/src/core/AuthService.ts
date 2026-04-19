@@ -913,6 +913,7 @@ export class AuthService {
     email?: string;
     accountMode?: unknown;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    rerollRegistrationAttempt?: unknown;
   }): Promise<GoogleEmailOtpResolutionResult> {
     const providerSubject = toOptionalTrimmedString(input.providerSubject ?? input.sub);
     if (!providerSubject || !providerSubject.startsWith('google:')) {
@@ -961,20 +962,32 @@ export class AuthService {
       throw new Error('Email is required to register a Google Email OTP wallet id');
     }
 
+    const rerollRegistrationAttempt =
+      input.rerollRegistrationAttempt === true ||
+      String(input.rerollRegistrationAttempt || '').trim().toLowerCase() === 'true';
+    let minCollisionCounter = 0;
     const resumableAttempt = await this.findResumableGoogleEmailOtpRegistrationAttempt({
       providerSubject,
       email,
     });
     if (resumableAttempt) {
-      return {
-        ok: true,
-        mode: 'register_started',
-        walletId: resumableAttempt.walletId,
-        providerSubject,
-        email,
-        registrationAttemptId: resumableAttempt.attemptId,
-        expiresAtMs: resumableAttempt.expiresAtMs,
-      };
+      if (rerollRegistrationAttempt) {
+        minCollisionCounter = Math.max(0, resumableAttempt.collisionCounter + 1);
+        resumableAttempt.state = 'failed';
+        resumableAttempt.failureCode = 'rerolled_by_user';
+        resumableAttempt.updatedAtMs = Date.now();
+        await this.getEmailOtpRegistrationAttemptStore().put(resumableAttempt);
+      } else {
+        return {
+          ok: true,
+          mode: 'register_started',
+          walletId: resumableAttempt.walletId,
+          providerSubject,
+          email,
+          registrationAttemptId: resumableAttempt.attemptId,
+          expiresAtMs: resumableAttempt.expiresAtMs,
+        };
+      }
     }
 
     if (linkedIsUsableRelayerWallet && linkedIsHostedHmacReadableWallet) {
@@ -1005,7 +1018,7 @@ export class AuthService {
     const authProvider = 'google_oidc';
     let walletId = '';
     let collisionCounter = 0;
-    for (let attempt = 0; attempt < 10; attempt++) {
+    for (let attempt = minCollisionCounter; attempt < minCollisionCounter + 10; attempt++) {
       const candidate = await this.deriveHostedOidcWalletId({
         providerSubject,
         email,

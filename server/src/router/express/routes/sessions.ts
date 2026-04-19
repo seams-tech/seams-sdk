@@ -468,6 +468,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
               sub: oidcSub,
               email: oidcEmail,
               accountMode: oidcAccountMode,
+              rerollRegistrationAttempt: (exchange as any).reroll_registration_attempt,
               runtimePolicyScope,
             });
             if (!resolution.ok) {

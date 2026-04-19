@@ -236,18 +236,17 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       throw new Error(formatted);
     }
 
-    const walletId = String(exchange.session?.walletId || exchange.session?.userId || '').trim();
+    let walletId = String(exchange.session?.walletId || exchange.session?.userId || '').trim();
     if (!walletId) {
       throw new Error('Google session exchange did not return a wallet id');
     }
     const emailHint = String(exchange.session?.email || '').trim();
-    const displayHint = emailHint || walletId;
-    const appSessionJwt = String(exchange.jwt || '').trim();
+    let appSessionJwt = String(exchange.jwt || '').trim();
     if (!appSessionJwt) {
       throw new Error('Google SSO did not return an app session token for Email OTP wallet unlock');
     }
 
-    const googleResolution = exchange.session.googleEmailOtpResolution;
+    let googleResolution = exchange.session.googleEmailOtpResolution;
     const otpFlow: 'enroll' | 'login' =
       googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
     if (isRegister && otpFlow === 'login') {
@@ -289,10 +288,42 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       otpPrompt: {
         title: 'Check your email to unlock your wallet',
         description: `Enter the 6-digit code we sent${emailHint ? ` to ${emailHint}` : ''}.`,
-        emailHint: displayHint,
+        emailHint: emailHint || walletId,
+        accountId: walletId,
         submitLabel: 'Unlock wallet',
         helperText:
           'Google keeps you signed in. The email code unlocks wallet signing for this session.',
+        ...(otpFlow === 'enroll'
+          ? {
+              onRerollAccount: async () => {
+                toast.loading('Choosing another wallet name…', { id: 'google-sso' });
+                const nextExchange = await tatchi.auth.exchangeGoogleEmailOtpSession({
+                  idToken,
+                  accountMode: 'register',
+                  relayUrl: relayerBaseUrl,
+                  sessionKind: 'jwt',
+                  rerollRegistrationAttempt: true,
+                });
+                const nextWalletId = String(
+                  nextExchange.session?.walletId || nextExchange.session?.userId || '',
+                ).trim();
+                const nextAppSessionJwt = String(nextExchange.jwt || '').trim();
+                if (!nextWalletId || !nextAppSessionJwt) {
+                  throw new Error('Google SSO did not return a new wallet name');
+                }
+                walletId = nextWalletId;
+                appSessionJwt = nextAppSessionJwt;
+                googleResolution = nextExchange.session.googleEmailOtpResolution;
+                challenge = await requestCurrentOtpChallenge();
+                toast.success('New wallet name selected. Email code sent.', { id: 'google-sso' });
+                return {
+                  username: walletId,
+                  accountId: walletId,
+                  emailHint: emailHint || walletId,
+                };
+              },
+            }
+          : {}),
         onResend: async () => {
           challenge = await requestCurrentOtpChallenge();
           toast.success('Email code sent', { id: 'google-email-otp-resend' });
