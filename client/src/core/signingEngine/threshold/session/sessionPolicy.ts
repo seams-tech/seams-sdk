@@ -60,6 +60,7 @@ export type Ed25519SessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
+  walletSigningSessionId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /**
    * Optional signer set binding (participant ids).
@@ -78,6 +79,7 @@ export type EcdsaSessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
+  walletSigningSessionId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /**
    * Optional signer set binding (participant ids).
@@ -125,6 +127,14 @@ export function generateThresholdSessionId(): string {
   return `tsess-${id}`;
 }
 
+export function generateWalletSigningSessionId(): string {
+  const id =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `wsess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `wsess-${id}`;
+}
+
 export async function computeEd25519SessionPolicyDigest32(
   policy: Ed25519SessionPolicy,
 ): Promise<string> {
@@ -148,6 +158,7 @@ export async function buildEd25519SessionPolicy(params: {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionId?: string;
+  walletSigningSessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
 }): Promise<{
@@ -156,6 +167,8 @@ export async function buildEd25519SessionPolicy(params: {
   sessionPolicyDigest32: string;
 }> {
   const sessionId = params.sessionId || generateThresholdSessionId();
+  const walletSigningSessionId =
+    String(params.walletSigningSessionId || '').trim() || sessionId;
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
@@ -168,6 +181,7 @@ export async function buildEd25519SessionPolicy(params: {
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,
     sessionId,
+    walletSigningSessionId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs,
@@ -184,6 +198,7 @@ export async function buildEcdsaSessionPolicy(params: {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionId?: string;
+  walletSigningSessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
 }): Promise<{
@@ -192,6 +207,8 @@ export async function buildEcdsaSessionPolicy(params: {
   sessionPolicyDigest32: string;
 }> {
   const sessionId = params.sessionId || generateThresholdSessionId();
+  const walletSigningSessionId =
+    String(params.walletSigningSessionId || '').trim() || sessionId;
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
@@ -204,6 +221,7 @@ export async function buildEcdsaSessionPolicy(params: {
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,
     sessionId,
+    walletSigningSessionId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(participantIds ? { participantIds } : {}),
     ttlMs,

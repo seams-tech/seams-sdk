@@ -15,6 +15,7 @@ type ThresholdSessionPolicyV1 = {
   userId: string;
   rpId: string;
   sessionId: string;
+  walletSigningSessionId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   ttlMs: number;
@@ -55,6 +56,7 @@ type ThresholdEcdsaHssFinalizeHttpResponse = {
   salt?: string;
   counterfactualAddress?: string;
   sessionId?: string;
+  walletSigningSessionId?: string;
   expiresAtMs?: number;
   expiresAt?: string;
   remainingUses?: number;
@@ -266,6 +268,7 @@ export async function thresholdEcdsaHssFinalize(
       salt: json.salt,
       counterfactualAddress: json.counterfactualAddress,
       sessionId: json.sessionId,
+      walletSigningSessionId: json.walletSigningSessionId,
       expiresAtMs: json.expiresAtMs,
       expiresAt: json.expiresAt,
       remainingUses: json.remainingUses,

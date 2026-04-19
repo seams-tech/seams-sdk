@@ -139,6 +139,7 @@ type EmailOtpWorkerRequest =
         participantIds?: number[];
         sessionKind?: 'jwt' | 'cookie';
         sessionId?: string;
+        walletSigningSessionId?: string;
         thresholdRouteAuth?: AppOrThresholdSessionAuth;
         ttlMs?: number;
         remainingUses?: number;
@@ -163,6 +164,7 @@ type EmailOtpWorkerRequest =
         participantIds?: number[];
         sessionKind?: 'jwt' | 'cookie';
         sessionId?: string;
+        walletSigningSessionId?: string;
         thresholdRouteAuth?: AppOrThresholdSessionAuth;
         ttlMs?: number;
         remainingUses?: number;
@@ -1006,6 +1008,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
+  walletSigningSessionId?: string;
   thresholdRouteAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
@@ -1026,6 +1029,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   const keygenSessionId = generateKeygenSessionId();
   const requestedSessionId = String(args.sessionId || '').trim();
   const sessionId = requestedSessionId || generateThresholdSessionId();
+  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim() || sessionId;
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: args.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
@@ -1045,6 +1049,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
       userId,
       rpId,
       sessionId,
+      walletSigningSessionId,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       participantIds: participantIds || undefined,
       ttlMs,
@@ -1166,6 +1171,10 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
     throw new Error('Threshold bootstrap response missing participantIds');
   }
   const resolvedSessionId = readString(bootstrap.sessionId || sessionId, 'sessionId');
+  const resolvedWalletSigningSessionId = readString(
+    bootstrap.walletSigningSessionId || walletSigningSessionId,
+    'walletSigningSessionId',
+  );
   const resolvedRemainingUses = Number.isFinite(Number(bootstrap.remainingUses))
     ? Math.floor(Number(bootstrap.remainingUses))
     : remainingUses;
@@ -1208,6 +1217,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   const session: ThresholdEcdsaSessionBootstrapResult['session'] = {
     ok: true,
     sessionId: resolvedSessionId,
+    walletSigningSessionId: resolvedWalletSigningSessionId,
     expiresAtMs,
     remainingUses: resolvedRemainingUses,
     ...(thresholdSessionJwt ? { jwt: thresholdSessionJwt } : {}),
@@ -1243,6 +1253,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
         : {}),
       thresholdSessionKind: sessionKind,
       thresholdSessionId: resolvedSessionId,
+      walletSigningSessionId: resolvedWalletSigningSessionId,
       ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
     },
     keygen,

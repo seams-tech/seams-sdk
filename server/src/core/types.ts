@@ -803,6 +803,7 @@ export type Ed25519SessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
+  walletSigningSessionId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
@@ -826,6 +827,7 @@ export interface ThresholdEd25519SessionResponse {
   code?: string;
   message?: string;
   sessionId?: string;
+  walletSigningSessionId?: string;
   /** Server-enforced expiry (ms since epoch). */
   expiresAtMs?: number;
   expiresAt?: string;
@@ -1045,6 +1047,7 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   salt?: string;
   counterfactualAddress?: string;
   sessionId?: string;
+  walletSigningSessionId?: string;
   expiresAtMs?: number;
   expiresAt?: string;
   remainingUses?: number;
@@ -1085,6 +1088,7 @@ export type EcdsaSessionPolicy = {
   rpId: string;
   relayerKeyId: string;
   sessionId: string;
+  walletSigningSessionId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
@@ -1097,6 +1101,7 @@ export type ThresholdEcdsaBootstrapSessionPolicy = {
   userId: string;
   rpId: string;
   sessionId: string;
+  walletSigningSessionId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];

@@ -55,6 +55,7 @@ export type ThresholdEcdsaSessionRecord = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
+  walletSigningSessionId?: string;
   thresholdSessionJwt?: string;
   signingSessionSealKeyVersion?: string;
   signingSessionSealShamirPrimeB64u?: string;
@@ -85,6 +86,7 @@ export type ThresholdEd25519SessionRecord = {
   xClientBaseB64u?: string;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
+  walletSigningSessionId?: string;
   thresholdSessionJwt?: string;
   expiresAtMs: number;
   remainingUses: number;
@@ -518,6 +520,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
   const thresholdSessionKind = normalizeThresholdEcdsaSessionKind(obj.thresholdSessionKind);
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
+  const walletSigningSessionId = normalizeOptionalNonEmptyString(obj.walletSigningSessionId);
   const thresholdSessionJwt = normalizeOptionalNonEmptyString(obj.thresholdSessionJwt);
   const signingSessionSealKeyVersion = normalizeOptionalNonEmptyString(
     obj.signingSessionSealKeyVersion,
@@ -580,6 +583,7 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     thresholdSessionKind,
     thresholdSessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
     ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
@@ -653,6 +657,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const thresholdSessionKind: 'jwt' | 'cookie' =
     thresholdSessionKindRaw === 'cookie' ? 'cookie' : 'jwt';
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
+  const walletSigningSessionId = normalizeOptionalNonEmptyString(obj.walletSigningSessionId);
   const thresholdSessionJwt = normalizeOptionalNonEmptyString(obj.thresholdSessionJwt);
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
   const remainingUses = normalizePositiveInteger(obj.remainingUses);
@@ -694,6 +699,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
     thresholdSessionKind,
     thresholdSessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
     expiresAtMs,
     remainingUses,
@@ -910,6 +916,10 @@ function buildEcdsaRecordFromBootstrap(args: {
   const thresholdSessionKind = normalizeThresholdEcdsaSessionKind(
     keyRef.thresholdSessionKind || 'jwt',
   );
+  const walletSigningSessionId = normalizeOptionalNonEmptyString(
+    keyRef.walletSigningSessionId ||
+      (args.bootstrap.session as { walletSigningSessionId?: unknown }).walletSigningSessionId,
+  );
   const thresholdSessionJwt = normalizeOptionalNonEmptyString(
     keyRef.thresholdSessionJwt || args.bootstrap.session.jwt,
   );
@@ -949,6 +959,7 @@ function buildEcdsaRecordFromBootstrap(args: {
     participantIds,
     thresholdSessionKind,
     thresholdSessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     thresholdSessionJwt,
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
     ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
@@ -1386,6 +1397,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   xClientBaseB64u?: string;
   thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionId: string;
+  walletSigningSessionId?: string;
   thresholdSessionJwt?: string;
   expiresAtMs: number;
   remainingUses: number;
@@ -1407,6 +1419,9 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
       .trim()
       .toLowerCase(),
     thresholdSessionId: String(args.thresholdSessionId || '').trim(),
+    ...(String(args.walletSigningSessionId || '').trim()
+      ? { walletSigningSessionId: String(args.walletSigningSessionId || '').trim() }
+      : {}),
     ...(String(args.thresholdSessionJwt || '').trim()
       ? { thresholdSessionJwt: String(args.thresholdSessionJwt || '').trim() }
       : {}),
@@ -1453,6 +1468,9 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
     xClientBaseB64u,
     thresholdSessionKind: existing.thresholdSessionKind,
     thresholdSessionId: existing.thresholdSessionId,
+    ...(existing.walletSigningSessionId
+      ? { walletSigningSessionId: existing.walletSigningSessionId }
+      : {}),
     thresholdSessionJwt: existing.thresholdSessionJwt,
     expiresAtMs: existing.expiresAtMs,
     remainingUses: existing.remainingUses,

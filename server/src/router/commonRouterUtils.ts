@@ -215,6 +215,7 @@ export async function signThresholdSessionJwt(args: {
   sessionInfo: {
     sessionKind?: unknown;
     sessionId?: unknown;
+    walletSigningSessionId?: unknown;
     expiresAtMs?: unknown;
     participantIds?: unknown;
     runtimePolicyScope?: unknown;
@@ -254,6 +255,7 @@ export async function signThresholdSessionJwt(args: {
   const rpId = String(args.rpId || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const sessionId = String(args.sessionInfo?.sessionId || '').trim();
+  const walletSigningSessionId = String(args.sessionInfo?.walletSigningSessionId || '').trim();
   const thresholdExpiresAtMs = Number(args.sessionInfo?.expiresAtMs);
   const participantIds =
     normalizeThresholdEd25519ParticipantIds(args.sessionInfo?.participantIds) ||
@@ -291,6 +293,7 @@ export async function signThresholdSessionJwt(args: {
   const jwt = await session.signJwt(userId, {
     kind: args.kind,
     sessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     relayerKeyId,
     rpId,
     participantIds,

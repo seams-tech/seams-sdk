@@ -330,6 +330,7 @@ type ThresholdEcdsaBootstrapInput = {
 type ThresholdEd25519BootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
   sessionId: string;
+  walletSigningSessionId?: string;
   expiresAtMs: number;
   expiresAt?: string;
   participantIds?: number[];
@@ -475,6 +476,7 @@ function validateThresholdEd25519SessionPolicyBindings(args: {
 
 function toThresholdEd25519BootstrapSession(session: {
   sessionId?: unknown;
+  walletSigningSessionId?: unknown;
   expiresAtMs?: unknown;
   expiresAt?: unknown;
   participantIds?: unknown;
@@ -488,6 +490,9 @@ function toThresholdEd25519BootstrapSession(session: {
   return {
     sessionKind: 'jwt',
     sessionId,
+    ...(typeof session.walletSigningSessionId === 'string' && session.walletSigningSessionId.trim()
+      ? { walletSigningSessionId: session.walletSigningSessionId.trim() }
+      : {}),
     expiresAtMs: Number(expiresAtMs),
     ...(typeof session.expiresAt === 'string' && session.expiresAt.trim()
       ? { expiresAt: session.expiresAt.trim() }

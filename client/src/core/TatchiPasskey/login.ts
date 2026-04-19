@@ -660,10 +660,12 @@ async function primeThresholdLoginWarmSigners(args: {
   const signersToWarm = buildThresholdLoginWarmSignerSelection(args.signersToWarm);
   const warmState: {
     sessionId: string;
+    walletSigningSessionId: string;
     jwt: string;
     ecdsaHssClientRootShare32B64u: string;
   } = {
     sessionId: '',
+    walletSigningSessionId: '',
     jwt: '',
     ecdsaHssClientRootShare32B64u: '',
   };
@@ -720,6 +722,7 @@ async function primeThresholdLoginWarmSigners(args: {
         }
 
         warmState.sessionId = connectedSessionId;
+        warmState.walletSigningSessionId = String(connected.walletSigningSessionId || '').trim();
         warmState.jwt = connectedJwt;
         warmState.ecdsaHssClientRootShare32B64u = connectedEcdsaHssClientRootShare32B64u;
       },
@@ -752,6 +755,9 @@ async function primeThresholdLoginWarmSigners(args: {
                 : {}),
               participantIds: args.participantIds,
               sessionKind: 'jwt',
+              ...(warmState.walletSigningSessionId
+                ? { walletSigningSessionId: warmState.walletSigningSessionId }
+                : {}),
               ttlMs: args.ttlMs,
               remainingUses: args.remainingUses,
               clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,

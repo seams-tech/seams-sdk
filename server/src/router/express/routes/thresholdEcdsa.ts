@@ -453,6 +453,7 @@ export function registerThresholdEcdsaRoutes(
           sessionInfo: {
             sessionKind: result.sessionKind,
             sessionId: result.sessionId,
+            walletSigningSessionId: result.walletSigningSessionId,
             expiresAtMs: result.expiresAtMs,
             participantIds: result.participantIds,
             ...(result.runtimePolicyScope

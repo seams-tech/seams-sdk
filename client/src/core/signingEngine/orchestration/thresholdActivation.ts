@@ -60,7 +60,7 @@ export type EcdsaSessionSuccess = EcdsaSessionResult & { ok: true };
 export type ThresholdEcdsaSessionBootstrapResult = {
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
   keygen: EcdsaKeygenSuccess;
-  session: EcdsaSessionSuccess;
+  session: EcdsaSessionSuccess & { walletSigningSessionId?: string };
 };
 
 export type ActivateEcdsaSessionDeps = {
@@ -81,6 +81,7 @@ export type ActivateEcdsaSessionRequest = {
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
+  walletSigningSessionId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   thresholdRouteAuth?: AppOrThresholdSessionAuth;
@@ -111,6 +112,7 @@ export async function activateEcdsaSession(
     sessionId:
       String(args.sessionId || '').trim() ||
       deps.getOrCreateActiveThresholdEcdsaSessionId(nearAccountId, args.chain),
+    walletSigningSessionId: args.walletSigningSessionId,
     clientRootShare32: args.clientRootShare32,
     clientRootShare32B64u: args.clientRootShare32B64u,
     bootstrapAuth: args.thresholdRouteAuth,
@@ -147,6 +149,7 @@ export async function activateEcdsaSession(
   if (!sessionId) {
     throw new Error('threshold-ecdsa bootstrap returned empty sessionId');
   }
+  const walletSigningSessionId = String(bootstrap.walletSigningSessionId || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(
     Array.isArray(args.participantIds) ? args.participantIds : bootstrap.participantIds,
   );
@@ -184,6 +187,7 @@ export async function activateEcdsaSession(
   const session: EcdsaSessionSuccess = {
     ok: true,
     sessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     expiresAtMs: bootstrap.expiresAtMs,
     remainingUses: bootstrap.remainingUses,
     jwt: bootstrap.jwt,
@@ -217,6 +221,7 @@ export async function activateEcdsaSession(
       : {}),
     thresholdSessionKind: args.sessionKind || 'jwt',
     thresholdSessionId: sessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     ...(typeof session.jwt === 'string' && session.jwt.trim()
       ? { thresholdSessionJwt: session.jwt.trim() }
       : {}),

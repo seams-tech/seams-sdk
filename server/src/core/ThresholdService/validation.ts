@@ -695,6 +695,7 @@ export type ThresholdEd25519SessionClaims = {
   sub: string;
   kind: 'threshold_ed25519_session_v1';
   sessionId: string;
+  walletSigningSessionId?: string;
   relayerKeyId: string;
   rpId: string;
   runtimePolicyScope?: RuntimePolicyScope;
@@ -732,6 +733,9 @@ export function parseThresholdEd25519SessionClaims(
   if (kind !== 'threshold_ed25519_session_v1') return null;
   const sub = toOptionalString(raw.sub);
   const sessionId = toOptionalString(raw.sessionId);
+  const walletSigningSessionId = toOptionalString(
+    (raw as { walletSigningSessionId?: unknown }).walletSigningSessionId,
+  );
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const rpId = toOptionalString(raw.rpId);
   if (!sub || !sessionId || !relayerKeyId || !rpId) return null;
@@ -745,6 +749,7 @@ export function parseThresholdEd25519SessionClaims(
     sub,
     kind,
     sessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     relayerKeyId,
     rpId,
     thresholdExpiresAtMs,
@@ -841,6 +846,7 @@ export type ThresholdEcdsaSessionClaims = {
   sub: string;
   kind: 'threshold_ecdsa_session_v1';
   sessionId: string;
+  walletSigningSessionId?: string;
   relayerKeyId: string;
   rpId: string;
   runtimePolicyScope?: RuntimePolicyScope;
@@ -866,6 +872,9 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
   if (kind !== 'threshold_ecdsa_session_v1') return null;
   const sub = toOptionalString(raw.sub);
   const sessionId = toOptionalString(raw.sessionId);
+  const walletSigningSessionId = toOptionalString(
+    (raw as { walletSigningSessionId?: unknown }).walletSigningSessionId,
+  );
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const rpId = toOptionalString(raw.rpId);
   if (!sub || !sessionId || !relayerKeyId || !rpId) return null;
@@ -879,6 +888,7 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     sub,
     kind,
     sessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     relayerKeyId,
     rpId,
     thresholdExpiresAtMs,

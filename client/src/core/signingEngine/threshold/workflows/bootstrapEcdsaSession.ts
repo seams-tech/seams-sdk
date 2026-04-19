@@ -19,6 +19,7 @@ import {
   clampThresholdSessionPolicy,
   DEFAULT_THRESHOLD_SESSION_POLICY,
   generateThresholdSessionId,
+  generateWalletSigningSessionId,
   normalizeThresholdRuntimePolicyScope,
   THRESHOLD_SESSION_POLICY_VERSION,
   type ThresholdRuntimePolicyScope,
@@ -130,6 +131,7 @@ export async function bootstrapEcdsaSession(args: {
   participantIds?: number[];
   sessionKind?: EcdsaSessionKind;
   sessionId?: string;
+  walletSigningSessionId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   bootstrapAuth?: AppOrThresholdSessionAuth;
@@ -159,6 +161,7 @@ export async function bootstrapEcdsaSession(args: {
   salt?: string;
   counterfactualAddress?: string;
   sessionId?: string;
+  walletSigningSessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   signingRootId?: string;
@@ -243,6 +246,8 @@ export async function bootstrapEcdsaSession(args: {
       normalizeThresholdRuntimePolicyScope(args.runtimePolicyScope) ||
       managedBootstrapGrant?.runtimePolicyScope;
     const sessionId = requestedSessionId || generateThresholdSessionId();
+    const walletSigningSessionId =
+      String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
     const webauthnAuthentication = useAuthorizationBootstrap ? undefined : (credential as any);
     const routeAuth: ThresholdEcdsaHssRouteAuth | undefined = useAuthorizationBootstrap
       ? args.bootstrapAuth
@@ -265,6 +270,7 @@ export async function bootstrapEcdsaSession(args: {
         userId,
         rpId,
         sessionId,
+        walletSigningSessionId,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         participantIds: participantIds || undefined,
         ttlMs,
@@ -433,6 +439,9 @@ export async function bootstrapEcdsaSession(args: {
       };
     }
     const resolvedSessionId = String(bootstrap.sessionId || sessionId).trim();
+    const resolvedWalletSigningSessionId = String(
+      bootstrap.walletSigningSessionId || walletSigningSessionId,
+    ).trim();
     if (!resolvedSessionId) {
       return {
         ok: false,
@@ -494,6 +503,7 @@ export async function bootstrapEcdsaSession(args: {
         ? { counterfactualAddress: bootstrap.counterfactualAddress.trim() }
         : {}),
       sessionId: resolvedSessionId,
+      walletSigningSessionId: resolvedWalletSigningSessionId,
       expiresAtMs,
       remainingUses: resolvedRemainingUses,
       ...(typeof bootstrap.signingRootId === 'string' && bootstrap.signingRootId.trim()

@@ -2340,6 +2340,7 @@ export class SigningEngine {
       participantIds: args.participantIds,
       sessionKind: args.sessionKind,
       sessionId,
+      walletSigningSessionId: args.walletSigningSessionId,
       ttlMs: args.ttlMs,
       remainingUses: args.remainingUses,
       workerCtx,

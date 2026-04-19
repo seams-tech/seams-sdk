@@ -23,6 +23,7 @@ export type PersistWarmSessionEd25519CapabilityArgs = {
   participantIds?: number[];
   sessionKind?: Ed25519SessionKind;
   sessionId: string;
+  walletSigningSessionId?: string;
   expiresAtMs: number;
   remainingUses: number;
   jwt?: string;
@@ -75,6 +76,13 @@ export function persistWarmSessionEd25519Capability(
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
     thresholdSessionKind: args.sessionKind === 'cookie' ? 'cookie' : 'jwt',
     thresholdSessionId: sessionId,
+    ...(String(args.walletSigningSessionId || existingRecord?.walletSigningSessionId || '').trim()
+      ? {
+          walletSigningSessionId: String(
+            args.walletSigningSessionId || existingRecord?.walletSigningSessionId || '',
+          ).trim(),
+        }
+      : {}),
     ...(jwt ? { thresholdSessionJwt: jwt } : {}),
     expiresAtMs,
     remainingUses,

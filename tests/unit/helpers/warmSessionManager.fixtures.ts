@@ -41,6 +41,12 @@ export type WarmClaimFixture =
       code?: string;
     };
 
+function isWarmClaimFixture(
+  claim: WarmClaimFixture,
+): claim is Extract<WarmClaimFixture, { state: 'warm' }> {
+  return claim.state === 'warm';
+}
+
 export function ensureWarmSessionTestStorage(): SessionStorageMock {
   const globalObj = globalThis as { sessionStorage?: SessionStorageMock };
   if (globalObj.sessionStorage) return globalObj.sessionStorage;
@@ -81,7 +87,7 @@ export function seedEd25519WarmSessionRecord(
     thresholdSessionId: string;
   },
 ): ThresholdEd25519SessionRecord {
-  return upsertStoredThresholdEd25519SessionRecord({
+  const record = upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: args.nearAccountId,
     rpId: args.rpId || 'wallet.example.test',
     relayerUrl: args.relayerUrl || 'https://relay.example',
@@ -91,12 +97,19 @@ export function seedEd25519WarmSessionRecord(
     ...(args.xClientBaseB64u ? { xClientBaseB64u: args.xClientBaseB64u } : {}),
     thresholdSessionKind: args.thresholdSessionKind || 'jwt',
     thresholdSessionId: args.thresholdSessionId,
+    ...(args.walletSigningSessionId
+      ? { walletSigningSessionId: args.walletSigningSessionId }
+      : {}),
     ...(args.thresholdSessionJwt ? { thresholdSessionJwt: args.thresholdSessionJwt } : {}),
     expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
     remainingUses: args.remainingUses ?? 7,
     updatedAtMs: args.updatedAtMs ?? Date.now(),
     source: args.source || 'login',
   });
+  if (!record) {
+    throw new Error(`Failed to seed Ed25519 warm-session record for ${args.nearAccountId}`);
+  }
+  return record;
 }
 
 export function createThresholdEcdsaBootstrapFixture(args: {
@@ -111,6 +124,9 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   clientVerifyingShareB64u?: string;
   participantIds?: number[];
   ethereumAddress?: string;
+  walletSigningSessionId?: string;
+  signingRootId?: string;
+  signingRootVersion?: string;
 }): ThresholdEcdsaSessionBootstrapResult {
   const chainLabel = args.chain;
   const ecdsaThresholdKeyId = String(
@@ -127,6 +143,9 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   ).trim();
   const participantIds = args.participantIds || [1, 2];
   const ethereumAddress = args.ethereumAddress || `0x${'11'.repeat(20)}`;
+  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  const signingRootId = String(args.signingRootId || 'sr-test:dev').trim();
+  const signingRootVersion = String(args.signingRootVersion || '').trim();
 
   return {
     thresholdEcdsaKeyRef: {
@@ -134,6 +153,8 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       userId: args.nearAccountId,
       relayerUrl,
       ecdsaThresholdKeyId,
+      signingRootId,
+      ...(signingRootVersion ? { signingRootVersion } : {}),
       participantIds: [...participantIds],
       backendBinding: {
         relayerKeyId,
@@ -141,6 +162,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       },
       thresholdSessionKind: sessionKind,
       thresholdSessionId: sessionId,
+      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       ...(sessionJwt ? { thresholdSessionJwt: sessionJwt } : {}),
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: `pub-${chainLabel}-b64u`,
@@ -159,6 +181,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     session: {
       ok: true,
       sessionId,
+      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 5,
       ...(sessionJwt ? { jwt: sessionJwt } : {}),
@@ -222,6 +245,13 @@ export function createWarmSessionStatusReader(
         ok: false as const,
         code: claim.state,
         message: claim.message || claim.state,
+      };
+    }
+    if (!isWarmClaimFixture(claim)) {
+      return {
+        ok: false as const,
+        code: 'not_found',
+        message: claim.message || 'missing',
       };
     }
     return {
@@ -298,9 +328,18 @@ export function createWarmSessionTouchConfirmFixture(args: {
         };
       }
 
+      if (!isWarmClaimFixture(claim)) {
+        return {
+          ok: false as const,
+          code: 'not_found',
+          message: claim.message || 'missing',
+        };
+      }
+
+      const warmClaim = claim;
       const consumeUses = Math.max(1, Math.floor(Number(uses) || 1));
-      if (claim.remainingUses < consumeUses) {
-        claim.state = 'exhausted';
+      if (warmClaim.remainingUses < consumeUses) {
+        args.claimsBySessionId[normalizedSessionId] = { state: 'exhausted' };
         return {
           ok: false as const,
           code: 'exhausted',
@@ -308,13 +347,13 @@ export function createWarmSessionTouchConfirmFixture(args: {
         };
       }
 
-      claim.remainingUses -= consumeUses;
-      const remainingUses = claim.remainingUses;
+      warmClaim.remainingUses -= consumeUses;
+      const remainingUses = warmClaim.remainingUses;
       const prfFirstB64u = String(
-        claim.prfFirstB64u || `prf-first:${normalizedSessionId}:${remainingUses}`,
+        warmClaim.prfFirstB64u || `prf-first:${normalizedSessionId}:${remainingUses}`,
       ).trim();
       if (remainingUses <= 0) {
-        claim.state = 'exhausted';
+        args.claimsBySessionId[normalizedSessionId] = { state: 'exhausted' };
       }
       return {
         ok: true as const,

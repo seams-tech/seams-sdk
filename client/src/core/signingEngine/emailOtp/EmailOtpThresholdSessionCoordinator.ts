@@ -20,6 +20,7 @@ import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/sessi
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import {
   buildEd25519SessionPolicy,
+  generateWalletSigningSessionId,
   normalizeThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
@@ -131,6 +132,7 @@ export type ProvisionEmailOtpThresholdEd25519CapabilityArgs = {
   participantIds?: number[];
   ttlMs?: number;
   remainingUses?: number;
+  walletSigningSessionId?: string;
 };
 
 export type LoginEmailOtpEcdsaCapabilityArgs = {
@@ -149,6 +151,7 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
+  walletSigningSessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -169,6 +172,7 @@ export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
+  walletSigningSessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
   clientSecret32?: Uint8Array;
@@ -218,6 +222,7 @@ export type EmailOtpThresholdSessionCoordinatorDeps = {
     participantIds: number[];
     sessionKind: 'jwt' | 'cookie';
     sessionId: string;
+    walletSigningSessionId?: string;
     expiresAtMs: number;
     remainingUses: number;
     jwt: string;
@@ -714,6 +719,8 @@ export class EmailOtpThresholdSessionCoordinator {
     const workerCtx = this.deps.getSignerWorkerContext();
     const thresholdRouteAuth = args.thresholdRouteAuth;
     const sessionKind = args.sessionKind || 'jwt';
+    const walletSigningSessionId =
+      String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
     const rpId = this.requireRpId('Email OTP login');
 
     if (!workerCtx) {
@@ -752,6 +759,7 @@ export class EmailOtpThresholdSessionCoordinator {
             : {}),
           sessionKind,
           ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+          walletSigningSessionId,
           ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
           ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
           ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
@@ -783,6 +791,7 @@ export class EmailOtpThresholdSessionCoordinator {
         ...(Array.isArray(args.participantIds) ? { participantIds: args.participantIds } : {}),
         ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+        walletSigningSessionId,
       });
     }
     return {
@@ -809,6 +818,8 @@ export class EmailOtpThresholdSessionCoordinator {
     const shamirPrimeB64u = String(args.shamirPrimeB64u || this.requireShamirPrimeB64u()).trim();
     const thresholdRouteAuth = args.thresholdRouteAuth;
     const sessionKind = args.sessionKind || 'jwt';
+    const walletSigningSessionId =
+      String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
     if (!thresholdRouteAuth && sessionKind !== 'cookie') {
       throw new Error(
         'Email OTP enrollment login requires threshold route auth for JWT ECDSA bootstrap',
@@ -856,6 +867,7 @@ export class EmailOtpThresholdSessionCoordinator {
               : {}),
             sessionKind,
             ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+            walletSigningSessionId,
             ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
             ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
             ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
@@ -890,6 +902,7 @@ export class EmailOtpThresholdSessionCoordinator {
           ...(Array.isArray(args.participantIds) ? { participantIds: args.participantIds } : {}),
           ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
           ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+          walletSigningSessionId,
         });
       }
       return {
@@ -1167,6 +1180,7 @@ export class EmailOtpThresholdSessionCoordinator {
       relayerKeyId,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       participantIds,
+      walletSigningSessionId: args.walletSigningSessionId,
       ttlMs: args.ttlMs,
       remainingUses: args.remainingUses,
     });
@@ -1206,6 +1220,9 @@ export class EmailOtpThresholdSessionCoordinator {
       participantIds,
       sessionKind: 'jwt',
       sessionId,
+      ...(policy.walletSigningSessionId
+        ? { walletSigningSessionId: policy.walletSigningSessionId }
+        : {}),
       expiresAtMs,
       remainingUses,
       jwt,

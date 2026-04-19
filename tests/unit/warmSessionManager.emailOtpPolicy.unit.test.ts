@@ -9,6 +9,7 @@ import {
   createThresholdEcdsaStoreFixture,
   createWarmSessionStatusReader,
   resetWarmSessionFixtureState,
+  seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
 } from './helpers/warmSessionManager.fixtures';
 
@@ -73,6 +74,69 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       'lane:alice.testnet:evm',
       'warm:ecdsa-expired-session',
     ]);
+  });
+
+  test('resolves readiness from shared wallet signing-session budget before curve readiness', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const walletSigningSessionId = 'wallet-session-shared-budget';
+    const ed25519Record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'shared-budget.testnet',
+      thresholdSessionId: 'ed25519-shared-budget-session',
+      thresholdSessionJwt: 'jwt:ed25519-shared-budget-session',
+      walletSigningSessionId,
+    });
+    const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'shared-budget.testnet',
+      chain: 'evm',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'shared-budget.testnet',
+        chain: 'evm',
+        sessionId: 'ecdsa-shared-budget-session',
+        sessionJwt: 'jwt:ecdsa-shared-budget-session',
+        walletSigningSessionId,
+      }),
+    });
+
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({
+        [ed25519Record.thresholdSessionId]: {
+          state: 'warm',
+          remainingUses: 5,
+          expiresAtMs: Date.now() + 120_000,
+        },
+        [ecdsaRecord.thresholdSessionId]: {
+          state: 'exhausted',
+        },
+      }),
+    });
+
+    const warmSession = await manager.getWarmSession('shared-budget.testnet');
+    const ed25519Status = await manager.getEd25519SigningSessionStatus('shared-budget.testnet');
+    const ecdsaStatus = await manager.getEcdsaSigningSessionStatus({
+      nearAccountId: 'shared-budget.testnet',
+      chain: 'evm',
+    });
+
+    expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
+      state: 'exhausted',
+      sessionId: ed25519Record.thresholdSessionId,
+    });
+    expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
+      state: 'exhausted',
+      sessionId: ecdsaRecord.thresholdSessionId,
+    });
+    expect(ed25519Status).toMatchObject({
+      sessionId: ed25519Record.thresholdSessionId,
+      status: 'exhausted',
+      authMethod: 'passkey',
+    });
+    expect(ecdsaStatus).toMatchObject({
+      sessionId: ecdsaRecord.thresholdSessionId,
+      status: 'exhausted',
+      authMethod: 'passkey',
+    });
   });
 
   test('discards single-use Email OTP capability after signing', async () => {

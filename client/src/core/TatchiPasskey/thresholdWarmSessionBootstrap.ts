@@ -21,6 +21,7 @@ import { getStoredThresholdEd25519SessionRecordForAccount } from '../signingEngi
 import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
+  generateWalletSigningSessionId,
   type ThresholdRuntimePolicyScope,
 } from '../signingEngine/threshold/session/sessionPolicy';
 import type { PasskeyManagerContext } from './index';
@@ -43,6 +44,7 @@ export const THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1 = 'threshold-ed25519-hss-
 
 export type ThresholdWarmSessionPolicyDraft = {
   sessionId: string;
+  walletSigningSessionId?: string;
   ttlMs: number;
   remainingUses: number;
   participantIds?: number[];
@@ -55,6 +57,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     rpId: string;
     relayerKeyId?: string;
     sessionId: string;
+    walletSigningSessionId?: string;
     participantIds?: number[];
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     ttlMs: number;
@@ -98,9 +101,11 @@ export function createThresholdWarmSessionPolicyDraft(
   const defaults = resolveThresholdWarmSessionDefaults(context);
   if (!defaults) return null;
   const sessionId = String(input?.sessionId || '').trim() || generateThresholdSessionId();
+  const walletSigningSessionId = generateWalletSigningSessionId();
   const participantIds = normalizeThresholdEd25519ParticipantIds(input?.participantIds);
   return {
     sessionId,
+    walletSigningSessionId,
     ttlMs: defaults.ttlMs,
     remainingUses: defaults.remainingUses,
     ...(participantIds ? { participantIds } : {}),
@@ -125,6 +130,9 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       rpId,
       ...(args.relayerKeyId ? { relayerKeyId: String(args.relayerKeyId || '').trim() } : {}),
       sessionId,
+      ...(args.requestedPolicy.walletSigningSessionId
+        ? { walletSigningSessionId: args.requestedPolicy.walletSigningSessionId }
+        : {}),
       ...(Array.isArray(args.requestedPolicy.participantIds)
         ? { participantIds: args.requestedPolicy.participantIds }
         : {}),
@@ -230,6 +238,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
         rpId: args.rpId,
         relayerKeyId: hssFinalize.relayerKeyId,
         sessionId: requestedPolicy.sessionId,
+        walletSigningSessionId: requestedPolicy.walletSigningSessionId || requestedPolicy.sessionId,
         participantIds: prepared.participantIds,
         ttlMs: requestedPolicy.ttlMs,
         remainingUses: requestedPolicy.remainingUses,

@@ -15,7 +15,9 @@ import type {
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEd25519SessionStoreSource,
+  ThresholdEd25519SessionRecord,
   ThresholdEcdsaSessionStoreSource,
+  ThresholdEcdsaSessionRecord,
   ThresholdSessionSealTransportAuthMaterial,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
@@ -44,6 +46,7 @@ import type {
   WarmSessionEcdsaCapabilityState,
   WarmSessionEd25519CapabilityState,
   WarmSessionEnvelope,
+  WarmSessionPrfClaim,
 } from './warmSessionTypes';
 import {
   buildReusableEcdsaBootstrapResult,
@@ -149,6 +152,7 @@ export type ProvisionWarmEd25519CapabilityArgs = {
   ttlMs?: number;
   remainingUses?: number;
   sessionId?: string;
+  walletSigningSessionId?: string;
   source?: ThresholdEd25519SessionStoreSource;
   beforeProvision?: () => void | Promise<void>;
   assertNotCancelled?: () => void;
@@ -157,6 +161,7 @@ export type ProvisionWarmEd25519CapabilityArgs = {
 export type ProvisionWarmEd25519CapabilityResult = {
   ok: boolean;
   sessionId?: string;
+  walletSigningSessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   jwt?: string;
@@ -470,6 +475,139 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     return state === 'missing' || state === 'expired' || state === 'exhausted';
   }
 
+  function resolveWalletSigningSessionId(
+    record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord | null,
+  ): string {
+    return String(record?.walletSigningSessionId || record?.thresholdSessionId || '').trim();
+  }
+
+  function toScopedClaim(args: {
+    source: WarmSessionPrfClaim;
+    sessionId: string;
+    remainingUses?: number;
+    expiresAtMs?: number;
+  }): WarmSessionPrfClaim {
+    if (args.source.state !== 'warm') {
+      return {
+        ...args.source,
+        sessionId: args.sessionId,
+      };
+    }
+    return {
+      state: 'warm',
+      sessionId: args.sessionId,
+      remainingUses: args.remainingUses ?? args.source.remainingUses,
+      expiresAtMs: args.expiresAtMs ?? args.source.expiresAtMs,
+    };
+  }
+
+  function applyWalletSigningSessionBudget(args: {
+    records: Array<{
+      record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord | null;
+      claim: WarmSessionPrfClaim | null;
+    }>;
+  }): Map<string, WarmSessionPrfClaim | null> {
+    const byWalletSessionId = new Map<
+      string,
+      Array<{
+        thresholdSessionId: string;
+        claim: WarmSessionPrfClaim | null;
+      }>
+    >();
+
+    for (const entry of args.records) {
+      const thresholdSessionId = String(entry.record?.thresholdSessionId || '').trim();
+      const walletSigningSessionId = resolveWalletSigningSessionId(entry.record);
+      if (!thresholdSessionId || !walletSigningSessionId) continue;
+      const group = byWalletSessionId.get(walletSigningSessionId) || [];
+      group.push({ thresholdSessionId, claim: entry.claim });
+      byWalletSessionId.set(walletSigningSessionId, group);
+    }
+
+    const scoped = new Map<string, WarmSessionPrfClaim | null>();
+    for (const group of byWalletSessionId.values()) {
+      const terminal =
+        group.find((entry) => entry.claim?.state === 'expired')?.claim ||
+        group.find((entry) => entry.claim?.state === 'exhausted')?.claim ||
+        null;
+      const warmClaims = group
+        .map((entry) => entry.claim)
+        .filter((claim): claim is WarmSessionPrfClaim & { state: 'warm' } => claim?.state === 'warm');
+      const walletRemainingUses = warmClaims.length
+        ? Math.min(...warmClaims.map((claim) => Math.floor(Number(claim.remainingUses) || 0)))
+        : undefined;
+      const walletExpiresAtMs = warmClaims.length
+        ? Math.min(...warmClaims.map((claim) => Math.floor(Number(claim.expiresAtMs) || 0)))
+        : undefined;
+
+      for (const entry of group) {
+        if (terminal) {
+          scoped.set(
+            entry.thresholdSessionId,
+            toScopedClaim({
+              source: terminal,
+              sessionId: entry.thresholdSessionId,
+            }),
+          );
+          continue;
+        }
+        if (entry.claim?.state === 'warm') {
+          scoped.set(
+            entry.thresholdSessionId,
+            toScopedClaim({
+              source: entry.claim,
+              sessionId: entry.thresholdSessionId,
+              remainingUses: walletRemainingUses,
+              expiresAtMs: walletExpiresAtMs,
+            }),
+          );
+          continue;
+        }
+        scoped.set(entry.thresholdSessionId, entry.claim);
+      }
+    }
+    return scoped;
+  }
+
+  async function readWalletScopedClaimsForRecords(
+    records: ReturnType<typeof readWarmSessionCapabilityRecordsForAccount>,
+  ): Promise<{
+    ed25519Claim: WarmSessionPrfClaim | null;
+    evmClaim: WarmSessionPrfClaim | null;
+    tempoClaim: WarmSessionPrfClaim | null;
+  }> {
+    const claimsBySessionId = await readWarmSessionClaims({
+      touchConfirm: deps.touchConfirm,
+      sessionIds: [
+        records.ed25519?.thresholdSessionId || '',
+        records.ecdsa.evm?.thresholdSessionId || '',
+        records.ecdsa.tempo?.thresholdSessionId || '',
+      ],
+    });
+    const rawEd25519Claim =
+      claimsBySessionId.get(String(records.ed25519?.thresholdSessionId || '').trim()) || null;
+    const rawEvmClaim =
+      claimsBySessionId.get(String(records.ecdsa.evm?.thresholdSessionId || '').trim()) || null;
+    const rawTempoClaim =
+      claimsBySessionId.get(String(records.ecdsa.tempo?.thresholdSessionId || '').trim()) || null;
+    const walletScopedClaims = applyWalletSigningSessionBudget({
+      records: [
+        { record: records.ed25519, claim: rawEd25519Claim },
+        { record: records.ecdsa.evm, claim: rawEvmClaim },
+        { record: records.ecdsa.tempo, claim: rawTempoClaim },
+      ],
+    });
+    return {
+      ed25519Claim:
+        walletScopedClaims.get(String(records.ed25519?.thresholdSessionId || '').trim()) || null,
+      evmClaim:
+        walletScopedClaims.get(String(records.ecdsa.evm?.thresholdSessionId || '').trim()) || null,
+      tempoClaim:
+        walletScopedClaims.get(String(records.ecdsa.tempo?.thresholdSessionId || '').trim()) ||
+        null,
+    };
+  }
+
   function formatEmailOtpSensitiveOperationError(args: {
     operationLabel: string;
     mode: 'passkey' | 'per_operation';
@@ -512,20 +650,8 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       const evmAuth = resolveEcdsaAuthMaterial(records.ecdsa.evm);
       const tempoAuth = resolveEcdsaAuthMaterial(records.ecdsa.tempo);
 
-      const claimsBySessionId = await readWarmSessionClaims({
-        touchConfirm: deps.touchConfirm,
-        sessionIds: [
-          records.ed25519?.thresholdSessionId || '',
-          records.ecdsa.evm?.thresholdSessionId || '',
-          records.ecdsa.tempo?.thresholdSessionId || '',
-        ],
-      });
-      const ed25519Claim =
-        claimsBySessionId.get(String(records.ed25519?.thresholdSessionId || '').trim()) || null;
-      const evmClaim =
-        claimsBySessionId.get(String(records.ecdsa.evm?.thresholdSessionId || '').trim()) || null;
-      const tempoClaim =
-        claimsBySessionId.get(String(records.ecdsa.tempo?.thresholdSessionId || '').trim()) || null;
+      const { ed25519Claim, evmClaim, tempoClaim } =
+        await readWalletScopedClaimsForRecords(records);
       const invalidateEvmCapability = shouldInvalidateEmailOtpCapability({
         record: records.ecdsa.evm,
         prfClaim: evmClaim,
@@ -1318,13 +1444,14 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     async getEd25519SigningSessionStatus(
       nearAccountId: AccountId | string,
     ): Promise<SigningSessionStatus | null> {
-      const record = readWarmSessionCapabilityRecordsForAccount(toAccountId(nearAccountId)).ed25519;
+      const records = readWarmSessionCapabilityRecordsForAccount(toAccountId(nearAccountId));
+      const record = records.ed25519;
       const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
       if (!normalizedThresholdSessionId) return null;
-      const claim = await readWarmSessionClaim(deps.touchConfirm, normalizedThresholdSessionId);
+      const { ed25519Claim } = await readWalletScopedClaimsForRecords(records);
       return toSigningSessionStatus({
         sessionId: normalizedThresholdSessionId,
-        claim,
+        claim: ed25519Claim,
         authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
         retention: record?.emailOtpAuthContext?.retention || null,
       });
@@ -1337,10 +1464,11 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     }): Promise<SigningSessionStatus | null> {
       const accountId = toAccountId(args.nearAccountId);
       const expectedThresholdSessionId = String(args.thresholdSessionId || '').trim();
+      const records = readWarmSessionCapabilityRecordsForAccount(accountId);
       const record = resolveCurrentEcdsaRecord({
         nearAccountId: accountId,
         chain: args.chain,
-      });
+      }) || records.ecdsa[args.chain];
       const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
       if (!normalizedThresholdSessionId) return null;
       if (
@@ -1352,7 +1480,14 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
           status: 'not_found',
         };
       }
-      const claim = await readWarmSessionClaim(deps.touchConfirm, normalizedThresholdSessionId);
+      const claims = await readWalletScopedClaimsForRecords(records);
+      const storedRecord = records.ecdsa[args.chain];
+      const claim =
+        String(storedRecord?.thresholdSessionId || '').trim() !== normalizedThresholdSessionId
+          ? await readWarmSessionClaim(deps.touchConfirm, normalizedThresholdSessionId)
+          : args.chain === 'evm'
+          ? claims.evmClaim
+          : claims.tempoClaim;
       if (shouldInvalidateEmailOtpCapability({ record, prfClaim: claim })) {
         await clearEcdsaWarmCapabilityBestEffort({
           nearAccountId: accountId,

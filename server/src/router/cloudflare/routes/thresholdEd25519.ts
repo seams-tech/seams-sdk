@@ -210,6 +210,9 @@ export async function handleThresholdEd25519(
       const token = await session.signJwt(userId, {
         kind: 'threshold_ed25519_session_v1',
         sessionId,
+        ...(result.walletSigningSessionId
+          ? { walletSigningSessionId: result.walletSigningSessionId }
+          : {}),
         relayerKeyId,
         rpId,
         ...(thresholdExpiresAtMs !== undefined ? { thresholdExpiresAtMs } : {}),

@@ -209,6 +209,9 @@ export function registerThresholdEd25519Routes(
         const token = await session.signJwt(userId, {
           kind: 'threshold_ed25519_session_v1',
           sessionId,
+          ...(result.walletSigningSessionId
+            ? { walletSigningSessionId: result.walletSigningSessionId }
+            : {}),
           relayerKeyId,
           rpId,
           participantIds,

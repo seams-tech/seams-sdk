@@ -1,7 +1,10 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import { normalizeIndexedDbAccountModel } from '@/core/indexedDB/normalization';
-import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
+import {
+  resolveProfileAccountContextFromCandidates,
+  selectAccountSigner,
+} from '@/core/indexedDB/profileAccountProjection';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { chainFamilyFromNetwork } from '@/core/config/chains';
@@ -12,6 +15,7 @@ import {
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
   resolveAccountAuthMetadataForSignerSource,
+  type AccountAuthMetadata,
   type WalletAuthPlan,
 } from '@/core/signingEngine/auth';
 import {
@@ -53,6 +57,7 @@ import { clearThresholdEcdsaClientPresignaturesForLane } from '../orchestration/
 import { createWarmSessionManager } from '../session/WarmSessionManager';
 import type { BootstrapEcdsaSessionArgs } from './thresholdLifecycle/thresholdSessionActivation';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { isThresholdSessionAuthUnavailableError } from '../threshold/session/sessionPolicy';
 
 type EvmFamilySenderSignatureAlgorithm =
   | EvmSigningRequest['senderSignatureAlgorithm']
@@ -127,6 +132,25 @@ type EvmFamilyLifecycleArgsBase = {
   nearAccountId: string;
   signedResult: TempoSignedResult | EvmSignedResult;
   onEvent?: EvmFamilyLifecycleEventCallback;
+};
+
+type SignEvmFamilyArgs = {
+  nearAccountId: string;
+  request: TempoSigningRequest | EvmSigningRequest;
+  confirmationConfigOverride?: Partial<ConfirmationConfig>;
+  shouldAbort?: () => boolean;
+  onEvent?: (event: {
+    step: number;
+    phase: string;
+    status: 'progress' | 'success' | 'error';
+    message?: string;
+    data?: unknown;
+  }) => void;
+};
+
+type SignEvmFamilyAttemptOptions = {
+  forceFreshEmailOtpAuth?: boolean;
+  retryingFreshEmailOtpAuth?: boolean;
 };
 
 export type EvmFamilyBroadcastAcceptedArgs = EvmFamilyLifecycleArgsBase & {
@@ -517,18 +541,68 @@ function tryGetThresholdEcdsaKeyRefForSigning(args: {
   }
 }
 
-function resolveEvmFamilyTransactionAccountAuth(args: {
+async function resolveEvmFamilyTransactionAccountAuth(args: {
+  deps: EvmFamilySigningDeps;
+  nearAccountId: string;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   record?: ThresholdEcdsaSessionRecord;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
-}) {
+}): Promise<AccountAuthMetadata> {
   if (args.senderSignatureAlgorithm === 'webauthnP256') {
     return resolveAccountAuthMetadataForSignerSource();
   }
+  if (isEmailOtpThresholdEcdsaSigningContext(args)) {
+    return resolveAccountAuthMetadataForSignerSource({
+      source: SIGNER_AUTH_METHODS.emailOtp,
+    });
+  }
+
+  const accountId = toAccountId(args.nearAccountId);
+  const context = await resolveProfileAccountContextFromCandidates(
+    args.deps.indexedDB.clientDB,
+    buildNearAccountRefs(accountId),
+  ).catch(() => null);
+  if (context?.profileId) {
+    const [profile, activeSigners, lastProfileState] = await Promise.all([
+      args.deps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null),
+      args.deps.indexedDB.clientDB
+        .listAccountSigners({
+          chainIdKey: context.accountRef.chainIdKey,
+          accountAddress: context.accountRef.accountAddress,
+          status: 'active',
+        })
+        .catch(() => []),
+      args.deps.indexedDB.clientDB.getLastProfileState().catch(() => null),
+    ]);
+    if (profile && activeSigners.length) {
+      const activeSignerSlot =
+        lastProfileState?.profileId === context.profileId
+          ? Number(lastProfileState.activeSignerSlot)
+          : undefined;
+      const selectedSigner = selectAccountSigner({
+        profile,
+        activeSigners,
+        ...(typeof activeSignerSlot === 'number' &&
+        Number.isSafeInteger(activeSignerSlot) &&
+        activeSignerSlot >= 1
+          ? { signerSlot: activeSignerSlot }
+          : {}),
+      });
+      if (selectedSigner?.signerAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
+        return resolveAccountAuthMetadataForSignerSource({
+          source: SIGNER_AUTH_METHODS.emailOtp,
+        });
+      }
+      if (selectedSigner?.signerAuthMethod === SIGNER_AUTH_METHODS.passkey) {
+        return resolveAccountAuthMetadataForSignerSource({
+          source: SIGNER_AUTH_METHODS.passkey,
+        });
+      }
+    }
+  }
+
   return resolveAccountAuthMetadataForSignerSource({
-    source: isEmailOtpThresholdEcdsaSigningContext(args)
-      ? SIGNER_AUTH_METHODS.emailOtp
-      : args.record?.source,
+    source: args.record?.source,
   });
 }
 
@@ -549,6 +623,7 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   record?: ThresholdEcdsaSessionRecord;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  forceFreshAuth?: boolean;
   onEvent?: (event: {
     step: number;
     phase: string;
@@ -637,6 +712,7 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
     }),
     warmSession: {
       resolveWarmSessionPlan: async (input) => {
+        if (args.forceFreshAuth) return null;
         const record = args.record;
         if (args.senderSignatureAlgorithm !== 'secp256k1' || !record) {
           return null;
@@ -677,7 +753,9 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
   });
   const walletAuthPlan = await resolver.resolveWalletAuthPlan({
     accountId: args.nearAccountId,
-    accountAuth: resolveEvmFamilyTransactionAccountAuth({
+    accountAuth: await resolveEvmFamilyTransactionAccountAuth({
+      deps: args.deps,
+      nearAccountId: args.nearAccountId,
       senderSignatureAlgorithm: args.senderSignatureAlgorithm,
       ...(args.record ? { record: args.record } : {}),
       ...(args.keyRef ? { keyRef: args.keyRef } : {}),
@@ -1430,19 +1508,15 @@ async function ensureSmartAccountDeploymentReady(args: {
 
 export async function signEvmFamily(
   deps: EvmFamilySigningDeps,
-  args: {
-    nearAccountId: string;
-    request: TempoSigningRequest | EvmSigningRequest;
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    shouldAbort?: () => boolean;
-    onEvent?: (event: {
-      step: number;
-      phase: string;
-      status: 'progress' | 'success' | 'error';
-      message?: string;
-      data?: unknown;
-    }) => void;
-  },
+  args: SignEvmFamilyArgs,
+): Promise<TempoSignedResult | EvmSignedResult> {
+  return await signEvmFamilyAttempt(deps, args, {});
+}
+
+async function signEvmFamilyAttempt(
+  deps: EvmFamilySigningDeps,
+  args: SignEvmFamilyArgs,
+  attempt: SignEvmFamilyAttemptOptions,
 ): Promise<TempoSignedResult | EvmSignedResult> {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
@@ -1485,6 +1559,7 @@ export async function signEvmFamily(
     senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
     ...(thresholdEcdsaRecord ? { record: thresholdEcdsaRecord } : {}),
     ...(thresholdEcdsaKeyRef ? { keyRef: thresholdEcdsaKeyRef } : {}),
+    forceFreshAuth: attempt.forceFreshEmailOtpAuth === true,
     onEvent: args.onEvent,
   });
   const warmSessionManager = createWarmSessionManager({
@@ -1621,6 +1696,32 @@ export async function signEvmFamily(
     }
   }
 
+  const retryWithFreshEmailOtpAuth = async (
+    error: unknown,
+  ): Promise<TempoSignedResult | EvmSignedResult | null> => {
+    if (attempt.retryingFreshEmailOtpAuth || emailOtpSigning) return null;
+    if (args.request.senderSignatureAlgorithm !== 'secp256k1') return null;
+    if (!isThresholdSessionAuthUnavailableError(error)) return null;
+    const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
+      deps,
+      nearAccountId: args.nearAccountId,
+      senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
+      ...(thresholdEcdsaRecord ? { record: thresholdEcdsaRecord } : {}),
+      ...(thresholdEcdsaKeyRef ? { keyRef: thresholdEcdsaKeyRef } : {}),
+    });
+    if (accountAuth.primaryAuthMethod !== SIGNER_AUTH_METHODS.emailOtp) return null;
+    args.onEvent?.({
+      step: 2,
+      phase: 'threshold-session-reauth',
+      status: 'progress',
+      message: 'Signing session expired; requesting Email OTP reauthorization',
+    });
+    return await signEvmFamilyAttempt(deps, args, {
+      forceFreshEmailOtpAuth: true,
+      retryingFreshEmailOtpAuth: true,
+    });
+  };
+
   if (args.request.chain === 'evm') {
     const signEvmWithTouchConfirm = await loadSignEvmWithTouchConfirm();
     const request = args.request;
@@ -1654,6 +1755,8 @@ export async function signEvmFamily(
       });
       return result;
     } catch (error: unknown) {
+      const retried = await retryWithFreshEmailOtpAuth(error);
+      if (retried) return retried;
       throw mapToRetryableNonceStateError({
         error,
         chain: 'evm',
@@ -1689,6 +1792,8 @@ export async function signEvmFamily(
     });
     return result;
   } catch (error: unknown) {
+    const retried = await retryWithFreshEmailOtpAuth(error);
+    if (retried) return retried;
     throw mapToRetryableNonceStateError({
       error,
       chain: 'tempo',

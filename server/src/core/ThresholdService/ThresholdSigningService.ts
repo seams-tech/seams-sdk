@@ -10,7 +10,11 @@ import type {
   ThresholdEcdsaPresignaturePool,
   ThresholdEcdsaSigningSessionStore,
 } from './stores/EcdsaSigningStore';
-import type { Ed25519AuthSessionStore, Ed25519AuthSessionRecord } from './stores/AuthSessionStore';
+import type {
+  Ed25519AuthSessionStore,
+  Ed25519AuthSessionRecord,
+  ThresholdEd25519AuthConsumeUsesResult,
+} from './stores/AuthSessionStore';
 import type {
   ThresholdEd25519KeygenMaterial,
   ThresholdEd25519KeygenStrategy,
@@ -219,6 +223,7 @@ type ThresholdEcdsaBootstrapSessionResult =
   | {
       ok: true;
       sessionId: string;
+      walletSigningSessionId?: string;
       expiresAtMs: number;
       expiresAt: string;
       participantIds: number[];
@@ -591,6 +596,7 @@ function parseThresholdEd25519SessionRequest(
   nearAccountId: string;
   rpId: string;
   sessionId: string;
+  walletSigningSessionId: string;
   ttlMsRaw: number;
   remainingUsesRaw: number;
   policyParticipantIds: number[] | null;
@@ -618,16 +624,20 @@ function parseThresholdEd25519SessionRequest(
   );
   const rpId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).rpId);
   const sessionId = toOptionalTrimmedString((policyRaw as Record<string, unknown>).sessionId);
+  const walletSigningSessionId =
+    toOptionalTrimmedString((policyRaw as Record<string, unknown>).walletSigningSessionId) ||
+    sessionId;
   const policyRelayerKeyId = toOptionalTrimmedString(
     (policyRaw as Record<string, unknown>).relayerKeyId,
   );
   const ttlMsRaw = Number((policyRaw as Record<string, unknown>).ttlMs);
   const remainingUsesRaw = Number((policyRaw as Record<string, unknown>).remainingUses);
-  if (!nearAccountId || !rpId || !sessionId || !policyRelayerKeyId) {
+  if (!nearAccountId || !rpId || !sessionId || !walletSigningSessionId || !policyRelayerKeyId) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'sessionPolicy{nearAccountId,rpId,relayerKeyId,sessionId} are required',
+      message:
+        'sessionPolicy{nearAccountId,rpId,relayerKeyId,sessionId,walletSigningSessionId} are required',
     };
   }
   if (policyRelayerKeyId !== relayerKeyId) {
@@ -690,6 +700,7 @@ function parseThresholdEd25519SessionRequest(
       nearAccountId,
       rpId,
       sessionId,
+      walletSigningSessionId,
       ttlMsRaw,
       remainingUsesRaw,
       policyParticipantIds: policyParticipantIds || null,
@@ -1656,6 +1667,102 @@ export class ThresholdSigningService {
     });
   }
 
+  private walletSigningBudgetSessionId(walletSigningSessionId: string): string {
+    const id = toOptionalTrimmedString(walletSigningSessionId);
+    return id ? `wallet-signing:${id}` : '';
+  }
+
+  private async ensureWalletSigningSessionBudget(input: {
+    walletSigningSessionId: string;
+    userId: string;
+    rpId: string;
+    relayerKeyId: string;
+    participantIds: number[];
+    ttlMs: number;
+    remainingUses: number;
+  }): Promise<
+    | { ok: true; expiresAtMs: number; participantIds: number[] }
+    | { ok: false; code: string; message: string }
+  > {
+    const sessionId = this.walletSigningBudgetSessionId(input.walletSigningSessionId);
+    if (!sessionId) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'walletSigningSessionId is required',
+      };
+    }
+    const existingSession = await this.authSessionStore.getSession(sessionId);
+    if (existingSession) {
+      if (existingSession.userId !== input.userId) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'walletSigningSessionId already exists for a different user',
+        };
+      }
+      if (existingSession.relayerKeyId !== input.relayerKeyId) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'walletSigningSessionId already exists for a different relayerKeyId',
+        };
+      }
+      if (existingSession.rpId !== input.rpId) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'walletSigningSessionId already exists for a different rpId',
+        };
+      }
+      const sameParticipantIds =
+        existingSession.participantIds.length === input.participantIds.length &&
+        existingSession.participantIds.every((id, i) => id === input.participantIds[i]);
+      if (!sameParticipantIds) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'walletSigningSessionId already exists for a different participant set',
+        };
+      }
+      return {
+        ok: true,
+        expiresAtMs: existingSession.expiresAtMs,
+        participantIds: existingSession.participantIds,
+      };
+    }
+
+    const expiresAtMs = Date.now() + input.ttlMs;
+    await this.putAuthSessionRecord({
+      store: this.authSessionStore,
+      sessionId,
+      record: {
+        expiresAtMs,
+        relayerKeyId: input.relayerKeyId,
+        userId: input.userId,
+        rpId: input.rpId,
+        participantIds: input.participantIds,
+      },
+      ttlMs: input.ttlMs,
+      remainingUses: input.remainingUses,
+    });
+    return { ok: true, expiresAtMs, participantIds: input.participantIds };
+  }
+
+  private async consumeWalletOrCurveSessionUse(input: {
+    walletSigningSessionId?: string;
+    curveSessionId: string;
+    curveStore: Ed25519AuthSessionStore;
+  }): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+    const walletBudgetSessionId = this.walletSigningBudgetSessionId(
+      input.walletSigningSessionId || '',
+    );
+    if (walletBudgetSessionId) {
+      return await this.authSessionStore.consumeUseCount(walletBudgetSessionId);
+    }
+    return await input.curveStore.consumeUseCount(input.curveSessionId);
+  }
+
   private createThresholdEd25519MpcSessionId(): string {
     const id =
       typeof globalThis.crypto?.randomUUID === 'function'
@@ -1930,6 +2037,8 @@ export class ThresholdSigningService {
           message: 'threshold_ed25519.session_policy.sessionId is required',
         };
       }
+      const walletSigningSessionId =
+        String(policy.walletSigningSessionId || '').trim() || sessionId;
 
       const { ttlMs, remainingUses } = this.clampSessionPolicy({
         ttlMs: Number(policy.ttlMs),
@@ -2003,12 +2112,23 @@ export class ThresholdSigningService {
             message: 'threshold sessionId already exists for a different participant set',
           };
         }
+        const walletBudget = await this.ensureWalletSigningSessionBudget({
+          walletSigningSessionId,
+          userId: nearAccountId,
+          rpId,
+          relayerKeyId,
+          participantIds: existingSession.participantIds,
+          ttlMs,
+          remainingUses,
+        });
+        if (!walletBudget.ok) return walletBudget;
         return {
           ok: true,
           sessionId,
-          expiresAtMs: existingSession.expiresAtMs,
-          expiresAt: new Date(existingSession.expiresAtMs).toISOString(),
-          participantIds: existingSession.participantIds,
+          walletSigningSessionId,
+          expiresAtMs: walletBudget.expiresAtMs,
+          expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
+          participantIds: walletBudget.participantIds,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
         };
       }
@@ -2038,13 +2158,24 @@ export class ThresholdSigningService {
         ttlMs,
         remainingUses,
       });
+      const walletBudget = await this.ensureWalletSigningSessionBudget({
+        walletSigningSessionId,
+        userId: nearAccountId,
+        rpId,
+        relayerKeyId,
+        participantIds,
+        ttlMs,
+        remainingUses,
+      });
+      if (!walletBudget.ok) return walletBudget;
 
       return {
         ok: true,
         sessionId,
-        expiresAtMs,
-        expiresAt: new Date(expiresAtMs).toISOString(),
-        participantIds,
+        walletSigningSessionId,
+        expiresAtMs: walletBudget.expiresAtMs,
+        expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
+        participantIds: walletBudget.participantIds,
         remainingUses,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       };
@@ -2521,6 +2652,8 @@ export class ThresholdSigningService {
         message: 'threshold_ecdsa.session_policy.sessionId is required',
       };
     }
+    const walletSigningSessionId =
+      String(policy.walletSigningSessionId || '').trim() || sessionId;
     const policyParticipantIds =
       normalizeThresholdEd25519ParticipantIds(policy.participantIds) || null;
     const session = await this.ecdsaMintSessionWithoutWebAuthn({
@@ -2529,6 +2662,7 @@ export class ThresholdSigningService {
       userId,
       rpId,
       sessionId,
+      walletSigningSessionId,
       ttlMsRaw: Number(policy.ttlMs),
       remainingUsesRaw: Number(policy.remainingUses),
       policyParticipantIds,
@@ -2551,6 +2685,7 @@ export class ThresholdSigningService {
       relayerVerifyingShareB64u: derived.value.relayerVerifyingShareB64u,
       participantIds: session.participantIds || derived.value.participantIds,
       sessionId: session.sessionId,
+      walletSigningSessionId: session.walletSigningSessionId || walletSigningSessionId,
       expiresAtMs: session.expiresAtMs,
       expiresAt: session.expiresAt,
       remainingUses: session.remainingUses,
@@ -2755,6 +2890,7 @@ export class ThresholdSigningService {
     userId: string;
     rpId: string;
     sessionId: string;
+    walletSigningSessionId: string;
     ttlMsRaw: number;
     remainingUsesRaw: number;
     policyParticipantIds: number[] | null;
@@ -2766,6 +2902,7 @@ export class ThresholdSigningService {
       userId,
       rpId,
       sessionId,
+      walletSigningSessionId,
       ttlMsRaw,
       remainingUsesRaw,
       policyParticipantIds,
@@ -2826,12 +2963,23 @@ export class ThresholdSigningService {
           message: 'threshold sessionId already exists for a different signing root',
         };
       }
+      const walletBudget = await this.ensureWalletSigningSessionBudget({
+        walletSigningSessionId,
+        userId,
+        rpId,
+        relayerKeyId,
+        participantIds: existingSession.participantIds,
+        ttlMs,
+        remainingUses,
+      });
+      if (!walletBudget.ok) return walletBudget;
       return {
         ok: true,
         sessionId,
-        expiresAtMs: existingSession.expiresAtMs,
-        expiresAt: new Date(existingSession.expiresAtMs).toISOString(),
-        participantIds: existingSession.participantIds,
+        walletSigningSessionId,
+        expiresAtMs: walletBudget.expiresAtMs,
+        expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
+        participantIds: walletBudget.participantIds,
       };
     }
 
@@ -2850,13 +2998,24 @@ export class ThresholdSigningService {
       ttlMs,
       remainingUses,
     });
+    const walletBudget = await this.ensureWalletSigningSessionBudget({
+      walletSigningSessionId,
+      userId,
+      rpId,
+      relayerKeyId,
+      participantIds,
+      ttlMs,
+      remainingUses,
+    });
+    if (!walletBudget.ok) return walletBudget;
 
     return {
       ok: true,
       sessionId,
-      expiresAtMs,
-      expiresAt: new Date(expiresAtMs).toISOString(),
-      participantIds,
+      walletSigningSessionId,
+      expiresAtMs: walletBudget.expiresAtMs,
+      expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
+      participantIds: walletBudget.participantIds,
       remainingUses,
     };
   }
@@ -3659,7 +3818,11 @@ export class ThresholdSigningService {
         }
       }
 
-      const consumed = await this.ecdsaAuthSessionStore.consumeUseCount(sessionId);
+      const consumed = await this.consumeWalletOrCurveSessionUse({
+        walletSigningSessionId: claims.walletSigningSessionId,
+        curveSessionId: sessionId,
+        curveStore: this.ecdsaAuthSessionStore,
+      });
       if (!consumed.ok) {
         return { ok: false, code: consumed.code, message: consumed.message };
       }
@@ -3760,11 +3923,12 @@ export class ThresholdSigningService {
         nearAccountId,
         rpId,
         sessionId,
+        walletSigningSessionId,
         ttlMsRaw,
         remainingUsesRaw,
         policyParticipantIds,
       } = parsedRequest.value;
-      context = { nearAccountId, rpId, relayerKeyId, sessionId };
+      context = { nearAccountId, rpId, relayerKeyId, sessionId, walletSigningSessionId };
 
       await this.ensureReady();
 
@@ -3818,6 +3982,7 @@ export class ThresholdSigningService {
         rpId,
         relayerKeyId,
         sessionId,
+        walletSigningSessionId,
         ...(policyParticipantIds ? { participantIds: policyParticipantIds } : {}),
         ttlMs,
         remainingUses,
@@ -3910,12 +4075,23 @@ export class ThresholdSigningService {
       }
 
       if (existingSession) {
+        const walletBudget = await this.ensureWalletSigningSessionBudget({
+          walletSigningSessionId,
+          userId: nearAccountId,
+          rpId,
+          relayerKeyId,
+          participantIds: existingSession.participantIds,
+          ttlMs,
+          remainingUses,
+        });
+        if (!walletBudget.ok) return walletBudget;
         return {
           ok: true,
           sessionId,
-          expiresAtMs: existingSession.expiresAtMs,
-          expiresAt: new Date(existingSession.expiresAtMs).toISOString(),
-          participantIds: existingSession.participantIds,
+          walletSigningSessionId,
+          expiresAtMs: walletBudget.expiresAtMs,
+          expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
+          participantIds: walletBudget.participantIds,
         };
       }
 
@@ -3933,13 +4109,24 @@ export class ThresholdSigningService {
         ttlMs,
         remainingUses,
       });
+      const walletBudget = await this.ensureWalletSigningSessionBudget({
+        walletSigningSessionId,
+        userId: nearAccountId,
+        rpId,
+        relayerKeyId,
+        participantIds,
+        ttlMs,
+        remainingUses,
+      });
+      if (!walletBudget.ok) return walletBudget;
 
       return {
         ok: true,
         sessionId,
-        expiresAtMs,
-        expiresAt: new Date(expiresAtMs).toISOString(),
-        participantIds,
+        walletSigningSessionId,
+        expiresAtMs: walletBudget.expiresAtMs,
+        expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
+        participantIds: walletBudget.participantIds,
         remainingUses,
       };
     } catch (e: unknown) {
@@ -4840,7 +5027,11 @@ export class ThresholdSigningService {
         }
       }
 
-      const consumed = await this.authSessionStore.consumeUseCount(sessionId);
+      const consumed = await this.consumeWalletOrCurveSessionUse({
+        walletSigningSessionId: claims.walletSigningSessionId,
+        curveSessionId: sessionId,
+        curveStore: this.authSessionStore,
+      });
       if (!consumed.ok) {
         return { ok: false, code: consumed.code, message: consumed.message };
       }

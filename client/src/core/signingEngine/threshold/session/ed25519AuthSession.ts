@@ -328,6 +328,7 @@ export async function mintEd25519AuthSession(args: {
 }): Promise<{
   ok: boolean;
   sessionId?: string;
+  walletSigningSessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -360,6 +361,7 @@ export async function mintEd25519AuthSession(args: {
   type ThresholdEd25519SessionMintResponseBody = Partial<{
     ok: boolean;
     sessionId: string;
+    walletSigningSessionId: string;
     expiresAt: string;
     remainingUses: number;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -413,6 +415,7 @@ export async function mintEd25519AuthSession(args: {
     return {
       ok: data.ok === true,
       sessionId: data.sessionId,
+      walletSigningSessionId: data.walletSigningSessionId,
       expiresAtMs,
       remainingUses: data.remainingUses,
       ...(data.runtimePolicyScope ? { runtimePolicyScope: data.runtimePolicyScope } : {}),

@@ -244,6 +244,7 @@ export interface EmailOtpWorkerOperationMap {
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
       sessionId?: string;
+      walletSigningSessionId?: string;
       thresholdRouteAuth?: AppOrThresholdSessionAuth;
       ttlMs?: number;
       remainingUses?: number;
@@ -279,6 +280,7 @@ export interface EmailOtpWorkerOperationMap {
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
       sessionId?: string;
+      walletSigningSessionId?: string;
       thresholdRouteAuth?: AppOrThresholdSessionAuth;
       ttlMs?: number;
       remainingUses?: number;

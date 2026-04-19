@@ -101,6 +101,7 @@ export async function connectEd25519Session(args: {
   };
   sessionKind?: Ed25519SessionKind;
   sessionId?: string;
+  walletSigningSessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
   appSessionJwt?: string;
@@ -110,6 +111,7 @@ export async function connectEd25519Session(args: {
 }): Promise<{
   ok: boolean;
   sessionId?: string;
+  walletSigningSessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
   jwt?: string;
@@ -141,6 +143,7 @@ export async function connectEd25519Session(args: {
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     participantIds: args.participantIds,
     sessionId: args.sessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
   });
@@ -231,6 +234,9 @@ export async function connectEd25519Session(args: {
   const requestedSessionId = String(policy.sessionId || '').trim();
   const resolvedSessionId =
     String(minted.sessionId || requestedSessionId).trim() || requestedSessionId;
+  const walletSigningSessionId = String(
+    minted.walletSigningSessionId || policy.walletSigningSessionId || '',
+  ).trim();
 
   // Persist the canonical session record before sealing PRF cache state.
   // Sealed-refresh persistence resolves relayer transport from this record.
@@ -246,6 +252,7 @@ export async function connectEd25519Session(args: {
     participantIds: args.participantIds,
     sessionKind,
     sessionId: resolvedSessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     expiresAtMs,
     remainingUses,
     jwt: minted.jwt,
@@ -267,6 +274,7 @@ export async function connectEd25519Session(args: {
   return {
     ok: true,
     sessionId: resolvedSessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     expiresAtMs,
     remainingUses,
     jwt: minted.jwt,

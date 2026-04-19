@@ -277,6 +277,45 @@ This is the default Email OTP UX mode.
 
 This is the higher-friction, higher-security Email OTP mode.
 
+### Shared wallet signing-session budget
+
+In `session` mode, Email OTP creates one wallet-level signing-session budget for the wallet unlock.
+
+The budget is identified by `walletSigningSessionId` and is shared by every transaction-signing threshold capability minted for that unlock.
+
+Rules:
+
+1. one Email OTP wallet unlock creates one `walletSigningSessionId`
+2. Ed25519 and ECDSA threshold sessions created from the same recovered `S` must reference that same `walletSigningSessionId`
+3. NEAR Ed25519 signing and EVM/Tempo/Arc ECDSA signing decrement the same server-authoritative `remainingUses` counter
+4. TTL expiry invalidates both Ed25519 and ECDSA transaction-signing capabilities
+5. use-count exhaustion invalidates both Ed25519 and ECDSA transaction-signing capabilities
+6. key export and link-device/add-signer flows use operation-scoped authorization and must not replace, decrement, or invalidate the transaction-signing `walletSigningSessionId`
+7. the client may clear local worker material earlier than the server budget, but it must not extend the server TTL or `remainingUses`
+
+Prompt routing when the shared budget is expired or exhausted:
+
+1. Email OTP accounts show the transaction confirmer with a 6-digit Email OTP input and dispatch a transaction-sign OTP challenge
+2. passkey accounts show the passkey/WebAuthn prompt
+3. mixed accounts default to passkey unless project policy explicitly allows Email OTP fallback
+4. ordinary transaction signing must not fail with a generic session-not-ready error if a valid reauthorization path exists
+
+```mermaid
+flowchart TD
+  A["Google SSO app_session_v1"] --> B["Email OTP challenge + verify"]
+  B --> C["shamir3pass unseals S in worker"]
+  C --> D["Mint walletSigningSessionId"]
+  D --> E["Ed25519 threshold session"]
+  D --> F["ECDSA threshold session"]
+  E --> G["NEAR transaction signing"]
+  F --> H["EVM / Tempo / Arc signing"]
+  G --> I["Shared server budget: TTL + remainingUses"]
+  H --> I
+  I --> J{"Budget available?"}
+  J -->|yes| K["Authorize sign and decrement"]
+  J -->|no| L["Tx Confirmer asks for Email OTP reauth"]
+```
+
 ### Policy ownership
 
 The following layers may participate in policy selection:

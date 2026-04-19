@@ -117,6 +117,54 @@ type SensitiveOperationPolicy =
   | 'deny_email_otp';
 ```
 
+### Wallet Signing Session Budget
+
+`walletSigningSessionId` is the wallet-level signing-session budget created during wallet unlock or signing-session refresh.
+
+It answers:
+
+```text
+How long may this wallet keep signing, and how many transaction signatures remain, regardless of curve?
+```
+
+It is different from both token lanes above:
+
+1. `app_session_v1` proves the app/user is logged in and may request Email OTP challenges.
+2. curve-specific threshold-session JWTs authorize a concrete Ed25519 or ECDSA threshold route.
+3. `walletSigningSessionId` ties those curve-specific capabilities to one shared TTL and `remainingUses` budget.
+
+Required behavior:
+
+1. A wallet unlock creates one `walletSigningSessionId`.
+2. Ed25519 and ECDSA threshold sessions minted for that unlock must reference the same `walletSigningSessionId`.
+3. NEAR Ed25519 signing and EVM/Tempo/Arc ECDSA signing consume the same server-authoritative `remainingUses` counter.
+4. TTL expiry or use-count exhaustion invalidates both curve capabilities.
+5. Private-key export and link-device/add-signer flows use operation-scoped auth and must not consume, replace, or invalidate the transaction-signing `walletSigningSessionId`.
+6. The client may clear local worker material earlier than the server budget, but it must not extend the server TTL or remaining-use count.
+
+```mermaid
+flowchart TD
+  A["Wallet unlock auth: passkey or Email OTP"] --> B["Mint walletSigningSessionId"]
+  B --> C["Ed25519 threshold_session JWT"]
+  B --> D["ECDSA threshold_session JWT"]
+  C --> E["NEAR transaction signing"]
+  D --> F["EVM / Tempo / Arc signing"]
+  E --> G["Shared server budget: TTL + remainingUses"]
+  F --> G
+  G --> H{"Budget available?"}
+  H -->|yes| I["Authorize sign and decrement"]
+  H -->|no| J["Tx Confirmer requests fresh auth"]
+  J --> K["Email OTP account: 6-digit OTP"]
+  J --> L["Passkey account: WebAuthn"]
+```
+
+Prompt routing on exhaustion:
+
+1. Email OTP-only accounts must show the Email OTP Tx Confirmer and dispatch a transaction-sign OTP challenge.
+2. Passkey accounts must show WebAuthn/passkey confirmation.
+3. Mixed accounts default to passkey unless project policy explicitly allows Email OTP fallback.
+4. Exhaustion must not surface as a generic “session not ready” error to the app when a reauth path is available.
+
 ## 3. One-Touch Warmup Architecture
 
 Primary implementation:

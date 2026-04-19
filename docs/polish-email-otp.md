@@ -328,6 +328,122 @@ Tasks:
 9. Error messages identify the required auth method instead of using generic "session not ready" or "passkey required" messages.
 10. The release-gate test matrix covers Passkey and Email OTP across login/unlock, signing, and export decisions.
 
+
+## Refactor: Shared Wallet Signing Session Budget
+
+Goal:
+
+Transaction signing must use one wallet-level signing-session budget shared by Ed25519 and ECDSA capabilities. The curves may keep separate threshold sessions, JWTs, and secret material, but TTL and `remainingUses` must be consumed from one wallet signing session.
+
+Required invariants:
+
+1. Ed25519 and ECDSA transaction signing consume the same `walletSigningSessionId` budget.
+2. A NEAR Ed25519 sign decrements the same `remainingUses` counter as an EVM/Tempo/Arc ECDSA sign.
+3. TTL expiry invalidates both Ed25519 and ECDSA transaction signing capabilities.
+4. Use-count exhaustion invalidates both Ed25519 and ECDSA transaction signing capabilities.
+5. Private-key export and link-device/add-signer flows use operation-scoped auth and must not replace, decrement, or invalidate the active transaction signing session.
+6. When the shared signing session is expired or exhausted, the Tx Confirmer must request fresh auth using the account's registered auth method:
+   - Email OTP account: show 6-digit Email OTP input and dispatch an Email OTP challenge.
+   - Passkey account: show WebAuthn/passkey prompt.
+   - Mixed account: default to passkey, with Email OTP fallback only if project policy allows it.
+7. Email OTP-only accounts must never fall through to WebAuthn prompts for normal transaction signing.
+8. Passkey accounts must never silently downgrade to Email OTP unless Email OTP was explicitly added as a separate signer and policy allows fallback.
+
+Architecture:
+
+1. Introduce a first-class `walletSigningSessionId` separate from curve-specific `thresholdSessionId` values.
+2. Model a `WalletSigningSession` record with:
+   - `walletSigningSessionId`
+   - `walletId` / account id
+   - `authMethod`
+   - `policy`
+   - `expiresAtMs`
+   - `remainingUses`
+   - `signingRootId`
+   - revocation / consumed state
+3. Keep Ed25519 and ECDSA threshold capabilities curve-specific, but require both to reference the same `walletSigningSessionId` for a wallet unlock/session.
+4. Keep server-side enforcement authoritative for TTL, remaining uses, revocation, and abuse controls.
+5. Keep client-side worker/session state authoritative only for in-memory secret lifecycle and prompt readiness.
+6. Treat server-issued policy and counters as upper bounds; the client may clear earlier but must not extend TTL or uses.
+7. Keep export/link-device operation auth separate from `walletSigningSessionId` so sensitive operations cannot clobber transaction signing state.
+
+Todo:
+
+1. [x] Add `walletSigningSessionId` to Ed25519 and ECDSA session metadata records and key refs.
+2. [x] Add a wallet-level signing-session store or extend the existing threshold auth-session stores so Ed25519 and ECDSA consume one server-authoritative budget.
+3. [x] Update Email OTP bootstrap to mint one wallet signing session during wallet unlock, then attach both Ed25519 and ECDSA threshold sessions to it.
+4. [x] Update passkey warm-session bootstrap to use the same wallet signing-session budget abstraction.
+5. [x] Update the Email OTP worker warm-session model so secret-bearing Ed25519 and ECDSA material remains separate, but both check and consume the same `walletSigningSessionId` budget.
+6. [x] Update `WarmSessionManager` to resolve readiness from the wallet signing session first, then curve-specific capability readiness second.
+7. [x] Update NEAR Ed25519 transaction signing to consume from the shared wallet budget instead of only the Ed25519 threshold session counter.
+8. [x] Update EVM, Tempo, and Arc ECDSA transaction signing to consume from the shared wallet budget instead of only the ECDSA threshold session counter.
+9. [x] Update Tx Confirmer routing so shared-budget exhaustion produces auth-method-specific reauth instead of generic session-not-ready errors.
+10. [x] Ensure Email OTP exhausted-session reauth opens the Tx Confirmer OTP input and dispatches a transaction-sign Email OTP challenge.
+11. [x] Ensure passkey exhausted-session reauth opens WebAuthn/passkey confirmation.
+12. [x] Ensure export Ed25519 and export ECDSA use fresh operation-scoped auth and do not mutate `walletSigningSessionId`, `remainingUses`, or transaction-session worker material.
+13. [ ] Ensure link-device/add-signer flows use fresh operation-scoped auth and do not mutate the transaction signing session unless the operation explicitly creates/replaces a signer.
+14. [x] Add unit tests proving Ed25519 and ECDSA resolve against the same wallet signing-session budget.
+15. [ ] Add unit tests proving TTL expiry invalidates both Ed25519 and ECDSA capabilities.
+16. [ ] Add unit tests proving export and link-device auth do not clobber the active wallet signing session.
+17. [ ] Add Tx Confirmer tests proving Email OTP exhausted sessions show OTP UI and passkey exhausted sessions show WebAuthn UI.
+18. [ ] Add E2E coverage for Email OTP shared-budget exhaustion:
+    - register/login with Google SSO + Email OTP
+    - sign at least one NEAR Ed25519 transaction
+    - sign at least one Tempo ECDSA transaction
+    - sign at least one Arc ECDSA transaction
+    - exhaust the shared `walletSigningSessionId` budget across those signers
+    - assert the next NEAR, Tempo, and Arc sign attempts open the Tx Confirmer Email OTP prompt
+    - assert the server dispatches/logs a transaction-sign Email OTP challenge for the reauth
+19. [ ] Add E2E coverage for passkey shared-budget exhaustion:
+    - register/login with passkey
+    - sign at least one NEAR Ed25519 transaction
+    - sign at least one Tempo ECDSA transaction
+    - sign at least one Arc ECDSA transaction
+    - exhaust the shared `walletSigningSessionId` budget across those signers
+    - assert the next NEAR, Tempo, and Arc sign attempts open the WebAuthn/passkey prompt
+    - assert Email OTP UI is not shown unless the account has explicitly enabled Email OTP fallback and project policy allows it
+20. [ ] Add E2E coverage proving Ed25519 and ECDSA key export do not clobber a still-valid transaction signing session:
+    - login with an active transaction signing session
+    - export Ed25519 with fresh operation-scoped auth
+    - sign another NEAR transaction without reauth if the original transaction budget remains valid
+    - export ECDSA with fresh operation-scoped auth
+    - sign another Tempo and Arc transaction without reauth if the original transaction budget remains valid
+    - assert export auth uses a separate operation-scoped session and does not replace `walletSigningSessionId`
+21. [ ] Add E2E coverage proving Email OTP-only normal transaction reauth never opens WebAuthn:
+    - login with an Email OTP-only account
+    - exhaust or expire the transaction signing session
+    - attempt NEAR, Tempo, and Arc signing
+    - assert each flow opens the Tx Confirmer Email OTP prompt
+    - assert no WebAuthn/passkey prompt is opened for normal transaction signing
+22. [ ] Add E2E coverage for full link-device/add-signer operation-scoped auth isolation:
+    - start with a valid transaction signing session
+    - run link-device/add-signer with fresh operation-scoped auth
+    - assert the operation does not decrement, replace, or invalidate the active transaction `walletSigningSessionId`
+    - assert the newly linked signer is visible only after successful operation finalization
+    - assert failed or canceled operation-scoped auth does not mutate the wallet signing session or signer list
+23. [x] Update `docs/sso-otp-shamir3pass-signing.md` to specify that Email OTP `session` mode creates one wallet-level signing-session budget shared by Ed25519 and ECDSA.
+24. [x] Update `docs/signing-sessions.md` to define `walletSigningSessionId`, how it differs from `app_session` and curve-specific `threshold_session`, and which routes consume it.
+25. [x] Update this plan after implementation with the exact files and tests that enforce the invariant.
+
+Implementation notes:
+
+1. `walletSigningSessionId` is now carried through Ed25519 and ECDSA client session metadata, key refs, Email OTP worker bootstrap payloads, passkey warm-session bootstrap, relayer response parsing, and server session JWT claims.
+2. Server-side Ed25519 and ECDSA session mint/authorize paths now attach to a shared wallet signing-session budget keyed by `walletSigningSessionId`; TTL and remaining-use consumption are enforced by the server as the authoritative source.
+3. `WarmSessionManager` now scopes local readiness by `walletSigningSessionId` before curve-specific readiness, so a locally exhausted/expired wallet budget is reflected across Ed25519 and ECDSA capability status.
+4. EVM-family signing now resolves the active signer auth method from local signer metadata before falling back to record heuristics. If a threshold ECDSA session expires or exhausts mid-sign, the flow retries once with fresh auth; Email OTP accounts open the OTP Tx Confirmer and passkey accounts continue to WebAuthn.
+5. Export flows remain operation-scoped and do not reuse or replace the transaction-signing `walletSigningSessionId`.
+6. `docs/sso-otp-shamir3pass-signing.md` and `docs/signing-sessions.md` now document the shared `walletSigningSessionId` budget and app-session vs threshold-session separation.
+
+Verification:
+
+1. `pnpm build:sdk` passes.
+2. `pnpm -C tests exec playwright test ./unit/warmSessionManager.emailOtpPolicy.unit.test.ts ./unit/warmSessionReadModel.unit.test.ts --reporter=line` passes.
+3. `pnpm -s type-check:sdk` still reports existing test-fixture drift around signer-slot/signing-root refactors, but not in the modified EVM signing path or `walletSigningSessionId` implementation.
+
+Release gate:
+
+This refactor is complete only when a single configured signing-session budget can be consumed in any mix of NEAR Ed25519 and EVM/Tempo/Arc ECDSA transaction signing, and when sensitive operation auth cannot consume or replace that transaction-signing budget.
+
 ## ECDSA Signing-Root Binding Status
 
 The persisted ECDSA HSS replay/reconstruction path now carries `signingRootId`
