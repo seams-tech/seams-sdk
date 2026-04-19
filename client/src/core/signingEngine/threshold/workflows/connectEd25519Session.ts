@@ -17,6 +17,7 @@ import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
+  resolveAccountAuthMetadataForSignerSource,
 } from '../../auth';
 
 function joinUrlPath(baseUrl: string, path: string): string {
@@ -173,10 +174,7 @@ export async function connectEd25519Session(args: {
     });
     const walletAuthPlan = await walletAuthResolver.resolveWalletAuthPlan({
       accountId: args.nearAccountId,
-      accountAuth: {
-        primaryAuthMethod: 'passkey',
-        linkedAuthMethods: ['passkey'],
-      },
+      accountAuth: resolveAccountAuthMetadataForSignerSource(),
       intent: 'session_mint',
       curve: 'ed25519',
     });

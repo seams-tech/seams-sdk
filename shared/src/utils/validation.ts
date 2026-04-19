@@ -22,7 +22,24 @@ export {
   toOriginOrUndefined,
   toRorOriginOrNull,
   toSingleLine,
+  normalizeInteger,
+  normalizePositiveInteger,
 } from './normalize';
+
+export function requireTrimmedString(
+  value: unknown,
+  label: string,
+  message = 'is required',
+): string {
+  const parsed = normalizeOptionalTrimmedString(value);
+  if (!parsed) throw new Error(`${label} ${message}`);
+  return parsed;
+}
+
+export function toOptionalTrimmedNonEmptyString(value: unknown): string | undefined {
+  const parsed = normalizeOptionalTrimmedString(value);
+  return parsed || undefined;
+}
 
 // ===========================
 // Runtime validation helpers

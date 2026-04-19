@@ -241,16 +241,8 @@ export function createInMemoryJwtSessionAdapter(): ReturnType<typeof makeSession
   return makeSessionAdapter({
     signJwt: async (sub: string, extra?: Record<string, unknown>) => {
       const extraRecord = { ...(extra || {}) };
-      const jwtShape = extraRecord.__testJwtShape === true;
-      delete extraRecord.__testJwtShape;
       const claims = { sub, ...extraRecord };
-      const token = jwtShape
-        ? makeTestJwt(claims)
-        : `testjwt-${
-            typeof globalThis.crypto?.randomUUID === 'function'
-              ? globalThis.crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-          }`;
+      const token = makeTestJwt(claims);
       issuedTokens.set(token, claims);
       return token;
     },

@@ -1,3 +1,4 @@
+import type { SignerKind } from '@shared/utils/signerDomain';
 import type { ParentToChildType } from '../shared/messages';
 
 export type CanonicalWalletSignerErrorCode =
@@ -16,7 +17,7 @@ export type CanonicalWalletSignerErrorCode =
   | 'nonce_lane_blocked'
   | 'cancelled';
 
-export type WalletSignerBoundaryKind = 'threshold-ed25519' | 'threshold-ecdsa';
+export type WalletSignerBoundaryKind = SignerKind;
 
 const CANONICAL_SIGNER_CODES = new Set<CanonicalWalletSignerErrorCode>([
   'commit_queue_overflow',

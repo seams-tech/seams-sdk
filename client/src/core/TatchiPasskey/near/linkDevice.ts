@@ -499,6 +499,14 @@ export class LinkDeviceFlow {
     )
       ? {
           ecdsaThresholdKeyId: String(prepareObj.thresholdEcdsa.ecdsaThresholdKeyId || '').trim(),
+          signingRootId: String(prepareObj.thresholdEcdsa.signingRootId || '').trim(),
+          ...(String(prepareObj.thresholdEcdsa.signingRootVersion || '').trim()
+            ? {
+                signingRootVersion: String(
+                  prepareObj.thresholdEcdsa.signingRootVersion || '',
+                ).trim(),
+              }
+            : {}),
           clientVerifyingShareB64u: String(
             prepareObj.thresholdEcdsa.clientVerifyingShareB64u || '',
           ).trim(),

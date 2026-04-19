@@ -14,6 +14,8 @@ import { toAccountId } from '../../types/accountIds';
 
 export type PreparedLinkDeviceThresholdEcdsa = {
   ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion?: string;
   clientVerifyingShareB64u: string;
   clientAdditiveShare32B64u: string;
   relayerKeyId: string;
@@ -91,6 +93,8 @@ function buildThresholdEcdsaBootstrap(args: {
   const nearAccountId = toAccountId(args.nearAccountId);
   const session = args.thresholdEcdsa.session || {};
   const ecdsaThresholdKeyId = String(args.thresholdEcdsa.ecdsaThresholdKeyId || '').trim();
+  const signingRootId = String(args.thresholdEcdsa.signingRootId || '').trim();
+  const signingRootVersion = String(args.thresholdEcdsa.signingRootVersion || '').trim();
   const relayerKeyId = String(args.thresholdEcdsa.relayerKeyId || '').trim();
   const thresholdEcdsaPublicKeyB64u = String(
     args.thresholdEcdsa.thresholdEcdsaPublicKeyB64u || '',
@@ -118,6 +122,9 @@ function buildThresholdEcdsaBootstrap(args: {
 
   if (!ecdsaThresholdKeyId) {
     throw new Error('link-device thresholdEcdsa payload missing ecdsaThresholdKeyId');
+  }
+  if (!signingRootId) {
+    throw new Error('link-device thresholdEcdsa payload missing signingRootId');
   }
   if (
     !relayerKeyId ||
@@ -151,6 +158,8 @@ function buildThresholdEcdsaBootstrap(args: {
     userId: nearAccountId,
     relayerUrl: String(args.relayerUrl || '').trim(),
     ecdsaThresholdKeyId,
+    signingRootId,
+    ...(signingRootVersion ? { signingRootVersion } : {}),
     backendBinding: {
       relayerKeyId,
       clientVerifyingShareB64u,

@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
+import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 import { accountAuthFixtures, type AccountAuthFixture } from './helpers/accountAuth.fixtures';
 
-function expectLinkedMethod(fixture: AccountAuthFixture, method: 'passkey' | 'email_otp'): void {
+function expectLinkedMethod(fixture: AccountAuthFixture, method: WalletAuthMethod): void {
   expect(fixture.metadata.linkedAuthMethods).toContain(method);
 }
 

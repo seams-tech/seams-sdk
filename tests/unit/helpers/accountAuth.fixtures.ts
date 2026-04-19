@@ -1,12 +1,13 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
 import type { WalletAuthMethod } from '@/core/types/tatchi';
+import type { SignerAuthMethod, SignerKind, SignerSource } from '@shared/utils/signerDomain';
 
 export type AccountAuthFixtureKind = 'passkey_only' | 'email_otp_only' | 'passkey_email_otp';
 
 export type AccountAuthSignerFixture = {
-  signerKind: 'threshold-ed25519' | 'threshold-ecdsa';
-  signerAuthMethod: 'passkey' | 'email_otp';
-  signerSource: 'passkey_registration' | 'email_otp_registration' | 'self_hosted_import';
+  signerKind: SignerKind;
+  signerAuthMethod: SignerAuthMethod;
+  signerSource: SignerSource;
 };
 
 export type AccountAuthFixture = {

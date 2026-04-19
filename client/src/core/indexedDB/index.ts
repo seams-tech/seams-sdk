@@ -8,6 +8,7 @@ export type {
   ActivateAccountSignerResult,
   AccountSignerActivationPlan,
   SignerActivationPolicy,
+  SignerLifecycleErrorCode,
   SignerAuthMethod,
   SignerKind,
   SignerSource,
@@ -17,6 +18,7 @@ export type {
 
 export {
   SIGNER_MATERIAL_FINGERPRINT_METADATA_KEY,
+  SignerLifecycleError,
   planAccountSignerActivation,
 } from './accountSignerLifecycle';
 

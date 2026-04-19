@@ -660,7 +660,7 @@ Requirements:
 - Use a deterministic JSON serialization for the exact relay body.
 - Hash input includes:
   - `new_account_id`
-  - `device_number`
+  - `signer_slot`
   - `threshold_ed25519`
   - `threshold_ecdsa`
   - `rp_id`
@@ -916,7 +916,7 @@ curl -X POST "https://relay.example.com/registration/bootstrap" \
   -H "Authorization: Bearer sk_..." \
   -d '{
     "new_account_id": "alice.w3a-relayer.testnet",
-    "device_number": 1,
+    "signer_slot": 1,
     "rp_id": "wallet.example.com",
     "webauthn_registration": {
       "id": "cred_1",

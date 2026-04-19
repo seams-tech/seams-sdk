@@ -1048,6 +1048,8 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   expiresAtMs?: number;
   expiresAt?: string;
   remainingUses?: number;
+  signingRootId?: string;
+  signingRootVersion?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   jwt?: string;
   canonicalPublicKeyHex?: string;

@@ -65,6 +65,15 @@ const exportFlowScript = String.raw`
 
           setTimeout(() => {
             try {
+              window.parent?.postMessage({ type: 'WALLET_EXPORT_VIEWER_OPENED' }, '*');
+              window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_VIEWER_OPENED' }, '*');
+            } catch (err) {
+              console.error('Failed to post WALLET_EXPORT_VIEWER_OPENED', err);
+            }
+          }, 220);
+
+          setTimeout(() => {
+            try {
               window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
               window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_UI_CLOSED' }, '*');
             } catch (err) {
@@ -124,6 +133,15 @@ const exportSigningIsolationScript = String.raw`
                 console.error('Failed to post export PM_RESULT', err);
               }
             }, 100);
+
+            setTimeout(() => {
+              try {
+                window.parent?.postMessage({ type: 'WALLET_EXPORT_VIEWER_OPENED' }, '*');
+                window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_VIEWER_OPENED' }, '*');
+              } catch (err) {
+                console.error('Failed to post export viewer open marker', err);
+              }
+            }, 760);
 
             setTimeout(() => {
               try {

@@ -473,7 +473,7 @@ Suggested server-side records:
   - `credentialId`
   - `rpId`
   - `userId`
-  - `deviceNumber`
+  - `signerSlot`
 - `account_signer`
   - `userId`
   - `chainIdKey`

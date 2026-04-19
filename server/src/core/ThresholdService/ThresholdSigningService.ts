@@ -2536,11 +2536,15 @@ export class ThresholdSigningService {
     });
     if (!session.ok) return session;
 
-    return {
-      ok: true,
-      ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId,
-      relayerKeyId: derived.value.relayerKeyId,
-      clientVerifyingShareB64u: derived.value.clientVerifyingShareB64u,
+      return {
+        ok: true,
+        ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId,
+        signingRootId: derived.value.signingRootMetadata.signingRootId,
+        ...(derived.value.signingRootMetadata.signingRootVersion
+          ? { signingRootVersion: derived.value.signingRootMetadata.signingRootVersion }
+          : {}),
+        relayerKeyId: derived.value.relayerKeyId,
+        clientVerifyingShareB64u: derived.value.clientVerifyingShareB64u,
       clientAdditiveShare32B64u: derived.value.clientAdditiveShare32B64u,
       thresholdEcdsaPublicKeyB64u,
       ethereumAddress,
@@ -3445,6 +3449,10 @@ export class ThresholdSigningService {
         return {
           ok: true,
           ecdsaThresholdKeyId,
+          signingRootId: integratedKey.signingRootId,
+          ...(integratedKey.signingRootVersion
+            ? { signingRootVersion: integratedKey.signingRootVersion }
+            : {}),
           canonicalPublicKeyHex: exported.value.canonicalPublicKeyHex,
           privateKeyHex: exported.value.privateKeyHex,
           canonicalEthereumAddress: exported.value.canonicalEthereumAddress,
@@ -3513,6 +3521,10 @@ export class ThresholdSigningService {
         sessionJwtUserId: ceremony.value.userId,
         sessionJwtRpId: ceremony.value.rpId,
         ecdsaThresholdKeyId,
+        ...(bootstrap.signingRootId ? { signingRootId: bootstrap.signingRootId } : {}),
+        ...(bootstrap.signingRootVersion
+          ? { signingRootVersion: bootstrap.signingRootVersion }
+          : {}),
         clientVerifyingShareB64u: bootstrap.clientVerifyingShareB64u,
         clientAdditiveShare32B64u: bootstrap.clientAdditiveShare32B64u,
         thresholdEcdsaPublicKeyB64u,

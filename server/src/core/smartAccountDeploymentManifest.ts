@@ -3,7 +3,7 @@ import type {
   UndeployedSmartAccountSigner,
   UndeployedSmartAccountSignerSet,
 } from '@shared/utils/undeployedSmartAccountSignerSet';
-import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { normalizePositiveInteger, toOptionalTrimmedString } from '@shared/utils/validation';
 import type { AccountSignerRecord, AccountSignerStatus } from './AccountSignerStore';
 import type { SmartAccountRecoverySubjectRecord } from './SmartAccountRecoverySubjectStore';
 import { normalizeSmartAccountHexLike } from './smartAccountRegistrationRecords';
@@ -75,11 +75,6 @@ function asObject(value: unknown): Record<string, unknown> {
 function normalizeSignerId(value: unknown): string {
   const normalized = normalizeSmartAccountHexLike(value);
   return normalized || toOptionalTrimmedString(value) || '';
-}
-
-function normalizePositiveInteger(value: unknown): number | null {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function statusPriority(status: AccountSignerStatus): number {

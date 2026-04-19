@@ -80,8 +80,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
   }
 
   const accountName = nearAccountId.split('.')?.[0];
-  const hasNearEd25519Signing = Boolean(nearPublicKey);
-
   return (
     <div>
       <div className="action-section">
@@ -90,31 +88,21 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         </div>
       </div>
 
-      {hasNearEd25519Signing ? (
-        <NearGreetingSection
-          onchainGreeting={onchainGreeting}
-          isLoading={isLoading}
-          greetingInput={nearActions.greetingInput}
-          onGreetingInputChange={nearActions.setGreetingInput}
-          onRefresh={() => {
-            void fetchGreeting();
-          }}
-          onSetGreeting={nearActions.handleSetGreeting}
-          txLoading={nearActions.txLoading}
-          onSignDelegate={nearActions.handleSignDelegateGreeting}
-          delegateLoading={nearActions.delegateLoading}
-          canSubmit={nearActions.canSubmit}
-          error={error}
-        />
-      ) : (
-        <div className="action-section">
-          <h2 className="demo-subtitle">NEAR Signing</h2>
-          <div className="demo-capability-note">
-            The NEAR threshold Ed25519 signing session is not ready. Refresh the wallet signing
-            session and retry.
-          </div>
-        </div>
-      )}
+      <NearGreetingSection
+        onchainGreeting={onchainGreeting}
+        isLoading={isLoading}
+        greetingInput={nearActions.greetingInput}
+        onGreetingInputChange={nearActions.setGreetingInput}
+        onRefresh={() => {
+          void fetchGreeting();
+        }}
+        onSetGreeting={nearActions.handleSetGreeting}
+        txLoading={nearActions.txLoading}
+        onSignDelegate={nearActions.handleSignDelegateGreeting}
+        delegateLoading={nearActions.delegateLoading}
+        canSubmit={nearActions.canSubmit}
+        error={error}
+      />
 
       <ThresholdSignerSection
         thresholdEvmFundingAddress={thresholdSigners.thresholdEvmFundingAddress}
@@ -148,18 +136,16 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         canSignEvm={thresholdSigners.canSignEvm}
       />
 
-      {hasNearEd25519Signing ? (
-        <SigningSessionSection
-          sessionRemainingUsesInput={signingSession.sessionRemainingUsesInput}
-          onSessionRemainingUsesInputChange={signingSession.setSessionRemainingUsesInput}
-          sessionTtlSecondsInput={signingSession.sessionTtlSecondsInput}
-          onSessionTtlSecondsInputChange={signingSession.setSessionTtlSecondsInput}
-          onCreateSession={signingSession.handleUnlockSession}
-          unlockLoading={signingSession.unlockLoading}
-          sessionStatus={signingSession.sessionStatus}
-          expiresInSec={signingSession.expiresInSec}
-        />
-      ) : null}
+      <SigningSessionSection
+        sessionRemainingUsesInput={signingSession.sessionRemainingUsesInput}
+        onSessionRemainingUsesInputChange={signingSession.setSessionRemainingUsesInput}
+        sessionTtlSecondsInput={signingSession.sessionTtlSecondsInput}
+        onSessionTtlSecondsInputChange={signingSession.setSessionTtlSecondsInput}
+        onCreateSession={signingSession.handleUnlockSession}
+        unlockLoading={signingSession.unlockLoading}
+        sessionStatus={signingSession.sessionStatus}
+        expiresInSec={signingSession.expiresInSec}
+      />
     </div>
   );
 };

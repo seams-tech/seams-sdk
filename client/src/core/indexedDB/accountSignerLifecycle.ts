@@ -36,6 +36,30 @@ export type AccountSignerActivationPlan = {
   signerSlot: number;
 };
 
+export type SignerLifecycleErrorCode =
+  | 'signer_lifecycle_invalid_input'
+  | 'signer_lifecycle_no_available_slot'
+  | 'signer_lifecycle_duplicate_registration'
+  | 'signer_lifecycle_slot_occupied'
+  | 'signer_lifecycle_missing_material_fingerprint'
+  | 'signer_lifecycle_material_mismatch';
+
+export class SignerLifecycleError extends Error {
+  readonly code: SignerLifecycleErrorCode;
+  readonly details: Record<string, unknown>;
+
+  constructor(args: {
+    code: SignerLifecycleErrorCode;
+    message: string;
+    details?: Record<string, unknown>;
+  }) {
+    super(args.message);
+    this.name = 'SignerLifecycleError';
+    this.code = args.code;
+    this.details = args.details || {};
+  }
+}
+
 export type ActivateAccountSignerInput = {
   account: {
     profileId: string;
@@ -88,7 +112,13 @@ export type StageAccountSignerResult = {
 
 function normalizeNonEmpty(value: unknown, label: string): string {
   const normalized = toTrimmedString(value);
-  if (!normalized) throw new Error(`${label} is required`);
+  if (!normalized) {
+    throw new SignerLifecycleError({
+      code: 'signer_lifecycle_invalid_input',
+      message: `${label} is required`,
+      details: { label },
+    });
+  }
   return normalized;
 }
 
@@ -96,14 +126,24 @@ function normalizeOptionalPositiveInteger(value: unknown, label: string): number
   if (value == null) return undefined;
   const normalized = normalizeFiniteNumber(value);
   if (normalized == null || !Number.isSafeInteger(normalized) || normalized < 1) {
-    throw new Error(`${label} must be an integer >= 1`);
+    throw new SignerLifecycleError({
+      code: 'signer_lifecycle_invalid_input',
+      message: `${label} must be an integer >= 1`,
+      details: { label, value },
+    });
   }
   return normalized;
 }
 
 function normalizeRequiredPositiveInteger(value: unknown, label: string): number {
   const normalized = normalizeOptionalPositiveInteger(value, label);
-  if (normalized == null) throw new Error(`${label} is required`);
+  if (normalized == null) {
+    throw new SignerLifecycleError({
+      code: 'signer_lifecycle_invalid_input',
+      message: `${label} is required`,
+      details: { label },
+    });
+  }
   return normalized;
 }
 
@@ -111,7 +151,10 @@ function firstFreeSlot(reservedSlots: ReadonlySet<number>): number {
   for (let slot = 1; slot < 1000; slot += 1) {
     if (!reservedSlots.has(slot)) return slot;
   }
-  throw new Error('No available account signer slot');
+  throw new SignerLifecycleError({
+    code: 'signer_lifecycle_no_available_slot',
+    message: 'No available account signer slot',
+  });
 }
 
 function getSignerMaterialFingerprint(signer: { metadata?: Record<string, unknown> }): string {
@@ -129,12 +172,22 @@ function assertExistingSignerMaterialMatches(args: {
   );
   const existingFingerprint = getSignerMaterialFingerprint(args.existingSigner);
   if (!existingFingerprint) {
-    throw new Error(
-      `Existing signer ${args.existingSigner.signerId} is missing signer material fingerprint`,
-    );
+    throw new SignerLifecycleError({
+      code: 'signer_lifecycle_missing_material_fingerprint',
+      message: `Existing signer ${args.existingSigner.signerId} is missing signer material fingerprint`,
+      details: { signerId: args.existingSigner.signerId },
+    });
   }
   if (existingFingerprint !== expectedFingerprint) {
-    throw new Error(`Existing signer material mismatch for ${args.existingSigner.signerId}`);
+    throw new SignerLifecycleError({
+      code: 'signer_lifecycle_material_mismatch',
+      message: `Existing signer material mismatch for ${args.existingSigner.signerId}`,
+      details: {
+        signerId: args.existingSigner.signerId,
+        expectedFingerprint,
+        existingFingerprint,
+      },
+    });
   }
 }
 
@@ -152,7 +205,14 @@ export function planAccountSignerActivation(
   if (input.activationPolicy.mode === 'reuse_existing') {
     normalizeNonEmpty(input.activationPolicy.signerId, 'activationPolicy.signerId');
     if (input.activationPolicy.signerId !== signerId) {
-      throw new Error('reuse_existing activation policy signerId must match signer.signerId');
+      throw new SignerLifecycleError({
+        code: 'signer_lifecycle_invalid_input',
+        message: 'reuse_existing activation policy signerId must match signer.signerId',
+        details: {
+          policySignerId: input.activationPolicy.signerId,
+          signerId,
+        },
+      });
     }
     normalizeNonEmpty(
       input.activationPolicy.materialFingerprint,
@@ -176,9 +236,15 @@ export function planAccountSignerActivation(
   if (input.activationPolicy.mode === 'reuse_existing') {
     const conflictingSigner = activeSigners.find((signer) => signer.signerKind === signerKind);
     if (conflictingSigner) {
-      throw new Error(
-        `Duplicate account registration for ${signerKind}: existing signer ${conflictingSigner.signerId} differs from ${signerId}`,
-      );
+      throw new SignerLifecycleError({
+        code: 'signer_lifecycle_duplicate_registration',
+        message: `Duplicate account registration for ${signerKind}: existing signer ${conflictingSigner.signerId} differs from ${signerId}`,
+        details: {
+          signerKind,
+          signerId,
+          conflictingSignerId: conflictingSigner.signerId,
+        },
+      });
     }
   }
 
@@ -189,7 +255,14 @@ export function planAccountSignerActivation(
     );
     const occupant = activeSigners.find((signer) => signer.signerSlot === signerSlot);
     if (occupant) {
-      throw new Error(`Active signer slot ${signerSlot} is already occupied`);
+      throw new SignerLifecycleError({
+        code: 'signer_lifecycle_slot_occupied',
+        message: `Active signer slot ${signerSlot} is already occupied`,
+        details: {
+          signerSlot,
+          occupantSignerId: occupant.signerId,
+        },
+      });
     }
     return {
       signerSlot,

@@ -1,4 +1,5 @@
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
+import { requireTrimmedString } from '@shared/utils/validation';
 
 export type Shamir3PassClientKeyHandle = {
   keyHandle: string;
@@ -64,9 +65,7 @@ const pendingByRequestId = new Map<string, PendingWorkerRequest>();
 const WORKER_REQUEST_TIMEOUT_MS = 15_000;
 
 function normalizeNonEmptyString(input: unknown, label: string): string {
-  const value = typeof input === 'string' ? input.trim() : '';
-  if (!value) throw new Error(`${label} must be a non-empty string`);
-  return value;
+  return requireTrimmedString(input, label, 'must be a non-empty string');
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {

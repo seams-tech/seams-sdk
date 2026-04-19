@@ -16,7 +16,7 @@ import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
-  type AccountAuthMetadata,
+  resolveAccountAuthMetadataForSignerSource,
   type WalletAuthPlan,
 } from '@/core/signingEngine/auth';
 import type { SignerWorkerManagerContext } from '../workerManager';
@@ -149,6 +149,7 @@ export type NearSigningApiDeps = {
     otpCode: string;
     record: ThresholdEd25519SessionRecord;
     operation?: 'transaction_sign' | 'export_key';
+    remainingUses?: number;
   }) => Promise<{ sessionId: string }>;
   markThresholdEd25519EmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: AccountId | string;
@@ -169,17 +170,8 @@ export type NearSigningApiDeps = {
 
 function resolveNearTransactionAccountAuth(
   record: ThresholdEd25519SessionRecord | null | undefined,
-): AccountAuthMetadata {
-  if (record?.source === 'email_otp') {
-    return {
-      primaryAuthMethod: 'email_otp',
-      linkedAuthMethods: ['email_otp'],
-    };
-  }
-  return {
-    primaryAuthMethod: 'passkey',
-    linkedAuthMethods: ['passkey'],
-  };
+) {
+  return resolveAccountAuthMetadataForSignerSource({ source: record?.source });
 }
 
 async function resolveNearTransactionWalletAuth(args: {
@@ -188,6 +180,7 @@ async function resolveNearTransactionWalletAuth(args: {
   record: ThresholdEd25519SessionRecord | null;
   onEvent?: (update: onProgressEvents) => void;
   sensitivePolicy?: SensitiveOperationPolicy;
+  usesNeeded?: number;
 }): Promise<{
   walletAuthPlan: WalletAuthPlan;
   emailOtpSigning?: {
@@ -198,8 +191,7 @@ async function resolveNearTransactionWalletAuth(args: {
     markConsumed: (thresholdSessionId?: string) => void;
   };
 }> {
-  const sensitivePolicy =
-    args.sensitivePolicy || SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy;
+  const sensitivePolicy = args.sensitivePolicy || SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy;
   if (
     args.record?.source === 'email_otp' &&
     (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.requirePasskey ||
@@ -235,7 +227,9 @@ async function resolveNearTransactionWalletAuth(args: {
         });
         const challengeId = String(challenge.challengeId || '').trim();
         if (!challengeId) {
-          throw new Error('[SigningEngine] Email OTP challenge response did not include challengeId');
+          throw new Error(
+            '[SigningEngine] Email OTP challenge response did not include challengeId',
+          );
         }
         args.onEvent?.({
           step: 2,
@@ -261,6 +255,12 @@ async function resolveNearTransactionWalletAuth(args: {
           otpCode: code,
           record: args.record,
           operation: 'transaction_sign',
+          remainingUses: Math.max(
+            Math.floor(Number(args.usesNeeded) || 1) + 1,
+            args.record.emailOtpAuthContext?.retention === 'session'
+              ? Math.floor(Number(args.record.remainingUses) || 0)
+              : 0,
+          ),
         });
         return {
           method: 'email_otp',
@@ -273,8 +273,7 @@ async function resolveNearTransactionWalletAuth(args: {
         if (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.requireFreshSameMethod) return null;
         const record = args.record;
         const isSingleUseEmailOtpRecord =
-          record?.source === 'email_otp' &&
-          record.emailOtpAuthContext?.retention === 'single_use';
+          record?.source === 'email_otp' && record.emailOtpAuthContext?.retention === 'single_use';
         if (!record || isSingleUseEmailOtpRecord) return null;
         return {
           kind: 'warmSession',
@@ -401,6 +400,7 @@ export async function signTransactionsWithActions(
     record: thresholdSessionRecord,
     onEvent: args.onEvent,
     sensitivePolicy: args.sensitivePolicy,
+    usesNeeded: Math.max(1, args.transactions.length),
   });
   const resolvedSessionId = resolveSigningRequestSessionId({
     deps,

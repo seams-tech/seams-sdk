@@ -161,6 +161,8 @@ export async function bootstrapEcdsaSession(args: {
   sessionId?: string;
   expiresAtMs?: number;
   remainingUses?: number;
+  signingRootId?: string;
+  signingRootVersion?: string;
   jwt?: string;
   code?: string;
   message?: string;
@@ -494,6 +496,12 @@ export async function bootstrapEcdsaSession(args: {
       sessionId: resolvedSessionId,
       expiresAtMs,
       remainingUses: resolvedRemainingUses,
+      ...(typeof bootstrap.signingRootId === 'string' && bootstrap.signingRootId.trim()
+        ? { signingRootId: bootstrap.signingRootId.trim() }
+        : {}),
+      ...(typeof bootstrap.signingRootVersion === 'string' && bootstrap.signingRootVersion.trim()
+        ? { signingRootVersion: bootstrap.signingRootVersion.trim() }
+        : {}),
       jwt: bootstrap.jwt,
       ...(bootstrap.code ? { code: bootstrap.code } : {}),
       ...(bootstrap.message ? { message: bootstrap.message } : {}),

@@ -539,7 +539,7 @@ test.describe('PasskeyClientDB device selection', () => {
         });
         await db.setLastProfileStateForProfile(profileId, 1);
 
-        let errorMessage = '';
+        let errorCode = '';
         try {
           await db.activateAccountSigner({
             account: {
@@ -564,7 +564,7 @@ test.describe('PasskeyClientDB device selection', () => {
             mutation: { routeThroughOutbox: false },
           });
         } catch (e: any) {
-          errorMessage = String(e?.message || e);
+          errorCode = String(e?.code || '');
         }
 
         const oldSigner = await db.getAccountSigner({
@@ -585,7 +585,7 @@ test.describe('PasskeyClientDB device selection', () => {
         });
 
         return {
-          errorMessage,
+          errorCode,
           oldSigner: {
             status: oldSigner?.status,
             signerSlot: oldSigner?.signerSlot,
@@ -608,7 +608,7 @@ test.describe('PasskeyClientDB device selection', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.errorMessage).toContain('Duplicate account registration for threshold-ed25519');
+    expect(result.errorCode).toBe('signer_lifecycle_duplicate_registration');
     expect(result.oldSigner).toEqual({
       status: 'active',
       signerSlot: 1,
@@ -931,7 +931,7 @@ test.describe('PasskeyClientDB device selection', () => {
           mutation: { routeThroughOutbox: false },
         });
 
-        let errorMessage = '';
+        let errorCode = '';
         try {
           await db.activateAccountSigner({
             account: {
@@ -959,7 +959,7 @@ test.describe('PasskeyClientDB device selection', () => {
             mutation: { routeThroughOutbox: false },
           });
         } catch (e: any) {
-          errorMessage = String(e?.message || e);
+          errorCode = String(e?.code || '');
         }
 
         const signer = await db.getAccountSigner({ chainIdKey, accountAddress, signerId });
@@ -971,7 +971,7 @@ test.describe('PasskeyClientDB device selection', () => {
 
         return {
           first: { signerSlot: first.signerSlot },
-          errorMessage,
+          errorCode,
           signerMetadata: signer?.metadata,
           activeSignerCount: activeSigners.length,
         };
@@ -980,7 +980,7 @@ test.describe('PasskeyClientDB device selection', () => {
     );
 
     expect(result.first).toEqual({ signerSlot: 1 });
-    expect(result.errorMessage).toContain('Existing signer material mismatch');
+    expect(result.errorCode).toBe('signer_lifecycle_material_mismatch');
     expect(result.signerMetadata).toEqual({
       operationalPublicKey: 'ed25519:first',
       signerMaterialFingerprint: 'first-material',

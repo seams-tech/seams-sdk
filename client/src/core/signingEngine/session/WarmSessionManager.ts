@@ -30,15 +30,14 @@ import {
   SENSITIVE_OPERATION_POLICIES,
   type SensitiveOperationPolicy,
 } from '@shared/utils/signerDomain';
+import { WalletAuthPolicyError } from '../auth';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
   readWarmSessionEcdsaRecordByThresholdSessionId,
 } from './warmSessionStore';
 import type { Ed25519SessionKind } from '../threshold/session/ed25519SessionTypes';
-import {
-  assertWarmSessionEnvelopeInvariant,
-} from './warmSessionTypes';
+import { assertWarmSessionEnvelopeInvariant } from './warmSessionTypes';
 import type {
   WarmSessionEd25519AuthMaterial,
   WarmSessionEcdsaAuthMaterial,
@@ -72,10 +71,7 @@ import {
   summarizeWarmSessionTransition,
   type WarmSessionTransitionEvent,
 } from './warmSessionTransitions';
-import {
-  claimWarmSessionPrfFirst,
-  ensureEcdsaPrfSealPersisted,
-} from './warmSessionRuntime';
+import { claimWarmSessionPrfFirst, ensureEcdsaPrfSealPersisted } from './warmSessionRuntime';
 export type {
   WarmSessionTransitionCapabilitySnapshot,
   WarmSessionTransitionEvent,
@@ -123,7 +119,9 @@ export type WarmSessionManagerDeps = {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
   }) => ThresholdEcdsaSecp256k1KeyRef;
-  provisionThresholdEcdsaSession?: (args: ProvisionWarmEcdsaCapabilityArgs) => Promise<ThresholdEcdsaSessionBootstrapResult>;
+  provisionThresholdEcdsaSession?: (
+    args: ProvisionWarmEcdsaCapabilityArgs,
+  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   bootstrapThresholdEcdsaSession?: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
@@ -274,8 +272,6 @@ export const THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR =
   '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing';
 export const THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR =
   '[chains] threshold signingSession status is unavailable; retry after refreshing the signer runtime';
-export const EMAIL_OTP_ED25519_SESSION_REFRESH_REQUIRED_ERROR =
-  '[email-otp] verify Email OTP again before NEAR threshold signing';
 
 export function formatThresholdSigningSessionStatusError(code: string): string {
   return `[chains] threshold signingSession is ${code}; reconnect threshold session before signing`;
@@ -348,10 +344,12 @@ export type WarmSessionManager = {
   ensureEcdsaCapabilityReady: (
     args: EnsureWarmEcdsaCapabilityReadyArgs,
   ) => Promise<EnsureWarmEcdsaCapabilityReadyResult>;
-  assertEcdsaSigningSessionReady: (args: WarmSessionEcdsaCapabilityRef & {
-    thresholdSessionId: unknown;
-    usesNeeded?: number;
-  }) => Promise<Extract<WarmSessionStatusResult, { ok: true }>>;
+  assertEcdsaSigningSessionReady: (
+    args: WarmSessionEcdsaCapabilityRef & {
+      thresholdSessionId: unknown;
+      usesNeeded?: number;
+    },
+  ) => Promise<Extract<WarmSessionStatusResult, { ok: true }>>;
   resolveEd25519SigningAuthPlan: (args: {
     nearAccountId: AccountId | string;
     usesNeeded?: number;
@@ -477,13 +475,19 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     mode: 'passkey' | 'per_operation';
   }): Error {
     if (args.mode === 'per_operation') {
-      return new Error(
-        `[SigningEngine] ${args.operationLabel} requires fresh Email OTP verification with per_operation policy`,
-      );
+      return new WalletAuthPolicyError({
+        code: 'fresh_email_otp_required',
+        policy: 'sensitive_operation_requires_fresh_email_otp',
+        operationLabel: args.operationLabel,
+        message: `[SigningEngine] ${args.operationLabel} requires fresh Email OTP verification with per_operation policy`,
+      });
     }
-    return new Error(
-      `[SigningEngine] ${args.operationLabel} requires fresh passkey authentication after Email OTP login`,
-    );
+    return new WalletAuthPolicyError({
+      code: 'passkey_step_up_required',
+      policy: 'sensitive_operation_requires_passkey',
+      operationLabel: args.operationLabel,
+      message: `[SigningEngine] ${args.operationLabel} requires fresh passkey authentication after Email OTP login`,
+    });
   }
 
   function resolveCurrentEcdsaRecord(args: {
@@ -599,7 +603,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
                 ? {}
                 : records.ecdsa.tempo?.emailOtpAuthContext
                   ? { emailOtpAuthContext: records.ecdsa.tempo.emailOtpAuthContext }
-                : {}),
+                  : {}),
               state: deriveEcdsaCapabilityState({
                 record: invalidateTempoCapability ? null : records.ecdsa.tempo,
                 auth: invalidateTempoCapability ? null : tempoAuth,
@@ -700,11 +704,11 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       emitWarmSessionTransition({
         onTransition: deps.onTransition,
         event: {
-        type: 'ed25519_capability_provisioned',
-        accountId: nearAccountId,
-        thresholdSessionId: expectedSessionId,
-        before: summarizeWarmSessionTransition(beforeWarmSession),
-        after: summarizeWarmSessionTransition(afterWarmSession),
+          type: 'ed25519_capability_provisioned',
+          accountId: nearAccountId,
+          thresholdSessionId: expectedSessionId,
+          before: summarizeWarmSessionTransition(beforeWarmSession),
+          after: summarizeWarmSessionTransition(afterWarmSession),
         },
       });
       return provisioned;
@@ -777,11 +781,10 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
             : toOptionalNonEmptyString(secondaryCapability.record?.ecdsaThresholdKeyId)
               ? {
                   ecdsaThresholdKeyId: String(
-                    toOptionalNonEmptyString(secondaryCapability.record?.ecdsaThresholdKeyId) ||
-                      '',
+                    toOptionalNonEmptyString(secondaryCapability.record?.ecdsaThresholdKeyId) || '',
                   ).trim(),
                 }
-            : {}),
+              : {}),
         ...(explicitParticipantIds
           ? { participantIds: explicitParticipantIds }
           : preferredParticipantIds
@@ -903,17 +906,18 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
           label: 'ECDSA',
           nearAccountId,
           expectedSessionId,
-          persistedSessionIdRaw: afterWarmSession.capabilities.ecdsa[args.chain].record?.thresholdSessionId,
+          persistedSessionIdRaw:
+            afterWarmSession.capabilities.ecdsa[args.chain].record?.thresholdSessionId,
         });
         emitWarmSessionTransition({
           onTransition: deps.onTransition,
           event: {
-          type: 'ecdsa_capability_provisioned',
-          accountId: nearAccountId,
-          chain: args.chain,
-          thresholdSessionId: expectedSessionId,
-          before: summarizeWarmSessionTransition(beforeWarmSession),
-          after: summarizeWarmSessionTransition(afterWarmSession),
+            type: 'ecdsa_capability_provisioned',
+            accountId: nearAccountId,
+            chain: args.chain,
+            thresholdSessionId: expectedSessionId,
+            before: summarizeWarmSessionTransition(beforeWarmSession),
+            after: summarizeWarmSessionTransition(afterWarmSession),
           },
         });
         return provisioned;
@@ -940,17 +944,18 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
           label: 'ECDSA',
           nearAccountId,
           expectedSessionId,
-          persistedSessionIdRaw: afterWarmSession.capabilities.ecdsa[args.chain].record?.thresholdSessionId,
+          persistedSessionIdRaw:
+            afterWarmSession.capabilities.ecdsa[args.chain].record?.thresholdSessionId,
         });
         emitWarmSessionTransition({
           onTransition: deps.onTransition,
           event: {
-          type: 'ecdsa_capability_provisioned',
-          accountId: nearAccountId,
-          chain: args.chain,
-          thresholdSessionId: expectedSessionId,
-          before: summarizeWarmSessionTransition(beforeWarmSession),
-          after: summarizeWarmSessionTransition(afterWarmSession),
+            type: 'ecdsa_capability_provisioned',
+            accountId: nearAccountId,
+            chain: args.chain,
+            thresholdSessionId: expectedSessionId,
+            before: summarizeWarmSessionTransition(beforeWarmSession),
+            after: summarizeWarmSessionTransition(afterWarmSession),
           },
         });
         return provisioned;
@@ -1115,12 +1120,12 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
           emitWarmSessionTransition({
             onTransition: deps.onTransition,
             event: {
-            type: 'ecdsa_capability_reconnected',
-            accountId: nearAccountId,
-            chain: args.chain,
-            thresholdSessionId: String(refreshedKeyRef.thresholdSessionId || '').trim(),
-            before: summarizeWarmSessionTransition(warmSession),
-            after: summarizeWarmSessionTransition(refreshedWarmSession),
+              type: 'ecdsa_capability_reconnected',
+              accountId: nearAccountId,
+              chain: args.chain,
+              thresholdSessionId: String(refreshedKeyRef.thresholdSessionId || '').trim(),
+              before: summarizeWarmSessionTransition(warmSession),
+              after: summarizeWarmSessionTransition(refreshedWarmSession),
             },
           });
 
@@ -1197,11 +1202,10 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       const warmSession = await this.getWarmSession(args.nearAccountId);
       const capability = warmSession.capabilities.ed25519;
       const isEmailOtpSession = capability.record?.source === 'email_otp';
-      const isEmailOtpPerOperation =
-        isEmailOtpSession && capability.emailOtpAuthContext?.retention === 'single_use';
       const method: WalletAuthMethod = isEmailOtpSession ? 'email_otp' : 'passkey';
-      const retention: SigningSessionRetention | null =
-        isEmailOtpSession ? capability.emailOtpAuthContext?.retention ?? 'session' : 'session';
+      const retention: SigningSessionRetention | null = isEmailOtpSession
+        ? (capability.emailOtpAuthContext?.retention ?? 'session')
+        : 'session';
       const resolveExpiresAtMs = (): number =>
         Math.floor(
           Number(capability.prfClaim?.expiresAtMs ?? capability.record?.expiresAtMs) || Date.now(),
@@ -1227,10 +1231,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         expiresAtMs: resolveExpiresAtMs(),
         remainingUses: input.remainingUses ?? resolveRemainingUses(),
       });
-      const requireFreshEmailOtp = () => {
-        throw new Error(EMAIL_OTP_ED25519_SESSION_REFRESH_REQUIRED_ERROR);
-      };
-      const requirePerOperationEmailOtp = (): WarmSessionEd25519SigningAuthPlan =>
+      const requireEmailOtpReauth = (): WarmSessionEd25519SigningAuthPlan =>
         buildPlan({
           kind: 'emailOtpReauth',
           warmSessionReady: false,
@@ -1241,19 +1242,26 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
       }
       if (capability.state === 'auth_missing') {
-        if (isEmailOtpSession) requireFreshEmailOtp();
+        if (isEmailOtpSession) return requireEmailOtpReauth();
         throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
       }
       if (capability.state === 'prf_unavailable') {
-        if (isEmailOtpSession) requireFreshEmailOtp();
+        if (isEmailOtpSession) return requireEmailOtpReauth();
         throw new Error(formatThresholdSigningSessionAvailabilityError(capability.prfClaim?.code));
       }
       if (capability.state === 'ready') {
         const remainingUses = Math.floor(
-          Number(capability.prfClaim?.remainingUses ?? capability.record?.remainingUses) || 0,
+          Number(
+            capability.prfClaim?.state === 'warm'
+              ? capability.prfClaim.remainingUses
+              : capability.record?.remainingUses,
+          ) || 0,
         );
+        if (isEmailOtpSession && capability.prfClaim?.state !== 'warm') {
+          return requireEmailOtpReauth();
+        }
         if (remainingUses < normalizeUsesNeeded(args.usesNeeded)) {
-          if (isEmailOtpPerOperation) return requirePerOperationEmailOtp();
+          if (isEmailOtpSession) return requireEmailOtpReauth();
           throw new Error(THRESHOLD_SESSION_EXHAUSTED_ERROR);
         }
         return buildPlan({
@@ -1265,36 +1273,30 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
 
       const status = await this.getEd25519SigningSessionStatus(args.nearAccountId);
       if (status?.status === 'unavailable') {
-        if (isEmailOtpPerOperation) return requirePerOperationEmailOtp();
-        if (isEmailOtpSession) requireFreshEmailOtp();
+        if (isEmailOtpSession) return requireEmailOtpReauth();
         throw new Error(formatThresholdSigningSessionAvailabilityError(status.statusCode));
       }
       if (status?.status === 'expired') {
-        if (isEmailOtpPerOperation) return requirePerOperationEmailOtp();
-        if (isEmailOtpSession) requireFreshEmailOtp();
+        if (isEmailOtpSession) return requireEmailOtpReauth();
         throw new Error(formatThresholdSigningSessionStatusError('expired'));
       }
       if (status?.status === 'exhausted') {
-        if (isEmailOtpPerOperation) return requirePerOperationEmailOtp();
-        if (isEmailOtpSession) requireFreshEmailOtp();
+        if (isEmailOtpSession) return requireEmailOtpReauth();
         throw new Error(THRESHOLD_SESSION_EXHAUSTED_ERROR);
       }
       if (status?.status === 'active') {
-        if (isEmailOtpPerOperation) return requirePerOperationEmailOtp();
-        if (isEmailOtpSession) requireFreshEmailOtp();
+        if (isEmailOtpSession) return requireEmailOtpReauth();
         return buildPlan({
           kind: 'passkeyReauth',
           warmSessionReady: false,
         });
       }
       if (capability.state === 'missing') {
-        if (isEmailOtpPerOperation) return requirePerOperationEmailOtp();
-        if (isEmailOtpSession) requireFreshEmailOtp();
+        if (isEmailOtpSession) return requireEmailOtpReauth();
         throw new Error(THRESHOLD_SESSION_MISSING_ERROR);
       }
 
-      if (isEmailOtpPerOperation) return requirePerOperationEmailOtp();
-      if (isEmailOtpSession) requireFreshEmailOtp();
+      if (isEmailOtpSession) return requireEmailOtpReauth();
 
       if (args.operationLabel) {
         console.warn(
@@ -1341,7 +1343,10 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       });
       const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
       if (!normalizedThresholdSessionId) return null;
-      if (expectedThresholdSessionId && expectedThresholdSessionId !== normalizedThresholdSessionId) {
+      if (
+        expectedThresholdSessionId &&
+        expectedThresholdSessionId !== normalizedThresholdSessionId
+      ) {
         return {
           sessionId: expectedThresholdSessionId,
           status: 'not_found',
@@ -1438,7 +1443,9 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       await clearEcdsaEphemeralMaterialBestEffort({
         nearAccountId: accountId,
         chain: args.chain,
-        thresholdSessionId: String(record?.thresholdSessionId || args.thresholdSessionId || '').trim(),
+        thresholdSessionId: String(
+          record?.thresholdSessionId || args.thresholdSessionId || '',
+        ).trim(),
       });
       if (
         effectiveEmailOtpRecordChain !== args.chain ||
@@ -1525,12 +1532,12 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         record,
         auth,
         keyVersion: String(
-        record.signingSessionSealKeyVersion || deps.signingSessionSeal?.keyVersion || '',
+          record.signingSessionSealKeyVersion || deps.signingSessionSeal?.keyVersion || '',
         ).trim(),
         shamirPrimeB64u: String(
-        record.signingSessionSealShamirPrimeB64u ||
-          deps.signingSessionSeal?.shamirPrimeB64u ||
-          '',
+          record.signingSessionSealShamirPrimeB64u ||
+            deps.signingSessionSeal?.shamirPrimeB64u ||
+            '',
         ).trim(),
       });
     },
@@ -1546,5 +1553,7 @@ export function resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(
 export function resolveEcdsaWarmSessionSealTransportByThresholdSessionId(
   thresholdSessionId: string,
 ): ThresholdSessionSealTransportAuthMaterial | null {
-  return createWarmSessionManager().resolveEcdsaSealTransportByThresholdSessionId(thresholdSessionId);
+  return createWarmSessionManager().resolveEcdsaSealTransportByThresholdSessionId(
+    thresholdSessionId,
+  );
 }

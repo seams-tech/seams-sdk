@@ -3840,7 +3840,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       sessionId: 'ABC123',
       userId: 'bob.testnet',
       nearAccountId: 'bob.testnet',
-      deviceNumber: 7,
+      signerSlot: 7,
       status: 'prepared' as const,
       createdAtMs: Date.now(),
       updatedAtMs: Date.now(),

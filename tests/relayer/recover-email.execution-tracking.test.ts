@@ -70,7 +70,7 @@ function makeRecoverySessionRecord(input: {
     sessionId: input.payload.recoverySessionId,
     userId: 'alice.testnet',
     nearAccountId: input.payload.nearAccountId,
-    deviceNumber: 7,
+    signerSlot: 7,
     status: 'prepared' as const,
     createdAtMs: nowMs,
     updatedAtMs: nowMs,

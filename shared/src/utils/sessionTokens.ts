@@ -67,16 +67,12 @@ export function isSessionJwtUnexpired(jwtRaw: string, args?: { skewMs?: number }
 
 export function isAppSessionJwt(jwtRaw: string): boolean {
   const kind = getSessionJwtKind(jwtRaw);
-  return kind === null || kind === APP_SESSION_JWT_KIND;
+  return kind === APP_SESSION_JWT_KIND;
 }
 
 export function isThresholdSessionJwt(jwtRaw: string): boolean {
   const kind = getSessionJwtKind(jwtRaw);
-  return (
-    kind === null ||
-    kind === THRESHOLD_ED25519_SESSION_JWT_KIND ||
-    kind === THRESHOLD_ECDSA_SESSION_JWT_KIND
-  );
+  return kind === THRESHOLD_ED25519_SESSION_JWT_KIND || kind === THRESHOLD_ECDSA_SESSION_JWT_KIND;
 }
 
 export function requireAppSessionJwt(jwtRaw: string, label = 'appSessionJwt'): string {
@@ -88,10 +84,7 @@ export function requireAppSessionJwt(jwtRaw: string, label = 'appSessionJwt'): s
   return jwt;
 }
 
-export function requireThresholdSessionJwt(
-  jwtRaw: string,
-  label = 'thresholdSessionJwt',
-): string {
+export function requireThresholdSessionJwt(jwtRaw: string, label = 'thresholdSessionJwt'): string {
   const jwt = String(jwtRaw || '').trim();
   if (!jwt) throw new Error(`${label} is required`);
   if (!isThresholdSessionJwt(jwt)) {
@@ -112,11 +105,11 @@ export function appOrThresholdSessionJwtAuth(jwtRaw: string): AppOrThresholdSess
   const jwt = String(jwtRaw || '').trim();
   if (!jwt) throw new Error('session JWT is required');
   const kind = getSessionJwtKind(jwt);
-  if (
-    kind === THRESHOLD_ED25519_SESSION_JWT_KIND ||
-    kind === THRESHOLD_ECDSA_SESSION_JWT_KIND
-  ) {
+  if (kind === THRESHOLD_ED25519_SESSION_JWT_KIND || kind === THRESHOLD_ECDSA_SESSION_JWT_KIND) {
     return thresholdSessionJwtAuth(jwt);
   }
-  return appSessionJwtAuth(jwt);
+  if (kind === APP_SESSION_JWT_KIND) {
+    return appSessionJwtAuth(jwt);
+  }
+  throw new Error('session JWT must include a valid session kind');
 }

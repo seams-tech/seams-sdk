@@ -30,7 +30,6 @@ export type EmailOtpEcdsaTempoHarness = {
     email?: string;
     deviceId?: string;
     rotate?: boolean;
-    jwtShape?: boolean;
   }) => Promise<string>;
   readEmailOtpEnrollment: (walletId: string) => Promise<unknown>;
   close: () => Promise<void>;
@@ -208,7 +207,7 @@ export async function setupEmailOtpEcdsaTempoHarness(
     baseUrl: harness.baseUrl,
     shamirPrimeB64u: SHAMIR_PRIME_B64U,
     defaultClientSecretB64u: DEFAULT_EMAIL_OTP_CLIENT_SECRET_B64U,
-    mintAppSessionJwt: async ({ userId, walletId, email, deviceId, rotate, jwtShape }) => {
+    mintAppSessionJwt: async ({ userId, walletId, email, deviceId, rotate }) => {
       const normalizedUserId = String(userId || '').trim();
       if (!normalizedUserId) {
         throw new Error('mintAppSessionJwt requires userId');
@@ -229,7 +228,6 @@ export async function setupEmailOtpEcdsaTempoHarness(
         deviceId: String(deviceId || 'browser-email-otp').trim() || 'browser-email-otp',
         runtimePolicyScope,
         ...(normalizedWalletId ? { walletId: normalizedWalletId } : {}),
-        ...(jwtShape ? { __testJwtShape: true } : {}),
       });
     },
     readEmailOtpEnrollment: async (walletId) => {

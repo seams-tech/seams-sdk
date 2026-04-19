@@ -192,6 +192,7 @@ export type BootstrapThresholdEcdsaSessionArgs = {
 export type EmailOtpChallengeResult = {
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
+  emailHint?: string;
 };
 
 export type EmailOtpEnrollmentResult = {

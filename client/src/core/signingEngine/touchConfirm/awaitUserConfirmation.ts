@@ -124,15 +124,15 @@ export function awaitUserConfirmationV2(
     }
 
     // 4) Post request to the main thread.
-    // We deep-clone to ensure the payload is structured-cloneable and to avoid leaking
-    // prototype/function fields across the Worker boundary.
+    // postMessage performs the structured clone. The request has already been
+    // normalized by validateUserConfirmRequest, so avoid cloning the full
+    // transaction-display payload twice.
     try {
-      const safeRequest = deepClonePlain(request);
       const promptEnvelope: UserConfirmPromptEnvelope = {
         type: UserConfirmMessageType.PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD,
         requestId: request.requestId,
         channelToken,
-        data: safeRequest,
+        data: request,
       };
       self.postMessage(promptEnvelope);
     } catch (postErr: unknown) {
@@ -141,18 +141,6 @@ export function awaitUserConfirmationV2(
       return reject(toError(postErr));
     }
   });
-}
-
-// Local plain deep-clone to ensure structured-cloneable object for postMessage
-function deepClonePlain<T>(obj: T): T {
-  try {
-    if (typeof structuredClone === 'function') {
-      return structuredClone(obj);
-    }
-    return JSON.parse(JSON.stringify(obj));
-  } catch {
-    return obj as T;
-  }
 }
 
 function isConfirmResponseEnvelope(msg: unknown): msg is ConfirmResponseEnvelope {

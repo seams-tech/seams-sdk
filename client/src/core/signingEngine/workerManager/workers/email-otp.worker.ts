@@ -1,6 +1,10 @@
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { errorMessage } from '@shared/utils/errors';
+import {
+  requireTrimmedString,
+  toOptionalTrimmedNonEmptyString,
+} from '@shared/utils/validation';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   EMAIL_OTP_CHANNEL,
@@ -264,14 +268,11 @@ function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
 }
 
 function readString(value: unknown, label: string): string {
-  const parsed = typeof value === 'string' ? value.trim() : '';
-  if (!parsed) throw new Error(`${label} is required`);
-  return parsed;
+  return requireTrimmedString(value, label);
 }
 
 function readOptionalString(value: unknown): string | undefined {
-  const parsed = typeof value === 'string' ? value.trim() : '';
-  return parsed || undefined;
+  return toOptionalTrimmedNonEmptyString(value);
 }
 
 function readOptionalThresholdRouteAuth(
@@ -1136,6 +1137,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
     bootstrap.ecdsaThresholdKeyId,
     'ecdsaThresholdKeyId',
   );
+  const signingRootId = readString(bootstrap.signingRootId, 'signingRootId');
+  const signingRootVersion = readOptionalString(bootstrap.signingRootVersion);
   const relayerKeyId = readString(bootstrap.relayerKeyId, 'relayerKeyId');
   const clientVerifyingShareB64u = readString(
     bootstrap.clientVerifyingShareB64u,
@@ -1221,6 +1224,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
       userId,
       relayerUrl,
       ecdsaThresholdKeyId: resolvedEcdsaThresholdKeyId,
+      signingRootId,
+      ...(signingRootVersion ? { signingRootVersion } : {}),
       backendBinding: {
         relayerKeyId,
         clientVerifyingShareB64u,

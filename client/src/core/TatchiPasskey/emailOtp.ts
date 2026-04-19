@@ -4,6 +4,10 @@ import {
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
+import {
+  requireTrimmedString,
+  toOptionalTrimmedNonEmptyString,
+} from '@shared/utils/validation';
 import type { WorkerOperationContext } from '../signingEngine/workerManager/executeWorkerOperation';
 import {
   normalizeThresholdRuntimePolicyScope,
@@ -84,14 +88,11 @@ function requireObjectJson(value: unknown, label: string): JsonObject {
 }
 
 function readString(value: unknown, label: string): string {
-  const parsed = typeof value === 'string' ? value.trim() : '';
-  if (!parsed) throw new Error(`${label} is required`);
-  return parsed;
+  return requireTrimmedString(value, label);
 }
 
 function readOptionalString(value: unknown): string | undefined {
-  const parsed = typeof value === 'string' ? value.trim() : '';
-  return parsed || undefined;
+  return toOptionalTrimmedNonEmptyString(value);
 }
 
 function zeroizeBytes(bytes?: Uint8Array | null): void {

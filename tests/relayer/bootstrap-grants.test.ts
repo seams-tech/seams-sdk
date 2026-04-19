@@ -78,7 +78,7 @@ async function makeGrantBody(overrides?: Partial<Record<string, unknown>>) {
 function makeRelayRegistrationBody(overrides?: Partial<Record<string, unknown>>) {
   return {
     new_account_id: 'alice.w3a-relayer.testnet',
-    device_number: 1,
+    signer_slot: 1,
     rp_id: 'app.example.com',
     webauthn_registration: { id: 'cred-1' },
     ...(overrides || {}),
@@ -496,7 +496,7 @@ test.describe('managed bootstrap grants', () => {
     }
   });
 
-  test('express registration HSS finalize rejects existing accounts missing the finalized key', async () => {
+  test('express registration HSS finalize rejects duplicate existing accounts', async () => {
     const orgProjectEnv = await seedEnvironment();
     const { apiKeys, secret } = await createPublishableKey({});
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
@@ -560,7 +560,7 @@ test.describe('managed bootstrap grants', () => {
         },
       );
       expect(finalized.status, finalized.text).toBe(409);
-      expect(finalized.json?.code).toBe('access_key_not_provisioned');
+      expect(finalized.json?.code).toBe('wallet_id_collision');
     } finally {
       await srv.close();
     }

@@ -3,6 +3,7 @@ import type {
   WalletAuthMethod,
 } from '@/core/types/tatchi';
 import { WALLET_AUTH_METHODS } from '@shared/utils';
+import { normalizePositiveInteger, toTrimmedString } from '@shared/utils/validation';
 
 export type WalletAuthIntent =
   | 'wallet_unlock'
@@ -32,6 +33,17 @@ export type EmailOtpWalletAuthProof = {
 };
 
 export type WalletAuthProof = PasskeyWalletAuthProof | EmailOtpWalletAuthProof;
+
+export type WalletAuthPolicyErrorCode =
+  | 'passkey_step_up_required'
+  | 'fresh_email_otp_required'
+  | 'operation_blocked_by_policy';
+
+export type WalletAuthPolicy =
+  | 'export_requires_passkey'
+  | 'sensitive_operation_requires_passkey'
+  | 'sensitive_operation_requires_fresh_email_otp'
+  | 'email_otp_denied_by_policy';
 
 export type WalletAuthPlan =
   | {
@@ -89,6 +101,25 @@ export interface WarmSessionWalletAuthResolver {
   resolveWarmSessionPlan(input: ResolveWalletAuthPlanInput): Promise<WarmSessionWalletAuthPlan | null>;
 }
 
+export function resolveAccountAuthMetadataForSignerSource(args?: {
+  source?: unknown;
+  email?: string;
+  passkeyCredentialIds?: string[];
+}): AccountAuthMetadata {
+  const primaryAuthMethod =
+    args?.source === WALLET_AUTH_METHODS.emailOtp
+      ? WALLET_AUTH_METHODS.emailOtp
+      : WALLET_AUTH_METHODS.passkey;
+  return {
+    primaryAuthMethod,
+    linkedAuthMethods: [primaryAuthMethod],
+    ...(args?.email ? { email: args.email } : {}),
+    ...(args?.passkeyCredentialIds?.length
+      ? { passkeyCredentialIds: args.passkeyCredentialIds }
+      : {}),
+  };
+}
+
 export class WalletAuthModeResolutionError extends Error {
   readonly code:
     | 'missing_auth_metadata'
@@ -106,23 +137,36 @@ export class WalletAuthModeResolutionError extends Error {
   }
 }
 
-function normalizeNonEmptyString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
+export class WalletAuthPolicyError extends Error {
+  readonly code: WalletAuthPolicyErrorCode;
+  readonly policy: WalletAuthPolicy;
+  readonly intent?: WalletAuthIntent;
+  readonly operationLabel?: string;
 
-function normalizePositiveInteger(value: unknown): number {
-  const normalized = Math.floor(Number(value) || 0);
-  return Number.isSafeInteger(normalized) && normalized > 0 ? normalized : 0;
+  constructor(args: {
+    code: WalletAuthPolicyErrorCode;
+    policy: WalletAuthPolicy;
+    message: string;
+    intent?: WalletAuthIntent;
+    operationLabel?: string;
+  }) {
+    super(args.message);
+    this.name = 'WalletAuthPolicyError';
+    this.code = args.code;
+    this.policy = args.policy;
+    this.intent = args.intent;
+    this.operationLabel = args.operationLabel;
+  }
 }
 
 function assertWarmSessionPlanMatchesRequest(
   plan: WarmSessionWalletAuthPlan,
   input: ResolveWalletAuthPlanInput,
 ): void {
-  const accountId = normalizeNonEmptyString(plan.accountId);
-  const sessionId = normalizeNonEmptyString(plan.sessionId);
-  const expiresAtMs = normalizePositiveInteger(plan.expiresAtMs);
-  const remainingUses = normalizePositiveInteger(plan.remainingUses);
+  const accountId = toTrimmedString(plan.accountId);
+  const sessionId = toTrimmedString(plan.sessionId);
+  const expiresAtMs = normalizePositiveInteger(plan.expiresAtMs) || 0;
+  const remainingUses = normalizePositiveInteger(plan.remainingUses) || 0;
 
   if (accountId !== input.accountId) {
     throw new WalletAuthModeResolutionError(
@@ -229,17 +273,30 @@ export function createWalletAuthModeResolver(args: {
         );
       }
 
-      const warmSession = await args.warmSession?.resolveWarmSessionPlan(input);
-      if (warmSession) {
-        assertWarmSessionPlanMatchesRequest(warmSession, input);
-        return warmSession;
-      }
-
-      if (!accountAuth.linkedAuthMethods.includes(accountAuth.primaryAuthMethod)) {
+      const linkedAuthMethods = Array.isArray(accountAuth.linkedAuthMethods)
+        ? accountAuth.linkedAuthMethods
+        : [];
+      if (!linkedAuthMethods.includes(accountAuth.primaryAuthMethod)) {
         throw new WalletAuthModeResolutionError(
           'unlinked_primary_auth_method',
           `primary auth method is not linked: ${accountAuth.primaryAuthMethod}`,
         );
+      }
+
+      if (
+        accountAuth.primaryAuthMethod !== WALLET_AUTH_METHODS.passkey &&
+        accountAuth.primaryAuthMethod !== WALLET_AUTH_METHODS.emailOtp
+      ) {
+        throw new WalletAuthModeResolutionError(
+          'unsupported_primary_auth_method',
+          `unsupported primary auth method: ${String(accountAuth.primaryAuthMethod)}`,
+        );
+      }
+
+      const warmSession = await args.warmSession?.resolveWarmSessionPlan(input);
+      if (warmSession) {
+        assertWarmSessionPlanMatchesRequest(warmSession, input);
+        return warmSession;
       }
 
       if (accountAuth.primaryAuthMethod === WALLET_AUTH_METHODS.passkey) {

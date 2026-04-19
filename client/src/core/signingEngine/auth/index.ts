@@ -13,6 +13,8 @@ export type {
   WalletAuthIntent,
   WalletAuthModeResolver,
   WalletAuthPlan,
+  WalletAuthPolicy,
+  WalletAuthPolicyErrorCode,
   WalletAuthProof,
 } from './walletAuthModeResolver';
 
@@ -20,5 +22,7 @@ export {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
+  resolveAccountAuthMetadataForSignerSource,
   WalletAuthModeResolutionError,
+  WalletAuthPolicyError,
 } from './walletAuthModeResolver';

@@ -2902,6 +2902,8 @@ export class AuthService {
         > | null = null;
         let thresholdEcdsaKeygen: {
           ecdsaThresholdKeyId?: string;
+          signingRootId: string;
+          signingRootVersion?: string;
           clientVerifyingShareB64u: string;
           clientAdditiveShare32B64u: string;
           relayerKeyId: string;
@@ -3012,12 +3014,15 @@ export class AuthService {
           }
 
           const ecdsaThresholdKeyId = String(out.ecdsaThresholdKeyId || '').trim();
+          const signingRootId = String(out.signingRootId || '').trim();
+          const signingRootVersion = String(out.signingRootVersion || '').trim();
           const relayerKeyId = String(out.relayerKeyId || '').trim();
           const thresholdEcdsaPublicKeyB64u = String(out.thresholdEcdsaPublicKeyB64u || '').trim();
           const ethereumAddress = String(out.ethereumAddress || '').trim();
           const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
           if (
             !ecdsaThresholdKeyId ||
+            !signingRootId ||
             !relayerKeyId ||
             !thresholdEcdsaPublicKeyB64u ||
             !ethereumAddress ||
@@ -3027,6 +3032,8 @@ export class AuthService {
           }
           thresholdEcdsaKeygen = {
             ecdsaThresholdKeyId,
+            signingRootId,
+            ...(signingRootVersion ? { signingRootVersion } : {}),
             clientVerifyingShareB64u: String(out.clientVerifyingShareB64u || '').trim(),
             clientAdditiveShare32B64u: String(out.clientAdditiveShare32B64u || '').trim(),
             relayerKeyId,
@@ -6900,6 +6907,8 @@ export class AuthService {
       let thresholdEcdsaKeygen:
         | {
             ecdsaThresholdKeyId?: string;
+            signingRootId: string;
+            signingRootVersion?: string;
             clientVerifyingShareB64u: string;
             clientAdditiveShare32B64u: string;
             relayerKeyId: string;
@@ -7007,12 +7016,15 @@ export class AuthService {
           };
         }
         const ecdsaThresholdKeyId = String(out.ecdsaThresholdKeyId || '').trim();
+        const signingRootId = String(out.signingRootId || '').trim();
+        const signingRootVersion = String(out.signingRootVersion || '').trim();
         const relayerKeyId = String(out.relayerKeyId || '').trim();
         const thresholdEcdsaPublicKeyB64u = String(out.thresholdEcdsaPublicKeyB64u || '').trim();
         const ethereumAddress = String(out.ethereumAddress || '').trim();
         const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
         if (
           !ecdsaThresholdKeyId ||
+          !signingRootId ||
           !relayerKeyId ||
           !thresholdEcdsaPublicKeyB64u ||
           !ethereumAddress ||
@@ -7026,6 +7038,8 @@ export class AuthService {
         }
         thresholdEcdsaKeygen = {
           ecdsaThresholdKeyId,
+          signingRootId,
+          ...(signingRootVersion ? { signingRootVersion } : {}),
           clientVerifyingShareB64u: String(out.clientVerifyingShareB64u || '').trim(),
           clientAdditiveShare32B64u: String(out.clientAdditiveShare32B64u || '').trim(),
           relayerKeyId,
@@ -7477,6 +7491,8 @@ export class AuthService {
       let thresholdEcdsaKeygen:
         | {
             ecdsaThresholdKeyId?: string;
+            signingRootId: string;
+            signingRootVersion?: string;
             clientVerifyingShareB64u: string;
             clientAdditiveShare32B64u: string;
             relayerKeyId: string;
@@ -7584,12 +7600,15 @@ export class AuthService {
           };
         }
         const ecdsaThresholdKeyId = String(out.ecdsaThresholdKeyId || '').trim();
+        const signingRootId = String(out.signingRootId || '').trim();
+        const signingRootVersion = String(out.signingRootVersion || '').trim();
         const relayerKeyId = String(out.relayerKeyId || '').trim();
         const thresholdEcdsaPublicKeyB64u = String(out.thresholdEcdsaPublicKeyB64u || '').trim();
         const ethereumAddress = String(out.ethereumAddress || '').trim();
         const relayerVerifyingShareB64u = String(out.relayerVerifyingShareB64u || '').trim();
         if (
           !ecdsaThresholdKeyId ||
+          !signingRootId ||
           !relayerKeyId ||
           !thresholdEcdsaPublicKeyB64u ||
           !ethereumAddress ||
@@ -7603,6 +7622,8 @@ export class AuthService {
         }
         thresholdEcdsaKeygen = {
           ecdsaThresholdKeyId,
+          signingRootId,
+          ...(signingRootVersion ? { signingRootVersion } : {}),
           clientVerifyingShareB64u: String(out.clientVerifyingShareB64u || '').trim(),
           clientAdditiveShare32B64u: String(out.clientAdditiveShare32B64u || '').trim(),
           relayerKeyId,

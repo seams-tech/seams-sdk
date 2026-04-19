@@ -1,4 +1,4 @@
-import { toOptionalTrimmedString } from '@shared/utils/validation';
+import { normalizePositiveInteger, toOptionalTrimmedString } from '@shared/utils/validation';
 import { createEvmClient, parseEvmRpcHexQuantity } from '../../../client/src';
 import type { AuthService } from './AuthService';
 import type { AccountSignerRecord } from './AccountSignerStore';
@@ -105,11 +105,6 @@ const NON_RETRYABLE_RECOVERY_ERROR_CODES = new Set([
   'tx_reverted',
   'unsupported_recovery_chain',
 ]);
-
-function normalizePositiveInteger(value: unknown): number | null {
-  const normalized = Number(value);
-  return Number.isFinite(normalized) && normalized > 0 ? Math.floor(normalized) : null;
-}
 
 function canRetryRecoveryExecution(input: {
   execution: RecoveryExecutionRecord;

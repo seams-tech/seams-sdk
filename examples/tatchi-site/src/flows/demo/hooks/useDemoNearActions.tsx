@@ -28,8 +28,8 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
   const [delegateLoading, setDelegateLoading] = useState(false);
 
   const canExecuteGreeting = useCallback(
-    (val: string, loggedIn: boolean, accountId?: string | null, publicKey?: string | null) =>
-      Boolean(val?.trim()) && loggedIn && Boolean(accountId) && Boolean(publicKey),
+    (val: string, loggedIn: boolean, accountId?: string | null) =>
+      Boolean(val?.trim()) && loggedIn && Boolean(accountId),
     [],
   );
 
@@ -52,7 +52,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
   );
 
   const handleSetGreeting = useCallback(async () => {
-    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId, nearPublicKey)) return;
+    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId)) return;
     const actionToExecute: FunctionCallAction = createGreetingAction(
       greetingInput,
     ) as FunctionCallAction;
@@ -150,12 +150,11 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     greetingInput,
     isLoggedIn,
     nearAccountId,
-    nearPublicKey,
     tatchi,
   ]);
 
   const handleSignDelegateGreeting = useCallback(async () => {
-    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId, nearPublicKey)) return;
+    if (!canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId)) return;
 
     const { login: loginState } = await tatchi.auth.getWalletSession();
 
@@ -178,7 +177,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
           actions: [delegateAction],
           nonce: Date.now(),
           maxBlockHeight: 0,
-          publicKey: loginState.publicKey!,
+          publicKey: loginState.publicKey || nearPublicKey || '',
         },
         options: {
           onEvent: (event) => {
@@ -272,6 +271,6 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
     delegateLoading,
     handleSetGreeting,
     handleSignDelegateGreeting,
-    canSubmit: canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId, nearPublicKey),
+    canSubmit: canExecuteGreeting(greetingInput, isLoggedIn, nearAccountId),
   };
 }

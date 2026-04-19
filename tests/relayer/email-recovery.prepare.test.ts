@@ -38,7 +38,7 @@ function makePreparedRecoveryService() {
       ok: true,
       accountId: 'alice.testnet',
       requestId: 'ABC123',
-      deviceNumber: 7,
+      signerSlot: 7,
       credentialIdB64u: 'cred-b64u',
       thresholdEd25519: {
         relayerKeyId: 'rk-near',

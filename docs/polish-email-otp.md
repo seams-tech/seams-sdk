@@ -328,22 +328,25 @@ Tasks:
 9. Error messages identify the required auth method instead of using generic "session not ready" or "passkey required" messages.
 10. The release-gate test matrix covers Passkey and Email OTP across login/unlock, signing, and export decisions.
 
-## Separate ECDSA Signing-Root Follow-Up
+## ECDSA Signing-Root Binding Status
 
-The item "Keep the ECDSA signing-root binding issue separate but unresolved" refers to the persisted ECDSA HSS replay/reconstruction path. Once ECDSA-HSS context binds `signingRootId` and `signingRootVersion`, any persisted integrated-key replay path must feed those values into the ECDSA HSS context and reject records whose stored signing-root metadata does not match the authenticated runtime scope.
+The persisted ECDSA HSS replay/reconstruction path now carries `signingRootId`
+and optional `signingRootVersion` in the server finalize response, client key
+ref, canonical session record, and persisted lane key. Stored rows whose lane
+binding does not match the record binding are ignored before replay.
 
 Recommendation:
 
 1. Keep this separate from Email OTP auth polish because it is a custody-domain binding issue, not an OTP prompt or warm-session lifecycle issue.
-2. Treat it as a release blocker for persisted ECDSA HSS signing/export, especially self-hosted or multi-tenant deployments.
-3. Track the implementation in the signer-slot/signing-root refactor lane so it is fixed with the ECDSA HSS context shape, persisted key schema, replay path, fixtures, and tests together.
+2. Keep the binding tests as release gates for persisted ECDSA HSS signing/export, especially self-hosted or multi-project deployments.
+3. Continue tracking follow-up hardening in the signer-slot/signing-root refactor lane.
 4. Do not hide it behind a compatibility fallback; development can tolerate breaking schema/test updates.
 
 Release-blocker tracking:
 
-1. [ ] Before enabling persisted ECDSA HSS replay/reconstruction in production, bind every persisted ECDSA HSS record to `signingRootId` and `signingRootVersion`.
-2. [ ] Reject persisted ECDSA HSS signing/export records when stored signing-root metadata differs from the authenticated runtime scope.
-3. [ ] Add fixtures and tests covering matching scope, mismatched `signingRootId`, mismatched `signingRootVersion`, missing metadata, and self-hosted import replay.
+1. [x] Before enabling persisted ECDSA HSS replay/reconstruction in production, bind every persisted ECDSA HSS record to `signingRootId` and `signingRootVersion`.
+2. [x] Reject persisted ECDSA HSS signing/export records when stored signing-root metadata differs from the authenticated runtime scope.
+3. [x] Add fixtures and tests covering matching scope, mismatched `signingRootId`, mismatched `signingRootVersion`, missing metadata, and wrong account replay.
 
 ## Cleanup: JWT-Kind And Route Auth Boundaries
 

@@ -3,6 +3,7 @@ import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
+  resolveAccountAuthMetadataForSignerSource,
   WalletAuthModeResolutionError,
 } from '@/core/signingEngine/auth';
 import {
@@ -65,6 +66,27 @@ function createResolverHarness(args?: { warmSessionFor?: AccountAuthFixture }) {
 }
 
 test.describe('WalletAuthModeResolver', () => {
+  test('derives account auth metadata from canonical signer source', async () => {
+    expect(resolveAccountAuthMetadataForSignerSource()).toEqual({
+      primaryAuthMethod: 'passkey',
+      linkedAuthMethods: ['passkey'],
+    });
+    expect(resolveAccountAuthMetadataForSignerSource({ source: 'passkey' })).toEqual({
+      primaryAuthMethod: 'passkey',
+      linkedAuthMethods: ['passkey'],
+    });
+    expect(
+      resolveAccountAuthMetadataForSignerSource({
+        source: 'email_otp',
+        email: 'alice@example.test',
+      }),
+    ).toEqual({
+      primaryAuthMethod: 'email_otp',
+      linkedAuthMethods: ['email_otp'],
+      email: 'alice@example.test',
+    });
+  });
+
   test('routes passkey-only accounts to passkey reauth', async () => {
     const fixture = accountAuthFixtures.passkeyOnly;
     const { calls, resolver } = createResolverHarness();
@@ -190,6 +212,55 @@ test.describe('WalletAuthModeResolver', () => {
           linkedAuthMethods: ['passkey'],
         },
         intent: 'transaction_sign',
+      }),
+    ).rejects.toMatchObject({
+      name: 'WalletAuthModeResolutionError',
+      code: 'unlinked_primary_auth_method',
+    } satisfies Partial<WalletAuthModeResolutionError>);
+  });
+
+  test('rejects missing account auth metadata', async () => {
+    const { resolver } = createResolverHarness();
+    await expect(
+      resolver.resolveWalletAuthPlan({
+        accountId: 'missing-auth.testnet',
+        accountAuth: null as any,
+        intent: 'transaction_sign',
+      }),
+    ).rejects.toMatchObject({
+      name: 'WalletAuthModeResolutionError',
+      code: 'missing_auth_metadata',
+    } satisfies Partial<WalletAuthModeResolutionError>);
+  });
+
+  test('rejects unsupported primary auth methods', async () => {
+    const { resolver } = createResolverHarness();
+    await expect(
+      resolver.resolveWalletAuthPlan({
+        accountId: 'unsupported-auth.testnet',
+        accountAuth: {
+          primaryAuthMethod: 'magic_link',
+          linkedAuthMethods: ['magic_link'],
+        } as any,
+        intent: 'transaction_sign',
+      }),
+    ).rejects.toMatchObject({
+      name: 'WalletAuthModeResolutionError',
+      code: 'unsupported_primary_auth_method',
+    } satisfies Partial<WalletAuthModeResolutionError>);
+  });
+
+  test('rejects invalid auth metadata before accepting warm sessions', async () => {
+    const fixture = accountAuthFixtures.emailOtpOnly;
+    const { resolver } = createResolverHarness({ warmSessionFor: fixture });
+    await expect(
+      resolver.resolveWalletAuthPlan({
+        accountId: fixture.accountId,
+        accountAuth: {
+          primaryAuthMethod: 'email_otp',
+          linkedAuthMethods: ['passkey'],
+        },
+        intent: 'wallet_unlock',
       }),
     ).rejects.toMatchObject({
       name: 'WalletAuthModeResolutionError',

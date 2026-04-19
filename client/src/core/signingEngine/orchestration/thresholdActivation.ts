@@ -153,6 +153,11 @@ export async function activateEcdsaSession(
   if (!participantIds) {
     throw new Error('threshold-ecdsa bootstrap returned empty participantIds');
   }
+  const signingRootId = String(bootstrap.signingRootId || '').trim();
+  if (!signingRootId) {
+    throw new Error('threshold-ecdsa bootstrap returned empty signingRootId');
+  }
+  const signingRootVersion = String(bootstrap.signingRootVersion || '').trim();
 
   const keygen: EcdsaKeygenSuccess = {
     ok: true,
@@ -192,6 +197,8 @@ export async function activateEcdsaSession(
     userId: nearAccountId,
     relayerUrl: args.relayerUrl,
     ecdsaThresholdKeyId,
+    signingRootId,
+    ...(signingRootVersion ? { signingRootVersion } : {}),
     backendBinding: {
       relayerKeyId,
       clientVerifyingShareB64u,

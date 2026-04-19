@@ -1,3 +1,4 @@
+import { normalizePositiveInteger } from '@shared/utils/validation';
 import type { AuthService } from '../core/AuthService';
 import type { CreateAccountAndRegisterSmartAccountDeployment } from '../core/types';
 import type { RelayRuntimePolicyScope } from './relay';
@@ -14,12 +15,6 @@ function normalizeChain(value: unknown): 'evm' | 'tempo' | null {
     .toLowerCase();
   if (normalized === 'evm' || normalized === 'tempo') return normalized;
   return null;
-}
-
-function normalizePositiveInteger(value: unknown): number | null {
-  const normalized = Math.floor(Number(value));
-  if (!Number.isFinite(normalized) || normalized <= 0) return null;
-  return normalized;
 }
 
 export type SmartAccountRecoverySubjectDeploymentUpdate = {

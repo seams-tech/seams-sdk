@@ -1,5 +1,4 @@
 import type { Router as ExpressRouter } from 'express';
-import { toOptionalRecordString } from '@shared/utils/validation';
 import { DEFAULT_SESSION_COOKIE_NAME, deriveJwtExpiresAtIso, parseSessionKind } from '../../relay';
 import { emitRelayWebhookEvent } from '../../relayWebhooks';
 import { resolveSourceIpFromExpressRequest } from '../../relayApiKeyAuth';
@@ -7,27 +6,27 @@ import type { ExpressRelayContext } from '../createRelayRouter';
 import { resolveThresholdRuntimePolicyScope } from '../../commonRouterUtils';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
-  parseWalletEmailOtpChannel,
-  parseWalletEmailOtpLoginOperation,
-  parseWalletUnlockBackend,
-  type WalletEmailOtpChannel,
-} from '../../emailOtpRequestValidation';
+  handleWalletUnlockChallengeRoute,
+  handleWalletUnlockVerifyRoute,
+} from '../../walletUnlockRouteHandlers';
 import {
-  authorizeEmailOtpExportPolicy,
-  emailOtpExportPolicyAuditPayload,
-} from '../../emailOtpExportPolicy';
+  handleEmailOtpDevCleanupGoogleRegistrationRoute,
+  handleEmailOtpDevOtpOutboxRoute,
+  handleEmailOtpLoginChallengeRoute,
+  handleEmailOtpLoginVerifyRoute,
+  handleEmailOtpRegistrationChallengeRoute,
+  handleEmailOtpRegistrationFinalizeRoute,
+  handleEmailOtpRegistrationSealRoute,
+  handleEmailOtpUnsealRoute,
+} from '../../emailOtpRouteHandlers';
 import {
   emailOtpStatusCode,
-  emailOtpChallengeResponseBody,
-  getSessionWalletId,
+  emailOtpFailureAuditPayload,
+  emailOtpInternalErrorBody,
   hashEmailOtpAppSessionClaims,
-  isGoogleOidcEmailOtpSession,
   parseOidcAccountMode,
 } from '../../emailOtpSessionRouteHelpers';
-import {
-  EMAIL_OTP_CHANNEL,
-  WALLET_EMAIL_OTP_EXPORT_OPERATION,
-} from '@shared/utils/emailOtpDomain';
+import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 
 export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   const hasBearerSessionSignal = (
@@ -118,43 +117,19 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
     });
   };
 
-  const emitEmailOtpFailureWebhookEvents = async (input: {
+  const emitEmailOtpWebhookDescriptor = async (input: {
+    descriptor: { eventType: string; eventId?: string; payload: Record<string, unknown> };
     claims?: Record<string, unknown> | null;
     userId: string;
-    walletId: string;
-    source: 'registration_finalize' | 'login_challenge' | 'login_verify' | 'unlock_verify';
-    code: string;
-    message: string;
-    challengeId?: string;
-    otpChannel?: WalletEmailOtpChannel;
-    operation?: string;
-    lockedUntilMs?: number;
+    walletId?: string;
   }): Promise<void> => {
-    const payload = {
-      source: input.source,
-      code: input.code,
-      message: input.message,
-      ...(input.challengeId ? { challengeId: input.challengeId } : {}),
-      ...(input.otpChannel ? { otpChannel: input.otpChannel } : {}),
-      ...(input.operation ? { operation: input.operation } : {}),
-      ...(typeof input.lockedUntilMs === 'number' ? { lockedUntilMs: input.lockedUntilMs } : {}),
-    };
     await emitEmailOtpWebhookEvent({
-      eventType: 'wallet.email_otp.failed',
+      eventType: input.descriptor.eventType,
       claims: input.claims,
       userId: input.userId,
       walletId: input.walletId,
-      ...(input.challengeId ? { eventId: input.challengeId } : {}),
-      payload,
-    });
-    if (input.code !== 'otp_locked_out' && input.code !== 'otp_attempts_exhausted') return;
-    await emitEmailOtpWebhookEvent({
-      eventType: 'wallet.email_otp.locked',
-      claims: input.claims,
-      userId: input.userId,
-      walletId: input.walletId,
-      ...(input.challengeId ? { eventId: input.challengeId } : {}),
-      payload,
+      ...(input.descriptor.eventId ? { eventId: input.descriptor.eventId } : {}),
+      payload: input.descriptor.payload,
     });
   };
 
@@ -776,9 +751,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         code: 'internal',
         message: e?.message || 'Internal error',
       });
-      res
-        .status(500)
-        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res.status(500).json(emailOtpInternalErrorBody(e));
     }
   });
 
@@ -893,35 +866,11 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
   // Wallet: unlock challenge (backend-neutral route)
   router.post('/wallet/unlock/challenge', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-        return;
-      }
-      const body = req.body;
-      const unlockBackend = parseWalletUnlockBackend(body.unlockBackend);
-      if (!unlockBackend) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'unlockBackend is required' });
-        return;
-      }
-      const result =
-        unlockBackend === 'passkey'
-          ? await ctx.service.createWebAuthnLoginOptions({
-              userId: body.userId,
-              rpId: body.rpId,
-              ttlMs: body.ttlMs,
-            })
-          : await ctx.service.createEmailOtpUnlockChallenge({
-              walletId: body.walletId,
-              ttlMs: body.ttlMs,
-            });
-      res.status(result.ok ? 200 : result.code === 'internal' ? 500 : 400).json({
-        ...result,
-        unlockBackend,
+      const response = await handleWalletUnlockChallengeRoute({
+        body: req?.body,
+        service: ctx.service,
       });
+      res.status(response.status).json(response.body);
     } catch (e: any) {
       res
         .status(500)
@@ -932,108 +881,31 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
   // Wallet: unlock verify (backend-neutral route)
   router.post('/wallet/unlock/verify', async (req: any, res: any) => {
     try {
-      if (!req?.body) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-        return;
-      }
-      const body = req.body;
-      const unlockBackend = parseWalletUnlockBackend(body.unlockBackend);
-      if (!unlockBackend) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'unlockBackend is required' });
-        return;
-      }
-      const challengeId = String(body.challengeId || '').trim();
-      if (!challengeId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
-        return;
-      }
-      const result =
-        unlockBackend === 'passkey'
-          ? await (async () => {
-              if (!body.webauthnAuthentication || typeof body.webauthnAuthentication !== 'object') {
-                return {
-                  ok: false,
-                  verified: false,
-                  code: 'invalid_body',
-                  message: 'webauthnAuthentication is required',
-                } as const;
-              }
-              const originRaw = req.headers?.origin ?? req.headers?.Origin;
-              const origin =
-                typeof originRaw === 'string' ? originRaw.trim() || undefined : undefined;
-              return ctx.service.verifyWebAuthnLogin({
-                challengeId,
-                webauthn_authentication: body.webauthnAuthentication,
-                expected_origin: origin,
-              });
-            })()
-          : await ctx.service.verifyEmailOtpUnlockProof({
-              walletId: body.walletId,
-              challengeId,
-              unlockProof: body.unlockProof,
-            });
-      if (!result.ok || !result.verified) {
-        if (unlockBackend === EMAIL_OTP_CHANNEL) {
-          const walletId = String(body.walletId || '').trim();
-          if (walletId) {
-            await emitEmailOtpFailureWebhookEvents({
-              userId: walletId,
-              walletId,
-              source: 'unlock_verify',
-              code: String(result.code || 'unlock_verify_failed'),
-              message: String(result.message || 'Email OTP unlock verification failed'),
-              challengeId,
-            });
-          }
-        }
-        res.status(result.code === 'internal' ? 500 : 400).json({ ...result, unlockBackend });
-        return;
-      }
-      if (unlockBackend === 'passkey') {
-        await ctx.service.markEmailOtpStrongAuthSatisfied({ walletId: result.userId });
-      }
-      await emitRelayWebhookEvent({
-        logger: ctx.logger,
-        webhooks: ctx.opts.relayWebhooks,
-        eventType: 'wallet.unlocked',
-        userId: result.userId,
-        eventId: challengeId,
-        payload: {
-          unlocked: true,
-          unlockBackend,
-          challengeId,
+      const originRaw = req.headers?.origin ?? req.headers?.Origin;
+      const origin = typeof originRaw === 'string' ? originRaw.trim() || undefined : undefined;
+      const response = await handleWalletUnlockVerifyRoute({
+        body: req?.body,
+        origin,
+        service: ctx.service,
+        emitRelayWebhook: async (event) => {
+          await emitRelayWebhookEvent({
+            logger: ctx.logger,
+            webhooks: ctx.opts.relayWebhooks,
+            eventType: event.eventType,
+            userId: event.userId,
+            eventId: event.eventId,
+            payload: event.payload,
+          });
+        },
+        emitEmailOtpWebhook: async (event) => {
+          await emitEmailOtpWebhookDescriptor({
+            descriptor: event.descriptor,
+            userId: event.userId,
+            ...(event.walletId ? { walletId: event.walletId } : {}),
+          });
         },
       });
-      if (unlockBackend === EMAIL_OTP_CHANNEL) {
-        const recoveredWalletId = String(
-          (result as { walletId?: unknown }).walletId || body.walletId || '',
-        ).trim();
-        const recoveredUserId = String(result.userId || recoveredWalletId).trim();
-        await emitEmailOtpWebhookEvent({
-          eventType: 'wallet.email_otp.logged_in',
-          userId: recoveredUserId,
-          ...(recoveredWalletId ? { walletId: recoveredWalletId } : {}),
-          eventId: challengeId,
-          payload: {
-            otpChannel: EMAIL_OTP_CHANNEL,
-            unlockBackend,
-            challengeId,
-          },
-        });
-      }
-
-      res.status(200).json({
-        ok: true,
-        unlocked: true,
-        unlockBackend,
-        ...(result.userId ? { userId: result.userId } : {}),
-      });
+      res.status(response.status).json(response.body);
     } catch (e: any) {
       res
         .status(500)
@@ -1043,12 +915,6 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
 
   router.post('/wallet/email-otp/registration/challenge', async (req: any, res: any) => {
     try {
-      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-        return;
-      }
       const validated = await readAndValidateAppSession(req.headers || {});
       if (!validated.ok) {
         await maybeEmitWarmExpiredFromValidationFailure({
@@ -1058,86 +924,24 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(validated.status).json(validated.body);
         return;
       }
-
-      const body = req.body;
-      const walletId = String(body.walletId || '').trim();
-      if (!walletId) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
-        return;
-      }
-      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
-        res.status(403).json({
-          ok: false,
-          code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session wallet',
-        });
-        return;
-      }
-      const otpChannel = parseWalletEmailOtpChannel(body.otpChannel);
-      if (!otpChannel) {
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'otpChannel must be email_otp',
-        });
-        return;
-      }
-      if (!isGoogleOidcEmailOtpSession(validated.claims)) {
-        const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
-        if (!strongAuthGate.ok) {
-          res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
-          return;
-        }
-        if (strongAuthGate.required) {
-          res.status(403).json({
-            ok: false,
-            code: 'stronger_auth_required',
-            message: 'Passkey authentication is required before modifying Email OTP enrollment',
-            ...(strongAuthGate.lastEmailOtpLoginAtMs
-              ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
-              : {}),
-            ...(strongAuthGate.lastStrongAuthAtMs
-              ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
-              : {}),
-          });
-          return;
-        }
-      }
-      const email =
-        typeof validated.claims.email === 'string'
-          ? validated.claims.email.trim().toLowerCase()
-          : '';
-      const sessionHash = await hashAppSessionClaims(validated.claims);
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
-      const result = await ctx.service.createEmailOtpEnrollmentChallenge({
+      const response = await handleEmailOtpRegistrationChallengeRoute({
+        body: req?.body,
+        claims: validated.claims,
         userId: validated.userId,
-        walletId,
-        orgId: (validated.claims as any).orgId,
-        email,
-        otpChannel: otpChannel,
-        sessionHash,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
+        service: ctx.service,
       });
-      res
-        .status(result.ok ? 200 : emailOtpStatusCode(result.code))
-        .json(emailOtpChallengeResponseBody(result));
+      res.status(response.status).json(response.body);
     } catch (e: any) {
-      res
-        .status(500)
-        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res.status(500).json(emailOtpInternalErrorBody(e));
     }
   });
 
   router.post('/wallet/email-otp/registration/seal', async (req: any, res: any) => {
     try {
-      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-        return;
-      }
       const validated = await readAndValidateAppSession(req.headers || {});
       if (!validated.ok) {
         await maybeEmitWarmExpiredFromValidationFailure({
@@ -1147,78 +951,20 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(validated.status).json(validated.body);
         return;
       }
-      const body = req.body;
-      const walletId = String(body.walletId || '').trim();
-      if (!walletId) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
-        return;
-      }
-      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
-        res.status(403).json({
-          ok: false,
-          code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session wallet',
-        });
-        return;
-      }
-      const wrappedCiphertext = String(body.wrappedCiphertext || '').trim();
-      if (!wrappedCiphertext) {
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'wrappedCiphertext is required',
-        });
-        return;
-      }
-      if (!isGoogleOidcEmailOtpSession(validated.claims)) {
-        const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
-        if (!strongAuthGate.ok) {
-          res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
-          return;
-        }
-        if (strongAuthGate.required) {
-          res.status(403).json({
-            ok: false,
-            code: 'stronger_auth_required',
-            message: 'Passkey authentication is required before modifying Email OTP enrollment',
-            ...(strongAuthGate.lastEmailOtpLoginAtMs
-              ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
-              : {}),
-            ...(strongAuthGate.lastStrongAuthAtMs
-              ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
-              : {}),
-          });
-          return;
-        }
-      }
-      const result = await ctx.service.applyEmailOtpServerSeal({
-        wrappedCiphertext,
+      const response = await handleEmailOtpRegistrationSealRoute({
+        body: req?.body,
+        claims: validated.claims,
+        userId: validated.userId,
+        service: ctx.service,
       });
-      res.status(result.ok ? 200 : emailOtpStatusCode(result.code)).json(
-        result.ok
-          ? {
-              ok: true,
-              walletId,
-              ciphertext: result.ciphertext,
-              emailOtpKeyVersion: result.emailOtpKeyVersion,
-            }
-          : result,
-      );
+      res.status(response.status).json(response.body);
     } catch (e: any) {
-      res
-        .status(500)
-        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res.status(500).json(emailOtpInternalErrorBody(e));
     }
   });
 
   router.post('/wallet/email-otp/registration/finalize', async (req: any, res: any) => {
     try {
-      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-        return;
-      }
       const validated = await readAndValidateAppSession(req.headers || {});
       if (!validated.ok) {
         await maybeEmitWarmExpiredFromValidationFailure({
@@ -1228,142 +974,32 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(validated.status).json(validated.body);
         return;
       }
-
-      const body = req.body;
-      const walletId = String(body.walletId || '').trim();
-      if (!walletId) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
-        return;
-      }
-      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
-        res.status(403).json({
-          ok: false,
-          code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session wallet',
-        });
-        return;
-      }
-      const challengeId = String(body.challengeId || '').trim();
-      if (!challengeId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
-        return;
-      }
-      const otpCode = String(body.otpCode || '').trim();
-      if (!otpCode) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'otpCode is required' });
-        return;
-      }
-      const otpChannel = parseWalletEmailOtpChannel(body.otpChannel);
-      if (!otpChannel) {
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'otpChannel must be email_otp',
-        });
-        return;
-      }
-      if (!isGoogleOidcEmailOtpSession(validated.claims)) {
-        const strongAuthGate = await ctx.service.isEmailOtpStrongAuthRequired({ walletId });
-        if (!strongAuthGate.ok) {
-          res.status(emailOtpStatusCode(strongAuthGate.code)).json(strongAuthGate);
-          return;
-        }
-        if (strongAuthGate.required) {
-          res.status(403).json({
-            ok: false,
-            code: 'stronger_auth_required',
-            message: 'Passkey authentication is required before modifying Email OTP enrollment',
-            ...(strongAuthGate.lastEmailOtpLoginAtMs
-              ? { lastEmailOtpLoginAtMs: strongAuthGate.lastEmailOtpLoginAtMs }
-              : {}),
-            ...(strongAuthGate.lastStrongAuthAtMs
-              ? { lastStrongAuthAtMs: strongAuthGate.lastStrongAuthAtMs }
-              : {}),
-          });
-          return;
-        }
-      }
-      const sessionHash = await hashAppSessionClaims(validated.claims);
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
-      const result = await ctx.service.verifyEmailOtpEnrollment({
+      const response = await handleEmailOtpRegistrationFinalizeRoute({
+        body: req?.body,
+        claims: validated.claims,
         userId: validated.userId,
-        walletId,
-        orgId: (validated.claims as any).orgId,
-        enrollmentDeviceId: (validated.claims as any).deviceId,
-        challengeId,
-        otpCode,
-        otpChannel: otpChannel,
-        sessionHash,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        emailOtpEscrowBlob: body.emailOtpEscrowBlob,
-        emailOtpKeyVersion: body.emailOtpKeyVersion,
-        unlockPublicKey: body.unlockPublicKey,
-        unlockKeyVersion: body.unlockKeyVersion,
-        thresholdEcdsaClientVerifyingShareB64u: body.thresholdEcdsaClientVerifyingShareB64u,
+        service: ctx.service,
+        emitWebhook: async (event) => {
+          await emitEmailOtpWebhookDescriptor({
+            descriptor: event.descriptor,
+            claims: event.claims,
+            userId: event.userId,
+            ...(event.walletId ? { walletId: event.walletId } : {}),
+          });
+        },
       });
-      res.status(result.ok ? 200 : emailOtpStatusCode(result.code)).json(
-        result.ok
-          ? {
-              ok: true,
-              walletId: result.walletId,
-              otpChannel: result.otpChannel,
-              enrollment: {
-                createdAt: new Date(result.enrollment.createdAtMs).toISOString(),
-                updatedAt: new Date(result.enrollment.updatedAtMs).toISOString(),
-                emailOtpKeyVersion: result.enrollment.emailOtpKeyVersion,
-                unlockKeyVersion: result.enrollment.unlockKeyVersion,
-              },
-            }
-          : result,
-      );
-      if (result.ok) {
-        await emitEmailOtpWebhookEvent({
-          eventType: 'wallet.email_otp.enrolled',
-          claims: validated.claims,
-          userId: validated.userId,
-          walletId: result.walletId,
-          eventId: challengeId,
-          payload: {
-            otpChannel: result.otpChannel,
-            emailOtpKeyVersion: result.enrollment.emailOtpKeyVersion,
-            unlockKeyVersion: result.enrollment.unlockKeyVersion,
-          },
-        });
-      } else {
-        await emitEmailOtpFailureWebhookEvents({
-          claims: validated.claims,
-          userId: validated.userId,
-          walletId,
-          source: 'registration_finalize',
-          code: result.code,
-          message: result.message,
-          challengeId,
-          otpChannel: otpChannel,
-          lockedUntilMs:
-            typeof (result as { lockedUntilMs?: unknown }).lockedUntilMs === 'number'
-              ? Number((result as { lockedUntilMs?: unknown }).lockedUntilMs)
-              : undefined,
-        });
-      }
+      res.status(response.status).json(response.body);
     } catch (e: any) {
-      res
-        .status(500)
-        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res.status(500).json(emailOtpInternalErrorBody(e));
     }
   });
 
   router.post('/wallet/email-otp/login/challenge', async (req: any, res: any) => {
     try {
-      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-        return;
-      }
       const validated = await readAndValidateAppSession(req.headers || {});
       if (!validated.ok) {
         await maybeEmitWarmExpiredFromValidationFailure({
@@ -1373,139 +1009,33 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(validated.status).json(validated.body);
         return;
       }
-
-      const body = req.body;
-      const walletId = String(body.walletId || '').trim();
-      if (!walletId) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
-        return;
-      }
-      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
-        res.status(403).json({
-          ok: false,
-          code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session wallet',
-        });
-        return;
-      }
-      const otpChannel = parseWalletEmailOtpChannel(body.otpChannel);
-      if (!otpChannel) {
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'otpChannel must be email_otp',
-        });
-        return;
-      }
-      const email =
-        typeof validated.claims.email === 'string'
-          ? validated.claims.email.trim().toLowerCase()
-          : '';
-      const parsedOperation = parseWalletEmailOtpLoginOperation(body.operation);
-      if (!parsedOperation.ok) {
-        res.status(400).json(parsedOperation);
-        return;
-      }
-      const sessionHash = await hashAppSessionClaims(validated.claims);
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
-      const exportPolicy =
-        parsedOperation.operation === WALLET_EMAIL_OTP_EXPORT_OPERATION
-          ? await authorizeEmailOtpExportPolicy(ctx.opts, {
-              operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-              phase: 'challenge',
-              userId: validated.userId,
-              walletId,
-              orgId: toOptionalRecordString(validated.claims, 'orgId'),
-              projectId: toOptionalRecordString(validated.claims, 'projectId'),
-              environmentId: toOptionalRecordString(validated.claims, 'environmentId'),
-              appSessionVersion: validated.appSessionVersion,
-              sourceIp: clientIp,
-            })
-          : null;
-      if (exportPolicy && !exportPolicy.ok) {
-        await emitEmailOtpWebhookEvent({
-          eventType: 'wallet.email_otp.export_denied',
-          claims: validated.claims,
-          userId: validated.userId,
-          walletId,
-          payload: {
-            ...emailOtpExportPolicyAuditPayload({
-              source: 'login_challenge',
-              decision: exportPolicy,
-              otpChannel,
-            }),
-            code: exportPolicy.code,
-            message: exportPolicy.message,
-          },
-        });
-        res.status(403).json({
-          ok: false,
-          code: exportPolicy.code,
-          message: exportPolicy.message,
-        });
-        return;
-      }
-      const result = await ctx.service.createEmailOtpChallenge({
+      const response = await handleEmailOtpLoginChallengeRoute({
+        body: req?.body,
+        claims: validated.claims,
         userId: validated.userId,
-        walletId,
-        orgId: (validated.claims as any).orgId,
-        email,
-        otpChannel: otpChannel,
-        sessionHash,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        operation: parsedOperation.operation,
+        service: ctx.service,
+        opts: ctx.opts,
+        emitWebhook: async (event) => {
+          await emitEmailOtpWebhookDescriptor({
+            descriptor: event.descriptor,
+            claims: event.claims,
+            userId: event.userId,
+            ...(event.walletId ? { walletId: event.walletId } : {}),
+          });
+        },
       });
-      res
-        .status(result.ok ? 200 : emailOtpStatusCode(result.code))
-        .json(emailOtpChallengeResponseBody(result));
-      if (result.ok && exportPolicy) {
-        await emitEmailOtpWebhookEvent({
-          eventType: 'wallet.email_otp.export_challenge_issued',
-          claims: validated.claims,
-          userId: validated.userId,
-          walletId,
-          eventId: result.challenge.challengeId,
-          payload: emailOtpExportPolicyAuditPayload({
-            source: 'login_challenge',
-            decision: exportPolicy,
-            challengeId: result.challenge.challengeId,
-            otpChannel,
-          }),
-        });
-      }
-      if (!result.ok && result.code === 'otp_locked_out') {
-        await emitEmailOtpFailureWebhookEvents({
-          claims: validated.claims,
-          userId: validated.userId,
-          walletId,
-          source: 'login_challenge',
-          code: result.code,
-          message: result.message,
-          otpChannel: otpChannel,
-          operation: parsedOperation.operation,
-          lockedUntilMs:
-            typeof (result as { lockedUntilMs?: unknown }).lockedUntilMs === 'number'
-              ? Number((result as { lockedUntilMs?: unknown }).lockedUntilMs)
-              : undefined,
-        });
-      }
+      res.status(response.status).json(response.body);
     } catch (e: any) {
-      res
-        .status(500)
-        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res.status(500).json(emailOtpInternalErrorBody(e));
     }
   });
 
   router.post('/wallet/email-otp/login/verify', async (req: any, res: any) => {
     try {
-      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-        return;
-      }
       const validated = await readAndValidateAppSession(req.headers || {});
       if (!validated.ok) {
         await maybeEmitWarmExpiredFromValidationFailure({
@@ -1515,193 +1045,33 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(validated.status).json(validated.body);
         return;
       }
-
-      const body = req.body;
-      const walletId = String(body.walletId || '').trim();
-      if (!walletId) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'walletId is required' });
-        return;
-      }
-      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
-        res.status(403).json({
-          ok: false,
-          code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session wallet',
-        });
-        return;
-      }
-      const challengeId = String(body.challengeId || '').trim();
-      if (!challengeId) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'challengeId is required' });
-        return;
-      }
-      const otpCode = String(body.otpCode || '').trim();
-      if (!otpCode) {
-        res.status(400).json({ ok: false, code: 'invalid_body', message: 'otpCode is required' });
-        return;
-      }
-      const otpChannel = parseWalletEmailOtpChannel(body.otpChannel);
-      if (!otpChannel) {
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'otpChannel must be email_otp',
-        });
-        return;
-      }
-      const parsedOperation = parseWalletEmailOtpLoginOperation(body.operation);
-      if (!parsedOperation.ok) {
-        res.status(400).json(parsedOperation);
-        return;
-      }
-      const sessionHash = await hashAppSessionClaims(validated.claims);
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
-      const exportPolicy =
-        parsedOperation.operation === WALLET_EMAIL_OTP_EXPORT_OPERATION
-          ? await authorizeEmailOtpExportPolicy(ctx.opts, {
-              operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-              phase: 'verify',
-              userId: validated.userId,
-              walletId,
-              orgId: toOptionalRecordString(validated.claims, 'orgId'),
-              projectId: toOptionalRecordString(validated.claims, 'projectId'),
-              environmentId: toOptionalRecordString(validated.claims, 'environmentId'),
-              appSessionVersion: validated.appSessionVersion,
-              challengeId,
-              sourceIp: clientIp,
-            })
-          : null;
-      if (exportPolicy && !exportPolicy.ok) {
-        await emitEmailOtpWebhookEvent({
-          eventType: 'wallet.email_otp.export_denied',
-          claims: validated.claims,
-          userId: validated.userId,
-          walletId,
-          eventId: challengeId,
-          payload: {
-            ...emailOtpExportPolicyAuditPayload({
-              source: 'login_verify',
-              decision: exportPolicy,
-              challengeId,
-              otpChannel,
-            }),
-            code: exportPolicy.code,
-            message: exportPolicy.message,
-          },
-        });
-        res.status(403).json({
-          ok: false,
-          code: exportPolicy.code,
-          message: exportPolicy.message,
-        });
-        return;
-      }
-      const result = await ctx.service.verifyEmailOtpChallenge({
+      const response = await handleEmailOtpLoginVerifyRoute({
+        body: req?.body,
+        claims: validated.claims,
         userId: validated.userId,
-        walletId,
-        orgId: (validated.claims as any).orgId,
-        challengeId,
-        otpCode,
-        otpChannel: otpChannel,
-        sessionHash,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
-        operation: parsedOperation.operation,
+        service: ctx.service,
+        opts: ctx.opts,
+        emitWebhook: async (event) => {
+          await emitEmailOtpWebhookDescriptor({
+            descriptor: event.descriptor,
+            claims: event.claims,
+            userId: event.userId,
+            ...(event.walletId ? { walletId: event.walletId } : {}),
+          });
+        },
       });
-      if (result.ok) {
-        if (exportPolicy) {
-          await emitEmailOtpWebhookEvent({
-            eventType: 'wallet.email_otp.export_approved',
-            claims: validated.claims,
-            userId: validated.userId,
-            walletId,
-            eventId: result.challengeId,
-            payload: emailOtpExportPolicyAuditPayload({
-              source: 'login_verify',
-              decision: exportPolicy,
-              challengeId: result.challengeId,
-              otpChannel,
-            }),
-          });
-        }
-        const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId });
-        if (!enrollment.ok) {
-          res.status(emailOtpStatusCode(enrollment.code)).json(enrollment);
-          return;
-        }
-        res.status(200).json({
-          ok: true,
-          challengeId: result.challengeId,
-          loginGrant: result.loginGrant,
-          grantExpiresAt: new Date(result.grantExpiresAtMs).toISOString(),
-          otpChannel: result.otpChannel,
-          emailOtpEscrowBlob: enrollment.enrollment.emailOtpEscrowBlob,
-        });
-      } else {
-        res.status(emailOtpStatusCode(result.code)).json(result);
-      }
-      if (!result.ok) {
-        await emitEmailOtpFailureWebhookEvents({
-          claims: validated.claims,
-          userId: validated.userId,
-          walletId,
-          source: 'login_verify',
-          code: result.code,
-          message: result.message,
-          challengeId,
-          otpChannel: otpChannel,
-          operation: parsedOperation.operation,
-          lockedUntilMs:
-            typeof (result as { lockedUntilMs?: unknown }).lockedUntilMs === 'number'
-              ? Number((result as { lockedUntilMs?: unknown }).lockedUntilMs)
-              : undefined,
-        });
-        if (exportPolicy) {
-          await emitEmailOtpWebhookEvent({
-            eventType: 'wallet.email_otp.export_denied',
-            claims: validated.claims,
-            userId: validated.userId,
-            walletId,
-            eventId: challengeId,
-            payload: {
-              ...emailOtpExportPolicyAuditPayload({
-                source: 'login_verify',
-                decision: {
-                  ok: false,
-                  decision: 'DENY',
-                  code: result.code,
-                  message: result.message,
-                  policySource: exportPolicy.policySource,
-                  ...(exportPolicy.policyId ? { policyId: exportPolicy.policyId } : {}),
-                  ...(exportPolicy.approvalId ? { approvalId: exportPolicy.approvalId } : {}),
-                },
-                challengeId,
-                otpChannel,
-              }),
-              code: result.code,
-              message: result.message,
-            },
-          });
-        }
-      }
+      res.status(response.status).json(response.body);
     } catch (e: any) {
-      res
-        .status(500)
-        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res.status(500).json(emailOtpInternalErrorBody(e));
     }
   });
 
   router.post('/wallet/email-otp/unseal', async (req: any, res: any) => {
     try {
-      if (!req?.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
-        res
-          .status(400)
-          .json({ ok: false, code: 'invalid_body', message: 'Request body is required' });
-        return;
-      }
       const validated = await readAndValidateAppSession(req.headers || {});
       if (!validated.ok) {
         await maybeEmitWarmExpiredFromValidationFailure({
@@ -1711,117 +1081,37 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(validated.status).json(validated.body);
         return;
       }
-
-      const body = req.body;
-      const loginGrant = String(body.loginGrant || '').trim();
-      if (!loginGrant) {
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'loginGrant is required',
-        });
-        return;
-      }
-      const wrappedCiphertext = String(body.wrappedCiphertext || '').trim();
-      if (!wrappedCiphertext) {
-        res.status(400).json({
-          ok: false,
-          code: 'invalid_body',
-          message: 'wrappedCiphertext is required',
-        });
-        return;
-      }
-
-      const sessionHash = await hashAppSessionClaims(validated.claims);
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
-      const sessionWalletId = getSessionWalletId(validated.claims, validated.userId);
-      const grant = await ctx.service.consumeEmailOtpGrant({
-        loginGrant: loginGrant,
+      const response = await handleEmailOtpUnsealRoute({
+        body: req?.body,
+        claims: validated.claims,
         userId: validated.userId,
-        walletId: sessionWalletId,
-        orgId: (validated.claims as any).orgId,
-        otpChannel: EMAIL_OTP_CHANNEL,
-        sessionHash,
         appSessionVersion: validated.appSessionVersion,
         clientIp,
+        service: ctx.service,
+        emitWebhook: async (event) => {
+          await emitEmailOtpWebhookDescriptor({
+            descriptor: event.descriptor,
+            claims: event.claims,
+            userId: event.userId,
+            ...(event.walletId ? { walletId: event.walletId } : {}),
+          });
+        },
       });
-      if (!grant.ok) {
-        res.status(emailOtpStatusCode(grant.code)).json(grant);
-        return;
-      }
-
-      const result = await ctx.service.removeEmailOtpServerSeal({
-        wrappedCiphertext,
-      });
-      if (!result.ok) {
-        res.status(emailOtpStatusCode(result.code)).json(result);
-        return;
-      }
-      const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId: sessionWalletId });
-      const currentDeviceId =
-        typeof (validated.claims as any).deviceId === 'string'
-          ? String((validated.claims as any).deviceId).trim()
-          : '';
-      const enrolledDeviceId =
-        enrollment.ok && typeof enrollment.enrollment.enrollmentDeviceId === 'string'
-          ? String(enrollment.enrollment.enrollmentDeviceId).trim()
-          : '';
-      if (currentDeviceId && enrolledDeviceId && currentDeviceId !== enrolledDeviceId) {
-        await emitEmailOtpWebhookEvent({
-          eventType: 'wallet.email_otp.new_device',
-          claims: validated.claims,
-          userId: validated.userId,
-          walletId: sessionWalletId,
-          eventId: grant.challengeId,
-          payload: {
-            otpChannel: grant.otpChannel,
-            challengeId: grant.challengeId,
-            enrolledDeviceId,
-            currentDeviceId,
-          },
-        });
-      }
-
-      res.status(200).json({
-        ok: true,
-        ciphertext: result.ciphertext,
-        emailOtpKeyVersion: result.emailOtpKeyVersion,
-      });
+      res.status(response.status).json(response.body);
     } catch (e: any) {
-      res
-        .status(500)
-        .json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
+      res.status(500).json(emailOtpInternalErrorBody(e));
     }
   });
 
   router.post('/wallet/email-otp/dev/cleanup-google-registration', async (req: any, res: any) => {
     try {
-      const body = req.body || {};
-      const verified = await ctx.service.verifyGoogleLogin({
-        idToken: (body as any).idToken ?? (body as any).id_token,
+      const response = await handleEmailOtpDevCleanupGoogleRegistrationRoute({
+        body: req.body,
+        service: ctx.service,
       });
-      if (!verified.ok || !verified.verified || !verified.userId) {
-        const code = verified.code || 'not_verified';
-        const status =
-          code === 'internal'
-            ? 500
-            : code === 'not_configured' || code === 'unsupported'
-              ? 501
-              : code === 'invalid_body'
-                ? 400
-                : 401;
-        res
-          .status(status)
-          .json({ ok: false, code, message: verified.message || 'Google login failed' });
-        return;
-      }
-
-      const result = await ctx.service.cleanupGoogleEmailOtpDevRegistrationState({
-        providerSubject: verified.providerSubject || verified.userId,
-        walletId: (body as any).walletId,
-      });
-      res.status(result.ok ? 200 : emailOtpStatusCode(result.code)).json(result);
+      res.status(response.status).json(response.body);
     } catch (e: any) {
       res
         .status(500)
@@ -1840,46 +1130,14 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         res.status(validated.status).json(validated.body);
         return;
       }
-      const challengeId = String(req?.query?.challengeId || '').trim();
-      const sessionWalletId = getSessionWalletId(validated.claims, validated.userId);
-      const walletId = String(req?.query?.walletId || sessionWalletId).trim();
-      if (walletId !== getSessionWalletId(validated.claims, validated.userId)) {
-        res.status(403).json({
-          ok: false,
-          code: 'wallet_identity_mismatch',
-          message: 'walletId must match the current app session wallet',
-        });
-        return;
-      }
-      const result = await ctx.service.readEmailOtpOutboxEntry({
-        challengeId,
+      const response = await handleEmailOtpDevOtpOutboxRoute({
+        challengeId: String(req?.query?.challengeId || ''),
+        walletId: String(req?.query?.walletId || ''),
+        claims: validated.claims,
         userId: validated.userId,
-        walletId,
+        service: ctx.service,
       });
-      res
-        .status(
-          result.ok
-            ? 200
-            : result.code === 'internal'
-              ? 500
-              : result.code === 'not_found'
-                ? 404
-                : 400,
-        )
-        .json(
-          result.ok
-            ? {
-                ok: true,
-                challengeId: result.challengeId,
-                walletId: result.walletId,
-                userId: result.userId,
-                otpChannel: result.otpChannel,
-                emailHint: result.emailHint,
-                otpCode: result.otpCode,
-                expiresAt: new Date(result.expiresAtMs).toISOString(),
-              }
-            : result,
-        );
+      res.status(response.status).json(response.body);
     } catch (e: any) {
       res
         .status(500)

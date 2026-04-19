@@ -129,7 +129,7 @@ export default {
 ## Routes exposed by the routers
 
 - POST `/registration/bootstrap` — atomic account creation + passkey registration (contract-free). Body:
-  - `{ new_account_id, device_number?, rp_id, webauthn_registration, expected_origin?, authenticator_options?, threshold_ed25519?, threshold_ecdsa? }`
+  - `{ new_account_id, signer_slot?, rp_id, webauthn_registration, expected_origin?, authenticator_options?, threshold_ed25519?, threshold_ecdsa? }`
   - Note: `new_account_id` must be a subaccount of `relayerAccount` (`RELAYER_ACCOUNT_ID`) because the relayer signs the `CreateAccount` transaction.
 - POST `/auth/passkey/options` — mint a server-side WebAuthn login challenge (replay-protected). Body:
   - `{ user_id, rp_id, ttl_ms? }` → returns `{ challengeId, challengeB64u, expiresAtMs }`

@@ -37,7 +37,7 @@ function makePreparedLinkDeviceService() {
     prepareLinkDevice: async () => ({
       ok: true,
       accountId: 'alice.testnet',
-      deviceNumber: 7,
+      signerSlot: 7,
       credentialIdB64u: 'cred-b64u',
       thresholdEd25519: {
         relayerKeyId: 'rk-near',
@@ -102,7 +102,7 @@ test.describe('link-device prepare routing', () => {
         },
         body: JSON.stringify({
           account_id: 'alice.testnet',
-          device_number: 7,
+          signer_slot: 7,
           rp_id: 'wallet.example.test',
           webauthn_registration: { id: 'cred-1' },
           threshold_ed25519: makeThresholdEd25519PrepareRequest(),
@@ -137,7 +137,7 @@ test.describe('link-device prepare routing', () => {
       ctx,
       body: {
         account_id: 'alice.testnet',
-        device_number: 7,
+        signer_slot: 7,
         rp_id: 'wallet.example.test',
         webauthn_registration: { id: 'cred-1' },
         threshold_ed25519: makeThresholdEd25519PrepareRequest(),

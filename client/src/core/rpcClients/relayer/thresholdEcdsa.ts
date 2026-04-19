@@ -58,6 +58,8 @@ type ThresholdEcdsaHssFinalizeHttpResponse = {
   expiresAtMs?: number;
   expiresAt?: string;
   remainingUses?: number;
+  signingRootId?: string;
+  signingRootVersion?: string;
   jwt?: string;
   canonicalPublicKeyHex?: string;
   privateKeyHex?: string;
@@ -267,6 +269,8 @@ export async function thresholdEcdsaHssFinalize(
       expiresAtMs: json.expiresAtMs,
       expiresAt: json.expiresAt,
       remainingUses: json.remainingUses,
+      signingRootId: json.signingRootId,
+      signingRootVersion: json.signingRootVersion,
       jwt: json.jwt,
       canonicalPublicKeyHex: json.canonicalPublicKeyHex,
       privateKeyHex: json.privateKeyHex,

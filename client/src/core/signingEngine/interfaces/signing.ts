@@ -9,6 +9,8 @@ export type SignatureBytes = Uint8Array;
 export type ThresholdEcdsaCanonicalExportArtifact = {
   artifactKind: 'ecdsa-hss-secp256k1-key-v1';
   chain: 'evm' | 'tempo';
+  signingRootId: string;
+  signingRootVersion?: string;
   publicKeyHex: string;
   privateKeyHex: string;
   ethereumAddress: string;
@@ -54,6 +56,8 @@ export type KeyRef =
        * Canonical product-facing identity for the integrated ecdsa-hss key.
        */
       ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      signingRootId: string;
+      signingRootVersion?: string;
       backendBinding?: ThresholdEcdsaBackendBinding;
       ecdsaHssExportArtifact?: ThresholdEcdsaCanonicalExportArtifact;
       participantIds?: number[];

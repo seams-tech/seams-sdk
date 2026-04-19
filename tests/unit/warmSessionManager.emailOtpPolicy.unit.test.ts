@@ -190,9 +190,13 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         nearAccountId: 'erin.testnet',
         chain: 'evm',
       }),
-    ).rejects.toThrow(
-      '[SigningEngine] evm signing requires fresh Email OTP verification with per_operation policy',
-    );
+    ).rejects.toMatchObject({
+      name: 'WalletAuthPolicyError',
+      code: 'fresh_email_otp_required',
+      policy: 'sensitive_operation_requires_fresh_email_otp',
+      message:
+        '[SigningEngine] evm signing requires fresh Email OTP verification with per_operation policy',
+    });
     expect(provisionCalls).toEqual([]);
   });
 
@@ -250,9 +254,13 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         nearAccountId: 'tempo-erin.testnet',
         chain: 'tempo',
       }),
-    ).rejects.toThrow(
-      '[SigningEngine] tempo signing requires fresh Email OTP verification with per_operation policy',
-    );
+    ).rejects.toMatchObject({
+      name: 'WalletAuthPolicyError',
+      code: 'fresh_email_otp_required',
+      policy: 'sensitive_operation_requires_fresh_email_otp',
+      message:
+        '[SigningEngine] tempo signing requires fresh Email OTP verification with per_operation policy',
+    });
     expect(provisionCalls).toEqual([]);
   });
 
@@ -355,9 +363,13 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         operationLabel: 'threshold-ecdsa key export',
         sensitivePolicy: 'require_passkey',
       }),
-    ).rejects.toThrow(
-      '[SigningEngine] threshold-ecdsa key export requires fresh passkey authentication after Email OTP login',
-    );
+    ).rejects.toMatchObject({
+      name: 'WalletAuthPolicyError',
+      code: 'passkey_step_up_required',
+      policy: 'sensitive_operation_requires_passkey',
+      message:
+        '[SigningEngine] threshold-ecdsa key export requires fresh passkey authentication after Email OTP login',
+    });
   });
 
   test('blocks sensitive operations when Email OTP is denied by policy', async () => {
@@ -391,9 +403,13 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         operationLabel: 'blocked threshold operation',
         sensitivePolicy: 'deny_email_otp',
       }),
-    ).rejects.toThrow(
-      '[SigningEngine] blocked threshold operation requires fresh passkey authentication after Email OTP login',
-    );
+    ).rejects.toMatchObject({
+      name: 'WalletAuthPolicyError',
+      code: 'passkey_step_up_required',
+      policy: 'sensitive_operation_requires_passkey',
+      message:
+        '[SigningEngine] blocked threshold operation requires fresh passkey authentication after Email OTP login',
+    });
   });
 
   test('requires per-operation Email OTP for operations that force single-use policy', async () => {
@@ -427,9 +443,13 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         operationLabel: 'sensitive threshold signing',
         sensitivePolicy: 'require_fresh_same_method',
       }),
-    ).rejects.toThrow(
-      '[SigningEngine] sensitive threshold signing requires fresh Email OTP verification with per_operation policy',
-    );
+    ).rejects.toMatchObject({
+      name: 'WalletAuthPolicyError',
+      code: 'fresh_email_otp_required',
+      policy: 'sensitive_operation_requires_fresh_email_otp',
+      message:
+        '[SigningEngine] sensitive threshold signing requires fresh Email OTP verification with per_operation policy',
+    });
   });
 });
 

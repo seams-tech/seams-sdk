@@ -21,11 +21,11 @@ Canonical identity/persistence keying:
 - `profileId` = user/profile root identity
 - `chainIdKey` = chain namespace key (for example `near:testnet`, `evm:8453`, `solana:mainnet`)
 - `accountAddress` = chain account address for the row
-- `deviceNumber` = local device slot
+- `signerSlot` = local account signer slot
 
 Canonical key material keying:
 
-- `[profileId, deviceNumber, chainIdKey, keyKind]` (already used by `keyMaterialV2`)
+- `[profileId, signerSlot, chainIdKey, keyKind]`
 
 Canonical API shape:
 

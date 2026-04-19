@@ -577,7 +577,7 @@ test.describe('passkey-confirm export flow worker', () => {
 
             if (promptType === 'showSecurePrivateKeyUi') {
               finalPromptKeys = Array.isArray(message?.data?.payload?.keys)
-                ? message.data.payload.keys
+                ? structuredClone(message.data.payload.keys)
                 : [];
               self.dispatchEvent(
                 new MessageEvent('message', {
@@ -707,7 +707,7 @@ test.describe('passkey-confirm export flow worker', () => {
             if (promptType === 'showSecurePrivateKeyUi') {
               firstPromptCredential = prompts[0]?.data?.credential;
               finalPromptKeys = Array.isArray(message?.data?.payload?.keys)
-                ? message.data.payload.keys
+                ? structuredClone(message.data.payload.keys)
                 : [];
               self.dispatchEvent(
                 new MessageEvent('message', {

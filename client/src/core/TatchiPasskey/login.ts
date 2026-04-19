@@ -26,6 +26,7 @@ import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
+  resolveAccountAuthMetadataForSignerSource,
 } from '../signingEngine/auth';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
@@ -367,10 +368,7 @@ export async function unlock(
           });
           const walletAuthPlan = await walletAuthResolver.resolveWalletAuthPlan({
             accountId: nearAccountId,
-            accountAuth: {
-              primaryAuthMethod: 'passkey',
-              linkedAuthMethods: ['passkey'],
-            },
+            accountAuth: resolveAccountAuthMetadataForSignerSource(),
             intent: 'wallet_unlock',
           });
           if (walletAuthPlan.kind !== 'passkeyReauth') {

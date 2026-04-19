@@ -61,7 +61,14 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
         controller.abort();
         try {
           await awaitV2(
-            { requestId: 'id-2', type: 'signTransaction', summary: {}, payload: {} },
+            {
+              requestId: 'id-2',
+              type: 'signTransaction',
+              summary: {},
+              payload: {
+                signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
+              },
+            },
             { signal: controller.signal },
           );
           return { ok: true };
@@ -92,7 +99,9 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
               requestId: 'id-3',
               type: 'signTransaction',
               summary: {},
-              payload: {},
+              payload: {
+                signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
+              },
             },
             { timeoutMs: 50 },
           );
@@ -119,7 +128,14 @@ test.describe('awaitUserConfirmationV2 - error handling', () => {
         ) => Promise<any>;
         const originalPost = (self as any).postMessage;
         (self as any).postMessage = (_msg: unknown) => {};
-        const payload = { requestId: 'id-4', type: 'signTransaction', summary: {}, payload: {} };
+        const payload = {
+          requestId: 'id-4',
+          type: 'signTransaction',
+          summary: {},
+          payload: {
+            signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
+          },
+        };
         setTimeout(() => {
           // Dispatch a message event with a mismatched requestId; listener should ignore it
           self.dispatchEvent(

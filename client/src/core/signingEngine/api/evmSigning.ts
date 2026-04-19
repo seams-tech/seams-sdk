@@ -11,7 +11,7 @@ import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
-  type AccountAuthMetadata,
+  resolveAccountAuthMetadataForSignerSource,
   type WalletAuthPlan,
 } from '@/core/signingEngine/auth';
 import {
@@ -52,6 +52,7 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thre
 import { clearThresholdEcdsaClientPresignaturesForLane } from '../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { createWarmSessionManager } from '../session/WarmSessionManager';
 import type { BootstrapEcdsaSessionArgs } from './thresholdLifecycle/thresholdSessionActivation';
+import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 
 type EvmFamilySenderSignatureAlgorithm =
   | EvmSigningRequest['senderSignatureAlgorithm']
@@ -400,7 +401,7 @@ function mapToRetryableNonceLaneBlockedError(args: {
   if (existingCode === 'nonce_lane_blocked') {
     const details =
       typeof (args.error as { details?: unknown }).details === 'object'
-        ? ((args.error as { details?: Record<string, unknown> }).details || {})
+        ? (args.error as { details?: Record<string, unknown> }).details || {}
         : {};
     const blockedNonceRaw = String(details?.blockedNonce || '').trim();
     const ageRaw = Number(details?.ageMs);
@@ -519,23 +520,26 @@ function tryGetThresholdEcdsaKeyRefForSigning(args: {
 function resolveEvmFamilyTransactionAccountAuth(args: {
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   record?: ThresholdEcdsaSessionRecord;
-}): AccountAuthMetadata {
+  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
+}) {
   if (args.senderSignatureAlgorithm === 'webauthnP256') {
-    return {
-      primaryAuthMethod: 'passkey',
-      linkedAuthMethods: ['passkey'],
-    };
+    return resolveAccountAuthMetadataForSignerSource();
   }
-  if (args.record?.source === 'email_otp') {
-    return {
-      primaryAuthMethod: 'email_otp',
-      linkedAuthMethods: ['email_otp'],
-    };
-  }
-  return {
-    primaryAuthMethod: 'passkey',
-    linkedAuthMethods: ['passkey'],
-  };
+  return resolveAccountAuthMetadataForSignerSource({
+    source: isEmailOtpThresholdEcdsaSigningContext(args)
+      ? SIGNER_AUTH_METHODS.emailOtp
+      : args.record?.source,
+  });
+}
+
+function isEmailOtpThresholdEcdsaSigningContext(args: {
+  record?: ThresholdEcdsaSessionRecord;
+  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
+}): boolean {
+  if (args.record?.source === SIGNER_AUTH_METHODS.emailOtp) return true;
+  if (args.record?.emailOtpAuthContext?.authMethod === SIGNER_AUTH_METHODS.emailOtp) return true;
+  if (args.record?.clientAdditiveShareHandle?.kind === 'email_otp_worker_session') return true;
+  return args.keyRef?.backendBinding?.clientAdditiveShareHandle?.kind === 'email_otp_worker_session';
 }
 
 async function resolveEvmFamilyTransactionWalletAuth(args: {
@@ -544,6 +548,7 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
   chain: 'tempo' | 'evm';
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   record?: ThresholdEcdsaSessionRecord;
+  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
   onEvent?: (event: {
     step: number;
     phase: string;
@@ -587,7 +592,9 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
         });
         const challengeId = String(challenge.challengeId || '').trim();
         if (!challengeId) {
-          throw new Error('[SigningEngine] Email OTP challenge response did not include challengeId');
+          throw new Error(
+            '[SigningEngine] Email OTP challenge response did not include challengeId',
+          );
         }
         const appSessionJwt = String(challenge.appSessionJwt || '').trim();
         if (appSessionJwt) {
@@ -640,6 +647,14 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
         const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
         const remainingUses = Math.floor(Number(record.remainingUses) || 0);
         if (expiresAtMs <= 0 || remainingUses <= 0) return null;
+        if (isEmailOtpThresholdEcdsaSigningContext({ record, keyRef: args.keyRef })) {
+          const status = await args.deps.touchConfirm
+            .getWarmSessionStatus({ sessionId: record.thresholdSessionId })
+            .catch(() => null);
+          if (!status?.ok || status.remainingUses <= 0 || status.expiresAtMs <= Date.now()) {
+            return null;
+          }
+        }
         return {
           kind: 'warmSession',
           method: input.accountAuth.primaryAuthMethod,
@@ -665,6 +680,7 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
     accountAuth: resolveEvmFamilyTransactionAccountAuth({
       senderSignatureAlgorithm: args.senderSignatureAlgorithm,
       ...(args.record ? { record: args.record } : {}),
+      ...(args.keyRef ? { keyRef: args.keyRef } : {}),
     }),
     intent: 'transaction_sign',
     curve: args.senderSignatureAlgorithm === 'secp256k1' ? 'ecdsa' : undefined,
@@ -822,7 +838,9 @@ function resolveNonceNetworkKeyForError(args: {
   configs: TatchiConfigsReadonly;
   request: EvmSigningRequest | TempoSigningRequest;
 }): string {
-  return tryResolveNonceNetworkKey(args) || `${args.request.chain}:${String(args.request.tx.chainId)}`;
+  return (
+    tryResolveNonceNetworkKey(args) || `${args.request.chain}:${String(args.request.tx.chainId)}`
+  );
 }
 
 function tryResolveNonceNetworkKey(args: {
@@ -1133,7 +1151,10 @@ export async function reportEvmFamilyBroadcastRejected(
       nonce: reservation.nonce.toString(),
     },
   });
-  if (!isNonceConflictRetryableError(mappedError) && !isNonceLaneBlockedRetryableError(mappedError)) {
+  if (
+    !isNonceConflictRetryableError(mappedError) &&
+    !isNonceLaneBlockedRetryableError(mappedError)
+  ) {
     return;
   }
 
@@ -1375,11 +1396,16 @@ async function ensureSmartAccountDeploymentReady(args: {
                 thresholdSessionJwt,
               });
             },
-            ...(args.thresholdEcdsaKeyRef?.relayerUrl && args.thresholdEcdsaKeyRef?.thresholdSessionJwt
+            ...(args.thresholdEcdsaKeyRef?.relayerUrl &&
+            args.thresholdEcdsaKeyRef?.thresholdSessionJwt
               ? {
-                  reportDeployed: async (input: Parameters<
-                    NonNullable<Parameters<typeof ensureSmartAccountDeployed>[0]['reportDeployed']>
-                  >[0]) => {
+                  reportDeployed: async (
+                    input: Parameters<
+                      NonNullable<
+                        Parameters<typeof ensureSmartAccountDeployed>[0]['reportDeployed']
+                      >
+                    >[0],
+                  ) => {
                     await reportSmartAccountDeploymentObservation({
                       ...input,
                       relayerUrl: args.thresholdEcdsaKeyRef!.relayerUrl,
@@ -1458,6 +1484,7 @@ export async function signEvmFamily(
     chain: args.request.chain,
     senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
     ...(thresholdEcdsaRecord ? { record: thresholdEcdsaRecord } : {}),
+    ...(thresholdEcdsaKeyRef ? { keyRef: thresholdEcdsaKeyRef } : {}),
     onEvent: args.onEvent,
   });
   const warmSessionManager = createWarmSessionManager({
@@ -1604,7 +1631,7 @@ export async function signEvmFamily(
     });
     // Warm nonce state as soon as sender/network are known; keep non-fatal and non-blocking.
     void reservationInputPromise
-      .then(reservationInput => deps.evmNonceManager.reconcileLane(reservationInput))
+      .then((reservationInput) => deps.evmNonceManager.reconcileLane(reservationInput))
       .catch(() => null);
     try {
       const result = await signEvmWithTouchConfirm({

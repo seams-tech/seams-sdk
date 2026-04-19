@@ -123,7 +123,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         walletId: accountId,
         email: `email-otp-e2e-${nonce}@example.com`,
         deviceId: 'google-sso-email-otp-device',
-        jwtShape: true,
       });
 
       const result = await runEmailOtpEcdsaTempoFlow(page, {
@@ -184,7 +183,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         walletId: accountId,
         email: `email-otp-tempo-e2e-${nonce}@example.com`,
         deviceId: 'google-sso-email-otp-tempo-device',
-        jwtShape: true,
       });
 
       const result = await runEmailOtpEcdsaTempoFlow(page, {
@@ -227,7 +225,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       const appSessionJwt = await harness.mintAppSessionJwt({
         userId: accountId,
         deviceId: 'email-otp-enroll-device',
-        jwtShape: true,
       });
 
       const result = await runEmailOtpEcdsaTempoFlow(page, {
@@ -323,7 +320,6 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       const appSessionJwt = await harness.mintAppSessionJwt({
         userId: accountId,
         deviceId: 'email-otp-evm-perop-device',
-        jwtShape: true,
       });
 
       const result = await runEmailOtpEcdsaTempoFlow(page, {
