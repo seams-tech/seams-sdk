@@ -15,6 +15,7 @@ export type PasskeyAuthMenuOtpPrompt = {
   title?: string;
   description?: string;
   emailHint?: string;
+  accountId?: string;
   submitLabel?: string;
   helperText?: string;
   onSubmit: (otpCode: string) => void | Promise<unknown>;

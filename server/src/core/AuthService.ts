@@ -758,6 +758,13 @@ export class AuthService {
     return !!relayerAccount && accountId.endsWith(`.${relayerAccount}`);
   }
 
+  private isHostedHmacReadableRelayerSubaccount(accountId: string): boolean {
+    const relayerAccount = String(this.config.relayerAccount || '').trim();
+    if (!relayerAccount || !accountId.endsWith(`.${relayerAccount}`)) return false;
+    const slug = accountId.slice(0, -(relayerAccount.length + 1));
+    return /^[a-z]+-[a-z]+-[a-z0-9]{10}$/.test(slug);
+  }
+
   private resolveHostedAccountScope(input?: ThresholdRuntimePolicyScope): {
     projectId: string;
     envId: string;
@@ -887,6 +894,13 @@ export class AuthService {
       nowMs: now,
     });
     if (attempt) {
+      if (!this.isHostedHmacReadableRelayerSubaccount(attempt.walletId)) {
+        attempt.state = 'failed';
+        attempt.failureCode = 'legacy_email_derived_wallet_id';
+        attempt.updatedAtMs = now;
+        await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+        return null;
+      }
       attempt.updatedAtMs = now;
       await this.getEmailOtpRegistrationAttemptStore().put(attempt);
     }
@@ -917,9 +931,12 @@ export class AuthService {
       isValidAccountId(linkedWalletId) &&
       this.isRelayerSubaccount(linkedWalletId)
     );
+    const linkedIsHostedHmacReadableWallet = !!(
+      linkedWalletId && this.isHostedHmacReadableRelayerSubaccount(linkedWalletId)
+    );
 
     if (accountMode === 'login') {
-      if (!linkedIsUsableRelayerWallet) {
+      if (!linkedIsUsableRelayerWallet || !linkedIsHostedHmacReadableWallet) {
         const error = new Error('Email OTP enrollment not found') as Error & { code?: string };
         error.code = 'not_found';
         throw error;
@@ -960,7 +977,7 @@ export class AuthService {
       };
     }
 
-    if (linkedIsUsableRelayerWallet) {
+    if (linkedIsUsableRelayerWallet && linkedIsHostedHmacReadableWallet) {
       const enrollment = await this.readEmailOtpEnrollment({ walletId: linkedWalletId });
       if (enrollment.ok) {
         return {

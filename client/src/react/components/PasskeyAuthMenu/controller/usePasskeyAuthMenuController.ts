@@ -62,6 +62,7 @@ type ActiveOtpPromptState = {
   title: string;
   description: string;
   emailHint?: string;
+  accountId?: string;
   submitLabel: string;
   helperText: string;
   onSubmit: PasskeyAuthMenuOtpPrompt['onSubmit'];
@@ -77,6 +78,7 @@ function resolveOtpPrompt(
   const description =
     String(prompt.description || '').trim() || 'Enter the 6-digit code we sent to continue.';
   const emailHint = String(prompt.emailHint || '').trim();
+  const accountId = String(prompt.accountId || username || '').trim();
   const submitLabel = String(prompt.submitLabel || '').trim() || 'Unlock wallet';
   const helperText =
     String(prompt.helperText || '').trim() ||
@@ -86,6 +88,7 @@ function resolveOtpPrompt(
     title,
     description,
     ...(emailHint ? { emailHint } : {}),
+    ...(accountId ? { accountId } : {}),
     submitLabel,
     helperText,
     onSubmit: prompt.onSubmit,
