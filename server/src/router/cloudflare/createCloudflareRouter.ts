@@ -42,7 +42,7 @@ import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
 import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
-import { handlePrfSessionSealRoutes } from '../../threshold/session/prfSessionSeal';
+import { handleSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
 import { attachRelayRouteSurface, resolveRelayRouteSurface } from '../relayRouteSurface';
 import type { RouteDefinition } from '../routeDefinitions';
@@ -98,13 +98,13 @@ export function createCloudflareRouter(
     handleThresholdEd25519,
     handleThresholdEcdsa,
     async (c: CloudflareRelayContext) =>
-      await handlePrfSessionSealRoutes({
+      await handleSigningSessionSealRoutes({
         request: c.request,
         pathname: c.pathname,
         method: c.method,
         logger: c.logger,
         session: c.opts.session,
-        options: c.opts.prfSessionSeal,
+        options: c.opts.signingSessionSeal,
       }),
     handleWebAuthnAuthenticators,
     handleNearPublicKeys,

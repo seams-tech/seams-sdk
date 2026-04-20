@@ -19,27 +19,11 @@ The wallet iframe mounts as a hidden 0×0 element in the parent document. When a
 
 ## Progress → Overlay behavior
 
-The `OnEventsProgressBus` class receives typed progress payloads and applies a phase heuristic to decide when to show/hide the overlay. It also aggregates overlay visibility across concurrent requests so one flow cannot prematurely hide the overlay needed by another.
+The `OnEventsProgressBus` class receives v2 `WalletFlowEvent` payloads and reads `event.interaction.overlay` to decide whether the wallet iframe overlay should show, hide, or remain unchanged. Overlay behavior is now event metadata, not a phase-string heuristic.
 
-- Show phases (need transient activation):
-  - `ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION`
-  - Registration/login/linking/recovery phases that actually invoke WebAuthn `create()`/`get()`
-  - See source for the exact, current phase list
-  - Source: `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts`
-
-- Hide phases (post‑activation, non‑interactive work):
-  - `ActionPhase.STEP_4_AUTHENTICATION_COMPLETE`
-  - `ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS`
-  - `ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE`
-  - `ActionPhase.STEP_7_BROADCASTING`
-  - `ActionPhase.STEP_8_ACTION_COMPLETE`
-  - Device linking/registration completion/error phases
-  - Source: `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts`
-
-When the heuristic returns:
-
-- `show`: OnEventsProgressBus records a "show" demand for this `requestId` and calls overlay.show().
-- `hide`: OnEventsProgressBus records a "hide" demand; it will only call overlay.hide() when no tracked request still demands "show".
+- `overlay: 'show'`: records a show demand for the request and calls `overlay.show()`.
+- `overlay: 'hide'`: records a hide demand and hides only when no tracked request still demands show.
+- `overlay: 'none'`: updates stats without changing the current overlay demand.
 
 This aggregation ensures that if two flows overlap (e.g., a background broadcast finishing while a new confirmation begins), the overlay stays visible until the last active flow no longer requires it.
 
@@ -47,7 +31,9 @@ Router integration: when a request completes or times out, the router will only 
 
 Key points:
 
-- For action signing flows, overlay expansion is tied to `STEP_3_WEBAUTHN_AUTHENTICATION` (actual TouchID/WebAuthn window), then collapsed on `STEP_4_AUTHENTICATION_COMPLETE`.
+- Signing, registration, unlock, link-device, email-recovery, and account-sync flows all use the same v2 event envelope.
+- User-interactive phases set `interaction.kind` to values such as `transaction_confirmation`, `passkey_assert`, `passkey_create`, `otp_input`, `qr_scan`, or `email_recovery_link`.
+- Non-interactive threshold signer, nonce, broadcast, persistence, polling, and finalization work uses `overlay: 'none'` unless a terminal event needs to hide a prior prompt.
 - This keeps the blocking fullscreen iframe visible only for the minimum activation interval.
 
 ## What `showFrameForActivation()` actually does
@@ -119,8 +105,8 @@ Notes:
 
 Even when you call `tatchi.near.executeAction(...)` directly from your app (not from a Lit component), the flow still meets activation without an extra modal click by combining:
 
-1. Overlay activation at the right phases
-   - On `STEP_3_WEBAUTHN_AUTHENTICATION`, the `ProgressBus` instructs the router to expand the wallet iframe overlay, so the credential call happens in the wallet document.
+1. Overlay activation from v2 event metadata
+   - When a signing event carries `interaction.overlay: 'show'`, the `ProgressBus` instructs the router to expand the wallet iframe overlay, so the credential call happens in the wallet document.
 
 2. Default confirmation config: “modal + requireClick”
    - `DEFAULT_CONFIRMATION_CONFIG` is `uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0`.
@@ -133,19 +119,20 @@ Even when you call `tatchi.near.executeAction(...)` directly from your app (not 
 
 Put together, when you trigger `executeAction` in response to any user gesture in your app (e.g., a button click), the SDK:
 
-- Emits early confirm phases → overlay expands (activation captured)
+- Emits v2 signing events with `interaction.overlay: 'show'` when activation is needed
 - Mounts the modal in the wallet iframe and auto‑proceeds
 - Authenticates via WebAuthn in the wallet context
-- Hides the overlay once activation is complete
+- Emits a v2 event with `interaction.overlay: 'hide'` once activation is complete
 
 No additional modal click is required for signing.
 
-## Regression checklist for overlay heuristics
+## Regression checklist
 
 Before merging changes to the progress bus or overlay logic, verify:
 
-- Show list includes only phases that actually start WebAuthn ceremony (`create`/`get`), including `webauthn-authentication`.
-- Hide list includes `authentication-complete`, `transaction-signing-progress`, `transaction-signing-complete`, `broadcasting`, `action-complete`, and error/complete phases for login/registration/linking/recovery.
+- Overlay visibility follows `event.interaction.overlay`; there are no phase-string show/hide lists.
+- Terminal failed/cancelled events hide the overlay when they follow a user-interactive event.
+- Non-interactive signing events such as threshold reconnect, presign refill, commit, nonce reconcile, and broadcast tracking do not show the overlay by themselves.
 - In iframe mode, a manual test with `setConfirmBehavior('requireClick')` shows the modal and allows clicking Confirm.
 - In skipClick mode, modal appears briefly with loading then proceeds without extra clicks.
 
@@ -164,15 +151,15 @@ Before merging changes to the progress bus or overlay logic, verify:
   - `tatchi.prefetchBlockheight()` → caches/refreshes block height/hash/nonce ahead of time.
   - Sources: `client/src/core/TatchiPasskey/index.ts` and `client/src/core/rpcClients/near/nonceManager.ts`.
 
-- Overlay is intentionally invisible but intercepts clicks while active. Keep the overlay up for the minimum time by limiting “show” to the phases that truly need activation (as implemented in `progress/on-events-progress-bus.ts`).
+- Overlay is intentionally invisible but intercepts clicks while active. Keep the overlay up for the minimum time by setting `interaction.overlay: 'show'` only on events that truly need activation.
 
 ## Rough timeline: direct `executeAction`
 
 1. App calls `executeAction` (typically from a click handler).
 2. Wallet host mounts modal and prepares the WebAuthn challenge digest + tx context.
-3. SDK emits `STEP_3_WEBAUTHN_AUTHENTICATION` → overlay expands.
+3. SDK emits a v2 signing event such as `SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_STARTED` with `interaction.overlay: 'show'` → overlay expands.
 4. WebAuthn prompt (`navigator.credentials.get`) runs in the wallet document.
-5. `STEP_4_AUTHENTICATION_COMPLETE` → overlay hides; signing continues.
+5. SDK emits `SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_SUCCEEDED` or `SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE` with `interaction.overlay: 'hide'` → overlay hides; signing continues.
 6. Transaction is signed and broadcast; final progress events emitted; modal closed.
 
 This is how we preserve “no popups,” satisfy WebAuthn activation, and avoid extra clicks for signing flows by default.

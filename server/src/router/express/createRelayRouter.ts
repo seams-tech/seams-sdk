@@ -26,7 +26,7 @@ import { registerSponsoredEvmCallRoutes } from './routes/sponsoredEvmCall';
 import { registerWellKnownRoutes } from './routes/wellKnown';
 import { resolveThresholdOption } from '../routerOptions';
 import { validateRelayRouterRorOptions } from '../ror/provider';
-import { registerPrfSessionSealRoutes } from '../../threshold/session/prfSessionSeal';
+import { registerSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
 import { attachRelayRouteSurface, resolveRelayRouteSurface } from '../relayRouteSurface';
 import type { RouteDefinition } from '../routeDefinitions';
@@ -82,10 +82,10 @@ export function createRelayRouter(
   registerEmailRecoveryRoutes(router, ctx);
   registerThresholdEd25519Routes(router, ctx);
   registerThresholdEcdsaRoutes(router, ctx);
-  registerPrfSessionSealRoutes(router, {
+  registerSigningSessionSealRoutes(router, {
     logger: ctx.logger,
     session: ctx.opts.session,
-    options: ctx.opts.prfSessionSeal,
+    options: ctx.opts.signingSessionSeal,
   });
   registerWebAuthnAuthenticatorRoutes(router, ctx);
   registerNearPublicKeysRoutes(router, ctx);

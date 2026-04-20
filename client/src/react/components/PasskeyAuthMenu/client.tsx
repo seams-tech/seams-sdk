@@ -1,10 +1,11 @@
 import React from 'react';
-import { ArrowLeftIcon } from './ui/icons';
+import { ArrowLeftIcon, FingerprintIcon } from './ui/icons';
 import { SegmentedControl } from './ui/SegmentedControl';
 import { PasskeyInput } from './ui/PasskeyInput';
 import { ContentSwitcher } from './ui/ContentSwitcher';
 import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';
+import { ArrowRightAnim } from '../ArrowRightAnim';
 import { AuthMenuMode, type PasskeyAuthMenuProps } from './types';
 import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
 import { usePasskeyAuthMenuRuntime } from './adapters/tatchi';
@@ -71,13 +72,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   }, []);
 
   const segActiveBg = 'var(--w3a-passkey-auth-menu2-seg-active-bg)';
-  const googleAccountNameNote =
-    socialLogin?.google && controller.mode === AuthMenuMode.Register
-      ? 'The username above is only for Passkey. Google SSO creates the wallet from your Google email.'
-      : socialLogin?.google && controller.mode === AuthMenuMode.Login
-        ? 'The username above is only for Passkey login. Google SSO finds your Email OTP wallet from your Google account.'
-        : '';
-
   const rootStyle = React.useMemo<CSSVarStyle>(
     () => ({
       ...style,
@@ -191,15 +185,10 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
             <div className="w3a-otp-prompt-copy">
               <div className="w3a-otp-title">{controller.otpPrompt.title}</div>
               <p className="w3a-otp-description">{controller.otpPrompt.description}</p>
-              {controller.otpPrompt.emailHint ? (
-                <div className="w3a-otp-email">{controller.otpPrompt.emailHint}</div>
-              ) : null}
               {controller.otpPrompt.accountId ? (
                 <div className="w3a-otp-account" title={controller.otpPrompt.accountId}>
                   <span className="w3a-otp-account-label">Wallet</span>
-                  <span className="w3a-otp-account-value">
-                    {controller.otpPrompt.accountId}
-                  </span>
+                  <span className="w3a-otp-account-value">{controller.otpPrompt.accountId}</span>
                 </div>
               ) : null}
               {controller.otpPrompt.onRerollAccount ? (
@@ -238,16 +227,6 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
             ) : (
               <p className="w3a-otp-helper">{controller.otpPrompt.helperText}</p>
             )}
-            {controller.otpPrompt.onResend ? (
-              <button
-                type="button"
-                className="w3a-otp-resend"
-                onClick={controller.otpPrompt.onResend}
-                disabled={controller.otpPrompt.resendDisabled}
-              >
-                {controller.otpPrompt.resendLabel || 'Resend code'}
-              </button>
-            ) : null}
             <button
               type="button"
               className="w3a-auth-method-btn w3a-auth-method-btn-primary"
@@ -256,6 +235,16 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
             >
               {controller.otpPrompt.submitting ? 'Unlocking…' : controller.otpPrompt.submitLabel}
             </button>
+            {controller.otpPrompt.onResend ? (
+              <button
+                type="button"
+                className="w3a-otp-resend"
+                onClick={controller.otpPrompt.onResend}
+                disabled={controller.otpPrompt.resendDisabled}
+              >
+                {controller.otpPrompt.resendLabel || 'Resend Code'}
+              </button>
+            ) : null}
           </div>
         ) : (
           <>
@@ -272,17 +261,12 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               postfixText={controller.postfixText}
               isUsingExistingAccount={controller.isUsingExistingAccount}
               accountExists={runtime.accountExists}
-              canProceed={controller.canShowContinue}
+              accountOptions={controller.passkeyAccountOptions}
               onProceed={controller.onProceed}
               mode={controller.mode}
               secure={controller.secure}
               waiting={controller.waiting}
             />
-            {googleAccountNameNote ? (
-              <p className="w3a-auth-method-note w3a-google-account-name-note">
-                {googleAccountNameNote}
-              </p>
-            ) : null}
 
             <SegmentedControl
               items={[
@@ -295,13 +279,14 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               activeBg={segActiveBg}
             />
 
-            <div className="w3a-seg-help-row">
-              <div className="w3a-seg-help" aria-live="polite">
-                {controller.mode === AuthMenuMode.Login && 'Choose a login method'}
-                {controller.mode === AuthMenuMode.Register && 'Create a new account'}
-                {controller.mode === AuthMenuMode.Sync && 'Sync account (iCloud/Chrome sync)'}
+            {controller.mode !== AuthMenuMode.Login ? (
+              <div className="w3a-seg-help-row">
+                <div className="w3a-seg-help" aria-live="polite">
+                  {controller.mode === AuthMenuMode.Register && 'Create a new account'}
+                  {controller.mode === AuthMenuMode.Sync && 'Sync account (iCloud/Chrome sync)'}
+                </div>
               </div>
-            </div>
+            ) : null}
 
             {(controller.mode === AuthMenuMode.Login ||
               controller.mode === AuthMenuMode.Register) && (
@@ -315,7 +300,9 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
                         className="w3a-auth-method-btn w3a-auth-method-btn-primary"
                         disabled={!controller.canSubmit || controller.waiting}
                       >
-                        Continue with Passkey
+                        <FingerprintIcon size={22} style={{ display: 'block' }} />
+                        <span>Continue with Passkey</span>
+                        <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                       </button>
                       <SocialProviders
                         socialLogin={socialLogin}

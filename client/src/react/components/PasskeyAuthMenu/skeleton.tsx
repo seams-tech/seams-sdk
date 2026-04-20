@@ -1,8 +1,9 @@
 import React from 'react';
 import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
-import { ArrowLeftIcon } from './ui/icons';
+import { ArrowLeftIcon, FingerprintIcon } from './ui/icons';
 import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';
+import { ArrowRightAnim } from '../ArrowRightAnim';
 import { PasskeyAuthMenuThemeScope } from './themeScope';
 import { useTheme } from '../theme';
 import { getModeTitle } from './controller/mode';
@@ -34,11 +35,11 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
         ? 'Leave blank to discover accounts'
         : 'Enter your username';
   const segHelpText =
-    mode === AuthMenuMode.Login
-      ? 'Choose a login method'
-      : mode === AuthMenuMode.Sync
-        ? 'Sync account (iCloud/Chrome sync)'
-        : 'Create a new account';
+    mode === AuthMenuMode.Sync
+      ? 'Sync account (iCloud/Chrome sync)'
+      : mode === AuthMenuMode.Register
+        ? 'Create a new account'
+        : '';
   const segActiveWidth = 'calc((100% - 18px) / 3)';
   const segActiveX =
     mode === AuthMenuMode.Login
@@ -89,14 +90,6 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
                     />
                   </div>
                 </div>
-                <div style={{ position: 'relative', display: 'inline-block' }}>
-                  <button
-                    aria-label="Continue"
-                    type="button"
-                    className="w3a-arrow-btn no-transition"
-                    disabled
-                  />
-                </div>
               </div>
 
               <div className="w3a-seg">
@@ -137,11 +130,13 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
                 </div>
               </div>
 
-              <div className="w3a-seg-help-row">
-                <div className="w3a-seg-help" aria-live="polite">
-                  {segHelpText}
+              {segHelpText ? (
+                <div className="w3a-seg-help-row">
+                  <div className="w3a-seg-help" aria-live="polite">
+                    {segHelpText}
+                  </div>
                 </div>
-              </div>
+              ) : null}
 
               {(mode === AuthMenuMode.Login || mode === AuthMenuMode.Register) && (
                 <div className="w3a-auth-methods">
@@ -152,7 +147,9 @@ export const PasskeyAuthMenuSkeletonInner = React.forwardRef<
                           className="w3a-auth-method-btn w3a-auth-method-btn-primary"
                           disabled
                         >
-                          Continue with Passkey
+                          <FingerprintIcon size={22} style={{ display: 'block' }} />
+                          <span>Continue with Passkey</span>
+                          <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
                         </button>
                         <SocialProviders
                           socialLogin={{ google: () => undefined }}

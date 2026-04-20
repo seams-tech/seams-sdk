@@ -10,13 +10,13 @@ import {
   createEvmSmartAccountDeployHandler,
   createEcdsaAuthSessionStore,
   createSelfHostedSigningRootShareResolver,
-  createPrfSessionSealPolicyFromThresholdAuthSessionStores,
-  createPrfSessionSealRoutesOptions,
-  createPrfSessionSealShamir3PassCipherAdapter,
+  createSigningSessionSealPolicyFromThresholdAuthSessionStores,
+  createSigningSessionSealRoutesOptions,
+  createSigningSessionSealShamir3PassCipherAdapter,
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   ensureTempoOnboardingSponsorshipForAllOrganizations,
-  resolvePrfSessionSealIdempotencyFromEnv,
-  resolvePrfSessionSealRateLimitFromEnv,
+  resolveSigningSessionSealIdempotencyFromEnv,
+  resolveSigningSessionSealRateLimitFromEnv,
   resolveCoinGeckoSponsoredExecutionPricingFromEnv,
   resolveSponsoredEvmCallConfigFromEnv,
   resolveStaticSponsoredExecutionPricingFromEnv,
@@ -196,7 +196,9 @@ function parseBooleanFlagWithDefault(value: unknown, fallback: boolean): boolean
   return parseBooleanFlag(normalized);
 }
 
-function parsePrfSealLimiterKind(value: unknown): 'in-memory' | 'upstash-redis-rest' | 'redis-tcp' {
+function parseSigningSessionSealLimiterKind(
+  value: unknown,
+): 'in-memory' | 'upstash-redis-rest' | 'redis-tcp' {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
@@ -1014,17 +1016,17 @@ async function main() {
   console.log('[relay-server] initializing threshold services');
   const threshold = authService.getThresholdSigningService();
 
-  const prfSessionSealEnabled = parseBooleanFlag(env.PRF_SESSION_SEAL_ENABLED);
-  const prfSessionSeal = (() => {
-    if (!prfSessionSealEnabled) return null;
+  const signingSessionSealEnabled = parseBooleanFlag(env.SIGNING_SESSION_SEAL_ENABLED);
+  const signingSessionSeal = (() => {
+    if (!signingSessionSealEnabled) return null;
 
-    const shamirPrimeB64u = requireEnvVar(env, 'SHAMIR_P_B64U');
-    const serverEncryptExponentB64u = requireEnvVar(env, 'SHAMIR_E_S_B64U');
-    const serverDecryptExponentB64u = requireEnvVar(env, 'SHAMIR_D_S_B64U');
-    const keyVersion = String(env.PRF_SESSION_SEAL_KEY_VERSION || 'kek-s-2026-02').trim();
+    const shamirPrimeB64u = requireEnvVar(env, 'SIGNING_SESSION_SHAMIR_P_B64U');
+    const serverEncryptExponentB64u = requireEnvVar(env, 'SIGNING_SESSION_SEAL_E_S_B64U');
+    const serverDecryptExponentB64u = requireEnvVar(env, 'SIGNING_SESSION_SEAL_D_S_B64U');
+    const keyVersion = String(env.SIGNING_SESSION_SEAL_KEY_VERSION || 'kek-s-2026-02').trim();
     if (!keyVersion) {
       throw new Error(
-        'PRF_SESSION_SEAL_KEY_VERSION must be a non-empty string when PRF_SESSION_SEAL_ENABLED=1',
+        'SIGNING_SESSION_SEAL_KEY_VERSION must be a non-empty string when SIGNING_SESSION_SEAL_ENABLED=1',
       );
     }
 
@@ -1039,51 +1041,56 @@ async function main() {
       isNode: true,
     });
 
-    const limiterKind = parsePrfSealLimiterKind(env.PRF_SESSION_SEAL_RATE_LIMIT_KIND);
-    const rateLimit = resolvePrfSessionSealRateLimitFromEnv({
+    const limiterKind = parseSigningSessionSealLimiterKind(env.SIGNING_SESSION_SEAL_RATE_LIMIT_KIND);
+    const rateLimit = resolveSigningSessionSealRateLimitFromEnv({
       limiterKind,
       upstashUrl: env.UPSTASH_REDIS_REST_URL,
       upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
       redisUrl: thresholdRedisUrl || redisUrl,
       keyPrefix: String(
-        env.PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX || 'threshold:prf-seal:rate:',
+        env.SIGNING_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX || 'threshold:signing-session-seal:rate:',
       ).trim(),
-      limit: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_RATE_LIMIT) || 30,
-      windowMs: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS) || 60_000,
+      limit: parseOptionalPositiveInteger(env.SIGNING_SESSION_SEAL_RATE_LIMIT) || 30,
+      windowMs:
+        parseOptionalPositiveInteger(env.SIGNING_SESSION_SEAL_RATE_LIMIT_WINDOW_MS) || 60_000,
     });
-    const idempotencyKind = String(env.PRF_SESSION_SEAL_IDEMPOTENCY_KIND || '')
+    const idempotencyKind = String(env.SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND || '')
       .trim()
       .toLowerCase();
     const idempotency = idempotencyKind
-      ? resolvePrfSessionSealIdempotencyFromEnv({
+      ? resolveSigningSessionSealIdempotencyFromEnv({
           idempotencyKind,
           upstashUrl:
-            env.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL || env.UPSTASH_REDIS_REST_URL || undefined,
+            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL ||
+            env.UPSTASH_REDIS_REST_URL ||
+            undefined,
           upstashToken:
-            env.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN ||
+            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN ||
             env.UPSTASH_REDIS_REST_TOKEN ||
             undefined,
           redisUrl:
-            env.PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL ||
+            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL ||
             thresholdRedisUrl ||
             redisUrl ||
             undefined,
           postgresUrl:
-            env.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL || thresholdPostgresUrl || undefined,
-          postgresNamespace: env.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE || undefined,
+            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL || thresholdPostgresUrl || undefined,
+          postgresNamespace:
+            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE || undefined,
           keyPrefix:
             String(
-              env.PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX || 'threshold:prf-seal:idempotency:',
+              env.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX ||
+                'threshold:signing-session-seal:idempotency:',
             ).trim() || undefined,
-          ttlMs: parseOptionalPositiveInteger(env.PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS),
+          ttlMs: parseOptionalPositiveInteger(env.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS),
         })
       : undefined;
 
-    return createPrfSessionSealRoutesOptions({
-      sessionPolicy: createPrfSessionSealPolicyFromThresholdAuthSessionStores({
+    return createSigningSessionSealRoutesOptions({
+      sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
         stores: [authSessionStore, ecdsaAuthSessionStore],
       }),
-      cipher: createPrfSessionSealShamir3PassCipherAdapter({
+      cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: keyVersion,
         keys: [
           {
@@ -1606,7 +1613,7 @@ async function main() {
         config: sponsoredEvmCallConfig,
       },
       orgProjectEnv: consoleOrgProjectEnv,
-      prfSessionSeal,
+      signingSessionSeal,
       logger: console,
     }),
   );
@@ -1674,7 +1681,9 @@ async function main() {
       console.log(`ROR RP ID: ${rorRpId}`);
       console.log(`ROR Origins: ${rorOrigins.join(', ') || '(none)'}`);
     }
-    console.log(`PRF session seal routes: ${prfSessionSealEnabled ? 'enabled' : 'disabled'}`);
+    console.log(
+      `Signing-session seal routes: ${signingSessionSealEnabled ? 'enabled' : 'disabled'}`,
+    );
     console.log(
       `Relay API key auth (/registration/bootstrap): ${relayApiKeyAuth ? 'enabled' : 'disabled'}`,
     );

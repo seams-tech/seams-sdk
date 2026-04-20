@@ -30,7 +30,11 @@ import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import { resolveThresholdEcdsaCommitQueueKey } from './thresholdLifecycle/thresholdEcdsaCommitQueue';
-import type { ThresholdEcdsaSessionRecord } from './thresholdLifecycle/thresholdSessionStore';
+import type {
+  ThresholdEcdsaSessionRecord,
+  ThresholdEd25519SessionRecord,
+} from './thresholdLifecycle/thresholdSessionStore';
+import type { SigningSessionSealedStoreRecord } from './session/signingSessionSealedStore';
 import { emitNonceLifecycleMetric } from './evmNonceLifecycleMetrics';
 import {
   deriveSmartAccountDeploymentTargetFromSigningRequest,
@@ -42,6 +46,7 @@ import type {
   TouchConfirmSigningPort,
   TouchConfirmSecureConfirmationPort,
   WarmSessionMaterialClearer,
+  WarmSessionStatusResult,
   WarmSessionStatusReader,
 } from '../touchConfirm';
 import type { SignerWorkerManagerContext } from '../workerManager';
@@ -58,6 +63,12 @@ import { createWarmSessionManager } from '../session/WarmSessionManager';
 import type { BootstrapEcdsaSessionArgs } from './thresholdLifecycle/thresholdSessionActivation';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { isThresholdSessionAuthUnavailableError } from '../threshold/session/sessionPolicy';
+import {
+  createSigningFlowEvent,
+  SigningEventPhase,
+  type CreateSigningFlowEventInput,
+  type SigningFlowEvent,
+} from '@/core/types/sdkSentEvents';
 
 type EvmFamilySenderSignatureAlgorithm =
   | EvmSigningRequest['senderSignatureAlgorithm']
@@ -100,6 +111,16 @@ export type EvmFamilySigningDeps = {
     operation?: 'transaction_sign' | 'export_key';
     appSessionJwt?: string;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord?: (args: {
+    sealedRecord: SigningSessionSealedStoreRecord;
+    ecdsaRecord: ThresholdEcdsaSessionRecord;
+    ed25519Record?: ThresholdEd25519SessionRecord | null;
+  }) => Promise<{
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    remainingUses: number;
+    expiresAtMs: number;
+  } | null>;
+  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
@@ -118,15 +139,12 @@ export type EvmFamilySigningDeps = {
     Partial<WarmSessionMaterialClearer>;
 };
 
-type EvmFamilyLifecycleEvent = {
-  step: number;
-  phase: string;
-  status: 'progress' | 'success' | 'error';
-  message?: string;
-  data?: unknown;
+type EvmFamilyLifecycleEvent = Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId'> & {
+  flowId?: string;
+  accountId?: string;
 };
 
-type EvmFamilyLifecycleEventCallback = (event: EvmFamilyLifecycleEvent) => void;
+type EvmFamilyLifecycleEventCallback = (event: SigningFlowEvent) => void;
 
 type EvmFamilyLifecycleArgsBase = {
   nearAccountId: string;
@@ -139,13 +157,7 @@ type SignEvmFamilyArgs = {
   request: TempoSigningRequest | EvmSigningRequest;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   shouldAbort?: () => boolean;
-  onEvent?: (event: {
-    step: number;
-    phase: string;
-    status: 'progress' | 'success' | 'error';
-    message?: string;
-    data?: unknown;
-  }) => void;
+  onEvent?: EvmFamilyLifecycleEventCallback;
 };
 
 type SignEvmFamilyAttemptOptions = {
@@ -300,6 +312,15 @@ function extractErrorMessage(error: unknown): string {
     return String((error as { message?: unknown }).message || '').trim();
   }
   return String(error).trim();
+}
+
+function isFreshEmailOtpReauthRequiredError(error: unknown): boolean {
+  if (extractErrorCode(error) === 'fresh_email_otp_required') return true;
+  const message = extractErrorMessage(error).toLowerCase();
+  return (
+    message.includes('requires fresh email otp verification') ||
+    message.includes('fresh email otp verification is required')
+  );
 }
 
 function inferNonceConflictReason(args: {
@@ -508,8 +529,28 @@ function emitEvmFamilyBroadcastEvent(
   event: EvmFamilyLifecycleEvent,
 ): void {
   try {
-    onEvent?.(event);
+    onEvent?.(
+      createSigningFlowEvent({
+        ...event,
+        flowId: event.flowId ?? createEvmFamilySigningFlowId(event),
+      }),
+    );
   } catch {}
+}
+
+function createEvmFamilySigningFlowId(event: EvmFamilyLifecycleEvent): string {
+  const data = event.data || {};
+  const chain = String(data.chain || 'evm_family');
+  const networkKey = String(data.networkKey || 'unknown_network');
+  const nonce = String(data.nonce || '');
+  return ['signing', chain, networkKey, nonce || String(event.phase)].join(':');
+}
+
+function emitEvmFamilySigningEvent(
+  onEvent: EvmFamilyLifecycleEventCallback | undefined,
+  event: EvmFamilyLifecycleEvent,
+): void {
+  emitEvmFamilyBroadcastEvent(onEvent, event);
 }
 
 function isNonceConflictRetryableError(
@@ -613,7 +654,74 @@ function isEmailOtpThresholdEcdsaSigningContext(args: {
   if (args.record?.source === SIGNER_AUTH_METHODS.emailOtp) return true;
   if (args.record?.emailOtpAuthContext?.authMethod === SIGNER_AUTH_METHODS.emailOtp) return true;
   if (args.record?.clientAdditiveShareHandle?.kind === 'email_otp_worker_session') return true;
-  return args.keyRef?.backendBinding?.clientAdditiveShareHandle?.kind === 'email_otp_worker_session';
+  return (
+    args.keyRef?.backendBinding?.clientAdditiveShareHandle?.kind === 'email_otp_worker_session'
+  );
+}
+
+function createEvmFamilyWarmSessionManager(
+  deps: EvmFamilySigningDeps,
+  onEvent?: EvmFamilyLifecycleEventCallback,
+) {
+  return createWarmSessionManager({
+    touchConfirm: deps.touchConfirm,
+    clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) => {
+      const record = deps.getThresholdEcdsaSessionRecordForSigning({
+        nearAccountId: String(nearAccountId),
+        chain,
+      });
+      clearThresholdEcdsaClientPresignaturesForLane({
+        relayerUrl: record.relayerUrl,
+        ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+        participantIds: record.participantIds,
+      });
+    },
+    clearThresholdEcdsaSessionRecordForLane: deps.clearThresholdEcdsaSessionRecordForLane,
+    markThresholdEcdsaEmailOtpSessionConsumedForAccount:
+      deps.markThresholdEcdsaEmailOtpSessionConsumedForAccount,
+    getThresholdEcdsaSessionRecordForSigning: deps.getThresholdEcdsaSessionRecordForSigning,
+    getThresholdEcdsaKeyRefForSigning: deps.getThresholdEcdsaKeyRefForSigning,
+    provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
+    rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord:
+      deps.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord,
+    getEmailOtpWarmSessionStatus: deps.getEmailOtpWarmSessionStatus,
+    onSealedRestore: (event) => {
+      const chain = event.chain;
+      if (event.status === 'started') {
+        emitEvmFamilySigningEvent(onEvent, {
+          phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
+          status: 'waiting_for_user',
+          accountId: String(event.accountId),
+          message: 'Restoring signing session...',
+          interaction: { kind: 'transaction_confirmation', overlay: 'show' },
+          data: {
+            chain,
+            thresholdSessionId: event.thresholdSessionId,
+            ...(event.walletSigningSessionId
+              ? { walletSigningSessionId: event.walletSigningSessionId }
+              : {}),
+          },
+        });
+        return;
+      }
+      if (event.status === 'restored') {
+        emitEvmFamilySigningEvent(onEvent, {
+          phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
+          status: 'succeeded',
+          accountId: String(event.accountId),
+          message: 'Signing session restored',
+          interaction: { kind: 'none', overlay: 'none' },
+          data: {
+            chain,
+            thresholdSessionId: event.thresholdSessionId,
+            ...(event.walletSigningSessionId
+              ? { walletSigningSessionId: event.walletSigningSessionId }
+              : {}),
+          },
+        });
+      }
+    },
+  });
 }
 
 async function resolveEvmFamilyTransactionWalletAuth(args: {
@@ -624,13 +732,7 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
   record?: ThresholdEcdsaSessionRecord;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
   forceFreshAuth?: boolean;
-  onEvent?: (event: {
-    step: number;
-    phase: string;
-    status: 'progress' | 'success' | 'error';
-    message?: string;
-    data?: unknown;
-  }) => void;
+  onEvent?: EvmFamilyLifecycleEventCallback;
 }): Promise<{
   walletAuthPlan: WalletAuthPlan;
   emailOtpSigning?: {
@@ -642,6 +744,7 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
   };
 }> {
   const appSessionJwtByChallengeId = new Map<string, string>();
+  const warmSessionManager = createEvmFamilyWarmSessionManager(args.deps, args.onEvent);
   const resolver = createWalletAuthModeResolver({
     passkey: createPasskeyWalletAuthAdapter({
       challenge: async () => ({}),
@@ -655,11 +758,11 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
         if (typeof args.deps.requestEmailOtpChallengeForSigning !== 'function') {
           throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
         }
-        args.onEvent?.({
-          step: 2,
-          phase: 'email-otp-challenge',
-          status: 'progress',
-          message: 'Sending Email OTP for transaction authorization',
+        emitEvmFamilySigningEvent(args.onEvent, {
+          phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
+          status: 'running',
+          accountId: args.nearAccountId,
+          interaction: { kind: 'none', overlay: 'none' },
         });
         const challenge = await args.deps.requestEmailOtpChallengeForSigning({
           nearAccountId: args.nearAccountId,
@@ -675,11 +778,12 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
         if (appSessionJwt) {
           appSessionJwtByChallengeId.set(challengeId, appSessionJwt);
         }
-        args.onEvent?.({
-          step: 2,
-          phase: 'email-otp-challenge',
-          status: 'success',
-          message: 'Email OTP challenge ready',
+        emitEvmFamilySigningEvent(args.onEvent, {
+          phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED,
+          status: 'waiting_for_user',
+          accountId: args.nearAccountId,
+          interaction: { kind: 'otp_input', overlay: 'show' },
+          ...(challenge.emailHint ? { data: { emailHint: challenge.emailHint } } : {}),
         });
         return {
           challengeId,
@@ -724,12 +828,48 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
         const remainingUses = Math.floor(Number(record.remainingUses) || 0);
         if (expiresAtMs <= 0 || remainingUses <= 0) return null;
         if (isEmailOtpThresholdEcdsaSigningContext({ record, keyRef: args.keyRef })) {
-          const status = await args.deps.touchConfirm
-            .getWarmSessionStatus({ sessionId: record.thresholdSessionId })
-            .catch(() => null);
+          const emailOtpWorkerSessionId =
+            record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session'
+              ? String(record.clientAdditiveShareHandle.sessionId || '').trim()
+              : String(record.thresholdSessionId || '').trim();
+          const readEmailOtpStatus = async () => {
+            if (
+              emailOtpWorkerSessionId &&
+              typeof args.deps.getEmailOtpWarmSessionStatus === 'function'
+            ) {
+              return await args.deps
+                .getEmailOtpWarmSessionStatus(emailOtpWorkerSessionId)
+                .catch(() => null);
+            }
+            return await args.deps.touchConfirm
+              .getWarmSessionStatus({ sessionId: record.thresholdSessionId })
+              .catch(() => null);
+          };
+          let status = await readEmailOtpStatus();
+          if (!status?.ok || status.remainingUses <= 0 || status.expiresAtMs <= Date.now()) {
+            await warmSessionManager.getWarmSession(args.nearAccountId).catch(() => null);
+            status = await readEmailOtpStatus();
+          }
           if (!status?.ok || status.remainingUses <= 0 || status.expiresAtMs <= Date.now()) {
             return null;
           }
+          return {
+            kind: 'warmSession',
+            method: input.accountAuth.primaryAuthMethod,
+            accountId: input.accountId,
+            intent: input.intent,
+            ...(input.curve ? { curve: input.curve } : {}),
+            ...(record.runtimePolicyScope
+              ? {
+                  signingRootId: signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope)
+                    .signingRootId,
+                }
+              : {}),
+            sessionId: record.thresholdSessionId,
+            retention: record.emailOtpAuthContext?.retention || 'session',
+            expiresAtMs: status.expiresAtMs,
+            remainingUses: status.remainingUses,
+          };
         }
         return {
           kind: 'warmSession',
@@ -808,42 +948,17 @@ function resolveManagedRuntimeScopeBootstrap(
   return { environmentId, publishableKey };
 }
 
-async function ensureThresholdEcdsaKeyRefReady(args: {
+export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   deps: EvmFamilySigningDeps;
   nearAccountId: string;
   chain: 'tempo' | 'evm';
   keyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
   shouldAbort?: () => boolean;
-  onEvent?: (event: {
-    step: number;
-    phase: string;
-    status: 'progress' | 'success' | 'error';
-    message?: string;
-    data?: unknown;
-  }) => void;
+  onEvent?: EvmFamilyLifecycleEventCallback;
 }): Promise<ThresholdEcdsaSecp256k1KeyRef> {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
-  const warmSessionManager = createWarmSessionManager({
-    touchConfirm: args.deps.touchConfirm,
-    clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) => {
-      const record = args.deps.getThresholdEcdsaSessionRecordForSigning({
-        nearAccountId: String(nearAccountId),
-        chain,
-      });
-      clearThresholdEcdsaClientPresignaturesForLane({
-        relayerUrl: record.relayerUrl,
-        ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-        participantIds: record.participantIds,
-      });
-    },
-    clearThresholdEcdsaSessionRecordForLane: args.deps.clearThresholdEcdsaSessionRecordForLane,
-    markThresholdEcdsaEmailOtpSessionConsumedForAccount:
-      args.deps.markThresholdEcdsaEmailOtpSessionConsumedForAccount,
-    getThresholdEcdsaSessionRecordForSigning: args.deps.getThresholdEcdsaSessionRecordForSigning,
-    getThresholdEcdsaKeyRefForSigning: args.deps.getThresholdEcdsaKeyRefForSigning,
-    provisionThresholdEcdsaSession: args.deps.provisionThresholdEcdsaSession,
-  });
+  const warmSessionManager = createEvmFamilyWarmSessionManager(args.deps, args.onEvent);
   const resolvedKeyRef =
     args.keyRef ||
     tryGetThresholdEcdsaKeyRefForSigning({
@@ -860,20 +975,26 @@ async function ensureThresholdEcdsaKeyRefReady(args: {
     usesNeeded: 1,
     beforeReconnect: async () => {
       try {
-        args.onEvent?.({
-          step: 3,
-          phase: 'threshold-session-reconnect',
-          status: 'progress',
-          message:
-            args.chain === 'tempo'
-              ? 'Threshold signer not ready, reconnecting Tempo signer'
-              : 'Threshold signer not ready, reconnecting EVM signer',
+        emitEvmFamilySigningEvent(args.onEvent, {
+          phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
+          status: 'running',
+          accountId: args.nearAccountId,
+          interaction: { kind: 'none', overlay: 'none' },
+          data: { chain: args.chain },
         });
       } catch {}
     },
     assertNotCancelled: () => {
       throwIfEvmFamilySigningCancelled(args.shouldAbort);
     },
+  });
+
+  emitEvmFamilySigningEvent(args.onEvent, {
+    phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED,
+    status: 'succeeded',
+    accountId: args.nearAccountId,
+    interaction: { kind: 'none', overlay: 'none' },
+    data: { chain: args.chain },
   });
 
   return readyCapability.keyRef;
@@ -1144,9 +1265,8 @@ export async function reportEvmFamilyBroadcastAccepted(
   if (!reservation) return;
 
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-broadcast-accepted',
-    status: 'progress',
+    phase: SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
+    status: 'running',
     message: 'Marking managed nonce lane as in-flight',
     data: {
       chain: reservation.chain,
@@ -1170,9 +1290,8 @@ export async function reportEvmFamilyBroadcastAccepted(
     ...(txHash ? { txHash } : {}),
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-broadcast-accepted',
-    status: 'success',
+    phase: SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
+    status: 'succeeded',
     message: 'Managed nonce lane marked in-flight',
     data: {
       chain: reservation.chain,
@@ -1194,9 +1313,8 @@ export async function reportEvmFamilyBroadcastRejected(
   });
   if (!reservation) return;
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-broadcast-rejected',
-    status: 'progress',
+    phase: SigningEventPhase.STEP_12_BROADCAST_REJECTED,
+    status: 'running',
     message: 'Marking managed nonce reservation rejected',
     data: {
       chain: reservation.chain,
@@ -1218,9 +1336,8 @@ export async function reportEvmFamilyBroadcastRejected(
     errorCode: extractErrorCode(mappedError) || extractErrorCode(args.error),
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-broadcast-rejected',
-    status: 'success',
+    phase: SigningEventPhase.STEP_12_BROADCAST_REJECTED,
+    status: 'failed',
     message: 'Managed nonce reservation marked rejected',
     data: {
       chain: reservation.chain,
@@ -1237,9 +1354,8 @@ export async function reportEvmFamilyBroadcastRejected(
   }
 
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-reconcile',
-    status: 'progress',
+    phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
+    status: 'running',
     message: 'Reconciling managed nonce lane after broadcast error',
     data: {
       chain: reservation.chain,
@@ -1251,9 +1367,8 @@ export async function reportEvmFamilyBroadcastRejected(
   });
   const laneStatus = await deps.evmNonceManager.reconcileLane(reservation).catch(() => null);
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-reconcile',
-    status: 'success',
+    phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED,
+    status: 'succeeded',
     message: 'Managed nonce lane reconciled',
     data: {
       chain: reservation.chain,
@@ -1285,19 +1400,6 @@ export async function reportEvmFamilyFinalized(
     (args.signedResult.chain === 'evm'
       ? (args.signedResult.txHashHex as `0x${string}`)
       : undefined);
-  emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-finalized',
-    status: 'progress',
-    message: 'Finalizing managed nonce lane',
-    data: {
-      chain: reservation.chain,
-      networkKey: reservation.networkKey,
-      chainId: reservation.chainId.toString(),
-      nonce: reservation.nonce.toString(),
-      ...(txHash ? { txHash } : {}),
-    },
-  });
   await deps.evmNonceManager.markFinalized({
     ...reservation,
     ...(txHash ? { txHash } : {}),
@@ -1306,19 +1408,6 @@ export async function reportEvmFamilyFinalized(
     metric: 'finalized',
     ...toNonceLifecycleMetricBase(reservation),
     ...(txHash ? { txHash } : {}),
-  });
-  emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-finalized',
-    status: 'success',
-    message: 'Managed nonce lane finalized',
-    data: {
-      chain: reservation.chain,
-      networkKey: reservation.networkKey,
-      chainId: reservation.chainId.toString(),
-      nonce: reservation.nonce.toString(),
-      ...(txHash ? { txHash } : {}),
-    },
   });
 }
 
@@ -1332,9 +1421,11 @@ export async function reportEvmFamilyDroppedOrReplaced(
   });
   if (!reservation) return;
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-dropped-or-replaced',
-    status: 'progress',
+    phase:
+      args.reason === 'replaced'
+        ? SigningEventPhase.STEP_13_TRANSACTION_REPLACED
+        : SigningEventPhase.STEP_13_TRANSACTION_DROPPED,
+    status: 'running',
     message:
       args.reason === 'replaced'
         ? 'Marking managed nonce lane replaced'
@@ -1359,9 +1450,11 @@ export async function reportEvmFamilyDroppedOrReplaced(
     ...(args.txHash ? { txHash: args.txHash } : {}),
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-dropped-or-replaced',
-    status: 'success',
+    phase:
+      args.reason === 'replaced'
+        ? SigningEventPhase.STEP_13_TRANSACTION_REPLACED
+        : SigningEventPhase.STEP_13_TRANSACTION_DROPPED,
+    status: args.reason === 'replaced' ? 'succeeded' : 'failed',
     message:
       args.reason === 'replaced'
         ? 'Managed nonce lane marked replaced'
@@ -1393,9 +1486,8 @@ export async function reconcileEvmFamilyNonceLane(
     };
   }
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-reconcile',
-    status: 'progress',
+    phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
+    status: 'running',
     message: 'Reconciling managed nonce lane',
     data: {
       chain: reservation.chain,
@@ -1411,9 +1503,8 @@ export async function reconcileEvmFamilyNonceLane(
     ...(formatted.blockedNonce ? { blockedNonce: formatted.blockedNonce } : {}),
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
-    step: 7,
-    phase: 'nonce-reconcile',
-    status: 'success',
+    phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED,
+    status: 'succeeded',
     message: 'Managed nonce lane reconciled',
     data: {
       chain: reservation.chain,
@@ -1443,11 +1534,25 @@ async function ensureSmartAccountDeploymentReady(args: {
   nearAccountId: string;
   request: TempoSigningRequest | EvmSigningRequest;
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  onEvent?: EvmFamilyLifecycleEventCallback;
 }): Promise<void> {
   const target = deriveSmartAccountDeploymentTargetFromSigningRequest(args.request);
   const deploymentMode = resolveSmartAccountDeploymentMode(args.deps.tatchiPasskeyConfigs);
+  const deploymentEventData = {
+    chain: target.chain,
+    chainIdCandidates: target.chainIdCandidates,
+    accountModelCandidates: target.accountModelCandidates,
+    deploymentMode,
+  };
+  emitEvmFamilySigningEvent(args.onEvent, {
+    phase: SigningEventPhase.STEP_04_ACCOUNT_READINESS_STARTED,
+    status: 'running',
+    accountId: args.nearAccountId,
+    interaction: { kind: 'none', overlay: 'none' },
+    data: deploymentEventData,
+  });
   try {
-    await ensureSmartAccountDeployed({
+    const deployment = await ensureSmartAccountDeployed({
       clientDB: args.deps.indexedDB.clientDB,
       nearAccountId: toAccountId(args.nearAccountId),
       chain: target.chain,
@@ -1496,10 +1601,38 @@ async function ensureSmartAccountDeploymentReady(args: {
           }
         : { enforce: false }),
     });
+    const deploymentReady =
+      deployment.status === 'deployed' || deployment.status === 'already_deployed';
+    emitEvmFamilySigningEvent(args.onEvent, {
+      phase: deploymentReady
+        ? SigningEventPhase.STEP_04_ACCOUNT_READINESS_SUCCEEDED
+        : SigningEventPhase.STEP_04_ACCOUNT_READINESS_SKIPPED,
+      status: deploymentReady ? 'succeeded' : 'skipped',
+      accountId: args.nearAccountId,
+      interaction: { kind: 'none', overlay: 'none' },
+      data: {
+        ...deploymentEventData,
+        deploymentStatus: deployment.status,
+        attempts: deployment.attempts,
+        ...(typeof deployment.chainId === 'number' ? { chainId: deployment.chainId } : {}),
+        ...(deployment.accountAddress ? { accountAddress: deployment.accountAddress } : {}),
+        ...(deployment.deploymentTxHash ? { deploymentTxHash: deployment.deploymentTxHash } : {}),
+        ...(deployment.failureCode ? { failureCode: deployment.failureCode } : {}),
+        ...(deployment.failureMessage ? { failureMessage: deployment.failureMessage } : {}),
+      },
+    });
   } catch (error: unknown) {
     const details =
       String((error as { message?: unknown })?.message || error || '').trim() ||
       'deployment failed';
+    emitEvmFamilySigningEvent(args.onEvent, {
+      phase: SigningEventPhase.FAILED,
+      status: 'failed',
+      accountId: args.nearAccountId,
+      interaction: { kind: 'none', overlay: 'hide' },
+      data: deploymentEventData,
+      error: { message: details },
+    });
     throw new Error(
       `[SigningEngine] smart-account deployment must succeed before first ${target.chain.toUpperCase()} send: ${details}`,
     );
@@ -1562,26 +1695,7 @@ async function signEvmFamilyAttempt(
     forceFreshAuth: attempt.forceFreshEmailOtpAuth === true,
     onEvent: args.onEvent,
   });
-  const warmSessionManager = createWarmSessionManager({
-    touchConfirm: deps.touchConfirm,
-    clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) => {
-      const record = deps.getThresholdEcdsaSessionRecordForSigning({
-        nearAccountId: String(nearAccountId),
-        chain,
-      });
-      clearThresholdEcdsaClientPresignaturesForLane({
-        relayerUrl: record.relayerUrl,
-        ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-        participantIds: record.participantIds,
-      });
-    },
-    clearThresholdEcdsaSessionRecordForLane: deps.clearThresholdEcdsaSessionRecordForLane,
-    markThresholdEcdsaEmailOtpSessionConsumedForAccount:
-      deps.markThresholdEcdsaEmailOtpSessionConsumedForAccount,
-    getThresholdEcdsaSessionRecordForSigning: deps.getThresholdEcdsaSessionRecordForSigning,
-    getThresholdEcdsaKeyRefForSigning: deps.getThresholdEcdsaKeyRefForSigning,
-    provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
-  });
+  const warmSessionManager = createEvmFamilyWarmSessionManager(deps, args.onEvent);
   const flowArgs = {
     ctx,
     touchConfirm: deps.touchConfirm,
@@ -1600,13 +1714,14 @@ async function signEvmFamilyAttempt(
           result,
         }: ThresholdEcdsaPresignRefillEvent) => {
           try {
-            args.onEvent?.({
-              step: 4,
-              phase: 'presign-refill-scheduled',
-              status: 'progress',
+            emitEvmFamilySigningEvent(args.onEvent, {
+              phase: SigningEventPhase.STEP_08_PRESIGN_REFILL_SCHEDULED,
+              status: 'running',
+              accountId: args.nearAccountId,
               message: result.scheduled
                 ? `Scheduled threshold presign refill (${trigger})`
                 : `Skipped threshold presign refill (${trigger}): ${result.reason}`,
+              interaction: { kind: 'none', overlay: 'none' },
               data: { trigger, ...result },
             });
           } catch {}
@@ -1618,11 +1733,11 @@ async function signEvmFamilyAttempt(
             thresholdSessionId,
           });
           try {
-            args.onEvent?.({
-              step: 4,
-              phase: 'commit-queued',
-              status: 'progress',
-              message: 'Queued for threshold signing commit',
+            emitEvmFamilySigningEvent(args.onEvent, {
+              phase: SigningEventPhase.STEP_10_COMMIT_QUEUED,
+              status: 'running',
+              accountId: args.nearAccountId,
+              interaction: { kind: 'none', overlay: 'none' },
               data: { queueKey, chain: args.request.chain },
             });
           } catch {}
@@ -1641,11 +1756,11 @@ async function signEvmFamilyAttempt(
                 usesNeeded: 1,
               });
               try {
-                args.onEvent?.({
-                  step: 4,
-                  phase: 'commit-started',
-                  status: 'progress',
-                  message: 'Starting threshold signing commit',
+                emitEvmFamilySigningEvent(args.onEvent, {
+                  phase: SigningEventPhase.STEP_10_COMMIT_STARTED,
+                  status: 'running',
+                  accountId: args.nearAccountId,
+                  interaction: { kind: 'none', overlay: 'none' },
                   data: { queueKey, chain: args.request.chain },
                 });
               } catch {}
@@ -1653,6 +1768,7 @@ async function signEvmFamilyAttempt(
                 deps,
                 nearAccountId: args.nearAccountId,
                 request: args.request,
+                onEvent: args.onEvent,
                 ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
               });
               throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
@@ -1670,7 +1786,7 @@ async function signEvmFamilyAttempt(
     ...(args.request.senderSignatureAlgorithm === 'secp256k1'
       ? {
           ensureThresholdEcdsaKeyRefReady: async () => {
-            const readyKeyRef = await ensureThresholdEcdsaKeyRefReady({
+            const readyKeyRef = await ensureEvmFamilyThresholdEcdsaKeyRefReady({
               deps,
               nearAccountId: args.nearAccountId,
               chain: args.request.chain,
@@ -1701,7 +1817,12 @@ async function signEvmFamilyAttempt(
   ): Promise<TempoSignedResult | EvmSignedResult | null> => {
     if (attempt.retryingFreshEmailOtpAuth || emailOtpSigning) return null;
     if (args.request.senderSignatureAlgorithm !== 'secp256k1') return null;
-    if (!isThresholdSessionAuthUnavailableError(error)) return null;
+    if (
+      !isThresholdSessionAuthUnavailableError(error) &&
+      !isFreshEmailOtpReauthRequiredError(error)
+    ) {
+      return null;
+    }
     const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
       deps,
       nearAccountId: args.nearAccountId,
@@ -1710,11 +1831,13 @@ async function signEvmFamilyAttempt(
       ...(thresholdEcdsaKeyRef ? { keyRef: thresholdEcdsaKeyRef } : {}),
     });
     if (accountAuth.primaryAuthMethod !== SIGNER_AUTH_METHODS.emailOtp) return null;
-    args.onEvent?.({
-      step: 2,
-      phase: 'threshold-session-reauth',
-      status: 'progress',
+    emitEvmFamilySigningEvent(args.onEvent, {
+      phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
+      status: 'running',
+      accountId: args.nearAccountId,
       message: 'Signing session expired; requesting Email OTP reauthorization',
+      interaction: { kind: 'none', overlay: 'none' },
+      data: { chain: args.request.chain, reason: 'threshold_session_expired' },
     });
     return await signEvmFamilyAttempt(deps, args, {
       forceFreshEmailOtpAuth: true,

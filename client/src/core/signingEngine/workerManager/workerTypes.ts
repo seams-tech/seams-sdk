@@ -1,11 +1,14 @@
-import type { onProgressEvents } from '@/core/types/sdkSentEvents';
 import {
+  type NearWorkerProgressEvent,
   type WorkerRequestTypeMap,
   type WorkerResponseForRequest,
   WorkerRequestType,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
+import type {
+  ThresholdEcdsaActivationChain,
+  ThresholdEcdsaSessionBootstrapResult,
+} from '../orchestration/thresholdActivation';
 import type { ThresholdRuntimePolicyScope } from '../threshold/session/sessionPolicy';
 import type {
   WalletEmailOtpChannel,
@@ -316,6 +319,69 @@ export interface EmailOtpWorkerOperationMap {
       | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
       | { ok: false; code: string; message: string };
   };
+  sealEmailOtpWarmSessionMaterial: {
+    payload: {
+      sessionId: string;
+      transport: {
+        relayerUrl: string;
+        thresholdSessionJwt?: string;
+        keyVersion?: string;
+        shamirPrimeB64u?: string;
+      };
+    };
+    result:
+      | {
+          ok: true;
+          sealedSecretB64u: string;
+          keyVersion?: string;
+          remainingUses: number;
+          expiresAtMs: number;
+        }
+      | { ok: false; code: string; message: string };
+  };
+  rehydrateEmailOtpEcdsaWarmSessionMaterial: {
+    payload: {
+      sealedSecretB64u: string;
+      remainingUses: number;
+      expiresAtMs: number;
+      transport: {
+        relayerUrl: string;
+        thresholdSessionJwt?: string;
+        keyVersion?: string;
+        shamirPrimeB64u?: string;
+      };
+      restore: {
+        sessionId: string;
+        walletId: string;
+        userId?: string;
+        rpId: string;
+        chain?: ThresholdEcdsaActivationChain;
+        walletSigningSessionId: string;
+        signingRootId: string;
+        signingRootVersion?: string;
+        ecdsaThresholdKeyId: string;
+        relayerKeyId: string;
+        participantIds?: number[];
+        derivationPath?: string;
+        sessionKind?: 'jwt' | 'cookie';
+        runtimePolicyScope?: ThresholdRuntimePolicyScope;
+        ed25519?: {
+          sessionId: string;
+          relayerKeyId: string;
+          participantIds?: number[];
+        };
+      };
+    };
+    result:
+      | {
+          ok: true;
+          remainingUses: number;
+          expiresAtMs: number;
+          bootstrap: ThresholdEcdsaSessionBootstrapResult;
+          ed25519RestoreSeedB64u?: string;
+        }
+      | { ok: false; code: string; message: string };
+  };
   claimEmailOtpEcdsaSigningShare: {
     payload: {
       sessionId: string;
@@ -404,7 +470,7 @@ export type NearWorkerOperationRequest<T extends NearWorkerOperationType> = {
   sessionId?: string;
   type: T;
   payload: NearWorkerOperationEntry<T>['payload'];
-  onEvent?: (update: onProgressEvents) => void;
+  onEvent?: (update: NearWorkerProgressEvent) => void;
   timeoutMs?: number;
   transfer?: Transferable[];
 };

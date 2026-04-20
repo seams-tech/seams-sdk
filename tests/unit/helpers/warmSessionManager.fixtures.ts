@@ -279,7 +279,7 @@ export function createWarmSessionTouchConfirmFixture(args: {
     string,
     | {
         ok: true;
-        sealedPrfFirstB64u: string;
+        sealedSecretB64u: string;
         keyVersion?: string;
         remainingUses: number;
         expiresAtMs: number;

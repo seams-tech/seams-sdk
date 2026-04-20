@@ -1,15 +1,14 @@
 import {
   useTatchi,
-  RegistrationPhase,
-  RegistrationStatus,
-  LoginPhase,
-  SyncAccountPhase,
-  SyncAccountStatus,
+  AccountSyncEventPhase,
   AuthMenuMode,
-  type RegistrationSSEEvent,
-  type SyncAccountSSEEvent,
   PasskeyAuthMenu,
+  RegistrationEventPhase,
+  UnlockEventPhase,
   type EmailOtpAuthPolicy,
+  type AccountSyncFlowEvent,
+  type RegistrationFlowEvent,
+  type UnlockFlowEvent,
 } from '@tatchi-xyz/sdk/react';
 import React from 'react';
 import { toast } from 'sonner';
@@ -71,6 +70,70 @@ function formatGoogleSsoEmailOtpError(error: unknown): string {
   return message ? message : 'Google SSO Email OTP failed. Please retry.';
 }
 
+function walletFlowErrorMessage(
+  event: { error?: unknown; message?: string },
+  fallback: string,
+): string {
+  const error = event.error as { message?: unknown } | string | undefined;
+  if (typeof error === 'string' && error.trim()) return error.trim();
+  if (error && typeof error === 'object') {
+    const errorMessage = String(error.message || '').trim();
+    if (errorMessage) return errorMessage;
+  }
+  return event.message || fallback;
+}
+
+function handleRegistrationEvent(event: RegistrationFlowEvent): void {
+  if (event.flow !== 'registration') return;
+  if (event.phase === RegistrationEventPhase.CANCELLED || event.status === 'cancelled') {
+    toast.info(event.message || 'Registration cancelled', { id: 'registration' });
+    return;
+  }
+  if (event.phase === RegistrationEventPhase.FAILED || event.status === 'failed') {
+    toast.error(walletFlowErrorMessage(event, 'Registration failed'), { id: 'registration' });
+    return;
+  }
+  if (event.phase === RegistrationEventPhase.STEP_11_COMPLETED && event.status === 'succeeded') {
+    toast.success(event.message || 'Registration complete', { id: 'registration' });
+    return;
+  }
+  toast.loading(event.message || 'Processing registration...', { id: 'registration' });
+}
+
+function handleUnlockEvent(event: UnlockFlowEvent, loginTarget: string): void {
+  if (event.flow !== 'unlock') return;
+  if (event.phase === UnlockEventPhase.CANCELLED || event.status === 'cancelled') {
+    toast.info(event.message || 'Wallet unlock cancelled', { id: 'login' });
+    return;
+  }
+  if (event.phase === UnlockEventPhase.FAILED || event.status === 'failed') {
+    toast.error(walletFlowErrorMessage(event, 'Wallet unlock failed'), { id: 'login' });
+    return;
+  }
+  if (event.phase === UnlockEventPhase.STEP_07_COMPLETED && event.status === 'succeeded') {
+    toast.success(`Logged in as ${loginTarget}!`, { id: 'login' });
+    return;
+  }
+  toast.loading(event.message || 'Unlocking wallet...', { id: 'login' });
+}
+
+function handleAccountSyncEvent(event: AccountSyncFlowEvent): void {
+  if (event.flow !== 'account_sync') return;
+  if (event.phase === AccountSyncEventPhase.CANCELLED || event.status === 'cancelled') {
+    toast.info(event.message || 'Account sync cancelled', { id: 'sync' });
+    return;
+  }
+  if (event.phase === AccountSyncEventPhase.FAILED || event.status === 'failed') {
+    toast.error(walletFlowErrorMessage(event, 'Account sync failed'), { id: 'sync' });
+    return;
+  }
+  if (event.phase === AccountSyncEventPhase.STEP_06_COMPLETED && event.status === 'succeeded') {
+    toast.success(event.message || 'Account synced', { id: 'sync' });
+    return;
+  }
+  toast.loading(event.message || 'Syncing account...', { id: 'sync' });
+}
+
 export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
   const useTatchiHook = props.__testOverrides?.useTatchiHook || useTatchi;
   const useAuthMenuControlHook =
@@ -95,45 +158,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
 
   const onRegister = async () => {
     const result = await registerPasskey(targetAccountId, {
-      onEvent: (event: RegistrationSSEEvent) => {
-        switch (event.phase) {
-          case RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION:
-            toast.loading('Starting registration...', { id: 'registration' });
-            break;
-          case RegistrationPhase.STEP_2_KEY_GENERATION:
-            if (event.status === RegistrationStatus.SUCCESS) {
-              toast.success('Keys generated...', { id: 'registration' });
-            }
-            break;
-          case RegistrationPhase.STEP_3_CONTRACT_PRE_CHECK:
-            toast.loading('Checking account availability...', { id: 'registration' });
-            break;
-          case RegistrationPhase.STEP_4_ACCESS_KEY_ADDITION:
-            toast.loading('Creating account...', { id: 'registration' });
-            break;
-          case RegistrationPhase.STEP_5_CONTRACT_REGISTRATION:
-            toast.loading(event.message || 'Creating account and finalizing registration...', {
-              id: 'registration',
-            });
-            break;
-          case RegistrationPhase.STEP_6_ACCOUNT_VERIFICATION:
-            toast.loading(event.message, { id: 'registration' });
-            break;
-          case RegistrationPhase.STEP_9_REGISTRATION_COMPLETE:
-            if (event.status === RegistrationStatus.SUCCESS) {
-              // Final toast with tx hash will be shown after the promise resolves
-              toast.success('Registration completed successfully!', { id: 'registration' });
-            }
-            break;
-          case RegistrationPhase.REGISTRATION_ERROR:
-            toast.error(event.error || 'Registration failed', { id: 'registration' });
-            break;
-          default:
-            if (event.status === RegistrationStatus.PROGRESS) {
-              toast.loading(event.message || 'Processing...', { id: 'registration' });
-            }
-        }
-      },
+      onEvent: handleRegistrationEvent,
     });
 
     if (result.success && result.nearAccountId) {
@@ -157,25 +182,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       // session: {
       //   kind: 'jwt',
       // },
-      onEvent: (event) => {
-        switch (event.phase) {
-          case LoginPhase.STEP_1_PREPARATION:
-            toast.loading(`Logging in as ${loginTarget}...`, { id: 'login' });
-            break;
-          case LoginPhase.STEP_2_WEBAUTHN_ASSERTION:
-            toast.loading(event.message, { id: 'login' });
-            break;
-          case LoginPhase.STEP_3_SESSION_READY:
-            toast.loading(event.message || 'Session ready…', { id: 'login' });
-            break;
-          case LoginPhase.STEP_4_LOGIN_COMPLETE:
-            toast.success(`Logged in as ${event.nearAccountId}!`, { id: 'login' });
-            break;
-          case LoginPhase.LOGIN_ERROR:
-            toast.error(event.error, { id: 'login' });
-            break;
-        }
-      },
+      onEvent: (event) => handleUnlockEvent(event, loginTarget),
     });
     if (result?.success) {
       const accountId = String(result.nearAccountId || '').trim();
@@ -385,33 +392,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     const result = await tatchi.recovery.syncAccount({
       ...(targetAccountId ? { accountId: targetAccountId } : {}),
       options: {
-        onEvent: (event: SyncAccountSSEEvent) => {
-          switch (event.phase) {
-            case SyncAccountPhase.STEP_1_PREPARATION:
-              toast.loading(event.message || 'Preparing account sync…', { id: 'sync' });
-              break;
-            case SyncAccountPhase.STEP_2_WEBAUTHN_AUTHENTICATION:
-              toast.loading(event.message || 'Authenticating with passkey…', { id: 'sync' });
-              break;
-            case SyncAccountPhase.STEP_4_AUTHENTICATOR_SAVED:
-              if (event.status === SyncAccountStatus.SUCCESS) {
-                toast.success(event.message || 'Passkey saved locally', { id: 'sync' });
-              }
-              break;
-            case SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE:
-              if (event.status === SyncAccountStatus.SUCCESS) {
-                toast.success(event.message || 'Account synced', { id: 'sync' });
-              }
-              break;
-            case SyncAccountPhase.ERROR:
-              toast.error((event as any)?.error || event.message || 'Account sync failed', {
-                id: 'sync',
-              });
-              break;
-            default:
-              break;
-          }
-        },
+        onEvent: handleAccountSyncEvent,
       } as any,
     });
 

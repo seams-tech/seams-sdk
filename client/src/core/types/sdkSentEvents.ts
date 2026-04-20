@@ -13,118 +13,647 @@ import type {
 } from './tatchi';
 import type { SyncAccountResult, SignNEP413MessageResult } from '../TatchiPasskey';
 
-//////////////////////////
-// Progress Events Enums
-//////////////////////////
+////////////////////////////
+// Wallet Flow Event Model
+////////////////////////////
 
-// Registration Enums
-export enum RegistrationPhase {
-  STEP_1_WEBAUTHN_VERIFICATION = 'webauthn-verification',
-  STEP_2_KEY_GENERATION = 'key-generation',
-  STEP_3_CONTRACT_PRE_CHECK = 'contract-pre-check',
-  STEP_4_ACCESS_KEY_ADDITION = 'access-key-addition',
-  STEP_5_CONTRACT_REGISTRATION = 'contract-registration',
-  STEP_6_ACCOUNT_VERIFICATION = 'account-verification',
-  STEP_7_THRESHOLD_KEY_ENROLLMENT = 'threshold-key-enrollment',
-  STEP_8_DATABASE_STORAGE = 'database-storage',
-  STEP_9_ESCAPE_HATCH = 'escape-hatch',
-  STEP_9_REGISTRATION_COMPLETE = 'registration-complete',
-  REGISTRATION_ERROR = 'error',
-}
-export enum RegistrationStatus {
-  PROGRESS = 'progress',
-  SUCCESS = 'success',
-  ERROR = 'error',
-}
+export const WALLET_FLOW_EVENT_VERSION = 2 as const;
 
-// Login Enums
-export enum LoginPhase {
-  STEP_1_PREPARATION = 'preparation',
-  STEP_2_WEBAUTHN_ASSERTION = 'webauthn-assertion',
-  STEP_3_SESSION_READY = 'session-ready',
-  STEP_4_LOGIN_COMPLETE = 'login-complete',
-  LOGIN_ERROR = 'login-error',
-}
-export enum LoginStatus {
-  PROGRESS = 'progress',
-  SUCCESS = 'success',
-  ERROR = 'error',
-}
+export type WalletFlow =
+  | 'registration'
+  | 'unlock'
+  | 'signing'
+  | 'link_device'
+  | 'email_recovery'
+  | 'account_sync';
 
-// Action Enums
-export enum ActionPhase {
-  STEP_1_PREPARATION = 'preparation', // Rust WASM worker phase: Preparation = 100
-  STEP_2_USER_CONFIRMATION = 'user-confirmation', // Rust WASM worker phase: UserConfirmation = 101
-  STEP_3_WEBAUTHN_AUTHENTICATION = 'webauthn-authentication', // Rust WASM worker phase: WebauthnAuthentication = 102
-  STEP_4_AUTHENTICATION_COMPLETE = 'authentication-complete', // Rust WASM worker phase: AuthenticationComplete = 103
-  STEP_5_TRANSACTION_SIGNING_PROGRESS = 'transaction-signing-progress', // Rust WASM worker phase: TransactionSigningProgress = 104
-  STEP_6_TRANSACTION_SIGNING_COMPLETE = 'transaction-signing-complete', // Rust WASM worker phase: TransactionSigningComplete = 105
-  WASM_ERROR = 'wasm-error', // Rust WASM worker phase: Error = 106
-  STEP_7_BROADCASTING = 'broadcasting',
-  STEP_8_ACTION_COMPLETE = 'action-complete',
-  ACTION_ERROR = 'action-error',
-}
-export enum ActionStatus {
-  PROGRESS = 'progress',
-  SUCCESS = 'success',
-  ERROR = 'error',
+export type WalletFlowEventStatus =
+  | 'started'
+  | 'waiting_for_user'
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'cancelled'
+  | 'skipped';
+
+export type WalletFlowAuthMethod = 'passkey' | 'email_otp' | 'warm_session';
+
+export type WalletFlowOverlayIntent = 'show' | 'hide' | 'none';
+
+export type WalletFlowInteractionKind =
+  | 'none'
+  | 'passkey_create'
+  | 'passkey_assert'
+  | 'otp_input'
+  | 'transaction_confirmation'
+  | 'qr_scan'
+  | 'qr_display'
+  | 'email_recovery_link';
+
+export interface WalletFlowEventInteraction {
+  kind: WalletFlowInteractionKind;
+  overlay: WalletFlowOverlayIntent;
 }
 
-// Delegate-specific phase alias for filtering
-export { ActionPhase as DelegateActionPhase };
-
-// Account Sync Enums
-export enum SyncAccountPhase {
-  STEP_1_PREPARATION = 'preparation',
-  STEP_2_WEBAUTHN_AUTHENTICATION = 'webauthn-authentication',
-  STEP_3_SYNC_AUTHENTICATORS_ONCHAIN = 'sync-authenticators-onchain',
-  STEP_4_AUTHENTICATOR_SAVED = 'authenticator-saved',
-  STEP_5_SYNC_ACCOUNT_COMPLETE = 'sync-account-complete',
-  ERROR = 'error',
-}
-export enum SyncAccountStatus {
-  PROGRESS = 'progress',
-  SUCCESS = 'success',
-  ERROR = 'error',
+export interface WalletFlowEventError {
+  code?: string;
+  message: string;
+  retryable?: boolean;
 }
 
-// Device Linking Enums
-export enum DeviceLinkingPhase {
-  STEP_1_QR_CODE_GENERATED = 'qr-code-generated', // Device2: QR code created and displayed
-  STEP_2_SCANNING = 'scanning', // Device1: Scanning QR code
-  STEP_3_AUTHORIZATION = 'authorization', // Device1: TouchID authorization
-  STEP_4_POLLING = 'polling', // Device2: Polling contract for mapping
-  STEP_5_ADDKEY_DETECTED = 'addkey-detected', // Device2: AddKey transaction detected
-  STEP_6_REGISTRATION = 'registration', // Device2: Registration and credential storage
-  STEP_7_LINKING_COMPLETE = 'linking-complete', // Final completion
-  STEP_8_AUTO_LOGIN = 'auto-login', // Auto-login after registration
-  IDLE = 'idle', // Idle state
-  REGISTRATION_ERROR = 'registration-error', // Error during registration
-  LOGIN_ERROR = 'login-error', // Error during login
-  DEVICE_LINKING_ERROR = 'error', // General error state
-}
-export enum DeviceLinkingStatus {
-  PROGRESS = 'progress',
-  SUCCESS = 'success',
-  ERROR = 'error',
+export interface WalletFlowEventBase<
+  TFlow extends WalletFlow = WalletFlow,
+  TPhase extends string = string,
+> {
+  version: typeof WALLET_FLOW_EVENT_VERSION;
+  flow: TFlow;
+  step: number;
+  phase: TPhase;
+  status: WalletFlowEventStatus;
+  message: string;
+  flowId: string;
+  requestId?: string;
+  accountId?: string;
+  authMethod?: WalletFlowAuthMethod;
+  interaction?: WalletFlowEventInteraction;
+  data?: Record<string, unknown>;
+  error?: WalletFlowEventError;
 }
 
-// Email Recovery Enums
-export enum EmailRecoveryPhase {
-  STEP_1_PREPARATION = 'email-recovery-preparation',
-  STEP_2_TOUCH_ID_REGISTRATION = 'email-recovery-touch-id-registration',
-  STEP_3_AWAIT_EMAIL = 'email-recovery-await-email',
-  STEP_4_POLLING_ADD_KEY = 'email-recovery-polling-add-key',
-  STEP_4_POLLING_VERIFICATION_RESULT = 'email-recovery-polling-verification-result',
-  STEP_5_FINALIZING_REGISTRATION = 'email-recovery-finalizing-registration',
-  STEP_6_COMPLETE = 'email-recovery-complete',
-  ERROR = 'email-recovery-error',
-  RESUMED_FROM_PENDING = 'email-recovery-resumed-from-pending',
+export enum RegistrationEventPhase {
+  STEP_01_STARTED = 'registration.started',
+  STEP_02_ACCOUNT_PREFLIGHT_STARTED = 'registration.account.preflight.started',
+  STEP_02_ACCOUNT_PREFLIGHT_SUCCEEDED = 'registration.account.preflight.succeeded',
+  STEP_03_SESSION_EXCHANGE_STARTED = 'registration.session.exchange.started',
+  STEP_03_SESSION_EXCHANGE_SUCCEEDED = 'registration.session.exchange.succeeded',
+  STEP_04_PASSKEY_CREATE_STARTED = 'registration.auth.passkey.create.started',
+  STEP_04_PASSKEY_CREATE_SUCCEEDED = 'registration.auth.passkey.create.succeeded',
+  STEP_04_OTP_CHALLENGE_STARTED = 'registration.otp.challenge.started',
+  STEP_04_OTP_CHALLENGE_SENT = 'registration.otp.challenge.sent',
+  STEP_04_OTP_INPUT_REQUIRED = 'registration.otp.input.required',
+  STEP_04_OTP_VERIFY_STARTED = 'registration.otp.verify.started',
+  STEP_04_OTP_VERIFY_SUCCEEDED = 'registration.otp.verify.succeeded',
+  STEP_05_ED25519_SIGNER_PREPARE_STARTED = 'registration.signer.ed25519.prepare.started',
+  STEP_05_ED25519_SIGNER_PREPARE_SUCCEEDED = 'registration.signer.ed25519.prepare.succeeded',
+  STEP_05_ED25519_SIGNER_PROVISION_STARTED = 'registration.signer.ed25519.provision.started',
+  STEP_05_ED25519_SIGNER_PROVISION_SUCCEEDED = 'registration.signer.ed25519.provision.succeeded',
+  STEP_05_ED25519_SIGNER_PROVISION_SKIPPED = 'registration.signer.ed25519.provision.skipped',
+  STEP_06_RELAY_BOOTSTRAP_STARTED = 'registration.relay.bootstrap.started',
+  STEP_06_RELAY_BOOTSTRAP_SUCCEEDED = 'registration.relay.bootstrap.succeeded',
+  STEP_07_ACCOUNT_VERIFY_STARTED = 'registration.account.verify.started',
+  STEP_07_ACCOUNT_VERIFY_SUCCEEDED = 'registration.account.verify.succeeded',
+  STEP_08_STORAGE_PERSIST_STARTED = 'registration.storage.persist.started',
+  STEP_08_STORAGE_PERSIST_SUCCEEDED = 'registration.storage.persist.succeeded',
+  STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED = 'registration.signer.email_otp.enroll.started',
+  STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED = 'registration.signer.email_otp.enroll.succeeded',
+  STEP_10_ECDSA_SIGNER_PROVISION_STARTED = 'registration.signer.ecdsa.provision.started',
+  STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED = 'registration.signer.ecdsa.provision.succeeded',
+  STEP_10_ECDSA_SIGNER_PROVISION_SKIPPED = 'registration.signer.ecdsa.provision.skipped',
+  STEP_10_ECDSA_SIGNER_BOOTSTRAP_STARTED = 'registration.signer.ecdsa.bootstrap.started',
+  STEP_10_ECDSA_SIGNER_BOOTSTRAP_SUCCEEDED = 'registration.signer.ecdsa.bootstrap.succeeded',
+  STEP_11_COMPLETED = 'registration.completed',
+  FAILED = 'registration.failed',
+  CANCELLED = 'registration.cancelled',
 }
-export enum EmailRecoveryStatus {
-  PROGRESS = 'progress',
-  SUCCESS = 'success',
-  ERROR = 'error',
+
+export enum UnlockEventPhase {
+  STEP_01_STARTED = 'unlock.started',
+  STEP_02_ACCOUNT_LOOKUP_STARTED = 'unlock.account.lookup.started',
+  STEP_02_ACCOUNT_LOOKUP_SUCCEEDED = 'unlock.account.lookup.succeeded',
+  STEP_03_PASSKEY_CHALLENGE_STARTED = 'unlock.auth.passkey.challenge.started',
+  STEP_03_PASSKEY_PROMPT_STARTED = 'unlock.auth.passkey.prompt.started',
+  STEP_03_PASSKEY_PROMPT_SUCCEEDED = 'unlock.auth.passkey.prompt.succeeded',
+  STEP_03_EMAIL_OTP_CHALLENGE_STARTED = 'unlock.auth.email_otp.challenge.started',
+  STEP_03_EMAIL_OTP_CHALLENGE_SENT = 'unlock.auth.email_otp.challenge.sent',
+  STEP_03_EMAIL_OTP_INPUT_REQUIRED = 'unlock.auth.email_otp.input.required',
+  STEP_03_EMAIL_OTP_VERIFY_STARTED = 'unlock.auth.email_otp.verify.started',
+  STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED = 'unlock.auth.email_otp.verify.succeeded',
+  STEP_04_APP_SESSION_EXCHANGE_STARTED = 'unlock.app_session.exchange.started',
+  STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED = 'unlock.app_session.exchange.succeeded',
+  STEP_04_APP_SESSION_EXCHANGE_SKIPPED = 'unlock.app_session.exchange.skipped',
+  STEP_05_SIGNING_SESSION_WARMUP_STARTED = 'unlock.signing_session.warmup.started',
+  STEP_05_ED25519_SIGNING_SESSION_READY = 'unlock.signing_session.ed25519.ready',
+  STEP_05_ECDSA_SIGNING_SESSION_READY = 'unlock.signing_session.ecdsa.ready',
+  STEP_06_SESSION_READY = 'unlock.session.ready',
+  STEP_07_COMPLETED = 'unlock.completed',
+  FAILED = 'unlock.failed',
+  CANCELLED = 'unlock.cancelled',
+}
+
+export enum SigningEventPhase {
+  STEP_01_STARTED = 'signing.started',
+  STEP_02_REQUEST_PREPARED = 'signing.request.prepared',
+  STEP_03_NONCE_RESERVE_STARTED = 'signing.nonce.reserve.started',
+  STEP_03_NONCE_RESERVE_SUCCEEDED = 'signing.nonce.reserve.succeeded',
+  STEP_04_ACCOUNT_READINESS_STARTED = 'signing.account.readiness.started',
+  STEP_04_ACCOUNT_READINESS_SUCCEEDED = 'signing.account.readiness.succeeded',
+  STEP_04_ACCOUNT_READINESS_SKIPPED = 'signing.account.readiness.skipped',
+  STEP_05_CONFIRMATION_DISPLAYED = 'signing.confirmation.displayed',
+  STEP_05_CONFIRMATION_APPROVED = 'signing.confirmation.approved',
+  STEP_05_CONFIRMATION_CANCELLED = 'signing.confirmation.cancelled',
+  STEP_06_AUTH_WARM_SESSION_CLAIMED = 'signing.auth.warm_session.claimed',
+  STEP_06_AUTH_PASSKEY_PROMPT_STARTED = 'signing.auth.passkey.prompt.started',
+  STEP_06_AUTH_PASSKEY_PROMPT_SUCCEEDED = 'signing.auth.passkey.prompt.succeeded',
+  STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED = 'signing.auth.email_otp.challenge.started',
+  STEP_06_AUTH_EMAIL_OTP_CHALLENGE_SENT = 'signing.auth.email_otp.challenge.sent',
+  STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED = 'signing.auth.email_otp.input.required',
+  STEP_06_AUTH_EMAIL_OTP_VERIFY_STARTED = 'signing.auth.email_otp.verify.started',
+  STEP_06_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED = 'signing.auth.email_otp.verify.succeeded',
+  STEP_07_AUTHENTICATION_COMPLETE = 'signing.authentication.complete',
+  STEP_08_SIGNER_PREPARE_STARTED = 'signing.signer.prepare.started',
+  STEP_08_SIGNER_PREPARE_SUCCEEDED = 'signing.signer.prepare.succeeded',
+  STEP_08_PRESIGN_REFILL_SCHEDULED = 'signing.presign.refill.scheduled',
+  STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED = 'signing.threshold_session.reconnect.started',
+  STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED = 'signing.threshold_session.reconnect.succeeded',
+  STEP_10_COMMIT_QUEUED = 'signing.commit.queued',
+  STEP_10_COMMIT_STARTED = 'signing.commit.started',
+  STEP_10_COMMIT_SUCCEEDED = 'signing.commit.succeeded',
+  STEP_11_TRANSACTION_SIGNED = 'signing.transaction.signed',
+  STEP_12_BROADCAST_STARTED = 'signing.broadcast.started',
+  STEP_12_BROADCAST_ACCEPTED = 'signing.broadcast.accepted',
+  STEP_12_BROADCAST_REJECTED = 'signing.broadcast.rejected',
+  STEP_13_NONCE_RECONCILE_STARTED = 'signing.nonce.reconcile.started',
+  STEP_13_NONCE_RECONCILE_SUCCEEDED = 'signing.nonce.reconcile.succeeded',
+  STEP_13_RECEIPT_FINALIZED = 'signing.receipt.finalized',
+  STEP_13_RECEIPT_REVERTED = 'signing.receipt.reverted',
+  STEP_13_TRANSACTION_DROPPED = 'signing.transaction.dropped',
+  STEP_13_TRANSACTION_REPLACED = 'signing.transaction.replaced',
+  STEP_13_BROADCAST_SKIPPED = 'signing.broadcast.skipped',
+  STEP_14_APP_STATE_SYNC_STARTED = 'signing.app_state.sync.started',
+  STEP_14_APP_STATE_SYNC_SUCCEEDED = 'signing.app_state.sync.succeeded',
+  STEP_15_COMPLETED = 'signing.completed',
+  FAILED = 'signing.failed',
+  CANCELLED = 'signing.cancelled',
+}
+
+export enum LinkDeviceEventPhase {
+  STEP_01_QR_PREPARE_STARTED = 'link_device.qr.prepare.started',
+  STEP_01_QR_DISPLAYED = 'link_device.qr.displayed',
+  STEP_02_QR_SCAN_STARTED = 'link_device.qr.scan.started',
+  STEP_02_QR_SCAN_SUCCEEDED = 'link_device.qr.scan.succeeded',
+  STEP_03_AUTHORIZATION_STARTED = 'link_device.authorization.started',
+  STEP_03_AUTHORIZATION_SUCCEEDED = 'link_device.authorization.succeeded',
+  STEP_04_LINK_REQUEST_SUBMITTED = 'link_device.request.submitted',
+  STEP_05_LINK_REQUEST_DETECTED = 'link_device.request.detected',
+  STEP_06_NEW_DEVICE_REGISTER_STARTED = 'link_device.new_device.register.started',
+  STEP_06_NEW_DEVICE_REGISTER_SUCCEEDED = 'link_device.new_device.register.succeeded',
+  STEP_07_AUTO_UNLOCK_STARTED = 'link_device.auto_unlock.started',
+  STEP_07_AUTO_UNLOCK_SUCCEEDED = 'link_device.auto_unlock.succeeded',
+  STEP_08_COMPLETED = 'link_device.completed',
+  FAILED = 'link_device.failed',
+  CANCELLED = 'link_device.cancelled',
+}
+
+export enum EmailRecoveryFlowEventPhase {
+  STEP_01_STARTED = 'email_recovery.started',
+  STEP_02_ACCOUNT_LOOKUP_STARTED = 'email_recovery.account.lookup.started',
+  STEP_02_ACCOUNT_LOOKUP_SUCCEEDED = 'email_recovery.account.lookup.succeeded',
+  STEP_03_PASSKEY_CREATE_STARTED = 'email_recovery.auth.passkey.create.started',
+  STEP_03_PASSKEY_CREATE_SUCCEEDED = 'email_recovery.auth.passkey.create.succeeded',
+  STEP_04_EMAIL_LINK_SENT = 'email_recovery.email.link.sent',
+  STEP_04_EMAIL_LINK_WAITING = 'email_recovery.email.link.waiting',
+  STEP_05_RECOVERY_KEY_POLL_STARTED = 'email_recovery.recovery_key.poll.started',
+  STEP_05_RECOVERY_KEY_POLL_DETECTED = 'email_recovery.recovery_key.poll.detected',
+  STEP_06_FINALIZE_STARTED = 'email_recovery.finalize.started',
+  STEP_06_FINALIZE_SUCCEEDED = 'email_recovery.finalize.succeeded',
+  STEP_06_AUTO_UNLOCK_SKIPPED = 'email_recovery.auto_unlock.skipped',
+  STEP_07_COMPLETED = 'email_recovery.completed',
+  STEP_00_RESUMED_PENDING = 'email_recovery.resumed.pending',
+  FAILED = 'email_recovery.failed',
+  CANCELLED = 'email_recovery.cancelled',
+}
+
+export enum AccountSyncEventPhase {
+  STEP_01_STARTED = 'account_sync.started',
+  STEP_02_PASSKEY_PROMPT_STARTED = 'account_sync.auth.passkey.prompt.started',
+  STEP_02_PASSKEY_PROMPT_SUCCEEDED = 'account_sync.auth.passkey.prompt.succeeded',
+  STEP_03_RELAY_VERIFY_STARTED = 'account_sync.relay.verify.started',
+  STEP_03_RELAY_VERIFY_SUCCEEDED = 'account_sync.relay.verify.succeeded',
+  STEP_04_AUTHENTICATOR_SAVED = 'account_sync.authenticator.saved',
+  STEP_05_THRESHOLD_SESSION_READY = 'account_sync.threshold_session.ready',
+  STEP_06_COMPLETED = 'account_sync.completed',
+  FAILED = 'account_sync.failed',
+  CANCELLED = 'account_sync.cancelled',
+}
+
+export type WalletFlowEventPhase =
+  | RegistrationEventPhase
+  | UnlockEventPhase
+  | SigningEventPhase
+  | LinkDeviceEventPhase
+  | EmailRecoveryFlowEventPhase
+  | AccountSyncEventPhase;
+
+export type RegistrationFlowEvent = WalletFlowEventBase<'registration', RegistrationEventPhase>;
+export type UnlockFlowEvent = WalletFlowEventBase<'unlock', UnlockEventPhase>;
+export type SigningFlowEvent = WalletFlowEventBase<'signing', SigningEventPhase>;
+export type LinkDeviceFlowEvent = WalletFlowEventBase<'link_device', LinkDeviceEventPhase>;
+export type EmailRecoveryFlowEvent = WalletFlowEventBase<
+  'email_recovery',
+  EmailRecoveryFlowEventPhase
+>;
+export type AccountSyncFlowEvent = WalletFlowEventBase<'account_sync', AccountSyncEventPhase>;
+
+export type WalletFlowEvent =
+  | RegistrationFlowEvent
+  | UnlockFlowEvent
+  | SigningFlowEvent
+  | LinkDeviceFlowEvent
+  | EmailRecoveryFlowEvent
+  | AccountSyncFlowEvent;
+
+export const WALLET_FLOW_EVENT_STEPS: Record<WalletFlowEventPhase, number> = {
+  [RegistrationEventPhase.STEP_01_STARTED]: 1,
+  [RegistrationEventPhase.STEP_02_ACCOUNT_PREFLIGHT_STARTED]: 2,
+  [RegistrationEventPhase.STEP_02_ACCOUNT_PREFLIGHT_SUCCEEDED]: 2,
+  [RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_STARTED]: 3,
+  [RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_SUCCEEDED]: 3,
+  [RegistrationEventPhase.STEP_04_PASSKEY_CREATE_STARTED]: 4,
+  [RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED]: 4,
+  [RegistrationEventPhase.STEP_04_OTP_CHALLENGE_STARTED]: 4,
+  [RegistrationEventPhase.STEP_04_OTP_CHALLENGE_SENT]: 4,
+  [RegistrationEventPhase.STEP_04_OTP_INPUT_REQUIRED]: 4,
+  [RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED]: 4,
+  [RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED]: 4,
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_STARTED]: 5,
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_SUCCEEDED]: 5,
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PROVISION_STARTED]: 5,
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PROVISION_SUCCEEDED]: 5,
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PROVISION_SKIPPED]: 5,
+  [RegistrationEventPhase.STEP_06_RELAY_BOOTSTRAP_STARTED]: 6,
+  [RegistrationEventPhase.STEP_06_RELAY_BOOTSTRAP_SUCCEEDED]: 6,
+  [RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_STARTED]: 7,
+  [RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_SUCCEEDED]: 7,
+  [RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED]: 8,
+  [RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED]: 8,
+  [RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED]: 9,
+  [RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED]: 9,
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED]: 10,
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED]: 10,
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SKIPPED]: 10,
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_BOOTSTRAP_STARTED]: 10,
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_BOOTSTRAP_SUCCEEDED]: 10,
+  [RegistrationEventPhase.STEP_11_COMPLETED]: 11,
+  [RegistrationEventPhase.FAILED]: 0,
+  [RegistrationEventPhase.CANCELLED]: 0,
+  [UnlockEventPhase.STEP_01_STARTED]: 1,
+  [UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED]: 2,
+  [UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED]: 2,
+  [UnlockEventPhase.STEP_03_PASSKEY_CHALLENGE_STARTED]: 3,
+  [UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED]: 3,
+  [UnlockEventPhase.STEP_03_PASSKEY_PROMPT_SUCCEEDED]: 3,
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_STARTED]: 3,
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT]: 3,
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_INPUT_REQUIRED]: 3,
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED]: 3,
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED]: 3,
+  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED]: 4,
+  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED]: 4,
+  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED]: 4,
+  [UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED]: 5,
+  [UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY]: 5,
+  [UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY]: 5,
+  [UnlockEventPhase.STEP_06_SESSION_READY]: 6,
+  [UnlockEventPhase.STEP_07_COMPLETED]: 7,
+  [UnlockEventPhase.FAILED]: 0,
+  [UnlockEventPhase.CANCELLED]: 0,
+  [SigningEventPhase.STEP_01_STARTED]: 1,
+  [SigningEventPhase.STEP_02_REQUEST_PREPARED]: 2,
+  [SigningEventPhase.STEP_03_NONCE_RESERVE_STARTED]: 3,
+  [SigningEventPhase.STEP_03_NONCE_RESERVE_SUCCEEDED]: 3,
+  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_STARTED]: 4,
+  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_SUCCEEDED]: 4,
+  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_SKIPPED]: 4,
+  [SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED]: 5,
+  [SigningEventPhase.STEP_05_CONFIRMATION_APPROVED]: 5,
+  [SigningEventPhase.STEP_05_CONFIRMATION_CANCELLED]: 5,
+  [SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED]: 6,
+  [SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_STARTED]: 6,
+  [SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_SUCCEEDED]: 6,
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED]: 6,
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_SENT]: 6,
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED]: 6,
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_VERIFY_STARTED]: 6,
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED]: 6,
+  [SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE]: 7,
+  [SigningEventPhase.STEP_08_SIGNER_PREPARE_STARTED]: 8,
+  [SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED]: 8,
+  [SigningEventPhase.STEP_08_PRESIGN_REFILL_SCHEDULED]: 8,
+  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED]: 9,
+  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED]: 9,
+  [SigningEventPhase.STEP_10_COMMIT_QUEUED]: 10,
+  [SigningEventPhase.STEP_10_COMMIT_STARTED]: 10,
+  [SigningEventPhase.STEP_10_COMMIT_SUCCEEDED]: 10,
+  [SigningEventPhase.STEP_11_TRANSACTION_SIGNED]: 11,
+  [SigningEventPhase.STEP_12_BROADCAST_STARTED]: 12,
+  [SigningEventPhase.STEP_12_BROADCAST_ACCEPTED]: 12,
+  [SigningEventPhase.STEP_12_BROADCAST_REJECTED]: 12,
+  [SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED]: 13,
+  [SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED]: 13,
+  [SigningEventPhase.STEP_13_RECEIPT_FINALIZED]: 13,
+  [SigningEventPhase.STEP_13_RECEIPT_REVERTED]: 13,
+  [SigningEventPhase.STEP_13_TRANSACTION_DROPPED]: 13,
+  [SigningEventPhase.STEP_13_TRANSACTION_REPLACED]: 13,
+  [SigningEventPhase.STEP_13_BROADCAST_SKIPPED]: 13,
+  [SigningEventPhase.STEP_14_APP_STATE_SYNC_STARTED]: 14,
+  [SigningEventPhase.STEP_14_APP_STATE_SYNC_SUCCEEDED]: 14,
+  [SigningEventPhase.STEP_15_COMPLETED]: 15,
+  [SigningEventPhase.FAILED]: 0,
+  [SigningEventPhase.CANCELLED]: 0,
+  [LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED]: 1,
+  [LinkDeviceEventPhase.STEP_01_QR_DISPLAYED]: 1,
+  [LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED]: 2,
+  [LinkDeviceEventPhase.STEP_02_QR_SCAN_SUCCEEDED]: 2,
+  [LinkDeviceEventPhase.STEP_03_AUTHORIZATION_STARTED]: 3,
+  [LinkDeviceEventPhase.STEP_03_AUTHORIZATION_SUCCEEDED]: 3,
+  [LinkDeviceEventPhase.STEP_04_LINK_REQUEST_SUBMITTED]: 4,
+  [LinkDeviceEventPhase.STEP_05_LINK_REQUEST_DETECTED]: 5,
+  [LinkDeviceEventPhase.STEP_06_NEW_DEVICE_REGISTER_STARTED]: 6,
+  [LinkDeviceEventPhase.STEP_06_NEW_DEVICE_REGISTER_SUCCEEDED]: 6,
+  [LinkDeviceEventPhase.STEP_07_AUTO_UNLOCK_STARTED]: 7,
+  [LinkDeviceEventPhase.STEP_07_AUTO_UNLOCK_SUCCEEDED]: 7,
+  [LinkDeviceEventPhase.STEP_08_COMPLETED]: 8,
+  [LinkDeviceEventPhase.FAILED]: 0,
+  [LinkDeviceEventPhase.CANCELLED]: 0,
+  [EmailRecoveryFlowEventPhase.STEP_01_STARTED]: 1,
+  [EmailRecoveryFlowEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED]: 2,
+  [EmailRecoveryFlowEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED]: 2,
+  [EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_STARTED]: 3,
+  [EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_SUCCEEDED]: 3,
+  [EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_SENT]: 4,
+  [EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_WAITING]: 4,
+  [EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_STARTED]: 5,
+  [EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_DETECTED]: 5,
+  [EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_STARTED]: 6,
+  [EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_SUCCEEDED]: 6,
+  [EmailRecoveryFlowEventPhase.STEP_06_AUTO_UNLOCK_SKIPPED]: 6,
+  [EmailRecoveryFlowEventPhase.STEP_07_COMPLETED]: 7,
+  [EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING]: 0,
+  [EmailRecoveryFlowEventPhase.FAILED]: 0,
+  [EmailRecoveryFlowEventPhase.CANCELLED]: 0,
+  [AccountSyncEventPhase.STEP_01_STARTED]: 1,
+  [AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_STARTED]: 2,
+  [AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_SUCCEEDED]: 2,
+  [AccountSyncEventPhase.STEP_03_RELAY_VERIFY_STARTED]: 3,
+  [AccountSyncEventPhase.STEP_03_RELAY_VERIFY_SUCCEEDED]: 3,
+  [AccountSyncEventPhase.STEP_04_AUTHENTICATOR_SAVED]: 4,
+  [AccountSyncEventPhase.STEP_05_THRESHOLD_SESSION_READY]: 5,
+  [AccountSyncEventPhase.STEP_06_COMPLETED]: 6,
+  [AccountSyncEventPhase.FAILED]: 0,
+  [AccountSyncEventPhase.CANCELLED]: 0,
+};
+
+export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = {
+  [RegistrationEventPhase.STEP_01_STARTED]: 'Starting registration',
+  [RegistrationEventPhase.STEP_02_ACCOUNT_PREFLIGHT_STARTED]: 'Checking account details',
+  [RegistrationEventPhase.STEP_02_ACCOUNT_PREFLIGHT_SUCCEEDED]: 'Account details ready',
+  [RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_STARTED]: 'Checking registration session',
+  [RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_SUCCEEDED]: 'Registration session ready',
+  [RegistrationEventPhase.STEP_04_PASSKEY_CREATE_STARTED]: 'Create your passkey',
+  [RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED]: 'Passkey created',
+  [RegistrationEventPhase.STEP_04_OTP_CHALLENGE_STARTED]: 'Sending email code',
+  [RegistrationEventPhase.STEP_04_OTP_CHALLENGE_SENT]: 'Email code sent',
+  [RegistrationEventPhase.STEP_04_OTP_INPUT_REQUIRED]: 'Enter the email code',
+  [RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED]: 'Verifying email code',
+  [RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED]: 'Email verified',
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_STARTED]: 'Preparing NEAR signer',
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_SUCCEEDED]: 'NEAR signer ready',
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PROVISION_STARTED]: 'Preparing NEAR signer',
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PROVISION_SUCCEEDED]: 'NEAR signer ready',
+  [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PROVISION_SKIPPED]: 'NEAR signer setup skipped',
+  [RegistrationEventPhase.STEP_06_RELAY_BOOTSTRAP_STARTED]: 'Creating wallet account',
+  [RegistrationEventPhase.STEP_06_RELAY_BOOTSTRAP_SUCCEEDED]: 'Wallet account created',
+  [RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_STARTED]: 'Verifying wallet account',
+  [RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_SUCCEEDED]: 'Wallet account verified',
+  [RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED]: 'Saving wallet metadata',
+  [RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED]: 'Wallet metadata saved',
+  [RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED]: 'Securing Email OTP signer',
+  [RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED]: 'Email OTP signer secured',
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED]: 'Preparing EVM signer',
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED]: 'EVM signer ready',
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SKIPPED]: 'EVM signer setup skipped',
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_BOOTSTRAP_STARTED]: 'Preparing EVM signer',
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_BOOTSTRAP_SUCCEEDED]: 'EVM signer ready',
+  [RegistrationEventPhase.STEP_11_COMPLETED]: 'Registration complete',
+  [RegistrationEventPhase.FAILED]: 'Registration failed',
+  [RegistrationEventPhase.CANCELLED]: 'Registration cancelled',
+  [UnlockEventPhase.STEP_01_STARTED]: 'Unlocking wallet',
+  [UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED]: 'Finding wallet account',
+  [UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED]: 'Wallet account found',
+  [UnlockEventPhase.STEP_03_PASSKEY_CHALLENGE_STARTED]: 'Preparing passkey check',
+  [UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED]: 'Confirm with passkey',
+  [UnlockEventPhase.STEP_03_PASSKEY_PROMPT_SUCCEEDED]: 'Passkey confirmed',
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_STARTED]: 'Sending email code',
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT]: 'Email code sent',
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_INPUT_REQUIRED]: 'Enter the email code',
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED]: 'Verifying email code',
+  [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED]: 'Email verified',
+  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED]: 'Creating app session',
+  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED]: 'App session ready',
+  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED]: 'App session skipped',
+  [UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED]: 'Preparing signing session',
+  [UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY]: 'NEAR signing session ready',
+  [UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY]: 'EVM signing session ready',
+  [UnlockEventPhase.STEP_06_SESSION_READY]: 'Wallet session ready',
+  [UnlockEventPhase.STEP_07_COMPLETED]: 'Wallet unlocked',
+  [UnlockEventPhase.FAILED]: 'Wallet unlock failed',
+  [UnlockEventPhase.CANCELLED]: 'Wallet unlock cancelled',
+  [SigningEventPhase.STEP_01_STARTED]: 'Preparing transaction',
+  [SigningEventPhase.STEP_02_REQUEST_PREPARED]: 'Transaction ready for review',
+  [SigningEventPhase.STEP_03_NONCE_RESERVE_STARTED]: 'Reserving nonce',
+  [SigningEventPhase.STEP_03_NONCE_RESERVE_SUCCEEDED]: 'Nonce reserved',
+  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_STARTED]: 'Checking account readiness',
+  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_SUCCEEDED]: 'Account ready',
+  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_SKIPPED]: 'Account readiness check skipped',
+  [SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED]: 'Review transaction',
+  [SigningEventPhase.STEP_05_CONFIRMATION_APPROVED]: 'Transaction approved',
+  [SigningEventPhase.STEP_05_CONFIRMATION_CANCELLED]: 'Transaction rejected',
+  [SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED]: 'Signing session authorized',
+  [SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_STARTED]: 'Confirm with passkey',
+  [SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_SUCCEEDED]: 'Passkey confirmed',
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED]: 'Sending email code',
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_SENT]: 'Email code sent',
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED]: 'Enter the email code',
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_VERIFY_STARTED]: 'Verifying email code',
+  [SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED]: 'Email verified',
+  [SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE]: 'Authentication complete',
+  [SigningEventPhase.STEP_08_SIGNER_PREPARE_STARTED]: 'Preparing secure signer',
+  [SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED]: 'Secure signer ready',
+  [SigningEventPhase.STEP_08_PRESIGN_REFILL_SCHEDULED]: 'Preparing future signatures',
+  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED]: 'Reconnecting signing session',
+  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED]: 'Signing session reconnected',
+  [SigningEventPhase.STEP_10_COMMIT_QUEUED]: 'Waiting to sign',
+  [SigningEventPhase.STEP_10_COMMIT_STARTED]: 'Signing transaction',
+  [SigningEventPhase.STEP_10_COMMIT_SUCCEEDED]: 'Transaction signature ready',
+  [SigningEventPhase.STEP_11_TRANSACTION_SIGNED]: 'Transaction signed',
+  [SigningEventPhase.STEP_12_BROADCAST_STARTED]: 'Broadcasting transaction',
+  [SigningEventPhase.STEP_12_BROADCAST_ACCEPTED]: 'Transaction submitted',
+  [SigningEventPhase.STEP_12_BROADCAST_REJECTED]: 'Transaction broadcast failed',
+  [SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED]: 'Checking nonce state',
+  [SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED]: 'Nonce state updated',
+  [SigningEventPhase.STEP_13_RECEIPT_FINALIZED]: 'Transaction finalized',
+  [SigningEventPhase.STEP_13_RECEIPT_REVERTED]: 'Transaction reverted',
+  [SigningEventPhase.STEP_13_TRANSACTION_DROPPED]: 'Transaction dropped',
+  [SigningEventPhase.STEP_13_TRANSACTION_REPLACED]: 'Transaction replaced',
+  [SigningEventPhase.STEP_13_BROADCAST_SKIPPED]: 'Broadcast skipped',
+  [SigningEventPhase.STEP_14_APP_STATE_SYNC_STARTED]: 'Refreshing app state',
+  [SigningEventPhase.STEP_14_APP_STATE_SYNC_SUCCEEDED]: 'App state refreshed',
+  [SigningEventPhase.STEP_15_COMPLETED]: 'Transaction complete',
+  [SigningEventPhase.FAILED]: 'Transaction signing failed',
+  [SigningEventPhase.CANCELLED]: 'Transaction signing cancelled',
+  [LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED]: 'Preparing device link',
+  [LinkDeviceEventPhase.STEP_01_QR_DISPLAYED]: 'Scan the QR code',
+  [LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED]: 'Scanning QR code',
+  [LinkDeviceEventPhase.STEP_02_QR_SCAN_SUCCEEDED]: 'QR code scanned',
+  [LinkDeviceEventPhase.STEP_03_AUTHORIZATION_STARTED]: 'Authorize device link',
+  [LinkDeviceEventPhase.STEP_03_AUTHORIZATION_SUCCEEDED]: 'Device link authorized',
+  [LinkDeviceEventPhase.STEP_04_LINK_REQUEST_SUBMITTED]: 'Submitting device link',
+  [LinkDeviceEventPhase.STEP_05_LINK_REQUEST_DETECTED]: 'Device link detected',
+  [LinkDeviceEventPhase.STEP_06_NEW_DEVICE_REGISTER_STARTED]: 'Registering new device',
+  [LinkDeviceEventPhase.STEP_06_NEW_DEVICE_REGISTER_SUCCEEDED]: 'New device registered',
+  [LinkDeviceEventPhase.STEP_07_AUTO_UNLOCK_STARTED]: 'Unlocking new device',
+  [LinkDeviceEventPhase.STEP_07_AUTO_UNLOCK_SUCCEEDED]: 'New device unlocked',
+  [LinkDeviceEventPhase.STEP_08_COMPLETED]: 'Device linked',
+  [LinkDeviceEventPhase.FAILED]: 'Device link failed',
+  [LinkDeviceEventPhase.CANCELLED]: 'Device link cancelled',
+  [EmailRecoveryFlowEventPhase.STEP_01_STARTED]: 'Starting email recovery',
+  [EmailRecoveryFlowEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED]: 'Finding wallet account',
+  [EmailRecoveryFlowEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED]: 'Wallet account found',
+  [EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_STARTED]: 'Create your recovery passkey',
+  [EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_SUCCEEDED]: 'Recovery passkey created',
+  [EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_SENT]: 'Recovery email sent',
+  [EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_WAITING]: 'Waiting for email confirmation',
+  [EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_STARTED]: 'Checking recovery key status',
+  [EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_DETECTED]: 'Recovery key confirmed',
+  [EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_STARTED]: 'Finalizing recovery',
+  [EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_SUCCEEDED]: 'Recovery finalized',
+  [EmailRecoveryFlowEventPhase.STEP_06_AUTO_UNLOCK_SKIPPED]: 'Local unlock skipped',
+  [EmailRecoveryFlowEventPhase.STEP_07_COMPLETED]: 'Email recovery complete',
+  [EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING]: 'Resuming email recovery',
+  [EmailRecoveryFlowEventPhase.FAILED]: 'Email recovery failed',
+  [EmailRecoveryFlowEventPhase.CANCELLED]: 'Email recovery cancelled',
+  [AccountSyncEventPhase.STEP_01_STARTED]: 'Starting account sync',
+  [AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_STARTED]: 'Confirm with passkey',
+  [AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_SUCCEEDED]: 'Passkey confirmed',
+  [AccountSyncEventPhase.STEP_03_RELAY_VERIFY_STARTED]: 'Verifying account access',
+  [AccountSyncEventPhase.STEP_03_RELAY_VERIFY_SUCCEEDED]: 'Account access verified',
+  [AccountSyncEventPhase.STEP_04_AUTHENTICATOR_SAVED]: 'Passkey saved locally',
+  [AccountSyncEventPhase.STEP_05_THRESHOLD_SESSION_READY]: 'Signing session ready',
+  [AccountSyncEventPhase.STEP_06_COMPLETED]: 'Account synced',
+  [AccountSyncEventPhase.FAILED]: 'Account sync failed',
+  [AccountSyncEventPhase.CANCELLED]: 'Account sync cancelled',
+};
+
+export type CreateWalletFlowEventInput<
+  TFlow extends WalletFlow,
+  TPhase extends WalletFlowEventPhase,
+> = Omit<WalletFlowEventBase<TFlow, TPhase>, 'version' | 'message' | 'step'> & {
+  message?: string;
+};
+
+export function createWalletFlowEvent<
+  TFlow extends WalletFlow,
+  TPhase extends WalletFlowEventPhase,
+>(input: CreateWalletFlowEventInput<TFlow, TPhase>): WalletFlowEventBase<TFlow, TPhase> {
+  const interaction =
+    input.interaction ??
+    (input.status === 'failed' || input.status === 'cancelled'
+      ? ({ kind: 'none', overlay: 'hide' } satisfies WalletFlowEventInteraction)
+      : undefined);
+
+  return {
+    ...input,
+    ...(interaction ? { interaction } : {}),
+    version: WALLET_FLOW_EVENT_VERSION,
+    step: WALLET_FLOW_EVENT_STEPS[input.phase],
+    message: input.message ?? WALLET_FLOW_EVENT_MESSAGES[input.phase],
+  };
+}
+
+export type CreateSigningFlowEventInput = Omit<
+  CreateWalletFlowEventInput<'signing', SigningEventPhase>,
+  'flow'
+>;
+
+export type CreateRegistrationFlowEventInput = Omit<
+  CreateWalletFlowEventInput<'registration', RegistrationEventPhase>,
+  'flow'
+>;
+
+export type CreateUnlockFlowEventInput = Omit<
+  CreateWalletFlowEventInput<'unlock', UnlockEventPhase>,
+  'flow'
+>;
+
+export type CreateLinkDeviceFlowEventInput = Omit<
+  CreateWalletFlowEventInput<'link_device', LinkDeviceEventPhase>,
+  'flow'
+>;
+
+export type CreateEmailRecoveryFlowEventInput = Omit<
+  CreateWalletFlowEventInput<'email_recovery', EmailRecoveryFlowEventPhase>,
+  'flow'
+>;
+
+export type CreateAccountSyncFlowEventInput = Omit<
+  CreateWalletFlowEventInput<'account_sync', AccountSyncEventPhase>,
+  'flow'
+>;
+
+export function createRegistrationFlowEvent(
+  input: CreateRegistrationFlowEventInput,
+): RegistrationFlowEvent {
+  return createWalletFlowEvent({
+    ...input,
+    flow: 'registration',
+  });
+}
+
+export function createUnlockFlowEvent(input: CreateUnlockFlowEventInput): UnlockFlowEvent {
+  return createWalletFlowEvent({
+    ...input,
+    flow: 'unlock',
+  });
+}
+
+export function createLinkDeviceFlowEvent(
+  input: CreateLinkDeviceFlowEventInput,
+): LinkDeviceFlowEvent {
+  return createWalletFlowEvent({
+    ...input,
+    flow: 'link_device',
+  });
+}
+
+export function createEmailRecoveryFlowEvent(
+  input: CreateEmailRecoveryFlowEventInput,
+): EmailRecoveryFlowEvent {
+  return createWalletFlowEvent({
+    ...input,
+    flow: 'email_recovery',
+  });
+}
+
+export function createAccountSyncFlowEvent(
+  input: CreateAccountSyncFlowEventInput,
+): AccountSyncFlowEvent {
+  return createWalletFlowEvent({
+    ...input,
+    flow: 'account_sync',
+  });
+}
+
+export function createSigningFlowEvent(input: CreateSigningFlowEventInput): SigningFlowEvent {
+  return createWalletFlowEvent({
+    ...input,
+    flow: 'signing',
+  });
+}
+
+export function isWalletFlowEvent(value: unknown): value is WalletFlowEvent {
+  if (!value || typeof value !== 'object') return false;
+  const event = value as Partial<WalletFlowEventBase>;
+  return event.version === WALLET_FLOW_EVENT_VERSION && typeof event.flow === 'string';
 }
 
 // Base event callback type
@@ -136,501 +665,13 @@ export interface AfterCall<T> {
   (success: false, result?: undefined, error?: Error): void | Promise<void>;
 }
 
-// Base SSE Event Types (unified for Registration and Actions)
-export interface BaseSSEEvent {
-  step: number;
-  phase:
-    | RegistrationPhase
-    | LoginPhase
-    | ActionPhase
-    | DeviceLinkingPhase
-    | SyncAccountPhase
-    | EmailRecoveryPhase;
-  status:
-    | RegistrationStatus
-    | LoginStatus
-    | ActionStatus
-    | DeviceLinkingStatus
-    | SyncAccountStatus
-    | EmailRecoveryStatus;
-  message: string;
-}
-
-// Registration-specific events
-export interface BaseRegistrationSSEEvent extends BaseSSEEvent {
-  phase: RegistrationPhase;
-  status: RegistrationStatus;
-}
-
-// Action-specific events
-export interface BaseActionSSEEvent extends BaseSSEEvent {
-  phase: ActionPhase;
-  status: ActionStatus;
-}
-
-// Login-specific events
-export interface BaseLoginSSEEvent extends BaseSSEEvent {
-  phase: LoginPhase;
-  status: LoginStatus;
-}
-
-export interface BaseDeviceLinkingSSEEvent extends BaseSSEEvent {
-  phase: DeviceLinkingPhase;
-  status: DeviceLinkingStatus;
-}
-
-// Action-specific events
-export interface BaseSyncAccountEvent extends BaseSSEEvent {
-  phase: SyncAccountPhase;
-  status: SyncAccountStatus;
-}
-
-export interface BaseEmailRecoveryEvent extends BaseSSEEvent {
-  phase: EmailRecoveryPhase;
-  status: EmailRecoveryStatus;
-}
-
-// Progress Events
-export interface onProgressEvents extends BaseActionSSEEvent {
-  step: number;
-  status: ActionStatus;
-  message: string;
-  // Generic metadata bag for progress payloads
-  data?: Record<string, unknown>;
-  logs?: string[];
-}
-
-// Optional, phase-specific data shapes used where we can commit to fields
-// Intentionally keep progress payloads generic to avoid duplicating
-// worker-side data shapes. Concrete fields can be added in future PRs
-// by normalizing worker payloads in one place.
-
-/////////////////////////////////////////////
-// SDK-Sent-Events: Registration Event Types
-/////////////////////////////////////////////
-
-export interface RegistrationEventStep1 extends BaseRegistrationSSEEvent {
-  step: 1;
-  phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION;
-}
-
-export interface RegistrationEventStep2 extends BaseRegistrationSSEEvent {
-  step: 2;
-  phase: RegistrationPhase.STEP_2_KEY_GENERATION;
-  status: RegistrationStatus.SUCCESS;
-  verified: boolean;
-  nearAccountId: string;
-  nearPublicKey: string | null | undefined;
-}
-
-// Optional progress emission during step 2 (e.g., concurrent contract pre-checks)
-export interface RegistrationEventStep2Progress extends BaseRegistrationSSEEvent {
-  step: 2;
-  phase: RegistrationPhase.STEP_2_KEY_GENERATION;
-  status: RegistrationStatus.PROGRESS;
-}
-
-export interface RegistrationEventStep3 extends BaseRegistrationSSEEvent {
-  step: 3;
-  phase: RegistrationPhase.STEP_3_CONTRACT_PRE_CHECK;
-  error?: string;
-}
-
-export interface RegistrationEventStep4 extends BaseRegistrationSSEEvent {
-  step: 4;
-  phase: RegistrationPhase.STEP_4_ACCESS_KEY_ADDITION;
-  error?: string;
-}
-
-export interface RegistrationEventStep5 extends BaseRegistrationSSEEvent {
-  step: 5;
-  phase: RegistrationPhase.STEP_5_CONTRACT_REGISTRATION;
-  error?: string;
-}
-
-export interface RegistrationEventStep6 extends BaseRegistrationSSEEvent {
-  step: 6;
-  phase: RegistrationPhase.STEP_6_ACCOUNT_VERIFICATION;
-  error?: string;
-}
-
-export interface RegistrationEventStep7ThresholdKeyEnrollment extends BaseRegistrationSSEEvent {
-  step: 7;
-  phase: RegistrationPhase.STEP_7_THRESHOLD_KEY_ENROLLMENT;
-  status: RegistrationStatus.SUCCESS;
-  thresholdKeyReady: boolean;
-  thresholdPublicKey?: string;
-  relayerKeyId?: string;
-  signerSlot?: number;
-  warning?: string;
-}
-
-export interface RegistrationEventStep7ThresholdKeyEnrollmentProgress extends BaseRegistrationSSEEvent {
-  step: 7;
-  phase: RegistrationPhase.STEP_7_THRESHOLD_KEY_ENROLLMENT;
-  status: RegistrationStatus.PROGRESS;
-  thresholdPublicKey?: string;
-  relayerKeyId?: string;
-  signerSlot?: number;
-}
-
-export interface RegistrationEventStep8 extends BaseRegistrationSSEEvent {
-  step: 8;
-  phase: RegistrationPhase.STEP_8_DATABASE_STORAGE;
-  error?: string;
-}
-
-export interface RegistrationEventStep9EscapeHatch extends BaseRegistrationSSEEvent {
-  step: 9;
-  phase: RegistrationPhase.STEP_9_ESCAPE_HATCH;
-  backupPublicKey?: string;
-  error?: string;
-}
-
-export interface RegistrationEventStep9 extends BaseRegistrationSSEEvent {
-  step: 9;
-  phase: RegistrationPhase.STEP_9_REGISTRATION_COMPLETE;
-  status: RegistrationStatus.SUCCESS;
-}
-
-export interface RegistrationEventStep0 extends BaseRegistrationSSEEvent {
-  step: 0;
-  phase: RegistrationPhase.REGISTRATION_ERROR;
-  status: RegistrationStatus.ERROR;
-  error: string;
-}
-
-export type RegistrationSSEEvent =
-  | RegistrationEventStep1
-  | RegistrationEventStep2Progress
-  | RegistrationEventStep2
-  | RegistrationEventStep3
-  | RegistrationEventStep4
-  | RegistrationEventStep5
-  | RegistrationEventStep6
-  | RegistrationEventStep7ThresholdKeyEnrollmentProgress
-  | RegistrationEventStep7ThresholdKeyEnrollment
-  | RegistrationEventStep8
-  | RegistrationEventStep9EscapeHatch
-  | RegistrationEventStep9
-  | RegistrationEventStep0;
-
-/////////////////////////////////////////////
-// SDK-Sent-Events: Login Event Types
-/////////////////////////////////////////////
-
-export interface LoginSSEventStep1 extends BaseLoginSSEEvent {
-  step: 1;
-  phase: LoginPhase.STEP_1_PREPARATION;
-}
-
-export interface LoginSSEventStep2 extends BaseLoginSSEEvent {
-  step: 2;
-  phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION;
-}
-
-export interface LoginSSEventStep3 extends BaseLoginSSEEvent {
-  step: 3;
-  phase: LoginPhase.STEP_3_SESSION_READY;
-}
-
-export interface LoginSSEventStep4 extends BaseLoginSSEEvent {
-  step: 4;
-  phase: LoginPhase.STEP_4_LOGIN_COMPLETE;
-  status: LoginStatus.SUCCESS;
-  nearAccountId: string;
-  operationalPublicKey: string;
-}
-
-export interface LoginSSEventStep0 extends BaseLoginSSEEvent {
-  step: 0;
-  phase: LoginPhase.LOGIN_ERROR;
-  status: LoginStatus.ERROR;
-  error: string;
-}
-
-export type LoginSSEvent =
-  | LoginSSEventStep1
-  | LoginSSEventStep2
-  | LoginSSEventStep3
-  | LoginSSEventStep4
-  | LoginSSEventStep0;
-
-/////////////////////////////////////////////
-// SDK-Sent-Events: Action Event Types
-/////////////////////////////////////////////
-
-export interface ActionEventStep1 extends BaseActionSSEEvent {
-  step: 1;
-  phase: ActionPhase.STEP_1_PREPARATION;
-}
-
-export interface ActionEventStep2 extends BaseActionSSEEvent {
-  step: 2;
-  phase: ActionPhase.STEP_2_USER_CONFIRMATION;
-}
-
-export interface ActionEventStep3 extends BaseActionSSEEvent {
-  step: 3;
-  phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION;
-  data?: Record<string, unknown>;
-  logs?: string[];
-}
-
-export interface ActionEventStep4 extends BaseActionSSEEvent {
-  step: 4;
-  phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE;
-  data?: Record<string, unknown>;
-  logs?: string[];
-}
-
-export interface ActionEventStep5 extends BaseActionSSEEvent {
-  step: 5;
-  phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS;
-  data?: Record<string, unknown>;
-}
-
-export interface ActionEventStep6 extends BaseActionSSEEvent {
-  step: 6;
-  phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE;
-  status: ActionStatus.SUCCESS;
-  data?: Record<string, unknown>;
-}
-
-export interface ActionEventStep7 extends BaseActionSSEEvent {
-  step: 7;
-  phase: ActionPhase.STEP_7_BROADCASTING;
-}
-
-export interface ActionEventStep8 extends BaseActionSSEEvent {
-  step: 8;
-  phase: ActionPhase.STEP_8_ACTION_COMPLETE;
-  status: ActionStatus.SUCCESS;
-  data?: Record<string, unknown>;
-}
-
-export interface ActionEventError extends BaseActionSSEEvent {
-  step: 0;
-  phase: ActionPhase.ACTION_ERROR;
-  status: ActionStatus.ERROR;
-  error: string;
-}
-
-export interface ActionEventWasmError extends BaseActionSSEEvent {
-  step: 0;
-  phase: ActionPhase.WASM_ERROR;
-  status: ActionStatus.ERROR;
-  error: string;
-}
-
-export type ActionSSEEvent =
-  | ActionEventStep1
-  | ActionEventStep2
-  | ActionEventStep3
-  | ActionEventStep4
-  | ActionEventStep5
-  | ActionEventStep6
-  | ActionEventStep7
-  | ActionEventStep8
-  | ActionEventError
-  | ActionEventWasmError;
-
-export type DelegateActionSSEEvent = ActionSSEEvent;
-
-/////////////////////////////////////////////
-// SDK-Sent-Events: Device Linking Event Types
-/////////////////////////////////////////////
-
-export interface DeviceLinkingEventStep1 extends BaseDeviceLinkingSSEEvent {
-  step: 1;
-  phase: DeviceLinkingPhase.STEP_1_QR_CODE_GENERATED;
-}
-
-export interface DeviceLinkingEventStep2 extends BaseDeviceLinkingSSEEvent {
-  step: 2;
-  phase: DeviceLinkingPhase.STEP_2_SCANNING;
-}
-
-export interface DeviceLinkingEventStep3 extends BaseDeviceLinkingSSEEvent {
-  step: 3;
-  phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION;
-}
-
-export interface DeviceLinkingEventStep4 extends BaseDeviceLinkingSSEEvent {
-  step: 4;
-  phase: DeviceLinkingPhase.STEP_4_POLLING;
-}
-
-export interface DeviceLinkingEventStep5 extends BaseDeviceLinkingSSEEvent {
-  step: 5;
-  phase: DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED;
-}
-
-export interface DeviceLinkingEventStep6 extends BaseDeviceLinkingSSEEvent {
-  step: 6;
-  phase: DeviceLinkingPhase.STEP_6_REGISTRATION;
-}
-
-export interface DeviceLinkingEventStep7 extends BaseDeviceLinkingSSEEvent {
-  step: 7;
-  phase: DeviceLinkingPhase.STEP_7_LINKING_COMPLETE;
-}
-
-export interface DeviceLinkingEventStep8 extends BaseDeviceLinkingSSEEvent {
-  step: 8;
-  phase: DeviceLinkingPhase.STEP_8_AUTO_LOGIN;
-}
-
-export interface DeviceLinkingErrorEvent extends BaseDeviceLinkingSSEEvent {
-  step: 0;
-  phase:
-    | DeviceLinkingPhase.DEVICE_LINKING_ERROR
-    | DeviceLinkingPhase.LOGIN_ERROR
-    | DeviceLinkingPhase.REGISTRATION_ERROR;
-  status: DeviceLinkingStatus.ERROR;
-  error: string;
-}
-
-export type DeviceLinkingSSEEvent =
-  | DeviceLinkingEventStep1
-  | DeviceLinkingEventStep2
-  | DeviceLinkingEventStep3
-  | DeviceLinkingEventStep4
-  | DeviceLinkingEventStep5
-  | DeviceLinkingEventStep6
-  | DeviceLinkingEventStep7
-  | DeviceLinkingEventStep8
-  | DeviceLinkingErrorEvent;
-
-/////////////////////////////////////////////
-// SDK-Sent-Events: Account Sync Event Types
-/////////////////////////////////////////////
-
-export interface SyncAccountEventStep1 extends BaseSyncAccountEvent {
-  step: 1;
-  phase: SyncAccountPhase.STEP_1_PREPARATION;
-}
-
-export interface SyncAccountEventStep2 extends BaseSyncAccountEvent {
-  step: 2;
-  phase: SyncAccountPhase.STEP_2_WEBAUTHN_AUTHENTICATION;
-}
-
-export interface SyncAccountEventStep3 extends BaseSyncAccountEvent {
-  step: 3;
-  phase: SyncAccountPhase.STEP_3_SYNC_AUTHENTICATORS_ONCHAIN;
-  data?: Record<string, unknown>;
-  logs?: string[];
-}
-
-export interface SyncAccountEventStep4 extends BaseSyncAccountEvent {
-  step: 4;
-  phase: SyncAccountPhase.STEP_4_AUTHENTICATOR_SAVED;
-  status: SyncAccountStatus.SUCCESS;
-  data?: Record<string, unknown>;
-}
-
-export interface SyncAccountEventStep5 extends BaseSyncAccountEvent {
-  step: 5;
-  phase: SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE;
-  status: SyncAccountStatus.SUCCESS;
-  data?: Record<string, unknown>;
-}
-
-export interface SyncAccountError extends BaseSyncAccountEvent {
-  step: 0;
-  phase: SyncAccountPhase.ERROR;
-  status: SyncAccountStatus.ERROR;
-  error: string;
-}
-
-export type SyncAccountSSEEvent =
-  | SyncAccountEventStep1
-  | SyncAccountEventStep2
-  | SyncAccountEventStep3
-  | SyncAccountEventStep4
-  | SyncAccountEventStep5
-  | SyncAccountError;
-
-/////////////////////////////////////////////
-// SDK-Sent-Events: Email Recovery Event Types
-/////////////////////////////////////////////
-
-export interface EmailRecoveryEventStep1 extends BaseEmailRecoveryEvent {
-  step: 1;
-  phase: EmailRecoveryPhase.STEP_1_PREPARATION;
-}
-
-export interface EmailRecoveryEventStep2 extends BaseEmailRecoveryEvent {
-  step: 2;
-  phase: EmailRecoveryPhase.STEP_2_TOUCH_ID_REGISTRATION;
-}
-
-export interface EmailRecoveryEventStep3 extends BaseEmailRecoveryEvent {
-  step: 3;
-  phase: EmailRecoveryPhase.STEP_3_AWAIT_EMAIL;
-}
-
-export interface EmailRecoveryEventStep4 extends BaseEmailRecoveryEvent {
-  step: 4;
-  phase:
-    | EmailRecoveryPhase.STEP_4_POLLING_ADD_KEY
-    | EmailRecoveryPhase.STEP_4_POLLING_VERIFICATION_RESULT;
-  data?: {
-    accountId?: string;
-    requestId?: string;
-    nearPublicKey?: string;
-    elapsedMs?: number;
-    pollCount?: number;
-    [key: string]: unknown;
-  };
-  logs?: string[];
-}
-
-export interface EmailRecoveryEventStep5 extends BaseEmailRecoveryEvent {
-  step: 5;
-  phase: EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION;
-  data?: Record<string, unknown>;
-}
-
-export interface EmailRecoveryEventStep6 extends BaseEmailRecoveryEvent {
-  step: 6;
-  phase: EmailRecoveryPhase.STEP_6_COMPLETE;
-  status: EmailRecoveryStatus.SUCCESS;
-  data?: Record<string, unknown>;
-}
-
-export interface EmailRecoveryEventResumedFromPending extends BaseEmailRecoveryEvent {
-  step: 0;
-  phase: EmailRecoveryPhase.RESUMED_FROM_PENDING;
-  status: EmailRecoveryStatus.PROGRESS;
-  data?: Record<string, unknown>;
-}
-
-export interface EmailRecoveryErrorEvent extends BaseEmailRecoveryEvent {
-  step: 0;
-  phase: EmailRecoveryPhase.ERROR;
-  status: EmailRecoveryStatus.ERROR;
-  error: string;
-}
-
-export type EmailRecoverySSEEvent =
-  | EmailRecoveryEventStep1
-  | EmailRecoveryEventStep2
-  | EmailRecoveryEventStep3
-  | EmailRecoveryEventStep4
-  | EmailRecoveryEventStep5
-  | EmailRecoveryEventStep6
-  | EmailRecoveryEventResumedFromPending
-  | EmailRecoveryErrorEvent;
-
 //////////////////////////////////
 /// Hooks Options
 //////////////////////////////////
 
 // Function Options
 export interface RegistrationHooksOptions {
-  onEvent?: EventCallback<RegistrationSSEEvent>;
+  onEvent?: EventCallback<RegistrationFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<RegistrationResult>;
   // Signer provisioning options used during registration.
@@ -648,7 +689,7 @@ export interface RegistrationHooksOptions {
 }
 
 export interface LoginHooksOptions {
-  onEvent?: EventCallback<LoginSSEvent>;
+  onEvent?: EventCallback<UnlockFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<LoginAndCreateSessionResult>;
   /**
@@ -695,7 +736,7 @@ export interface LoginHooksOptions {
 }
 
 export interface ActionHooksOptions {
-  onEvent?: EventCallback<ActionSSEEvent>;
+  onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
   waitUntil?: TxExecutionStatus;
   afterCall?: AfterCall<ActionResult>;
@@ -718,7 +759,7 @@ export type ExecutionWaitOption =
   | { mode: 'parallelStaggered'; staggerMs: number };
 
 export interface SignAndSendTransactionHooksOptions {
-  onEvent?: EventCallback<ActionSSEEvent>;
+  onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
   waitUntil?: TxExecutionStatus;
   /**
@@ -744,7 +785,7 @@ export interface SignAndSendTransactionHooksOptions {
 }
 
 export interface SignTransactionHooksOptions {
-  onEvent?: EventCallback<ActionSSEEvent>;
+  onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
 
   afterCall?: AfterCall<SignTransactionResult[]>;
@@ -763,7 +804,7 @@ export interface SignTransactionHooksOptions {
 }
 
 export interface SendTransactionHooksOptions {
-  onEvent?: EventCallback<ActionSSEEvent>;
+  onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
 
   afterCall?: AfterCall<ActionResult>;
@@ -771,7 +812,7 @@ export interface SendTransactionHooksOptions {
 }
 
 export interface DelegateActionHooksOptions {
-  onEvent?: EventCallback<DelegateActionSSEEvent>;
+  onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
   waitUntil?: TxExecutionStatus;
   afterCall?: AfterCall<SignDelegateActionResult>;
@@ -787,7 +828,7 @@ export interface DelegateActionHooksOptions {
 }
 
 export interface DelegateRelayHooksOptions {
-  onEvent?: EventCallback<ActionSSEEvent>;
+  onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<DelegateRelayResult>;
 }
@@ -800,7 +841,7 @@ export type SignAndSendDelegateActionHooksOptions = Omit<
 };
 
 export interface SyncAccountHooksOptions {
-  onEvent?: EventCallback<SyncAccountSSEEvent>;
+  onEvent?: EventCallback<AccountSyncFlowEvent>;
   onError?: (error: Error) => void;
   waitUntil?: TxExecutionStatus;
 
@@ -808,14 +849,7 @@ export interface SyncAccountHooksOptions {
 }
 
 export interface SignNEP413HooksOptions {
-  onEvent?: EventCallback<
-    | RegistrationSSEEvent
-    | LoginSSEvent
-    | ActionSSEEvent
-    | DeviceLinkingSSEEvent
-    | SyncAccountSSEEvent
-    | EmailRecoverySSEEvent
-  >;
+  onEvent?: EventCallback<SigningFlowEvent>;
   onError?: (error: Error) => void;
 
   afterCall?: AfterCall<SignNEP413MessageResult>;

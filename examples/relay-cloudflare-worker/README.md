@@ -35,7 +35,7 @@ extra requirements and limitations compared to the Express example.
   Cloudflare dashboard). They are not stored in `wrangler.toml`:
   - Required:
     - `RELAYER_PRIVATE_KEY`
-    - `SHAMIR_P_B64U`, `SHAMIR_E_S_B64U`, `SHAMIR_D_S_B64U`
+    - `SIGNING_SESSION_SHAMIR_P_B64U`, `SIGNING_SESSION_SEAL_E_S_B64U`, `SIGNING_SESSION_SEAL_D_S_B64U`
   - Optional:
     - `SIGNING_ROOT_SECRET_SHARE_KEK_B64U` (enables signing-root threshold signing when sealed shares are present)
 - **Worker vars** (non-secret) can be set in `wrangler.toml` `[vars]`, in the
@@ -61,7 +61,7 @@ extra requirements and limitations compared to the Express example.
 - Optional Shamir rotation:
   - `ENABLE_ROTATION="1"`
 - Generate matching Shamir values for server + client config:
-  - `pnpm prf-seal:keygen`
+  - `pnpm signing-session-seal:keygen`
 - Optional billing monthly finalization (SaaS console):
   - `BILLING_FINALIZATION_ENABLED="1"`
   - `BILLING_POSTGRES_URL=<postgres url>`
@@ -142,17 +142,17 @@ const session = new SessionService({
 });
 ```
 
-## PRF session seal routes (`/threshold-ecdsa/prf-seal/*`)
+## Signing-session seal routes (`/threshold/signing-session-seal/*`)
 
 This worker mounts:
 
-- `POST /threshold-ecdsa/prf-seal/apply-server-seal`
-- `POST /threshold-ecdsa/prf-seal/remove-server-seal`
+- `POST /threshold/signing-session-seal/apply-server-seal`
+- `POST /threshold/signing-session-seal/remove-server-seal`
 
 Configure with vars:
 
-- `PRF_SESSION_SEAL_ENABLED` (`"1"` or `"0"`, defaults to enabled)
-- `PRF_SESSION_SEAL_KEY_VERSION` (defaults to `kek-s-2026-02`)
+- `SIGNING_SESSION_SEAL_ENABLED` (`"1"` or `"0"`, defaults to enabled)
+- `SIGNING_SESSION_SEAL_KEY_VERSION` (defaults to `kek-s-2026-02`)
 
 Custom cookie headers (optional):
 
@@ -243,15 +243,15 @@ Cookie mode and CORS
    ```bash
    # staging env (w3a-relay-staging)
    pnpm -C examples/relay-cloudflare-worker exec wrangler secret put RELAYER_PRIVATE_KEY --env staging
-   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SHAMIR_P_B64U --env staging
-   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SHAMIR_E_S_B64U --env staging
-   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SHAMIR_D_S_B64U --env staging
+   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SHAMIR_P_B64U --env staging
+   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SEAL_E_S_B64U --env staging
+   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SEAL_D_S_B64U --env staging
 
    # production env (w3a-relay-prod)
    pnpm -C examples/relay-cloudflare-worker exec wrangler secret put RELAYER_PRIVATE_KEY --env production
-   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SHAMIR_P_B64U --env production
-   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SHAMIR_E_S_B64U --env production
-   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SHAMIR_D_S_B64U --env production
+   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SHAMIR_P_B64U --env production
+   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SEAL_E_S_B64U --env production
+   pnpm -C examples/relay-cloudflare-worker exec wrangler secret put SIGNING_SESSION_SEAL_D_S_B64U --env production
    ```
 
 4. Optional: provision threshold signing-root KEK (repeat per environment):

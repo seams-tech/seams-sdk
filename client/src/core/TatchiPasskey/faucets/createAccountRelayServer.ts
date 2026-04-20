@@ -1,8 +1,8 @@
-import {
-  RegistrationSSEEvent,
-  RegistrationPhase,
-  RegistrationStatus,
+import type {
+  CreateRegistrationFlowEventInput,
+  RegistrationHooksOptions,
 } from '../../types/sdkSentEvents';
+import { createRegistrationFlowEvent, RegistrationEventPhase } from '../../types/sdkSentEvents';
 import { PasskeyManagerContext } from '..';
 import {
   serializeRegistrationCredential,
@@ -122,6 +122,26 @@ export class RelayRegistrationError extends Error {
 }
 
 const REGISTRATION_NETWORK_TIMEOUT_MS = 30_000;
+
+type EmitRelayRegistrationEventInput = Omit<
+  CreateRegistrationFlowEventInput,
+  'accountId' | 'authMethod' | 'flowId'
+>;
+
+function emitRelayRegistrationEvent(
+  onEvent: RegistrationHooksOptions['onEvent'] | undefined,
+  nearAccountId: string,
+  event: EmitRelayRegistrationEventInput,
+): void {
+  onEvent?.(
+    createRegistrationFlowEvent({
+      flowId: `registration:passkey:${nearAccountId}`,
+      accountId: nearAccountId,
+      authMethod: 'passkey',
+      ...event,
+    }),
+  );
+}
 
 function createRegistrationTimeoutError(args: {
   operation: string;
@@ -839,7 +859,7 @@ export async function createAccountAndRegisterWithRelayServer(
   credential: WebAuthnRegistrationCredential | PublicKeyCredential,
   rpId: string,
   authenticatorOptions?: AuthenticatorOptions,
-  onEvent?: (event: RegistrationSSEEvent) => void,
+  onEvent?: RegistrationHooksOptions['onEvent'],
   opts?: {
     thresholdEd25519?: CreateAccountAndRegisterThresholdEd25519Input;
   },
@@ -857,11 +877,9 @@ export async function createAccountAndRegisterWithRelayServer(
   }
 
   try {
-    onEvent?.({
-      step: 4,
-      phase: RegistrationPhase.STEP_4_ACCESS_KEY_ADDITION,
-      status: RegistrationStatus.PROGRESS,
-      message: 'Creating account and adding access key...',
+    emitRelayRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_06_RELAY_BOOTSTRAP_STARTED,
+      status: 'running',
     });
 
     // Serialize the WebAuthn credential properly for the contract.
@@ -895,13 +913,6 @@ export async function createAccountAndRegisterWithRelayServer(
         authenticatorOptions ?? context.configs.webauthn.authenticatorOptions,
       ),
     };
-
-    onEvent?.({
-      step: 5,
-      phase: RegistrationPhase.STEP_5_CONTRACT_REGISTRATION,
-      status: RegistrationStatus.PROGRESS,
-      message: 'Creating account and finalizing registration...',
-    });
 
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const registrationTransport = resolveRegistrationTransport(context);
@@ -990,11 +1001,12 @@ export async function createAccountAndRegisterWithRelayServer(
       result.thresholdEd25519,
     );
 
-    onEvent?.({
-      step: 5,
-      phase: RegistrationPhase.STEP_5_CONTRACT_REGISTRATION,
-      status: RegistrationStatus.SUCCESS,
-      message: 'User registered successfully',
+    emitRelayRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_06_RELAY_BOOTSTRAP_SUCCEEDED,
+      status: 'succeeded',
+      data: {
+        transactionId: result.transactionHash,
+      },
     });
 
     return {
@@ -1005,14 +1017,6 @@ export async function createAccountAndRegisterWithRelayServer(
   } catch (error: unknown) {
     console.error('Atomic registration failed:', error);
     const code = isRelayRegistrationError(error) ? error.code : undefined;
-
-    onEvent?.({
-      step: 0,
-      phase: RegistrationPhase.REGISTRATION_ERROR,
-      status: RegistrationStatus.ERROR,
-      message: 'Registration failed',
-      error: errorMessage(error),
-    });
 
     return {
       success: false,

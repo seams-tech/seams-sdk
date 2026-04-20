@@ -36,11 +36,33 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
 
     expect(nearSigning).toContain('isEmailOtpEd25519WarmupPending');
     expect(nearSigning).toContain('waitForPendingEmailOtpEd25519Warmup');
-    expect(nearSigning).toContain('Finalizing NEAR signing session...');
+    expect(nearSigning).toContain('Finalizing NEAR signing session');
     expect(transactionsFlow).toContain('confirmationReadiness');
     expect(transactionsFlow).toContain('ed25519Warmup.waitForReady()');
     expect(signingFlow).toContain('consumeConfirmationReadiness');
     expect(signingFlow).toContain('confirmationReadinessPending');
     expect(signingFlow).toContain('loading: isConfirmationLoading()');
+  });
+
+  test('Email OTP NEAR transaction signing attempts sealed restore before OTP fallback', () => {
+    const nearSigning = readNearSigningSource();
+    const restoreStart = nearSigning.indexOf(
+      'async function tryRestoreEmailOtpSigningSessionForNearTransaction',
+    );
+    const restoreCall = nearSigning.indexOf(
+      'await tryRestoreEmailOtpSigningSessionForNearTransaction',
+    );
+    const authResolution = nearSigning.indexOf(
+      'const { walletAuthPlan, emailOtpSigning } = await resolveNearTransactionWalletAuth',
+    );
+
+    expect(restoreStart).toBeGreaterThanOrEqual(0);
+    expect(nearSigning).toContain('Restoring signing session...');
+    expect(nearSigning).toContain(
+      "interaction: { kind: 'transaction_confirmation', overlay: 'show' }",
+    );
+    expect(nearSigning).toContain('rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord');
+    expect(restoreCall).toBeGreaterThan(restoreStart);
+    expect(authResolution).toBeGreaterThan(restoreCall);
   });
 });

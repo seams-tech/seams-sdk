@@ -76,12 +76,12 @@ This plan intentionally skips and removes plaintext persistence paths.
 Generate matching Shamir 3-pass key material for server + client env:
 
 ```bash
-pnpm prf-seal:keygen
+pnpm signing-session-seal:keygen
 ```
 
 The command emits:
 
-- server: `PRF_SESSION_SEAL_KEY_VERSION`, `SHAMIR_P_B64U`, `SHAMIR_E_S_B64U`, `SHAMIR_D_S_B64U`
+- server: `SIGNING_SESSION_SEAL_KEY_VERSION`, `SIGNING_SESSION_SHAMIR_P_B64U`, `SIGNING_SESSION_SEAL_E_S_B64U`, `SIGNING_SESSION_SEAL_D_S_B64U`
 - client: `VITE_SIGNING_SESSION_PERSISTENCE_MODE=sealed_refresh_v1`,
   `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`, `VITE_SIGNING_SESSION_SHAMIR_P_B64U`
 
@@ -112,7 +112,7 @@ Rehydrate:
 
 Wallet-origin `sessionStorage` key:
 
-- `tatchi:threshold-prf-sealed:v1:<thresholdSessionId>`
+- `tatchi:signing-session-sealed:v1:<walletSigningSessionId>`
 
 Value shape:
 
@@ -164,8 +164,8 @@ Rules:
 - [x] Implement full handlers in:
   - `client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts`
 - [x] Add worker route fetch integration:
-  - `POST /threshold-ecdsa/prf-seal/apply-server-seal`
-  - `POST /threshold-ecdsa/prf-seal/remove-server-seal`
+  - `POST /threshold/signing-session-seal/apply-server-seal`
+  - `POST /threshold/signing-session-seal/remove-server-seal`
 - [x] Keep existing `PUT/STATUS/CLAIM/CLEAR` warm-session operations as canonical runtime behavior (no duplicate legacy APIs).
 
 ### Phase 3 — Main-Thread Sealed Adapter + Session Restore
@@ -247,7 +247,7 @@ Rules:
 
 ## Server Module Status (Already Done)
 
-- [x] Standalone PRF seal module and route wiring.
+- [x] Standalone signing-session seal module and route wiring.
 - [x] Auth/session ownership checks.
 - [x] Pluggable cipher/session policy/guard/audit composition.
 - [x] Rate-limit and audit integrations.

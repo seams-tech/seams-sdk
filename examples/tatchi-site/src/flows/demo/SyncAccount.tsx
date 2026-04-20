@@ -2,9 +2,8 @@ import React from 'react';
 import {
   useTatchi,
   PROFILE_MENU_ITEM_IDS,
-  SyncAccountPhase,
-  SyncAccountStatus,
-  type SyncAccountSSEEvent,
+  AccountSyncEventPhase,
+  type AccountSyncFlowEvent,
 } from '@tatchi-xyz/sdk/react';
 import { toast } from 'sonner';
 import { friendlyWebAuthnMessage } from '@/shared/utils/strings';
@@ -46,11 +45,12 @@ export function SyncAccount() {
       const result = await tatchi.recovery.syncAccount({
         accountId: targetAccountId,
         options: {
-          onEvent: async (event: SyncAccountSSEEvent) => {
+          onEvent: async (event: AccountSyncFlowEvent) => {
             try {
               if (
-                event.phase === SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE &&
-                event.status === SyncAccountStatus.SUCCESS
+                event.flow === 'account_sync' &&
+                event.phase === AccountSyncEventPhase.STEP_06_COMPLETED &&
+                event.status === 'succeeded'
               ) {
                 await refreshLoginState(targetAccountId);
               }

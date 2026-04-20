@@ -65,122 +65,127 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
 
       const resultPromise = page.evaluate(
         async ({ walletOrigin, relayerUrl, receiverId }) => {
-        try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { ActionType } = await import('/sdk/esm/core/types/actions.js');
-          const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
+          try {
+            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { ActionType } = await import('/sdk/esm/core/types/actions.js');
+            const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-          const suffix =
-            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-              ? crypto.randomUUID()
-              : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const accountId = `e2e2x${suffix}.w3a-v1.testnet`;
+            const suffix =
+              typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+            const accountId = `e2e2x${suffix}.w3a-v1.testnet`;
 
-          const tatchi = new TatchiPasskey({
-            nearNetwork: 'testnet',
-            nearRpcUrl: 'https://test.rpc.fastnear.com',
-            relayer: { url: relayerUrl },
-            ...(managedRegistration
-              ? {
-                  registration: {
-                    mode: 'managed' as const,
-                    environmentId: String(managedRegistration.environmentId || ''),
-                    publishableKey: String(managedRegistration.publishableKey || ''),
-                  },
-                }
-              : {}),
-            // Ensure the wallet iframe path is exercised (bug repro target).
-            iframeWallet: {
-              walletOrigin,
-              servicePath: '/wallet-service',
-              sdkBasePath: '/sdk',
-              rpIdOverride: 'example.localhost',
-            },
-          });
-
-          const cfg = { uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 } as const;
-          const reg = await tatchi.registration.registerPasskeyInternal(accountId, {}, cfg as any);
-          if (!reg?.success) {
-            return { ok: false as const, error: reg?.error || 'registration failed' };
-          }
-
-          const login = await tatchi.auth.unlock(accountId, {
-            signingSession: { ttlMs: 0, remainingUses: 0 },
-          });
-          if (!login?.success) {
-            return { ok: false as const, error: login?.error || 'login failed' };
-          }
-          const walletSession = await tatchi.auth.getWalletSession(accountId);
-          const hasThresholdEcdsaState = !!String(
-            walletSession?.login?.thresholdEcdsaEthereumAddress || '',
-          ).trim();
-          if (!hasThresholdEcdsaState) {
-            return {
-              ok: false as const,
-              error: 'dual-state regression: login snapshot missing thresholdEcdsaEthereumAddress',
-            };
-          }
-
-          const events: Array<{
-            call: number;
-            phase: string;
-            message: string;
-            step: number;
-            status: string;
-          }> = [];
-
-          const runOnce = async (call: number) => {
-            const result = await tatchi.near.executeAction({
-              nearAccountId: accountId,
-              receiverId,
-              actionArgs: {
-                type: ActionType.FunctionCall,
-                methodName: 'set_greeting',
-                args: { greeting: `hello-${call}-${Date.now()}` },
-                gas: '30000000000000',
-                deposit: '0',
-              },
-              options: {
-                waitUntil: 'EXECUTED_OPTIMISTIC' as any,
-                onEvent: (ev: any) => {
-                  events.push({
-                    call,
-                    phase: String(ev?.phase || ''),
-                    message: String(ev?.message || ''),
-                    step: Number(ev?.step || 0),
-                    status: String(ev?.status || ''),
-                  });
-                },
+            const tatchi = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayer: { url: relayerUrl },
+              ...(managedRegistration
+                ? {
+                    registration: {
+                      mode: 'managed' as const,
+                      environmentId: String(managedRegistration.environmentId || ''),
+                      publishableKey: String(managedRegistration.publishableKey || ''),
+                    },
+                  }
+                : {}),
+              // Ensure the wallet iframe path is exercised (bug repro target).
+              iframeWallet: {
+                walletOrigin,
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
               },
             });
-            return result;
-          };
 
-          const r1 = await runOnce(1);
-          const r2 = await runOnce(2);
+            const cfg = { uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 } as const;
+            const reg = await tatchi.registration.registerPasskeyInternal(
+              accountId,
+              {},
+              cfg as any,
+            );
+            if (!reg?.success) {
+              return { ok: false as const, error: reg?.error || 'registration failed' };
+            }
 
-          const phasesFor = (call: number) =>
-            events.filter((e) => e.call === call).map((e) => e.phase);
+            const login = await tatchi.auth.unlock(accountId, {
+              signingSession: { ttlMs: 0, remainingUses: 0 },
+            });
+            if (!login?.success) {
+              return { ok: false as const, error: login?.error || 'login failed' };
+            }
+            const walletSession = await tatchi.auth.getWalletSession(accountId);
+            const hasThresholdEcdsaState = !!String(
+              walletSession?.login?.thresholdEcdsaEthereumAddress || '',
+            ).trim();
+            if (!hasThresholdEcdsaState) {
+              return {
+                ok: false as const,
+                error:
+                  'dual-state regression: login snapshot missing thresholdEcdsaEthereumAddress',
+              };
+            }
 
-          return {
-            ok: true as const,
-            accountId,
-            result1: r1,
-            result2: r2,
-            phases1: phasesFor(1),
-            phases2: phasesFor(2),
-            lastMessage2: events.filter((e) => e.call === 2).slice(-1)[0]?.message || null,
-            hasThresholdEcdsaState,
-          };
-        } catch (e: any) {
-          return { ok: false as const, error: e?.message || String(e) };
-        }
-      },
-      {
-        walletOrigin: 'https://wallet.example.localhost',
-        relayerUrl,
-        receiverId: receiverIdFromConfig(),
-      },
+            const events: Array<{
+              call: number;
+              phase: string;
+              message: string;
+              step: number;
+              status: string;
+            }> = [];
+
+            const runOnce = async (call: number) => {
+              const result = await tatchi.near.executeAction({
+                nearAccountId: accountId,
+                receiverId,
+                actionArgs: {
+                  type: ActionType.FunctionCall,
+                  methodName: 'set_greeting',
+                  args: { greeting: `hello-${call}-${Date.now()}` },
+                  gas: '30000000000000',
+                  deposit: '0',
+                },
+                options: {
+                  waitUntil: 'EXECUTED_OPTIMISTIC' as any,
+                  onEvent: (ev: any) => {
+                    events.push({
+                      call,
+                      phase: String(ev?.phase || ''),
+                      message: String(ev?.message || ''),
+                      step: Number(ev?.step || 0),
+                      status: String(ev?.status || ''),
+                    });
+                  },
+                },
+              });
+              return result;
+            };
+
+            const r1 = await runOnce(1);
+            const r2 = await runOnce(2);
+
+            const phasesFor = (call: number) =>
+              events.filter((e) => e.call === call).map((e) => e.phase);
+
+            return {
+              ok: true as const,
+              accountId,
+              result1: r1,
+              result2: r2,
+              phases1: phasesFor(1),
+              phases2: phasesFor(2),
+              lastMessage2: events.filter((e) => e.call === 2).slice(-1)[0]?.message || null,
+              hasThresholdEcdsaState,
+            };
+          } catch (e: any) {
+            return { ok: false as const, error: e?.message || String(e) };
+          }
+        },
+        {
+          walletOrigin: 'https://wallet.example.localhost',
+          relayerUrl,
+          receiverId: receiverIdFromConfig(),
+        },
       );
 
       const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
@@ -194,7 +199,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
       }
 
       expect(result.hasThresholdEcdsaState).toBe(true);
-      const terminalPhases = ['broadcasting', 'action-complete', 'action-error'];
+      const terminalPhases = ['signing.broadcast.accepted', 'signing.completed', 'signing.failed'];
       expect(result.phases1.some((phase: string) => terminalPhases.includes(phase))).toBe(true);
       // Regression target: second call must not stall before terminal execution/signer outcome.
       expect(result.phases2.some((phase: string) => terminalPhases.includes(phase))).toBe(true);

@@ -126,7 +126,7 @@ test.describe('warmSessionRuntime', () => {
       sealAndPersistResultBySessionId: {
         [evmRecord.thresholdSessionId]: {
           ok: true,
-          sealedPrfFirstB64u: 'sealed-prf-first',
+          sealedSecretB64u: 'sealed-prf-first',
           keyVersion: 'kek-s-2026-02',
           remainingUses: evmRecord.remainingUses || 5,
           expiresAtMs: evmRecord.expiresAtMs || Date.now() + 120_000,

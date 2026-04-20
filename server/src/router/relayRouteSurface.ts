@@ -24,10 +24,10 @@ export function resolveRelayRouteDefinitionOptions(
   }
   return {
     enableHealthz: Boolean(opts.healthz),
-    enablePrfSessionSeal: Boolean(opts.prfSessionSeal && opts.prfSessionSeal.enabled !== false),
+    enableSigningSessionSeal: Boolean(opts.signingSessionSeal && opts.signingSessionSeal.enabled !== false),
     enableReadyz: Boolean(opts.readyz),
     enableSponsoredEvmCall: Boolean(opts.sponsoredEvmCall),
-    prfSessionSealBasePath: opts.prfSessionSeal?.basePath,
+    signingSessionSealBasePath: opts.signingSessionSeal?.basePath,
     sessionStatePath: mePath,
     signedDelegatePath: signedDelegatePath || undefined,
     sponsoredEvmCallPath: opts.sponsoredEvmCall?.route,

@@ -30,7 +30,7 @@ export function registerWellKnownRoutes(router: ExpressRouter, ctx: ExpressRelay
               )
             : [];
         const signingSessionSeal = resolveWellKnownSigningSessionSealCapabilities(
-          ctx.opts.prfSessionSeal,
+          ctx.opts.signingSessionSeal,
         );
         res.set('Content-Type', 'application/json; charset=utf-8');
         // Short TTL + SWR so updates propagate while staying cache-friendly

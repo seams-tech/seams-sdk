@@ -34,11 +34,15 @@ type BridgeOk = { ok: true; credential: unknown };
 type BridgeErr = { ok: false; error?: string; timeout?: boolean };
 type BridgeResponse = BridgeOk | BridgeErr;
 
+type AnyPublicKeyOptions =
+  | PublicKeyCredentialCreationOptions
+  | PublicKeyCredentialRequestOptions;
+
 // Client interface used to request WebAuthn from the parent/top-level context
 export type ParentDomainWebAuthnClient = {
   request<K extends BridgeKind>(
     kind: K,
-    publicKey: PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions,
+    publicKey: AnyPublicKeyOptions,
     timeoutMs?: number,
   ): Promise<BridgeResponse>;
 };
@@ -72,7 +76,7 @@ export interface OrchestratorDeps {
  */
 export async function executeWebAuthnWithParentFallbacksSafari(
   kind: Kind,
-  publicKey: PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions,
+  publicKey: AnyPublicKeyOptions,
   deps: OrchestratorDeps,
 ): Promise<PublicKeyCredential | unknown> {
   const { inIframe, timeoutMs = 60000, permitGetBridgeOnAncestorError = true } = deps;
@@ -111,19 +115,20 @@ export async function executeWebAuthnWithParentFallbacksSafari(
   }
 
   const tryNative = async () => {
+    const publicKeyForAttempt = clonePublicKeyOptions(kind, publicKey);
     if (kind === 'create') {
       bumpCounter('__W3A_TEST_NATIVE_CREATE_ATTEMPTS');
       if (isTestForceNativeFail()) throw notAllowedError('Forced native fail (create)');
       // Build options with optional AbortSignal
       return await navigator.credentials.create({
-        publicKey: publicKey as PublicKeyCredentialCreationOptions,
+        publicKey: publicKeyForAttempt as PublicKeyCredentialCreationOptions,
         ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
       });
     } else {
       bumpCounter('__W3A_TEST_NATIVE_GET_ATTEMPTS');
       if (isTestForceNativeFail()) throw notAllowedError('Forced native fail (get)');
       return await navigator.credentials.get({
-        publicKey: publicKey as PublicKeyCredentialRequestOptions,
+        publicKey: publicKeyForAttempt as PublicKeyCredentialRequestOptions,
         ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
       });
     }
@@ -222,20 +227,21 @@ export async function executeWebAuthnWithParentFallbacksSafari(
 // Request the parent/top-level window to perform the WebAuthn operation
 export async function requestParentDomainWebAuthn(
   kind: Kind,
-  publicKey: PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions,
+  publicKey: AnyPublicKeyOptions,
   client: ParentDomainWebAuthnClient,
   timeoutMs: number,
 ): Promise<BridgeResponse> {
+  const publicKeyForBridge = clonePublicKeyOptions(kind, publicKey);
   if (kind === 'create') {
     return client.request(
       WebAuthnBridgeMessage.Create,
-      publicKey as PublicKeyCredentialCreationOptions,
+      publicKeyForBridge as PublicKeyCredentialCreationOptions,
       timeoutMs,
     );
   }
   return client.request(
     WebAuthnBridgeMessage.Get,
-    publicKey as PublicKeyCredentialRequestOptions,
+    publicKeyForBridge as PublicKeyCredentialRequestOptions,
     timeoutMs,
   );
 }
@@ -244,7 +250,7 @@ export async function requestParentDomainWebAuthn(
 export class WindowParentDomainWebAuthnClient implements ParentDomainWebAuthnClient {
   async request<K extends BridgeKind>(
     kind: K,
-    publicKey: PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions,
+    publicKey: AnyPublicKeyOptions,
     timeoutMs = 60000,
   ): Promise<BridgeResponse> {
     const requestId = `${kind}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
@@ -286,6 +292,103 @@ export class WindowParentDomainWebAuthnClient implements ParentDomainWebAuthnCli
       }, timeoutMs);
     });
   }
+}
+
+function clonePublicKeyOptions(kind: Kind, publicKey: AnyPublicKeyOptions): AnyPublicKeyOptions {
+  return kind === 'create'
+    ? cloneCreationOptions(publicKey as PublicKeyCredentialCreationOptions)
+    : cloneRequestOptions(publicKey as PublicKeyCredentialRequestOptions);
+}
+
+function cloneCreationOptions(
+  publicKey: PublicKeyCredentialCreationOptions,
+): PublicKeyCredentialCreationOptions {
+  return {
+    ...publicKey,
+    challenge: cloneBufferSource(publicKey.challenge),
+    user: {
+      ...publicKey.user,
+      id: cloneBufferSource(publicKey.user.id),
+    },
+    excludeCredentials: publicKey.excludeCredentials?.map(cloneCredentialDescriptor),
+    extensions: cloneCredentialExtensions(publicKey.extensions),
+  };
+}
+
+function cloneRequestOptions(
+  publicKey: PublicKeyCredentialRequestOptions,
+): PublicKeyCredentialRequestOptions {
+  return {
+    ...publicKey,
+    challenge: cloneBufferSource(publicKey.challenge),
+    allowCredentials: publicKey.allowCredentials?.map(cloneCredentialDescriptor),
+    extensions: cloneCredentialExtensions(publicKey.extensions),
+  };
+}
+
+function cloneCredentialDescriptor(
+  descriptor: PublicKeyCredentialDescriptor,
+): PublicKeyCredentialDescriptor {
+  return {
+    ...descriptor,
+    id: cloneBufferSource(descriptor.id),
+  };
+}
+
+function cloneCredentialExtensions<T extends AuthenticationExtensionsClientInputs | undefined>(
+  extensions: T,
+): T {
+  if (!extensions) return extensions;
+  const cloned = { ...extensions } as Record<string, unknown>;
+  const prf = cloned.prf;
+  if (prf && typeof prf === 'object') {
+    const prfRecord = { ...(prf as Record<string, unknown>) };
+    if (prfRecord.eval && typeof prfRecord.eval === 'object') {
+      prfRecord.eval = clonePrfEval(prfRecord.eval as Record<string, unknown>);
+    }
+    if (prfRecord.evalByCredential && typeof prfRecord.evalByCredential === 'object') {
+      const evalByCredential: Record<string, unknown> = {};
+      for (const [credentialId, evalValue] of Object.entries(
+        prfRecord.evalByCredential as Record<string, unknown>,
+      )) {
+        evalByCredential[credentialId] =
+          evalValue && typeof evalValue === 'object'
+            ? clonePrfEval(evalValue as Record<string, unknown>)
+            : evalValue;
+      }
+      prfRecord.evalByCredential = evalByCredential;
+    }
+    cloned.prf = prfRecord;
+  }
+  return cloned as T;
+}
+
+function clonePrfEval(input: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...input,
+    ...(isBufferSource(input.first) ? { first: cloneBufferSource(input.first) } : {}),
+    ...(isBufferSource(input.second) ? { second: cloneBufferSource(input.second) } : {}),
+  };
+}
+
+function isBufferSource(value: unknown): value is BufferSource {
+  return value instanceof ArrayBuffer || ArrayBuffer.isView(value);
+}
+
+function cloneBufferSource<T extends BufferSource>(value: T): T {
+  if (value instanceof ArrayBuffer) {
+    return value.slice(0) as T;
+  }
+  const view = value as ArrayBufferView;
+  const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  const clonedBytes = bytes.slice();
+  if (value instanceof DataView) {
+    return new DataView(clonedBytes.buffer) as unknown as T;
+  }
+  const ViewCtor = Object.getPrototypeOf(value).constructor as new (
+    buffer: ArrayBuffer,
+  ) => ArrayBufferView;
+  return new ViewCtor(clonedBytes.buffer) as unknown as T;
 }
 
 function notAllowedError(message: string): Error {

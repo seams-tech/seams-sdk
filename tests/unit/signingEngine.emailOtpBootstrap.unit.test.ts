@@ -280,6 +280,8 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
             signerSlot: 1,
             signerType: 'threshold',
             signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
             metadata: { signerMaterialFingerprint: 'old-material' },
           },
         ],
@@ -306,6 +308,8 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
           signerSlot: 1,
           signerType: 'threshold',
           signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
         },
       ],
       activationPolicy: {
@@ -332,6 +336,8 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
           signerSlot: 4,
           signerType: 'threshold',
           signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'email_otp',
+          signerSource: 'email_otp_registration',
           metadata: { signerMaterialFingerprint: 'current-material' },
         },
       ],
@@ -361,6 +367,8 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
           signerSlot: index + 1,
           signerType: 'threshold',
           signerKind: 'threshold-ed25519',
+          signerAuthMethod: 'passkey',
+          signerSource: 'passkey_registration',
         })),
         activationPolicy: {
           mode: 'allocate_next_free',
@@ -385,6 +393,8 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
             signerSlot: 2,
             signerType: 'threshold',
             signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
           },
         ],
         activationPolicy: {
@@ -411,6 +421,8 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
             signerSlot: 1,
             signerType: 'threshold',
             signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'email_otp',
+            signerSource: 'email_otp_registration',
             metadata: { signerMaterialFingerprint: 'old-material' },
           },
         ],
@@ -493,7 +505,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     const walletId = 'g-1234567890abcdef1234567890abcdef.testnet';
     const runtimePolicyScope = {
       orgId: 'org_test',
-      environmentId: 'env_test',
+      envId: 'env_test',
       projectId: 'project_test',
     };
     const workerRequests: Array<Record<string, any>> = [];
@@ -975,7 +987,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     });
   });
 
-  test('Email OTP bootstrap does not use passkey PRF seal persistence', async () => {
+  test('Email OTP bootstrap does not use passkey sealed-refresh persistence', async () => {
     const walletId = 'alice.testnet';
     const sealPersistCalls: unknown[] = [];
     const { engine } = makeEngine({
@@ -1439,6 +1451,76 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
     expect(refreshRequests).toEqual([]);
     expect(emailOtpSessions.appSessionJwtByAccount.get(walletId)).toBe(cachedAppSessionJwt);
+  });
+
+  test('restores same-tab app-session JWT cache after reload for Email OTP export challenge', async () => {
+    const walletId = 'alice.testnet';
+    const firstEngine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const secondEngine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const firstEmailOtpSessions = installEmailOtpSessionsFixture(firstEngine as any);
+    const secondEmailOtpSessions = installEmailOtpSessionsFixture(secondEngine as any);
+    const refreshRequests: Array<{ url: string; body: unknown }> = [];
+    const originalFetch = globalThis.fetch;
+    const cachedAppSessionJwt = makeUnsignedJwt({
+      kind: 'app_session_v1',
+      sub: walletId,
+      appSessionVersion: 'same-tab-app-session-version',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    });
+    const sessionStorageMap = new Map<string, string>();
+    const originalSessionStorageDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      'sessionStorage',
+    );
+    Object.defineProperty(globalThis, 'sessionStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => sessionStorageMap.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          sessionStorageMap.set(key, String(value));
+        },
+        removeItem: (key: string) => {
+          sessionStorageMap.delete(key);
+        },
+        clear: () => {
+          sessionStorageMap.clear();
+        },
+      },
+    });
+
+    try {
+      firstEmailOtpSessions.rememberAppSessionJwt({
+        nearAccountId: walletId,
+        appSessionJwt: cachedAppSessionJwt,
+      });
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        refreshRequests.push({
+          url: String(input),
+          body: init?.body ? JSON.parse(String(init.body)) : null,
+        });
+        return new Response(JSON.stringify({ ok: true, jwt: 'unexpected-refresh' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }) as typeof fetch;
+
+      await expect(
+        secondEmailOtpSessions.resolveAppSessionJwt({
+          nearAccountId: walletId,
+          relayUrl: 'https://relay.example',
+        }),
+      ).resolves.toBe(cachedAppSessionJwt);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalSessionStorageDescriptor) {
+        Object.defineProperty(globalThis, 'sessionStorage', originalSessionStorageDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, 'sessionStorage');
+      }
+    }
+
+    expect(refreshRequests).toEqual([]);
+    expect(secondEmailOtpSessions.appSessionJwtByAccount.get(walletId)).toBe(cachedAppSessionJwt);
   });
 
   test('refreshes expired cached app-session JWT before Email OTP export challenge', async () => {

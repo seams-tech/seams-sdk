@@ -205,6 +205,7 @@ test.describe('AuthService OIDC exchange verification', () => {
     expect(registered.ok).toBe(true);
     if (!registered.ok) return;
     expect(registered.mode).toBe('register_started');
+    if (registered.mode !== 'register_started') return;
     expect(registered.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
     expect(registered.walletId).not.toContain('alice');
     expect(registered.walletId).not.toContain('example');
@@ -255,6 +256,7 @@ test.describe('AuthService OIDC exchange verification', () => {
     if (!first.ok || !second.ok) return;
     expect(first.mode).toBe('register_started');
     expect(second.mode).toBe('register_started');
+    if (first.mode !== 'register_started' || second.mode !== 'register_started') return;
     expect(second.walletId).toBe(first.walletId);
     expect(second.registrationAttemptId).toBe(first.registrationAttemptId);
   });

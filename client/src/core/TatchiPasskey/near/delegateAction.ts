@@ -1,19 +1,18 @@
 import type { PasskeyManagerContext } from '../index';
 import type { DelegateActionInput, SignedDelegate } from '../../types/delegate';
 import type {
-  ActionSSEEvent,
-  DelegateActionSSEEvent,
   DelegateActionHooksOptions,
   DelegateRelayHooksOptions,
 } from '../../types/sdkSentEvents';
+import { SigningEventPhase } from '../../types/sdkSentEvents';
 import type { DelegateRelayResult, SignDelegateActionResult } from '../../types/tatchi';
 import type { AccountId } from '../../types/accountIds';
-import { ActionPhase, ActionStatus } from '../../types/sdkSentEvents';
 import { toAccountId } from '../../types/accountIds';
 import { toError } from '@shared/utils/errors';
 import type { WasmSignedDelegate } from '../../types/signer-worker';
 import { isObject } from '@shared/utils/validation';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
+import { emitNearSigningEvent } from './signingEventHelpers';
 
 async function yieldForUiPaint(): Promise<void> {
   if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -46,21 +45,21 @@ export async function signDelegateAction(args: {
     senderId: delegate.senderId || String(nearAccountId),
   };
 
-  options?.onEvent?.({
-    step: 1,
-    phase: ActionPhase.STEP_1_PREPARATION,
-    status: ActionStatus.PROGRESS,
+  emitNearSigningEvent(options?.onEvent, nearAccountId, {
+    phase: SigningEventPhase.STEP_01_STARTED,
+    status: 'started',
     message: 'Preparing delegate action inputs',
+    interaction: { kind: 'none', overlay: 'none' },
   });
 
-  // Emit a user-confirmation phase before kicking off the UserConfirm-driven
-  // confirmation flow so the wallet-iframe overlay can expand and allow
-  // the TxConfirmer modal to capture activation.
-  options?.onEvent?.({
-    step: 2,
-    phase: ActionPhase.STEP_2_USER_CONFIRMATION,
-    status: ActionStatus.PROGRESS,
-    message: 'Requesting delegate action confirmation…',
+  // Emit the v2 confirmation-display event before kicking off the UserConfirm-driven
+  // flow so the wallet-iframe overlay can expand and allow the TxConfirmer modal
+  // to capture activation.
+  emitNearSigningEvent(options?.onEvent, nearAccountId, {
+    phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
+    status: 'waiting_for_user',
+    message: 'Requesting delegate action confirmation',
+    interaction: { kind: 'transaction_confirmation', overlay: 'show' },
   });
   await yieldForUiPaint();
 
@@ -78,9 +77,7 @@ export async function signDelegateAction(args: {
         confirmationConfigOverride: options?.confirmationConfig,
         title,
         body,
-        onEvent: options?.onEvent
-          ? (ev) => options.onEvent?.(ev as DelegateActionSSEEvent)
-          : undefined,
+        onEvent: options?.onEvent,
       },
     });
 
@@ -91,11 +88,11 @@ export async function signDelegateAction(args: {
       logs: coreResult.logs,
     };
 
-    options?.onEvent?.({
-      step: 8,
-      phase: ActionPhase.STEP_8_ACTION_COMPLETE,
-      status: ActionStatus.SUCCESS,
+    emitNearSigningEvent(options?.onEvent, nearAccountId, {
+      phase: SigningEventPhase.STEP_15_COMPLETED,
+      status: 'succeeded',
       message: 'Delegate action signed',
+      interaction: { kind: 'none', overlay: 'none' },
       data: { hash: result.hash },
     });
 
@@ -106,12 +103,12 @@ export async function signDelegateAction(args: {
     const e = toError(error);
     options?.onError?.(e);
     await options?.afterCall?.(false);
-    options?.onEvent?.({
-      step: 0,
-      phase: ActionPhase.ACTION_ERROR,
-      status: ActionStatus.ERROR,
+    emitNearSigningEvent(options?.onEvent, nearAccountId, {
+      phase: SigningEventPhase.FAILED,
+      status: 'failed',
       message: e.message,
-      error: e.message,
+      interaction: { kind: 'none', overlay: 'hide' },
+      error: { message: e.message },
     });
     throw e;
   }
@@ -158,22 +155,21 @@ export async function sendDelegateActionViaRelayer(args: {
     signedDelegate: normalizeSignedDelegateForRelay(payload.signedDelegate),
   };
 
-  const emit = (event: ActionSSEEvent) => options?.onEvent?.(event);
   const emitError = (message: string) => {
-    emit({
-      step: 0,
-      phase: ActionPhase.ACTION_ERROR,
-      status: ActionStatus.ERROR,
+    emitNearSigningEvent(options?.onEvent, 'delegate', {
+      phase: SigningEventPhase.FAILED,
+      status: 'failed',
       message,
-      error: message,
+      interaction: { kind: 'none', overlay: 'hide' },
+      error: { message },
     });
   };
 
-  emit({
-    step: 7,
-    phase: ActionPhase.STEP_7_BROADCASTING,
-    status: ActionStatus.PROGRESS,
-    message: 'Submitting delegate to relayer...',
+  emitNearSigningEvent(options?.onEvent, 'delegate', {
+    phase: SigningEventPhase.STEP_12_BROADCAST_STARTED,
+    status: 'running',
+    message: 'Submitting delegate to relayer',
+    interaction: { kind: 'none', overlay: 'none' },
   });
 
   let res: Response;
@@ -236,11 +232,11 @@ export async function sendDelegateActionViaRelayer(args: {
 
   const success = response.ok !== false;
   if (success) {
-    emit({
-      step: 8,
-      phase: ActionPhase.STEP_8_ACTION_COMPLETE,
-      status: ActionStatus.SUCCESS,
+    emitNearSigningEvent(options?.onEvent, 'delegate', {
+      phase: SigningEventPhase.STEP_15_COMPLETED,
+      status: 'succeeded',
       message: 'Delegate relayed successfully',
+      interaction: { kind: 'none', overlay: 'none' },
     });
     await options?.afterCall?.(true, response);
   } else {

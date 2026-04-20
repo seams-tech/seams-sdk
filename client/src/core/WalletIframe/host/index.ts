@@ -79,12 +79,6 @@ export function initWalletIFrame(): void {
 
   const emitCancellationPayload = (requestId: string | undefined): void => {
     if (!requestId) return;
-    postProgress(requestId, {
-      step: 0,
-      phase: 'cancelled',
-      status: 'error',
-      message: 'Cancelled by user',
-    });
     post({
       type: 'ERROR',
       requestId,

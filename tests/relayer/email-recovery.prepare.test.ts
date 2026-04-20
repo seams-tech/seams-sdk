@@ -73,6 +73,15 @@ function makePreparedRecoveryService() {
         sessionId: 'ABC123',
         status: 'prepared' as const,
         expiresAtMs: Date.now() + 30 * 60_000,
+        deadlineEpochSeconds: 1_893_456_000,
+        payloadHash: 'payload-hash',
+      },
+      recoveryEmail: {
+        subject: 'recover-v1 alice.testnet ABC123',
+        body: 'body',
+        payload: {} as any,
+        payloadHash: 'payload-hash',
+        deadlineEpochSeconds: 1_893_456_000,
       },
     }),
   });

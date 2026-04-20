@@ -444,6 +444,104 @@ Release gate:
 
 This refactor is complete only when a single configured signing-session budget can be consumed in any mix of NEAR Ed25519 and EVM/Tempo/Arc ECDSA transaction signing, and when sensitive operation auth cannot consume or replace that transaction-signing budget.
 
+## Release Hardening TODO
+
+Goal:
+
+Move Email OTP from local/dev functional completeness to release-ready robustness. These tasks are not new product features; they are security, abuse-control, production-delivery, and regression-test hardening required before treating Google SSO + Email OTP as production-ready.
+
+### Production Email Delivery
+
+1. [ ] Replace the current development-only `email_provider` stub with a provider-backed adapter.
+2. [ ] Keep `memory` and `log` OTP delivery modes restricted to local development and tests.
+3. [ ] Fail production startup if Email OTP delivery is configured to a dev-only mode.
+4. [ ] Add provider-adapter tests for successful send, provider failure, retry-safe error handling, and production-mode rejection of dev delivery.
+5. [ ] Add relayer route tests proving OTP challenge creation reports delivery failures without creating unverifiable challenge state.
+
+### OTP Code Format And Storage
+
+1. [ ] Freeze first-release Email OTP codes to exactly six decimal digits everywhere.
+2. [ ] Remove production support for configurable 7- or 8-digit OTP codes.
+3. [ ] Validate submitted OTP codes as `^[0-9]{6}$` at every route and service verification boundary.
+4. [ ] Add negative tests for empty, non-decimal, short, long, whitespace-padded, and Unicode digit inputs.
+5. [ ] Stop storing plaintext OTP codes in challenge records.
+6. [ ] Store a keyed OTP verifier instead of `otpCode` in primary challenge storage.
+7. [ ] Use fixed-length, constant-time comparison for OTP verifier checks.
+8. [ ] Preserve dev outbox/log visibility without storing plaintext OTP in the primary challenge record.
+9. [ ] Replace modulo-based OTP digit generation with rejection sampling to avoid modulo bias.
+10. [ ] Add deterministic tests for OTP format and statistical smoke tests around digit generation boundaries.
+
+### Seal-Key And Server Custody Posture
+
+1. [ ] Fail production startup if Email OTP server seal material is sourced only from plaintext `SIGNING_SESSION_SEAL_E_S_B64U` or `SIGNING_SESSION_SEAL_D_S_B64U` env vars.
+2. [ ] Add a KMS/HSM/equivalent resolver for production Email OTP server seal material.
+3. [ ] Keep plaintext seal-key config available only for local development, tests, and bootstrap environments.
+4. [ ] Add config tests proving production rejects plaintext-seal-key-only configuration.
+5. [ ] Add key-version handling tests for active, previous, and unknown seal-key versions.
+6. [ ] Add audit events for seal apply/remove, key-version mismatch, and seal-key resolver failures.
+
+### Signing-Root And Session Binding
+
+1. [ ] Bind Email OTP challenge, grant, enrollment, and unlock-challenge records to the final signing-root scope.
+2. [ ] Bind verification and grant consumption to `userId`, `walletId`, signing root, stable app-session hash, session version, and operation.
+3. [ ] Add mismatch tests for cross-project, cross-environment, stale-session, wrong-wallet, wrong-user, and wrong-operation attempts.
+4. [ ] Ensure client-supplied binding metadata is treated only as an assertion and is checked against server-derived session state.
+5. [ ] Add route-level negative tests for app-session JWTs presented to threshold-session routes and threshold-session JWTs presented to app-session Email OTP routes.
+
+### Worker Boundary And Secret Material
+
+1. [ ] Audit all active Email OTP paths for plaintext `S`, `signing_session_secret32`, `clientRootShare32`, `clientAdditiveShare32B64u`, and equivalent secret-derived share material crossing into the JS main thread.
+2. [ ] Move any remaining Email OTP-derived secret material behind worker-owned opaque handles unless there is a documented temporary compatibility exception.
+3. [ ] If a compatibility exception remains, document the owner, transfer path, lifetime, single-use semantics, and zeroization point in the Email OTP specs.
+4. [ ] Add tests proving app-origin iframe flows never receive recovered `S`, `clientRootShare32`, `clientAdditiveShare32B64u`, or equivalent secret-derived share strings.
+5. [ ] Add zeroization tests for failed OTP verify, canceled transaction confirmation, expired session, logout, account switch, and worker teardown.
+
+### Shared Wallet Signing Session Budget
+
+1. [ ] Ensure link-device/add-signer flows use fresh operation-scoped auth and do not mutate the transaction signing session unless the operation explicitly creates or replaces a signer.
+2. [ ] Add unit tests proving TTL expiry invalidates both Ed25519 and ECDSA capabilities tied to the same `walletSigningSessionId`.
+3. [ ] Add unit tests proving export auth does not clobber the active wallet signing session.
+4. [ ] Add unit tests proving link-device/add-signer auth does not clobber the active wallet signing session.
+5. [ ] Add Tx Confirmer tests proving exhausted Email OTP sessions show OTP UI and exhausted passkey sessions show WebAuthn UI.
+6. [ ] Add E2E coverage for shared-budget exhaustion across NEAR Ed25519, Tempo ECDSA, and Arc ECDSA for Email OTP accounts.
+7. [ ] Add E2E coverage for shared-budget exhaustion across NEAR Ed25519, Tempo ECDSA, and Arc ECDSA for passkey accounts.
+8. [ ] Add E2E coverage proving Ed25519 and ECDSA key export do not clobber a still-valid transaction signing session.
+9. [ ] Add E2E coverage proving Email OTP-only normal transaction reauth never opens WebAuthn.
+10. [ ] Add E2E coverage for full link-device/add-signer operation-scoped auth isolation.
+
+### Google SSO Registration And Wallet Identity
+
+1. [ ] Add E2E coverage for HMAC-readable Google SSO registration.
+2. [ ] Add E2E coverage for existing-wallet login handoff.
+3. [ ] Add E2E coverage for stale registration-attempt retry.
+4. [ ] Add E2E coverage for wallet-id collision errors.
+5. [ ] Add tests proving repeated Google SSO registration attempts do not create duplicate Email OTP accounts by default.
+6. [ ] Keep raw email and timestamp-derived account IDs out of hosted Google SSO wallet-id generation.
+
+### Wallet-Iframe And Storage Modes
+
+1. [ ] Add E2E smoke coverage for wallet-iframe mode with app-origin IndexedDB disabled.
+2. [ ] Add storage assertions proving app-origin IndexedDB does not contain Email OTP secret material.
+3. [ ] Add storage assertions proving wallet-origin storage contains only nonsecret metadata and approved sealed-refresh artifacts.
+4. [ ] Add reload tests for the current default behavior: Email OTP in-memory warm material is lost on refresh and routes to Email OTP reauth, not WebAuthn.
+5. [ ] Keep the sealed-refresh feature tracked separately in `docs/otp-persist-session.md`; do not treat reload persistence as part of the current core release gate.
+
+### OTP Resend And Abuse Controls
+
+1. [ ] Add E2E coverage for transaction-signing OTP resend in `per_operation` mode.
+2. [ ] Add resend tests proving multiple valid unexpired OTP codes can coexist when policy allows it.
+3. [ ] Add resend debounce tests for UI cooldown behavior.
+4. [ ] Add server rate-limit tests for challenge creation, resend, verify failure, verify success, and lockout reset.
+5. [ ] Add abuse audit events for resend, rate-limit, lockout, replay, expired challenge, wrong operation, and wrong session.
+
+### Release Gate Command Matrix
+
+1. [ ] Define one documented local release-gate command matrix for Email OTP unit, relayer, wallet-iframe, and E2E tests.
+2. [ ] Include SDK build in the release gate.
+3. [ ] Include static guards for legacy PRF/seal/session names.
+4. [ ] Include static guards for hard-coded Email OTP wire literals outside shared domain modules.
+5. [ ] Include storage/secret-surface tests proving no plaintext `S`, `signing_session_secret32`, or enrollment escrow mirror is written to browser storage.
+
 ## ECDSA Signing-Root Binding Status
 
 The persisted ECDSA HSS replay/reconstruction path now carries `signingRootId`

@@ -1,5 +1,10 @@
 import type { Page } from '@playwright/test';
 import {
+  createSigningSessionSealPolicyFromThresholdAuthSessionStores,
+  createSigningSessionSealRoutesOptions,
+  createSigningSessionSealShamir3PassCipherAdapter,
+} from '@server/threshold/session/signingSessionSeal';
+import {
   createInMemoryJwtSessionAdapter,
   installCreateAccountAndRegisterUserMock,
   installFastNearRpcMock,
@@ -11,6 +16,7 @@ import {
 } from '../e2e/thresholdEd25519.testUtils';
 
 const SHAMIR_PRIME_B64U = '_____________________________________v___C8';
+const SIGNING_SESSION_SEAL_KEY_VERSION = 'kek-s-email-otp-test';
 const SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U = 'AQAB';
 const SHAMIR_SERVER_DECRYPT_EXPONENT_B64U = '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXSv___Ic';
 const DEFAULT_EMAIL = 'alice@example.com';
@@ -23,6 +29,7 @@ export type EmailOtpAuthPolicy = 'session' | 'per_operation';
 export type EmailOtpEcdsaTempoHarness = {
   baseUrl: string;
   shamirPrimeB64u: string;
+  signingSessionSealKeyVersion: string;
   defaultClientSecretB64u: string;
   mintAppSessionJwt: (args: {
     userId: string;
@@ -51,6 +58,8 @@ export type EmailOtpEcdsaTempoFlowOptions = {
   resendLoginOtpBeforeSubmit?: boolean;
   exportNearWithResend?: boolean;
   exportEcdsaWithResend?: boolean;
+  signingSessionTtlMs?: number;
+  signingSessionRemainingUses?: number;
 };
 
 export type EmailOtpEcdsaTempoFlowResult = {
@@ -134,12 +143,19 @@ export async function setupEmailOtpEcdsaTempoHarness(
   const session = createInMemoryJwtSessionAdapter();
   const { service, threshold } = makeAuthServiceForThreshold(keysOnChain, {
     THRESHOLD_NODE_ROLE: 'coordinator',
-    PRF_SESSION_SEAL_KEY_VERSION: 'kek-s-email-otp-test',
-    SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
-    SHAMIR_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
-    SHAMIR_D_S_B64U: SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
+    SIGNING_SESSION_SEAL_KEY_VERSION,
+    SIGNING_SESSION_SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
+    SIGNING_SESSION_SEAL_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
+    SIGNING_SESSION_SEAL_D_S_B64U: SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
   });
   await service.getRelayerAccount();
+  const thresholdAuthStores = threshold as unknown as {
+    authSessionStore?: unknown;
+    ecdsaAuthSessionStore?: unknown;
+  };
+  if (!thresholdAuthStores.authSessionStore || !thresholdAuthStores.ecdsaAuthSessionStore) {
+    throw new Error('Missing threshold auth session stores for Email OTP signing-session seal policy');
+  }
   const runtimePolicyScope = {
     orgId: 'org_threshold_ecdsa_email_otp',
     projectId: 'proj_threshold_ecdsa_email_otp',
@@ -157,6 +173,30 @@ export async function setupEmailOtpEcdsaTempoHarness(
     orgName: 'Threshold ECDSA Email OTP Org',
     projectId: runtimePolicyScope.projectId,
     projectName: 'Threshold ECDSA Email OTP Project',
+    signingSessionSeal: createSigningSessionSealRoutesOptions({
+      sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
+        stores: [
+          thresholdAuthStores.authSessionStore as any,
+          thresholdAuthStores.ecdsaAuthSessionStore as any,
+        ],
+      }),
+      cipher: createSigningSessionSealShamir3PassCipherAdapter({
+        currentKeyVersion: SIGNING_SESSION_SEAL_KEY_VERSION,
+        keys: [
+          {
+            keyVersion: SIGNING_SESSION_SEAL_KEY_VERSION,
+            shamirPrimeB64u: SHAMIR_PRIME_B64U,
+            serverEncryptExponentB64u: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
+            serverDecryptExponentB64u: SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
+          },
+        ],
+      }),
+      capabilities: {
+        mode: 'sealed_refresh_v1',
+        keyVersion: SIGNING_SESSION_SEAL_KEY_VERSION,
+        shamirPrimeB64u: SHAMIR_PRIME_B64U,
+      },
+    }),
   });
 
   await installCreateAccountAndRegisterUserMock(page, {
@@ -206,6 +246,7 @@ export async function setupEmailOtpEcdsaTempoHarness(
   return {
     baseUrl: harness.baseUrl,
     shamirPrimeB64u: SHAMIR_PRIME_B64U,
+    signingSessionSealKeyVersion: SIGNING_SESSION_SEAL_KEY_VERSION,
     defaultClientSecretB64u: DEFAULT_EMAIL_OTP_CLIENT_SECRET_B64U,
     mintAppSessionJwt: async ({ userId, walletId, email, deviceId, rotate }) => {
       const normalizedUserId = String(userId || '').trim();
@@ -218,7 +259,7 @@ export async function setupEmailOtpEcdsaTempoHarness(
         ? await service.rotateAppSessionVersion({ userId: normalizedUserId })
         : await service.getOrCreateAppSessionVersion({ userId: normalizedUserId });
       if (!versionResult.ok) {
-        throw new Error(versionResult.error || 'failed to create app session version');
+        throw new Error(versionResult.message || 'failed to create app session version');
       }
       return await session.signJwt(normalizedUserId, {
         kind: 'app_session_v1',
@@ -412,13 +453,11 @@ export async function runEmailOtpEcdsaTempoFlow(
             },
           }
         : {}),
-      signing: {
-        emailOtp: {
-          authPolicy: emailOtpAuthPolicy,
-        },
-        sessionSeal: {
-          shamirPrimeB64u,
-        },
+      emailOtpAuthPolicy,
+      signingSessionPersistenceMode: 'sealed_refresh_v1',
+      signingSessionSeal: {
+        keyVersion: 'kek-s-email-otp-test',
+        shamirPrimeB64u,
       },
       iframeWallet: {
         walletOrigin: '',
@@ -494,6 +533,12 @@ export async function runEmailOtpEcdsaTempoFlow(
             : {}),
           participantIds,
           ...(clientSecretB64u ? { clientSecret32: decodeBase64UrlToBytes(clientSecretB64u) } : {}),
+          ...(typeof input.signingSessionTtlMs === 'number'
+            ? { ttlMs: input.signingSessionTtlMs }
+            : {}),
+          ...(typeof input.signingSessionRemainingUses === 'number'
+            ? { remainingUses: input.signingSessionRemainingUses }
+            : {}),
         },
       );
       const enrolled = enrollmentLogin?.enrollment || {};
@@ -535,6 +580,12 @@ export async function runEmailOtpEcdsaTempoFlow(
         ecdsaThresholdKeyId,
         participantIds: resolvedParticipantIds,
         sessionKind: 'jwt',
+        ...(typeof input.signingSessionTtlMs === 'number'
+          ? { ttlMs: input.signingSessionTtlMs }
+          : {}),
+        ...(typeof input.signingSessionRemainingUses === 'number'
+          ? { remainingUses: input.signingSessionRemainingUses }
+          : {}),
       });
 
       const exportOptionsRequested =

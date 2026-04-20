@@ -1,6 +1,10 @@
-import type { SyncAccountHooksOptions } from '../types/sdkSentEvents';
-import { SyncAccountPhase, SyncAccountStatus } from '../types/sdkSentEvents';
-import type { SyncAccountSSEEvent } from '../types/sdkSentEvents';
+import {
+  AccountSyncEventPhase,
+  createAccountSyncFlowEvent,
+  type AccountSyncFlowEvent,
+  type CreateAccountSyncFlowEventInput,
+  type SyncAccountHooksOptions,
+} from '../types/sdkSentEvents';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId, WebAuthnAuthenticationCredential } from '../types';
 import { toAccountId } from '../types/accountIds';
@@ -37,14 +41,21 @@ export async function syncAccount(
   options?: SyncAccountHooksOptions,
 ): Promise<SyncAccountResult> {
   const onEvent = options?.onEvent;
-  const emit = (event: SyncAccountEventPayload): void => {
+  const flowId = `account-sync:${String(accountId || 'discovery')}`;
+  const emit = (event: Omit<CreateAccountSyncFlowEventInput, 'flowId'>): void => {
     try {
-      onEvent?.(event as SyncAccountSSEEvent);
+      onEvent?.(createAccountSyncFlowEvent({ flowId, ...event }));
     } catch {}
   };
 
   const relayerUrl = String(context.configs.network.relayer?.url || '').trim();
   if (!relayerUrl) {
+    emit({
+      phase: AccountSyncEventPhase.FAILED,
+      status: 'failed',
+      ...(accountId ? { accountId: String(accountId) } : {}),
+      error: { code: 'missing_relayer_url', message: 'Missing relayer url' },
+    });
     return {
       success: false,
       accountId: accountId ? String(accountId) : '',
@@ -57,6 +68,12 @@ export async function syncAccount(
 
   const rpId = context.signingEngine.getRpId();
   if (!rpId) {
+    emit({
+      phase: AccountSyncEventPhase.FAILED,
+      status: 'failed',
+      ...(accountId ? { accountId: String(accountId) } : {}),
+      error: { code: 'missing_rp_id', message: 'Missing rpId for WebAuthn sync' },
+    });
     return {
       success: false,
       accountId: accountId ? String(accountId) : '',
@@ -71,10 +88,9 @@ export async function syncAccount(
     const normalizedRequestedAccountId = accountId ? toAccountId(String(accountId)) : null;
 
     emit({
-      step: 1,
-      phase: SyncAccountPhase.STEP_1_PREPARATION,
-      status: SyncAccountStatus.PROGRESS,
-      message: 'Preparing account sync...',
+      phase: AccountSyncEventPhase.STEP_01_STARTED,
+      status: 'started',
+      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
     });
 
     // 1) Get a relay-minted challenge for discovery.
@@ -121,10 +137,10 @@ export async function syncAccount(
     }
 
     emit({
-      step: 2,
-      phase: SyncAccountPhase.STEP_2_WEBAUTHN_AUTHENTICATION,
-      status: SyncAccountStatus.PROGRESS,
-      message: 'Authenticating with passkey...',
+      phase: AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_STARTED,
+      status: 'waiting_for_user',
+      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
+      interaction: { kind: 'passkey_assert', overlay: 'show' },
     });
 
     const allowCredentials: WebAuthnAllowCredential[] = normalizedRequestedAccountId
@@ -138,6 +154,12 @@ export async function syncAccount(
       challengeB64u,
       allowCredentials,
       includeSecondPrfOutput: false,
+    });
+    emit({
+      phase: AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_SUCCEEDED,
+      status: 'succeeded',
+      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
+      interaction: { kind: 'passkey_assert', overlay: 'hide' },
     });
     let thresholdWarmPolicyDraft: ReturnType<typeof createThresholdWarmSessionPolicyDraft> = null;
     let thresholdEd25519SessionRequest: ReturnType<
@@ -165,6 +187,11 @@ export async function syncAccount(
       verifyRequestBody.threshold_ed25519 = thresholdEd25519SessionRequest;
     }
 
+    emit({
+      phase: AccountSyncEventPhase.STEP_03_RELAY_VERIFY_STARTED,
+      status: 'running',
+      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
+    });
     const verifyResp = await fetch(`${relayerUrl}/sync-account/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -181,6 +208,11 @@ export async function syncAccount(
         verifyMessage || verifyError || `sync-account/verify failed (HTTP ${verifyResp.status})`,
       );
     }
+    emit({
+      phase: AccountSyncEventPhase.STEP_03_RELAY_VERIFY_SUCCEEDED,
+      status: 'succeeded',
+      ...(normalizedRequestedAccountId ? { accountId: String(normalizedRequestedAccountId) } : {}),
+    });
 
     const syncedAccountId = String(verifyJson.accountId || '').trim();
     if (!syncedAccountId) {
@@ -232,10 +264,10 @@ export async function syncAccount(
     });
 
     emit({
-      step: 4,
-      phase: SyncAccountPhase.STEP_4_AUTHENTICATOR_SAVED,
-      status: SyncAccountStatus.SUCCESS,
-      message: 'Passkey saved locally',
+      phase: AccountSyncEventPhase.STEP_04_AUTHENTICATOR_SAVED,
+      status: 'succeeded',
+      accountId: syncedAccountId,
+      data: { signerSlot },
     });
 
     // 3) Persist threshold key material when available.
@@ -303,6 +335,12 @@ export async function syncAccount(
             ? thresholdEd25519.participantIds
             : undefined,
         });
+        emit({
+          phase: AccountSyncEventPhase.STEP_05_THRESHOLD_SESSION_READY,
+          status: 'succeeded',
+          accountId: syncedAccountId,
+          authMethod: 'warm_session',
+        });
       }
     }
 
@@ -314,10 +352,9 @@ export async function syncAccount(
     const isLoggedIn = restoredLogin.isLoggedIn;
 
     emit({
-      step: 5,
-      phase: SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE,
-      status: SyncAccountStatus.SUCCESS,
-      message: 'Account synced',
+      phase: AccountSyncEventPhase.STEP_06_COMPLETED,
+      status: 'succeeded',
+      accountId: syncedAccountId,
     });
 
     return {
@@ -330,11 +367,10 @@ export async function syncAccount(
   } catch (e: unknown) {
     const msg = errorMessage(e) || 'syncAccount failed';
     emit({
-      step: 0,
-      phase: SyncAccountPhase.ERROR,
-      status: SyncAccountStatus.ERROR,
-      message: 'Account sync failed',
-      error: msg,
+      phase: AccountSyncEventPhase.FAILED,
+      status: 'failed',
+      ...(accountId ? { accountId: String(accountId) } : {}),
+      error: { message: msg },
     });
     return {
       success: false,
@@ -346,13 +382,3 @@ export async function syncAccount(
     };
   }
 }
-
-type SyncAccountEventPayload = {
-  step: number;
-  phase: SyncAccountPhase;
-  status: SyncAccountStatus;
-  message: string;
-  error?: string;
-  data?: Record<string, unknown>;
-  [key: string]: unknown;
-};

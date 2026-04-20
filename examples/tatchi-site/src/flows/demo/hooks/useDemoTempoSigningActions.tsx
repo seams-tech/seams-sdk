@@ -22,6 +22,7 @@ import {
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import type { EvmAddress } from './demoThresholdTypes';
+import { handleSigningToastEvent } from './signingToast';
 
 type TempoSponsoredCallResponse = {
   ok: boolean;
@@ -355,6 +356,14 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
         payloadExpectation: {
           to: request.tx.to,
           input: request.tx.data || '0x',
+        },
+        options: {
+          onEvent: (event) =>
+            handleSigningToastEvent(event, {
+              toastId,
+              chainLabel: 'Tempo',
+              successMessage: 'Tempo transaction complete',
+            }),
         },
         postFinalizationCheck: async () => {
           await waitForExpectedGreeting({

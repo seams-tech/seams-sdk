@@ -24,6 +24,7 @@ import { toAccountId, type AccountId } from '../types/accountIds';
 import type { ActionArgsWasm } from '../types/actions';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 import type { ConfirmationConfig } from '../types/signer-worker';
+import type { SigningFlowEvent } from '../types/sdkSentEvents';
 import type {
   EmailOtpAuthPolicy,
   SigningSessionStatus,
@@ -400,6 +401,8 @@ export class SigningEngine {
       nonceManager: this.nonceManager,
       evmNonceManager: assembly.evmNonceManager,
       touchConfirm: this.touchConfirm,
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
       signerWorkerManager: this.signerWorkerManager,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       getTheme: () => this.theme,
@@ -422,8 +425,11 @@ export class SigningEngine {
         this.emailOtpSessions.waitForPendingEd25519Warmup(args),
       loginWithEmailOtpEd25519CapabilityForSigning: (args) =>
         this.emailOtpSessions.loginWithEd25519CapabilityForSigning(args),
+      provisionThresholdEd25519Session: (args) => this.provisionThresholdEd25519Session(args),
       loginWithEmailOtpEcdsaCapabilityForSigning: (args) =>
         this.emailOtpSessions.loginWithEcdsaCapabilityForSigning(args),
+      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (args) =>
+        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(args),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args) =>
         this.markThresholdEcdsaEmailOtpSessionConsumedForAccount(args),
       markThresholdEd25519EmailOtpSessionConsumedForAccount: (args) =>
@@ -649,13 +655,7 @@ export class SigningEngine {
     request: TempoSigningRequest | EvmSigningRequest;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     shouldAbort?: () => boolean;
-    onEvent?: (event: {
-      step: number;
-      phase: string;
-      status: 'progress' | 'success' | 'error';
-      message?: string;
-      data?: unknown;
-    }) => void;
+    onEvent?: (event: SigningFlowEvent) => void;
   }): Promise<TempoSignedResult | EvmSignedResult> {
     await this.ensureSealedRefreshStartupParity();
     return await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args);
@@ -1910,6 +1910,10 @@ export class SigningEngine {
       signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
       getThresholdEcdsaKeyRefForSigning: (readyArgs) =>
         this.getThresholdEcdsaKeyRefForSigning(readyArgs),
+      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
+        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
       provisionThresholdEcdsaSession: async (provisionArgs) =>
         await this.provisionThresholdEcdsaSession({
           ...args,
@@ -2163,6 +2167,8 @@ export class SigningEngine {
       getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
         this.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
       signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
     }).getWarmSession(args.nearAccountId);
     const capability = warmSession.capabilities.ecdsa[args.chain];
     if (capability.state !== 'ready') {
@@ -2201,6 +2207,12 @@ export class SigningEngine {
             this.clearThresholdEcdsaSessionRecordForLane({ nearAccountId, chain }),
           getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
             this.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
+          rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
+            this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(
+              restoreArgs,
+            ),
+          getEmailOtpWarmSessionStatus: (sessionId) =>
+            this.emailOtpSessions.getWarmSessionStatus(sessionId),
           signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
         });
         await warmSessionManager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
@@ -2261,7 +2273,7 @@ export class SigningEngine {
         ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),
       });
       // Email OTP bootstrap material is owned by the emailOtp worker. It must not
-      // be persisted through the passkey PRF sealed-refresh path.
+      // be persisted through the passkey sealed-refresh path.
       return canonicalBootstrap;
     });
   }
@@ -2508,6 +2520,10 @@ export class SigningEngine {
         this.clearThresholdEcdsaSessionRecordForLane({ nearAccountId, chain }),
       getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
         this.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
+      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
+        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
       signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
     }).getEcdsaSigningSessionStatus({ nearAccountId, chain });
   }
@@ -2529,6 +2545,10 @@ export class SigningEngine {
         this.markThresholdEcdsaEmailOtpSessionConsumedForAccount({ nearAccountId, chain }),
       getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
         this.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
+      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
+        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
       signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
     }).assertEcdsaOperationAllowed(args);
   }
@@ -2548,6 +2568,10 @@ export class SigningEngine {
         this.markThresholdEcdsaEmailOtpSessionConsumedForAccount({ nearAccountId, chain }),
       getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
         this.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
+      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
+        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
       signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
     }).applyEcdsaPostSignPolicy(args);
   }
@@ -2567,6 +2591,10 @@ export class SigningEngine {
         this.clearThresholdEcdsaSessionRecordForLane({ nearAccountId, chain }),
       getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
         this.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }),
+      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
+        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
       signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
     });
     return await scheduleThresholdEcdsaLoginPresignPrefillValue(

@@ -15,6 +15,11 @@ import type {
 } from '../interfaces';
 import type { EvmSignedResult } from '@/core/signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chainAdaptors/tempo/tempoAdapter';
+import {
+  createSigningFlowEvent,
+  SigningEventPhase,
+  type CreateSigningFlowEventInput,
+} from '@/core/types/sdkSentEvents';
 
 type TempoLifecycleCapability = {
   signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult>;
@@ -31,10 +36,17 @@ const DEFAULT_FINALIZATION_CONFIRMATIONS = 1;
 
 function emitLifecycleEvent(
   onEvent: ((event: TempoNonceLifecycleEvent) => void) | undefined,
-  event: TempoNonceLifecycleEvent,
+  accountId: string,
+  event: Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId'>,
 ): void {
   try {
-    onEvent?.(event);
+    onEvent?.(
+      createSigningFlowEvent({
+        ...event,
+        flowId: `signing:evm_family:${accountId}:${event.phase}`,
+        accountId,
+      }),
+    );
   } catch {}
 }
 
@@ -312,6 +324,14 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
   let txHash: `0x${string}` | undefined;
   let broadcastAccepted = false;
   let finalizedReported = false;
+  const emit = (event: Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId'>): void =>
+    emitLifecycleEvent(onEvent, args.input.nearAccountId, event);
+  const forwardSigningEvent = (event: TempoNonceLifecycleEvent): void => {
+    if (event.phase === SigningEventPhase.STEP_15_COMPLETED) return;
+    try {
+      onEvent?.(event);
+    } catch {}
+  };
 
   try {
     const request = args.input.request;
@@ -321,12 +341,6 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
     });
     const client = createEvmClient({ rpcUrl });
 
-    emitLifecycleEvent(onEvent, {
-      step: 7,
-      phase: 'tx-sign',
-      status: 'progress',
-      message: 'Signing EVM-family transaction',
-    });
     signedResult = await args.capability.signTempo({
       nearAccountId: args.input.nearAccountId,
       request,
@@ -338,17 +352,16 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
             ...(args.input.options.shouldAbort
               ? { shouldAbort: args.input.options.shouldAbort }
               : {}),
-            ...(onEvent ? { onEvent } : {}),
+            ...(onEvent ? { onEvent: forwardSigningEvent } : {}),
           }
         : undefined,
     });
     throwIfCancelled(args.input.options?.shouldAbort);
 
-    emitLifecycleEvent(onEvent, {
-      step: 7,
-      phase: 'tx-broadcast',
-      status: 'progress',
-      message: 'Broadcasting raw transaction',
+    emit({
+      phase: SigningEventPhase.STEP_12_BROADCAST_STARTED,
+      status: 'running',
+      interaction: { kind: 'none', overlay: 'none' },
     });
     const rawTxHex = assertRawTxHexOrThrow(signedResult.rawTxHex);
     txHash = normalizeTxHashOrThrow(
@@ -365,11 +378,11 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
     });
     broadcastAccepted = true;
 
-    emitLifecycleEvent(onEvent, {
-      step: 7,
-      phase: 'tx-finalization-wait',
-      status: 'progress',
+    emit({
+      phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
+      status: 'running',
       message: 'Waiting for transaction finalization',
+      interaction: { kind: 'none', overlay: 'none' },
       data: { txHash },
     });
     const abortController = new AbortController();
@@ -455,12 +468,18 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
     });
     finalizedReported = true;
 
+    emit({
+      phase: SigningEventPhase.STEP_13_RECEIPT_FINALIZED,
+      status: 'succeeded',
+      interaction: { kind: 'none', overlay: 'none' },
+      data: { txHash },
+    });
+
     if (typeof args.input.postFinalizationCheck === 'function') {
-      emitLifecycleEvent(onEvent, {
-        step: 8,
-        phase: 'post-finalization-check',
-        status: 'progress',
-        message: 'Running post-finalization check',
+      emit({
+        phase: SigningEventPhase.STEP_14_APP_STATE_SYNC_STARTED,
+        status: 'running',
+        interaction: { kind: 'none', overlay: 'none' },
         data: { txHash },
       });
       try {
@@ -487,14 +506,19 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
         };
         throw normalized;
       }
+      emit({
+        phase: SigningEventPhase.STEP_14_APP_STATE_SYNC_SUCCEEDED,
+        status: 'succeeded',
+        interaction: { kind: 'none', overlay: 'none' },
+        data: { txHash },
+      });
     }
 
-    emitLifecycleEvent(onEvent, {
-      step: 8,
-      phase: 'tx-finalized',
-      status: 'success',
-      message: 'EVM-family transaction finalized',
-      data: { txHash },
+    emit({
+      phase: SigningEventPhase.STEP_15_COMPLETED,
+      status: 'succeeded',
+      interaction: { kind: 'none', overlay: 'none' },
+      data: { operation: 'execute', txHash },
     });
     return {
       txHash,

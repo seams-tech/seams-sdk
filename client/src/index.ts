@@ -34,10 +34,6 @@ export type {
 } from './core/types/tatchi';
 
 export type {
-  RegistrationSSEEvent,
-  LoginSSEvent,
-  // Device Linking
-  DeviceLinkingSSEEvent,
   // Hooks Options
   LoginHooksOptions,
   RegistrationHooksOptions,
@@ -62,7 +58,37 @@ export {
 } from './core/signingEngine/chainAdaptors/tempo/feeToken';
 
 // === Device Linking Types ===
-export { DeviceLinkingPhase, DeviceLinkingStatus } from './core/types/sdkSentEvents';
+export {
+  AccountSyncEventPhase,
+  EmailRecoveryFlowEventPhase,
+  LinkDeviceEventPhase,
+  RegistrationEventPhase,
+  SigningEventPhase,
+  UnlockEventPhase,
+  WALLET_FLOW_EVENT_MESSAGES,
+  WALLET_FLOW_EVENT_STEPS,
+  WALLET_FLOW_EVENT_VERSION,
+  createEmailRecoveryFlowEvent,
+  createAccountSyncFlowEvent,
+  createLinkDeviceFlowEvent,
+  createRegistrationFlowEvent,
+  createSigningFlowEvent,
+  createUnlockFlowEvent,
+  createWalletFlowEvent,
+  isWalletFlowEvent,
+} from './core/types/sdkSentEvents';
+export type {
+  AccountSyncFlowEvent,
+  EmailRecoveryFlowEvent,
+  LinkDeviceFlowEvent,
+  RegistrationFlowEvent,
+  SigningFlowEvent,
+  UnlockFlowEvent,
+  WalletFlowEvent,
+  WalletFlowEventBase,
+  WalletFlowEventInteraction,
+  WalletFlowEventStatus,
+} from './core/types/sdkSentEvents';
 export type {
   DeviceLinkingQRData,
   DeviceLinkingSession,

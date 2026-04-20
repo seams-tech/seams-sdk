@@ -15,20 +15,9 @@ import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/sig
 import type { ClientUserData } from '../core/accountData/near/types';
 import type { ActionArgs } from '../core/types/actions';
 import type {
-  ActionSSEEvent,
   DelegateActionHooksOptions,
-  DelegateActionSSEEvent,
   EventCallback,
   SignAndSendTransactionHooksOptions,
-} from '../core/types/sdkSentEvents';
-import {
-  ActionPhase,
-  ActionStatus,
-  DelegateActionPhase,
-  LoginPhase,
-  LoginStatus,
-  RegistrationPhase,
-  RegistrationStatus,
 } from '../core/types/sdkSentEvents';
 import type { DelegateActionInput } from '../core/types/delegate';
 import type { WasmSignedDelegate } from '../core/types/signer-worker';
@@ -42,16 +31,6 @@ import type {
 } from '../core/types/tatchi';
 import type { DeviceLinkingQRData, StartDevice2LinkingFlowArgs } from '../core/types/linkDevice';
 import type { AccessKeyList } from '../core/rpcClients/near/NearClient';
-
-// Re-export enums for convenience
-export {
-  RegistrationPhase,
-  RegistrationStatus,
-  LoginPhase,
-  LoginStatus,
-  ActionPhase,
-  ActionStatus,
-};
 
 // === React states types ===
 
@@ -265,11 +244,6 @@ export type {
   LoginHooksOptions,
   ActionHooksOptions,
   SignNEP413HooksOptions,
-  // SSE Events
-  RegistrationSSEEvent,
-  LoginSSEvent,
-  ActionSSEEvent,
-  DelegateActionSSEEvent,
 } from '../core/types/sdkSentEvents';
 
 export type {

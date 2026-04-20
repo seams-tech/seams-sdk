@@ -1,6 +1,5 @@
 import type { TouchConfirmContext } from '../../';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import { ActionPhase } from '@/core/types/sdkSentEvents';
 import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
 import type { ThemeName } from '@/core/types/tatchi';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
@@ -34,6 +33,12 @@ import {
 } from '@/core/signingEngine/touchConfirm/intentDigestPreparationRegistry';
 import { consumeConfirmationReadiness } from '@/core/signingEngine/touchConfirm/confirmationReadinessRegistry';
 
+const TOUCH_CONFIRM_PROGRESS_PHASE = {
+  CONFIRMATION_COMPLETE: 'confirmation.complete',
+  PASSKEY_PROMPT_STARTED: 'auth.passkey.prompt.started',
+  PASSKEY_PROMPT_SUCCEEDED: 'auth.passkey.prompt.succeeded',
+} as const;
+
 function getTransactionSigningAuthMode(request: SigningUserConfirmRequest) {
   if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
     return getSigningAuthMode(request) ?? 'webauthn';
@@ -45,7 +50,9 @@ function getTransactionSigningAuthMode(request: SigningUserConfirmRequest) {
 }
 
 function normalizeSixDigitOtpCode(value: unknown): string {
-  const code = String(value || '').replace(/\D/g, '').slice(0, 6);
+  const code = String(value || '')
+    .replace(/\D/g, '')
+    .slice(0, 6);
   if (!/^\d{6}$/.test(code)) {
     throw new Error('Enter the 6-digit Email OTP code to continue');
   }
@@ -272,12 +279,7 @@ export async function handleTransactionSigningFlow(
 
     // Ordering matters: resolve user decision first so "Cancel" can close immediately
     // even while context/digest preparation is still running. Confirmed flows wait below.
-    const {
-      confirmed,
-      error: uiError,
-      otpCode,
-      emailOtpChallengeId,
-    } = await promptDecisionPromise;
+    const { confirmed, error: uiError, otpCode, emailOtpChallengeId } = await promptDecisionPromise;
     decisionResolved = true;
     if (!confirmed) {
       return session.confirmAndCloseModal({
@@ -434,7 +436,7 @@ export async function handleIntentDigestSigningFlow(
         requestId: request.requestId,
         step: 2,
         phase: 'intent-confirmation-required',
-        status: 'progress',
+        status: 'running',
         message: 'Awaiting confirmation click',
       });
     }
@@ -494,20 +496,15 @@ export async function handleIntentDigestSigningFlow(
     // Ordering matters: resolve user decision first so "Cancel" can close immediately
     // even while digest/challenge preparation is still running. Only confirmed flows
     // are allowed to wait for prepared intent data.
-    const {
-      confirmed,
-      error: uiError,
-      otpCode,
-      emailOtpChallengeId,
-    } = await promptDecisionPromise;
+    const { confirmed, error: uiError, otpCode, emailOtpChallengeId } = await promptDecisionPromise;
     decisionResolved = true;
     if (!confirmed) {
       if (requiresExplicitConfirmClick) {
         sendConfirmProgress(worker, {
           requestId: request.requestId,
           step: 2,
-          phase: 'user-confirmation-complete',
-          status: 'error',
+          phase: TOUCH_CONFIRM_PROGRESS_PHASE.CONFIRMATION_COMPLETE,
+          status: 'failed',
           message: uiError || ERROR_MESSAGES.cancelled,
         });
       }
@@ -531,8 +528,8 @@ export async function handleIntentDigestSigningFlow(
         sendConfirmProgress(worker, {
           requestId: request.requestId,
           step: 2,
-          phase: 'user-confirmation-complete',
-          status: 'success',
+          phase: TOUCH_CONFIRM_PROGRESS_PHASE.CONFIRMATION_COMPLETE,
+          status: 'succeeded',
           message: 'Email OTP submitted',
         });
       }
@@ -550,8 +547,8 @@ export async function handleIntentDigestSigningFlow(
         sendConfirmProgress(worker, {
           requestId: request.requestId,
           step: 2,
-          phase: 'user-confirmation-complete',
-          status: 'success',
+          phase: TOUCH_CONFIRM_PROGRESS_PHASE.CONFIRMATION_COMPLETE,
+          status: 'succeeded',
           message: 'Confirmation complete',
         });
       }
@@ -570,8 +567,8 @@ export async function handleIntentDigestSigningFlow(
     sendConfirmProgress(worker, {
       requestId: request.requestId,
       step: 3,
-      phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
-      status: 'progress',
+      phase: TOUCH_CONFIRM_PROGRESS_PHASE.PASSKEY_PROMPT_STARTED,
+      status: 'running',
       message: 'Authenticating with passkey...',
     });
 
@@ -585,8 +582,8 @@ export async function handleIntentDigestSigningFlow(
     sendConfirmProgress(worker, {
       requestId: request.requestId,
       step: 4,
-      phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
-      status: 'success',
+      phase: TOUCH_CONFIRM_PROGRESS_PHASE.PASSKEY_PROMPT_SUCCEEDED,
+      status: 'succeeded',
       message: 'Authentication complete',
     });
 
@@ -601,8 +598,8 @@ export async function handleIntentDigestSigningFlow(
     sendConfirmProgress(worker, {
       requestId: request.requestId,
       step: 4,
-      phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
-      status: 'error',
+      phase: TOUCH_CONFIRM_PROGRESS_PHASE.PASSKEY_PROMPT_SUCCEEDED,
+      status: 'failed',
       message: String(toError(err)?.message || err || ERROR_MESSAGES.collectCredentialsFailed),
     });
     const cancelled = isUserCancelledUserConfirm(err);

@@ -39,10 +39,15 @@ const exportFlowScript = String.raw`
                 type: 'PROGRESS',
                 requestId: data.requestId,
                 payload: {
+                  version: 2,
+                  flow: 'account_sync',
                   step: 2,
-                  phase: 'user-confirmation',
-                  status: 'progress',
-                  message: 'Export confirmation pending',
+                  phase: 'account_sync.auth.passkey.prompt.started',
+                  status: 'waiting_for_user',
+                  message: 'Confirm with passkey',
+                  flowId: 'account_sync:test:' + data.requestId,
+                  requestId: data.requestId,
+                  interaction: { kind: 'passkey_assert', overlay: 'show' },
                 },
               });
             } catch (err) {
@@ -110,10 +115,15 @@ const exportSigningIsolationScript = String.raw`
                   type: 'PROGRESS',
                   requestId: data.requestId,
                   payload: {
+                    version: 2,
+                    flow: 'account_sync',
                     step: 2,
-                    phase: 'user-confirmation',
-                    status: 'progress',
-                    message: 'Export confirmation pending',
+                    phase: 'account_sync.auth.passkey.prompt.started',
+                    status: 'waiting_for_user',
+                    message: 'Confirm with passkey',
+                    flowId: 'account_sync:test:' + data.requestId,
+                    requestId: data.requestId,
+                    interaction: { kind: 'passkey_assert', overlay: 'show' },
                   },
                 });
               } catch (err) {
@@ -169,10 +179,15 @@ const exportSigningIsolationScript = String.raw`
                   type: 'PROGRESS',
                   requestId: data.requestId,
                   payload: {
-                    step: 2,
-                    phase: 'user-confirmation',
-                    status: 'progress',
-                    message: 'Signing confirmation pending',
+                    version: 2,
+                    flow: 'signing',
+                    step: 5,
+                    phase: 'signing.confirmation.displayed',
+                    status: 'waiting_for_user',
+                    message: 'Review transaction',
+                    flowId: 'signing:test:' + data.requestId,
+                    requestId: data.requestId,
+                    interaction: { kind: 'transaction_confirmation', overlay: 'show' },
                   },
                 });
               } catch (err) {

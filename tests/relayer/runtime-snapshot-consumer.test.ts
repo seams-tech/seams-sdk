@@ -27,7 +27,7 @@ test.describe('runtime snapshot consumer helpers', () => {
     const latest = await cache.runtimeSnapshots.getLatestSnapshot({
       orgId: 'org-runtime-1',
       projectId: 'project-alpha',
-      environmentId: 'prod',
+      envId: 'prod',
     });
     expect(latest?.snapshotId).toBe('snap_1');
     expect(latest?.version).toBe(1);
@@ -39,7 +39,8 @@ test.describe('runtime snapshot consumer helpers', () => {
     cache.applyPublishedUpdate({
       scope: {
         orgId: 'org-runtime-2',
-        environmentId: 'staging',
+        projectId: 'project-runtime-2',
+        envId: 'staging',
       },
       envelope: {
         snapshotId: 'snap_2',
@@ -53,7 +54,8 @@ test.describe('runtime snapshot consumer helpers', () => {
       runtimeSnapshots: cache.runtimeSnapshots,
       scope: {
         orgId: 'org-runtime-2',
-        environmentId: 'staging',
+        projectId: 'project-runtime-2',
+        envId: 'staging',
       },
       expectationRaw: {
         snapshotId: 'snap_2',
@@ -67,7 +69,8 @@ test.describe('runtime snapshot consumer helpers', () => {
       runtimeSnapshots: cache.runtimeSnapshots,
       scope: {
         orgId: 'org-runtime-2',
-        environmentId: 'staging',
+        projectId: 'project-runtime-2',
+        envId: 'staging',
       },
       expectationRaw: {
         version: 5,
@@ -98,4 +101,3 @@ test.describe('runtime snapshot consumer helpers', () => {
     ).toThrow('Invalid runtime snapshot outbox payload');
   });
 });
-

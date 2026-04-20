@@ -1,9 +1,9 @@
 import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from '../sponsorship/evmRelay';
 import {
-  buildPrfSessionSealApplyPath,
-  buildPrfSessionSealRemovePath,
-  resolvePrfSessionSealBasePath,
-} from '../threshold/session/prfSessionSeal';
+  buildSigningSessionSealApplyPath,
+  buildSigningSessionSealRemovePath,
+  resolveSigningSessionSealBasePath,
+} from '../threshold/session/signingSessionSeal';
 import {
   API_CREDENTIAL_ROUTE_SCOPES,
   API_CREDENTIAL_TYPES,
@@ -31,10 +31,10 @@ export interface RouteDefinition {
 
 export interface RelayRouteDefinitionOptions {
   enableHealthz?: boolean;
-  enablePrfSessionSeal?: boolean;
+  enableSigningSessionSeal?: boolean;
   enableReadyz?: boolean;
   enableSponsoredEvmCall?: boolean;
-  prfSessionSealBasePath?: string;
+  signingSessionSealBasePath?: string;
   sessionStatePath?: string;
   signedDelegatePath?: string;
   sponsoredEvmCallPath?: string;
@@ -1336,7 +1336,9 @@ export function createRelayRouteDefinitions(
   const signedDelegatePath = String(options.signedDelegatePath || '').trim();
   const sponsoredEvmCallPath =
     String(options.sponsoredEvmCallPath || '').trim() || DEFAULT_SPONSORED_EVM_CALL_ROUTE;
-  const prfBasePath = resolvePrfSessionSealBasePath(options.prfSessionSealBasePath);
+  const signingSessionSealBasePath = resolveSigningSessionSealBasePath(
+    options.signingSessionSealBasePath,
+  );
   const definitions: RouteDefinition[] = [];
 
   if (options.enableHealthz) {
@@ -2016,21 +2018,21 @@ export function createRelayRouteDefinitions(
     );
   }
 
-  if (options.enablePrfSessionSeal) {
+  if (options.enableSigningSessionSeal) {
     definitions.push(
       userSessionRoute(
-        'prf_session_seal_apply_server_seal',
+        'signing_session_seal_apply_server_seal',
         'POST',
-        buildPrfSessionSealApplyPath(prfBasePath),
-        'Apply PRF session server seal',
-        ['prfSessionSeal', 'session'],
+        buildSigningSessionSealApplyPath(signingSessionSealBasePath),
+        'Apply signing session server seal',
+        ['signingSessionSeal', 'session'],
       ),
       userSessionRoute(
-        'prf_session_seal_remove_server_seal',
+        'signing_session_seal_remove_server_seal',
         'POST',
-        buildPrfSessionSealRemovePath(prfBasePath),
-        'Remove PRF session server seal',
-        ['prfSessionSeal', 'session'],
+        buildSigningSessionSealRemovePath(signingSessionSealBasePath),
+        'Remove signing session server seal',
+        ['signingSessionSeal', 'session'],
       ),
     );
   }

@@ -211,4 +211,85 @@ test.describe('Safari WebAuthn fallbacks - cancellation and timeout behavior', (
     expect(res.name).toBe('NotAllowedError');
     expect(res.bridgeCalls).toBe(0);
   });
+
+  test('get(): clones challenge buffers before native and bridge attempts', async ({ page }) => {
+    const res = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          const { executeWebAuthnWithParentFallbacksSafari } = await import(paths.fallbacks);
+          const rpId = window.location.hostname;
+          const challenge = new Uint8Array([9, 8, 7, 6]);
+          const allowId = new Uint8Array([1, 2, 3, 4]);
+          const publicKey = {
+            rpId,
+            challenge,
+            allowCredentials: [{ id: allowId, type: 'public-key' as const }],
+          };
+
+          const orig = navigator.credentials.get.bind(navigator.credentials);
+          let nativeChallengeIsOriginal = false;
+          let nativeAllowIdIsOriginal = false;
+          navigator.credentials.get = async (options: any) => {
+            nativeChallengeIsOriginal = options?.publicKey?.challenge === challenge;
+            nativeAllowIdIsOriginal = options?.publicKey?.allowCredentials?.[0]?.id === allowId;
+            const e = new Error(
+              'The origin of the document is not the same as its ancestors',
+            );
+            (e as any).name = 'NotAllowedError';
+            throw e;
+          };
+
+          let bridgeChallengeIsOriginal = false;
+          let bridgeAllowIdIsOriginal = false;
+          const bridgeClient = {
+            request: async (_kind: unknown, bridgePublicKey: any) => {
+              bridgeChallengeIsOriginal = bridgePublicKey?.challenge === challenge;
+              bridgeAllowIdIsOriginal = bridgePublicKey?.allowCredentials?.[0]?.id === allowId;
+              bridgePublicKey.challenge[0] = 0;
+              bridgePublicKey.allowCredentials[0].id[0] = 0;
+              return { ok: false, error: 'User cancelled' };
+            },
+          };
+
+          try {
+            await executeWebAuthnWithParentFallbacksSafari('get', publicKey, {
+              rpId,
+              inIframe: true,
+              timeoutMs: 200,
+              bridgeClient,
+            });
+          } catch {
+            // Expected bridge cancellation.
+          } finally {
+            (navigator.credentials as any).get = orig;
+          }
+
+          return {
+            success: true,
+            nativeChallengeIsOriginal,
+            nativeAllowIdIsOriginal,
+            bridgeChallengeIsOriginal,
+            bridgeAllowIdIsOriginal,
+            originalChallengeFirstByte: challenge[0],
+            originalAllowIdFirstByte: allowId[0],
+          };
+        } catch (err: any) {
+          return { success: false, error: err?.message || String(err) };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    if (!res.success) {
+      test.skip(true, `Safari fallback test skipped: ${res.error || 'unknown error'}`);
+      return;
+    }
+
+    expect(res.nativeChallengeIsOriginal).toBe(false);
+    expect(res.nativeAllowIdIsOriginal).toBe(false);
+    expect(res.bridgeChallengeIsOriginal).toBe(false);
+    expect(res.bridgeAllowIdIsOriginal).toBe(false);
+    expect(res.originalChallengeFirstByte).toBe(9);
+    expect(res.originalAllowIdFirstByte).toBe(1);
+  });
 });

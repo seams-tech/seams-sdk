@@ -182,7 +182,7 @@ export interface TatchiConfigsInput {
    * Warm signing session persistence mode.
    *
    * - `none`: no refresh-time persistence (default).
-   * - `sealed_refresh_v1`: sealed refresh persistence via worker + server PRF seal module.
+   * - `sealed_refresh_v1`: sealed refresh persistence via worker + server signing-session seal module.
    */
   signingSessionPersistenceMode?: SigningSessionPersistenceMode;
   /**

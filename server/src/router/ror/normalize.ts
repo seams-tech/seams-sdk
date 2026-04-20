@@ -60,12 +60,12 @@ export function normalizeWellKnownSigningSessionSealCapabilities(
 }
 
 export function resolveWellKnownSigningSessionSealCapabilities(
-  prfSessionSealOptionsRaw: unknown,
+  signingSessionSealOptionsRaw: unknown,
 ): WellKnownSigningSessionSealCapabilities {
-  if (!prfSessionSealOptionsRaw || typeof prfSessionSealOptionsRaw !== 'object') {
+  if (!signingSessionSealOptionsRaw || typeof signingSessionSealOptionsRaw !== 'object') {
     return { mode: 'none' };
   }
-  const options = prfSessionSealOptionsRaw as { capabilities?: unknown };
+  const options = signingSessionSealOptionsRaw as { capabilities?: unknown };
   const normalized = normalizeWellKnownSigningSessionSealCapabilities(options.capabilities);
   return normalized || { mode: 'none' };
 }

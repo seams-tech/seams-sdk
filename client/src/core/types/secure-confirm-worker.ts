@@ -12,8 +12,8 @@ export interface TouchConfirmManagerConfig {
   workerTimeout?: number;
   debug?: boolean;
   signingSessionPersistenceMode?: SigningSessionPersistenceMode;
-  prfSessionSealKeyVersion?: string;
-  prfSessionSealShamirPrimeB64u?: string;
+  signingSessionSealKeyVersion?: string;
+  signingSessionSealShamirPrimeB64u?: string;
 }
 
 export type UserConfirmWorkerMessageType =
@@ -45,7 +45,7 @@ export interface WarmSessionSealAndPersistPayload {
 
 export interface WarmSessionRehydratePayload {
   sessionId: string;
-  sealedPrfFirstB64u: string;
+  sealedSecretB64u: string;
   expiresAtMs: number;
   remainingUses: number;
   keyVersion?: string;
@@ -72,7 +72,7 @@ export type WarmSessionStatusBatchResult = {
 export type WarmSessionSealAndPersistResult =
   | {
       ok: true;
-      sealedPrfFirstB64u: string;
+      sealedSecretB64u: string;
       keyVersion?: string;
       remainingUses: number;
       expiresAtMs: number;

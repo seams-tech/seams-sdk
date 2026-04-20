@@ -395,7 +395,7 @@ Future sealed-refresh policy:
 2. [ ] Rename storage keys from `tatchi:threshold-prf-sealed:v1` to a signing-session key.
 3. [ ] Rename `sealedPrfFirstB64u` to `sealedSecretB64u`.
 4. [ ] Rename PRF-specific route/client/server types to signing-session-seal types.
-5. [ ] Rename route paths from `/threshold-ecdsa/prf-seal/*` to `/threshold/signing-session-seal/*`.
+5. [x] Rename route paths from `/threshold-ecdsa/prf-seal/*` to `/threshold/signing-session-seal/*`.
 6. [ ] Remove old route aliases after tests migrate.
 7. [ ] Update docs and env examples to use signing-session-seal terminology.
 

@@ -717,6 +717,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           userId: USER_ID,
           relayerUrl: RELAYER_URL,
           ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          signingRootId: 'proj_local:dev',
           backendBinding: {
             relayerKeyId: BACKEND_RELAYER_KEY_ID,
             clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
@@ -812,6 +813,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           userId: USER_ID,
           relayerUrl: RELAYER_URL,
           ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          signingRootId: 'proj_local:dev',
           backendBinding: {
             relayerKeyId: BACKEND_RELAYER_KEY_ID,
             clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
@@ -941,6 +943,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           userId: USER_ID,
           relayerUrl: RELAYER_URL,
           ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+          signingRootId: 'proj_local:dev',
           backendBinding: {
             relayerKeyId: BACKEND_RELAYER_KEY_ID,
             clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,

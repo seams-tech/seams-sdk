@@ -60,10 +60,6 @@ export type {
   LoginState,
   LoginResult,
   RegistrationResult,
-  // SSE Events
-  RegistrationSSEEvent,
-  LoginSSEvent,
-  ActionSSEEvent,
   // Re-exported from TatchiPasskey types
   RegistrationHooksOptions,
   LoginHooksOptions,
@@ -73,12 +69,6 @@ export type {
   AccountInputState,
   UseAccountInputReturn,
 } from './types';
-
-export type {
-  DeviceLinkingSSEEvent,
-  SyncAccountSSEEvent,
-  EmailRecoverySSEEvent,
-} from '../core/types/sdkSentEvents';
 
 ////////////////////////////
 // === REACT HOOKS ===
@@ -138,19 +128,35 @@ export { LIGHT_TOKENS, DARK_TOKENS } from './components/theme';
 export type { ActionResult } from '../core/types/tatchi';
 
 export {
-  RegistrationPhase,
-  RegistrationStatus,
-  LoginPhase,
-  LoginStatus,
-  ActionPhase,
-  ActionStatus,
-  DeviceLinkingPhase,
-  DeviceLinkingStatus,
-  SyncAccountPhase,
-  SyncAccountStatus,
-  EmailRecoveryPhase,
-  EmailRecoveryStatus,
-  DelegateActionPhase,
+  AccountSyncEventPhase,
+  EmailRecoveryFlowEventPhase,
+  LinkDeviceEventPhase,
+  RegistrationEventPhase,
+  SigningEventPhase,
+  UnlockEventPhase,
+  WALLET_FLOW_EVENT_MESSAGES,
+  WALLET_FLOW_EVENT_STEPS,
+  WALLET_FLOW_EVENT_VERSION,
+  createEmailRecoveryFlowEvent,
+  createAccountSyncFlowEvent,
+  createLinkDeviceFlowEvent,
+  createRegistrationFlowEvent,
+  createSigningFlowEvent,
+  createUnlockFlowEvent,
+  createWalletFlowEvent,
+  isWalletFlowEvent,
+} from '../core/types/sdkSentEvents';
+export type {
+  AccountSyncFlowEvent,
+  EmailRecoveryFlowEvent,
+  LinkDeviceFlowEvent,
+  RegistrationFlowEvent,
+  SigningFlowEvent,
+  UnlockFlowEvent,
+  WalletFlowEvent,
+  WalletFlowEventBase,
+  WalletFlowEventInteraction,
+  WalletFlowEventStatus,
 } from '../core/types/sdkSentEvents';
 
 // === PROFILE BUTTON TYPES ===

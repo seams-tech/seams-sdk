@@ -29,9 +29,19 @@ const concurrentResponseScript = String.raw`
               adoptedPort.postMessage({
                 type: 'PROGRESS',
                 requestId,
-                payload: { step: 2, phase: 'user-confirmation', status: 'progress', message: 'First awaiting confirmation' }
+                payload: {
+                  version: 2,
+                  flow: 'signing',
+                  step: 5,
+                  phase: 'signing.confirmation.displayed',
+                  status: 'waiting_for_user',
+                  message: 'Review transaction',
+                  flowId: 'signing:test:' + requestId,
+                  requestId,
+                  interaction: { kind: 'transaction_confirmation', overlay: 'show' }
+                }
               });
-            } catch (err) { console.error('post PROGRESS first user-confirmation failed', err); }
+            } catch (err) { console.error('post PROGRESS first confirmation failed', err); }
           }, 10);
 
           setTimeout(() => {
@@ -39,10 +49,20 @@ const concurrentResponseScript = String.raw`
               adoptedPort.postMessage({
                 type: 'PROGRESS',
                 requestId,
-                payload: { step: 8, phase: 'broadcasting', status: 'progress', message: 'First broadcasting' }
+                payload: {
+                  version: 2,
+                  flow: 'signing',
+                  step: 12,
+                  phase: 'signing.broadcast.started',
+                  status: 'running',
+                  message: 'Broadcasting transaction',
+                  flowId: 'signing:test:' + requestId,
+                  requestId,
+                  interaction: { kind: 'none', overlay: 'hide' }
+                }
               });
               try { window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'FIRST_BROADCASTING' }, '*'); } catch {}
-            } catch (err) { console.error('post PROGRESS first broadcasting failed', err); }
+            } catch (err) { console.error('post PROGRESS first broadcast failed', err); }
           }, 120);
 
           setTimeout(() => {
@@ -59,7 +79,17 @@ const concurrentResponseScript = String.raw`
               adoptedPort.postMessage({
                 type: 'PROGRESS',
                 requestId,
-                payload: { step: 2, phase: 'user-confirmation', status: 'progress', message: 'Second awaiting confirmation' }
+                payload: {
+                  version: 2,
+                  flow: 'signing',
+                  step: 5,
+                  phase: 'signing.confirmation.displayed',
+                  status: 'waiting_for_user',
+                  message: 'Review transaction',
+                  flowId: 'signing:test:' + requestId,
+                  requestId,
+                  interaction: { kind: 'transaction_confirmation', overlay: 'show' }
+                }
               });
               try { window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'SECOND_CONFIRMATION' }, '*'); } catch {}
             } catch (err) { console.error('post PROGRESS second confirmation failed', err); }
@@ -158,10 +188,10 @@ test.describe('WalletIframeRouter – concurrent requests aggregate overlay visi
           // Ensure second has reached confirmation (show) before first hides
           const secondAtConfirm = await waitFor(() => !!marks['SECOND_CONFIRMATION'], 1500);
 
-          // Wait for first to emit broadcasting (hide intent)
+          // Wait for first to emit broadcast progress with hide intent
           const firstAtBroadcast = await waitFor(() => !!marks['FIRST_BROADCASTING'], 1500);
 
-          // After first signals broadcasting, overlay should still be visible due to second's show
+          // After first signals broadcast progress, overlay should still be visible due to second's show
           const stillVisible = (() => {
             const s = capture();
             return s.exists && s.visible;

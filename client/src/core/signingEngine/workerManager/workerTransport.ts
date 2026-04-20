@@ -1,7 +1,7 @@
 import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
-import type { onProgressEvents } from '@/core/types/sdkSentEvents';
 import {
+  type NearWorkerProgressEvent,
   type WorkerErrorResponse,
   type WorkerProgressResponse,
   type WorkerResponseForRequest,
@@ -41,7 +41,7 @@ type RpcErr = { id: string; ok: false; error: string; code?: string; coreCode?: 
 type NearRpcProgressFrame = {
   id: string;
   progress: true;
-  payload: onProgressEvents;
+  payload: NearWorkerProgressEvent;
 };
 
 type NearRpcSuccessFrame = {
@@ -61,7 +61,7 @@ type NearRpcErrorFrame = {
 type PendingEntry = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
-  onEvent?: (update: onProgressEvents) => void;
+  onEvent?: (update: NearWorkerProgressEvent) => void;
   timeoutId?: ReturnType<typeof setTimeout>;
 };
 

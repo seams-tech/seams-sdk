@@ -366,13 +366,16 @@ test('threshold-ed25519 cosign finalize rejects coordinatorGrant reused across a
     clientCommitments: { hiding: pointB64u(10n), binding: pointB64u(11n) },
   });
   expect(init.ok, JSON.stringify(init)).toBe(true);
+  if (!init.ok) throw new Error('expected cosign init to succeed');
+  const relayerCommitments = init.relayerCommitments;
+  if (!relayerCommitments) throw new Error('expected relayer commitments');
 
   const mismatchedFinalize = await schemeAny.protocol.internalCosignFinalize!({
     coordinatorGrant: coordinatorGrantB,
     signingSessionId: 'signing-session-a',
     cosignerIds: [2],
     groupPublicKey: 'ed25519:test-key',
-    relayerCommitments: init.relayerCommitments,
+    relayerCommitments,
   });
   expect(mismatchedFinalize.ok).toBe(false);
   if (mismatchedFinalize.ok) {

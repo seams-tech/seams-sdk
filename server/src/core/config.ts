@@ -159,20 +159,20 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_AUTH_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_SESSION_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_KEYSTORE_PREFIX) ||
-    toOptionalTrimmedString(c.PRF_SESSION_SEAL_KEY_VERSION) ||
-    toOptionalTrimmedString(c.SHAMIR_P_B64U) ||
-    toOptionalTrimmedString(c.SHAMIR_E_S_B64U) ||
-    toOptionalTrimmedString(c.SHAMIR_D_S_B64U) ||
-    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_KIND) ||
-    toOptionalTrimmedString(c.prfSessionSealIdempotencyKind) ||
-    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL) ||
-    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN) ||
-    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL) ||
-    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL) ||
-    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE) ||
-    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) ||
-    toOptionalTrimmedString(c.PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS) ||
-    toOptionalTrimmedString(c.prfSessionSealIdempotencyTtlMs) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_KEY_VERSION) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SHAMIR_P_B64U) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_E_S_B64U) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_D_S_B64U) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND) ||
+    toOptionalTrimmedString(c.signingSessionSealIdempotencyKind) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) ||
+    toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS) ||
+    toOptionalTrimmedString(c.signingSessionSealIdempotencyTtlMs) ||
     c.signingRootShareResolver ||
     c.signingRootSecretResolverAdapters ||
     c.signingRootSecretStore ||

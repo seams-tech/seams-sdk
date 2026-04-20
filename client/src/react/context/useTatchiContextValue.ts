@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { LoginPhase, LoginStatus } from '@/core/types/sdkSentEvents';
+import { UnlockEventPhase } from '@/core/types/sdkSentEvents';
 import type {
   AccountInputState,
   LoginState,
@@ -82,10 +82,7 @@ export function useTatchiContextValue(args: {
       return tatchiWithSdkFlow.auth.unlock(nearAccountId, {
         ...options,
         onEvent: async (event) => {
-          if (
-            event.phase === LoginPhase.STEP_4_LOGIN_COMPLETE &&
-            event.status === LoginStatus.SUCCESS
-          ) {
+          if (event.phase === UnlockEventPhase.STEP_07_COMPLETED && event.status === 'succeeded') {
             const session = await tatchi.auth.getWalletSession(nearAccountId);
             const { login } = session;
             const isLoggedIn = isWalletSessionReadyForUi({ session });

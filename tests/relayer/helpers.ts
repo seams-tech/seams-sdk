@@ -57,16 +57,16 @@ export async function fetchJson(
 ): Promise<{
   status: number;
   headers: Headers;
-  json: Record<string, unknown> | null;
+  json: Record<string, any> | null;
   text: string;
 }> {
   const res = await fetch(url, init);
   const text = await res.text();
-  let json: Record<string, unknown> | null = null;
+  let json: Record<string, any> | null = null;
   try {
     const parsed: unknown = text ? JSON.parse(text) : null;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      json = parsed as Record<string, unknown>;
+      json = parsed as Record<string, any>;
     } else {
       json = null;
     }
@@ -104,7 +104,7 @@ export async function callCf(
 ): Promise<{
   status: number;
   headers: Headers;
-  json: Record<string, unknown> | null;
+  json: Record<string, any> | null;
   text: string;
 }> {
   const url = new URL(input.path, 'https://relay.test');
@@ -124,11 +124,11 @@ export async function callCf(
 
   const res = await handler(req, input.env, input.ctx);
   const text = await res.text();
-  let json: Record<string, unknown> | null = null;
+  let json: Record<string, any> | null = null;
   try {
     const parsed: unknown = text ? JSON.parse(text) : null;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      json = parsed as Record<string, unknown>;
+      json = parsed as Record<string, any>;
     } else {
       json = null;
     }

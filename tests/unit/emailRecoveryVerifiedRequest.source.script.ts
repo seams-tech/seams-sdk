@@ -52,7 +52,11 @@ const { actions } = await buildEncryptedEmailRecoveryActions(
   },
 );
 
-const parsedArgs = JSON.parse(String(actions[0]?.args || '{}'));
+const functionCallAction = actions[0] as Extract<
+  (typeof actions)[number],
+  { action_type: 'FunctionCall' }
+>;
+const parsedArgs = JSON.parse(String(functionCallAction.args || '{}'));
 
 console.log(
   'RESULT:' +

@@ -1,7 +1,7 @@
 import type { DeviceLinkingQRData } from '../core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../core/types/linkDevice';
 import { validateDeviceLinkingQRData } from '../core/TatchiPasskey/scanDevice';
-import { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
+import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 
 // ===========================
 // TYPES AND INTERFACES
@@ -18,7 +18,7 @@ export interface ScanQRCodeFlowOptions {
 }
 
 export interface ScanQRCodeFlowEvents {
-  onEvent?: (event: DeviceLinkingSSEEvent) => void;
+  onEvent?: (event: LinkDeviceFlowEvent) => void;
   onQRDetected?: (qrData: DeviceLinkingQRData) => void;
   onError?: (error: Error) => void;
   onCameraReady?: (stream: MediaStream) => void;

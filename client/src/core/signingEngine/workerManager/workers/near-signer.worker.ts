@@ -91,7 +91,7 @@ function sendProgressMessage(
     const parsedData = typeof data === 'string' ? safeJsonParse(data, {}) : data || {};
     const parsedLogs = typeof logs === 'string' ? safeJsonParse(logs || '', []) : logs || [];
 
-    // Create onProgressEvents-compatible payload
+    // Create a worker-internal progress payload.
     const progressPayload = {
       step: step,
       phase: stepName,

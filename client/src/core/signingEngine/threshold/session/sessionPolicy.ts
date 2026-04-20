@@ -238,6 +238,10 @@ export function isThresholdSessionAuthUnavailableError(err: unknown): boolean {
     msg.includes('threshold-ecdsa session token unavailable') ||
     msg.includes('threshold-ecdsa session record not available') ||
     msg.includes('relayer threshold session expired') ||
+    msg.includes('threshold signingSession is not_found') ||
+    msg.includes('threshold signingSession is expired') ||
+    msg.includes('threshold signingSession is exhausted') ||
+    msg.includes('threshold signingSession auth is unavailable') ||
     msg.includes('threshold session exhausted') ||
     msg.includes('threshold session expired') ||
     msg.includes('Missing or invalid threshold session token') ||

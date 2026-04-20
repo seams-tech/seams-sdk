@@ -119,7 +119,8 @@ test.describe('recovery authority executor', () => {
     expect(result.signerWrites[0]?.signerId).toBe(`0x${'11'.repeat(20)}`);
     expect(result.signerWrites[0]?.status).toBe('active');
     expect(result.finalExecution?.status).toBe('confirmed');
-    expect(result.finalExecution?.metadata?.recoveryTargetMode).toBe('undeployed');
+    const metadata = result.finalExecution?.metadata as any;
+    expect(metadata?.recoveryTargetMode).toBe('undeployed');
     expect(result.sessionUpdates.at(-1)?.status).toBe('completed');
   });
 
@@ -272,12 +273,13 @@ test.describe('recovery authority executor', () => {
     expect(result.signerWrites).toHaveLength(0);
     expect(result.finalExecution?.status).toBe('submitted');
     expect(result.finalExecution?.transactionHash).toBe(`0x${'aa'.repeat(32)}`);
-    expect(result.finalExecution?.metadata?.recoveryTargetMode).toBe('deployed');
-    expect(result.finalExecution?.metadata?.sponsoredReceiptStatus).toBe('success');
-    expect(result.finalExecution?.metadata?.recoverySpec?.version).toBe(
+    const metadata = result.finalExecution?.metadata as any;
+    expect(metadata?.recoveryTargetMode).toBe('deployed');
+    expect(metadata?.sponsoredReceiptStatus).toBe('success');
+    expect(metadata?.recoverySpec?.version).toBe(
       'tatchi_evm_recovery_spec_v1',
     );
-    expect(result.finalExecution?.metadata?.recoverySpec?.call?.selector).toBe('0xc3ec1673');
+    expect(metadata?.recoverySpec?.call?.selector).toBe('0xc3ec1673');
     expect(result.sessionUpdates.at(-1)?.status).toBe('evm_recovering');
   });
 
@@ -529,13 +531,14 @@ test.describe('recovery authority executor', () => {
     expect(result.finalExecution?.status).toBe('pending');
     expect(result.finalExecution?.transactionHash).toBeUndefined();
     expect(result.finalExecution?.errorCode).toBeUndefined();
-    expect(result.finalExecution?.metadata?.retryCount).toBe(1);
-    expect(result.finalExecution?.metadata?.lastErrorCode).toBe('recovery_executor_threw');
-    expect(result.finalExecution?.metadata?.retryState).toBe('requeued');
-    expect(result.finalExecution?.metadata?.recoverySpec?.version).toBe(
+    const metadata = result.finalExecution?.metadata as any;
+    expect(metadata?.retryCount).toBe(1);
+    expect(metadata?.lastErrorCode).toBe('recovery_executor_threw');
+    expect(metadata?.retryState).toBe('requeued');
+    expect(metadata?.recoverySpec?.version).toBe(
       'tatchi_evm_recovery_spec_v1',
     );
-    expect(result.finalExecution?.metadata?.recoverySpec?.call?.selector).toBe('0xc3ec1673');
+    expect(metadata?.recoverySpec?.call?.selector).toBe('0xc3ec1673');
     expect(result.sessionUpdates.at(-1)?.status).toBe('evm_recovering');
   });
 
@@ -971,11 +974,12 @@ test.describe('recovery authority executor', () => {
     expect(result.signerWrites[0]?.status).toBe('active');
     expect(result.finalExecution?.status).toBe('confirmed');
     expect(result.finalExecution?.transactionHash).toBe(`0x${'aa'.repeat(32)}`);
-    expect(result.finalExecution?.metadata?.sponsoredGasUsed).toBe('12345');
-    expect(result.finalExecution?.metadata?.recoverySpec?.version).toBe(
+    const metadata = result.finalExecution?.metadata as any;
+    expect(metadata?.sponsoredGasUsed).toBe('12345');
+    expect(metadata?.recoverySpec?.version).toBe(
       'tatchi_evm_recovery_spec_v1',
     );
-    expect(result.finalExecution?.metadata?.recoverySpec?.call?.selector).toBe('0xc3ec1673');
+    expect(metadata?.recoverySpec?.call?.selector).toBe('0xc3ec1673');
     expect(result.sessionUpdates.at(-1)?.status).toBe('completed');
   });
 

@@ -2,7 +2,25 @@ import { expect, test } from '@playwright/test';
 import { EvmSigner } from '@/core/TatchiPasskey/evm';
 import { NearSigner } from '@/core/TatchiPasskey/near';
 import { TempoSigner } from '@/core/TatchiPasskey/tempo';
-import { ActionPhase } from '@/core/types/sdkSentEvents';
+import { createSigningFlowEvent, SigningEventPhase } from '@/core/types/sdkSentEvents';
+
+const allowThresholdEcdsaOperation = async () => undefined;
+const applyThresholdEcdsaPostSignPolicy = async () => undefined;
+
+function createTestSigningEvent(
+  phase: SigningEventPhase,
+  status: 'started' | 'waiting_for_user' | 'running' | 'succeeded' | 'failed' | 'cancelled',
+  data?: Record<string, unknown>,
+) {
+  return createSigningFlowEvent({
+    phase,
+    status,
+    flowId: `signing:test:${phase}`,
+    accountId: 'alice.testnet',
+    interaction: { kind: 'none', overlay: 'none' },
+    ...(data ? { data } : {}),
+  });
+}
 
 function createNearSignerWithRouter(router: Record<string, unknown>) {
   return new NearSigner({
@@ -76,6 +94,10 @@ test.describe('TatchiPasskey chain signer modules', () => {
     const signer = createNearSignerWithRouter({
       signAndSendTransactions: async (args: any) => {
         routerArgs.push(args);
+        args.options?.onEvent?.({
+          phase: SigningEventPhase.STEP_15_COMPLETED,
+          message: 'Transaction complete: tx-a, tx-b',
+        });
         return [
           { success: true, transactionId: 'tx-a' },
           { success: true, transactionId: 'tx-b' },
@@ -96,7 +118,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
     expect(routerArgs).toHaveLength(1);
     expect(routerArgs[0]?.options?.executionWait?.mode).toBe('sequential');
     expect(afterCalls).toEqual([{ ok: true, result }]);
-    expect(progressEvents.at(-1)?.phase).toBe(ActionPhase.STEP_8_ACTION_COMPLETE);
+    expect(progressEvents.at(-1)?.phase).toBe(SigningEventPhase.STEP_15_COMPLETED);
     expect(progressEvents.at(-1)?.message).toContain('tx-a');
     expect(progressEvents.at(-1)?.message).toContain('tx-b');
   });
@@ -135,6 +157,8 @@ test.describe('TatchiPasskey chain signer modules', () => {
       getContext: () =>
         ({
           signingEngine: {
+            assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+            applyThresholdEcdsaPostSignPolicy,
             signTempo: async (args: any) => {
               capturedArgs = args;
               return expectedResult;
@@ -173,7 +197,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
     const evmCalls: any[] = [];
 
     const tempoSigner = new TempoSigner({
-      getContext: () => ({}) as any,
+      getContext: () => ({ configs: { registration: { mode: 'self' } } }) as any,
       walletIframe: {
         shouldUseWalletIframe: () => true,
         requireRouter: async () =>
@@ -186,7 +210,7 @@ test.describe('TatchiPasskey chain signer modules', () => {
       },
     });
     const evmSigner = new EvmSigner({
-      getContext: () => ({}) as any,
+      getContext: () => ({ configs: { registration: { mode: 'self' } } }) as any,
       walletIframe: {
         shouldUseWalletIframe: () => true,
         requireRouter: async () =>
@@ -218,6 +242,8 @@ test.describe('TatchiPasskey chain signer modules', () => {
       getContext: () =>
         ({
           signingEngine: {
+            assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+            applyThresholdEcdsaPostSignPolicy,
             reportTempoBroadcastRejected: async (args: any) => {
               capturedArgs = args;
             },
@@ -296,9 +322,13 @@ test.describe('TatchiPasskey chain signer modules', () => {
       reportDroppedOrReplaced: 0,
       reconcileNonceLane: 0,
     };
+    const events: any[] = [];
     const txHash = `0x${'ab'.repeat(32)}`;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       let body: Record<string, unknown> = {};
       try {
         body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
@@ -365,8 +395,28 @@ test.describe('TatchiPasskey chain signer modules', () => {
               },
             },
             signingEngine: {
-              signTempo: async () => {
+              assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+              applyThresholdEcdsaPostSignPolicy,
+              signTempo: async (args: any) => {
                 calls.signTempo += 1;
+                args.onEvent?.(
+                  createTestSigningEvent(
+                    SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
+                    'succeeded',
+                    {
+                      sessionId: 'warm-session-1',
+                    },
+                  ),
+                );
+                args.onEvent?.(
+                  createTestSigningEvent(SigningEventPhase.STEP_10_COMMIT_QUEUED, 'running'),
+                );
+                args.onEvent?.(
+                  createTestSigningEvent(SigningEventPhase.STEP_10_COMMIT_STARTED, 'running'),
+                );
+                args.onEvent?.(
+                  createTestSigningEvent(SigningEventPhase.STEP_11_TRANSACTION_SIGNED, 'succeeded'),
+                );
                 return {
                   chain: 'evm',
                   kind: 'eip1559',
@@ -374,8 +424,17 @@ test.describe('TatchiPasskey chain signer modules', () => {
                   rawTxHex: `0x02${'34'.repeat(31)}`,
                 };
               },
-              reportTempoBroadcastAccepted: async () => {
+              reportTempoBroadcastAccepted: async (args: any) => {
                 calls.reportBroadcastAccepted += 1;
+                args.onEvent?.(
+                  createTestSigningEvent(
+                    SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
+                    'succeeded',
+                    {
+                      txHash,
+                    },
+                  ),
+                );
               },
               reportTempoBroadcastRejected: async () => {
                 calls.reportBroadcastRejected += 1;
@@ -421,6 +480,9 @@ test.describe('TatchiPasskey chain signer modules', () => {
             accessList: [],
           },
         },
+        options: {
+          onEvent: (event: any) => events.push(event),
+        },
       });
 
       expect(result.txHash).toBe(txHash);
@@ -431,6 +493,26 @@ test.describe('TatchiPasskey chain signer modules', () => {
       expect(calls.reportBroadcastRejected).toBe(0);
       expect(calls.reportDroppedOrReplaced).toBe(0);
       expect(calls.reconcileNonceLane).toBe(0);
+      expect(events.map((event) => event.phase)).toEqual([
+        SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
+        SigningEventPhase.STEP_10_COMMIT_QUEUED,
+        SigningEventPhase.STEP_10_COMMIT_STARTED,
+        SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
+        SigningEventPhase.STEP_12_BROADCAST_STARTED,
+        SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
+        SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
+        SigningEventPhase.STEP_13_RECEIPT_FINALIZED,
+        SigningEventPhase.STEP_15_COMPLETED,
+      ]);
+      expect(events.at(0)).toMatchObject({
+        flow: 'signing',
+        data: { sessionId: 'warm-session-1' },
+      });
+      expect(events.at(-1)).toMatchObject({
+        flow: 'signing',
+        status: 'succeeded',
+        data: { operation: 'execute', txHash },
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -443,8 +525,12 @@ test.describe('TatchiPasskey chain signer modules', () => {
       reportBroadcastRejected: 0,
       reportFinalized: 0,
     };
+    const events: any[] = [];
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       let body: Record<string, unknown> = {};
       try {
         body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
@@ -488,6 +574,8 @@ test.describe('TatchiPasskey chain signer modules', () => {
               },
             },
             signingEngine: {
+              assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+              applyThresholdEcdsaPostSignPolicy,
               signTempo: async () => {
                 calls.signTempo += 1;
                 return {
@@ -500,8 +588,11 @@ test.describe('TatchiPasskey chain signer modules', () => {
               reportTempoBroadcastAccepted: async () => {
                 calls.reportBroadcastAccepted += 1;
               },
-              reportTempoBroadcastRejected: async () => {
+              reportTempoBroadcastRejected: async (args: any) => {
                 calls.reportBroadcastRejected += 1;
+                args.onEvent?.(
+                  createTestSigningEvent(SigningEventPhase.STEP_12_BROADCAST_REJECTED, 'failed'),
+                );
               },
               reportTempoFinalized: async () => {
                 calls.reportFinalized += 1;
@@ -534,6 +625,9 @@ test.describe('TatchiPasskey chain signer modules', () => {
               accessList: [],
             },
           },
+          options: {
+            onEvent: (event: any) => events.push(event),
+          },
         }),
       ).rejects.toThrow('insufficient funds');
 
@@ -541,6 +635,15 @@ test.describe('TatchiPasskey chain signer modules', () => {
       expect(calls.reportBroadcastAccepted).toBe(0);
       expect(calls.reportBroadcastRejected).toBe(1);
       expect(calls.reportFinalized).toBe(0);
+      expect(events.map((event) => event.phase)).toEqual([
+        SigningEventPhase.STEP_12_BROADCAST_STARTED,
+        SigningEventPhase.STEP_12_BROADCAST_REJECTED,
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        flow: 'signing',
+        status: 'failed',
+        message: 'Transaction broadcast failed',
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -558,7 +661,10 @@ test.describe('TatchiPasskey chain signer modules', () => {
     const txHash = `0x${'ef'.repeat(32)}`;
     const sender = '0x1111111111111111111111111111111111111111';
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       let body: Record<string, unknown> = {};
       try {
         body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
@@ -626,6 +732,8 @@ test.describe('TatchiPasskey chain signer modules', () => {
               },
             },
             signingEngine: {
+              assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+              applyThresholdEcdsaPostSignPolicy,
               signTempo: async () => {
                 calls.signTempo += 1;
                 return {
@@ -717,9 +825,13 @@ test.describe('TatchiPasskey chain signer modules', () => {
       reportDroppedOrReplaced: 0,
       reconcileNonceLane: 0,
     };
+    const events: any[] = [];
     const txHash = `0x${'12'.repeat(32)}`;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       let body: Record<string, unknown> = {};
       try {
         body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
@@ -786,6 +898,8 @@ test.describe('TatchiPasskey chain signer modules', () => {
               },
             },
             signingEngine: {
+              assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+              applyThresholdEcdsaPostSignPolicy,
               signTempo: async () => {
                 calls.signTempo += 1;
                 return {
@@ -795,8 +909,17 @@ test.describe('TatchiPasskey chain signer modules', () => {
                   rawTxHex: `0x02${'34'.repeat(31)}`,
                 };
               },
-              reportTempoBroadcastAccepted: async () => {
+              reportTempoBroadcastAccepted: async (args: any) => {
                 calls.reportBroadcastAccepted += 1;
+                args.onEvent?.(
+                  createTestSigningEvent(
+                    SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
+                    'succeeded',
+                    {
+                      txHash,
+                    },
+                  ),
+                );
               },
               reportTempoBroadcastRejected: async () => {
                 calls.reportBroadcastRejected += 1;
@@ -807,8 +930,20 @@ test.describe('TatchiPasskey chain signer modules', () => {
               reportTempoDroppedOrReplaced: async () => {
                 calls.reportDroppedOrReplaced += 1;
               },
-              reconcileTempoNonceLane: async () => {
+              reconcileTempoNonceLane: async (args: any) => {
                 calls.reconcileNonceLane += 1;
+                args.onEvent?.(
+                  createTestSigningEvent(
+                    SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
+                    'running',
+                  ),
+                );
+                args.onEvent?.(
+                  createTestSigningEvent(
+                    SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED,
+                    'succeeded',
+                  ),
+                );
                 return {
                   chainNextNonce: '0',
                   unresolvedInFlightNonces: [],
@@ -843,6 +978,9 @@ test.describe('TatchiPasskey chain signer modules', () => {
               accessList: [],
             },
           },
+          options: {
+            onEvent: (event: any) => events.push(event),
+          },
         }),
       ).rejects.toMatchObject({
         code: 'tx_payload_mismatch',
@@ -854,6 +992,18 @@ test.describe('TatchiPasskey chain signer modules', () => {
       expect(calls.reportBroadcastRejected).toBe(0);
       expect(calls.reportDroppedOrReplaced).toBe(0);
       expect(calls.reconcileNonceLane).toBe(1);
+      expect(events.map((event) => event.phase)).toEqual([
+        SigningEventPhase.STEP_12_BROADCAST_STARTED,
+        SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
+        SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
+        SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
+        SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED,
+      ]);
+      expect(events.at(-1)).toMatchObject({
+        flow: 'signing',
+        status: 'succeeded',
+        message: 'Nonce state updated',
+      });
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -870,7 +1020,10 @@ test.describe('TatchiPasskey chain signer modules', () => {
     };
     const txHash = `0x${'56'.repeat(32)}`;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       let body: Record<string, unknown> = {};
       try {
         body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
@@ -937,6 +1090,8 @@ test.describe('TatchiPasskey chain signer modules', () => {
               },
             },
             signingEngine: {
+              assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+              applyThresholdEcdsaPostSignPolicy,
               signTempo: async () => {
                 calls.signTempo += 1;
                 return {
@@ -1027,7 +1182,10 @@ test.describe('TatchiPasskey chain signer modules', () => {
       receipt: 0,
     };
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       let body: Record<string, unknown> = {};
       try {
         body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
@@ -1091,6 +1249,8 @@ test.describe('TatchiPasskey chain signer modules', () => {
               },
             },
             signingEngine: {
+              assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+              applyThresholdEcdsaPostSignPolicy,
               signTempo: async () => {
                 calls.signTempo += 1;
                 return {

@@ -149,6 +149,10 @@
   will-change: height;
 }
 
+.w3a-content-switcher:has(.w3a-account-menu.is-open) {
+  overflow: visible;
+}
+
 /* Content area container */
 .w3a-content-area {
   position: relative;
@@ -214,11 +218,6 @@
   font-size: 0.9rem;
   line-height: 1.4;
   text-align: center;
-}
-
-.w3a-google-account-name-note {
-  margin-top: 8px;
-  font-size: 0.82rem;
 }
 
 .w3a-social-stack {
@@ -293,12 +292,51 @@
   background: var(--w3a-colors-surface);
 }
 
+.w3a-auth-method-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.w3a-auth-method-arrow > .HoverArrow {
+  position: relative;
+  margin-top: 0.1rem;
+  margin-left: 0;
+  stroke-width: 2;
+  fill: none;
+  stroke: currentColor;
+}
+
+.w3a-auth-method-arrow > .HoverArrow .HoverArrow__linePath {
+  opacity: 0;
+  transition: opacity 120ms cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+.w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath {
+  transition: transform 120ms cubic-bezier(0.215, 0.61, 0.355, 1);
+}
+
+.w3a-auth-method-btn:hover:not(:disabled)
+  .w3a-auth-method-arrow
+  > .HoverArrow
+  .HoverArrow__linePath,
+.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__linePath {
+  opacity: 1;
+}
+
+.w3a-auth-method-btn:hover:not(:disabled) .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath,
+.w3a-auth-method-btn:focus-visible .w3a-auth-method-arrow > .HoverArrow .HoverArrow__tipPath {
+  transform: translateX(3px);
+}
+
 .w3a-otp-prompt {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 12px;
   width: 100%;
   min-height: 270px;
+  padding-top: 42px;
   justify-content: center;
   animation: content-enter 220ms ease-out;
 }
@@ -332,20 +370,6 @@
 .w3a-otp-error,
 .w3a-method-error {
   color: var(--w3a-colors-error);
-}
-
-.w3a-otp-email {
-  align-self: center;
-  max-width: 100%;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--w3a-colors-surface);
-  color: var(--w3a-colors-textPrimary);
-  font-size: 0.85rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .w3a-otp-account {
@@ -455,6 +479,7 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  z-index: 4;
 }
 
 .w3a-input-pill {
@@ -469,12 +494,7 @@
   background: var(--w3a-colors-surface);
   border-radius: 2rem 2rem 2rem 2rem;
   box-shadow: none;
-  overflow-x: hidden;
-  transition: border-radius 150ms ease-in-out;
-}
-
-.w3a-input-pill.is-enabled {
-  border-radius: 2rem 0.25rem 0.25rem 2rem;
+  overflow: visible;
   transition: border-radius 150ms ease-in-out;
 }
 
@@ -532,124 +552,181 @@
   color: var(--w3a-colors-textMuted);
 }
 
-.w3a-arrow-btn {
+.w3a-account-menu {
+  position: relative;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 0;
-  /* hidden footprint by default */
-  padding: 0;
-  background: transparent;
-  border: 0;
-  border-radius: 2rem 0.25rem 0.25rem 2rem;
-  color: #fff;
-  line-height: 0;
+}
+
+.w3a-account-menu-trigger {
+  width: 42px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 12%);
+  border-radius: 999px;
+  background: var(--w3a-colors-colorBackground);
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 28%);
   cursor: pointer;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  margin-left: -1rem;
-  z-index: 1;
-  border: 6px solid var(--w3a-colors-colorBackground, #fff);
-  height: 64px;
+  outline: none;
+  padding: 0;
   transition:
-    transform 150ms ease,
-    background-color 150ms ease,
-    border-radius 150ms ease,
-    opacity 150ms ease,
-    width 150ms ease-in-out;
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
+    transform 120ms ease;
 }
 
-.w3a-arrow-btn.is-enabled {
-  width: 100px;
-  /* expand when enabled */
-  /* Prefer themed primary; fall back to legacy then a sane default */
-  background: var(--w3a-colors-primary, #2563eb);
-  border-radius: 2rem;
-  /* border-radius: 2rem; */
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transition:
-    transform 150ms ease,
-    background-color 150ms ease,
-    border-radius 150ms ease,
-    opacity 150ms ease,
-    width 150ms ease-in-out;
+.w3a-account-menu-trigger:hover:not(:disabled),
+.w3a-account-menu-trigger:focus-visible,
+.w3a-account-menu.is-open .w3a-account-menu-trigger {
+  background: var(--w3a-colors-surface2);
+  border-color: color-mix(in srgb, var(--w3a-colors-primary), transparent 30%);
+  color: var(--w3a-colors-textPrimary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--w3a-colors-primary), transparent 76%);
 }
 
-.w3a-arrow-btn.no-transition,
-.w3a-arrow-btn.no-transition.is-enabled {
-  transition: none;
-}
-
-.w3a-arrow-btn .w3a-arrow-icon {
-  color: #fff;
-}
-
-.w3a-arrow-btn.is-enabled:hover {
-  /* transform: scale(1.02); */
-  background: var(--w3a-colors-primaryHover, #1d4ed8);
-}
-
-.w3a-arrow-btn.is-enabled:active {
+.w3a-account-menu-trigger:active:not(:disabled) {
   transform: scale(0.96);
 }
 
-.w3a-arrow-btn:disabled {
-  width: 0;
+.w3a-account-menu-trigger:disabled {
   cursor: not-allowed;
-  opacity: 0.5;
-  background: var(--w3a-colors-borderSecondary);
-  transition:
-    transform 150ms ease,
-    background-color 150ms ease,
-    border-radius 150ms ease,
-    opacity 150ms ease,
-    width 150ms ease-in-out;
+  opacity: 0.6;
 }
 
-.w3a-arrow-btn .w3a-arrow-label {
-  margin-left: 8px;
-  font-weight: 600;
-  line-height: 1;
+.w3a-account-trigger-arrow > .HoverArrow {
+  transform: rotate(90deg);
+  transform-origin: center;
 }
 
-/* Animated arrow inside the continue button */
-.w3a-arrow-btn .stripe-arrow {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.w3a-arrow-btn .stripe-arrow > .HoverArrow {
-  position: relative;
-  margin-top: 0.1rem;
-  margin-left: 8px;
-  stroke-width: 2;
+.w3a-account-trigger-arrow > .HoverArrow {
   fill: none;
   stroke: currentColor;
+  stroke-width: 2;
 }
 
-/* Horizontal line: fades in on hover of the button */
-.w3a-arrow-btn .stripe-arrow > .HoverArrow .HoverArrow__linePath {
+.w3a-account-trigger-arrow > .HoverArrow .HoverArrow__linePath {
   opacity: 0;
   transition: opacity 120ms cubic-bezier(0.215, 0.61, 0.355, 1);
 }
 
-/* Chevron: nudges right and slightly scales on hover */
-.w3a-arrow-btn .stripe-arrow > .HoverArrow .HoverArrow__tipPath {
+.w3a-account-trigger-arrow > .HoverArrow .HoverArrow__tipPath {
   transition: transform 120ms cubic-bezier(0.215, 0.61, 0.355, 1);
 }
 
-.w3a-arrow-btn.is-enabled:hover .stripe-arrow > .HoverArrow .HoverArrow__linePath,
-.w3a-arrow-btn.is-enabled:focus-visible .stripe-arrow > .HoverArrow .HoverArrow__linePath {
+.w3a-account-menu-trigger:hover:not(:disabled)
+  .w3a-account-trigger-arrow
+  > .HoverArrow
+  .HoverArrow__linePath,
+.w3a-account-menu-trigger:focus-visible
+  .w3a-account-trigger-arrow
+  > .HoverArrow
+  .HoverArrow__linePath,
+.w3a-account-menu.is-open .w3a-account-trigger-arrow > .HoverArrow .HoverArrow__linePath {
   opacity: 1;
 }
 
-.w3a-arrow-btn.is-enabled:hover .stripe-arrow > .HoverArrow .HoverArrow__tipPath,
-.w3a-arrow-btn.is-enabled:focus-visible .stripe-arrow > .HoverArrow .HoverArrow__tipPath {
+.w3a-account-menu-trigger:hover:not(:disabled)
+  .w3a-account-trigger-arrow
+  > .HoverArrow
+  .HoverArrow__tipPath,
+.w3a-account-menu-trigger:focus-visible
+  .w3a-account-trigger-arrow
+  > .HoverArrow
+  .HoverArrow__tipPath,
+.w3a-account-menu.is-open .w3a-account-trigger-arrow > .HoverArrow .HoverArrow__tipPath {
   transform: translateX(3px);
+}
+
+.w3a-account-menu-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(360px, calc(100dvw - 48px));
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 8%);
+  border-radius: 1.25rem;
+  background: var(--w3a-colors-colorBackground);
+  box-shadow: var(--w3a-shadows-lg);
+  z-index: 20;
+  animation: content-enter 160ms ease-out;
+}
+
+.w3a-account-menu-group + .w3a-account-menu-group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 45%);
+}
+
+.w3a-account-menu-group-label {
+  padding: 2px 10px 6px;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 12%);
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.w3a-account-menu-option {
+  width: 100%;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 0.85rem;
+  background: transparent;
+  color: var(--w3a-colors-textPrimary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 650;
+  text-align: left;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.w3a-account-menu-option:hover,
+.w3a-account-menu-option:focus-visible {
+  background: var(--w3a-colors-surface);
+  outline: none;
+}
+
+.w3a-account-menu-option.is-selected {
+  background: color-mix(in srgb, var(--w3a-colors-primary), transparent 84%);
+  color: var(--w3a-colors-textPrimary);
+}
+
+.w3a-account-menu-check {
+  position: relative;
+  width: 16px;
+  height: 16px;
+}
+
+.w3a-account-menu-option.is-selected .w3a-account-menu-check::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.w3a-account-menu-account {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Segmented control */
@@ -764,14 +841,6 @@
 
   .w3a-input-pill {
     height: 48px;
-  }
-
-  .w3a-arrow-btn {
-    height: 60px;
-  }
-
-  .w3a-arrow-btn.is-enabled {
-    width: 60px;
   }
 
   .w3a-seg {
@@ -926,10 +995,10 @@
 
 /* Labels and helper text */
 .w3a-field-label {
-  font-size: 12px;
+  font-size: 16px;
   color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 35%);
-  margin: 6px 2px 6px;
-  font-weight: 600;
+  margin: 8px 2px 6px;
+  font-weight: 700;
 }
 
 .w3a-seg-help {

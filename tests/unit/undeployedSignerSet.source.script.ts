@@ -49,8 +49,12 @@ const clientUndeployedSignerSet = buildThresholdEcdsaBootstrapUndeployedSignerSe
       type: 'threshold-ecdsa-secp256k1',
       userId: 'alice.testnet',
       relayerUrl: 'https://relayer.example',
-      relayerKeyId: 'rk-1',
-      clientVerifyingShareB64u: 'client-share',
+      ecdsaThresholdKeyId: 'ehss-1',
+      signingRootId: 'proj_local:dev',
+      backendBinding: {
+        relayerKeyId: 'rk-1',
+        clientVerifyingShareB64u: 'client-share',
+      },
       participantIds: [1, 2],
     },
     keygen: {
@@ -135,7 +139,7 @@ console.log(
       manifestUndeployedSignerSet: manifest?.undeployedSignerSet || null,
       clientUndeployedSignerSet,
       syncedMetadataUndeployedSignerSet:
-        (syncedWrites[0]?.metadata as Record<string, unknown> | undefined)?.deploymentManifest?.[
+        (syncedWrites[0]?.metadata as any)?.deploymentManifest?.[
           'undeployedSignerSet'
         ] || null,
     }),

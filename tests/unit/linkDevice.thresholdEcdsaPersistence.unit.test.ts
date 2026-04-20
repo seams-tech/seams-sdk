@@ -181,18 +181,19 @@ test.describe('link-device threshold-ecdsa persistence', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.error).toBeUndefined();
-    expect(result.sessionCalls).toHaveLength(2);
-    expect(result.chainAccountCalls).toHaveLength(2);
-    expect(result.evmSigners).toHaveLength(1);
-    expect(result.tempoSigners).toHaveLength(1);
-    expect(result.sessionCalls[0]?.bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId).toBe(
+    const output = result as any;
+    expect(output.error).toBeUndefined();
+    expect(output.sessionCalls).toHaveLength(2);
+    expect(output.chainAccountCalls).toHaveLength(2);
+    expect(output.evmSigners).toHaveLength(1);
+    expect(output.tempoSigners).toHaveLength(1);
+    expect(output.sessionCalls[0]?.bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId).toBe(
       'ehss-link-device-1',
     );
-    expect(result.evmSigners[0]?.status).toBe('pending');
-    expect(result.evmSigners[0]?.signerId).toBe(`0x${'aa'.repeat(20)}`);
-    expect(result.evmSigners[0]?.metadata?.ecdsaThresholdKeyId).toBe('ehss-link-device-1');
-    expect(result.evmSigners[0]?.metadata?.thresholdEcdsaPublicKeyB64u).toBe('group-public-key');
+    expect(output.evmSigners[0]?.status).toBe('pending');
+    expect(output.evmSigners[0]?.signerId).toBe(`0x${'aa'.repeat(20)}`);
+    expect(output.evmSigners[0]?.metadata?.ecdsaThresholdKeyId).toBe('ehss-link-device-1');
+    expect(output.evmSigners[0]?.metadata?.thresholdEcdsaPublicKeyB64u).toBe('group-public-key');
     expect(result.tempoSigners[0]?.status).toBe('pending');
   });
 });

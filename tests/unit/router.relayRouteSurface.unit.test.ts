@@ -62,9 +62,9 @@ test.describe('relay route surface wiring', () => {
     const router = createRelayRouter(service, {
       healthz: true,
       readyz: true,
-      prfSessionSeal: {
+      signingSessionSeal: {
         enabled: true,
-        basePath: '/threshold-ecdsa/custom-prf',
+        basePath: '/threshold/custom-signing-session',
         service: {} as any,
       },
       sessionRoutes: { state: '/session/me' },
@@ -111,17 +111,17 @@ test.describe('relay route surface wiring', () => {
     expect(ids.has('relay_readyz')).toBe(false);
     expect(ids.has('signed_delegate')).toBe(false);
     expect(ids.has('sponsored_evm_call')).toBe(false);
-    expect(ids.has('prf_session_seal_apply_server_seal')).toBe(false);
-    expect(ids.has('prf_session_seal_remove_server_seal')).toBe(false);
+    expect(ids.has('signing_session_seal_apply_server_seal')).toBe(false);
+    expect(ids.has('signing_session_seal_remove_server_seal')).toBe(false);
   });
 
   test('cloudflare and express attach the same configured relay route surface', async () => {
     const service = makeFakeAuthService();
     const options = {
       healthz: true,
-      prfSessionSeal: {
+      signingSessionSeal: {
         enabled: true,
-        basePath: '/threshold-ecdsa/custom-prf',
+        basePath: '/threshold/custom-signing-session',
         service: {} as any,
       },
       readyz: true,
@@ -152,9 +152,9 @@ test.describe('relay route surface wiring', () => {
       corsOrigins: ['https://example.localhost'],
       healthz: true,
       readyz: true,
-      prfSessionSeal: {
+      signingSessionSeal: {
         enabled: true,
-        basePath: '/threshold-ecdsa/custom-prf',
+        basePath: '/threshold/custom-signing-session',
         service: {} as any,
       },
       sessionRoutes: { state: '/session/me' },

@@ -8,80 +8,16 @@
  *
  * Key Responsibilities:
  * - Progress Routing: Dispatches typed progress payloads to per-request subscribers
- * - Overlay Intents: Applies SHOW/HIDE based on phase heuristics, leaving actual
+ * - Overlay Intents: Applies SHOW/HIDE based on event metadata, leaving actual
  *   DOM/CSS work to WalletIframeRouter + OverlayController
  * - Concurrent Aggregation: Tracks overlay demand per requestId and only hides
  *   when no request still requires SHOW (multi-request safe)
  * - Sticky Subscriptions: Supports long-running subscriptions that persist after completion
- * - Phase Heuristics: Pluggable logic to map phases → 'show' | 'hide' | 'none'
+ * - Overlay Resolution: Pluggable logic to map payloads to 'show' | 'hide' | 'none'
  * - Event Statistics: Tracks counts/timestamps for debugging
  */
 
 import type { ProgressPayload as MessageProgressPayload } from '../../shared/messages';
-import {
-  ActionPhase,
-  DeviceLinkingPhase,
-  SyncAccountPhase,
-  RegistrationPhase,
-  LoginPhase,
-  EmailRecoveryPhase,
-  DelegateActionPhase,
-} from '@/core/types/sdkSentEvents';
-
-// Phases that should temporarily SHOW the overlay (to capture activation)
-// Keep this list focused on actual WebAuthn/TouchID activation windows.
-const SHOW_PHASES = new Set<string>([
-  // Gate overlay to moments of imminent activation only.
-  // Intent-digest UserConfirm can require an explicit confirm click before
-  // WebAuthn starts; show overlay only for that explicit gate.
-  'intent-confirmation-required',
-  ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
-  DelegateActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
-  // Registration requires a WebAuthn create() ceremony at step 1
-  RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
-  // Email recovery: TouchID registration uses WebAuthn create()
-  EmailRecoveryPhase.STEP_2_TOUCH_ID_REGISTRATION,
-  // Device1: TouchID authorization (host needs overlay to capture activation)
-  DeviceLinkingPhase.STEP_3_AUTHORIZATION,
-  // Device2: Registration inside wallet host (collects passkey via ModalTxConfirmer)
-  // Show overlay so the wallet iframe is visible and focused for WebAuthn
-  DeviceLinkingPhase.STEP_6_REGISTRATION,
-  SyncAccountPhase.STEP_2_WEBAUTHN_AUTHENTICATION,
-  LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
-]);
-
-// Phases that should HIDE the overlay asap (post-activation, non-interactive)
-const HIDE_PHASES = new Set<string>([
-  ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
-  ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
-  ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
-  ActionPhase.STEP_7_BROADCASTING,
-  ActionPhase.STEP_8_ACTION_COMPLETE,
-  // Device linking: hide while QR is shown / device2 is polling (sticky subscription).
-  DeviceLinkingPhase.STEP_1_QR_CODE_GENERATED,
-  DeviceLinkingPhase.STEP_4_POLLING,
-  // Device linking: hide when the flow has finished or errored
-  DeviceLinkingPhase.STEP_7_LINKING_COMPLETE,
-  DeviceLinkingPhase.REGISTRATION_ERROR,
-  DeviceLinkingPhase.LOGIN_ERROR,
-  DeviceLinkingPhase.DEVICE_LINKING_ERROR,
-  // Registration: hide once contract work starts or flow completes/errors
-  RegistrationPhase.STEP_5_CONTRACT_REGISTRATION,
-  RegistrationPhase.STEP_9_REGISTRATION_COMPLETE,
-  RegistrationPhase.REGISTRATION_ERROR,
-  // Login: hide once a session is issued or the flow completes/errors
-  LoginPhase.STEP_3_SESSION_READY,
-  LoginPhase.STEP_4_LOGIN_COMPLETE,
-  LoginPhase.LOGIN_ERROR,
-  // Account sync: hide after authentication completes or on completion/errors
-  SyncAccountPhase.STEP_4_AUTHENTICATOR_SAVED,
-  SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE,
-  SyncAccountPhase.ERROR,
-  // Email recovery: hide after finalization/complete or on error
-  EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
-  EmailRecoveryPhase.STEP_6_COMPLETE,
-  EmailRecoveryPhase.ERROR,
-]);
 
 export type ProgressPayload = MessageProgressPayload;
 
@@ -93,19 +29,27 @@ export interface OverlayToggler {
   hide: () => void;
 }
 
-export type PhaseHeuristics = (payload: ProgressPayload) => 'show' | 'hide' | 'none';
+export type OverlayIntentResolver = (payload: ProgressPayload) => 'show' | 'hide' | 'none';
+
+export interface ProgressStats {
+  count: number;
+  flow: string | null;
+  phase: string | null;
+  status: string | null;
+  lastAt: number | null;
+}
 
 export interface ProgressSubscriber {
   onProgress?: (payload: ProgressPayload) => void;
   sticky: boolean;
-  stats: { count: number; lastPhase: string | null; lastAt: number | null };
+  stats: ProgressStats;
 }
 
 export class OnEventsProgressBus {
   private subs = new Map<string, ProgressSubscriber>();
   private logger?: (msg: string, data?: Record<string, unknown>) => void;
   private overlay: OverlayToggler;
-  private heuristic: PhaseHeuristics;
+  private resolveOverlayIntent: OverlayIntentResolver;
   // Track the most recent overlay intent per requestId so that we can
   // aggregate visibility across concurrent requests. If any request's
   // latest intent is 'show', we keep the overlay visible.
@@ -113,11 +57,11 @@ export class OnEventsProgressBus {
 
   constructor(
     overlay: OverlayToggler,
-    heuristic: PhaseHeuristics,
+    resolveOverlayIntent: OverlayIntentResolver,
     logger?: (msg: string, data?: Record<string, unknown>) => void,
   ) {
     this.overlay = overlay;
-    this.heuristic = heuristic;
+    this.resolveOverlayIntent = resolveOverlayIntent;
     this.logger = logger;
   }
 
@@ -140,7 +84,7 @@ export class OnEventsProgressBus {
     this.subs.set(requestId, {
       onProgress,
       sticky,
-      stats: { count: 0, lastPhase: null, lastAt: null },
+      stats: { count: 0, flow: null, phase: null, status: null, lastAt: null },
     });
     // Initialize demand tracking for this request (used to prevent racey hides).
     this.overlayDemands.set(requestId, demand);
@@ -190,14 +134,13 @@ export class OnEventsProgressBus {
 
   /**
    * Dispatch a progress payload to a request's subscriber and update
-   * the aggregate overlay demand based on the phase heuristic.
+   * the aggregate overlay demand based on explicit event metadata.
    */
   dispatch({ requestId, payload }: { requestId: string; payload: ProgressPayload }): boolean {
-    const phase = String((payload || {}).phase || '');
-    const action = this.heuristic(payload);
+    const action = this.resolveOverlayIntent(payload);
 
     // Update the latest demand for this request.
-    // If the heuristic returns 'none', preserve any existing demand to avoid
+    // If the event returns 'none', preserve any existing demand to avoid
     // clearing a preflight "show" before real phases arrive.
     const prevDemand = this.overlayDemands.get(requestId) || 'none';
     const nextDemand = action === 'none' ? prevDemand : action;
@@ -220,33 +163,45 @@ export class OnEventsProgressBus {
 
     const sub = this.subs.get(requestId);
     if (sub) {
-      this.bumpStats(sub, phase);
+      this.bumpStats(sub, payload);
       try {
         sub.onProgress?.(payload);
       } catch {}
-      this.log('dispatch', { requestId, phase, sticky: sub.sticky });
+      this.log('dispatch', {
+        requestId,
+        flow: sub.stats.flow || undefined,
+        phase: sub.stats.phase || undefined,
+        status: sub.stats.status || undefined,
+        sticky: sub.sticky,
+      });
       return true;
     }
 
     // Deliver to sticky-only subscriber if present (e.g., flow finished but status updates continue)
     const sticky = this.findSticky(requestId);
     if (sticky) {
-      this.bumpStats(sticky, phase);
+      this.bumpStats(sticky, payload);
       try {
         sticky.onProgress?.(payload);
       } catch {}
-      this.log('dispatch-sticky', { requestId, phase });
+      this.log('dispatch-sticky', {
+        requestId,
+        flow: sticky.stats.flow || undefined,
+        phase: sticky.stats.phase || undefined,
+        status: sticky.stats.status || undefined,
+      });
       return true;
     }
-    this.log('dispatch-miss', { requestId, phase });
+    this.log('dispatch-miss', {
+      requestId,
+      flow: payload?.flow,
+      phase: payload?.phase,
+      status: payload?.status,
+    });
     return false;
   }
 
-  getStats(requestId: string): {
-    count: number;
-    lastPhase: string | null;
-    lastAt: number | null;
-  } | null {
+  getStats(requestId: string): ProgressStats | null {
     const sub = this.subs.get(requestId);
     return sub ? sub.stats : null;
   }
@@ -269,9 +224,11 @@ export class OnEventsProgressBus {
     return null;
   }
 
-  private bumpStats(sub: ProgressSubscriber, phase: string) {
+  private bumpStats(sub: ProgressSubscriber, payload: ProgressPayload) {
     sub.stats.count += 1;
-    sub.stats.lastPhase = phase || null;
+    sub.stats.flow = payload?.flow ? String(payload.flow) : null;
+    sub.stats.phase = payload?.phase ? String(payload.phase) : null;
+    sub.stats.status = payload?.status ? String(payload.status) : null;
     sub.stats.lastAt = Date.now();
   }
 
@@ -282,12 +239,11 @@ export class OnEventsProgressBus {
   }
 }
 
-// Default phase heuristic used by the client
 /**
- * defaultPhaseHeuristics
+ * defaultOverlayIntentResolver
  *
  * Decides when to expand or contract the invisible wallet iframe overlay
- * based on incoming progress events (phases). Returning:
+ * based on incoming progress event metadata. Returning:
  *  - 'show' → expands the iframe to a full-screen, invisible layer that captures
  *             user activation (e.g., TouchID / WebAuthn prompts) and pointer events.
  *  - 'hide' → immediately contracts the iframe back to 0×0 so it no longer blocks clicks.
@@ -299,33 +255,24 @@ export class OnEventsProgressBus {
  * expanded and only show it during the brief windows where user activation is
  * required (e.g., when the TouchID prompt is about to appear or the modal is
  * mounting and needs focus/activation in the iframe context). As soon as
- * activation completes (e.g., authentication-complete), we hide it again.
+ * activation completes, the emitting flow sends `interaction.overlay: 'hide'`.
  *
- * If new phases are introduced that require user activation, add them to
- * SHOW_PHASES; if phases become non-interactive post-activation, add them to
- * HIDE_PHASES. The goal is to keep the overlay up for the minimum possible time.
+ * WalletFlowEvent payloads declare overlay intent explicitly at
+ * `interaction.overlay`. Terminal v2 events receive `overlay: 'hide'` from the
+ * shared event constructor, so this bus no longer infers behavior from phase
+ * names.
  */
-export const defaultPhaseHeuristics: PhaseHeuristics = (payload: ProgressPayload) => {
+export const defaultOverlayIntentResolver: OverlayIntentResolver = (payload: ProgressPayload) => {
   try {
-    const phase = String((payload || {}).phase || '');
-    if (!phase) return 'none';
+    const overlay = payload?.interaction?.overlay;
+    if (isOverlayIntent(overlay)) return overlay;
 
-    // Step 1: Check if this phase requires showing the overlay for user activation
-    if (SHOW_PHASES.has(phase)) return 'show';
-
-    // Step 2: Check if this phase indicates we should hide the overlay (post-activation)
-    if (HIDE_PHASES.has(phase)) return 'hide';
-
-    // Step 3: Handle custom completion markers
-    const raw = phase.toLowerCase();
-    if (raw === 'user-confirmation-complete') return 'hide';
-
-    // Step 4: Extra hardening - hide overlay on explicit cancellation
-    if (raw === 'cancelled' || raw === 'error') return 'hide';
-
-    // Step 5: Default to no change for unknown phases
     return 'none';
   } catch {
     return 'none';
   }
 };
+
+function isOverlayIntent(value: unknown): value is 'show' | 'hide' | 'none' {
+  return value === 'show' || value === 'hide' || value === 'none';
+}

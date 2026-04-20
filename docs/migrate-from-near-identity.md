@@ -208,7 +208,7 @@ Canonical API shape:
   [x] `/Users/pta/Dev/rust/simple-threshold-signer/tests/e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts` now uses generic client/key-material DB reads instead of the NEAR IndexedDB adapter.
   [x] `/Users/pta/Dev/rust/simple-threshold-signer/tests/e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts` now provisions managed registration bootstrap grants and relay publishable-key auth in the harness.
   [x] `/Users/pta/Dev/rust/simple-threshold-signer/tests/e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts` now captures threshold-ed25519 HSS finalize responses and seeds relay key material from the real finalize payload.
-  [x] Wallet-iframe sealed-refresh continuity is fixed end-to-end: targeted sealed-refresh suite now passes with local PRF seal persistence, refresh reuse, Tempo/EVM prompt parity, and matrix coverage.
+  [x] Wallet-iframe sealed-refresh continuity is fixed end-to-end: targeted sealed-refresh suite now passes with local signing-session seal persistence, refresh reuse, Tempo/EVM prompt parity, and matrix coverage.
 - [x] Add unit tests for generic profile/account-ref lookup behavior.
 - [x] Add persistence tests for non-NEAR chain key material rows.
 - [x] Keep NEAR flow regression tests green under generic DB surface.

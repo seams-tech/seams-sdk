@@ -9,14 +9,11 @@ function readRepoFile(relativePath: string): string {
 }
 
 test.describe('PasskeyAuthMenu Google SSO copy guard', () => {
-  test('distinguishes passkey username input from Google SSO account mapping', () => {
+  test('does not render login-mode Google SSO helper copy', () => {
     const content = readRepoFile('client/src/react/components/PasskeyAuthMenu/client.tsx');
+    const socialCopy = readRepoFile('client/src/react/components/PasskeyAuthMenu/socialCopy.ts');
 
-    expect(content.includes('googleAccountNameNote')).toBe(true);
-    expect(content.includes('The username above is only for Passkey.')).toBe(true);
-    expect(content.includes('Google SSO creates the wallet from your Google email.')).toBe(true);
-    expect(content.includes('Google SSO finds your Email OTP wallet from your Google account.')).toBe(
-      true,
-    );
+    expect(content.includes('googleAccountNameNote')).toBe(false);
+    expect(socialCopy).toContain("return '';");
   });
 });

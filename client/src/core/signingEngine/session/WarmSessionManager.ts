@@ -20,6 +20,14 @@ import type {
   ThresholdEcdsaSessionRecord,
   ThresholdSessionSealTransportAuthMaterial,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
+import {
+  acquireSigningSessionRestoreLease,
+  deleteSigningSessionSealedRecord,
+  readSigningSessionSealedRecord,
+  releaseSigningSessionRestoreLease,
+  type SigningSessionRestoreLeaseHandle,
+  type SigningSessionSealedStoreRecord,
+} from '../api/session/signingSessionSealedStore';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import type {
   ThresholdEcdsaActivationChain,
@@ -118,6 +126,29 @@ export type WarmSessionManagerDeps = {
     keyVersion?: string;
     shamirPrimeB64u?: string;
   };
+  signingSessionSealedStore?: {
+    readRecord?: (thresholdSessionId: string) => Promise<SigningSessionSealedStoreRecord | null>;
+    deleteRecord?: (thresholdSessionId: string) => Promise<void>;
+    acquireRestoreLease?: (args: {
+      thresholdSessionId: string;
+      ownerId?: string;
+      nowMs?: number;
+      ttlMs?: number;
+    }) => Promise<SigningSessionRestoreLeaseHandle | null>;
+    releaseRestoreLease?: (
+      lease: SigningSessionRestoreLeaseHandle | null | undefined,
+    ) => Promise<void>;
+  };
+  rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord?: (args: {
+    sealedRecord: SigningSessionSealedStoreRecord;
+    ecdsaRecord: ThresholdEcdsaSessionRecord;
+    ed25519Record?: ThresholdEd25519SessionRecord | null;
+  }) => Promise<{
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    remainingUses: number;
+    expiresAtMs: number;
+  } | null>;
+  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   getThresholdEcdsaKeyRefForSigning?: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
@@ -133,6 +164,15 @@ export type WarmSessionManagerDeps = {
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
   onTransition?: (event: WarmSessionTransitionEvent) => void | Promise<void>;
+  onSealedRestore?: (event: WarmSessionSealedRestoreEvent) => void | Promise<void>;
+};
+
+export type WarmSessionSealedRestoreEvent = {
+  accountId: AccountId;
+  chain: ThresholdEcdsaActivationChain;
+  thresholdSessionId: string;
+  walletSigningSessionId?: string;
+  status: 'started' | 'restored' | 'defer' | 'failed';
 };
 
 export type ProvisionWarmEd25519CapabilityArgs = {
@@ -396,6 +436,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     Promise<EnsureWarmEcdsaCapabilityReadyResult>
   >();
   const sealPersistInFlightBySessionId = new Map<string, Promise<void>>();
+  const sealedRestoreSuppressedAccounts = new Set<string>();
 
   function buildEcdsaCapabilityInflightKey(args: {
     nearAccountId: AccountId;
@@ -457,6 +498,137 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       await deps.touchConfirm
         .clearWarmSessionMaterial({ sessionId: thresholdSessionId })
         .catch(() => undefined);
+    }
+  }
+
+  function isSessionRetainedEmailOtpEcdsaRecord(
+    record: ThresholdEcdsaSessionRecord | null | undefined,
+  ): record is ThresholdEcdsaSessionRecord {
+    return (
+      Boolean(record) &&
+      record?.source === 'email_otp' &&
+      record.emailOtpAuthContext?.retention === 'session'
+    );
+  }
+
+  async function shouldAttemptEmailOtpSealedRestore(args: {
+    record: ThresholdEcdsaSessionRecord | null | undefined;
+    prfClaim: WarmSessionPrfClaim | null;
+  }): Promise<boolean> {
+    if (!isSessionRetainedEmailOtpEcdsaRecord(args.record)) return false;
+    const state = args.prfClaim?.state;
+    if (state === 'missing' || state === 'expired' || state === 'exhausted') return true;
+    const handle = args.record.clientAdditiveShareHandle;
+    const sessionId =
+      handle?.kind === 'email_otp_worker_session' ? String(handle.sessionId || '').trim() : '';
+    if (!sessionId || typeof deps.getEmailOtpWarmSessionStatus !== 'function') return false;
+    const status = await deps.getEmailOtpWarmSessionStatus(sessionId).catch(() => null);
+    return !status?.ok;
+  }
+
+  async function deleteSigningSessionSealedRecordBestEffort(
+    thresholdSessionId: string,
+  ): Promise<void> {
+    const deleter =
+      deps.signingSessionSealedStore?.deleteRecord || deleteSigningSessionSealedRecord;
+    await deleter(thresholdSessionId).catch(() => undefined);
+  }
+
+  function emitSealedRestoreEvent(event: WarmSessionSealedRestoreEvent): void {
+    try {
+      void Promise.resolve(deps.onSealedRestore?.(event)).catch(() => undefined);
+    } catch {}
+  }
+
+  async function tryRestoreEmailOtpEcdsaCapabilityFromSealedRecord(args: {
+    accountId: AccountId;
+    chain: ThresholdEcdsaActivationChain;
+    record: ThresholdEcdsaSessionRecord;
+    ed25519Record?: ThresholdEd25519SessionRecord | null;
+  }): Promise<'restored' | 'unavailable' | 'defer' | 'failed'> {
+    const thresholdSessionId = String(args.record.thresholdSessionId || '').trim();
+    if (!thresholdSessionId) return 'unavailable';
+    if (typeof deps.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord !== 'function') {
+      return 'unavailable';
+    }
+
+    const reader = deps.signingSessionSealedStore?.readRecord || readSigningSessionSealedRecord;
+    const sealedRecord = await reader(thresholdSessionId).catch(() => null);
+    if (!sealedRecord) return 'unavailable';
+    if (
+      sealedRecord.authMethod !== 'email_otp' ||
+      sealedRecord.secretKind !== 'signing_session_secret32' ||
+      sealedRecord.thresholdSessionIds.ecdsa !== thresholdSessionId
+    ) {
+      await deleteSigningSessionSealedRecordBestEffort(thresholdSessionId);
+      return 'unavailable';
+    }
+    const sealedEd25519SessionId = String(sealedRecord.thresholdSessionIds.ed25519 || '').trim();
+    if (sealedEd25519SessionId) {
+      const ed25519Record = args.ed25519Record;
+      const ed25519WalletSigningSessionId = resolveWalletSigningSessionId(ed25519Record || null);
+      if (
+        !ed25519Record ||
+        ed25519Record.source !== 'email_otp' ||
+        ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
+        ed25519Record.thresholdSessionId !== sealedEd25519SessionId ||
+        ed25519WalletSigningSessionId !== sealedRecord.walletSigningSessionId
+      ) {
+        await deleteSigningSessionSealedRecordBestEffort(thresholdSessionId);
+        return 'unavailable';
+      }
+    }
+
+    const acquireLease =
+      deps.signingSessionSealedStore?.acquireRestoreLease || acquireSigningSessionRestoreLease;
+    const releaseLease =
+      deps.signingSessionSealedStore?.releaseRestoreLease || releaseSigningSessionRestoreLease;
+    emitSealedRestoreEvent({
+      accountId: args.accountId,
+      chain: args.chain,
+      thresholdSessionId,
+      walletSigningSessionId: sealedRecord.walletSigningSessionId,
+      status: 'started',
+    });
+    const lease = await acquireLease({ thresholdSessionId }).catch(() => null);
+    if (!lease) {
+      emitSealedRestoreEvent({
+        accountId: args.accountId,
+        chain: args.chain,
+        thresholdSessionId,
+        walletSigningSessionId: sealedRecord.walletSigningSessionId,
+        status: 'defer',
+      });
+      return 'defer';
+    }
+
+    try {
+      const restored = await deps.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord({
+        sealedRecord,
+        ecdsaRecord: args.record,
+        ...(args.ed25519Record ? { ed25519Record: args.ed25519Record } : {}),
+      });
+      const status = restored ? 'restored' : 'failed';
+      emitSealedRestoreEvent({
+        accountId: args.accountId,
+        chain: args.chain,
+        thresholdSessionId,
+        walletSigningSessionId: sealedRecord.walletSigningSessionId,
+        status,
+      });
+      return status;
+    } catch {
+      await deleteSigningSessionSealedRecordBestEffort(thresholdSessionId);
+      emitSealedRestoreEvent({
+        accountId: args.accountId,
+        chain: args.chain,
+        thresholdSessionId,
+        walletSigningSessionId: sealedRecord.walletSigningSessionId,
+        status: 'failed',
+      });
+      return 'failed';
+    } finally {
+      await releaseLease(lease).catch(() => undefined);
     }
   }
 
@@ -532,7 +704,9 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         null;
       const warmClaims = group
         .map((entry) => entry.claim)
-        .filter((claim): claim is WarmSessionPrfClaim & { state: 'warm' } => claim?.state === 'warm');
+        .filter(
+          (claim): claim is WarmSessionPrfClaim & { state: 'warm' } => claim?.state === 'warm',
+        );
       const walletRemainingUses = warmClaims.length
         ? Math.min(...warmClaims.map((claim) => Math.floor(Number(claim.remainingUses) || 0)))
         : undefined;
@@ -652,14 +826,63 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
 
       const { ed25519Claim, evmClaim, tempoClaim } =
         await readWalletScopedClaimsForRecords(records);
-      const invalidateEvmCapability = shouldInvalidateEmailOtpCapability({
-        record: records.ecdsa.evm,
-        prfClaim: evmClaim,
-      });
-      const invalidateTempoCapability = shouldInvalidateEmailOtpCapability({
-        record: records.ecdsa.tempo,
-        prfClaim: tempoClaim,
-      });
+      let deferEvmInvalidation = false;
+      let deferTempoInvalidation = false;
+      if (!sealedRestoreSuppressedAccounts.has(String(accountId))) {
+        const evmRestoreRecord = records.ecdsa.evm;
+        const tempoRestoreRecord = records.ecdsa.tempo;
+        const [shouldRestoreEvm, shouldRestoreTempo] = await Promise.all([
+          shouldAttemptEmailOtpSealedRestore({
+            record: evmRestoreRecord,
+            prfClaim: evmClaim,
+          }),
+          shouldAttemptEmailOtpSealedRestore({
+            record: tempoRestoreRecord,
+            prfClaim: tempoClaim,
+          }),
+        ]);
+        const [evmRestore, tempoRestore] = await Promise.all([
+          evmRestoreRecord && shouldRestoreEvm
+            ? tryRestoreEmailOtpEcdsaCapabilityFromSealedRecord({
+                accountId,
+                chain: 'evm',
+                record: evmRestoreRecord,
+                ed25519Record: records.ed25519,
+              })
+            : Promise.resolve<'unavailable'>('unavailable'),
+          tempoRestoreRecord && shouldRestoreTempo
+            ? tryRestoreEmailOtpEcdsaCapabilityFromSealedRecord({
+                accountId,
+                chain: 'tempo',
+                record: tempoRestoreRecord,
+                ed25519Record: records.ed25519,
+              })
+            : Promise.resolve<'unavailable'>('unavailable'),
+        ]);
+        if (evmRestore === 'restored' || tempoRestore === 'restored') {
+          sealedRestoreSuppressedAccounts.add(String(accountId));
+          try {
+            return await this.getWarmSession(accountId);
+          } finally {
+            sealedRestoreSuppressedAccounts.delete(String(accountId));
+          }
+        }
+        deferEvmInvalidation = evmRestore === 'defer';
+        deferTempoInvalidation = tempoRestore === 'defer';
+      }
+
+      const invalidateEvmCapability =
+        !deferEvmInvalidation &&
+        shouldInvalidateEmailOtpCapability({
+          record: records.ecdsa.evm,
+          prfClaim: evmClaim,
+        });
+      const invalidateTempoCapability =
+        !deferTempoInvalidation &&
+        shouldInvalidateEmailOtpCapability({
+          record: records.ecdsa.tempo,
+          prfClaim: tempoClaim,
+        });
 
       if (invalidateEvmCapability || invalidateTempoCapability) {
         await Promise.all([
@@ -1376,6 +1599,8 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         throw new Error(formatThresholdSigningSessionAvailabilityError(capability.prfClaim?.code));
       }
       if (capability.state === 'ready') {
+        const hasCachedEmailOtpClientBase =
+          isEmailOtpSession && !!String(capability.record?.xClientBaseB64u || '').trim();
         const remainingUses = Math.floor(
           Number(
             capability.prfClaim?.state === 'warm'
@@ -1383,7 +1608,11 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
               : capability.record?.remainingUses,
           ) || 0,
         );
-        if (isEmailOtpSession && capability.prfClaim?.state !== 'warm') {
+        if (
+          isEmailOtpSession &&
+          capability.prfClaim?.state !== 'warm' &&
+          !hasCachedEmailOtpClientBase
+        ) {
           return requireEmailOtpReauth();
         }
         if (remainingUses < normalizeUsesNeeded(args.usesNeeded)) {
@@ -1465,10 +1694,11 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       const accountId = toAccountId(args.nearAccountId);
       const expectedThresholdSessionId = String(args.thresholdSessionId || '').trim();
       const records = readWarmSessionCapabilityRecordsForAccount(accountId);
-      const record = resolveCurrentEcdsaRecord({
-        nearAccountId: accountId,
-        chain: args.chain,
-      }) || records.ecdsa[args.chain];
+      const record =
+        resolveCurrentEcdsaRecord({
+          nearAccountId: accountId,
+          chain: args.chain,
+        }) || records.ecdsa[args.chain];
       const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
       if (!normalizedThresholdSessionId) return null;
       if (
@@ -1486,8 +1716,8 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         String(storedRecord?.thresholdSessionId || '').trim() !== normalizedThresholdSessionId
           ? await readWarmSessionClaim(deps.touchConfirm, normalizedThresholdSessionId)
           : args.chain === 'evm'
-          ? claims.evmClaim
-          : claims.tempoClaim;
+            ? claims.evmClaim
+            : claims.tempoClaim;
       if (shouldInvalidateEmailOtpCapability({ record, prfClaim: claim })) {
         await clearEcdsaWarmCapabilityBestEffort({
           nearAccountId: accountId,

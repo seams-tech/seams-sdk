@@ -126,7 +126,7 @@ async function makeAtomicSponsorshipServices(input?: {
   billing: {
     events: BillingEventSpy[];
   } & Record<string, unknown>;
-  ledger: unknown;
+	  ledger: any;
   prepaidReservations: unknown;
 }> {
   if (!postgresEnabled) {
@@ -415,6 +415,7 @@ function makeMultichainRouteConfig(
 
 function makeLogger() {
   return {
+    debug() {},
     info() {},
     warn() {},
     error() {},

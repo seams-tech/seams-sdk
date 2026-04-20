@@ -533,7 +533,7 @@ test.describe('recover-email execution tracking', () => {
             executionState.get(makeExecutionKey(input as any))?.createdAtMs || Date.now(),
           updatedAtMs: Date.now(),
         };
-        executionState.set(makeExecutionKey(nextRecord), nextRecord);
+        executionState.set(makeExecutionKey(nextRecord as any), nextRecord);
         return {
           ok: true,
           record: nextRecord as any,
@@ -737,7 +737,7 @@ test.describe('recover-email execution tracking', () => {
             executionState.get(makeExecutionKey(input as any))?.createdAtMs || Date.now(),
           updatedAtMs: Date.now(),
         };
-        executionState.set(makeExecutionKey(nextRecord), nextRecord);
+        executionState.set(makeExecutionKey(nextRecord as any), nextRecord);
         return {
           ok: true,
           record: nextRecord as any,

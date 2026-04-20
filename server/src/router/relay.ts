@@ -10,7 +10,7 @@ import type {
   ThresholdEd25519HssRespondWithSessionResponse,
 } from '../core/types';
 import type { RelayRouterRorOptions } from './ror/provider';
-import type { PrfSessionSealRoutesOptions } from '../threshold/session/prfSessionSeal/types';
+import type { SigningSessionSealRoutesOptions } from '../threshold/session/signingSessionSeal/types';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleWebhookService } from '../console/webhooks';
 import type { ConsoleApiKeyService } from '../console/apiKeys';
@@ -499,15 +499,15 @@ export interface RelayRouterOptions {
    */
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
   /**
-   * Optional standalone PRF session seal/unlock routes.
+   * Optional standalone Signing-session seal/unlock routes.
    *
    * When provided and enabled, routers mount:
    * - POST `<basePath>/apply-server-seal`
    * - POST `<basePath>/remove-server-seal`
    *
-   * Default `basePath` is `/threshold-ecdsa/prf-seal`.
+   * Default `basePath` is `/threshold/signing-session-seal`.
    */
-  prfSessionSeal?: PrfSessionSealRoutesOptions | null;
+  signingSessionSeal?: SigningSessionSealRoutesOptions | null;
   /**
    * Optional internal smart-account deploy hook.
    *

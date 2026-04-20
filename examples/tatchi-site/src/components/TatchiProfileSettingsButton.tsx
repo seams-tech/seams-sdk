@@ -2,10 +2,9 @@ import React from 'react';
 import { toast } from 'sonner';
 import {
   useTatchi,
-  DeviceLinkingPhase,
-  DeviceLinkingStatus,
+  LinkDeviceEventPhase,
   useTheme,
-  type DeviceLinkingSSEEvent,
+  type LinkDeviceFlowEvent,
 } from '@tatchi-xyz/sdk/react';
 import { AccountMenuButton } from '@tatchi-xyz/sdk/react/profile';
 import { useProfileMenuControl } from '@/context/ProfileMenuControl';
@@ -25,50 +24,24 @@ export const TatchiProfileSettingsButton: React.FC<TatchiProfileSettingsButtonPr
   const { isMenuOpen, highlightedMenuItem, setMenuOpen, clearHighlight } = useProfileMenuControl();
 
   // Only handle Device1 events here
-  const handleDeviceLinkingEvents = (event: DeviceLinkingSSEEvent) => {
-    switch (event.phase) {
-      case DeviceLinkingPhase.STEP_2_SCANNING:
-        toast.loading('Scanning QR code...', { id: 'device-linking' });
-        break;
-      case DeviceLinkingPhase.STEP_3_AUTHORIZATION:
-        toast.loading('Authorizing new account keys...', { id: 'device-linking' });
-        break;
-      case DeviceLinkingPhase.STEP_6_REGISTRATION:
-        if (event.status === DeviceLinkingStatus.SUCCESS) {
-          toast.success('New device keys added!', { id: 'device-linking' });
-        }
-        break;
-      case DeviceLinkingPhase.REGISTRATION_ERROR:
-        if (event.status === DeviceLinkingStatus.ERROR) {
-          toast.dismiss('device-linking');
-          toast.error(event.message || 'Registration failed');
-        }
-        break;
-      case DeviceLinkingPhase.LOGIN_ERROR:
-        if (event.status === DeviceLinkingStatus.ERROR) {
-          toast.dismiss('device-linking');
-          toast.error(event.message || 'Login failed');
-        }
-        break;
-      case DeviceLinkingPhase.DEVICE_LINKING_ERROR:
-        if (event.status === DeviceLinkingStatus.ERROR) {
-          toast.dismiss('device-linking');
-          toast.error(event.message || 'Device linking failed');
-        }
-        break;
-      case DeviceLinkingPhase.STEP_7_LINKING_COMPLETE:
-        if (event.status === DeviceLinkingStatus.SUCCESS) {
-          toast.success(event.message || 'Device linking complete!', { id: 'device-linking' });
-        }
-        break;
-      default:
-        if (event.status === DeviceLinkingStatus.PROGRESS) {
-          toast.loading(event.message || 'Processing...', { id: 'device-linking' });
-        } else if (event.status === DeviceLinkingStatus.ERROR) {
-          toast.dismiss('device-linking');
-          toast.error(event.message || 'Operation failed', { id: 'device-linking' });
-        }
+  const handleDeviceLinkingEvents = (event: LinkDeviceFlowEvent) => {
+    if (event.flow !== 'link_device') return;
+    if (event.phase === LinkDeviceEventPhase.CANCELLED || event.status === 'cancelled') {
+      toast.info(event.message || 'Device link cancelled', { id: 'device-linking' });
+      return;
     }
+    if (event.phase === LinkDeviceEventPhase.FAILED || event.status === 'failed') {
+      toast.dismiss('device-linking');
+      toast.error(event.error?.message || event.message || 'Device linking failed', {
+        id: 'device-linking',
+      });
+      return;
+    }
+    if (event.phase === LinkDeviceEventPhase.STEP_08_COMPLETED && event.status === 'succeeded') {
+      toast.success(event.message || 'Device linking complete!', { id: 'device-linking' });
+      return;
+    }
+    toast.loading(event.message || 'Processing device link...', { id: 'device-linking' });
   };
 
   React.useEffect(() => {

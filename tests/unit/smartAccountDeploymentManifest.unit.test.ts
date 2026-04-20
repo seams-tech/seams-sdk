@@ -271,7 +271,7 @@ test.describe('smart-account deployment manifest builder', () => {
         return {
           ownerAddresses: manifest?.ownerAddresses || null,
           owners:
-            manifest?.owners?.map((owner) => ({
+            manifest?.owners?.map((owner: any) => ({
               signerId: owner.signerId,
               status: owner.status,
               signerSlot: owner.signerSlot ?? null,
@@ -438,16 +438,18 @@ test.describe('smart-account deployment manifest builder', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result?.evmMetadata?.deploymentManifest?.ownerAddresses).toEqual([
+    const evmMetadata = result?.evmMetadata as any;
+    const tempoMetadata = result?.tempoMetadata as any;
+    expect(evmMetadata?.deploymentManifest?.ownerAddresses).toEqual([
       `0x${'aa'.repeat(20)}`,
     ]);
-    expect(result?.evmMetadata?.evmDeploymentPlan?.predictedAddress).toMatch(/^0x[0-9a-f]{40}$/);
-    expect(result?.evmMetadata?.evmDeploymentPlan?.createAccountCalldata).toMatch(/^0xf8a59370/);
-    expect(result?.evmMetadata?.evmDeploymentPlanUpdatedAtMs).toBe(4321);
-    expect(result?.tempoMetadata?.deploymentManifest?.ownerAddresses).toEqual([
+    expect(evmMetadata?.evmDeploymentPlan?.predictedAddress).toMatch(/^0x[0-9a-f]{40}$/);
+    expect(evmMetadata?.evmDeploymentPlan?.createAccountCalldata).toMatch(/^0xf8a59370/);
+    expect(evmMetadata?.evmDeploymentPlanUpdatedAtMs).toBe(4321);
+    expect(tempoMetadata?.deploymentManifest?.ownerAddresses).toEqual([
       `0x${'bb'.repeat(20)}`,
     ]);
-    expect(result?.tempoMetadata?.evmDeploymentPlan).toBeUndefined();
-    expect(result?.tempoMetadata?.evmDeploymentPlanUpdatedAtMs).toBeUndefined();
+    expect(tempoMetadata?.evmDeploymentPlan).toBeUndefined();
+    expect(tempoMetadata?.evmDeploymentPlanUpdatedAtMs).toBeUndefined();
   });
 });

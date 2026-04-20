@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { EmailRecoveryDomain } from '@/core/TatchiPasskey/near/emailRecovery';
 import { IndexedDBManager } from '@/core/indexedDB';
-import { EmailRecoveryPhase } from '@/core/types/sdkSentEvents';
+import { EmailRecoveryFlowEventPhase } from '@/core/types/sdkSentEvents';
 
 type PendingStoreMock = {
   getCalls: Array<{ accountId: string; nearPublicKey?: string }>;
@@ -42,6 +42,26 @@ function createPendingStoreMock(initialRecord?: any): PendingStoreMock {
       },
       async touchIndex(): Promise<void> {},
     },
+  };
+}
+
+function createPendingEmailRecoveryRecord(overrides?: Record<string, unknown>) {
+  return {
+    accountId: 'alice.testnet',
+    nearPublicKey: 'ed25519:recovery-key',
+    newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
+    recoverySessionId: 'ABC123',
+    deadlineEpochSeconds: 1_893_456_000,
+    recoveryEmailPayloadHash: 'sha256:payload-hash',
+    recoveryEmailSubject: 'recover-v1 alice.testnet ABC123',
+    recoveryEmailBody: 'tee-encrypted\ntatchi-recovery-v1:payload-token',
+    requestId: 'ABC123',
+    credential: {},
+    createdAt: Date.now(),
+    signerSlot: 1,
+    status: 'awaiting-email',
+    ecdsaThresholdKeyId: 'ehss-email-recovery-1',
+    ...overrides,
   };
 }
 
@@ -175,7 +195,9 @@ test.describe('EmailRecoveryDomain', () => {
 
     const originalFetch = globalThis.fetch;
     const clientDb = IndexedDBManager.clientDB as { resolveProfileAccountContext?: unknown };
-    const accountKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB as { storeKeyMaterial?: unknown };
+    const accountKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB as {
+      storeKeyMaterial?: unknown;
+    };
     const originalProfileLookup = clientDb.resolveProfileAccountContext;
     const originalStoreKeyMaterial = accountKeyMaterialDb.storeKeyMaterial;
     try {
@@ -268,9 +290,11 @@ test.describe('EmailRecoveryDomain', () => {
       expect(pendingStore.setCalls[0]?.recoverySessionId).toBe('ABC123');
       expect(pendingStore.setCalls[0]?.signerSlot).toBe(7);
       expect(events.map((ev) => ev.phase)).toEqual([
-        EmailRecoveryPhase.STEP_1_PREPARATION,
-        EmailRecoveryPhase.STEP_2_TOUCH_ID_REGISTRATION,
-        EmailRecoveryPhase.STEP_3_AWAIT_EMAIL,
+        EmailRecoveryFlowEventPhase.STEP_01_STARTED,
+        EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_STARTED,
+        EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_SUCCEEDED,
+        EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_SENT,
+        EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_WAITING,
       ]);
       expect(storeUserDataCalls).toHaveLength(1);
       expect(storeAuthenticatorCalls).toHaveLength(1);
@@ -287,22 +311,8 @@ test.describe('EmailRecoveryDomain', () => {
     }
   });
 
-  test('local finalizeEmailRecovery polls and clears pending store after key appears on-chain', async () => {
-    const pendingStore = createPendingStoreMock({
-      accountId: 'alice.testnet',
-      nearPublicKey: 'ed25519:recovery-key',
-      newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
-      recoverySessionId: 'ABC123',
-      deadlineEpochSeconds: 1_893_456_000,
-      recoveryEmailPayloadHash: 'sha256:payload-hash',
-      recoveryEmailSubject: 'recover-v1 alice.testnet ABC123',
-      recoveryEmailBody: 'tee-encrypted\ntatchi-recovery-v1:payload-token',
-      requestId: 'ABC123',
-      credential: {},
-      createdAt: Date.now(),
-      signerSlot: 1,
-      status: 'awaiting-email',
-    });
+  test('local finalizeEmailRecovery resumes pending state, polls, and clears pending store after key appears on-chain', async () => {
+    const pendingStore = createPendingStoreMock(createPendingEmailRecoveryRecord());
     const events: any[] = [];
     let listCalls = 0;
 
@@ -323,23 +333,86 @@ test.describe('EmailRecoveryDomain', () => {
 
     expect(listCalls).toBeGreaterThanOrEqual(1);
     expect(pendingStore.getCalls).toHaveLength(1);
+    expect(pendingStore.setCalls.map((record) => record.status)).toEqual([
+      'awaiting-add-key',
+      'finalizing',
+      'complete',
+    ]);
     expect(pendingStore.clearCalls).toEqual([
       { accountId: 'alice.testnet', nearPublicKey: 'ed25519:recovery-key' },
     ]);
     expect(events.map((ev) => ev.phase)).toEqual([
-      EmailRecoveryPhase.STEP_4_POLLING_ADD_KEY,
-      EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
-      EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
-      EmailRecoveryPhase.STEP_6_COMPLETE,
+      EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING,
+      EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_STARTED,
+      EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_DETECTED,
+      EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_STARTED,
+      EmailRecoveryFlowEventPhase.STEP_06_AUTO_UNLOCK_SKIPPED,
+      EmailRecoveryFlowEventPhase.STEP_07_COMPLETED,
     ]);
+    expect(events[0]).toMatchObject({
+      flowId: 'email-recovery:alice.testnet:ABC123',
+      requestId: 'ABC123',
+      interaction: { kind: 'email_recovery_link', overlay: 'hide' },
+      data: {
+        nearPublicKey: 'ed25519:recovery-key',
+        recoverySessionId: 'ABC123',
+        pendingStatus: 'awaiting-email',
+      },
+    });
   });
 
-  test('local cancelEmailRecovery clears pending store for provided account/key', async () => {
+  test('local finalizeEmailRecovery failure marks pending record as error and emits failed event', async () => {
+    const pendingStore = createPendingStoreMock(createPendingEmailRecoveryRecord());
+    const events: any[] = [];
+    const errors: Error[] = [];
+    let listCalls = 0;
+
+    const { domain } = createLocalDomain({
+      onViewAccessKeyList: () => {
+        listCalls += 1;
+      },
+    });
+
+    await expect(
+      domain.finalizeEmailRecovery({
+        accountId: 'alice.testnet',
+        options: {
+          pendingStore: pendingStore.store as any,
+          onEvent: (ev: any) => events.push(ev),
+          onError: (error: Error) => errors.push(error),
+        },
+      }),
+    ).rejects.toThrow('Timed out waiting for AddKey');
+
+    expect(listCalls).toBeGreaterThanOrEqual(1);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.message).toBe('Timed out waiting for AddKey');
+    expect(pendingStore.setCalls.map((record) => record.status)).toEqual([
+      'awaiting-add-key',
+      'error',
+    ]);
+    expect(pendingStore.clearCalls).toEqual([]);
+    expect(events.map((ev) => ev.phase)).toEqual([
+      EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING,
+      EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_STARTED,
+      EmailRecoveryFlowEventPhase.FAILED,
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      flowId: 'email-recovery:alice.testnet:ABC123',
+      requestId: 'ABC123',
+      status: 'failed',
+      error: { message: 'Timed out waiting for AddKey' },
+    });
+  });
+
+  test('local cancelEmailRecovery clears pending store and emits cancelled event', async () => {
     const pendingStore = createPendingStoreMock();
     const { domain } = createLocalDomain();
+    const events: any[] = [];
 
     (domain as any).emailRecoveryOptions = {
       pendingStore: pendingStore.store,
+      onEvent: (event: any) => events.push(event),
     };
     await domain.cancelEmailRecovery({
       accountId: 'alice.testnet',
@@ -348,6 +421,19 @@ test.describe('EmailRecoveryDomain', () => {
 
     expect(pendingStore.clearCalls).toEqual([
       { accountId: 'alice.testnet', nearPublicKey: 'ed25519:cancel-key' },
+    ]);
+    expect(events).toEqual([
+      expect.objectContaining({
+        version: 2,
+        flow: 'email_recovery',
+        step: 0,
+        phase: EmailRecoveryFlowEventPhase.CANCELLED,
+        status: 'cancelled',
+        message: 'Email recovery cancelled',
+        flowId: 'email-recovery:alice.testnet:ed25519:cancel-key',
+        accountId: 'alice.testnet',
+        interaction: { kind: 'email_recovery_link', overlay: 'hide' },
+      }),
     ]);
   });
 

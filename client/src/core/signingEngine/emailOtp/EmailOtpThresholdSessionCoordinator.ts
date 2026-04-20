@@ -12,6 +12,10 @@ import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+import {
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  upsertStoredThresholdEd25519SessionRecord,
+} from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
@@ -65,8 +69,77 @@ import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '@/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import type { EmailOtpEnrollmentResult } from '@/core/TatchiPasskey/emailOtp';
+import {
+  deleteSigningSessionSealedRecord,
+  readSigningSessionSealedRecord,
+  updateSigningSessionSealedRecordPolicy,
+  writeSigningSessionSealedRecord,
+  type SigningSessionSealedStoreRecord,
+} from '@/core/signingEngine/api/session/signingSessionSealedStore';
 
 export type EmailOtpSigningOperation = WalletEmailOtpLoginOperation;
+
+type SessionStoragePort = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+
+const EMAIL_OTP_APP_SESSION_JWT_STORAGE_PREFIX = 'tatchi:email-otp:app-session-jwt:v1:';
+
+function getSessionStorageSafe(): SessionStoragePort | null {
+  const globalObj = globalThis as { sessionStorage?: SessionStoragePort };
+  const storage = globalObj?.sessionStorage;
+  if (!storage) return null;
+  try {
+    storage.getItem('__tatchi_email_otp_app_session_probe__');
+    return storage;
+  } catch {
+    return null;
+  }
+}
+
+function appSessionJwtStorageKey(accountId: string): string {
+  return `${EMAIL_OTP_APP_SESSION_JWT_STORAGE_PREFIX}${encodeURIComponent(accountId)}`;
+}
+
+function readPersistedAppSessionJwt(accountId: string): string {
+  const normalizedAccountId = String(accountId || '').trim();
+  if (!normalizedAccountId) return '';
+  const storage = getSessionStorageSafe();
+  if (!storage) return '';
+  try {
+    const jwt = String(storage.getItem(appSessionJwtStorageKey(normalizedAccountId)) || '').trim();
+    if (!jwt || !isAppSessionJwt(jwt)) {
+      storage.removeItem(appSessionJwtStorageKey(normalizedAccountId));
+      return '';
+    }
+    if (!isSessionJwtUnexpired(jwt)) {
+      storage.removeItem(appSessionJwtStorageKey(normalizedAccountId));
+      return '';
+    }
+    return jwt;
+  } catch {
+    return '';
+  }
+}
+
+function writePersistedAppSessionJwt(accountId: string, jwtRaw: string): void {
+  const normalizedAccountId = String(accountId || '').trim();
+  const jwt = String(jwtRaw || '').trim();
+  if (!normalizedAccountId || !jwt || !isAppSessionJwt(jwt)) return;
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+  try {
+    storage.setItem(appSessionJwtStorageKey(normalizedAccountId), jwt);
+  } catch {}
+}
+
+function deletePersistedAppSessionJwt(accountId: string): void {
+  const normalizedAccountId = String(accountId || '').trim();
+  if (!normalizedAccountId) return;
+  const storage = getSessionStorageSafe();
+  if (!storage) return;
+  try {
+    storage.removeItem(appSessionJwtStorageKey(normalizedAccountId));
+  } catch {}
+}
 
 export type EmailOtpBootstrapRecovery = {
   loginGrant: string;
@@ -89,6 +162,13 @@ export type EmailOtpThresholdEcdsaEnrollmentResult = {
   enrollment: EmailOtpEnrollmentResult;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
+};
+
+export type EmailOtpThresholdEcdsaRehydrateResult = {
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  warmCapability: WarmSessionEcdsaCapabilityState;
+  remainingUses: number;
+  expiresAtMs: number;
 };
 
 export type EmailOtpThresholdEd25519ProvisioningResult = {
@@ -133,6 +213,7 @@ export type ProvisionEmailOtpThresholdEd25519CapabilityArgs = {
   ttlMs?: number;
   remainingUses?: number;
   walletSigningSessionId?: string;
+  ecdsaThresholdSessionId?: string;
 };
 
 export type LoginEmailOtpEcdsaCapabilityArgs = {
@@ -242,6 +323,8 @@ export type EmailOtpThresholdSessionCoordinatorDeps = {
       shamirPrimeB64u?: string;
     };
   }) => Promise<void>;
+  writeSigningSessionSealedRecord?: typeof writeSigningSessionSealedRecord;
+  readSigningSessionSealedRecord?: typeof readSigningSessionSealedRecord;
 };
 
 export class EmailOtpThresholdSessionCoordinator {
@@ -283,7 +366,7 @@ export class EmailOtpThresholdSessionCoordinator {
       return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
     }
     try {
-      return await this.deps.signerWorkerManager.requestWorkerOperation({
+      const result = await this.deps.signerWorkerManager.requestWorkerOperation({
         kind: 'emailOtp',
         request: {
           type: 'claimEmailOtpWarmSessionMaterial',
@@ -294,6 +377,25 @@ export class EmailOtpThresholdSessionCoordinator {
           },
         },
       });
+      if (result.ok) {
+        if (result.remainingUses <= 0 || Date.now() >= result.expiresAtMs) {
+          await deleteSigningSessionSealedRecord(normalizedSessionId).catch(() => undefined);
+        } else {
+          await updateSigningSessionSealedRecordPolicy({
+            thresholdSessionId: normalizedSessionId,
+            expiresAtMs: result.expiresAtMs,
+            remainingUses: result.remainingUses,
+            updatedAtMs: Date.now(),
+          }).catch(() => undefined);
+        }
+      } else if (
+        result.code === 'expired' ||
+        result.code === 'exhausted' ||
+        result.code === 'not_found'
+      ) {
+        await deleteSigningSessionSealedRecord(normalizedSessionId).catch(() => undefined);
+      }
+      return result;
     } catch (error) {
       return {
         ok: false,
@@ -316,6 +418,7 @@ export class EmailOtpThresholdSessionCoordinator {
         },
       })
       .catch(() => undefined);
+    await deleteSigningSessionSealedRecord(normalizedSessionId).catch(() => undefined);
   }
 
   rememberAppSessionJwt(args: { nearAccountId: AccountId | string; appSessionJwt?: string }): void {
@@ -328,6 +431,7 @@ export class EmailOtpThresholdSessionCoordinator {
       this.appSessionJwtByAccount = new Map();
     }
     this.appSessionJwtByAccount.set(accountId, jwt);
+    writePersistedAppSessionJwt(accountId, jwt);
   }
 
   async resolveAppSessionJwt(args: {
@@ -342,24 +446,47 @@ export class EmailOtpThresholdSessionCoordinator {
     if (cached && isAppSessionJwt(cached) && isSessionJwtUnexpired(cached, { skewMs: 30_000 })) {
       return cached;
     }
+    const persisted = accountId ? readPersistedAppSessionJwt(accountId) : '';
+    if (
+      persisted &&
+      isAppSessionJwt(persisted) &&
+      isSessionJwtUnexpired(persisted, { skewMs: 30_000 })
+    ) {
+      this.appSessionJwtByAccount.set(accountId, persisted);
+      return persisted;
+    }
+    const refreshCandidate =
+      cached && isAppSessionJwt(cached) && isSessionJwtUnexpired(cached)
+        ? cached
+        : persisted && isAppSessionJwt(persisted) && isSessionJwtUnexpired(persisted)
+          ? persisted
+          : '';
     if (accountId) this.appSessionJwtByAccount.delete(accountId);
+    if (accountId && !refreshCandidate) deletePersistedAppSessionJwt(accountId);
     const refreshed = this.deps.refreshAppSessionJwt
       ? await this.deps.refreshAppSessionJwt({ relayUrl: args.relayUrl })
-      : await this.refreshAppSessionJwt({ relayUrl: args.relayUrl });
+      : await this.refreshAppSessionJwt({
+          relayUrl: args.relayUrl,
+          ...(refreshCandidate ? { appSessionJwt: refreshCandidate } : {}),
+        });
     if (accountId && refreshed) {
-      this.appSessionJwtByAccount.set(accountId, refreshed);
+      this.rememberAppSessionJwt({ nearAccountId: accountId, appSessionJwt: refreshed });
     }
     return refreshed;
   }
 
-  private async refreshAppSessionJwt(args: { relayUrl: string }): Promise<string> {
+  private async refreshAppSessionJwt(args: { relayUrl: string; appSessionJwt?: string }): Promise<string> {
     const relayUrl = String(args.relayUrl || '').trim();
     if (!relayUrl) {
       throw new Error('Missing relayer url for Email OTP export session refresh');
     }
+    const appSessionJwt = String(args.appSessionJwt || '').trim();
     const response = await fetch(joinNormalizedUrl(relayUrl, '/session/refresh'), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(appSessionJwt ? { Authorization: `Bearer ${appSessionJwt}` } : {}),
+      },
       credentials: 'include',
       body: JSON.stringify({ session_kind: 'jwt' }),
     });
@@ -456,6 +583,7 @@ export class EmailOtpThresholdSessionCoordinator {
         nearAccountId,
         relayUrl,
       }));
+    this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
     const response = await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
@@ -670,8 +798,8 @@ export class EmailOtpThresholdSessionCoordinator {
         nearAccountId,
         relayUrl,
       }));
+    this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
     const thresholdRouteAuth = this.appSessionRouteAuth(appSessionJwt);
-    const isExportOperation = args.operation === WALLET_EMAIL_OTP_EXPORT_OPERATION;
     await this.loginWithEcdsaCapabilityInternal({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
@@ -683,7 +811,6 @@ export class EmailOtpThresholdSessionCoordinator {
       ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
       participantIds: record.participantIds,
       sessionKind: record.thresholdSessionKind,
-      ...(isExportOperation ? {} : { sessionId: record.thresholdSessionId }),
       ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
       ...(appSessionJwt ? { appSessionJwt } : {}),
       remainingUses,
@@ -737,6 +864,7 @@ export class EmailOtpThresholdSessionCoordinator {
       appSessionJwt: args.appSessionJwt,
       ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
     });
+    this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
     const workerResult = await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
@@ -776,6 +904,13 @@ export class EmailOtpThresholdSessionCoordinator {
         emailOtpAuthContext,
         ...(args.smartAccount ? { smartAccount: args.smartAccount } : {}),
       });
+    await this.persistEmailOtpEcdsaSigningSessionSealBestEffort({
+      nearAccountId,
+      bootstrap,
+      emailOtpAuthContext,
+      relayerUrl: relayUrl,
+      shamirPrimeB64u,
+    });
     const thresholdEd25519PrfFirstB64u = String(
       workerResult.recovery?.thresholdEd25519PrfFirstB64u || '',
     ).trim();
@@ -792,6 +927,11 @@ export class EmailOtpThresholdSessionCoordinator {
         ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
         walletSigningSessionId,
+        ecdsaThresholdSessionId: String(
+          workerResult.bootstrap.session?.sessionId ||
+            workerResult.bootstrap.thresholdEcdsaKeyRef?.thresholdSessionId ||
+            '',
+        ).trim(),
       });
     }
     return {
@@ -835,6 +975,7 @@ export class EmailOtpThresholdSessionCoordinator {
       appSessionJwt: args.appSessionJwt,
       ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
     });
+    this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
     const remainingUses =
       typeof args.remainingUses === 'number'
         ? args.remainingUses
@@ -884,6 +1025,13 @@ export class EmailOtpThresholdSessionCoordinator {
           emailOtpAuthContext,
           ...(args.smartAccount ? { smartAccount: args.smartAccount } : {}),
         });
+      await this.persistEmailOtpEcdsaSigningSessionSealBestEffort({
+        nearAccountId,
+        bootstrap,
+        emailOtpAuthContext,
+        relayerUrl: relayUrl,
+        shamirPrimeB64u,
+      });
       const thresholdEd25519PrfFirstB64u = String(
         workerResult.enrollment?.thresholdEd25519PrfFirstB64u || '',
       ).trim();
@@ -903,6 +1051,11 @@ export class EmailOtpThresholdSessionCoordinator {
           ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
           ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
           walletSigningSessionId,
+          ecdsaThresholdSessionId: String(
+            workerResult.bootstrap.session?.sessionId ||
+              workerResult.bootstrap.thresholdEcdsaKeyRef?.thresholdSessionId ||
+              '',
+          ).trim(),
         });
       }
       return {
@@ -913,6 +1066,288 @@ export class EmailOtpThresholdSessionCoordinator {
     } finally {
       workerClientSecret32?.fill(0);
     }
+  }
+
+  private async persistEmailOtpEcdsaSigningSessionSealBestEffort(args: {
+    nearAccountId: AccountId | string;
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+    relayerUrl: string;
+    shamirPrimeB64u: string;
+  }): Promise<void> {
+    if (this.deps.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return;
+    if (args.emailOtpAuthContext.retention !== 'session') return;
+
+    const workerCtx = this.deps.getSignerWorkerContext();
+    if (!workerCtx) return;
+
+    const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
+    const session = args.bootstrap.session;
+    const thresholdSessionId = String(
+      session?.sessionId || keyRef.thresholdSessionId || '',
+    ).trim();
+    const walletSigningSessionId = String(
+      session?.walletSigningSessionId || keyRef.walletSigningSessionId || thresholdSessionId,
+    ).trim();
+    const relayerUrl = String(args.relayerUrl || keyRef.relayerUrl || '').trim();
+    const shamirPrimeB64u = String(
+      args.shamirPrimeB64u || this.deps.configs.signing.sessionSeal?.shamirPrimeB64u || '',
+    ).trim();
+    if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl || !shamirPrimeB64u) return;
+
+    const thresholdSessionJwt = String(session?.jwt || keyRef.thresholdSessionJwt || '').trim();
+    const keyVersion = String(this.deps.configs.signing.sessionSeal?.keyVersion || '').trim();
+    const sealed = await workerCtx
+      .requestWorkerOperation({
+        kind: 'emailOtp',
+        request: {
+          type: 'sealEmailOtpWarmSessionMaterial',
+          timeoutMs: 30_000,
+          payload: {
+            sessionId: thresholdSessionId,
+            transport: {
+              relayerUrl,
+              ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+              ...(keyVersion ? { keyVersion } : {}),
+              shamirPrimeB64u,
+            },
+          },
+        },
+      })
+      .catch(() => null);
+
+    if (!sealed?.ok) return;
+    const sealedSecretB64u = String(sealed.sealedSecretB64u || '').trim();
+    const expiresAtMs = Math.floor(Number(sealed.expiresAtMs) || Number(session?.expiresAtMs) || 0);
+    const remainingUses = Math.floor(
+      Number(sealed.remainingUses) || Number(session?.remainingUses) || 0,
+    );
+    if (!sealedSecretB64u || expiresAtMs <= 0 || remainingUses < 0) return;
+
+    const writer = this.deps.writeSigningSessionSealedRecord || writeSigningSessionSealedRecord;
+    await writer({
+      thresholdSessionId,
+      sealedSecretB64u,
+      curve: 'ecdsa',
+      authMethod: 'email_otp',
+      walletSigningSessionId,
+      thresholdSessionIds: { ecdsa: thresholdSessionId },
+      walletId: String(args.nearAccountId || '').trim(),
+      userId: String(keyRef.userId || args.nearAccountId || '').trim(),
+      signingRootId: String(keyRef.signingRootId || '').trim(),
+      ...(String(keyRef.signingRootVersion || '').trim()
+        ? { signingRootVersion: String(keyRef.signingRootVersion || '').trim() }
+        : {}),
+      relayerUrl,
+      ...(String(sealed.keyVersion || keyVersion).trim()
+        ? { keyVersion: String(sealed.keyVersion || keyVersion).trim() }
+        : {}),
+      shamirPrimeB64u,
+      expiresAtMs,
+      remainingUses,
+      updatedAtMs: Date.now(),
+    });
+  }
+
+  private async attachEd25519SessionToEmailOtpSigningSessionSealBestEffort(args: {
+    ecdsaThresholdSessionId?: string;
+    ed25519ThresholdSessionId: string;
+  }): Promise<void> {
+    if (this.deps.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return;
+    const ecdsaThresholdSessionId = String(args.ecdsaThresholdSessionId || '').trim();
+    const ed25519ThresholdSessionId = String(args.ed25519ThresholdSessionId || '').trim();
+    if (!ecdsaThresholdSessionId || !ed25519ThresholdSessionId) return;
+    const reader = this.deps.readSigningSessionSealedRecord || readSigningSessionSealedRecord;
+    const existing = await reader(ecdsaThresholdSessionId).catch(() => null);
+    if (!existing || existing.authMethod !== 'email_otp') return;
+    const ed25519Record =
+      getStoredThresholdEd25519SessionRecordByThresholdSessionId(ed25519ThresholdSessionId);
+    if (
+      !ed25519Record ||
+      ed25519Record.source !== 'email_otp' ||
+      ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
+      ed25519Record.walletSigningSessionId !== existing.walletSigningSessionId
+    ) {
+      return;
+    }
+    const writer = this.deps.writeSigningSessionSealedRecord || writeSigningSessionSealedRecord;
+    await writer({
+      thresholdSessionId: ecdsaThresholdSessionId,
+      sealedSecretB64u: existing.sealedSecretB64u,
+      curve: existing.curve,
+      authMethod: existing.authMethod,
+      walletSigningSessionId: existing.walletSigningSessionId,
+      thresholdSessionIds: {
+        ...existing.thresholdSessionIds,
+        ed25519: ed25519ThresholdSessionId,
+      },
+      walletId: existing.walletId,
+      userId: existing.userId,
+      signingRootId: existing.signingRootId,
+      signingRootVersion: existing.signingRootVersion,
+      relayerUrl: existing.relayerUrl,
+      keyVersion: existing.keyVersion,
+      shamirPrimeB64u: existing.shamirPrimeB64u,
+      issuedAtMs: existing.issuedAtMs,
+      expiresAtMs: existing.expiresAtMs,
+      remainingUses: existing.remainingUses,
+      updatedAtMs: Date.now(),
+    });
+  }
+
+  async rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(args: {
+    sealedRecord: SigningSessionSealedStoreRecord;
+    ecdsaRecord: ThresholdEcdsaSessionRecord;
+    ed25519Record?: ThresholdEd25519SessionRecord | null;
+    smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
+  }): Promise<EmailOtpThresholdEcdsaRehydrateResult | null> {
+    const sealedRecord = args.sealedRecord;
+    const ecdsaRecord = args.ecdsaRecord;
+    if (sealedRecord.authMethod !== 'email_otp') return null;
+    if (sealedRecord.secretKind !== 'signing_session_secret32') return null;
+    if (ecdsaRecord.source !== 'email_otp') return null;
+    const emailOtpAuthContext = ecdsaRecord.emailOtpAuthContext;
+    if (!emailOtpAuthContext || emailOtpAuthContext.retention !== 'session') return null;
+
+    const workerCtx = this.deps.getSignerWorkerContext();
+    if (!workerCtx) {
+      throw new Error('Email OTP sealed refresh requires the dedicated emailOtp worker');
+    }
+
+    const thresholdSessionId = String(ecdsaRecord.thresholdSessionId || '').trim();
+    const walletSigningSessionId = String(
+      ecdsaRecord.walletSigningSessionId || sealedRecord.walletSigningSessionId || '',
+    ).trim();
+    const relayerUrl = String(ecdsaRecord.relayerUrl || sealedRecord.relayerUrl || '').trim();
+    const shamirPrimeB64u = String(
+      ecdsaRecord.signingSessionSealShamirPrimeB64u ||
+        sealedRecord.shamirPrimeB64u ||
+        this.deps.configs.signing.sessionSeal?.shamirPrimeB64u ||
+        '',
+    ).trim();
+    const thresholdSessionJwt = String(ecdsaRecord.thresholdSessionJwt || '').trim();
+    const keyVersion = String(
+      sealedRecord.keyVersion ||
+        ecdsaRecord.signingSessionSealKeyVersion ||
+        this.deps.configs.signing.sessionSeal?.keyVersion ||
+        '',
+    ).trim();
+    if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl || !shamirPrimeB64u) {
+      throw new Error('Email OTP sealed refresh is missing threshold-session restore metadata');
+    }
+    if (sealedRecord.thresholdSessionIds.ecdsa !== thresholdSessionId) {
+      throw new Error('Email OTP sealed refresh threshold-session id mismatch');
+    }
+    if (sealedRecord.walletSigningSessionId !== walletSigningSessionId) {
+      throw new Error('Email OTP sealed refresh wallet signing-session id mismatch');
+    }
+    if (
+      sealedRecord.signingRootId &&
+      ecdsaRecord.signingRootId &&
+      sealedRecord.signingRootId !== ecdsaRecord.signingRootId
+    ) {
+      throw new Error('Email OTP sealed refresh signing-root id mismatch');
+    }
+    if (
+      sealedRecord.signingRootVersion &&
+      ecdsaRecord.signingRootVersion &&
+      sealedRecord.signingRootVersion !== ecdsaRecord.signingRootVersion
+    ) {
+      throw new Error('Email OTP sealed refresh signing-root version mismatch');
+    }
+    const ed25519Record =
+      args.ed25519Record &&
+      args.ed25519Record.source === 'email_otp' &&
+      args.ed25519Record.emailOtpAuthContext?.retention === 'session' &&
+      sealedRecord.thresholdSessionIds.ed25519 === args.ed25519Record.thresholdSessionId &&
+      args.ed25519Record.walletSigningSessionId === walletSigningSessionId
+        ? args.ed25519Record
+        : null;
+
+    const restored = await workerCtx.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'rehydrateEmailOtpEcdsaWarmSessionMaterial',
+        timeoutMs: 60_000,
+        payload: {
+          sealedSecretB64u: sealedRecord.sealedSecretB64u,
+          remainingUses: sealedRecord.remainingUses,
+          expiresAtMs: sealedRecord.expiresAtMs,
+          transport: {
+            relayerUrl,
+            ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+            ...(keyVersion ? { keyVersion } : {}),
+            shamirPrimeB64u,
+          },
+          restore: {
+            sessionId: thresholdSessionId,
+            walletId: sealedRecord.walletId || String(ecdsaRecord.nearAccountId || ''),
+            userId: sealedRecord.userId || String(ecdsaRecord.nearAccountId || ''),
+            rpId: this.requireRpId('Email OTP sealed refresh'),
+            chain: ecdsaRecord.chain,
+            walletSigningSessionId,
+            signingRootId: ecdsaRecord.signingRootId,
+            ...(ecdsaRecord.signingRootVersion
+              ? { signingRootVersion: ecdsaRecord.signingRootVersion }
+              : {}),
+            ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
+            relayerKeyId: ecdsaRecord.relayerKeyId,
+            participantIds: ecdsaRecord.participantIds,
+            sessionKind: ecdsaRecord.thresholdSessionKind,
+            ...(ecdsaRecord.runtimePolicyScope
+              ? { runtimePolicyScope: ecdsaRecord.runtimePolicyScope }
+              : {}),
+          },
+        },
+      },
+    });
+    if (!restored.ok) {
+      throw new Error(restored.message || restored.code || 'Email OTP sealed refresh failed');
+    }
+
+    const { bootstrap, warmCapability } =
+      await this.deps.commitWorkerProvisionedThresholdEcdsaSessions({
+        nearAccountId: ecdsaRecord.nearAccountId,
+        primaryChain: ecdsaRecord.chain,
+        bootstrap: restored.bootstrap,
+        source: 'email_otp',
+        emailOtpAuthContext,
+        ...(args.smartAccount ? { smartAccount: args.smartAccount } : {}),
+      });
+    if (ed25519Record) {
+      upsertStoredThresholdEd25519SessionRecord({
+        nearAccountId: ed25519Record.nearAccountId,
+        rpId: ed25519Record.rpId,
+        relayerUrl: ed25519Record.relayerUrl,
+        relayerKeyId: ed25519Record.relayerKeyId,
+        participantIds: ed25519Record.participantIds,
+        ...(ed25519Record.runtimePolicyScope
+          ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
+          : {}),
+        ...(ed25519Record.xClientBaseB64u
+          ? { xClientBaseB64u: ed25519Record.xClientBaseB64u }
+          : {}),
+        thresholdSessionKind: ed25519Record.thresholdSessionKind,
+        thresholdSessionId: ed25519Record.thresholdSessionId,
+        ...(ed25519Record.walletSigningSessionId
+          ? { walletSigningSessionId: ed25519Record.walletSigningSessionId }
+          : {}),
+        thresholdSessionJwt: ed25519Record.thresholdSessionJwt,
+        expiresAtMs: restored.expiresAtMs,
+        remainingUses: restored.remainingUses,
+        ...(ed25519Record.emailOtpAuthContext
+          ? { emailOtpAuthContext: ed25519Record.emailOtpAuthContext }
+          : {}),
+        updatedAtMs: Date.now(),
+        source: ed25519Record.source,
+      });
+    }
+    return {
+      bootstrap,
+      warmCapability,
+      remainingUses: restored.remainingUses,
+      expiresAtMs: restored.expiresAtMs,
+    };
   }
 
   async loginWithEd25519CapabilityForSigning(args: {
@@ -1239,6 +1674,10 @@ export class EmailOtpThresholdSessionCoordinator {
         relayerUrl,
         thresholdSessionJwt: jwt,
       },
+    });
+    await this.attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
+      ecdsaThresholdSessionId: args.ecdsaThresholdSessionId,
+      ed25519ThresholdSessionId: sessionId,
     });
 
     const completed = await runThresholdEd25519HssCeremonyWithSessionValue({

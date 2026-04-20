@@ -24,7 +24,7 @@ export const ROUTE_SERVICE_KEYS = [
   'orgProjectEnv',
   'policies',
   'publishableKeyAuth',
-  'prfSessionSeal',
+  'signingSessionSeal',
   'relaySponsoredEvmCall',
   'relayWebhooks',
   'runtimeSnapshots',

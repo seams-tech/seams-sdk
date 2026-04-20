@@ -2,7 +2,7 @@
  * UserConfirm Web Worker
  *
  * Hosts the UserConfirm handshake runtime (`awaitUserConfirmationV2`) and the
- * threshold PRF.first warm-session cache.
+ * threshold warm-session material cache.
  */
 import { toAccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
@@ -52,18 +52,18 @@ type WarmSessionMaterialEntry = {
 };
 
 type OkResult = { ok: true; remainingUses: number; expiresAtMs: number };
-type OkSealResult = OkResult & { sealedPrfFirstB64u: string; keyVersion?: string };
+type OkSealResult = OkResult & { sealedSecretB64u: string; keyVersion?: string };
 type OkDispenseResult = OkResult & { prfFirstB64u: string };
 type ErrResult = { ok: false; code: string; message: string };
 
-type PrfSessionSealTransport = {
+type SigningSessionSealTransport = {
   relayerUrl: string;
   thresholdSessionJwt?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
 };
 
-type PrfSessionSealRouteResult =
+type SigningSessionSealRouteResult =
   | {
       ok: true;
       ciphertext: string;
@@ -74,11 +74,11 @@ type PrfSessionSealRouteResult =
   | ErrResult;
 
 const prfFirstSessionCache = new Map<string, WarmSessionMaterialEntry>();
-const prfSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | ErrResult>>();
-const prfSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
+const signingSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | ErrResult>>();
+const signingSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
 const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'HSS Client Signer');
-const PRF_SESSION_SEAL_BASE_PATH = '/threshold-ecdsa/prf-seal';
+const SIGNING_SESSION_SEAL_BASE_PATH = '/threshold/signing-session-seal';
 type NearSeedExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
   { chain: 'near'; artifactKind: 'near-ed25519-seed-v1' }
@@ -235,7 +235,7 @@ function requireEcdsaHssThresholdExportPayload(
   return payload as EcdsaHssThresholdExportWorkerPayload;
 }
 
-function parsePrfSessionSealTransport(value: unknown): PrfSessionSealTransport | null {
+function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTransport | null {
   const transport = asRecord(value);
   if (!transport) return null;
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
@@ -251,17 +251,19 @@ function parsePrfSessionSealTransport(value: unknown): PrfSessionSealTransport |
   };
 }
 
-function parsePrfSessionSealRouteResult(value: unknown): PrfSessionSealRouteResult {
+function parseSigningSessionSealRouteResult(value: unknown): SigningSessionSealRouteResult {
   const result = asRecord(value);
   if (!result || typeof result.ok !== 'boolean') {
-    return { ok: false, code: 'invalid_response', message: 'Invalid PRF session seal response' };
+    return { ok: false, code: 'invalid_response', message: 'Invalid signing-session seal response' };
   }
   if (!result.ok) {
     return {
       ok: false,
       code: typeof result.code === 'string' ? result.code : 'request_failed',
       message:
-        typeof result.message === 'string' ? result.message : 'PRF session seal request failed',
+        typeof result.message === 'string'
+          ? result.message
+          : 'Signing-session seal request failed',
     };
   }
   const ciphertext = normalizeOptionalTrimmedString(result.ciphertext);
@@ -272,7 +274,7 @@ function parsePrfSessionSealRouteResult(value: unknown): PrfSessionSealRouteResu
     return {
       ok: false,
       code: 'invalid_response',
-      message: 'Missing ciphertext in PRF session seal response',
+      message: 'Missing ciphertext in signing-session seal response',
     };
   }
   return {
@@ -284,7 +286,7 @@ function parsePrfSessionSealRouteResult(value: unknown): PrfSessionSealRouteResu
   };
 }
 
-function makePrfSessionSealSingleFlightKey(args: {
+function makeSigningSessionSealSingleFlightKey(args: {
   operation: 'apply-server-seal' | 'remove-server-seal';
   sessionId: string;
   relayerUrl: string;
@@ -302,18 +304,18 @@ function makePrfSessionSealSingleFlightKey(args: {
   return `${operation}|${sessionId}|${relayerUrl}|${keyVersion}|${shamirPrimeB64u}|${payloadB64u}`;
 }
 
-async function callPrfSessionSealRoute(args: {
+async function callSigningSessionSealRoute(args: {
   operation: 'apply-server-seal' | 'remove-server-seal';
-  transport: PrfSessionSealTransport;
+  transport: SigningSessionSealTransport;
   thresholdSessionId: string;
   ciphertext: string;
   keyVersion?: string;
-}): Promise<PrfSessionSealRouteResult> {
+}): Promise<SigningSessionSealRouteResult> {
   const routePath =
     args.operation === 'apply-server-seal' ? 'apply-server-seal' : 'remove-server-seal';
   const url = joinNormalizedUrl(
     args.transport.relayerUrl,
-    `${PRF_SESSION_SEAL_BASE_PATH}/${routePath}`,
+    `${SIGNING_SESSION_SEAL_BASE_PATH}/${routePath}`,
   );
 
   try {
@@ -336,12 +338,12 @@ async function callPrfSessionSealRoute(args: {
       }),
     });
     const data = await response.json().catch(() => null);
-    const parsed = parsePrfSessionSealRouteResult(data);
+    const parsed = parseSigningSessionSealRouteResult(data);
     if (!response.ok && parsed.ok) {
       return {
         ok: false,
         code: 'http_error',
-        message: `PRF session seal route returned HTTP ${response.status}`,
+        message: `Signing-session seal route returned HTTP ${response.status}`,
       };
     }
     if (!parsed.ok) return parsed;
@@ -351,7 +353,9 @@ async function callPrfSessionSealRoute(args: {
       ok: false,
       code: 'network_error',
       message:
-        error instanceof Error ? error.message : String(error || 'PRF session seal request failed'),
+        error instanceof Error
+          ? error.message
+          : String(error || 'Signing-session seal request failed'),
     };
   }
 }
@@ -707,9 +711,9 @@ function claimWarmSessionMaterialEntry(sessionId: string, uses: number): OkDispe
   };
 }
 
-async function runPrfSessionSealAndPersist(args: {
+async function runSigningSessionSealAndPersist(args: {
   sessionId: string;
-  transport: PrfSessionSealTransport;
+  transport: SigningSessionSealTransport;
 }): Promise<OkSealResult | ErrResult> {
   const sessionId = normalizeOptionalTrimmedString(args.sessionId);
   if (!sessionId) {
@@ -720,7 +724,7 @@ async function runPrfSessionSealAndPersist(args: {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing shamirPrimeB64u for PRF session seal',
+      message: 'Missing shamirPrimeB64u for signing-session seal',
     };
   }
   const statusRead = readWarmSessionClaimEntry(sessionId);
@@ -729,7 +733,7 @@ async function runPrfSessionSealAndPersist(args: {
   if (!entry) {
     return { ok: false, code: 'not_found', message: 'Warm-session material is not available for threshold session' };
   }
-  const singleFlightKey = makePrfSessionSealSingleFlightKey({
+  const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'apply-server-seal',
     sessionId,
     relayerUrl: args.transport.relayerUrl,
@@ -737,7 +741,7 @@ async function runPrfSessionSealAndPersist(args: {
     shamirPrimeB64u,
     payloadB64u: entry.prfFirstB64u,
   });
-  const inFlight = prfSessionSealApplyInFlight.get(singleFlightKey);
+  const inFlight = signingSessionSealApplyInFlight.get(singleFlightKey);
   if (inFlight) return await inFlight;
 
   const task = (async (): Promise<OkSealResult | ErrResult> => {
@@ -750,7 +754,7 @@ async function runPrfSessionSealAndPersist(args: {
           keyHandle: clientKeyHandle.keyHandle,
         });
 
-        const applied = await callPrfSessionSealRoute({
+        const applied = await callSigningSessionSealRoute({
           operation: 'apply-server-seal',
           transport: args.transport,
           thresholdSessionId: sessionId,
@@ -759,7 +763,7 @@ async function runPrfSessionSealAndPersist(args: {
         });
         if (!applied.ok) return applied;
 
-        const sealedPrfFirstB64u = await runtime.removeClientSealWithKeyHandle({
+        const sealedSecretB64u = await runtime.removeClientSealWithKeyHandle({
           ciphertextB64u: applied.ciphertext,
           keyHandle: clientKeyHandle.keyHandle,
         });
@@ -781,7 +785,7 @@ async function runPrfSessionSealAndPersist(args: {
         const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
         return {
           ok: true,
-          sealedPrfFirstB64u,
+          sealedSecretB64u,
           ...(keyVersion ? { keyVersion } : {}),
           remainingUses: policy.remainingUses,
           expiresAtMs: policy.expiresAtMs,
@@ -800,28 +804,28 @@ async function runPrfSessionSealAndPersist(args: {
       };
     }
   })().finally(() => {
-    prfSessionSealApplyInFlight.delete(singleFlightKey);
+    signingSessionSealApplyInFlight.delete(singleFlightKey);
   });
 
-  prfSessionSealApplyInFlight.set(singleFlightKey, task);
+  signingSessionSealApplyInFlight.set(singleFlightKey, task);
   return await task;
 }
 
-async function runPrfSessionRehydrate(args: {
+async function runSigningSessionRehydrate(args: {
   sessionId: string;
-  sealedPrfFirstB64u: string;
+  sealedSecretB64u: string;
   keyVersion?: string;
   remainingUses: number;
   expiresAtMs: number;
-  transport: PrfSessionSealTransport;
+  transport: SigningSessionSealTransport;
 }): Promise<OkResult | ErrResult> {
   const sessionId = normalizeOptionalTrimmedString(args.sessionId);
   if (!sessionId) {
     return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
   }
-  const sealedPrfFirstB64u = normalizeOptionalTrimmedString(args.sealedPrfFirstB64u);
-  if (!sealedPrfFirstB64u) {
-    return { ok: false, code: 'invalid_args', message: 'Missing sealedPrfFirstB64u' };
+  const sealedSecretB64u = normalizeOptionalTrimmedString(args.sealedSecretB64u);
+  if (!sealedSecretB64u) {
+    return { ok: false, code: 'invalid_args', message: 'Missing sealedSecretB64u' };
   }
   const localRemainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
   const localExpiresAtMs = Math.max(0, Math.floor(Number(args.expiresAtMs) || 0));
@@ -840,18 +844,18 @@ async function runPrfSessionRehydrate(args: {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing shamirPrimeB64u for PRF session rehydrate',
+      message: 'Missing shamirPrimeB64u for signing-session rehydrate',
     };
   }
-  const singleFlightKey = makePrfSessionSealSingleFlightKey({
+  const singleFlightKey = makeSigningSessionSealSingleFlightKey({
     operation: 'remove-server-seal',
     sessionId,
     relayerUrl: args.transport.relayerUrl,
     keyVersion: args.keyVersion || args.transport.keyVersion,
     shamirPrimeB64u,
-    payloadB64u: sealedPrfFirstB64u,
+    payloadB64u: sealedSecretB64u,
   });
-  const inFlight = prfSessionSealRemoveInFlight.get(singleFlightKey);
+  const inFlight = signingSessionSealRemoveInFlight.get(singleFlightKey);
   if (inFlight) return await inFlight;
 
   const task = (async (): Promise<OkResult | ErrResult> => {
@@ -860,11 +864,11 @@ async function runPrfSessionRehydrate(args: {
       const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
       try {
         const clientEncryptedCiphertext = await runtime.addClientSealWithKeyHandle({
-          ciphertextB64u: sealedPrfFirstB64u,
+          ciphertextB64u: sealedSecretB64u,
           keyHandle: clientKeyHandle.keyHandle,
         });
 
-        const removed = await callPrfSessionSealRoute({
+        const removed = await callSigningSessionSealRoute({
           operation: 'remove-server-seal',
           transport: args.transport,
           thresholdSessionId: sessionId,
@@ -905,10 +909,10 @@ async function runPrfSessionRehydrate(args: {
       };
     }
   })().finally(() => {
-    prfSessionSealRemoveInFlight.delete(singleFlightKey);
+    signingSessionSealRemoveInFlight.delete(singleFlightKey);
   });
 
-  prfSessionSealRemoveInFlight.set(singleFlightKey, task);
+  signingSessionSealRemoveInFlight.set(singleFlightKey, task);
   return await task;
 }
 
@@ -1103,7 +1107,7 @@ self.onmessage = (event: MessageEvent) => {
     void (async () => {
       const payload = asRecord(incoming.payload);
       const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
-      const transport = parsePrfSessionSealTransport(payload?.transport);
+      const transport = parseSigningSessionSealTransport(payload?.transport);
       if (!sessionId || !transport) {
         postUserConfirmWorkerResponse(id, {
           success: true,
@@ -1115,7 +1119,7 @@ self.onmessage = (event: MessageEvent) => {
         });
         return;
       }
-      const result = await runPrfSessionSealAndPersist({ sessionId, transport });
+      const result = await runSigningSessionSealAndPersist({ sessionId, transport });
       postUserConfirmWorkerResponse(id, { success: true, data: result });
     })();
     return;
@@ -1125,14 +1129,14 @@ self.onmessage = (event: MessageEvent) => {
     void (async () => {
       const payload = asRecord(incoming.payload);
       const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
-      const sealedPrfFirstB64u = normalizeOptionalTrimmedString(payload?.sealedPrfFirstB64u);
+      const sealedSecretB64u = normalizeOptionalTrimmedString(payload?.sealedSecretB64u);
       const expiresAtMs = Math.floor(Number(payload?.expiresAtMs) || 0);
       const remainingUses = Math.floor(Number(payload?.remainingUses) || 0);
       const keyVersion = normalizeOptionalNonEmptyString(payload?.keyVersion);
-      const transport = parsePrfSessionSealTransport(payload?.transport);
+      const transport = parseSigningSessionSealTransport(payload?.transport);
       if (
         !sessionId ||
-        !sealedPrfFirstB64u ||
+        !sealedSecretB64u ||
         !transport ||
         expiresAtMs <= 0 ||
         remainingUses <= 0
@@ -1147,9 +1151,9 @@ self.onmessage = (event: MessageEvent) => {
         });
         return;
       }
-      const result = await runPrfSessionRehydrate({
+      const result = await runSigningSessionRehydrate({
         sessionId,
-        sealedPrfFirstB64u,
+        sealedSecretB64u,
         expiresAtMs,
         remainingUses,
         ...(keyVersion ? { keyVersion } : {}),

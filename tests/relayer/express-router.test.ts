@@ -1975,7 +1975,7 @@ test.describe('relayer router (express) – P0', () => {
         projectId: 'proj_test_scoped',
         envId: 'dev',
       });
-      expect(signedExtra?.runtimePolicyScope).toEqual({
+      expect((signedExtra as Record<string, unknown> | null)?.runtimePolicyScope).toEqual({
         orgId: 'org_test_scoped',
         projectId: 'proj_test_scoped',
         envId: 'dev',

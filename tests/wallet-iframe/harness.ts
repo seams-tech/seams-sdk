@@ -98,10 +98,15 @@ export const buildWalletServiceHtml = (options: WalletServiceHtmlOptions = {}): 
                   type: 'PROGRESS',
                   requestId,
                   payload: {
-                    step: 2,
-                    phase: 'user-confirmation',
-                    status: 'progress',
-                    message: 'Awaiting user confirmation (test stub)'
+                    version: 2,
+                    flow: 'signing',
+                    step: 5,
+                    phase: 'signing.confirmation.displayed',
+                    status: 'waiting_for_user',
+                    message: 'Review transaction',
+                    flowId: 'signing:test:' + requestId,
+                    requestId,
+                    interaction: { kind: 'transaction_confirmation', overlay: 'show' }
                   }
                 });
               } catch (err) {

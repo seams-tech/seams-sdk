@@ -15,9 +15,6 @@ export function getGoogleSsoHelperText(
     return 'Creates a Google SSO account that uses a 6-digit Email OTP for signing. Passkey is recommended for stronger security.';
   }
 
-  if (emailOtpAuthPolicy === 'per_operation') {
-    return 'Google SSO signs you in, then a 6-digit email code is required for each signing operation. Passkey is recommended for stronger security.';
-  }
-
-  return 'Google SSO signs you in, then a 6-digit email code unlocks signing for this session. Passkey is recommended for stronger security.';
+  void emailOtpAuthPolicy;
+  return '';
 }

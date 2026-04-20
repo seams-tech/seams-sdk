@@ -1,7 +1,13 @@
 import { toAccountId } from '../../types/accountIds';
-import { EmailRecoveryPhase, EmailRecoveryStatus } from '../../types/sdkSentEvents';
-import type { SyncAccountHooksOptions } from '../../types/sdkSentEvents';
-import type { EmailRecoverySSEEvent } from '../../types/sdkSentEvents';
+import {
+  createEmailRecoveryFlowEvent,
+  EmailRecoveryFlowEventPhase,
+} from '../../types/sdkSentEvents';
+import type {
+  CreateEmailRecoveryFlowEventInput,
+  EmailRecoveryFlowEvent,
+  SyncAccountHooksOptions,
+} from '../../types/sdkSentEvents';
 import type { ActionHooksOptions } from '../../types/sdkSentEvents';
 import type { ActionResult } from '../../types/tatchi';
 import type { EmailRecoveryFlowOptions, PendingEmailRecovery } from '../../types/emailRecovery';
@@ -187,9 +193,17 @@ export class EmailRecoveryDomain {
     );
   }
 
-  private emitEmailRecoveryEvent(ev: EmailRecoveryEventPayload): void {
+  private emailRecoveryFlowId(accountId?: string, requestId?: string): string {
+    const accountPart = String(accountId || 'unknown-account').trim() || 'unknown-account';
+    const requestPart = String(requestId || 'active').trim() || 'active';
+    return `email-recovery:${accountPart}:${requestPart}`;
+  }
+
+  private emitEmailRecoveryEvent(input: EmailRecoveryEventPayload): void {
     try {
-      this.emailRecoveryOptions?.onEvent?.(ev as EmailRecoverySSEEvent);
+      this.emailRecoveryOptions?.onEvent?.(
+        createEmailRecoveryFlowEvent(input) as EmailRecoveryFlowEvent,
+      );
     } catch {}
   }
 
@@ -223,23 +237,27 @@ export class EmailRecoveryDomain {
       const rpId = context.signingEngine.getRpId();
       if (!rpId) throw new Error('Missing rpId for email recovery flow');
 
+      const requestId = generateEmailRecoveryRequestId();
+      const initialSignerSlot = 1;
+      const flowId = this.emailRecoveryFlowId(String(nearAccountId), requestId);
+
       this.emailRecoveryCancelled = false;
 
       this.emitEmailRecoveryEvent({
-        step: 1,
-        phase: EmailRecoveryPhase.STEP_1_PREPARATION,
-        status: EmailRecoveryStatus.PROGRESS,
-        message: 'Preparing email recovery...',
+        flowId,
+        requestId,
+        accountId: String(nearAccountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_01_STARTED,
+        status: 'started',
       });
 
-      const requestId = generateEmailRecoveryRequestId();
-      const initialSignerSlot = 1;
-
       this.emitEmailRecoveryEvent({
-        step: 2,
-        phase: EmailRecoveryPhase.STEP_2_TOUCH_ID_REGISTRATION,
-        status: EmailRecoveryStatus.PROGRESS,
-        message: 'Creating passkey for recovery...',
+        flowId,
+        requestId,
+        accountId: String(nearAccountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_STARTED,
+        status: 'waiting_for_user',
+        interaction: { kind: 'passkey_create', overlay: 'show' },
       });
 
       const registrationSession =
@@ -251,6 +269,16 @@ export class EmailRecoveryDomain {
         });
 
       const credential = registrationSession.credential;
+
+      this.emitEmailRecoveryEvent({
+        flowId,
+        requestId,
+        accountId: String(nearAccountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_03_PASSKEY_CREATE_SUCCEEDED,
+        status: 'succeeded',
+        interaction: { kind: 'passkey_create', overlay: 'hide' },
+      });
+
       const intentDigest = String(registrationSession.intentDigest || '').trim();
       const signerSlot = (() => {
         const parts = intentDigest.split(':');
@@ -443,28 +471,49 @@ export class EmailRecoveryDomain {
       }
 
       this.emitEmailRecoveryEvent({
-        step: 3,
-        phase: EmailRecoveryPhase.STEP_3_AWAIT_EMAIL,
-        status: EmailRecoveryStatus.SUCCESS,
-        message: 'Email recovery prepared; send the email to continue',
+        flowId,
         requestId,
-        nearPublicKey: thresholdPublicKey,
+        accountId: String(nearAccountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_SENT,
+        status: 'succeeded',
+        interaction: { kind: 'email_recovery_link', overlay: 'hide' },
+        data: {
+          nearPublicKey: thresholdPublicKey,
+          recoverySessionId,
+          deadlineEpochSeconds: Math.floor(recoveryDeadlineEpochSeconds),
+        },
       });
 
       const mailtoUrl = await this.buildEmailRecoveryMailtoUrl({
         recoveryEmailSubject,
         recoveryEmailBody,
       });
+
+      this.emitEmailRecoveryEvent({
+        flowId,
+        requestId,
+        accountId: String(nearAccountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_04_EMAIL_LINK_WAITING,
+        status: 'waiting_for_user',
+        interaction: { kind: 'email_recovery_link', overlay: 'hide' },
+        data: {
+          nearPublicKey: thresholdPublicKey,
+          recoverySessionId,
+          mailtoUrl,
+        },
+      });
+
       return { mailtoUrl, nearPublicKey: thresholdPublicKey };
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err || 'Unknown error'));
       this.emailRecoveryOptions?.onError?.(error);
       this.emitEmailRecoveryEvent({
-        step: 0,
-        phase: EmailRecoveryPhase.ERROR,
-        status: EmailRecoveryStatus.ERROR,
-        message: 'Email recovery failed',
-        error: error.message,
+        flowId: this.emailRecoveryFlowId(args.accountId),
+        accountId: String(args.accountId),
+        phase: EmailRecoveryFlowEventPhase.FAILED,
+        status: 'failed',
+        interaction: { kind: 'passkey_create', overlay: 'hide' },
+        error: { message: error.message },
       });
       throw error;
     }
@@ -474,23 +523,49 @@ export class EmailRecoveryDomain {
     accountId: string;
     nearPublicKey?: string;
   }): Promise<void> {
+    let failureFlowId = this.emailRecoveryFlowId(args.accountId, args.nearPublicKey);
+    let failureRequestId: string | undefined;
     try {
       const context = this.getContext();
       const accountId = toAccountId(args.accountId);
       const nearPublicKey = String(args.nearPublicKey || '').trim();
       const store = this.getPendingEmailRecoveryStore();
-      const pending = await store?.get?.(accountId, nearPublicKey || undefined);
-      this.pendingEmailRecovery = pending || this.pendingEmailRecovery;
+      const storedPending = await store?.get?.(accountId, nearPublicKey || undefined);
+      const pending = storedPending || this.pendingEmailRecovery;
+      this.pendingEmailRecovery = pending || null;
       const targetPk = String(nearPublicKey || pending?.nearPublicKey || '').trim();
       if (!targetPk) {
         throw new Error('Missing nearPublicKey to finalize email recovery');
       }
+      const requestId = String(pending?.requestId || '').trim() || undefined;
+      const flowId = this.emailRecoveryFlowId(String(accountId), requestId || targetPk);
+      failureFlowId = flowId;
+      failureRequestId = requestId;
+
+      if (pending) {
+        this.emitEmailRecoveryEvent({
+          flowId,
+          ...(requestId ? { requestId } : {}),
+          accountId: String(accountId),
+          phase: EmailRecoveryFlowEventPhase.STEP_00_RESUMED_PENDING,
+          status: 'running',
+          interaction: { kind: 'email_recovery_link', overlay: 'hide' },
+          data: {
+            nearPublicKey: targetPk,
+            recoverySessionId: pending.recoverySessionId,
+            pendingStatus: pending.status,
+          },
+        });
+        await this.setPendingEmailRecoveryStatus(store, pending, 'awaiting-add-key');
+      }
 
       this.emitEmailRecoveryEvent({
-        step: 4,
-        phase: EmailRecoveryPhase.STEP_4_POLLING_ADD_KEY,
-        status: EmailRecoveryStatus.PROGRESS,
-        message: 'Waiting for AddKey on-chain...',
+        flowId,
+        ...(requestId ? { requestId } : {}),
+        accountId: String(accountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_STARTED,
+        status: 'running',
+        data: { nearPublicKey: targetPk },
       });
 
       const pollEveryMs = Number(
@@ -518,33 +593,49 @@ export class EmailRecoveryDomain {
         throw new Error('Timed out waiting for AddKey');
       }
 
+      this.emitEmailRecoveryEvent({
+        flowId,
+        ...(requestId ? { requestId } : {}),
+        accountId: String(accountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_05_RECOVERY_KEY_POLL_DETECTED,
+        status: 'succeeded',
+        data: { nearPublicKey: targetPk },
+      });
+
       const signerSlot = coerceSignerSlot(pending?.signerSlot, {
         min: 1,
         fallback: 1,
       });
-      await this.tryAutoLoginAfterRecovery({ accountId, signerSlot });
+      if (pending) {
+        await this.setPendingEmailRecoveryStatus(store, pending, 'finalizing');
+      }
+      await this.tryAutoLoginAfterRecovery({ accountId, signerSlot, flowId, requestId });
 
       this.emitEmailRecoveryEvent({
-        step: 6,
-        phase: EmailRecoveryPhase.STEP_6_COMPLETE,
-        status: EmailRecoveryStatus.SUCCESS,
-        message: 'Email recovery complete',
+        flowId,
+        ...(requestId ? { requestId } : {}),
+        accountId: String(accountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_07_COMPLETED,
+        status: 'succeeded',
       });
 
       if (pending?.nearPublicKey) {
+        await this.setPendingEmailRecoveryStatus(store, pending, 'complete');
         await store?.clear?.(accountId, pending.nearPublicKey);
       }
       this.pendingEmailRecovery = null;
     } catch (err: unknown) {
       const message = errorMessage(err) || 'Email recovery finalize failed';
       const error = err instanceof Error ? err : new Error(message);
+      await this.markPendingEmailRecoveryError(args.accountId, args.nearPublicKey).catch(() => {});
       this.emailRecoveryOptions?.onError?.(error);
       this.emitEmailRecoveryEvent({
-        step: 0,
-        phase: EmailRecoveryPhase.ERROR,
-        status: EmailRecoveryStatus.ERROR,
-        message: 'Email recovery finalize failed',
-        error: message,
+        flowId: failureFlowId,
+        ...(failureRequestId ? { requestId: failureRequestId } : {}),
+        accountId: String(args.accountId),
+        phase: EmailRecoveryFlowEventPhase.FAILED,
+        status: 'failed',
+        error: { message },
       });
       throw error;
     }
@@ -553,6 +644,8 @@ export class EmailRecoveryDomain {
   private async tryAutoLoginAfterRecovery(args: {
     accountId: string;
     signerSlot: number;
+    flowId: string;
+    requestId?: string;
   }): Promise<void> {
     const context = this.getContext();
     try {
@@ -563,10 +656,11 @@ export class EmailRecoveryDomain {
       });
 
       this.emitEmailRecoveryEvent({
-        step: 5,
-        phase: EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
-        status: EmailRecoveryStatus.PROGRESS,
-        message: 'Restoring local session...',
+        flowId: args.flowId,
+        ...(args.requestId ? { requestId: args.requestId } : {}),
+        accountId: String(nearAccountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_STARTED,
+        status: 'running',
       });
 
       const restored = await restoreLocalLoginState({
@@ -579,21 +673,46 @@ export class EmailRecoveryDomain {
       }
 
       this.emitEmailRecoveryEvent({
-        step: 5,
-        phase: EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
-        status: EmailRecoveryStatus.SUCCESS,
-        message: `Welcome ${String(nearAccountId)}`,
+        flowId: args.flowId,
+        ...(args.requestId ? { requestId: args.requestId } : {}),
+        accountId: String(nearAccountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_06_FINALIZE_SUCCEEDED,
+        status: 'succeeded',
       });
     } catch (error: unknown) {
       const message = errorMessage(error) || 'Auto-login failed after email recovery';
       this.emitEmailRecoveryEvent({
-        step: 5,
-        phase: EmailRecoveryPhase.STEP_5_FINALIZING_REGISTRATION,
-        status: EmailRecoveryStatus.ERROR,
-        message,
-        error: message,
+        flowId: args.flowId,
+        ...(args.requestId ? { requestId: args.requestId } : {}),
+        accountId: String(args.accountId),
+        phase: EmailRecoveryFlowEventPhase.STEP_06_AUTO_UNLOCK_SKIPPED,
+        status: 'skipped',
+        data: { autoUnlockFailed: true, reason: message },
       });
     }
+  }
+
+  private async setPendingEmailRecoveryStatus(
+    store: EmailRecoveryFlowOptions['pendingStore'],
+    pending: PendingEmailRecovery,
+    status: PendingEmailRecovery['status'],
+  ): Promise<void> {
+    const nextPending = { ...pending, status };
+    this.pendingEmailRecovery = nextPending;
+    await store?.set?.(nextPending);
+  }
+
+  private async markPendingEmailRecoveryError(
+    accountIdInput: string,
+    nearPublicKeyInput?: string,
+  ): Promise<void> {
+    const accountId = toAccountId(accountIdInput);
+    const nearPublicKey = String(nearPublicKeyInput || '').trim();
+    const store = this.getPendingEmailRecoveryStore();
+    const pending =
+      this.pendingEmailRecovery || (await store?.get?.(accountId, nearPublicKey || undefined));
+    if (!pending) return;
+    await this.setPendingEmailRecoveryStatus(store, pending, 'error');
   }
 
   private async cancelEmailRecoveryLocal(args?: {
@@ -602,6 +721,14 @@ export class EmailRecoveryDomain {
   }): Promise<void> {
     this.emailRecoveryCancelled = true;
     this.pendingEmailRecovery = null;
+    const accountIdForEvent = args?.accountId ? String(args.accountId) : undefined;
+    this.emitEmailRecoveryEvent({
+      flowId: this.emailRecoveryFlowId(accountIdForEvent, args?.nearPublicKey),
+      ...(accountIdForEvent ? { accountId: accountIdForEvent } : {}),
+      phase: EmailRecoveryFlowEventPhase.CANCELLED,
+      status: 'cancelled',
+      interaction: { kind: 'email_recovery_link', overlay: 'hide' },
+    });
     try {
       const accountId = args?.accountId ? toAccountId(args.accountId) : null;
       if (accountId) {
@@ -612,12 +739,10 @@ export class EmailRecoveryDomain {
 }
 
 type EmailRecoveryEventPayload = {
-  step: number;
-  phase: EmailRecoveryPhase;
-  status: EmailRecoveryStatus;
-  message: string;
-  error?: string;
+  phase: EmailRecoveryFlowEventPhase;
+  status: CreateEmailRecoveryFlowEventInput['status'];
+  flowId: string;
+  message?: string;
+  error?: CreateEmailRecoveryFlowEventInput['error'];
   data?: Record<string, unknown>;
-  logs?: string[];
-  [key: string]: unknown;
-};
+} & Omit<CreateEmailRecoveryFlowEventInput, 'phase' | 'status' | 'flowId' | 'message' | 'error' | 'data'>;

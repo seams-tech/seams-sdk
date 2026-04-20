@@ -72,10 +72,10 @@ test.describe('route definition scaffolding', () => {
   test('relay route ids are unique and core policies are encoded', async () => {
     const routes = createRelayRouteDefinitions({
       enableHealthz: true,
-      enablePrfSessionSeal: true,
+      enableSigningSessionSeal: true,
       enableReadyz: true,
       enableSponsoredEvmCall: true,
-      prfSessionSealBasePath: '/threshold-ecdsa/prf-seal',
+      signingSessionSealBasePath: '/threshold/signing-session-seal',
       sessionStatePath: '/session/state',
       signedDelegatePath: '/signed-delegate',
       sponsoredEvmCallPath: '/sponsorships/evm/call',
@@ -129,15 +129,16 @@ test.describe('route definition scaffolding', () => {
     const wellKnown = routes.find((route) => route.id === 'relay_well_known_webauthn');
     expect(wellKnown?.aliases).toEqual(['/.well-known/webauthn/']);
 
-    const prfApply = routes.find((route) => route.id === 'prf_session_seal_apply_server_seal');
-    expect(prfApply?.path).toBe('/threshold-ecdsa/prf-seal/apply-server-seal');
+    const prfApply = routes.find((route) => route.id === 'signing_session_seal_apply_server_seal');
+    expect(prfApply?.path).toBe('/threshold/signing-session-seal/apply-server-seal');
 
     const apiCredentialRoutes = routes.filter((route) => route.auth.plane === 'api_credentials');
     expect(apiCredentialRoutes.length).toBeGreaterThan(0);
     for (const route of apiCredentialRoutes) {
-      expect(route.auth.credentials.length).toBeGreaterThan(0);
-      expect(new Set(route.auth.credentials).size).toBe(route.auth.credentials.length);
-      for (const scope of route.auth.scopes || []) {
+      const auth = route.auth as Extract<RouteDefinition['auth'], { plane: 'api_credentials' }>;
+      expect(auth.credentials.length).toBeGreaterThan(0);
+      expect(new Set(auth.credentials).size).toBe(auth.credentials.length);
+      for (const scope of auth.scopes || []) {
         expect(API_CREDENTIAL_ROUTE_SCOPES).toContain(scope);
       }
     }
@@ -154,9 +155,10 @@ test.describe('route definition scaffolding', () => {
     const publicRoutes = routes.filter((route) => route.auth.plane === 'public');
     expect(publicRoutes.length).toBeGreaterThan(0);
     for (const route of publicRoutes) {
-      const rationale = route.auth.rationale.trim();
+      const auth = route.auth as Extract<RouteDefinition['auth'], { plane: 'public' }>;
+      const rationale = auth.rationale.trim();
       expect(rationale.length).toBeGreaterThan(0);
-      expect(Boolean(route.auth.proof) || rationale.length > 0).toBe(true);
+      expect(Boolean(auth.proof) || rationale.length > 0).toBe(true);
     }
 
     const continuationRoutes = routes.filter((route) =>

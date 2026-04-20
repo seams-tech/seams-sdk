@@ -718,23 +718,23 @@ test.describe('relay API key auth (express)', () => {
         },
       ]);
       expect(recoverySubjectWrites).toHaveLength(4);
-      expect(recoverySubjectWrites[1]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
+      const evmMetadata = recoverySubjectWrites[1]?.metadata as any;
+      const tempoMetadata = recoverySubjectWrites[3]?.metadata as any;
+      expect(evmMetadata?.deploymentManifest?.ownerAddresses).toEqual([
         `0x${'aa'.repeat(20)}`,
       ]);
-      expect(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlan?.predictedAddress).toMatch(
+      expect(evmMetadata?.evmDeploymentPlan?.predictedAddress).toMatch(
         /^0x[0-9a-f]{40}$/,
       );
-      expect(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlan?.createAccountCalldata).toMatch(
+      expect(evmMetadata?.evmDeploymentPlan?.createAccountCalldata).toMatch(
         /^0xf8a59370/,
       );
-      expect(
-        Number.isFinite(Number(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlanUpdatedAtMs)),
-      ).toBe(true);
-      expect(recoverySubjectWrites[3]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
+      expect(Number.isFinite(Number(evmMetadata?.evmDeploymentPlanUpdatedAtMs))).toBe(true);
+      expect(tempoMetadata?.deploymentManifest?.ownerAddresses).toEqual([
         `0x${'aa'.repeat(20)}`,
       ]);
-      expect(recoverySubjectWrites[3]?.metadata?.evmDeploymentPlan).toBeUndefined();
-      expect(recoverySubjectWrites[3]?.metadata?.evmDeploymentPlanUpdatedAtMs).toBeUndefined();
+      expect(tempoMetadata?.evmDeploymentPlan).toBeUndefined();
+      expect(tempoMetadata?.evmDeploymentPlanUpdatedAtMs).toBeUndefined();
     } finally {
       await srv.close();
     }
@@ -1441,23 +1441,23 @@ test.describe('relay API key auth (cloudflare)', () => {
       },
     ]);
     expect(recoverySubjectWrites).toHaveLength(4);
-    expect(recoverySubjectWrites[1]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
+    const evmMetadata = recoverySubjectWrites[1]?.metadata as any;
+    const tempoMetadata = recoverySubjectWrites[3]?.metadata as any;
+    expect(evmMetadata?.deploymentManifest?.ownerAddresses).toEqual([
       `0x${'aa'.repeat(20)}`,
     ]);
-    expect(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlan?.predictedAddress).toMatch(
+    expect(evmMetadata?.evmDeploymentPlan?.predictedAddress).toMatch(
       /^0x[0-9a-f]{40}$/,
     );
-    expect(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlan?.createAccountCalldata).toMatch(
+    expect(evmMetadata?.evmDeploymentPlan?.createAccountCalldata).toMatch(
       /^0xf8a59370/,
     );
-    expect(
-      Number.isFinite(Number(recoverySubjectWrites[1]?.metadata?.evmDeploymentPlanUpdatedAtMs)),
-    ).toBe(true);
-    expect(recoverySubjectWrites[3]?.metadata?.deploymentManifest?.ownerAddresses).toEqual([
+    expect(Number.isFinite(Number(evmMetadata?.evmDeploymentPlanUpdatedAtMs))).toBe(true);
+    expect(tempoMetadata?.deploymentManifest?.ownerAddresses).toEqual([
       `0x${'aa'.repeat(20)}`,
     ]);
-    expect(recoverySubjectWrites[3]?.metadata?.evmDeploymentPlan).toBeUndefined();
-    expect(recoverySubjectWrites[3]?.metadata?.evmDeploymentPlanUpdatedAtMs).toBeUndefined();
+    expect(tempoMetadata?.evmDeploymentPlan).toBeUndefined();
+    expect(tempoMetadata?.evmDeploymentPlanUpdatedAtMs).toBeUndefined();
   });
 
   test('API credential wallet routes require wallets.read scope and stay bound to the key environment', async () => {

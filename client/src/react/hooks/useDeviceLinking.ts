@@ -1,11 +1,10 @@
 import { useRef, useCallback } from 'react';
 import { useTatchi } from '../context';
 import {
-  DeviceLinkingPhase,
-  DeviceLinkingStatus,
   type DeviceLinkingQRData,
+  LinkDeviceEventPhase,
   type LinkDeviceResult,
-  type DeviceLinkingSSEEvent,
+  type LinkDeviceFlowEvent,
 } from '@/index';
 import { QRScanMode } from '@/react/hooks/useQRCamera';
 
@@ -38,7 +37,7 @@ export interface UseDeviceLinkingOptions {
   onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
-  onEvent?: (event: DeviceLinkingSSEEvent) => void;
+  onEvent?: (event: LinkDeviceFlowEvent) => void;
   fundingAmount?: string;
 }
 
@@ -84,8 +83,8 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
             console.log(`useDeviceLinking: ${source} linking event -`, event.phase, event.message);
             // Close scanner immediately after QR validation succeeds
             switch (event.phase) {
-              case DeviceLinkingPhase.STEP_3_AUTHORIZATION:
-                if (event.status === DeviceLinkingStatus.PROGRESS) {
+              case LinkDeviceEventPhase.STEP_03_AUTHORIZATION_STARTED:
+                if (event.status === 'waiting_for_user') {
                   console.log(
                     'useDeviceLinking: QR validation complete - closing scanner while linking continues...',
                   );

@@ -20,6 +20,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         let confirmCalls = 0;
         let capturedAuthMode: string | null = null;
         let capturedAuthPlanKind: string | null = null;
+        const events: any[] = [];
 
         const workerCtx = {
           requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -45,6 +46,14 @@ test.describe('tempo signing auth-mode resolution', () => {
                 confirmCalls += 1;
                 capturedAuthMode = String(params?.signingAuthMode || '');
                 capturedAuthPlanKind = String(params?.signingAuthPlan?.kind || '');
+                params?.onProgress?.({
+                  phase: 'auth.passkey.prompt.started',
+                  status: 'running',
+                });
+                params?.onProgress?.({
+                  phase: 'auth.passkey.prompt.succeeded',
+                  status: 'succeeded',
+                });
                 return {
                   sessionId: 'intent',
                   intentDigest: '0x' + '11'.repeat(32),
@@ -88,8 +97,18 @@ test.describe('tempo signing auth-mode resolution', () => {
                 thresholdSessionId: 'session-1',
               },
             } as any,
+            onEvent: (event: any) => events.push(event),
           });
-          return { ok: true, confirmCalls, capturedAuthMode, capturedAuthPlanKind };
+          return {
+            ok: true,
+            confirmCalls,
+            capturedAuthMode,
+            capturedAuthPlanKind,
+            eventPhases: events.map((event) => event.phase),
+            passkeyInteractions: events
+              .filter((event) => String(event.phase || '').includes('passkey.prompt'))
+              .map((event) => event.interaction),
+          };
         } catch (error: any) {
           return {
             ok: false,
@@ -107,6 +126,19 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.confirmCalls).toBe(1);
     expect(result.capturedAuthMode).toBe('');
     expect(result.capturedAuthPlanKind).toBe('passkeyReauth');
+    expect(result.eventPhases).toEqual([
+      'signing.confirmation.displayed',
+      'signing.auth.passkey.prompt.started',
+      'signing.auth.passkey.prompt.succeeded',
+      'signing.confirmation.approved',
+      'signing.commit.started',
+      'signing.transaction.signed',
+      'signing.completed',
+    ]);
+    expect(result.passkeyInteractions).toEqual([
+      { kind: 'passkey_assert', overlay: 'show' },
+      { kind: 'passkey_assert', overlay: 'hide' },
+    ]);
   });
 
   test('uses Email OTP prompt and refreshed keyRef for EVM per-operation signing', async ({
@@ -121,6 +153,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         let capturedPlanChallengeId = '';
         let completedOtpCode = '';
         let signedWithSessionId = '';
+        const events: any[] = [];
 
         const workerCtx = {
           requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -146,6 +179,10 @@ test.describe('tempo signing auth-mode resolution', () => {
               capturedPlanChallengeId = String(
                 params?.signingAuthPlan?.emailOtpPrompt?.challengeId || '',
               );
+              params?.onProgress?.({
+                phase: 'confirmation.complete',
+                status: 'succeeded',
+              });
               return {
                 sessionId: 'intent',
                 intentDigest: '0x' + '11'.repeat(32),
@@ -199,6 +236,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               },
             },
           } as any,
+          onEvent: (event: any) => events.push(event),
         });
 
         return {
@@ -210,6 +248,10 @@ test.describe('tempo signing auth-mode resolution', () => {
           signedWithSessionId,
           chain: signed.chain,
           kind: signed.kind,
+          eventPhases: events.map((event) => event.phase),
+          emailOtpInteractions: events
+            .filter((event) => String(event.phase || '').includes('email_otp'))
+            .map((event) => event.interaction),
         };
       },
       { paths: IMPORT_PATHS },
@@ -223,6 +265,15 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.signedWithSessionId).toBe('email-otp-refreshed-session');
     expect(result.chain).toBe('evm');
     expect(result.kind).toBe('eip1559');
+    expect(result.eventPhases).toEqual([
+      'signing.confirmation.displayed',
+      'signing.auth.email_otp.verify.succeeded',
+      'signing.confirmation.approved',
+      'signing.commit.started',
+      'signing.transaction.signed',
+      'signing.completed',
+    ]);
+    expect(result.emailOtpInteractions).toEqual([{ kind: 'otp_input', overlay: 'hide' }]);
   });
 
   test('EVM per-operation Email OTP resend uses the resent challenge for completion', async ({

@@ -6,7 +6,7 @@ import {
 } from '@server/core/ThresholdService/ethSignerWasm';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { createRelayRouter } from '@server/router/express-adaptor';
-import { createPrfSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/prfSessionSeal';
+import { createSigningSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/signingSessionSeal';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   deriveEmailOtpEcdsaClientRootShare32B64u,
@@ -77,10 +77,10 @@ function makeService(): AuthService {
     createAccountAndRegisterGas: '1',
     logger: null,
     thresholdStore: {
-      PRF_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
-      SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
-      SHAMIR_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
-      SHAMIR_D_S_B64U: SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
+      SIGNING_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
+      SIGNING_SESSION_SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
+      SIGNING_SESSION_SEAL_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
+      SIGNING_SESSION_SEAL_D_S_B64U: SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
     },
   });
 }
@@ -116,7 +116,7 @@ function makeTokenBoundAppSessionAdapter(
 }
 
 function addClientSeal(ciphertextB64u: string): string {
-  const runtime = createPrfSessionSealShamir3PassBigIntRuntime();
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
   return String(
     runtime.addServerSeal({
       ciphertextB64u,
@@ -127,7 +127,7 @@ function addClientSeal(ciphertextB64u: string): string {
 }
 
 function removeClientSeal(ciphertextB64u: string): string {
-  const runtime = createPrfSessionSealShamir3PassBigIntRuntime();
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
   return String(
     runtime.removeServerSeal({
       ciphertextB64u,
@@ -138,7 +138,7 @@ function removeClientSeal(ciphertextB64u: string): string {
 }
 
 function addServerSeal(ciphertextB64u: string): string {
-  const runtime = createPrfSessionSealShamir3PassBigIntRuntime();
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
   return String(
     runtime.addServerSeal({
       ciphertextB64u,
@@ -162,7 +162,13 @@ function createCloudflareFetchImpl(
   ctx = makeCfCtx(),
 ): typeof fetch {
   return (async (input, init) => {
-    const url = new URL(typeof input === 'string' ? input : input.url || 'https://relay.test');
+    const url = new URL(
+      typeof input === 'string'
+        ? input
+        : input instanceof Request
+          ? input.url
+          : String(input || 'https://relay.test'),
+    );
     const bodyText =
       init?.body == null
         ? undefined
@@ -218,7 +224,7 @@ async function requestEmailOtpWithOutbox(args: {
     walletId,
   });
   expect(outbox.ok).toBe(true);
-  if (!outbox.ok) throw new Error(outbox.error || 'missing Email OTP outbox entry');
+  if (!outbox.ok) throw new Error(outbox.message || 'missing Email OTP outbox entry');
   return { challengeId, otpCode: outbox.otpCode };
 }
 
@@ -461,7 +467,11 @@ async function bootstrapEmailOtpViaRouteWorker(args: {
       },
     },
   });
-  const clientRootShare32 = new Uint8Array(prepared.clientRootShare32);
+  const clientRootShare32B64u = String(prepared.clientRootShare32B64u || '').trim();
+  if (!clientRootShare32B64u) {
+    throw new Error('Email OTP ECDSA preparation did not return clientRootShare32B64u');
+  }
+  const clientRootShare32 = base64UrlDecode(clientRootShare32B64u);
   try {
     const bootstrap = await args.bootstrapEcdsaSession({
       nearAccountId: args.walletId,

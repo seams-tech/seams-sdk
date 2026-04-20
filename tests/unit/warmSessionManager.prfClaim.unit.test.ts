@@ -310,7 +310,7 @@ test.describe('WarmSessionManager PRF claim handling', () => {
     expect(statusReads).toBe(1);
   });
 
-  test('persists a PRF seal using the resolved warm-session transport auth', async () => {
+  test('persists a signing-session seal using the resolved warm-session transport auth', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -339,7 +339,7 @@ test.describe('WarmSessionManager PRF claim handling', () => {
       sealAndPersistResultBySessionId: {
         [record.thresholdSessionId]: {
           ok: true,
-          sealedPrfFirstB64u: 'sealed-prf-first',
+          sealedSecretB64u: 'sealed-prf-first',
           remainingUses: 4,
           expiresAtMs: record.expiresAtMs || Date.now() + 120_000,
         },

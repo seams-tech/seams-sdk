@@ -65,6 +65,7 @@ function createBootstrapResult(args?: {
       userId: ACCOUNT_ID,
       relayerUrl: RELAYER_URL,
       ecdsaThresholdKeyId,
+      signingRootId: 'proj_local:dev',
       backendBinding: {
         relayerKeyId: 'rk-1',
         clientVerifyingShareB64u: 'AQ',
@@ -101,16 +102,7 @@ function createBootstrapResult(args?: {
 function createExportTestEngine() {
   const exportWorkerCalls: Array<Record<string, unknown>> = [];
   const userConfirmationCalls: Array<Record<string, unknown>> = [];
-  const engine = Object.create(SigningEngine.prototype) as SigningEngine & {
-    orchestrationDeps: Record<string, unknown>;
-    tatchiPasskeyConfigs: Record<string, unknown>;
-    theme?: 'dark' | 'light';
-    touchConfirm: Record<string, unknown>;
-    touchIdPrompt: Record<string, unknown>;
-    thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>>;
-    thresholdEcdsaSessionByLane: Map<string, unknown>;
-    thresholdEcdsaExportArtifactByLane: Map<string, unknown>;
-  };
+  const engine: any = Object.create(SigningEngine.prototype);
 
   ensureSessionStorage().clear();
   engine.tatchiPasskeyConfigs = {
@@ -492,6 +484,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       credentialIdB64u: 'cred-b64u',
       thresholdEcdsa: {
         ecdsaThresholdKeyId: 'ehss-link-device-1',
+        signingRootId: 'proj_local:dev',
         clientVerifyingShareB64u: 'AQ',
         clientAdditiveShare32B64u: 'Ag',
         relayerKeyId: 'rk-1',

@@ -28,10 +28,10 @@ import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import { ActionType } from '../../types/actions';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
 import {
-  DeviceLinkingPhase,
-  DeviceLinkingStatus,
-  type DeviceLinkingSSEEvent,
-  ActionPhase,
+  createLinkDeviceFlowEvent,
+  LinkDeviceEventPhase,
+  type LinkDeviceFlowEvent,
+  SigningEventPhase,
 } from '../../types/sdkSentEvents';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
 
@@ -483,7 +483,7 @@ export async function executeDeviceLinkingContractCalls({
   context: PasskeyManagerContext;
   device1AccountId: AccountId;
   device2PublicKey: string;
-  onEvent?: (event: DeviceLinkingSSEEvent) => void;
+  onEvent?: (event: LinkDeviceFlowEvent) => void;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   confirmerText?: { title?: string; body?: string };
 }): Promise<{
@@ -528,13 +528,20 @@ export async function executeDeviceLinkingContractCalls({
         ],
         onEvent: (progress) => {
           // Keep device-linking progress semantic and surface signing as a loading state.
-          if (progress.phase == ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
-            onEvent?.({
-              step: 3,
-              phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
-              status: DeviceLinkingStatus.PROGRESS,
-              message: progress.message || 'Transaction signing in progress...',
-            });
+          if (progress.phase === SigningEventPhase.STEP_11_TRANSACTION_SIGNED) {
+            onEvent?.(
+              createLinkDeviceFlowEvent({
+                flowId: `link-device-scan:${device2PublicKey}`,
+                accountId: String(device1AccountId),
+                phase: LinkDeviceEventPhase.STEP_03_AUTHORIZATION_SUCCEEDED,
+                status: 'succeeded',
+                data: {
+                  role: 'scanner',
+                  signingPhase: progress.phase,
+                  device2PublicKey,
+                },
+              }),
+            );
           }
         },
       },
@@ -557,12 +564,19 @@ export async function executeDeviceLinkingContractCalls({
     throw new Error(`Transaction broadcasting failed: ${errorMessage(txError)}`);
   }
 
-  onEvent?.({
-    step: 7,
-    phase: DeviceLinkingPhase.STEP_7_LINKING_COMPLETE,
-    status: DeviceLinkingStatus.SUCCESS,
-    message: `Device key added successfully!`,
-  });
+  onEvent?.(
+    createLinkDeviceFlowEvent({
+      flowId: `link-device-scan:${device2PublicKey}`,
+      accountId: String(device1AccountId),
+      phase: LinkDeviceEventPhase.STEP_04_LINK_REQUEST_SUBMITTED,
+      status: 'succeeded',
+      data: {
+        role: 'scanner',
+        device2PublicKey,
+        transactionId: addKeyTxResult?.transaction?.hash,
+      },
+    }),
+  );
 
   return {
     addKeyTxResult,

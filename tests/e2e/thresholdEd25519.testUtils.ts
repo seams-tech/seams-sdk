@@ -21,6 +21,7 @@ import {
   createRelayRouter,
 } from '@server/router/express-adaptor';
 import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/thresholdEd25519TestUtils';
+import type { SigningSessionSealRoutesOptions } from '@server/threshold/session/signingSessionSeal';
 
 const SESSION_COOKIE_NAME =
   String(process.env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
@@ -47,6 +48,22 @@ export const TEST_RELAYER_ACCOUNT_ID = 'relayer.testnet';
 export const TEST_RELAYER_PUBLIC_KEY = 'ed25519:GmaDrppBC7P5ARKV8g3djiwP89vz1jLK23V2GBjuAEGB';
 export const TEST_RELAYER_PRIVATE_KEY =
   'ed25519:99eUso3aSbE9tqGSTXzo3TLfKb9RkMTURrHKQ1K7Zh3StnzFNUx8FKCPPPPpR479qsw5zv2WNBKmgiz7WqgAJfM';
+
+type ThresholdEcdsaRegistrationBootstrapResult =
+  | {
+      ok: true;
+      relayerKeyId?: string;
+      thresholdEcdsaPublicKeyB64u?: string;
+      relayerVerifyingShareB64u?: string;
+      ethereumAddress?: string;
+      ecdsaThresholdKeyId?: string;
+      clientVerifyingShareB64u?: string;
+    }
+  | {
+      ok: false;
+      code?: string;
+      message?: string;
+    };
 
 export function makeAuthServiceForThreshold(
   keysOnChain: Set<string>,
@@ -289,6 +306,7 @@ export async function setupManagedThresholdRegistrationHarness(args: {
   projectId?: string;
   projectName?: string;
   allowedOrigins?: string[];
+  signingSessionSeal?: SigningSessionSealRoutesOptions | null;
 }): Promise<{
   baseUrl: string;
   session: ReturnType<typeof makeSessionAdapter>;
@@ -369,6 +387,7 @@ export async function setupManagedThresholdRegistrationHarness(args: {
       },
     }),
     bootstrapTokenStore,
+    signingSessionSeal: args.signingSessionSeal || undefined,
   });
   const server = await startExpressRouter(router);
 
@@ -411,6 +430,8 @@ export async function installCreateAccountAndRegisterUserMock(
     relayerBaseUrl: string;
     onNewPublicKey: (publicKey: string) => void;
     accountsOnChain?: Set<string>;
+    keysOnChain?: Set<string>;
+    nonceByPublicKey?: Map<string, number>;
     onNewAccountId?: (accountId: string) => void;
     session?: {
       signJwt: (sub: string, extra?: Record<string, unknown>) => Promise<string>;
@@ -426,7 +447,7 @@ export async function installCreateAccountAndRegisterUserMock(
         rpId: string;
         clientRootShare32B64u: string;
         sessionPolicy: Record<string, unknown>;
-      }) => Promise<Record<string, unknown>>;
+      }) => Promise<ThresholdEcdsaRegistrationBootstrapResult>;
     };
   },
 ): Promise<void> {

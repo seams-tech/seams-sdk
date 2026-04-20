@@ -69,7 +69,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     const mount = page.locator('#pam2-test-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
     await expect(mount.locator('.w3a-seg')).toHaveCount(1);
-    await expect(mount.locator('.w3a-arrow-btn')).toHaveCount(1);
+    await expect(mount.locator('.w3a-passkey-row button')).toHaveCount(0);
 
     const root = mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)');
     const sentinel = await root.evaluate((el) =>
@@ -197,11 +197,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.getByRole('button', { name: 'Continue with Email OTP' })).toHaveCount(0);
     await expect(mount.getByRole('button', { name: 'Sign in with Google SSO' })).toBeVisible();
     await expect(mount.getByRole('button', { name: 'Scan and Link Device' })).toBeVisible();
-    await expect(
-      mount.getByText(
-        'Google SSO signs you in, then a 6-digit email code unlocks signing for this session. Passkey is recommended for stronger security.',
-      ),
-    ).toBeVisible();
+    await expect(mount.locator('.w3a-social-helper')).toHaveCount(0);
     await expect(mount.getByText('Recover Account with Email')).toHaveCount(0);
 
     await mount.getByRole('button', { name: 'Register' }).click();
@@ -284,7 +280,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
     await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
     await expect(mount.getByText('Check your email to unlock your wallet')).toBeVisible();
-    await expect(mount.getByText('alice@example.com', { exact: true })).toBeVisible();
+    await expect(mount.locator('.w3a-otp-email')).toHaveCount(0);
+    await expect(mount.getByText(/alice@example\.com/)).toBeVisible();
     await mount.getByLabel('Email code').fill('123456');
     await mount.getByRole('button', { name: 'Unlock wallet' }).click();
     await expect
@@ -292,7 +289,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toBe('123456');
   });
 
-  test('Email OTP resend preserves input, debounces clicks, and updates prompt metadata', async ({
+  test('Email OTP resend preserves input, debounces clicks, and restores resend label', async ({
     page,
   }) => {
     await page.evaluate(
@@ -347,7 +344,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                       title: 'Check your email to unlock your wallet',
                       description: 'Enter the 6-digit code we sent to alice@example.com.',
                       emailHint: 'alice@example.com',
-                      resendDebounceMs: 10_000,
+                      resendDebounceMs: 1_000,
                       onResend: async () => {
                         (window as any).__otpResendCalls += 1;
                         return {
@@ -372,14 +369,16 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     const mount = page.locator('#pam2-google-otp-resend-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
     await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
-    await expect(mount.getByText('alice@example.com', { exact: true })).toBeVisible();
+    await expect(mount.getByText(/alice@example\.com/)).toBeVisible();
 
     const input = mount.getByLabel('Email code');
     await input.fill('123');
-    await mount.getByRole('button', { name: 'Resend code' }).click();
+    await mount.getByRole('button', { name: 'Resend Code' }).click();
     await expect(input).toHaveValue('123');
-    await expect(mount.getByText('new-alice@example.com', { exact: true })).toBeVisible();
-    await expect(mount.getByRole('button', { name: /Resend in \d+s/ })).toBeDisabled();
+    await expect(mount.getByRole('button', { name: 'Code sent' })).toBeDisabled();
+    await expect(mount.getByRole('button', { name: 'Resend Code' })).toBeEnabled({
+      timeout: 2_000,
+    });
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__otpResendCalls))
       .toBe(1);
@@ -466,7 +465,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     const mount = page.locator('#pam2-google-otp-resend-rate-limit-mount');
     await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
     await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
-    await mount.getByRole('button', { name: 'Resend code' }).click();
+    await mount.getByRole('button', { name: 'Resend Code' }).click();
     await expect(mount.getByRole('alert')).toHaveText('Too many requests. Try again in 13s.');
   });
 

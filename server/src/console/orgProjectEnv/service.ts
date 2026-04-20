@@ -16,7 +16,7 @@ import type {
 export interface ConsoleOrgProjectEnvContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
+  roles: readonly string[];
   projectId?: string;
   environmentId?: string;
 }

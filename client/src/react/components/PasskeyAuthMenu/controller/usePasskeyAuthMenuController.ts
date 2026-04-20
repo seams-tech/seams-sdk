@@ -1,5 +1,5 @@
 import React from 'react';
-import type { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
+import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
 import type { PasskeyAuthMenuRuntime } from '../adapters/tatchi';
 import { AuthMenuMode, type PasskeyAuthMenuOtpPrompt, type PasskeyAuthMenuProps } from '../types';
@@ -11,7 +11,7 @@ import { getProceedEligibility } from './proceedEligibility';
 export interface PasskeyAuthMenuLinkDeviceController {
   isOpen: boolean;
   onClose: () => void;
-  onEvent: (event: DeviceLinkingSSEEvent) => void;
+  onEvent: (event: LinkDeviceFlowEvent) => void;
   onError: (error: Error) => void;
 }
 
@@ -45,6 +45,7 @@ export interface PasskeyAuthMenuController {
   otpPrompt: PasskeyAuthMenuOtpPromptController | null;
   methodError?: string;
   currentValue: string;
+  passkeyAccountOptions: string[];
   postfixText?: string;
   isUsingExistingAccount?: boolean;
   secure: boolean;
@@ -236,6 +237,18 @@ export function usePasskeyAuthMenuController(
     secure,
   });
 
+  const passkeyAccountOptions = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (runtime.accountOptions ?? [])
+            .map((accountId) => String(accountId || '').trim())
+            .filter(Boolean),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [runtime.accountOptions],
+  );
+
   // If the user is attempting to register but we discover the account already exists,
   // automatically switch them to the Login tab.
   React.useEffect(() => {
@@ -274,7 +287,7 @@ export function usePasskeyAuthMenuController(
     };
   }, [mode, runtime.tatchiPasskey, setCurrentValue]);
 
-  const fallbackOnEvent = React.useCallback((event: DeviceLinkingSSEEvent) => {
+  const fallbackOnEvent = React.useCallback((event: LinkDeviceFlowEvent) => {
     console.log('ShowQRCode event:', event);
   }, []);
 
@@ -550,7 +563,9 @@ export function usePasskeyAuthMenuController(
       rerollAccountDisabled: !canRerollAccount || otpSubmitting || otpRerollBusy || otpResendBusy,
       ...(canRerollAccount
         ? {
-            rerollAccountLabel: otpRerollBusy ? 'Choosing another name…' : 'Try another wallet name',
+            rerollAccountLabel: otpRerollBusy
+              ? 'Choosing another name…'
+              : 'Try another wallet name',
             onRerollAccount: onOtpRerollAccount,
           }
         : {}),
@@ -560,9 +575,9 @@ export function usePasskeyAuthMenuController(
         ? {
             resendLabel: otpResendBusy
               ? 'Sending…'
-              : resendSeconds > 0
-                ? `Resend in ${resendSeconds}s`
-                : otpResendStatus || 'Resend code',
+              : otpResendStatus && resendSeconds > 0
+                ? otpResendStatus
+                : 'Resend Code',
             onResend: onOtpResend,
           }
         : {}),
@@ -606,6 +621,7 @@ export function usePasskeyAuthMenuController(
     otpPrompt,
     ...(methodError ? { methodError } : {}),
     currentValue,
+    passkeyAccountOptions,
     postfixText: runtime.displayPostfix,
     isUsingExistingAccount: runtime.isUsingExistingAccount,
     secure,

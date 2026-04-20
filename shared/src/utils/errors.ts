@@ -46,6 +46,7 @@ export function toError(e: unknown): Error {
  */
 export function isTouchIdCancellationError(error: unknown): boolean {
   const msg = errorMessage(error);
+  if (isUserCancellationError(error)) return true;
 
   // Normalize for case-insensitive substring checks on user-facing phrases
   const lower = msg.toLowerCase();
@@ -57,6 +58,40 @@ export function isTouchIdCancellationError(error: unknown): boolean {
     lower.includes('user cancelled') ||
     lower.includes('user canceled') ||
     lower.includes('user aborted')
+  );
+}
+
+export function isUserCancellationError(error: unknown): boolean {
+  const msg = errorMessage(error);
+  const lower = msg.toLowerCase();
+  const maybe = error as { name?: unknown; code?: unknown };
+  const name = String(maybe?.name || '').trim();
+  const codeRaw = maybe?.code;
+  const code = String(codeRaw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+  return (
+    codeRaw === 4001 ||
+    code === '4001' ||
+    code === 'cancelled' ||
+    code === 'canceled' ||
+    code === 'abort_error' ||
+    code === 'user_cancelled' ||
+    code === 'user_canceled' ||
+    code === 'user_rejected' ||
+    code === 'action_rejected' ||
+    code === 'request_rejected' ||
+    name === 'NotAllowedError' ||
+    name === 'AbortError' ||
+    lower.includes('user cancelled') ||
+    lower.includes('user canceled') ||
+    lower.includes('user rejected') ||
+    lower.includes('request cancelled') ||
+    lower.includes('request canceled') ||
+    lower.includes('operation cancelled') ||
+    lower.includes('operation canceled')
   );
 }
 

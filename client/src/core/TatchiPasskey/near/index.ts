@@ -23,7 +23,6 @@ import type {
   SignNEP413HooksOptions,
   SignTransactionHooksOptions,
 } from '../../types/sdkSentEvents';
-import { ActionPhase, ActionStatus } from '../../types/sdkSentEvents';
 import type { ActionArgs, TransactionInput } from '../../types/actions';
 import type { DelegateActionInput, SignedDelegate } from '../../types/delegate';
 import type { WasmSignedDelegate } from '../../types/signer-worker';
@@ -118,16 +117,6 @@ export class NearSigner implements NearSignerCapability {
           })),
           options: routerOptions,
         });
-        const txIds = (res || [])
-          .map((r) => r?.transactionId)
-          .filter(Boolean)
-          .join(', ');
-        options?.onEvent?.({
-          step: 8,
-          phase: ActionPhase.STEP_8_ACTION_COMPLETE,
-          status: ActionStatus.SUCCESS,
-          message: `All transactions sent: ${txIds}`,
-        });
         await options?.afterCall?.(true, res);
         return res;
       },
@@ -146,13 +135,6 @@ export class NearSigner implements NearSignerCapability {
             options,
           });
 
-          const txIds = txResults.map((txResult) => txResult.transactionId).join(', ');
-          options?.onEvent?.({
-            step: 8,
-            phase: ActionPhase.STEP_8_ACTION_COMPLETE,
-            status: ActionStatus.SUCCESS,
-            message: `All transactions sent: ${txIds}`,
-          });
           return txResults;
         } catch (error: unknown) {
           const e = toError(error);
@@ -251,12 +233,6 @@ export class NearSigner implements NearSignerCapability {
           },
         });
         await options?.afterCall?.(true, res);
-        options?.onEvent?.({
-          step: 8,
-          phase: ActionPhase.STEP_8_ACTION_COMPLETE,
-          status: ActionStatus.SUCCESS,
-          message: `Transaction ${res?.transactionId} broadcasted`,
-        });
         return res;
       },
       onRemoteError: async (error) => {
@@ -270,12 +246,6 @@ export class NearSigner implements NearSignerCapability {
           context: this.getContext(),
           signedTransaction,
           options,
-        });
-        options?.onEvent?.({
-          step: 8,
-          phase: ActionPhase.STEP_8_ACTION_COMPLETE,
-          status: ActionStatus.SUCCESS,
-          message: `Transaction ${txResult.transactionId} broadcasted`,
         });
         return txResult;
       },

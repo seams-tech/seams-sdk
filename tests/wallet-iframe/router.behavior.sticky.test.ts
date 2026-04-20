@@ -25,10 +25,15 @@ const stickyResponseScript = String.raw`
                 type: 'PROGRESS',
                 requestId,
                 payload: {
-                  step: 3,
-                  phase: 'user-confirmation',
-                  status: 'progress',
-                  message: 'Awaiting authorization (sticky test)'
+                  version: 2,
+                  flow: 'signing',
+                  step: 5,
+                  phase: 'signing.confirmation.displayed',
+                  status: 'waiting_for_user',
+                  message: 'Review transaction',
+                  flowId: 'signing:test:' + requestId,
+                  requestId,
+                  interaction: { kind: 'transaction_confirmation', overlay: 'show' }
                 }
               });
             } catch (err) {
@@ -70,10 +75,15 @@ const stickyResponseScript = String.raw`
                   type: 'PROGRESS',
                   requestId,
                   payload: {
-                    step: 3,
-                    phase: 'webauthn-authentication',
-                    status: 'progress',
-                    message: 'Authenticating with passkey (tempo sticky regression)'
+                    version: 2,
+                    flow: 'signing',
+                    step: 6,
+                    phase: 'signing.auth.passkey.prompt.started',
+                    status: 'waiting_for_user',
+                    message: 'Confirm with passkey',
+                    flowId: 'signing:test:' + requestId,
+                    requestId,
+                    interaction: { kind: 'passkey_assert', overlay: 'show' }
                   }
                 });
               } catch (err) {
@@ -86,10 +96,15 @@ const stickyResponseScript = String.raw`
                   type: 'PROGRESS',
                   requestId,
                   payload: {
-                    step: 4,
-                    phase: 'authentication-complete',
-                    status: 'success',
-                    message: 'Authentication complete'
+                    version: 2,
+                    flow: 'signing',
+                    step: 7,
+                    phase: 'signing.authentication.complete',
+                    status: 'succeeded',
+                    message: 'Authentication complete',
+                    flowId: 'signing:test:' + requestId,
+                    requestId,
+                    interaction: { kind: 'passkey_assert', overlay: 'hide' }
                   }
                 });
               } catch (err) {

@@ -3,7 +3,7 @@ import { createRelayRouter } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { callCf, fetchJson, getPath, makeFakeAuthService, startExpressRouter } from './helpers';
 
-function createStubPrfSessionSealOptionsWithCapabilities() {
+function createStubSigningSessionSealOptionsWithCapabilities() {
   return {
     enabled: false,
     capabilities: {
@@ -101,10 +101,10 @@ test.describe('relayer health/ready + well-known', () => {
     }
   });
 
-  test('express: well-known includes sealed refresh capabilities when PRF seal is configured', async () => {
+  test('express: well-known includes sealed refresh capabilities when signing-session seal is configured', async () => {
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, {
-      prfSessionSeal: createStubPrfSessionSealOptionsWithCapabilities() as any,
+      signingSessionSeal: createStubSigningSessionSealOptionsWithCapabilities() as any,
     });
     const srv = await startExpressRouter(router);
     try {
@@ -211,10 +211,10 @@ test.describe('relayer health/ready + well-known', () => {
     expect(calls[0]).toEqual({ rpId: 'wallet.example.localhost', host: 'relay.test' });
   });
 
-  test('cloudflare: well-known includes sealed refresh capabilities when PRF seal is configured', async () => {
+  test('cloudflare: well-known includes sealed refresh capabilities when signing-session seal is configured', async () => {
     const service = makeFakeAuthService();
     const handler = createCloudflareRouter(service, {
-      prfSessionSeal: createStubPrfSessionSealOptionsWithCapabilities() as any,
+      signingSessionSeal: createStubSigningSessionSealOptionsWithCapabilities() as any,
     });
 
     const res = await callCf(handler, {

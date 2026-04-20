@@ -6,18 +6,15 @@ import type {
   RegistrationCapability,
 } from '@/core/TatchiPasskey';
 import {
-  LoginPhase,
-  LoginStatus,
   type LoginHooksOptions,
-  type LoginSSEvent,
-  RegistrationPhase,
-  RegistrationStatus,
+  UnlockEventPhase,
+  type UnlockFlowEvent,
+  RegistrationEventPhase,
   type RegistrationHooksOptions,
-  type RegistrationSSEEvent,
-  SyncAccountPhase,
-  SyncAccountStatus,
+  type RegistrationFlowEvent,
+  AccountSyncEventPhase,
+  type AccountSyncFlowEvent,
   type SyncAccountHooksOptions,
-  type SyncAccountSSEEvent,
 } from '@/core/types/sdkSentEvents';
 
 export function useTatchiWithSdkFlow(args: {
@@ -54,15 +51,17 @@ export function useTatchiWithSdkFlow(args: {
       const seq = beginSdkFlow('login', nearAccountId);
       const wrappedOptions: LoginHooksOptions = {
         ...options,
-        onEvent: (event: LoginSSEvent) => {
+        onEvent: (event: UnlockFlowEvent) => {
           appendSdkEventMessage(seq, event.message);
-          if (
-            event.phase === LoginPhase.STEP_4_LOGIN_COMPLETE &&
-            event.status === LoginStatus.SUCCESS
-          ) {
+          if (event.phase === UnlockEventPhase.STEP_07_COMPLETED && event.status === 'succeeded') {
             endSdkFlow('login', seq, 'success');
-          } else if (event.phase === LoginPhase.LOGIN_ERROR || event.status === LoginStatus.ERROR) {
-            const error = 'error' in event ? event.error : event.message;
+          } else if (
+            event.phase === UnlockEventPhase.FAILED ||
+            event.phase === UnlockEventPhase.CANCELLED ||
+            event.status === 'failed' ||
+            event.status === 'cancelled'
+          ) {
+            const error = event.error?.message || event.message;
             endSdkFlow('login', seq, 'error', error || event.message);
           }
           options?.onEvent?.(event);
@@ -84,18 +83,20 @@ export function useTatchiWithSdkFlow(args: {
       const seq = beginSdkFlow('register', nearAccountId);
       const wrappedOptions: RegistrationHooksOptions = {
         ...options,
-        onEvent: (event: RegistrationSSEEvent) => {
+        onEvent: (event: RegistrationFlowEvent) => {
           appendSdkEventMessage(seq, event.message);
           if (
-            event.phase === RegistrationPhase.STEP_9_REGISTRATION_COMPLETE &&
-            event.status === RegistrationStatus.SUCCESS
+            event.phase === RegistrationEventPhase.STEP_11_COMPLETED &&
+            event.status === 'succeeded'
           ) {
             endSdkFlow('register', seq, 'success');
           } else if (
-            event.phase === RegistrationPhase.REGISTRATION_ERROR ||
-            event.status === RegistrationStatus.ERROR
+            event.phase === RegistrationEventPhase.FAILED ||
+            event.phase === RegistrationEventPhase.CANCELLED ||
+            event.status === 'failed' ||
+            event.status === 'cancelled'
           ) {
-            const error = 'error' in event ? event.error : event.message;
+            const error = event.error?.message || event.message;
             endSdkFlow('register', seq, 'error', error || event.message);
           }
           options?.onEvent?.(event);
@@ -115,18 +116,20 @@ export function useTatchiWithSdkFlow(args: {
       const seq = beginSdkFlow('sync', accountId || undefined);
       const wrappedOptions: SyncAccountHooksOptions = {
         ...args?.options,
-        onEvent: (event: SyncAccountSSEEvent) => {
+        onEvent: (event: AccountSyncFlowEvent) => {
           appendSdkEventMessage(seq, event.message);
           if (
-            event.phase === SyncAccountPhase.STEP_5_SYNC_ACCOUNT_COMPLETE &&
-            event.status === SyncAccountStatus.SUCCESS
+            event.phase === AccountSyncEventPhase.STEP_06_COMPLETED &&
+            event.status === 'succeeded'
           ) {
             endSdkFlow('sync', seq, 'success');
           } else if (
-            event.phase === SyncAccountPhase.ERROR ||
-            event.status === SyncAccountStatus.ERROR
+            event.phase === AccountSyncEventPhase.FAILED ||
+            event.phase === AccountSyncEventPhase.CANCELLED ||
+            event.status === 'failed' ||
+            event.status === 'cancelled'
           ) {
-            const error = 'error' in event ? event.error : event.message;
+            const error = event.error?.message || event.message;
             endSdkFlow('sync', seq, 'error', error || event.message);
           }
           (args?.options as SyncAccountHooksOptions | undefined)?.onEvent?.(event);

@@ -25,7 +25,14 @@ import type { ReserveNonceInput } from '@/core/rpcClients/evm/nonceManager';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
 import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
 import { buildEvmDisplayModel } from '@/core/signingEngine/touchConfirm/displayFormat/evmTx';
-import { ActionPhase } from '@/core/types/sdkSentEvents';
+import {
+  createSigningFlowEvent,
+  SigningEventPhase,
+  type CreateSigningFlowEventInput,
+  type SigningFlowEvent,
+  type WalletFlowAuthMethod,
+  type WalletFlowInteractionKind,
+} from '@/core/types/sdkSentEvents';
 import {
   PENDING_CHALLENGE_B64U,
   PENDING_INTENT_DIGEST,
@@ -49,13 +56,7 @@ export async function signEvmWithTouchConfirm(args: {
   nearAccountId: string;
   request: EvmSigningRequest;
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
-  onEvent?: (event: {
-    step: number;
-    phase: string;
-    status: 'progress' | 'success' | 'error';
-    message?: string;
-    data?: unknown;
-  }) => void;
+  onEvent?: (event: SigningFlowEvent) => void;
   keyRefsByAlgorithm?: Partial<Record<SignRequest['algorithm'], KeyRef>>;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
@@ -73,23 +74,36 @@ export async function signEvmWithTouchConfirm(args: {
   };
   walletAuthPlan?: WalletAuthPlan;
 }): Promise<EvmSignedResult> {
-  const emitProgress = (event: {
-    step: number;
+  const sessionId = makeRequestId('intent');
+  const flowId = `signing:evm:${args.nearAccountId}:${sessionId}`;
+  const authMethod = resolveSigningAuthMethod(args.walletAuthPlan, !!args.emailOtpSigning);
+  const emitProgress = (
+    event: Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId' | 'authMethod'>,
+  ) => {
+    try {
+      args.onEvent?.(
+        createSigningFlowEvent({
+          ...event,
+          flowId,
+          accountId: args.nearAccountId,
+          authMethod,
+        }),
+      );
+    } catch {}
+  };
+  const emitTouchConfirmProgress = (progress: {
     phase: string;
-    status: 'progress' | 'success' | 'error';
+    status: 'running' | 'succeeded' | 'failed';
     message?: string;
     data?: unknown;
   }) => {
-    try {
-      args.onEvent?.(event);
-    } catch {}
+    const mapped = mapTouchConfirmSigningProgress(progress, authMethod);
+    if (mapped) emitProgress(mapped);
   };
 
   const title = 'Sign EVM Transaction';
   const body = 'Review and approve signing the transaction hash.';
-  let eagerDisplayModel:
-    | ReturnType<typeof buildEvmDisplayModel>
-    | undefined;
+  let eagerDisplayModel: ReturnType<typeof buildEvmDisplayModel> | undefined;
   try {
     eagerDisplayModel = buildEvmDisplayModel({
       request: args.request,
@@ -124,7 +138,6 @@ export async function signEvmWithTouchConfirm(args: {
     } catch {}
   };
 
-  const sessionId = makeRequestId('intent');
   const intentPreparationTask = (async () => {
     if (args.prepareRequestWithManagedNonce) {
       const prepared = await args.prepareRequestWithManagedNonce();
@@ -167,12 +180,23 @@ export async function signEvmWithTouchConfirm(args: {
 
   try {
     emitProgress({
-      step: 2,
-      phase: 'user-confirmation',
-      status: 'progress',
-      message: 'Awaiting transaction confirmation',
+      phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
+      status: 'waiting_for_user',
+      interaction: { kind: 'transaction_confirmation', overlay: 'show' },
     });
     const { touchConfirmAuthPayload } = await signingAuthPromise;
+    if (touchConfirmAuthPayload.signingAuthPlan.kind === 'warmSession') {
+      emitProgress({
+        phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
+        status: 'succeeded',
+        interaction: { kind: 'none', overlay: 'none' },
+        data: {
+          sessionId: touchConfirmAuthPayload.signingAuthPlan.sessionId,
+          expiresAtMs: touchConfirmAuthPayload.signingAuthPlan.expiresAtMs,
+          remainingUses: touchConfirmAuthPayload.signingAuthPlan.remainingUses,
+        },
+      });
+    }
     const confirmation = await args.touchConfirm.orchestrateSigningConfirmation({
       ctx: { touchConfirm: args.touchConfirm },
       sessionId,
@@ -186,14 +210,13 @@ export async function signEvmWithTouchConfirm(args: {
       body,
       ...touchConfirmAuthPayload,
       ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
-      onProgress: args.onEvent,
+      onProgress: emitTouchConfirmProgress,
       confirmationConfigOverride: args.confirmationConfigOverride,
     });
     emitProgress({
-      step: 2,
-      phase: 'user-confirmation-complete',
-      status: 'success',
-      message: 'Confirmation complete',
+      phase: SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
+      status: 'succeeded',
+      interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
     });
     const intentPrepared = await intentPreparationTask;
     const intent = intentPrepared.intent;
@@ -241,12 +264,13 @@ export async function signEvmWithTouchConfirm(args: {
       await ensureThresholdKeyRef();
     }
 
-    emitProgress({
-      step: 5,
-      phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
-      status: 'progress',
-      message: 'Signing transaction...',
-    });
+    if (hasSecp256k1Request) {
+      emitProgress({
+        phase: SigningEventPhase.STEP_10_COMMIT_STARTED,
+        status: 'running',
+        interaction: { kind: 'none', overlay: 'none' },
+      });
+    }
     const result = await executeSigningIntent({
       intent,
       engines: args.engines,
@@ -262,10 +286,15 @@ export async function signEvmWithTouchConfirm(args: {
       },
     });
     emitProgress({
-      step: 6,
-      phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
-      status: 'success',
-      message: 'Transaction signed',
+      phase: SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
+      status: 'succeeded',
+      interaction: { kind: 'none', overlay: 'hide' },
+    });
+    emitProgress({
+      phase: SigningEventPhase.STEP_15_COMPLETED,
+      status: 'succeeded',
+      interaction: { kind: 'none', overlay: 'none' },
+      data: { operation: 'sign' },
     });
     if (!nonceReservation) return result;
     return {
@@ -284,4 +313,90 @@ export async function signEvmWithTouchConfirm(args: {
     }
     throw error;
   }
+}
+
+function resolveSigningAuthMethod(
+  walletAuthPlan: WalletAuthPlan | undefined,
+  hasEmailOtpPrompt: boolean,
+): WalletFlowAuthMethod {
+  if (hasEmailOtpPrompt || walletAuthPlan?.kind === 'emailOtpReauth') return 'email_otp';
+  if (walletAuthPlan?.kind === 'warmSession') return 'warm_session';
+  return 'passkey';
+}
+
+function mapTouchConfirmSigningProgress(
+  progress: {
+    phase: string;
+    status: 'running' | 'succeeded' | 'failed';
+    message?: string;
+    data?: unknown;
+  },
+  authMethod: WalletFlowAuthMethod,
+): Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId' | 'authMethod'> | null {
+  const phase = String(progress.phase || '');
+  const failed = progress.status === 'failed';
+  if (phase === 'intent-confirmation-required') {
+    return {
+      phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
+      status: 'waiting_for_user',
+      interaction: { kind: 'transaction_confirmation', overlay: 'show' },
+      data: toEventData(progress.data),
+    };
+  }
+  if (phase === 'confirmation.complete') {
+    if (failed) {
+      return {
+        phase: SigningEventPhase.STEP_05_CONFIRMATION_CANCELLED,
+        status: 'cancelled',
+        interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
+        error: { message: progress.message || 'Transaction rejected' },
+        data: toEventData(progress.data),
+      };
+    }
+    return {
+      phase:
+        authMethod === 'email_otp'
+          ? SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED
+          : SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
+      status: 'succeeded',
+      interaction: {
+        kind: authMethod === 'email_otp' ? 'otp_input' : 'transaction_confirmation',
+        overlay: 'hide',
+      },
+      data: toEventData(progress.data),
+    };
+  }
+  if (phase === 'auth.passkey.prompt.started') {
+    return {
+      phase: SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_STARTED,
+      status: 'waiting_for_user',
+      interaction: { kind: 'passkey_assert', overlay: 'show' },
+      data: toEventData(progress.data),
+    };
+  }
+  if (phase === 'auth.passkey.prompt.succeeded') {
+    const interactionKind: WalletFlowInteractionKind = 'passkey_assert';
+    if (failed) {
+      return {
+        phase: SigningEventPhase.FAILED,
+        status: 'failed',
+        interaction: { kind: interactionKind, overlay: 'hide' },
+        error: { message: progress.message || 'Transaction signing failed' },
+        data: toEventData(progress.data),
+      };
+    }
+    return {
+      phase: SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_SUCCEEDED,
+      status: 'succeeded',
+      interaction: { kind: interactionKind, overlay: 'hide' },
+      data: toEventData(progress.data),
+    };
+  }
+  return null;
+}
+
+function toEventData(value: unknown): Record<string, unknown> | undefined {
+  if (value == null) return undefined;
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  return { value };
 }

@@ -47,6 +47,8 @@ test.describe('console bootstrap tokens postgres service', () => {
       publishableKeyId: 'key_publishable_postgres',
       projectId: 'project-bootstrap-postgres',
       environmentId: 'env-bootstrap-postgres',
+      newAccountId: 'wallet-bootstrap-postgres.testnet',
+      rpId: 'app.example.com',
       origin: 'https://app.example.com',
       method: 'POST',
       path: '/registration/bootstrap',

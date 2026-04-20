@@ -480,7 +480,7 @@ export class TatchiPasskeyIframe {
           signerSlot: args.options?.signerSlot,
           confirmerText: args.options?.confirmerText,
           confirmationConfig: args.options?.confirmationConfig,
-          onEvent: args.options?.onEvent, // Progress events: user-confirmation, webauthn-authentication, etc.
+          onEvent: args.options?.onEvent,
         },
       });
       await args.options?.afterCall?.(true, res);

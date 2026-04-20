@@ -2,7 +2,7 @@
  * TouchConfirm Manager implementation.
  *
  * Owns the worker/main-thread handshake for touchConfirm UI orchestration
- * and the PRF.first warm-session cache.
+ * and the warm-session material cache.
  */
 
 import type {
@@ -22,12 +22,14 @@ import type {
 import { BUILD_PATHS } from '../../../../../sdk/build-paths';
 import { resolveWorkerUrl } from '../../walletRuntimePaths';
 import {
-  clearAllPrfSessionSealedRecords,
-  deletePrfSessionSealedRecord,
-  readPrfSessionSealedRecord,
-  updatePrfSessionSealedRecordPolicy,
-  writePrfSessionSealedRecord,
-} from '../api/session/prfSessionSealedStore';
+  acquireSigningSessionRestoreLease,
+  clearAllSigningSessionSealedRecords,
+  deleteSigningSessionSealedRecord,
+  readSigningSessionSealedRecord,
+  releaseSigningSessionRestoreLease,
+  updateSigningSessionSealedRecordPolicy,
+  writeSigningSessionSealedRecord,
+} from '../api/session/signingSessionSealedStore';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
@@ -145,11 +147,13 @@ function parseWarmSessionSealAndPersistResult(
       ok: false,
       code: typeof data.code === 'string' ? data.code : 'worker_error',
       message:
-        typeof data.message === 'string' ? data.message : 'PRF.first seal and persist failed',
+        typeof data.message === 'string'
+          ? data.message
+          : 'Signing-session seal and persist failed',
     };
   }
   if (
-    typeof data.sealedPrfFirstB64u !== 'string' ||
+    typeof data.sealedSecretB64u !== 'string' ||
     typeof data.remainingUses !== 'number' ||
     typeof data.expiresAtMs !== 'number'
   ) {
@@ -157,7 +161,7 @@ function parseWarmSessionSealAndPersistResult(
   }
   return {
     ok: true,
-    sealedPrfFirstB64u: data.sealedPrfFirstB64u,
+    sealedSecretB64u: data.sealedSecretB64u,
     ...(typeof data.keyVersion === 'string' && data.keyVersion.trim()
       ? { keyVersion: data.keyVersion.trim() }
       : {}),
@@ -166,9 +170,7 @@ function parseWarmSessionSealAndPersistResult(
   };
 }
 
-function parseWarmSessionClaimResult(
-  data: unknown,
-): WarmSessionClaimResult | null {
+function parseWarmSessionClaimResult(data: unknown): WarmSessionClaimResult | null {
   if (!isObjectRecord(data) || typeof data.ok !== 'boolean') return null;
   if (!data.ok) {
     return {
@@ -202,7 +204,7 @@ function parseUserConfirmProgressEvent(data: unknown): UserConfirmProgressEvent 
     !requestId ||
     !Number.isFinite(step) ||
     !phase ||
-    (status !== 'progress' && status !== 'success' && status !== 'error')
+    (status !== 'running' && status !== 'succeeded' && status !== 'failed')
   ) {
     return null;
   }
@@ -237,15 +239,15 @@ function parseExportPrivateKeysWithUiWorkerResult(
   };
 }
 
-const thresholdPrfRehydrateSingleFlight = new Map<
+const signingSessionRehydrateSingleFlight = new Map<
   string,
   Promise<WarmSessionStatusResult | null>
 >();
-const thresholdPrfSealPersistSingleFlight = new Map<
+const signingSessionSealPersistSingleFlight = new Map<
   string,
   Promise<WarmSessionSealAndPersistResult>
 >();
-const thresholdPrfSealDeleteSingleFlight = new Map<string, Promise<void>>();
+const signingSessionSealDeleteSingleFlight = new Map<string, Promise<void>>();
 
 function makeWarmSessionSingleFlightKey(args: {
   operation: 'rehydrate' | 'persist' | 'delete';
@@ -310,7 +312,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     };
   }
 
-  private resolveSealTransportInput(
+  private async resolveSealTransportInput(
     thresholdSessionIdRaw: string,
     explicitTransport?: {
       curve?: 'ed25519' | 'ecdsa';
@@ -319,16 +321,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       keyVersion?: string;
       shamirPrimeB64u?: string;
     } | null,
-  ): WarmSessionSealTransportInput | null {
+  ): Promise<WarmSessionSealTransportInput | null> {
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
-    const sealedRecord = readPrfSessionSealedRecord(thresholdSessionId);
-    const ed25519Record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
-      thresholdSessionId,
-    );
-    const ecdsaRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
-      thresholdSessionId,
-    );
+    const sealedRecord = await readSigningSessionSealedRecord(thresholdSessionId);
+    const ed25519Record =
+      getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
+    const ecdsaRecord =
+      getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
     const relayerUrl = String(
       explicitTransport?.relayerUrl ||
         sealedRecord?.relayerUrl ||
@@ -339,7 +339,6 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!relayerUrl) return null;
     const thresholdSessionJwt = String(
       explicitTransport?.thresholdSessionJwt ||
-        sealedRecord?.thresholdSessionJwt ||
         ed25519Record?.thresholdSessionJwt ||
         ecdsaRecord?.thresholdSessionJwt ||
         '',
@@ -348,18 +347,21 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       explicitTransport?.keyVersion ||
         sealedRecord?.keyVersion ||
         ecdsaRecord?.signingSessionSealKeyVersion ||
-        this.config.prfSessionSealKeyVersion ||
+        this.config.signingSessionSealKeyVersion ||
         '',
     ).trim();
     const shamirPrimeB64u = String(
       explicitTransport?.shamirPrimeB64u ||
         sealedRecord?.shamirPrimeB64u ||
         ecdsaRecord?.signingSessionSealShamirPrimeB64u ||
-        this.config.prfSessionSealShamirPrimeB64u ||
+        this.config.signingSessionSealShamirPrimeB64u ||
         '',
     ).trim();
     const curve =
-      explicitTransport?.curve || sealedRecord?.curve || (ed25519Record ? 'ed25519' : undefined) || (ecdsaRecord ? 'ecdsa' : undefined);
+      explicitTransport?.curve ||
+      sealedRecord?.curve ||
+      (ed25519Record ? 'ed25519' : undefined) ||
+      (ecdsaRecord ? 'ecdsa' : undefined);
     return {
       ...(curve ? { curve } : {}),
       relayerUrl,
@@ -382,7 +384,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!this.isSealedRefreshModeEnabled()) return;
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return;
-    await this.persistPrfFirstSealForThresholdSession({
+    await this.persistSigningSessionSealForThresholdSession({
       sessionId: thresholdSessionId,
       ...(transport ? { transport } : {}),
     }).catch(() => undefined);
@@ -399,14 +401,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       thresholdSessionId,
     });
 
-    const inFlight = thresholdPrfRehydrateSingleFlight.get(singleFlightKey);
+    const inFlight = signingSessionRehydrateSingleFlight.get(singleFlightKey);
     if (inFlight) return await inFlight;
 
     const task = (async (): Promise<WarmSessionStatusResult | null> => {
-      const sealedRecord = readPrfSessionSealedRecord(thresholdSessionId);
+      const sealedRecord = await readSigningSessionSealedRecord(thresholdSessionId);
       if (!sealedRecord) return null;
       if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
-        deletePrfSessionSealedRecord(thresholdSessionId);
+        await deleteSigningSessionSealedRecord(thresholdSessionId);
         return {
           ok: false,
           code: 'expired',
@@ -414,55 +416,63 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         };
       }
 
-      const transport = this.resolveSealTransportInput(thresholdSessionId);
-      if (!transport) return null;
-      const shamirPrimeB64u = String(
-        sealedRecord.shamirPrimeB64u || transport.shamirPrimeB64u || '',
-      ).trim();
-      if (!shamirPrimeB64u) return null;
+      const lease = await acquireSigningSessionRestoreLease({ thresholdSessionId });
+      if (!lease) return null;
+      try {
+        const transport = await this.resolveSealTransportInput(thresholdSessionId);
+        if (!transport) return null;
+        const shamirPrimeB64u = String(
+          sealedRecord.shamirPrimeB64u || transport.shamirPrimeB64u || '',
+        ).trim();
+        if (!shamirPrimeB64u) return null;
 
-      const rehydrated = await this.rehydrateWarmSessionMaterial({
-        sessionId: thresholdSessionId,
-        sealedPrfFirstB64u: sealedRecord.sealedPrfFirstB64u,
-        keyVersion: sealedRecord.keyVersion,
-        expiresAtMs: sealedRecord.expiresAtMs,
-        remainingUses: sealedRecord.remainingUses,
-        transport: {
-          ...transport,
-          shamirPrimeB64u,
-        },
-      });
-      if (!rehydrated.ok) {
-        deletePrfSessionSealedRecord(thresholdSessionId);
-        return { ok: false, code: rehydrated.code, message: rehydrated.message };
+        const rehydrated = await this.rehydrateWarmSessionMaterial({
+          sessionId: thresholdSessionId,
+          sealedSecretB64u: sealedRecord.sealedSecretB64u,
+          keyVersion: sealedRecord.keyVersion,
+          expiresAtMs: sealedRecord.expiresAtMs,
+          remainingUses: sealedRecord.remainingUses,
+          transport: {
+            ...transport,
+            shamirPrimeB64u,
+          },
+        });
+        if (!rehydrated.ok) {
+          await deleteSigningSessionSealedRecord(thresholdSessionId);
+          return { ok: false, code: rehydrated.code, message: rehydrated.message };
+        }
+
+        await updateSigningSessionSealedRecordPolicy({
+          thresholdSessionId,
+          expiresAtMs: rehydrated.expiresAtMs,
+          remainingUses: rehydrated.remainingUses,
+          updatedAtMs: Date.now(),
+        });
+
+        const rehydratedPeek = await this.sendMessage({
+          type: 'WARM_SESSION_STATUS_READ',
+          id: this.generateMessageId(),
+          payload: { sessionId: thresholdSessionId },
+        });
+        const parsed = parseWarmSessionStatusResult(rehydratedPeek?.data);
+        if (rehydratedPeek?.success !== true || !parsed) {
+          return {
+            ok: false,
+            code: 'worker_error',
+            message: String(
+              rehydratedPeek?.error || 'Warm-session status read failed after rehydrate',
+            ),
+          };
+        }
+        return parsed;
+      } finally {
+        await releaseSigningSessionRestoreLease(lease);
       }
-
-      updatePrfSessionSealedRecordPolicy({
-        thresholdSessionId,
-        expiresAtMs: rehydrated.expiresAtMs,
-        remainingUses: rehydrated.remainingUses,
-        updatedAtMs: Date.now(),
-      });
-
-      const rehydratedPeek = await this.sendMessage({
-        type: 'WARM_SESSION_STATUS_READ',
-        id: this.generateMessageId(),
-        payload: { sessionId: thresholdSessionId },
-      });
-      const parsed = parseWarmSessionStatusResult(rehydratedPeek?.data);
-      if (rehydratedPeek?.success !== true || !parsed) {
-        return {
-          ok: false,
-          code: 'worker_error',
-          message: String(rehydratedPeek?.error || 'Warm-session status read failed after rehydrate'),
-        };
-      }
-      return parsed;
     })().finally(() => {
-      thresholdPrfRehydrateSingleFlight.delete(singleFlightKey);
+      signingSessionRehydrateSingleFlight.delete(singleFlightKey);
     });
 
-    thresholdPrfRehydrateSingleFlight.set(singleFlightKey, task);
+    signingSessionRehydrateSingleFlight.set(singleFlightKey, task);
     return await task;
   }
 
@@ -486,16 +496,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       payload: args,
     });
     if (!res?.success) {
-      throw new Error(String(res?.error || 'Failed to cache PRF.first for threshold session'));
+      throw new Error(String(res?.error || 'Failed to cache warm-session material'));
     }
     const parsed = parseWarmSessionStatusResult(res?.data);
     if (!parsed) {
       throw new Error('Warm-session cache returned an invalid response');
     }
     if (!parsed.ok) {
-      throw new Error(
-        `Warm-session cache failed (${parsed.code}): ${parsed.message}`,
-      );
+      throw new Error(`Warm-session cache failed (${parsed.code}): ${parsed.message}`);
     }
     await this.ensureSealedRecordPersistedBestEffort(args.sessionId, args.transport || null);
   };
@@ -504,7 +512,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     args: WarmSessionSealAndPersistPayload,
   ): Promise<WarmSessionSealAndPersistResult> => {
     if (!this.isSealedRefreshModeEnabled()) {
-      return this.getSealedRefreshNotEnabledError('PRF.first seal and persist');
+      return this.getSealedRefreshNotEnabledError('signing-session seal and persist');
     }
     await this.ensureWorkerReady(false);
     const res = await this.sendMessage({
@@ -517,7 +525,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       return {
         ok: false,
         code: 'worker_error',
-        message: String(res?.error || 'PRF.first seal and persist failed'),
+        message: String(res?.error || 'Signing-session seal and persist failed'),
       };
     }
     return parsed;
@@ -527,7 +535,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     args: WarmSessionRehydratePayload,
   ): Promise<WarmSessionRehydrateResult> => {
     if (!this.isSealedRefreshModeEnabled()) {
-      return this.getSealedRefreshNotEnabledError('PRF.first rehydrate');
+      return this.getSealedRefreshNotEnabledError('signing-session rehydrate');
     }
     await this.ensureWorkerReady(false);
     const res = await this.sendMessage({
@@ -540,15 +548,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       return {
         ok: false,
         code: 'worker_error',
-        message: String(res?.error || 'PRF.first rehydrate failed'),
+        message: String(res?.error || 'Signing-session rehydrate failed'),
       };
     }
     return parsed;
   };
 
-  getWarmSessionStatus = async (args: {
-    sessionId: string;
-  }): Promise<WarmSessionStatusResult> => {
+  getWarmSessionStatus = async (args: { sessionId: string }): Promise<WarmSessionStatusResult> => {
     await this.ensureWorkerReady(false);
     const res = await this.sendMessage({
       type: 'WARM_SESSION_STATUS_READ',
@@ -571,7 +577,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     }
     if (parsed.code !== 'not_found') {
       if (parsed.code === 'expired' || parsed.code === 'exhausted') {
-        deletePrfSessionSealedRecord(args.sessionId);
+        await deleteSigningSessionSealedRecord(args.sessionId);
       }
       return parsed;
     }
@@ -579,7 +585,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     const rehydrated = await this.tryRehydrateFromSealedRecord(args.sessionId);
     if (rehydrated) {
       if (!rehydrated.ok && (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')) {
-        deletePrfSessionSealedRecord(args.sessionId);
+        await deleteSigningSessionSealedRecord(args.sessionId);
       }
       return rehydrated;
     }
@@ -624,7 +630,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         const rehydrated = await this.tryRehydrateFromSealedRecord(entry.sessionId);
         if (!rehydrated) return entry;
         if (!rehydrated.ok && (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')) {
-          deletePrfSessionSealedRecord(entry.sessionId);
+          await deleteSigningSessionSealedRecord(entry.sessionId);
         }
         return { sessionId: entry.sessionId, result: rehydrated };
       }),
@@ -632,7 +638,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     return { results };
   };
 
-  persistPrfFirstSealForThresholdSession = async (args: {
+  persistSigningSessionSealForThresholdSession = async (args: {
     sessionId: string;
     transport?: {
       relayerUrl?: string;
@@ -642,7 +648,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     };
   }): Promise<WarmSessionSealAndPersistResult> => {
     if (!this.isSealedRefreshModeEnabled()) {
-      return this.getSealedRefreshNotEnabledError('PRF.first seal persistence');
+      return this.getSealedRefreshNotEnabledError('signing-session seal persistence');
     }
     const thresholdSessionId = String(args?.sessionId || '').trim();
     if (!thresholdSessionId) {
@@ -652,15 +658,15 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       operation: 'persist',
       thresholdSessionId,
     });
-    const inFlight = thresholdPrfSealPersistSingleFlight.get(singleFlightKey);
+    const inFlight = signingSessionSealPersistSingleFlight.get(singleFlightKey);
     if (inFlight) return await inFlight;
 
     const task = (async (): Promise<WarmSessionSealAndPersistResult> => {
-      const existingRecord = readPrfSessionSealedRecord(thresholdSessionId);
+      const existingRecord = await readSigningSessionSealedRecord(thresholdSessionId);
       if (existingRecord) {
         return {
           ok: true,
-          sealedPrfFirstB64u: existingRecord.sealedPrfFirstB64u,
+          sealedSecretB64u: existingRecord.sealedSecretB64u,
           ...(existingRecord.keyVersion ? { keyVersion: existingRecord.keyVersion } : {}),
           remainingUses: existingRecord.remainingUses,
           expiresAtMs: existingRecord.expiresAtMs,
@@ -668,7 +674,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       }
 
       const inferredTransport =
-        this.resolveSealTransportInput(thresholdSessionId, args?.transport || null) || null;
+        (await this.resolveSealTransportInput(thresholdSessionId, args?.transport || null)) || null;
       const relayerUrl = String(
         args?.transport?.relayerUrl || inferredTransport?.relayerUrl || '',
       ).trim();
@@ -678,13 +684,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       const keyVersion = String(
         args?.transport?.keyVersion ||
           inferredTransport?.keyVersion ||
-          this.config.prfSessionSealKeyVersion ||
+          this.config.signingSessionSealKeyVersion ||
           '',
       ).trim();
       const shamirPrimeB64u = String(
         args?.transport?.shamirPrimeB64u ||
           inferredTransport?.shamirPrimeB64u ||
-          this.config.prfSessionSealShamirPrimeB64u ||
+          this.config.signingSessionSealShamirPrimeB64u ||
           '',
       ).trim();
 
@@ -692,14 +698,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         return {
           ok: false,
           code: 'invalid_args',
-          message: 'Missing relayerUrl for PRF session seal persistence',
+          message: 'Missing relayerUrl for signing-session seal persistence',
         };
       }
       if (!shamirPrimeB64u) {
         return {
           ok: false,
           code: 'invalid_args',
-          message: 'Missing shamirPrimeB64u for PRF session seal persistence',
+          message: 'Missing shamirPrimeB64u for signing-session seal persistence',
         };
       }
 
@@ -714,32 +720,36 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       });
       if (!sealed.ok) return sealed;
 
-      writePrfSessionSealedRecord({
+      await writeSigningSessionSealedRecord({
         thresholdSessionId,
-        sealedPrfFirstB64u: sealed.sealedPrfFirstB64u,
+        sealedSecretB64u: sealed.sealedSecretB64u,
         curve: inferredTransport?.curve,
+        thresholdSessionIds: {
+          ...(inferredTransport?.curve === 'ed25519'
+            ? { ed25519: thresholdSessionId }
+            : { ecdsa: thresholdSessionId }),
+        },
         relayerUrl,
-        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
         keyVersion: sealed.keyVersion,
         shamirPrimeB64u,
         expiresAtMs: sealed.expiresAtMs,
         remainingUses: sealed.remainingUses,
         updatedAtMs: Date.now(),
       });
-      const persistedRecord = readPrfSessionSealedRecord(thresholdSessionId);
+      const persistedRecord = await readSigningSessionSealedRecord(thresholdSessionId);
       if (!persistedRecord) {
         return {
           ok: false,
           code: 'local_persist_failed',
-          message: 'Failed to persist sealed PRF.first record locally',
+          message: 'Failed to persist sealed signing-session record locally',
         };
       }
       return sealed;
     })().finally(() => {
-      thresholdPrfSealPersistSingleFlight.delete(singleFlightKey);
+      signingSessionSealPersistSingleFlight.delete(singleFlightKey);
     });
 
-    thresholdPrfSealPersistSingleFlight.set(singleFlightKey, task);
+    signingSessionSealPersistSingleFlight.set(singleFlightKey, task);
     return await task;
   };
 
@@ -779,16 +789,20 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         }
         return retryParsed;
       }
-      if (rehydrated && !rehydrated.ok && (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')) {
-        deletePrfSessionSealedRecord(args.sessionId);
+      if (
+        rehydrated &&
+        !rehydrated.ok &&
+        (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')
+      ) {
+        await deleteSigningSessionSealedRecord(args.sessionId);
       }
       return parsed;
     }
     if (parsed.ok) {
       if (parsed.remainingUses <= 0 || Date.now() >= parsed.expiresAtMs) {
-        deletePrfSessionSealedRecord(args.sessionId);
+        await deleteSigningSessionSealedRecord(args.sessionId);
       } else {
-        updatePrfSessionSealedRecordPolicy({
+        await updateSigningSessionSealedRecordPolicy({
           thresholdSessionId: args.sessionId,
           expiresAtMs: parsed.expiresAtMs,
           remainingUses: parsed.remainingUses,
@@ -796,7 +810,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         });
       }
     } else if (parsed.code === 'expired' || parsed.code === 'exhausted') {
-      deletePrfSessionSealedRecord(args.sessionId);
+      await deleteSigningSessionSealedRecord(args.sessionId);
     }
     return parsed;
   };
@@ -813,7 +827,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         String(res?.error || 'Failed to clear warm-session material for threshold session'),
       );
     }
-    deletePrfSessionSealedRecord(args.sessionId);
+    await deleteSigningSessionSealedRecord(args.sessionId);
   };
 
   deletePersistedWarmSessionMaterial = async (
@@ -823,14 +837,14 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!thresholdSessionId) return;
 
     if (!this.isSealedRefreshModeEnabled()) {
-      deletePrfSessionSealedRecord(thresholdSessionId);
+      await deleteSigningSessionSealedRecord(thresholdSessionId);
       return;
     }
     const singleFlightKey = makeWarmSessionSingleFlightKey({
       operation: 'delete',
       thresholdSessionId,
     });
-    const inFlight = thresholdPrfSealDeleteSingleFlight.get(singleFlightKey);
+    const inFlight = signingSessionSealDeleteSingleFlight.get(singleFlightKey);
     if (inFlight) return await inFlight;
 
     const task = (async (): Promise<void> => {
@@ -841,22 +855,22 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         payload: { ...args, sessionId: thresholdSessionId },
       });
       if (!res?.success) {
-        throw new Error(String(res?.error || 'Failed to delete persisted PRF.first session seal'));
+        throw new Error(String(res?.error || 'Failed to delete persisted signing-session seal'));
       }
       const data = isObjectRecord(res.data) ? res.data : null;
       if (data && data.ok === false) {
         const message =
           typeof data.message === 'string'
             ? data.message
-            : 'Failed to delete persisted PRF.first session seal';
+            : 'Failed to delete persisted signing-session seal';
         throw new Error(message);
       }
-      deletePrfSessionSealedRecord(thresholdSessionId);
+      await deleteSigningSessionSealedRecord(thresholdSessionId);
     })().finally(() => {
-      thresholdPrfSealDeleteSingleFlight.delete(singleFlightKey);
+      signingSessionSealDeleteSingleFlight.delete(singleFlightKey);
     });
 
-    thresholdPrfSealDeleteSingleFlight.set(singleFlightKey, task);
+    signingSessionSealDeleteSingleFlight.set(singleFlightKey, task);
     return await task;
   };
 
@@ -870,7 +884,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!res?.success) {
       throw new Error(String(res?.error || 'Failed to clear all warm-session material entries'));
     }
-    clearAllPrfSessionSealedRecords();
+    await clearAllSigningSessionSealedRecords();
   };
 
   async requestUserConfirmation(

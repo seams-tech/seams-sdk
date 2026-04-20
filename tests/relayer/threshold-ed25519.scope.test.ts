@@ -47,7 +47,7 @@ type ThresholdEd25519AuthConsumeResult =
   | { ok: false; code: string; message: string };
 
 const DEFAULT_HSS_PRF_FIRST_B64U = Buffer.from(new Uint8Array(32).fill(13)).toString('base64url');
-const DEFAULT_HSS_ORG_ID = 'org_threshold_scope_test';
+const DEFAULT_HSS_SIGNING_ROOT_ID = 'org_threshold_scope_test';
 const DEFAULT_HSS_KEY_PURPOSE = 'near-ed25519-signing';
 const DEFAULT_HSS_DERIVATION_VERSION = 1;
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
@@ -444,11 +444,11 @@ async function buildThresholdEd25519HssSessionMaterial(input: {
   nearAccountId: string;
   keyVersion?: string;
   participantIds?: number[];
-  orgId?: string;
+  signingRootId?: string;
   prfFirstB64u?: string;
 }): Promise<{
   context: {
-    orgId: string;
+    signingRootId: string;
     nearAccountId: string;
     keyPurpose: string;
     keyVersion: string;
@@ -461,7 +461,7 @@ async function buildThresholdEd25519HssSessionMaterial(input: {
     ? input.participantIds.map((value) => Number(value))
     : [1, 2];
   const context = {
-    orgId: String(input.orgId || DEFAULT_HSS_ORG_ID).trim(),
+    signingRootId: String(input.signingRootId || DEFAULT_HSS_SIGNING_ROOT_ID).trim(),
     nearAccountId: String(input.nearAccountId || '').trim(),
     keyPurpose: DEFAULT_HSS_KEY_PURPOSE,
     keyVersion: String(input.keyVersion || THRESHOLD_ED25519_KEY_VERSION_V1).trim(),
@@ -470,7 +470,7 @@ async function buildThresholdEd25519HssSessionMaterial(input: {
   };
   const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
     sessionId: `${String(input.thresholdSessionId || '').trim()}:hss-client-inputs`,
-    orgId: context.orgId,
+    signingRootId: context.signingRootId,
     nearAccountId: context.nearAccountId,
     keyPurpose: context.keyPurpose,
     keyVersion: context.keyVersion,

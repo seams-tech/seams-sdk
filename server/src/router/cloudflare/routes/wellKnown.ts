@@ -13,7 +13,7 @@ export async function handleWellKnown(ctx: CloudflareRelayContext): Promise<Resp
     return null;
 
   let origins: string[] = [];
-  const signingSessionSeal = resolveWellKnownSigningSessionSealCapabilities(ctx.opts.prfSessionSeal);
+  const signingSessionSeal = resolveWellKnownSigningSessionSealCapabilities(ctx.opts.signingSessionSeal);
   try {
     const host = normalizeRorHost(
       ctx.request.headers.get('x-forwarded-host') ||

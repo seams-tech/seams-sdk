@@ -1,8 +1,8 @@
 import React from 'react';
-import { AuthMenuMode, AuthMenuModeMap } from '../authMenuTypes';
+import { AuthMenuMode } from '../authMenuTypes';
 import { AccountExistsBadge } from './AccountExistsBadge';
-import ArrowButton from './ArrowButton';
 import { usePostfixPosition } from './usePostfixPosition';
+import { ArrowRightAnim } from '../../ArrowRightAnim';
 
 export interface PasskeyInputProps {
   value: string;
@@ -11,7 +11,7 @@ export interface PasskeyInputProps {
   postfixText?: string;
   isUsingExistingAccount?: boolean;
   accountExists?: boolean;
-  canProceed: boolean;
+  accountOptions?: string[];
   onProceed: () => void;
   /** Current signup mode for status badge */
   mode?: AuthMenuMode;
@@ -21,6 +21,36 @@ export interface PasskeyInputProps {
   waiting?: boolean;
 }
 
+type AccountOptionGroup = {
+  label: 'Passkey' | 'Email OTP';
+  accounts: string[];
+};
+
+function isEmailOtpAccount(accountId: string): boolean {
+  const normalized = accountId.toLowerCase();
+  // Temporary development grouping for Google SSO-derived Email OTP accounts.
+  return (
+    normalized.includes('gmail-com') ||
+    normalized.includes('google') ||
+    normalized.includes('email-otp')
+  );
+}
+
+function groupAccountOptions(accountOptions?: string[]): AccountOptionGroup[] {
+  const uniqueAccounts = Array.from(
+    new Set(
+      (accountOptions ?? []).map((accountId) => String(accountId || '').trim()).filter(Boolean),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+  const passkeyAccounts = uniqueAccounts.filter((accountId) => !isEmailOtpAccount(accountId));
+  const emailOtpAccounts = uniqueAccounts.filter(isEmailOtpAccount);
+  const groups: AccountOptionGroup[] = [
+    { label: 'Passkey', accounts: passkeyAccounts },
+    { label: 'Email OTP', accounts: emailOtpAccounts },
+  ];
+  return groups.filter((group) => group.accounts.length > 0);
+}
+
 export const PasskeyInput: React.FC<PasskeyInputProps> = ({
   value,
   onChange,
@@ -28,7 +58,7 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
   postfixText,
   isUsingExistingAccount,
   accountExists,
-  canProceed,
+  accountOptions,
   onProceed,
   mode,
   secure,
@@ -36,11 +66,15 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
 }: PasskeyInputProps) => {
   const statusId = React.useId();
   const inputId = React.useId();
+  const menuId = React.useId();
   const { bindInput, bindPostfix } = usePostfixPosition({ inputValue: value, gap: 1 });
-  const inputEnabled = canProceed && !waiting;
+  const showAccountOptions = mode === AuthMenuMode.Login && !!accountOptions?.length;
+  const accountGroups = React.useMemo(() => groupAccountOptions(accountOptions), [accountOptions]);
+  const [accountMenuOpen, setAccountMenuOpen] = React.useState(false);
 
   // Keep a stable ref to the input so we can manage focus across transitions
   const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const accountMenuRef = React.useRef<HTMLDivElement | null>(null);
   const prevWaitingRef = React.useRef<boolean>(waiting);
 
   const attachInputRef = React.useCallback(
@@ -84,13 +118,36 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
     prevWaitingRef.current = waiting;
   }, [waiting]);
 
-  const onEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') onProceed();
+  React.useEffect(() => {
+    if (!accountMenuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (accountMenuRef.current?.contains(target)) return;
+      setAccountMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setAccountMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [accountMenuOpen]);
+
+  React.useEffect(() => {
+    if (!showAccountOptions || waiting) setAccountMenuOpen(false);
+  }, [showAccountOptions, waiting]);
+
+  const onEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') onProceed();
   };
 
   return (
     <div className="w3a-passkey-row">
-      <div className={`w3a-input-pill${inputEnabled ? ' is-enabled' : ''}`}>
+      <div className="w3a-input-pill">
         <div className="w3a-input-wrap">
           <input
             ref={attachInputRef}
@@ -112,9 +169,7 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
           />
           {postfixText && value.length > 0 && (
             <span
-              title={
-                isUsingExistingAccount ? 'Using saved account domain' : 'New account domain'
-              }
+              title={isUsingExistingAccount ? 'Using saved account domain' : 'New account domain'}
               className={`w3a-postfix${isUsingExistingAccount ? ' is-existing' : ''}`}
               ref={bindPostfix}
             >
@@ -129,9 +184,55 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
             secure={secure}
           />
         </div>
+        {showAccountOptions ? (
+          <div
+            ref={accountMenuRef}
+            className={`w3a-account-menu${accountMenuOpen ? ' is-open' : ''}`}
+          >
+            <button
+              type="button"
+              className="w3a-account-menu-trigger"
+              aria-label="Saved accounts"
+              aria-haspopup="listbox"
+              aria-expanded={accountMenuOpen}
+              aria-controls={menuId}
+              onClick={() => setAccountMenuOpen((open) => !open)}
+              disabled={waiting}
+            >
+              <ArrowRightAnim size={16} className="w3a-account-trigger-arrow" />
+            </button>
+            {accountMenuOpen ? (
+              <div id={menuId} className="w3a-account-menu-popover" role="listbox">
+                {accountGroups.map((group) => (
+                  <div key={group.label} className="w3a-account-menu-group">
+                    <div className="w3a-account-menu-group-label">{group.label}</div>
+                    {group.accounts.map((accountId) => {
+                      const selected = accountId.toLowerCase() === value.toLowerCase();
+                      return (
+                        <button
+                          key={accountId}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          className={`w3a-account-menu-option${selected ? ' is-selected' : ''}`}
+                          title={accountId}
+                          onClick={() => {
+                            onChange(accountId);
+                            setAccountMenuOpen(false);
+                          }}
+                        >
+                          <span className="w3a-account-menu-check" aria-hidden="true" />
+                          <span className="w3a-account-menu-account">{accountId}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
-
-      <ArrowButton disabled={!canProceed || !!waiting} onClick={onProceed} />
     </div>
   );
 };

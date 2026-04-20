@@ -12,8 +12,9 @@
 
 import { validateNearAccountId } from '@shared/utils/validation';
 
-// Branded string type for compile-time type safety
-export type AccountId = string & { readonly __brand: 'AccountId' };
+// AccountId is a validated string at runtime. The optional brand keeps editor hints
+// without making test fixtures and external string inputs unassignable.
+export type AccountId = string & { readonly __brand?: 'AccountId' };
 
 /**
  * Convert and validate string to AccountId

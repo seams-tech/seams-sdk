@@ -3465,9 +3465,9 @@ test.describe('dashboard console config page api wiring', () => {
           userId: 'user_account_settings_flow',
           orgId,
           roles:
-            organization?.actorRoles.filter((role) => role === 'owner' || role === 'admin') || [
-              'admin',
-            ],
+            (organization?.actorRoles as string[] | undefined)?.filter(
+              (role) => role === 'owner' || role === 'admin',
+            ) || ['admin'],
           projectId: project ? String(project.id || '').trim() : '',
           environmentId: environment ? String(environment.id || '').trim() : '',
           provider: 'passkey',

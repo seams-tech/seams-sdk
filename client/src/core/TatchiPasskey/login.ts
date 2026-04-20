@@ -1,5 +1,9 @@
-import type { AfterCall, LoginHooksOptions, LoginSSEvent } from '../types/sdkSentEvents';
-import { LoginPhase, LoginStatus } from '../types/sdkSentEvents';
+import type {
+  AfterCall,
+  CreateUnlockFlowEventInput,
+  LoginHooksOptions,
+} from '../types/sdkSentEvents';
+import { createUnlockFlowEvent, UnlockEventPhase } from '../types/sdkSentEvents';
 import type {
   GetRecentUnlocksResult,
   LoginAndCreateSessionResult,
@@ -12,7 +16,7 @@ import type {
 } from '../types/tatchi';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
-import { getUserFriendlyErrorMessage, toError } from '@shared/utils/errors';
+import { getUserFriendlyErrorMessage, isUserCancellationError, toError } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { isObject } from '@shared/utils/validation';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
@@ -36,6 +40,22 @@ import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/ses
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarmSessionBootstrap';
 
+type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
+
+function emitUnlockEvent(
+  onEvent: LoginHooksOptions['onEvent'] | undefined,
+  nearAccountId: AccountId | string,
+  event: EmitUnlockEventInput,
+): void {
+  onEvent?.(
+    createUnlockFlowEvent({
+      flowId: `unlock:${nearAccountId}`,
+      accountId: String(nearAccountId),
+      ...event,
+    }),
+  );
+}
+
 /**
  * Core login function (passkey identity + relay-issued sessions).
  *
@@ -54,11 +74,10 @@ export async function unlock(
   const { signingEngine } = context;
   let loginCredential: import('../types').WebAuthnAuthenticationCredential | undefined;
 
-  onEvent?.({
-    step: 1,
-    phase: LoginPhase.STEP_1_PREPARATION,
-    status: LoginStatus.PROGRESS,
-    message: `Starting login for ${nearAccountId}`,
+  emitUnlockEvent(onEvent, nearAccountId, {
+    phase: UnlockEventPhase.STEP_01_STARTED,
+    status: 'started',
+    authMethod: 'passkey',
   });
 
   try {
@@ -67,6 +86,7 @@ export async function unlock(
     if (typeof window !== 'undefined' && !window.isSecureContext) {
       const errorMessage = 'Passkey operations require a secure context (HTTPS or localhost).';
       return await finalizeLoginError({
+        nearAccountId,
         message: errorMessage,
         error: new Error(errorMessage),
         onEvent,
@@ -77,6 +97,12 @@ export async function unlock(
     }
 
     const signerSlotHint = parseSignerSlot(options?.signerSlot, { min: 1 });
+
+    emitUnlockEvent(onEvent, nearAccountId, {
+      phase: UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_STARTED,
+      status: 'running',
+      authMethod: 'passkey',
+    });
 
     const hintUserPromise: Promise<ClientUserData | null> =
       signerSlotHint !== null
@@ -117,6 +143,16 @@ export async function unlock(
         `No NEAR operational key found for ${nearAccountId}. Please register an account.`,
       );
     }
+
+    emitUnlockEvent(onEvent, nearAccountId, {
+      phase: UnlockEventPhase.STEP_02_ACCOUNT_LOOKUP_SUCCEEDED,
+      status: 'succeeded',
+      authMethod: 'passkey',
+      data: {
+        signerSlot: userData.signerSlot,
+        operationalPublicKey: userData.operationalPublicKey,
+      },
+    });
 
     const baseSignerSlot =
       signerSlotHint ??
@@ -168,11 +204,10 @@ export async function unlock(
         throw new Error('[login] threshold warm session requires relayer.url to be configured');
       }
 
-      onEvent?.({
-        step: 2,
-        phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
-        status: LoginStatus.PROGRESS,
-        message: 'Preparing a threshold signing session...',
+      emitUnlockEvent(onEvent, nearAccountId, {
+        phase: UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED,
+        status: 'running',
+        authMethod: loginCredential ? 'passkey' : 'warm_session',
       });
 
       const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
@@ -233,12 +268,20 @@ export async function unlock(
       signingSession = warmStatus || signingSession;
       requireActiveWarmSession('threshold warm-up');
 
-      onEvent?.({
-        step: 3,
-        phase: LoginPhase.STEP_3_SESSION_READY,
-        status: LoginStatus.PROGRESS,
-        message: 'Warm signing session ready',
-      });
+      if (signersToWarm.includes('ed25519')) {
+        emitUnlockEvent(onEvent, nearAccountId, {
+          phase: UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY,
+          status: 'succeeded',
+          authMethod: 'warm_session',
+        });
+      }
+      if (signersToWarm.includes('ecdsa')) {
+        emitUnlockEvent(onEvent, nearAccountId, {
+          phase: UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY,
+          status: 'succeeded',
+          authMethod: 'warm_session',
+        });
+      }
     };
 
     const requireThresholdWarmLoginBundle = (
@@ -277,11 +320,9 @@ export async function unlock(
             type: 'oidc_jwt',
             token: exchange.token,
           };
-          onEvent?.({
-            step: 2,
-            phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
-            status: LoginStatus.PROGRESS,
-            message: 'Exchanging app session token...',
+          emitUnlockEvent(onEvent, nearAccountId, {
+            phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED,
+            status: 'running',
           });
         } else {
           const rpId = String(signingEngine.getRpId() || '').trim();
@@ -289,11 +330,10 @@ export async function unlock(
             throw new Error('Missing rpId for passkey_assertion session exchange');
           }
 
-          onEvent?.({
-            step: 2,
-            phase: LoginPhase.STEP_2_WEBAUTHN_ASSERTION,
-            status: LoginStatus.PROGRESS,
-            message: 'Unlocking app session with passkey...',
+          emitUnlockEvent(onEvent, nearAccountId, {
+            phase: UnlockEventPhase.STEP_03_PASSKEY_CHALLENGE_STARTED,
+            status: 'running',
+            authMethod: 'passkey',
           });
 
           const unlockChallengeResp = await fetch(
@@ -374,8 +414,26 @@ export async function unlock(
           if (walletAuthPlan.kind !== 'passkeyReauth') {
             throw new Error('Passkey session exchange requires passkey authorization');
           }
+          emitUnlockEvent(onEvent, nearAccountId, {
+            phase: UnlockEventPhase.STEP_03_PASSKEY_PROMPT_STARTED,
+            status: 'waiting_for_user',
+            authMethod: 'passkey',
+            interaction: {
+              kind: 'passkey_assert',
+              overlay: 'show',
+            },
+          });
           const walletAuthChallenge = await walletAuthPlan.challenge();
           const walletAuthProof = await walletAuthPlan.complete(walletAuthChallenge);
+          emitUnlockEvent(onEvent, nearAccountId, {
+            phase: UnlockEventPhase.STEP_03_PASSKEY_PROMPT_SUCCEEDED,
+            status: 'succeeded',
+            authMethod: 'passkey',
+            interaction: {
+              kind: 'passkey_assert',
+              overlay: 'hide',
+            },
+          });
           const webauthnAuthentication =
             walletAuthProof.webauthnAuthentication as import('../types').WebAuthnAuthenticationCredential;
           loginCredential = webauthnAuthentication;
@@ -391,6 +449,11 @@ export async function unlock(
             webauthn_authentication: webauthnAuthentication,
             ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
           };
+          emitUnlockEvent(onEvent, nearAccountId, {
+            phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED,
+            status: 'running',
+            authMethod: 'passkey',
+          });
         }
 
         const exchanged = await exchangeSession(
@@ -402,6 +465,12 @@ export async function unlock(
         if (!exchanged.success) {
           throw new Error(exchanged.error || 'Session exchange failed');
         }
+
+        emitUnlockEvent(onEvent, nearAccountId, {
+          phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
+          status: 'succeeded',
+          authMethod: loginCredential ? 'passkey' : undefined,
+        });
 
         if (requireThresholdWarmup) {
           await maybeWarmThresholdSigningSessions({
@@ -420,11 +489,10 @@ export async function unlock(
           }).catch(() => undefined);
         }
 
-        onEvent?.({
-          step: 3,
-          phase: LoginPhase.STEP_3_SESSION_READY,
-          status: LoginStatus.PROGRESS,
-          message: 'Session ready',
+        emitUnlockEvent(onEvent, nearAccountId, {
+          phase: UnlockEventPhase.STEP_06_SESSION_READY,
+          status: 'succeeded',
+          authMethod: loginCredential ? 'passkey' : undefined,
         });
 
         const loginResult: LoginResult = {
@@ -469,6 +537,11 @@ export async function unlock(
       throw new Error('session.exchange.type must be one of: oidc_jwt, passkey_assertion');
     }
 
+    emitUnlockEvent(onEvent, nearAccountId, {
+      phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED,
+      status: 'skipped',
+    });
+
     if (requireThresholdWarmup) {
       await maybeWarmThresholdSigningSessions({
         signerSlot: baseSignerSlot,
@@ -501,6 +574,12 @@ export async function unlock(
           ...(signingSession ? { signingSession } : {}),
         };
 
+    emitUnlockEvent(onEvent, nearAccountId, {
+      phase: UnlockEventPhase.STEP_06_SESSION_READY,
+      status: 'succeeded',
+      authMethod: loginCredential ? 'passkey' : undefined,
+    });
+
     return await finalizeLoginSuccess({
       nearAccountId,
       loginResult,
@@ -510,8 +589,10 @@ export async function unlock(
   } catch (err: unknown) {
     const errorMessage = getUserFriendlyErrorMessage(err, 'login') || 'Login failed';
     return await finalizeLoginError({
+      nearAccountId,
       message: errorMessage,
       error: err,
+      cancelled: isUserCancellationError(err),
       onEvent,
       onError,
       afterCall,
@@ -522,51 +603,59 @@ export async function unlock(
 async function finalizeLoginSuccess(args: {
   nearAccountId: AccountId;
   loginResult: LoginResult;
-  onEvent?: (event: LoginSSEvent) => void;
+  onEvent?: LoginHooksOptions['onEvent'];
   afterCall?: AfterCall<LoginAndCreateSessionResult>;
 }): Promise<LoginAndCreateSessionResult> {
   const { nearAccountId, loginResult, onEvent, afterCall } = args;
-  onEvent?.({
-    step: 4,
-    phase: LoginPhase.STEP_4_LOGIN_COMPLETE,
-    status: LoginStatus.SUCCESS,
-    message: 'Login completed successfully',
-    nearAccountId,
-    operationalPublicKey: loginResult.operationalPublicKey ?? '',
+  emitUnlockEvent(onEvent, nearAccountId, {
+    phase: UnlockEventPhase.STEP_07_COMPLETED,
+    status: 'succeeded',
+    data: {
+      operationalPublicKey: loginResult.operationalPublicKey ?? '',
+    },
   });
   await afterCall?.(true, loginResult);
   return loginResult;
 }
 
 async function finalizeLoginError(args: {
+  nearAccountId: AccountId;
   message: string;
   error?: unknown;
-  onEvent?: (event: LoginSSEvent) => void;
+  onEvent?: LoginHooksOptions['onEvent'];
   onError?: (error: Error) => void;
   afterCall?: AfterCall<LoginAndCreateSessionResult>;
   callOnError?: boolean;
   callAfterCall?: boolean;
+  cancelled?: boolean;
 }): Promise<LoginAndCreateSessionResult> {
   const {
     message,
+    nearAccountId,
     error,
     onEvent,
     onError,
     afterCall,
     callOnError = true,
     callAfterCall = true,
+    cancelled = false,
   } = args;
 
   if (callOnError) {
     onError?.(toError(error));
   }
 
-  onEvent?.({
-    step: 0,
-    phase: LoginPhase.LOGIN_ERROR,
-    status: LoginStatus.ERROR,
-    message,
-    error: message,
+  emitUnlockEvent(onEvent, nearAccountId, {
+    phase: cancelled ? UnlockEventPhase.CANCELLED : UnlockEventPhase.FAILED,
+    status: cancelled ? 'cancelled' : 'failed',
+    ...(cancelled ? {} : { message }),
+    interaction: {
+      kind: 'passkey_assert',
+      overlay: 'hide',
+    },
+    error: {
+      message,
+    },
   });
 
   if (callAfterCall) {

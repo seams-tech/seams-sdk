@@ -16,6 +16,9 @@ import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/
 import type { EmailOtpAuthPolicy, TatchiConfigsInput } from '../../types/tatchi';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type {
+  WalletFlowEvent,
+} from '../../types/sdkSentEvents';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -393,13 +396,7 @@ export interface PMSetRecoveryEmailsPayload {
   };
 }
 
-export interface ProgressPayload {
-  step: number;
-  phase: string;
-  status: 'progress' | 'success' | 'error';
-  message?: string;
-  data?: unknown;
-}
+export type ProgressPayload = WalletFlowEvent;
 
 export interface PMResultPayload {
   ok: boolean;

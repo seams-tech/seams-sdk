@@ -2,7 +2,7 @@ import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
 import type { TransactionInputWasm } from '@/core/types/actions';
 import type { DelegateActionInput } from '@/core/types/delegate';
-import type { onProgressEvents } from '@/core/types/sdkSentEvents';
+import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
   ConfirmationConfig,
   RpcCallPayload,
@@ -12,6 +12,7 @@ import type {
 import type { SigningRuntimeDeps } from './runtime';
 import type { WalletAuthPlan } from '../auth';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
+import type { WebAuthnAuthenticationCredential } from '@/core/types';
 
 export type NearEmailOtpSigningHook = {
   challengeId: string;
@@ -26,18 +27,26 @@ export type NearEd25519WarmupHook = {
   waitForReady: () => Promise<boolean>;
 };
 
+export type NearPasskeyEd25519ReconnectHook = {
+  reconnect: (args: {
+    credential: WebAuthnAuthenticationCredential;
+    usesNeeded: number;
+  }) => Promise<{ sessionId: string }>;
+};
+
 export type NearTransactionsWithActionsPayload = {
   ctx: SigningRuntimeDeps;
   sessionId?: string;
   transactions: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
-  onEvent?: (update: onProgressEvents) => void;
+  onEvent?: (update: SigningFlowEvent) => void;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
   ed25519Warmup?: NearEd25519WarmupHook;
+  passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
   walletAuthPlan?: WalletAuthPlan;
   sensitivePolicy?: SensitiveOperationPolicy;
 };
@@ -46,7 +55,7 @@ export type NearDelegateActionPayload = {
   ctx: SigningRuntimeDeps;
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;
-  onEvent?: (update: onProgressEvents) => void;
+  onEvent?: (update: SigningFlowEvent) => void;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;

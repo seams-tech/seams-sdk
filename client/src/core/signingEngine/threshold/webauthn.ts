@@ -60,7 +60,7 @@ export type WarmSessionMaterialPort = {
     remainingUses?: number;
     expiresAtMs?: number;
   }>;
-  persistPrfFirstSealForThresholdSession?: (args: {
+  persistSigningSessionSealForThresholdSession?: (args: {
     sessionId: string;
     transport?: {
       relayerUrl?: string;
@@ -73,7 +73,7 @@ export type WarmSessionMaterialPort = {
     code?: string;
     message?: string;
     keyVersion?: string;
-    sealedPrfFirstB64u?: string;
+    sealedSecretB64u?: string;
     remainingUses?: number;
     expiresAtMs?: number;
   }>;

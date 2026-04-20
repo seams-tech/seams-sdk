@@ -10,10 +10,10 @@ import {
 } from '@server/router/express-adaptor';
 import { deriveThresholdEd25519RegistrationMaterialFromHssFinalize } from '@server/core/ThresholdService/ed25519HssWasm';
 import {
-  createPrfSessionSealPolicyFromThresholdAuthSessionStores,
-  createPrfSessionSealRoutesOptions,
-  createPrfSessionSealShamir3PassCipherAdapter,
-} from '@server/threshold/session/prfSessionSeal';
+  createSigningSessionSealPolicyFromThresholdAuthSessionStores,
+  createSigningSessionSealRoutesOptions,
+  createSigningSessionSealShamir3PassCipherAdapter,
+} from '@server/threshold/session/signingSessionSeal';
 import { startExpressRouter } from '../relayer/helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import {
@@ -39,7 +39,7 @@ type SealedRefreshHarness = {
     environmentId: string;
     publishableKey: string;
   };
-  prfSealRouteCounts: {
+  signingSessionSealRouteCounts: {
     applyServerSealCalls: number;
     removeServerSealCalls: number;
   };
@@ -293,12 +293,19 @@ async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
     const payload = JSON.parse(req.postData() || '{}');
     const responseJson = JSON.parse(upstreamText || '{}');
 
-    if (upstreamResponse.ok && responseJson?.ok === true && responseJson?.finalizedReport) {
+    if (
+      upstreamResponse.ok &&
+      responseJson?.ok === true &&
+      responseJson?.finalizedReport &&
+      responseJson?.serverOutput
+    ) {
       const preparedSession = payload?.preparedSession;
       const finalizedReport = responseJson.finalizedReport;
       const registrationMaterial = await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
         preparedSession,
+        keyVersion: String(responseJson?.keyVersion || TEST_KEY_VERSION).trim(),
         finalizedReport,
+        serverOutput: responseJson.serverOutput,
       });
       const keyStore = (
         input.threshold as {
@@ -348,7 +355,7 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
   const accountsOnChain = new Set<string>(
     [DEFAULT_TEST_CONFIG.relayerAccount].filter((value): value is string => !!value),
   );
-  const prfSealRouteCounts = {
+  const signingSessionSealRouteCounts = {
     applyServerSealCalls: 0,
     removeServerSealCalls: 0,
   };
@@ -405,7 +412,7 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
     ecdsaAuthSessionStore?: unknown;
   };
   if (!thresholdAuthStores.authSessionStore || !thresholdAuthStores.ecdsaAuthSessionStore) {
-    throw new Error('Missing threshold auth session stores for PRF seal policy');
+    throw new Error('Missing threshold auth session stores for signing-session seal policy');
   }
 
   const router = createRelayRouter(service, {
@@ -425,11 +432,11 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
       },
     }),
     bootstrapTokenStore,
-    prfSessionSeal: createPrfSessionSealRoutesOptions({
-      sessionPolicy: createPrfSessionSealPolicyFromThresholdAuthSessionStores({
+    signingSessionSeal: createSigningSessionSealRoutesOptions({
+      sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
         stores: [thresholdAuthStores.authSessionStore as any, thresholdAuthStores.ecdsaAuthSessionStore as any],
       }),
-      cipher: createPrfSessionSealShamir3PassCipherAdapter({
+      cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: TEST_KEY_VERSION,
         keys: [
           {
@@ -467,12 +474,12 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
       relayUpstreamBaseUrl: server.baseUrl,
       threshold,
     });
-    await targetPage.route(`${relayerUrl}/threshold-ecdsa/prf-seal/**`, async (route) => {
+    await targetPage.route(`${relayerUrl}/threshold/signing-session-seal/**`, async (route) => {
       const url = route.request().url();
       if (url.endsWith('/apply-server-seal')) {
-        prfSealRouteCounts.applyServerSealCalls += 1;
+        signingSessionSealRouteCounts.applyServerSealCalls += 1;
       } else if (url.endsWith('/remove-server-seal')) {
-        prfSealRouteCounts.removeServerSealCalls += 1;
+        signingSessionSealRouteCounts.removeServerSealCalls += 1;
       }
       await route.fallback();
     });
@@ -502,7 +509,7 @@ async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<Seal
     baseUrl: server.baseUrl,
     relayerUrl,
     managedRegistration,
-    prfSealRouteCounts,
+    signingSessionSealRouteCounts,
     attachPage,
     close: server.close,
   };
@@ -556,9 +563,9 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
   Array<{
     origin: string;
     localEd25519Index: string | null;
-    localPrfIndex: string | null;
+    localSealIndex: string | null;
     sessionEd25519Index: string | null;
-    sessionPrfIndex: string | null;
+    sessionSealIndex: string | null;
   }>
 > {
   return await Promise.all(
@@ -569,20 +576,20 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
             origin: String(window.location?.origin || 'unknown'),
             localEd25519Index:
               window.localStorage?.getItem?.('tatchi:threshold-ed25519-session:v1:index') || null,
-            localPrfIndex:
-              window.localStorage?.getItem?.('tatchi:threshold-prf-sealed:v1:index') || null,
+            localSealIndex:
+              window.localStorage?.getItem?.('tatchi:signing-session-sealed:v1:index') || null,
             sessionEd25519Index:
               window.sessionStorage?.getItem?.('tatchi:threshold-ed25519-session:v1:index') || null,
-            sessionPrfIndex:
-              window.sessionStorage?.getItem?.('tatchi:threshold-prf-sealed:v1:index') || null,
+            sessionSealIndex:
+              window.sessionStorage?.getItem?.('tatchi:signing-session-sealed:v1:index') || null,
           };
         })
         .catch(() => ({
           origin: 'unknown',
           localEd25519Index: null,
-          localPrfIndex: null,
+          localSealIndex: null,
           sessionEd25519Index: null,
-          sessionPrfIndex: null,
+          sessionSealIndex: null,
         }));
     }),
   );
@@ -600,7 +607,9 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
             const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { TatchiPasskey } = sdkMod as any;
+            const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
@@ -823,7 +832,7 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
     }
   });
 
-  test('same-tab refresh reuses sealed PRF session without extra TouchID prompt', async ({
+  test('same-tab refresh reuses sealed signing session without extra TouchID prompt', async ({
     page,
   }) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
@@ -1015,7 +1024,7 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
       const getCallsAfterLoginAndFirstSign = await readWebAuthnGetCallCount(page);
       const persistenceBeforeReload = await readWalletIframeThresholdPersistence(page);
       await page.waitForTimeout(400);
-      expect(harness.prfSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
+      expect(harness.signingSessionSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
 
       await page.reload();
       await page.waitForTimeout(300);
@@ -1118,7 +1127,7 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
         JSON.stringify({ secondPhase, persistenceBeforeReload, persistenceAfterReload }),
       ).toBe('active');
       expect(
-        harness.prfSealRouteCounts.removeServerSealCalls,
+        harness.signingSessionSealRouteCounts.removeServerSealCalls,
         JSON.stringify({ secondPhase, persistenceBeforeReload, persistenceAfterReload }),
       ).toBeGreaterThan(0);
       await page.waitForTimeout(300);
@@ -1133,6 +1142,318 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
           persistenceAfterReload,
         }),
       ).toBe(getCallsAfterLoginAndFirstSign);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('passkey reload prompts WebAuthn after restored session exhaustion', async ({ page }) => {
+    const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
+    try {
+      const firstPhasePromise = page.evaluate(
+        async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const actionsMod = await import('/sdk/esm/core/types/actions.js');
+            const { TatchiPasskey } = sdkMod as any;
+            const { ActionType } = actionsMod as any;
+
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+            const accountId = `sealedrefreshexhaust${Date.now()}.w3a-v1.testnet`;
+            const tatchi = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
+              },
+              signingSessionDefaults: {
+                ttlMs: 120_000,
+                remainingUses: 1,
+              },
+              signingSessionPersistenceMode: 'sealed_refresh_v1',
+              signingSessionSeal: {
+                keyVersion,
+                shamirPrimeB64u,
+              },
+              iframeWallet: {
+                walletOrigin: 'https://wallet.example.localhost',
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            tatchi.setConfirmationConfig(confirmationConfig as any);
+
+            const registration = await tatchi.registration.registerPasskeyInternal(
+              accountId,
+              {},
+              confirmationConfig as any,
+            );
+            if (!registration?.success) {
+              return {
+                ok: false,
+                error: String(registration?.error || 'registration failed'),
+              };
+            }
+
+            const login = await tatchi.unlock(accountId, {
+              signingSession: { ttlMs: 120_000, remainingUses: 1 },
+            });
+            if (!login?.success) {
+              return {
+                ok: false,
+                error: String(login?.error || 'unlock failed'),
+              };
+            }
+
+            const session = await tatchi.auth.getWalletSession(accountId);
+            return {
+              ok: true,
+              accountId,
+              sessionStatus: String(session?.signingSession?.status || ''),
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'first phase failed',
+              ),
+            };
+          }
+        },
+        {
+          relayerUrl: harness.relayerUrl,
+          keyVersion: TEST_KEY_VERSION,
+          shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+        },
+      );
+      const firstPhase = await autoConfirmWalletIframeUntil(page, firstPhasePromise, {
+        timeoutMs: 120_000,
+        intervalMs: 250,
+      });
+
+      expect(firstPhase.ok, firstPhase.error || JSON.stringify(firstPhase)).toBe(true);
+      expect(firstPhase.sessionStatus).toBe('active');
+      const getCallsAfterFirstPhase = await readWebAuthnGetCallCount(page);
+      expect(getCallsAfterFirstPhase).toBeGreaterThan(0);
+      await page.waitForTimeout(400);
+      expect(harness.signingSessionSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
+
+      await page.reload();
+      await page.waitForTimeout(300);
+
+      const restoredSignPromise = page.evaluate(
+        async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const actionsMod = await import('/sdk/esm/core/types/actions.js');
+            const { TatchiPasskey } = sdkMod as any;
+            const { ActionType } = actionsMod as any;
+
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+            const tatchi = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
+              },
+              signingSessionDefaults: {
+                ttlMs: 120_000,
+                remainingUses: 2,
+              },
+              signingSessionPersistenceMode: 'sealed_refresh_v1',
+              signingSessionSeal: {
+                keyVersion,
+                shamirPrimeB64u,
+              },
+              iframeWallet: {
+                walletOrigin: 'https://wallet.example.localhost',
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            tatchi.setConfirmationConfig(confirmationConfig as any);
+
+            const sign = await tatchi.near.executeAction({
+              nearAccountId: accountId,
+              receiverId: 'w3a-v1.testnet',
+              actionArgs: {
+                type: ActionType.FunctionCall,
+                methodName: 'set_greeting',
+                args: { greeting: `hello-restored-exhaustion-${Date.now()}` },
+                gas: '30000000000000',
+                deposit: '0',
+              },
+              options: {
+                waitUntil: 'EXECUTED_OPTIMISTIC' as any,
+                confirmationConfig,
+              },
+            });
+            return {
+              ok: !!sign?.success,
+              error: String(sign?.error || ''),
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'restored sign failed',
+              ),
+            };
+          }
+        },
+        {
+          relayerUrl: harness.relayerUrl,
+          accountId: firstPhase.accountId,
+          keyVersion: TEST_KEY_VERSION,
+          shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+        },
+      );
+      const restoredSign = await autoConfirmWalletIframeUntil(page, restoredSignPromise, {
+        timeoutMs: 120_000,
+        intervalMs: 250,
+      });
+      expect(restoredSign.ok, JSON.stringify({ restoredSign })).toBe(true);
+      expect(harness.signingSessionSealRouteCounts.removeServerSealCalls).toBeGreaterThan(0);
+      const getCallsAfterRestoredSign = await readWebAuthnGetCallCount(page);
+      expect(getCallsAfterRestoredSign).toBe(getCallsAfterFirstPhase);
+
+      const reauthSignPromise = page.evaluate(
+        async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
+          try {
+            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const actionsMod = await import('/sdk/esm/core/types/actions.js');
+            const { TatchiPasskey } = sdkMod as any;
+            const { ActionType } = actionsMod as any;
+
+            const confirmationConfig = {
+              uiMode: 'none' as const,
+              behavior: 'skipClick' as const,
+              autoProceedDelay: 0,
+            };
+            const tatchi = new TatchiPasskey({
+              nearNetwork: 'testnet',
+              nearRpcUrl: 'https://test.rpc.fastnear.com',
+              relayerAccount: 'web3-authn-v4.testnet',
+              relayer: {
+                url: relayerUrl,
+                smartAccountDeploymentMode: 'observe',
+              },
+              registration: {
+                mode: 'managed',
+                environmentId: String(
+                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                ),
+                publishableKey: String(
+                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                ),
+              },
+              signingSessionDefaults: {
+                ttlMs: 120_000,
+                remainingUses: 2,
+              },
+              signingSessionPersistenceMode: 'sealed_refresh_v1',
+              signingSessionSeal: {
+                keyVersion,
+                shamirPrimeB64u,
+              },
+              iframeWallet: {
+                walletOrigin: 'https://wallet.example.localhost',
+                servicePath: '/wallet-service',
+                sdkBasePath: '/sdk',
+                rpIdOverride: 'example.localhost',
+              },
+            });
+
+            tatchi.setConfirmationConfig(confirmationConfig as any);
+
+            const sign = await tatchi.near.executeAction({
+              nearAccountId: accountId,
+              receiverId: 'w3a-v1.testnet',
+              actionArgs: {
+                type: ActionType.FunctionCall,
+                methodName: 'set_greeting',
+                args: { greeting: `hello-reauth-exhaustion-${Date.now()}` },
+                gas: '30000000000000',
+                deposit: '0',
+              },
+              options: {
+                waitUntil: 'EXECUTED_OPTIMISTIC' as any,
+                confirmationConfig,
+              },
+            });
+            const session = await tatchi.auth.getWalletSession(accountId);
+            return {
+              ok: !!sign?.success,
+              error: String(sign?.error || ''),
+              sessionStatus: String(session?.signingSession?.status || ''),
+            };
+          } catch (error: unknown) {
+            return {
+              ok: false,
+              error: String(
+                error && typeof error === 'object' && 'message' in error
+                  ? (error as { message?: unknown }).message
+                  : error || 'reauth sign failed',
+              ),
+            };
+          }
+        },
+        {
+          relayerUrl: harness.relayerUrl,
+          accountId: firstPhase.accountId,
+          keyVersion: TEST_KEY_VERSION,
+          shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
+        },
+      );
+      const reauthSign = await autoConfirmWalletIframeUntil(page, reauthSignPromise, {
+        timeoutMs: 120_000,
+        intervalMs: 250,
+      });
+      expect(reauthSign.ok, JSON.stringify({ reauthSign })).toBe(true);
+      expect(reauthSign.sessionStatus).toBe('active');
+      const finalGetCalls = await readWebAuthnGetCallCount(page);
+      expect(
+        finalGetCalls,
+        JSON.stringify({ getCallsAfterFirstPhase, getCallsAfterRestoredSign, finalGetCalls }),
+      ).toBeGreaterThan(getCallsAfterRestoredSign);
     } finally {
       await harness.close();
     }
@@ -1285,7 +1606,7 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
       const getCallsAfterFirstPhase = await readWebAuthnGetCallCount(page);
       expect(getCallsAfterFirstPhase).toBeGreaterThan(0);
       await page.waitForTimeout(300);
-      expect(harness.prfSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
+      expect(harness.signingSessionSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
 
       const runOrderingAfterRefresh = async (order: Array<'tempo' | 'evm'>) => {
         await page.reload();

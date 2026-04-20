@@ -3,6 +3,7 @@ import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import {
   reconcileEvmFamilyNonceLane,
   reportEvmFamilyBroadcastAccepted,
@@ -34,13 +35,7 @@ export async function signTempo(
     request: TempoSigningRequest | EvmSigningRequest;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     shouldAbort?: () => boolean;
-    onEvent?: (event: {
-      step: number;
-      phase: string;
-      status: 'progress' | 'success' | 'error';
-      message?: string;
-      data?: unknown;
-    }) => void;
+    onEvent?: (event: SigningFlowEvent) => void;
   },
 ): Promise<TempoSignedResult | EvmSignedResult> {
   return await signEvmFamily(deps, args);

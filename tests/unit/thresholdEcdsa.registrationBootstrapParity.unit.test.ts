@@ -3,14 +3,7 @@ import { SigningEngine } from '@/core/signingEngine/SigningEngine';
 
 test.describe('threshold ECDSA registration bootstrap parity gate', () => {
   test('registration-source bootstrap soft-fails startup parity errors', async () => {
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine & {
-      ensureSealedRefreshStartupParity: () => Promise<void>;
-      ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (args: {
-        nearAccountId: string;
-        chain?: 'tempo' | 'evm';
-        source?: 'login' | 'registration' | 'manual-bootstrap';
-      }) => Promise<void>;
-    };
+    const engine: any = Object.create(SigningEngine.prototype);
     engine.ensureSealedRefreshStartupParity = async () => {
       throw new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502');
     };
@@ -45,13 +38,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
   });
 
   test('manual bootstrap still fails on startup parity errors', async () => {
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine & {
-      ensureSealedRefreshStartupParity: () => Promise<void>;
-      ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (args: {
-        nearAccountId: string;
-        source?: 'login' | 'registration' | 'manual-bootstrap';
-      }) => Promise<void>;
-    };
+    const engine: any = Object.create(SigningEngine.prototype);
     engine.ensureSealedRefreshStartupParity = async () => {
       throw new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502');
     };
@@ -65,15 +52,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
   });
 
   test('Email OTP bootstrap soft-fails retryable well-known fetch errors', async () => {
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine & {
-      ensureSealedRefreshStartupParity: () => Promise<void>;
-      ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (args: {
-        nearAccountId: string;
-        chain?: 'tempo' | 'evm';
-        source?: 'login' | 'registration' | 'manual-bootstrap';
-        emailOtpAuthContext?: { authMethod: 'email_otp' };
-      }) => Promise<void>;
-    };
+    const engine: any = Object.create(SigningEngine.prototype);
     engine.ensureSealedRefreshStartupParity = async () => {
       throw Object.assign(
         new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502'),
@@ -112,14 +91,7 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
   });
 
   test('Email OTP bootstrap still fails closed on parity mismatches', async () => {
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine & {
-      ensureSealedRefreshStartupParity: () => Promise<void>;
-      ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (args: {
-        nearAccountId: string;
-        source?: 'login' | 'registration' | 'manual-bootstrap';
-        emailOtpAuthContext?: { authMethod: 'email_otp' };
-      }) => Promise<void>;
-    };
+    const engine: any = Object.create(SigningEngine.prototype);
     engine.ensureSealedRefreshStartupParity = async () => {
       throw Object.assign(
         new Error('[sealed-refresh-parity] Client/server mismatch for fields: keyVersion'),

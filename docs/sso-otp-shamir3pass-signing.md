@@ -205,8 +205,8 @@ Therefore:
 Production rule:
 
 1. production must source the Email OTP server seal key material from a KMS, HSM, or equivalent external key-management boundary
-2. plaintext `SHAMIR_E_S_B64U` and `SHAMIR_D_S_B64U` environment variables are acceptable only for local development, tests, and temporary bootstrap environments
-3. `PRF_SESSION_SEAL_KEY_VERSION` remains the routing identifier exposed to the application layer
+2. plaintext `SIGNING_SESSION_SEAL_E_S_B64U` and `SIGNING_SESSION_SEAL_D_S_B64U` environment variables are acceptable only for local development, tests, and temporary bootstrap environments
+3. `SIGNING_SESSION_SEAL_KEY_VERSION` remains the routing identifier exposed to the application layer
 4. application processes may hold the active key material only in-memory for the duration needed to apply or remove the server seal
 5. long-lived plaintext seal-key storage in ordinary application config, `.env` files, or source-controlled deployment manifests is out of scope for production
 
@@ -847,7 +847,7 @@ The implementation must preserve these invariants:
    - the app-facing runtime surface is now handle-based instead of exposing explicit client lock keypairs
    - Email OTP seal/unseal paths use those handles and destroy them in `finally`
    - focused unit coverage asserts the handle path and byte-returning unseal path are used
-35. PRF session seal apply/remove in the passkey confirm worker now also uses opaque worker-held `shamir3pass` key handles only:
+35. Signing-session seal apply/remove in the passkey confirm worker now also uses opaque worker-held `shamir3pass` key handles only:
    - sealed refresh no longer materializes client encrypt/decrypt exponents in the worker flow
    - focused single-flight sealed-mode worker tests still pass after the handle migration
 36. wallet-iframe EVM `per_operation` parity is now closed:
@@ -1081,7 +1081,7 @@ The local/dev Email OTP signing flow is wired, but the following issues must be 
    - keep `memory` and `log` delivery restricted to local development and tests
    - add relayer-route and provider-adapter tests for successful send, provider failure, retry-safe error handling, and production-mode rejection of dev delivery modes
 2. enforce production server-seal-key posture:
-   - fail production startup if Email OTP server seal material is sourced only from plaintext `SHAMIR_E_S_B64U` or `SHAMIR_D_S_B64U` environment variables
+   - fail production startup if Email OTP server seal material is sourced only from plaintext `SIGNING_SESSION_SEAL_E_S_B64U` or `SIGNING_SESSION_SEAL_D_S_B64U` environment variables
    - introduce a KMS/HSM/equivalent resolver for production Email OTP server seal material
    - keep plaintext seal-key config available only for local development, tests, and temporary bootstrap environments
    - add config tests proving production rejects plaintext seal-key-only configuration

@@ -6,7 +6,7 @@ import {
   createRelayRouter,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
-import { createPrfSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/prfSessionSeal';
+import { createSigningSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/signingSessionSeal';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   callCf,
@@ -52,7 +52,7 @@ function makeWrappedCiphertext(plaintextSecretB64u: string): {
   wrappedCiphertext: string;
   clientCiphertext: string;
 } {
-  const runtime = createPrfSessionSealShamir3PassBigIntRuntime();
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
   const escrowCiphertext = String(
     runtime.addServerSeal({
       ciphertextB64u: plaintextSecretB64u,
@@ -78,7 +78,7 @@ function makeWrappedCiphertext(plaintextSecretB64u: string): {
 }
 
 function removeClientSeal(ciphertextB64u: string): string {
-  const runtime = createPrfSessionSealShamir3PassBigIntRuntime();
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
   return String(
     runtime.removeServerSeal({
       ciphertextB64u,
@@ -89,7 +89,7 @@ function removeClientSeal(ciphertextB64u: string): string {
 }
 
 function addClientSeal(ciphertextB64u: string): string {
-  const runtime = createPrfSessionSealShamir3PassBigIntRuntime();
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
   return String(
     runtime.addServerSeal({
       ciphertextB64u,
@@ -100,7 +100,7 @@ function addClientSeal(ciphertextB64u: string): string {
 }
 
 function addServerSeal(ciphertextB64u: string): string {
-  const runtime = createPrfSessionSealShamir3PassBigIntRuntime();
+  const runtime = createSigningSessionSealShamir3PassBigIntRuntime();
   return String(
     runtime.addServerSeal({
       ciphertextB64u,
@@ -120,10 +120,10 @@ function makeService(): AuthService {
     createAccountAndRegisterGas: '1',
     logger: null,
     thresholdStore: {
-      PRF_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
-      SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
-      SHAMIR_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
-      SHAMIR_D_S_B64U: SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
+      SIGNING_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
+      SIGNING_SESSION_SHAMIR_P_B64U: SHAMIR_PRIME_B64U,
+      SIGNING_SESSION_SEAL_E_S_B64U: SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
+      SIGNING_SESSION_SEAL_D_S_B64U: SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
     },
   });
 }
@@ -379,7 +379,7 @@ test.describe('Email OTP routes', () => {
       },
       emailOtpExportPolicy: {
         authorize: async (input) => {
-          authorizations.push(input);
+          authorizations.push(input as unknown as Record<string, unknown>);
           return {
             ok: true,
             decision: 'ALLOW',
@@ -580,7 +580,7 @@ test.describe('Email OTP routes', () => {
       },
       emailOtpExportPolicy: {
         authorize: async (input) => {
-          authorizations.push(input);
+          authorizations.push(input as unknown as Record<string, unknown>);
           return {
             ok: false,
             decision: 'DENY',

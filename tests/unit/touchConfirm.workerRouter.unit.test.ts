@@ -5,6 +5,8 @@ const IMPORT_PATHS = {
   touchConfirmManager: '/sdk/esm/core/signingEngine/touchConfirm/TouchConfirmManager.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
+  signingSessionSealedStore:
+    '/sdk/esm/core/signingEngine/api/session/signingSessionSealedStore.js',
 } as const;
 
 test.describe('UserConfirm worker router', () => {
@@ -429,10 +431,11 @@ test.describe('UserConfirm worker router', () => {
     expect(result.pendingAfter).toBe(0);
   });
 
-  test('routes PRF seal and rehydrate worker messages', async ({ page }) => {
+  test('routes signing-session seal and rehydrate worker messages', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -480,6 +483,7 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
@@ -497,7 +501,7 @@ test.describe('UserConfirm worker router', () => {
           success: true,
           data: {
             ok: true,
-            sealedPrfFirstB64u: 'sealed-b64u',
+            sealedSecretB64u: 'sealed-b64u',
             keyVersion: 'kek-v1',
             remainingUses: 9,
             expiresAtMs: 1700000000000,
@@ -507,7 +511,7 @@ test.describe('UserConfirm worker router', () => {
 
         const rehydratePromise = manager.rehydrateWarmSessionMaterial({
           sessionId: 'session-seal',
-          sealedPrfFirstB64u: 'sealed-b64u',
+          sealedSecretB64u: 'sealed-b64u',
           keyVersion: 'kek-v1',
           remainingUses: 9,
           expiresAtMs: 1700000000000,
@@ -544,7 +548,7 @@ test.describe('UserConfirm worker router', () => {
     ]);
     expect(result.sealResult).toEqual({
       ok: true,
-      sealedPrfFirstB64u: 'sealed-b64u',
+      sealedSecretB64u: 'sealed-b64u',
       keyVersion: 'kek-v1',
       remainingUses: 9,
       expiresAtMs: 1700000000000,
@@ -560,6 +564,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -607,23 +612,15 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        sessionStorage.setItem(
-          'tatchi:threshold-prf-sealed:v1:session-rehydrate',
-          JSON.stringify({
-            v: 1,
-            alg: 'shamir3pass-v1',
-            thresholdSessionId: 'session-rehydrate',
-            sealedPrfFirstB64u: 'sealed-prf',
-            keyVersion: 'kek-v2',
-            expiresAtMs: Date.now() + 60_000,
-            remainingUses: 10,
-            updatedAtMs: Date.now(),
-          }),
-        );
-        sessionStorage.setItem(
-          'tatchi:threshold-prf-sealed:v1:index',
-          JSON.stringify(['session-rehydrate']),
-        );
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.writeSigningSessionSealedRecord({
+          thresholdSessionId: 'session-rehydrate',
+          sealedSecretB64u: 'sealed-prf',
+          keyVersion: 'kek-v2',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 10,
+          updatedAtMs: Date.now(),
+        });
 
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
@@ -671,9 +668,7 @@ test.describe('UserConfirm worker router', () => {
         });
 
         const statusResult = await statusPromise;
-        const persisted = JSON.parse(
-          sessionStorage.getItem('tatchi:threshold-prf-sealed:v1:session-rehydrate') || '{}',
-        );
+        const persisted = await sealedStoreMod.readSigningSessionSealedRecord('session-rehydrate');
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
@@ -696,18 +691,19 @@ test.describe('UserConfirm worker router', () => {
     expect(result.persistedPolicy.remainingUses).toBe(8);
   });
 
-  test('sealed mode persists PRF seal using canonical Ed25519 session-record transport fallback', async ({
+  test('sealed mode persists signing-session seal using canonical Ed25519 session-record transport fallback', async ({
     page,
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
-            prfSessionSealKeyVersion: 'kek-v-ed25519',
-            prfSessionSealShamirPrimeB64u: 'AQAB',
+            signingSessionSealKeyVersion: 'kek-v-ed25519',
+            signingSessionSealShamirPrimeB64u: 'AQAB',
           },
           {
             touchIdPrompt: {},
@@ -732,6 +728,7 @@ test.describe('UserConfirm worker router', () => {
           updatedAtMs: Date.now(),
           source: 'login',
         });
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
           message: [],
@@ -781,7 +778,11 @@ test.describe('UserConfirm worker router', () => {
         emitMessage({
           id: putRequest?.id,
           success: true,
-          data: { ok: true },
+          data: {
+            ok: true,
+            remainingUses: 5,
+            expiresAtMs: Date.now() + 60_000,
+          },
         });
 
         const sealRequest = await waitForPosted(1);
@@ -790,7 +791,7 @@ test.describe('UserConfirm worker router', () => {
           success: true,
           data: {
             ok: true,
-            sealedPrfFirstB64u: 'sealed-prf-first',
+            sealedSecretB64u: 'sealed-prf-first',
             keyVersion: 'kek-v-ed25519',
             remainingUses: 5,
             expiresAtMs: Date.now() + 60_000,
@@ -802,8 +803,7 @@ test.describe('UserConfirm worker router', () => {
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
           sealPayload: postedMessages[1]?.payload || null,
-          sessionPrfIndex:
-            sessionStorage.getItem('tatchi:threshold-prf-sealed:v1:index') || null,
+          persistedRecord: await sealedStoreMod.readSigningSessionSealedRecord('session-from-record'),
         };
       },
       { paths: IMPORT_PATHS },
@@ -822,21 +822,24 @@ test.describe('UserConfirm worker router', () => {
         shamirPrimeB64u: 'AQAB',
       },
     });
-    expect(result.sessionPrfIndex).toBe('["session-from-record"]');
+    expect(result.persistedRecord?.thresholdSessionIds.ed25519).toBe('session-from-record');
+    expect(result.persistedRecord?.sealedSecretB64u).toBe('sealed-prf-first');
   });
 
-  test('sealed mode persists PRF seal using canonical ECDSA session-record transport fallback', async ({
+  test('sealed mode persists signing-session seal using canonical ECDSA session-record transport fallback', async ({
     page,
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const deps = {
           recordsByLane: new Map<string, unknown>(),
           exportArtifactsByLane: new Map<string, unknown>(),
         };
         sessionStoreMod.clearAllThresholdEcdsaSessionRecords(deps);
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
         sessionStoreMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'evm',
@@ -851,6 +854,8 @@ test.describe('UserConfirm worker router', () => {
               userId: 'alice.testnet',
               relayerUrl: 'https://relay-ecdsa.example',
               ecdsaThresholdKeyId: 'ek-evm-1',
+              signingRootId: 'sr-ecdsa-1',
+              signingRootVersion: 'v1',
               backendBinding: {
                 relayerKeyId: 'rk-ecdsa',
                 clientVerifyingShareB64u: 'cvs-ecdsa',
@@ -945,7 +950,11 @@ test.describe('UserConfirm worker router', () => {
         emitMessage({
           id: putRequest?.id,
           success: true,
-          data: { ok: true },
+          data: {
+            ok: true,
+            remainingUses: 4,
+            expiresAtMs: Date.now() + 60_000,
+          },
         });
 
         const sealRequest = await waitForPosted(1);
@@ -954,7 +963,7 @@ test.describe('UserConfirm worker router', () => {
           success: true,
           data: {
             ok: true,
-            sealedPrfFirstB64u: 'sealed-prf-first-ecdsa',
+            sealedSecretB64u: 'sealed-prf-first-ecdsa',
             keyVersion: 'kek-v-ecdsa',
             remainingUses: 4,
             expiresAtMs: Date.now() + 60_000,
@@ -966,8 +975,7 @@ test.describe('UserConfirm worker router', () => {
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
           sealPayload: postedMessages[1]?.payload || null,
-          sessionPrfIndex:
-            sessionStorage.getItem('tatchi:threshold-prf-sealed:v1:index') || null,
+          persistedRecord: await sealedStoreMod.readSigningSessionSealedRecord('session-ecdsa-record'),
         };
       },
       { paths: IMPORT_PATHS },
@@ -986,7 +994,8 @@ test.describe('UserConfirm worker router', () => {
         shamirPrimeB64u: 'AQID',
       },
     });
-    expect(result.sessionPrfIndex).toBe('["session-ecdsa-record"]');
+    expect(result.persistedRecord?.thresholdSessionIds.ecdsa).toBe('session-ecdsa-record');
+    expect(result.persistedRecord?.sealedSecretB64u).toBe('sealed-prf-first-ecdsa');
   });
 
   test('sealed mode dedupes concurrent seal persistence requests (apply-server-seal single-flight)', async ({
@@ -995,6 +1004,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -1045,7 +1055,8 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
-        const p1 = manager.persistPrfFirstSealForThresholdSession({
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        const p1 = manager.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-single-flight-apply',
           transport: {
             relayerUrl: 'https://relay.example',
@@ -1054,7 +1065,7 @@ test.describe('UserConfirm worker router', () => {
             shamirPrimeB64u: 'AQAB',
           },
         });
-        const p2 = manager.persistPrfFirstSealForThresholdSession({
+        const p2 = manager.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-single-flight-apply',
           transport: {
             relayerUrl: 'https://relay.example',
@@ -1070,7 +1081,7 @@ test.describe('UserConfirm worker router', () => {
           success: true,
           data: {
             ok: true,
-            sealedPrfFirstB64u: 'sealed-b64u',
+            sealedSecretB64u: 'sealed-b64u',
             keyVersion: 'kek-v1',
             remainingUses: 9,
             expiresAtMs: Date.now() + 45_000,
@@ -1098,6 +1109,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const baseConfig = {
           signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
         };
@@ -1162,12 +1174,13 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
         (managerA as any).worker = workerA;
         (managerA as any).attachWorkerRouter(workerA);
         (managerB as any).worker = workerB;
         (managerB as any).attachWorkerRouter(workerB);
 
-        const p1 = managerA.persistPrfFirstSealForThresholdSession({
+        const p1 = managerA.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-cross-manager-apply',
           transport: {
             relayerUrl: 'https://relay.example',
@@ -1176,7 +1189,7 @@ test.describe('UserConfirm worker router', () => {
             shamirPrimeB64u: 'AQAB',
           },
         });
-        const p2 = managerB.persistPrfFirstSealForThresholdSession({
+        const p2 = managerB.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-cross-manager-apply',
           transport: {
             relayerUrl: 'https://relay.example',
@@ -1192,7 +1205,7 @@ test.describe('UserConfirm worker router', () => {
           success: true,
           data: {
             ok: true,
-            sealedPrfFirstB64u: 'sealed-b64u',
+            sealedSecretB64u: 'sealed-b64u',
             keyVersion: 'kek-v1',
             remainingUses: 9,
             expiresAtMs: Date.now() + 45_000,
@@ -1222,6 +1235,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -1269,23 +1283,15 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        sessionStorage.setItem(
-          'tatchi:threshold-prf-sealed:v1:session-single-flight-remove',
-          JSON.stringify({
-            v: 1,
-            alg: 'shamir3pass-v1',
-            thresholdSessionId: 'session-single-flight-remove',
-            sealedPrfFirstB64u: 'sealed-prf',
-            keyVersion: 'kek-v1',
-            expiresAtMs: Date.now() + 60_000,
-            remainingUses: 10,
-            updatedAtMs: Date.now(),
-          }),
-        );
-        sessionStorage.setItem(
-          'tatchi:threshold-prf-sealed:v1:index',
-          JSON.stringify(['session-single-flight-remove']),
-        );
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.writeSigningSessionSealedRecord({
+          thresholdSessionId: 'session-single-flight-remove',
+          sealedSecretB64u: 'sealed-prf',
+          keyVersion: 'kek-v1',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 10,
+          updatedAtMs: Date.now(),
+        });
 
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
@@ -1375,6 +1381,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const baseConfig = {
           signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
         };
@@ -1439,23 +1446,15 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        sessionStorage.setItem(
-          'tatchi:threshold-prf-sealed:v1:session-cross-manager-remove',
-          JSON.stringify({
-            v: 1,
-            alg: 'shamir3pass-v1',
-            thresholdSessionId: 'session-cross-manager-remove',
-            sealedPrfFirstB64u: 'sealed-prf',
-            keyVersion: 'kek-v1',
-            expiresAtMs: Date.now() + 60_000,
-            remainingUses: 10,
-            updatedAtMs: Date.now(),
-          }),
-        );
-        sessionStorage.setItem(
-          'tatchi:threshold-prf-sealed:v1:index',
-          JSON.stringify(['session-cross-manager-remove']),
-        );
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.writeSigningSessionSealedRecord({
+          thresholdSessionId: 'session-cross-manager-remove',
+          sealedSecretB64u: 'sealed-prf',
+          keyVersion: 'kek-v1',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 10,
+          updatedAtMs: Date.now(),
+        });
 
         (managerA as any).worker = workerA;
         (managerA as any).attachWorkerRouter(workerA);
@@ -1557,6 +1556,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'none',
@@ -1604,23 +1604,15 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        sessionStorage.setItem(
-          'tatchi:threshold-prf-sealed:v1:session-no-rehydrate',
-          JSON.stringify({
-            v: 1,
-            alg: 'shamir3pass-v1',
-            thresholdSessionId: 'session-no-rehydrate',
-            sealedPrfFirstB64u: 'sealed-prf',
-            keyVersion: 'kek-v2',
-            expiresAtMs: Date.now() + 60_000,
-            remainingUses: 10,
-            updatedAtMs: Date.now(),
-          }),
-        );
-        sessionStorage.setItem(
-          'tatchi:threshold-prf-sealed:v1:index',
-          JSON.stringify(['session-no-rehydrate']),
-        );
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.writeSigningSessionSealedRecord({
+          thresholdSessionId: 'session-no-rehydrate',
+          sealedSecretB64u: 'sealed-prf',
+          keyVersion: 'kek-v2',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 10,
+          updatedAtMs: Date.now(),
+        });
 
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
@@ -1706,7 +1698,7 @@ test.describe('UserConfirm worker router', () => {
         });
         const rehydrated = await manager.rehydrateWarmSessionMaterial({
           sessionId: 'session-disabled',
-          sealedPrfFirstB64u: 'sealed-prf',
+          sealedSecretB64u: 'sealed-prf',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 5,
           transport: {
@@ -1728,13 +1720,13 @@ test.describe('UserConfirm worker router', () => {
       ok: false,
       code: 'not_enabled',
       message:
-        '[TouchConfirm] PRF.first seal and persist requires signingSessionPersistenceMode="sealed_refresh_v1"',
+        '[TouchConfirm] signing-session seal and persist requires signingSessionPersistenceMode="sealed_refresh_v1"',
     });
     expect(result.rehydrated).toEqual({
       ok: false,
       code: 'not_enabled',
       message:
-        '[TouchConfirm] PRF.first rehydrate requires signingSessionPersistenceMode="sealed_refresh_v1"',
+        '[TouchConfirm] signing-session rehydrate requires signingSessionPersistenceMode="sealed_refresh_v1"',
     });
     expect(result.postedTypes).toEqual([]);
   });
@@ -1743,6 +1735,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
+        const sealedStoreMod = await import(paths.signingSessionSealedStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -1790,20 +1783,15 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        sessionStorage.setItem(
-          'tatchi:threshold-prf-sealed:v1:session-expired',
-          JSON.stringify({
-            v: 1,
-            alg: 'shamir3pass-v1',
-            thresholdSessionId: 'session-expired',
-            sealedPrfFirstB64u: 'sealed-prf',
-            keyVersion: 'kek-v2',
-            expiresAtMs: Date.now() - 1_000,
-            remainingUses: 2,
-            updatedAtMs: Date.now() - 2_000,
-          }),
-        );
-        sessionStorage.setItem('tatchi:threshold-prf-sealed:v1:index', JSON.stringify(['session-expired']));
+        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.writeSigningSessionSealedRecord({
+          thresholdSessionId: 'session-expired',
+          sealedSecretB64u: 'sealed-prf',
+          keyVersion: 'kek-v2',
+          expiresAtMs: Date.now() - 1_000,
+          remainingUses: 2,
+          updatedAtMs: Date.now() - 2_000,
+        });
 
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
@@ -1826,7 +1814,7 @@ test.describe('UserConfirm worker router', () => {
         });
         const statusResult = await statusPromise;
         await new Promise((resolve) => setTimeout(resolve, 5));
-        const persistedAfter = sessionStorage.getItem('tatchi:threshold-prf-sealed:v1:session-expired');
+        const persistedAfter = await sealedStoreMod.readSigningSessionSealedRecord('session-expired');
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),

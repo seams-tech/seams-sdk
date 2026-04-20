@@ -56,28 +56,37 @@ import {
   type PreferencesChangedPayload,
 } from '../shared/messages';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
-import { OnEventsProgressBus, defaultPhaseHeuristics } from './progress/on-events-progress-bus';
+import {
+  OnEventsProgressBus,
+  defaultOverlayIntentResolver,
+} from './progress/on-events-progress-bus';
 import type {
-  ActionSSEEvent,
   ActionHooksOptions,
   AfterCall,
-  DeviceLinkingSSEEvent,
-  DelegateActionSSEEvent,
-  EmailRecoverySSEEvent,
-  LoginSSEvent,
-  RegistrationSSEEvent,
+  LinkDeviceFlowEvent,
+  EmailRecoveryFlowEvent,
+  UnlockFlowEvent,
+  RegistrationFlowEvent,
   SendTransactionHooksOptions,
   SignAndSendTransactionHooksOptions,
-  SyncAccountSSEEvent,
+  SigningFlowEvent,
+  AccountSyncFlowEvent,
 } from '../../types/sdkSentEvents';
 import type { EcdsaSignerProvisioningDefaults } from '../../types/ecdsaSignerProvisioningDefaults';
 import {
-  RegistrationPhase,
-  LoginPhase,
-  ActionPhase,
-  DeviceLinkingPhase,
-  SyncAccountPhase,
-  EmailRecoveryPhase,
+  AccountSyncEventPhase,
+  createAccountSyncFlowEvent,
+  createEmailRecoveryFlowEvent,
+  createLinkDeviceFlowEvent,
+  createRegistrationFlowEvent,
+  createSigningFlowEvent,
+  createUnlockFlowEvent,
+  EmailRecoveryFlowEventPhase,
+  isWalletFlowEvent,
+  LinkDeviceEventPhase,
+  RegistrationEventPhase,
+  SigningEventPhase,
+  UnlockEventPhase,
 } from '../../types/sdkSentEvents';
 import type {
   ActionResult,
@@ -188,6 +197,7 @@ type Pending = {
   timeoutMs: number;
   deadlineAtMs: number;
   onProgress?: (payload: ProgressPayload) => void;
+  requestType: ParentToChildEnvelope['type'];
   onTimeout: () => Error;
 };
 
@@ -213,6 +223,100 @@ type PostResult<T> = {
   ok: boolean;
   result: T;
 };
+
+function createTerminalProgressForRequest(args: {
+  requestType: ParentToChildEnvelope['type'];
+  requestId: string;
+  status: 'failed' | 'cancelled';
+  message: string;
+  errorCode?: string;
+}): ProgressPayload | null {
+  const { requestType, requestId, status, message, errorCode } = args;
+  const flowId = `wallet-iframe:${requestType}:${requestId}`;
+  const error = { ...(errorCode ? { code: errorCode } : {}), message };
+  const common = { flowId, requestId, status, message, error };
+  const registrationRequests = new Set<ParentToChildEnvelope['type']>([
+    'PM_REGISTER',
+    'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE',
+    'PM_ENROLL_EMAIL_OTP',
+    'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
+  ]);
+  const unlockRequests = new Set<ParentToChildEnvelope['type']>([
+    'PM_UNLOCK',
+    'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION',
+    'PM_REQUEST_EMAIL_OTP_CHALLENGE',
+    'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
+  ]);
+  const signingRequests = new Set<ParentToChildEnvelope['type']>([
+    'PM_SIGN_TXS_WITH_ACTIONS',
+    'PM_SIGN_AND_SEND_TXS',
+    'PM_SEND_TRANSACTION',
+    'PM_EXECUTE_ACTION',
+    'PM_SIGN_DELEGATE_ACTION',
+    'PM_SIGN_NEP413',
+    'PM_SIGN_TEMPO',
+    'PM_REPORT_TEMPO_BROADCAST_ACCEPTED',
+    'PM_REPORT_TEMPO_BROADCAST_REJECTED',
+    'PM_REPORT_TEMPO_FINALIZED',
+    'PM_REPORT_TEMPO_DROPPED_OR_REPLACED',
+    'PM_RECONCILE_TEMPO_NONCE_LANE',
+    'PM_SET_RECOVERY_EMAILS',
+    'PM_DELETE_DEVICE_KEY',
+  ]);
+  const linkDeviceRequests = new Set<ParentToChildEnvelope['type']>([
+    'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
+    'PM_START_DEVICE2_LINKING_FLOW',
+    'PM_STOP_DEVICE2_LINKING_FLOW',
+  ]);
+  const emailRecoveryRequests = new Set<ParentToChildEnvelope['type']>([
+    'PM_START_EMAIL_RECOVERY',
+    'PM_FINALIZE_EMAIL_RECOVERY',
+    'PM_STOP_EMAIL_RECOVERY',
+  ]);
+
+  if (registrationRequests.has(requestType)) {
+    return createRegistrationFlowEvent({
+      ...common,
+      phase:
+        status === 'cancelled' ? RegistrationEventPhase.CANCELLED : RegistrationEventPhase.FAILED,
+    });
+  }
+  if (unlockRequests.has(requestType)) {
+    return createUnlockFlowEvent({
+      ...common,
+      phase: status === 'cancelled' ? UnlockEventPhase.CANCELLED : UnlockEventPhase.FAILED,
+    });
+  }
+  if (signingRequests.has(requestType)) {
+    return createSigningFlowEvent({
+      ...common,
+      phase: status === 'cancelled' ? SigningEventPhase.CANCELLED : SigningEventPhase.FAILED,
+    });
+  }
+  if (linkDeviceRequests.has(requestType)) {
+    return createLinkDeviceFlowEvent({
+      ...common,
+      phase: status === 'cancelled' ? LinkDeviceEventPhase.CANCELLED : LinkDeviceEventPhase.FAILED,
+    });
+  }
+  if (emailRecoveryRequests.has(requestType)) {
+    return createEmailRecoveryFlowEvent({
+      ...common,
+      phase:
+        status === 'cancelled'
+          ? EmailRecoveryFlowEventPhase.CANCELLED
+          : EmailRecoveryFlowEventPhase.FAILED,
+    });
+  }
+  if (requestType === 'PM_SYNC_ACCOUNT_FLOW') {
+    return createAccountSyncFlowEvent({
+      ...common,
+      phase:
+        status === 'cancelled' ? AccountSyncEventPhase.CANCELLED : AccountSyncEventPhase.FAILED,
+    });
+  }
+  return null;
+}
 
 function sanitizeEmailOtpIframeResult<T>(value: T): T {
   if (Array.isArray(value)) {
@@ -372,7 +476,7 @@ export class WalletIframeRouter {
       forceFullscreen: false,
     };
 
-    // Initialize progress router with overlay control and phase heuristics.
+    // Initialize progress router with overlay control and v2 overlay intents.
     // OnEventsProgressBus only decides *when* to show/hide based on events; it calls
     // these adapter functions, and the router delegates to OverlayController.
     this.progressBus = new OnEventsProgressBus(
@@ -380,7 +484,7 @@ export class WalletIframeRouter {
         show: () => this.showFrameForActivation(),
         hide: () => this.hideFrameForActivation(),
       },
-      defaultPhaseHeuristics,
+      defaultOverlayIntentResolver,
       this.debug
         ? (msg: string, data?: Record<string, unknown>) => {
             console.debug('[WalletIframeRouter][OnEventsProgressBus]', msg, data || {});
@@ -677,7 +781,7 @@ export class WalletIframeRouter {
     transactions: TransactionInput[];
     options: {
       signerSlot?: number;
-      onEvent?: (ev: ActionSSEEvent) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
       onError?: (error: Error) => void;
       afterCall?: AfterCall<SignTransactionResult[]>;
       // Allow minimal overrides (e.g., { uiMode: 'drawer' })
@@ -702,7 +806,7 @@ export class WalletIframeRouter {
         transactions: payload.transactions,
         options: safeOptions,
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
     return normalizeSignedTransactionObject(res.result);
   }
@@ -712,7 +816,7 @@ export class WalletIframeRouter {
     delegate: DelegateActionInput;
     options: {
       signerSlot?: number;
-      onEvent?: (ev: ActionSSEEvent) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
       onError?: (error: Error) => void;
       afterCall?: AfterCall<any>;
       confirmationConfig?: Partial<ConfirmationConfig>;
@@ -735,7 +839,7 @@ export class WalletIframeRouter {
         delegate: payload.delegate,
         options: safeOptions,
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
   }
@@ -744,7 +848,7 @@ export class WalletIframeRouter {
     nearAccountId: string;
     confirmationConfig?: Partial<ConfirmationConfig>;
     options?: {
-      onEvent?: (ev: RegistrationSSEEvent) => void;
+      onEvent?: (ev: RegistrationFlowEvent) => void;
       signerOptions?: EcdsaSignerProvisioningDefaults;
       confirmerText?: { title?: string; body?: string };
     };
@@ -775,7 +879,7 @@ export class WalletIframeRouter {
           ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
         },
         // Bridge progress events from iframe back to parent callback
-        options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationSSEEvent) },
+        options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent) },
       });
 
       // Step 4: Update login status after successful registration
@@ -834,7 +938,7 @@ export class WalletIframeRouter {
   async unlock(payload: {
     nearAccountId: string;
     options?: {
-      onEvent?: (ev: LoginSSEvent) => void;
+      onEvent?: (ev: UnlockFlowEvent) => void;
       signerSlot?: number;
       // Forward session config so host can mint JWT/cookie
       session?: {
@@ -858,7 +962,7 @@ export class WalletIframeRouter {
           nearAccountId: payload.nearAccountId,
           options: safeOptions,
         },
-        options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isLoginSSEEvent) },
+        options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isUnlockFlowEvent) },
       });
       const { login: st } = await this.getWalletSession(payload.nearAccountId);
       this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
@@ -881,10 +985,13 @@ export class WalletIframeRouter {
     relayUrl?: string;
     appSessionJwt?: string;
     operation?: WalletEmailOtpLoginOperation;
+    onEvent?: (ev: UnlockFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult> {
+    const { onEvent, ...wirePayload } = payload;
     const res = await this.post<EmailOtpChallengeResult>({
       type: 'PM_REQUEST_EMAIL_OTP_CHALLENGE',
-      payload,
+      payload: wirePayload,
+      options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
     });
     return res.result;
   }
@@ -893,10 +1000,13 @@ export class WalletIframeRouter {
     nearAccountId: string;
     relayUrl?: string;
     appSessionJwt?: string;
+    onEvent?: (ev: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult> {
+    const { onEvent, ...wirePayload } = payload;
     const res = await this.post<EmailOtpChallengeResult>({
       type: 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE',
-      payload,
+      payload: wirePayload,
+      options: { onProgress: this.wrapOnEvent(onEvent, isRegistrationFlowEvent) },
     });
     return res.result;
   }
@@ -907,10 +1017,18 @@ export class WalletIframeRouter {
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
     rerollRegistrationAttempt?: boolean;
+    onEvent?: (ev: RegistrationFlowEvent | UnlockFlowEvent) => void;
   }): Promise<GoogleEmailOtpSessionExchangeResult> {
+    const { onEvent, ...wirePayload } = payload;
     const res = await this.post<GoogleEmailOtpSessionExchangeResult>({
       type: 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION',
-      payload,
+      payload: wirePayload,
+      options: {
+        onProgress:
+          payload.accountMode === 'register'
+            ? this.wrapOnEvent(onEvent, isRegistrationFlowEvent)
+            : this.wrapOnEvent(onEvent, isUnlockFlowEvent),
+      },
     });
     return res.result;
   }
@@ -922,11 +1040,14 @@ export class WalletIframeRouter {
     challengeId?: string;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
+    onEvent?: (ev: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpEnrollmentResult> {
+    const { onEvent, ...wirePayload } = payload;
     const res = await this.post<EmailOtpEnrollmentResult>(
       {
         type: 'PM_ENROLL_EMAIL_OTP',
-        payload,
+        payload: wirePayload,
+        options: { onProgress: this.wrapOnEvent(onEvent, isRegistrationFlowEvent) },
       },
       {
         timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
@@ -939,10 +1060,12 @@ export class WalletIframeRouter {
   async loginWithEmailOtpEcdsaCapability(
     payload: EmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult> {
+    const { onEvent, ...wirePayload } = payload;
     const res = await this.post<EmailOtpEcdsaCapabilityResult>(
       {
         type: 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
-        payload,
+        payload: wirePayload,
+        options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
       },
       {
         timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
@@ -957,10 +1080,18 @@ export class WalletIframeRouter {
   async enrollAndLoginWithEmailOtpEcdsaCapability(
     payload: Omit<EmailOtpEcdsaEnrollmentCapabilityArgs, 'clientSecret32'>,
   ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult> {
+    const { onEvent, ...wirePayload } = payload;
     const res = await this.post<EmailOtpEcdsaEnrollmentCapabilityResult>(
       {
         type: 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
-        payload,
+        payload: wirePayload,
+        options: {
+          onProgress: this.wrapOnEvent(
+            onEvent,
+            (ev): ev is RegistrationFlowEvent | UnlockFlowEvent =>
+              isRegistrationFlowEvent(ev) || isUnlockFlowEvent(ev),
+          ),
+        },
       },
       {
         timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
@@ -998,7 +1129,7 @@ export class WalletIframeRouter {
     state?: string;
     options: {
       signerSlot?: number;
-      onEvent?: (ev: ActionSSEEvent) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
       confirmerText?: { title?: string; body?: string };
       confirmationConfig?: Partial<ConfirmationConfig>;
     };
@@ -1023,7 +1154,7 @@ export class WalletIframeRouter {
         },
         options: safeOptions,
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
   }
@@ -1033,13 +1164,7 @@ export class WalletIframeRouter {
     request: MultichainSigningRequest;
     options?: {
       confirmationConfig?: Partial<ConfirmationConfig>;
-      onEvent?: (ev: {
-        step: number;
-        phase: string;
-        status: 'progress' | 'success' | 'error';
-        message?: string;
-        data?: unknown;
-      }) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
     };
   }): Promise<TempoSignedResult | EvmSignedResult> {
     const res = await this.post<TempoSignedResult>(
@@ -1056,7 +1181,7 @@ export class WalletIframeRouter {
               }
             : undefined,
         },
-        options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+        options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
       },
       {
         timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
@@ -1071,13 +1196,7 @@ export class WalletIframeRouter {
     signedResult: TempoSignedResult | EvmSignedResult;
     txHash?: `0x${string}`;
     options?: {
-      onEvent?: (ev: {
-        step: number;
-        phase: string;
-        status: 'progress' | 'success' | 'error';
-        message?: string;
-        data?: unknown;
-      }) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
     };
   }): Promise<void> {
     await this.post<void>({
@@ -1087,7 +1206,7 @@ export class WalletIframeRouter {
         signedResult: payload.signedResult,
         ...(payload.txHash ? { txHash: payload.txHash } : {}),
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
   }
 
@@ -1096,13 +1215,7 @@ export class WalletIframeRouter {
     signedResult: TempoSignedResult | EvmSignedResult;
     error?: { code?: string; message?: string; details?: unknown };
     options?: {
-      onEvent?: (ev: {
-        step: number;
-        phase: string;
-        status: 'progress' | 'success' | 'error';
-        message?: string;
-        data?: unknown;
-      }) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
     };
   }): Promise<void> {
     await this.post<void>({
@@ -1112,7 +1225,7 @@ export class WalletIframeRouter {
         signedResult: payload.signedResult,
         ...(payload.error ? { error: payload.error } : {}),
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
   }
 
@@ -1122,13 +1235,7 @@ export class WalletIframeRouter {
     txHash?: `0x${string}`;
     receiptStatus?: 'success' | 'reverted';
     options?: {
-      onEvent?: (ev: {
-        step: number;
-        phase: string;
-        status: 'progress' | 'success' | 'error';
-        message?: string;
-        data?: unknown;
-      }) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
     };
   }): Promise<void> {
     await this.post<void>({
@@ -1139,7 +1246,7 @@ export class WalletIframeRouter {
         ...(payload.txHash ? { txHash: payload.txHash } : {}),
         ...(payload.receiptStatus ? { receiptStatus: payload.receiptStatus } : {}),
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
   }
 
@@ -1149,13 +1256,7 @@ export class WalletIframeRouter {
     reason: 'dropped' | 'replaced';
     txHash?: `0x${string}`;
     options?: {
-      onEvent?: (ev: {
-        step: number;
-        phase: string;
-        status: 'progress' | 'success' | 'error';
-        message?: string;
-        data?: unknown;
-      }) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
     };
   }): Promise<void> {
     await this.post<void>({
@@ -1166,7 +1267,7 @@ export class WalletIframeRouter {
         reason: payload.reason,
         ...(payload.txHash ? { txHash: payload.txHash } : {}),
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
   }
 
@@ -1174,13 +1275,7 @@ export class WalletIframeRouter {
     nearAccountId: string;
     signedResult: TempoSignedResult | EvmSignedResult;
     options?: {
-      onEvent?: (ev: {
-        step: number;
-        phase: string;
-        status: 'progress' | 'success' | 'error';
-        message?: string;
-        data?: unknown;
-      }) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
     };
   }): Promise<{
     chainNextNonce: string;
@@ -1199,7 +1294,7 @@ export class WalletIframeRouter {
         nearAccountId: payload.nearAccountId,
         signedResult: payload.signedResult,
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
   }
@@ -1207,7 +1302,7 @@ export class WalletIframeRouter {
   async signTransactionWithKeyPair(payload: {
     signedTransaction: SignedTransaction;
     options?: {
-      onEvent?: (ev: ActionSSEEvent) => void;
+      onEvent?: (ev: SigningFlowEvent) => void;
     };
   }): Promise<ActionResult> {
     // Strip non-cloneable functions from options; host emits PROGRESS events
@@ -1218,7 +1313,7 @@ export class WalletIframeRouter {
         signedTransaction: payload.signedTransaction,
         options: options,
       },
-      options: { onProgress: this.wrapOnEvent(options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
   }
@@ -1246,7 +1341,7 @@ export class WalletIframeRouter {
         actionArgs: payload.actionArgs,
         options: safeOptions,
       },
-      options: { onProgress: this.wrapOnEvent(options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
   }
@@ -1340,26 +1435,26 @@ export class WalletIframeRouter {
         recoveryEmails: payload.recoveryEmails,
         options: safeOptions,
       },
-      options: { onProgress: this.wrapOnEvent(options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
   }
 
   async syncAccount(payload: {
     accountId?: string;
-    onEvent?: (ev: SyncAccountSSEEvent) => void;
+    onEvent?: (ev: AccountSyncFlowEvent) => void;
   }): Promise<SyncAccountResult> {
     const res = await this.post<SyncAccountResult>({
       type: 'PM_SYNC_ACCOUNT_FLOW',
       payload: { ...(payload?.accountId ? { accountId: payload.accountId } : {}) },
-      options: { onProgress: this.wrapOnEvent(payload?.onEvent, isSyncAccountSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload?.onEvent, isAccountSyncFlowEvent) },
     });
     return res.result as SyncAccountResult;
   }
 
   async startEmailRecovery(payload: {
     accountId: string;
-    onEvent?: (ev: EmailRecoverySSEEvent) => void;
+    onEvent?: (ev: EmailRecoveryFlowEvent) => void;
     options?: {
       confirmerText?: { title?: string; body?: string };
       confirmationConfig?: Partial<ConfirmationConfig>;
@@ -1371,7 +1466,7 @@ export class WalletIframeRouter {
         accountId: payload.accountId,
         ...(payload.options ? { options: payload.options } : {}),
       },
-      options: { onProgress: this.wrapOnEvent(payload?.onEvent, isEmailRecoverySSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload?.onEvent, isEmailRecoveryFlowEvent) },
     });
     return res.result as { mailtoUrl: string; nearPublicKey: string };
   }
@@ -1379,7 +1474,7 @@ export class WalletIframeRouter {
   async finalizeEmailRecovery(payload: {
     accountId: string;
     nearPublicKey?: string;
-    onEvent?: (ev: EmailRecoverySSEEvent) => void;
+    onEvent?: (ev: EmailRecoveryFlowEvent) => void;
   }): Promise<void> {
     await this.post<void>({
       type: 'PM_FINALIZE_EMAIL_RECOVERY',
@@ -1387,7 +1482,7 @@ export class WalletIframeRouter {
         accountId: payload.accountId,
         ...(payload.nearPublicKey ? { nearPublicKey: payload.nearPublicKey } : {}),
       },
-      options: { onProgress: this.wrapOnEvent(payload?.onEvent, isEmailRecoverySSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload?.onEvent, isEmailRecoveryFlowEvent) },
     });
   }
 
@@ -1402,7 +1497,7 @@ export class WalletIframeRouter {
     qrData: DeviceLinkingQRData;
     fundingAmount: string;
     options?: {
-      onEvent?: (ev: DeviceLinkingSSEEvent) => void;
+      onEvent?: (ev: LinkDeviceFlowEvent) => void;
       confirmationConfig?: Partial<ConfirmationConfig>;
       confirmerText?: { title?: string; body?: string };
     };
@@ -1425,7 +1520,7 @@ export class WalletIframeRouter {
             }
           : {}),
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isDeviceLinkingSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isLinkDeviceFlowEvent) },
     });
     return res.result as LinkDeviceResult;
   }
@@ -1459,7 +1554,7 @@ export class WalletIframeRouter {
       // continue polling and later trigger an in-iframe confirmation + TouchID prompt.
       options: {
         sticky: true,
-        onProgress: this.wrapOnEvent(payload?.options?.onEvent, isDeviceLinkingSSEEvent),
+        onProgress: this.wrapOnEvent(payload?.options?.onEvent, isLinkDeviceFlowEvent),
       },
     });
     return res.result as StartDevice2LinkingFlowResults;
@@ -1470,7 +1565,7 @@ export class WalletIframeRouter {
   }
 
   // Bridge typed public onEvent callbacks to the transport's onProgress callback.
-  // - onEvent: consumer's strongly-typed event handler (e.g., ActionSSEEvent)
+  // - onEvent: consumer's strongly-typed event handler (e.g., SigningFlowEvent)
   // - isExpectedEvent: runtime type guard that validates a ProgressPayload as that event type
   // Returns an onProgress handler that safely narrows before invoking onEvent.
   private wrapOnEvent<TEvent extends ProgressPayload>(
@@ -1507,7 +1602,7 @@ export class WalletIframeRouter {
         transactions: payload.transactions,
         options: safeOptions,
       },
-      options: { onProgress: this.wrapOnEvent(options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
   }
@@ -1531,7 +1626,7 @@ export class WalletIframeRouter {
   async deleteDeviceKey(payload: {
     accountId: string;
     publicKeyToDelete: string;
-    options: { onEvent?: (ev: ActionSSEEvent) => void };
+    options: { onEvent?: (ev: SigningFlowEvent) => void };
   }): Promise<ActionResult> {
     const res = await this.post<ActionResult>({
       type: 'PM_DELETE_DEVICE_KEY',
@@ -1540,7 +1635,7 @@ export class WalletIframeRouter {
         publicKeyToDelete: payload.publicKeyToDelete,
         options: {},
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
   }
@@ -1559,7 +1654,7 @@ export class WalletIframeRouter {
         signedTransaction: args.signedTransaction,
         options: safeOptions,
       },
-      options: { onProgress: this.wrapOnEvent(options?.onEvent, isActionSSEEvent) },
+      options: { onProgress: this.wrapOnEvent(options?.onEvent, isSigningFlowEvent) },
     });
     return res.result;
   }
@@ -1734,15 +1829,17 @@ export class WalletIframeRouter {
       // Deliver to pending promise if present
       pending.reject(err);
       // Also notify all progress subscribers for this requestId
-      this.progressBus.dispatch({
-        requestId: requestId,
-        payload: {
-          step: 0,
-          phase: 'error',
-          status: 'error',
-          message,
-        },
+      const terminalStatus = msg.payload?.code === 'cancelled' ? 'cancelled' : 'failed';
+      const fallbackProgress = createTerminalProgressForRequest({
+        requestType: pending.requestType,
+        requestId,
+        status: terminalStatus,
+        message,
+        errorCode: msg.payload?.code,
       });
+      if (fallbackProgress) {
+        this.progressBus.dispatch({ requestId, payload: fallbackProgress });
+      }
       this.progressBus.unregister(requestId);
       return;
     }
@@ -1819,6 +1916,7 @@ export class WalletIframeRouter {
         timeoutMs,
         deadlineAtMs,
         onProgress: options?.onProgress,
+        requestType: envelope.type,
         onTimeout,
       });
 
@@ -1988,47 +2086,29 @@ export class WalletIframeRouter {
   }
 }
 
-// ===== Runtime type guards to safely bridge ProgressPayload → typed SSE events =====
-const REGISTRATION_PHASES = new Set<string>(Object.values(RegistrationPhase) as string[]);
-const LOGIN_PHASES = new Set<string>(Object.values(LoginPhase) as string[]);
-const ACTION_PHASES = new Set<string>(Object.values(ActionPhase) as string[]);
-const DEVICE_LINKING_PHASES = new Set<string>(Object.values(DeviceLinkingPhase) as string[]);
-const SYNC_ACCOUNT_PHASES = new Set<string>(Object.values(SyncAccountPhase) as string[]);
-const EMAIL_RECOVERY_PHASES = new Set<string>(Object.values(EmailRecoveryPhase) as string[]);
-
-function phaseOf(progress: ProgressPayload): string {
-  return String(progress.phase ?? '');
+// ===== Runtime type guards to safely bridge ProgressPayload → typed flow events =====
+function isRegistrationFlowEvent(progress: ProgressPayload): progress is RegistrationFlowEvent {
+  return isWalletFlowEvent(progress) && progress.flow === 'registration';
 }
 
-function isRegistrationSSEEvent(progress: ProgressPayload): progress is RegistrationSSEEvent {
-  return REGISTRATION_PHASES.has(phaseOf(progress));
+function isUnlockFlowEvent(p: ProgressPayload): p is UnlockFlowEvent {
+  return isWalletFlowEvent(p) && p.flow === 'unlock';
 }
 
-function isLoginSSEEvent(p: ProgressPayload): p is LoginSSEvent {
-  return LOGIN_PHASES.has(phaseOf(p));
+function isSigningFlowEvent(p: ProgressPayload): p is SigningFlowEvent {
+  return isWalletFlowEvent(p) && p.flow === 'signing';
 }
 
-function isActionSSEEvent(p: ProgressPayload): p is ActionSSEEvent {
-  return ACTION_PHASES.has(phaseOf(p));
+function isLinkDeviceFlowEvent(p: ProgressPayload): p is LinkDeviceFlowEvent {
+  return isWalletFlowEvent(p) && p.flow === 'link_device';
 }
 
-function isDeviceLinkingSSEEvent(p: ProgressPayload): p is DeviceLinkingSSEEvent {
-  return DEVICE_LINKING_PHASES.has(phaseOf(p));
+function isAccountSyncFlowEvent(p: ProgressPayload): p is AccountSyncFlowEvent {
+  return isWalletFlowEvent(p) && p.flow === 'account_sync';
 }
 
-function isSyncAccountSSEEvent(p: ProgressPayload): p is SyncAccountSSEEvent {
-  return SYNC_ACCOUNT_PHASES.has(phaseOf(p));
-}
-
-function isEmailRecoverySSEEvent(p: ProgressPayload): p is EmailRecoverySSEEvent {
-  return EMAIL_RECOVERY_PHASES.has(phaseOf(p));
-}
-
-export function isDelegateSSEEvent(p: ProgressPayload): p is DelegateActionSSEEvent {
-  if (!isActionSSEEvent(p)) return false;
-  const data = p.data;
-  if (!isObject(data)) return false;
-  return data.context === 'delegate';
+function isEmailRecoveryFlowEvent(p: ProgressPayload): p is EmailRecoveryFlowEvent {
+  return isWalletFlowEvent(p) && p.flow === 'email_recovery';
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { AccountId } from './accountIds';
 import type { ConfirmationConfig } from './signer-worker';
-import type { EmailRecoverySSEEvent, EventCallback, AfterCall } from './sdkSentEvents';
+import type { EmailRecoveryFlowEvent, EventCallback, AfterCall } from './sdkSentEvents';
 import type { WebAuthnRegistrationCredential } from './webauthn';
 import type { PendingStore } from '../../utils/emailRecovery';
 import type { StoreUserDataInput } from '../accountData/near/types';
@@ -62,7 +62,7 @@ export type PendingEmailRecovery = {
 };
 
 export interface EmailRecoveryFlowOptions {
-  onEvent?: EventCallback<EmailRecoverySSEEvent>;
+  onEvent?: EventCallback<EmailRecoveryFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<void>;
   pendingStore?: PendingStore;

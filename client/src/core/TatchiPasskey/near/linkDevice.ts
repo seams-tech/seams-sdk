@@ -7,8 +7,11 @@ import type {
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '../../types/linkDevice';
-import { DeviceLinkingPhase, DeviceLinkingStatus } from '../../types/sdkSentEvents';
-import type { DeviceLinkingSSEEvent } from '../../types/sdkSentEvents';
+import {
+  createLinkDeviceFlowEvent,
+  LinkDeviceEventPhase,
+  type CreateLinkDeviceFlowEventInput,
+} from '../../types/sdkSentEvents';
 import { toAccountId } from '../../types/accountIds';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { errorMessage } from '@shared/utils/errors';
@@ -47,6 +50,10 @@ import {
 type DeterministicKeysResultLike = {
   nearPublicKey?: string;
   credential?: WebAuthnRegistrationCredential | null;
+};
+
+type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
+  accountId?: string;
 };
 
 function nowMs(): number {
@@ -147,9 +154,21 @@ export class LinkDeviceFlow {
     this.options = options;
   }
 
-  private safeOnEvent(ev: DeviceLinkingEventPayload): void {
+  private flowId(): string {
+    const sessionId = String(this.session?.sessionId || '').trim();
+    return sessionId || `link-device:${this.session?.nearPublicKey || 'pending'}`;
+  }
+
+  private safeOnEvent(event: EmitLinkDeviceEventInput): void {
     try {
-      this.options?.options?.onEvent?.(ev as DeviceLinkingSSEEvent);
+      const accountId = event.accountId ?? this.session?.accountId ?? undefined;
+      this.options?.options?.onEvent?.(
+        createLinkDeviceFlowEvent({
+          flowId: this.flowId(),
+          ...(accountId ? { accountId: String(accountId) } : {}),
+          ...event,
+        }),
+      );
     } catch {
       // ignore
     }
@@ -159,14 +178,19 @@ export class LinkDeviceFlow {
     const e = err instanceof Error ? err : new Error(String(err || 'Unknown error'));
     this.error = e;
     this.session = this.session
-      ? { ...this.session, phase: DeviceLinkingPhase.DEVICE_LINKING_ERROR }
+      ? { ...this.session, phase: LinkDeviceEventPhase.FAILED }
       : null;
     this.safeOnEvent({
-      step: 0,
-      phase: DeviceLinkingPhase.DEVICE_LINKING_ERROR,
-      status: DeviceLinkingStatus.ERROR,
+      phase: LinkDeviceEventPhase.FAILED,
+      status: 'failed',
       message: e.message,
-      error: e.message,
+      interaction: {
+        kind: 'passkey_create',
+        overlay: 'hide',
+      },
+      error: {
+        message: e.message,
+      },
     });
     try {
       this.options?.options?.onError?.(e);
@@ -286,10 +310,13 @@ export class LinkDeviceFlow {
       if (!announced) {
         announced = true;
         this.safeOnEvent({
-          step: 4,
-          phase: DeviceLinkingPhase.STEP_4_POLLING,
-          status: DeviceLinkingStatus.PROGRESS,
-          message: 'Waiting for Device1 to scan and authorize…',
+          phase: LinkDeviceEventPhase.STEP_01_QR_DISPLAYED,
+          status: 'waiting_for_user',
+          data: { role: 'display' },
+          interaction: {
+            kind: 'qr_display',
+            overlay: 'show',
+          },
         });
       }
 
@@ -326,13 +353,20 @@ export class LinkDeviceFlow {
           ...session,
           accountId,
           ...(signerSlot ? { signerSlot } : {}),
-          phase: DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED,
+          phase: LinkDeviceEventPhase.STEP_05_LINK_REQUEST_DETECTED,
         };
         this.safeOnEvent({
-          step: 5,
-          phase: DeviceLinkingPhase.STEP_5_ADDKEY_DETECTED,
-          status: DeviceLinkingStatus.PROGRESS,
-          message: `Linked to ${String(accountId)}; finishing setup…`,
+          phase: LinkDeviceEventPhase.STEP_05_LINK_REQUEST_DETECTED,
+          status: 'succeeded',
+          accountId: String(accountId),
+          data: {
+            role: 'display',
+            signerSlot,
+          },
+          interaction: {
+            kind: 'qr_display',
+            overlay: 'hide',
+          },
         });
         // Important: don't swallow completion errors; surface them to the caller so UI can show a failure.
         await this.completeLinking();
@@ -374,13 +408,20 @@ export class LinkDeviceFlow {
       ...session,
       accountId: nearAccountId,
       signerSlot: signerSlotHint,
-      phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
+      phase: LinkDeviceEventPhase.STEP_06_NEW_DEVICE_REGISTER_STARTED,
     };
     this.safeOnEvent({
-      step: 6,
-      phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
-      status: DeviceLinkingStatus.PROGRESS,
-      message: 'Creating passkey for linked device…',
+      phase: LinkDeviceEventPhase.STEP_06_NEW_DEVICE_REGISTER_STARTED,
+      status: 'waiting_for_user',
+      accountId: String(nearAccountId),
+      data: {
+        role: 'display',
+        signerSlot: signerSlotHint,
+      },
+      interaction: {
+        kind: 'passkey_create',
+        overlay: 'show',
+      },
     });
 
     const confirm = await this.context.signingEngine.requestRegistrationCredentialConfirmation({
@@ -532,10 +573,17 @@ export class LinkDeviceFlow {
       : null;
 
     this.safeOnEvent({
-      step: 6,
-      phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
-      status: DeviceLinkingStatus.PROGRESS,
-      message: 'Activating linked device keys on-chain…',
+      phase: LinkDeviceEventPhase.STEP_04_LINK_REQUEST_SUBMITTED,
+      status: 'running',
+      accountId: String(nearAccountId),
+      data: {
+        role: 'display',
+        signerSlot: resolvedSignerSlot,
+      },
+      interaction: {
+        kind: 'passkey_create',
+        overlay: 'hide',
+      },
     });
 
     const ephemeralPublicKey = ensureEd25519Prefix(String(session.nearPublicKey || '').trim());
@@ -584,7 +632,7 @@ export class LinkDeviceFlow {
       accountId: nearAccountId,
       signerSlot: resolvedSignerSlot,
       credential,
-      phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
+      phase: LinkDeviceEventPhase.STEP_06_NEW_DEVICE_REGISTER_STARTED,
     };
 
     // Store authenticator + user data first to ensure profile/account mapping exists.
@@ -660,13 +708,16 @@ export class LinkDeviceFlow {
 
     if (this.cancelled) return;
     this.session = this.session
-      ? { ...this.session, phase: DeviceLinkingPhase.STEP_7_LINKING_COMPLETE }
+      ? { ...this.session, phase: LinkDeviceEventPhase.STEP_08_COMPLETED }
       : null;
     this.safeOnEvent({
-      step: 7,
-      phase: DeviceLinkingPhase.STEP_7_LINKING_COMPLETE,
-      status: DeviceLinkingStatus.SUCCESS,
-      message: 'Device linking completed',
+      phase: LinkDeviceEventPhase.STEP_08_COMPLETED,
+      status: 'succeeded',
+      accountId: String(nearAccountId),
+      data: {
+        role: 'display',
+        signerSlot: resolvedSignerSlot,
+      },
     });
   }
 
@@ -690,10 +741,13 @@ export class LinkDeviceFlow {
         signerSlot,
       });
       this.safeOnEvent({
-        step: 8,
-        phase: DeviceLinkingPhase.STEP_8_AUTO_LOGIN,
-        status: DeviceLinkingStatus.PROGRESS,
-        message: 'Logging in…',
+        phase: LinkDeviceEventPhase.STEP_07_AUTO_UNLOCK_STARTED,
+        status: 'running',
+        accountId: String(nearAccountId),
+        data: {
+          role: 'display',
+          signerSlot,
+        },
       });
 
       const restored = await restoreLocalLoginState({
@@ -706,10 +760,13 @@ export class LinkDeviceFlow {
       }
 
       this.safeOnEvent({
-        step: 8,
-        phase: DeviceLinkingPhase.STEP_8_AUTO_LOGIN,
-        status: DeviceLinkingStatus.SUCCESS,
-        message: `Welcome ${String(nearAccountId)}`,
+        phase: LinkDeviceEventPhase.STEP_07_AUTO_UNLOCK_SUCCEEDED,
+        status: 'succeeded',
+        accountId: String(nearAccountId),
+        data: {
+          role: 'display',
+          signerSlot,
+        },
       });
       console.debug('[LinkDeviceFlow] auto-login complete', {
         accountId: String(nearAccountId),
@@ -720,11 +777,15 @@ export class LinkDeviceFlow {
       console.warn('[LinkDeviceFlow] auto-login failed:', e);
       // Don't fail linking if auto-login fails; user can manually login.
       this.safeOnEvent({
-        step: 0,
-        phase: DeviceLinkingPhase.LOGIN_ERROR,
-        status: DeviceLinkingStatus.ERROR,
+        phase: LinkDeviceEventPhase.STEP_07_AUTO_UNLOCK_STARTED,
+        status: 'skipped',
         message: msg,
-        error: msg,
+        accountId: String(input.accountId),
+        data: {
+          role: 'display',
+          autoUnlockFailed: true,
+          error: msg,
+        },
       });
     }
   }
@@ -789,10 +850,19 @@ export class LinkDeviceFlow {
         nearPublicKey: tempKeypair.publicKey,
         credential: null,
         tempPrivateKey: tempKeypair.privateKey,
-        phase: DeviceLinkingPhase.STEP_1_QR_CODE_GENERATED,
+        phase: LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
         createdAt: nowMs(),
         expiresAt: nowMs() + DEVICE_LINKING_CONFIG.TIMEOUTS.SESSION_EXPIRATION_MS,
       };
+
+      this.safeOnEvent({
+        phase: LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED,
+        status: 'running',
+        data: {
+          role: 'display',
+          signerSlot,
+        },
+      });
 
       await this.registerSessionOnRelay(sessionId, tempKeypair.publicKey, this.session.expiresAt);
 
@@ -806,10 +876,16 @@ export class LinkDeviceFlow {
       const qrCodeDataURL = await generateQRCodeDataURL(JSON.stringify(qrData));
 
       this.safeOnEvent({
-        step: 1,
-        phase: DeviceLinkingPhase.STEP_1_QR_CODE_GENERATED,
-        status: DeviceLinkingStatus.SUCCESS,
-        message: 'Device linking QR generated',
+        phase: LinkDeviceEventPhase.STEP_01_QR_DISPLAYED,
+        status: 'waiting_for_user',
+        data: {
+          role: 'display',
+          signerSlot,
+        },
+        interaction: {
+          kind: 'qr_display',
+          overlay: 'show',
+        },
       });
 
       if (!this.cancelled) {
@@ -886,7 +962,7 @@ export class LinkDeviceFlow {
   }
 
   getState(): {
-    phase: DeviceLinkingPhase | undefined;
+    phase: LinkDeviceEventPhase | undefined;
     session: DeviceLinkingSession | null;
     error: Error | undefined;
   } {
@@ -900,8 +976,16 @@ export class LinkDeviceFlow {
   cancel(): void {
     this.cancelled = true;
     this.session = this.session
-      ? { ...this.session, phase: DeviceLinkingPhase.DEVICE_LINKING_ERROR }
+      ? { ...this.session, phase: LinkDeviceEventPhase.CANCELLED }
       : null;
+    this.safeOnEvent({
+      phase: LinkDeviceEventPhase.CANCELLED,
+      status: 'cancelled',
+      interaction: {
+        kind: 'qr_display',
+        overlay: 'hide',
+      },
+    });
   }
 
   reset(): void {
@@ -977,13 +1061,3 @@ export async function linkDeviceErrorResult(message: string, err?: unknown): Pro
   const msg = err ? `${message}: ${errorMessage(err) || 'unknown error'}` : message;
   throw new Error(msg);
 }
-
-type DeviceLinkingEventPayload = {
-  step: number;
-  phase: DeviceLinkingPhase;
-  status: DeviceLinkingStatus;
-  message: string;
-  error?: string;
-  data?: Record<string, unknown>;
-  [key: string]: unknown;
-};

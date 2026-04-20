@@ -1,9 +1,13 @@
 import type { NearClient } from '../rpcClients/near/NearClient';
 import { validateNearAccountId } from '@shared/utils/validation';
-import type { RegistrationHooksOptions, RegistrationSSEEvent } from '../types/sdkSentEvents';
+import type {
+  CreateRegistrationFlowEventInput,
+  RegistrationFlowEvent,
+  RegistrationHooksOptions,
+} from '../types/sdkSentEvents';
 import type { RegistrationResult, TatchiConfigsReadonly } from '../types/tatchi';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
-import { RegistrationPhase, RegistrationStatus } from '../types/sdkSentEvents';
+import { createRegistrationFlowEvent, RegistrationEventPhase } from '../types/sdkSentEvents';
 import { createAccountAndRegisterWithRelayServer } from './faucets/createAccountRelayServer';
 import { PasskeyManagerContext } from './index';
 import {
@@ -25,6 +29,26 @@ import {
 } from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
 
 // Registration forces a visible, clickable confirmation for cross‑origin safety
+
+type EmitRegistrationEventInput = Omit<
+  CreateRegistrationFlowEventInput,
+  'accountId' | 'authMethod' | 'flowId'
+>;
+
+function emitRegistrationEvent(
+  onEvent: RegistrationHooksOptions['onEvent'] | undefined,
+  nearAccountId: AccountId | string,
+  event: EmitRegistrationEventInput,
+): void {
+  onEvent?.(
+    createRegistrationFlowEvent({
+      flowId: `registration:passkey:${nearAccountId}`,
+      accountId: String(nearAccountId),
+      authMethod: 'passkey',
+      ...event,
+    }),
+  );
+}
 
 /**
  * Core registration function that handles passkey registration
@@ -56,21 +80,21 @@ export async function registerPasskeyInternal(
   };
 
   console.log('⚡ Registration: Passkey registration (standard WebAuthn)');
-  onEvent?.({
-    step: 1,
-    phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
-    status: RegistrationStatus.PROGRESS,
-    message: `Starting registration for ${nearAccountId}`,
-  } as RegistrationSSEEvent);
+  emitRegistrationEvent(onEvent, nearAccountId, {
+    phase: RegistrationEventPhase.STEP_01_STARTED,
+    status: 'started',
+  });
 
   try {
     await validateRegistrationInputs(context, nearAccountId, onEvent, onError);
 
-    onEvent?.({
-      step: 1,
-      phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
-      status: RegistrationStatus.PROGRESS,
-      message: 'Generating passkey credential...',
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_STARTED,
+      status: 'waiting_for_user',
+      interaction: {
+        kind: 'passkey_create',
+        overlay: 'show',
+      },
     });
 
     const confirmationConfig: Partial<ConfirmationConfig> = {
@@ -89,11 +113,13 @@ export async function registerPasskeyInternal(
 
     const credential = registrationSession.credential;
 
-    onEvent?.({
-      step: 1,
-      phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
-      status: RegistrationStatus.SUCCESS,
-      message: 'WebAuthn ceremony successful',
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED,
+      status: 'succeeded',
+      interaction: {
+        kind: 'passkey_create',
+        overlay: 'hide',
+      },
     });
 
     const signerSlot = 1;
@@ -103,11 +129,9 @@ export async function registerPasskeyInternal(
     if (!rpId) {
       throw new Error('Missing rpId for relay registration');
     }
-    onEvent?.({
-      step: 2,
-      phase: RegistrationPhase.STEP_2_KEY_GENERATION,
-      status: RegistrationStatus.PROGRESS,
-      message: 'Preparing threshold Ed25519 registration material...',
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_STARTED,
+      status: 'running',
     });
     const thresholdEd25519Registration = await prepareThresholdEd25519RegistrationWithHss({
       context,
@@ -115,14 +139,6 @@ export async function registerPasskeyInternal(
       nearAccountId,
       rpId,
       authenticatorOptions,
-      onProgress: (message) => {
-        onEvent?.({
-          step: 2,
-          phase: RegistrationPhase.STEP_2_KEY_GENERATION,
-          status: RegistrationStatus.PROGRESS,
-          message,
-        });
-      },
     });
     registrationTimingSummary.thresholdEd25519PrepareMs = Math.round(
       performance.now() - registrationStartedAt,
@@ -136,14 +152,13 @@ export async function registerPasskeyInternal(
     }
 
     // Step 4-5: Create account and register using the relay (atomic)
-    onEvent?.({
-      step: 2,
-      phase: RegistrationPhase.STEP_2_KEY_GENERATION,
-      status: RegistrationStatus.SUCCESS,
-      message: 'Prepared threshold Ed25519 Option A registration material from passkey',
-      verified: true,
-      nearAccountId: nearAccountId,
-      nearPublicKey: thresholdEd25519Registration.registrationInput.publicKey,
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_SUCCEEDED,
+      status: 'succeeded',
+      data: {
+        verified: true,
+        nearPublicKey: thresholdEd25519Registration.registrationInput.publicKey,
+      },
     });
 
     const relayRegistrationStartedAt = performance.now();
@@ -181,52 +196,26 @@ export async function registerPasskeyInternal(
     registrationState.contractTransactionId = accountAndRegistrationResult.transactionId || null;
 
     // Step 6: Post-commit verification: ensure on-chain access key matches expected public key
-    onEvent?.({
-      step: 6,
-      phase: RegistrationPhase.STEP_6_ACCOUNT_VERIFICATION,
-      status: RegistrationStatus.PROGRESS,
-      message: 'Verifying on-chain bootstrap access keys...',
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_STARTED,
+      status: 'running',
     });
 
     const completedThresholdEd25519Registration = completeRegisteredThresholdEd25519Registration({
       thresholdEd25519: accountAndRegistrationResult?.thresholdEd25519,
       expectedSessionPolicy: thresholdEd25519Registration.registrationInput.sessionPolicy,
     });
-    onEvent?.({
-      step: 6,
-      phase: RegistrationPhase.STEP_6_ACCOUNT_VERIFICATION,
-      status: RegistrationStatus.SUCCESS,
-      message: 'Account creation accepted; final access-key visibility is reconciling on-chain',
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_SUCCEEDED,
+      status: 'succeeded',
     });
 
-    onEvent?.({
-      step: 7,
-      phase: RegistrationPhase.STEP_7_THRESHOLD_KEY_ENROLLMENT,
-      status: RegistrationStatus.PROGRESS,
-      message: 'Confirming threshold key…',
-      thresholdPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
-      relayerKeyId: completedThresholdEd25519Registration.registered.relayerKeyId,
-      signerSlot,
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED,
+      status: 'running',
     });
 
-    onEvent?.({
-      step: 7,
-      phase: RegistrationPhase.STEP_7_THRESHOLD_KEY_ENROLLMENT,
-      status: RegistrationStatus.SUCCESS,
-      message: 'Threshold key ready',
-      thresholdKeyReady: true,
-      thresholdPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
-      relayerKeyId: completedThresholdEd25519Registration.registered.relayerKeyId,
-      signerSlot,
-    });
-
-    // Step 8: Store user data + authenticator locally
-    onEvent?.({
-      step: 8,
-      phase: RegistrationPhase.STEP_8_DATABASE_STORAGE,
-      status: RegistrationStatus.PROGRESS,
-      message: 'Storing passkey wallet metadata...',
-    });
+    // Store user data + authenticator locally.
 
     const localPersistenceStartedAt = performance.now();
     await signingEngine.atomicStoreRegistrationData({
@@ -251,11 +240,14 @@ export async function registerPasskeyInternal(
     // Mark database as stored for rollback tracking
     registrationState.databaseStored = true;
 
-    onEvent?.({
-      step: 8,
-      phase: RegistrationPhase.STEP_8_DATABASE_STORAGE,
-      status: RegistrationStatus.SUCCESS,
-      message: 'Registration metadata stored successfully',
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED,
+      status: 'succeeded',
+      data: {
+        thresholdPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
+        relayerKeyId: completedThresholdEd25519Registration.registered.relayerKeyId,
+        signerSlot,
+      },
     });
 
     await provisionThresholdEcdsaAfterRegistration({
@@ -264,6 +256,7 @@ export async function registerPasskeyInternal(
       credential,
       nearAccountId,
       completedThresholdEd25519Registration,
+      onEvent,
     });
 
     void prewarmThresholdEd25519ClientBaseFromCredential({
@@ -280,11 +273,9 @@ export async function registerPasskeyInternal(
       console.warn('Failed to initialize current user after registration:', initErr);
     }
 
-    onEvent?.({
-      step: 9,
-      phase: RegistrationPhase.STEP_9_REGISTRATION_COMPLETE,
-      status: RegistrationStatus.SUCCESS,
-      message: 'Registration completed!',
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.STEP_11_COMPLETED,
+      status: 'succeeded',
     });
 
     console.info('[Registration] flow timings', {
@@ -318,7 +309,7 @@ export async function registerPasskeyInternal(
     console.error('Registration failed:', message, stack);
 
     // Perform rollback based on registration state
-    await performRegistrationRollback(registrationState, nearAccountId, signingEngine, onEvent);
+    const rollback = await performRegistrationRollback(registrationState, nearAccountId, signingEngine);
 
     // Use centralized error handling
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', nearAccountId);
@@ -329,13 +320,20 @@ export async function registerPasskeyInternal(
     }
     onError?.(errorObject);
 
-    onEvent?.({
-      step: 0,
-      phase: RegistrationPhase.REGISTRATION_ERROR,
-      status: RegistrationStatus.ERROR,
+    emitRegistrationEvent(onEvent, nearAccountId, {
+      phase: RegistrationEventPhase.FAILED,
+      status: 'failed',
       message: errorMessage,
-      error: errorMessage,
-    } as RegistrationSSEEvent);
+      interaction: {
+        kind: 'passkey_create',
+        overlay: 'hide',
+      },
+      error: {
+        ...(errorCode ? { code: errorCode } : {}),
+        message: errorMessage,
+      },
+      data: { rollback },
+    });
 
     const result: RegistrationResult = {
       success: false,
@@ -380,15 +378,13 @@ const validateRegistrationInputs = async (
     nearClient: NearClient;
   },
   nearAccountId: AccountId,
-  onEvent?: (event: RegistrationSSEEvent) => void,
+  onEvent?: RegistrationHooksOptions['onEvent'],
   onError?: (error: Error) => void,
 ) => {
-  onEvent?.({
-    step: 1,
-    phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
-    status: RegistrationStatus.PROGRESS,
-    message: 'Validating registration inputs...',
-  } as RegistrationSSEEvent);
+  emitRegistrationEvent(onEvent, nearAccountId, {
+    phase: RegistrationEventPhase.STEP_02_ACCOUNT_PREFLIGHT_STARTED,
+    status: 'running',
+  });
 
   // Validation
   if (!nearAccountId) {
@@ -411,12 +407,6 @@ const validateRegistrationInputs = async (
 
   // Best-effort pre-check: avoid prompting for passkey creation if the account name
   // is already taken on-chain. Final enforcement still happens in the relay + chain.
-  onEvent?.({
-    step: 1,
-    phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
-    status: RegistrationStatus.PROGRESS,
-    message: `Checking if ${nearAccountId} already exists...`,
-  } as RegistrationSSEEvent);
 
   const accountExists = await checkNearAccountExistsBestEffort(
     context.nearClient,
@@ -428,12 +418,10 @@ const validateRegistrationInputs = async (
     throw error;
   }
 
-  onEvent?.({
-    step: 1,
-    phase: RegistrationPhase.STEP_1_WEBAUTHN_VERIFICATION,
-    status: RegistrationStatus.PROGRESS,
-    message: `Account format validated, preparing confirmation`,
-  } as RegistrationSSEEvent);
+  emitRegistrationEvent(onEvent, nearAccountId, {
+    phase: RegistrationEventPhase.STEP_02_ACCOUNT_PREFLIGHT_SUCCEEDED,
+    status: 'succeeded',
+  });
   return;
 };
 
@@ -449,24 +437,21 @@ async function performRegistrationRollback(
   },
   nearAccountId: AccountId,
   signingEngine: SigningEnginePublic,
-  onEvent?: (event: RegistrationSSEEvent) => void,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
   console.debug('Starting registration rollback...', registrationState);
+  const rollback: Record<string, unknown> = {
+    databaseRolledBack: false,
+    onChainRollbackPossible: false,
+    contractTransactionId: registrationState.contractTransactionId,
+  };
 
   // Rollback in reverse order
   try {
     // 1. Rollback database storage
     if (registrationState.databaseStored) {
       console.debug('Rolling back database storage...');
-      onEvent?.({
-        step: 0,
-        phase: RegistrationPhase.REGISTRATION_ERROR,
-        status: RegistrationStatus.ERROR,
-        message: 'Rolling back database storage...',
-        error: 'Registration failed - rolling back database storage',
-      } as RegistrationSSEEvent);
-
       await signingEngine.rollbackUserRegistration(nearAccountId);
+      rollback.databaseRolledBack = true;
       console.debug('Database rollback completed');
     }
 
@@ -474,29 +459,17 @@ async function performRegistrationRollback(
     // NOT POSSIBLE - account creation is an on-chain transaction and cannot be rolled back.
     if (registrationState.contractRegistered) {
       console.debug('Registration transaction cannot be rolled back (immutable blockchain state)');
-      onEvent?.({
-        step: 0,
-        phase: RegistrationPhase.REGISTRATION_ERROR,
-        status: RegistrationStatus.ERROR,
-        message: `Registration transaction (tx: ${registrationState.contractTransactionId}) cannot be rolled back`,
-        error: 'Registration failed - on-chain state is immutable',
-      } as RegistrationSSEEvent);
+      rollback.onChainStateImmutable = true;
     }
     console.debug('Registration rollback completed');
   } catch (rollbackError: unknown) {
     console.error('Rollback failed:', rollbackError);
-    onEvent?.({
-      step: 0,
-      phase: RegistrationPhase.REGISTRATION_ERROR,
-      status: RegistrationStatus.ERROR,
-      message: `Rollback failed: ${
-        rollbackError && typeof rollbackError === 'object' && 'message' in rollbackError
-          ? String((rollbackError as { message?: unknown }).message || '')
-          : String(rollbackError || '')
-      }`,
-      error: 'Both registration and rollback failed',
-    } as RegistrationSSEEvent);
+    rollback.rollbackError =
+      rollbackError && typeof rollbackError === 'object' && 'message' in rollbackError
+        ? String((rollbackError as { message?: unknown }).message || '')
+        : String(rollbackError || '');
   }
+  return rollback;
 }
 
 async function provisionThresholdEcdsaAfterRegistration(args: {
@@ -505,6 +478,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   credential: WebAuthnRegistrationCredential;
   nearAccountId: AccountId;
   completedThresholdEd25519Registration: CompletedThresholdEd25519Registration;
+  onEvent?: RegistrationHooksOptions['onEvent'];
 }): Promise<void> {
   const provisioningStartedAt = performance.now();
   const canonicalChain: 'tempo' | 'evm' = 'tempo';
@@ -531,6 +505,13 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
     args.completedThresholdEd25519Registration.registered.session?.runtimePolicyScope;
 
   if (!relayerUrl || !thresholdSessionJwt) {
+    emitRegistrationEvent(args.onEvent, args.nearAccountId, {
+      phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SKIPPED,
+      status: 'skipped',
+      data: {
+        reason: 'missing_ed25519_session_auth',
+      },
+    });
     logTelemetry({
       outcome: 'skipped',
       reason: 'missing_ed25519_session_auth',
@@ -539,6 +520,11 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   }
 
   try {
+    emitRegistrationEvent(args.onEvent, args.nearAccountId, {
+      phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
+      status: 'running',
+    });
+
     const clientRootShare32B64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
     if (!clientRootShare32B64u) {
       throw new Error('Failed to derive threshold ECDSA client root share from credential');
@@ -582,6 +568,14 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         durationMs: timings[`bootstrapThresholdEcdsa${chain === 'tempo' ? 'Tempo' : 'Evm'}Ms`],
       });
     }
+    emitRegistrationEvent(args.onEvent, args.nearAccountId, {
+      phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
+      status: 'succeeded',
+      data: {
+        chain: canonicalChain,
+        ...timings,
+      },
+    });
     logTelemetry({
       outcome: 'success',
     });

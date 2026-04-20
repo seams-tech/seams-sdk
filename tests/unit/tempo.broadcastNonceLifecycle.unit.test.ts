@@ -136,6 +136,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
       async ({ paths }) => {
         const { reportTempoFinalized } = await import(paths.tempoSigningApi);
         const calls: Array<{ fn: string; input: any }> = [];
+        const events: any[] = [];
 
         await reportTempoFinalized(
           {
@@ -164,6 +165,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
             nearAccountId: 'alice.testnet',
             txHash: `0x${'aa'.repeat(32)}` as `0x${string}`,
             receiptStatus: 'success',
+            onEvent: (event: any) => events.push(event),
             signedResult: {
               chain: 'evm',
               kind: 'eip1559',
@@ -181,13 +183,14 @@ test.describe('tempo broadcast nonce lifecycle', () => {
           },
         );
 
-        return calls;
+        return { calls, events };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.map((entry: any) => entry.fn)).toEqual(['markFinalized']);
-    expect(String(result[0]?.input?.nonce || '')).toBe('13');
+    expect(result.calls.map((entry: any) => entry.fn)).toEqual(['markFinalized']);
+    expect(String(result.calls[0]?.input?.nonce || '')).toBe('13');
+    expect(result.events).toEqual([]);
   });
 
   test('marks managed nonce dropped with reason and tx hash', async ({ page }) => {

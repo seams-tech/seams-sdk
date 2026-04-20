@@ -58,6 +58,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
     expect(resolved.mode).toBe('register_started');
+    if (resolved.mode !== 'register_started') return;
     expect(resolved.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
     expect(resolved.walletId).not.toContain('alice');
     expect(resolved.walletId).not.toContain('example');
@@ -110,6 +111,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
     expect(resolved.mode).toBe('register_started');
+    if (resolved.mode !== 'register_started') return;
     expect(resolved.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
     expect(resolved.registrationAttemptId).not.toBe('legacy-attempt');
 
@@ -132,6 +134,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     expect(first.mode).toBe('register_started');
+    if (first.mode !== 'register_started') return;
 
     const second = await service.resolveGoogleEmailOtpSession({
       providerSubject,
@@ -142,6 +145,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     expect(second.mode).toBe('register_started');
+    if (second.mode !== 'register_started') return;
     expect(second.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
     expect(second.walletId).not.toBe(first.walletId);
     expect(second.registrationAttemptId).not.toBe(first.registrationAttemptId);

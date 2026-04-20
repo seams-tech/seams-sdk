@@ -57,17 +57,15 @@ test.describe('Worker Communication Protocol', () => {
           // @ts-ignore - Runtime import
           const { ActionType } = await import('/sdk/esm/core/types/actions.js');
 
-          // Progress step constants that match the actual progress events being generated
-          // These values are based on the actual events captured during testing
-          const ProgressStep = {
-            PREPARATION: 'preparation',
-            USER_CONFIRMATION: 'user-confirmation',
-            WEBAUTHN_AUTHENTICATION: 'webauthn-authentication',
-            AUTHENTICATION_COMPLETE: 'authentication-complete',
-            TRANSACTION_SIGNING_PROGRESS: 'transaction-signing-progress',
-            TRANSACTION_SIGNING_COMPLETE: 'transaction-signing-complete',
-            BROADCASTING: 'broadcasting',
-            ACTION_COMPLETE: 'action-complete',
+          const SigningPhase = {
+            STARTED: 'signing.started',
+            CONFIRMATION_DISPLAYED: 'signing.confirmation.displayed',
+            PASSKEY_PROMPT_STARTED: 'signing.auth.passkey.prompt.started',
+            AUTHENTICATION_COMPLETE: 'signing.authentication.complete',
+            TRANSACTION_SIGNED: 'signing.transaction.signed',
+            BROADCAST_STARTED: 'signing.broadcast.started',
+            BROADCAST_ACCEPTED: 'signing.broadcast.accepted',
+            COMPLETED: 'signing.completed',
           } as const;
 
           const { tatchi, generateTestAccountId } = (window as any).testUtils;
@@ -161,26 +159,27 @@ test.describe('Worker Communication Protocol', () => {
             totalEvents: actionEvents.length,
             phases: actionEvents.map((e) => e.phase),
             uniquePhases: [...new Set(actionEvents.map((e) => e.phase))],
-            // Check for phases that exist in the actual progress events being generated:
-            hasPreparation: actionEvents.some((e) => e.phase === ProgressStep.PREPARATION),
-            hasUserConfirmation: actionEvents.some(
-              (e) => e.phase === ProgressStep.USER_CONFIRMATION,
+            hasSigningStarted: actionEvents.some((e) => e.phase === SigningPhase.STARTED),
+            hasConfirmationDisplayed: actionEvents.some(
+              (e) => e.phase === SigningPhase.CONFIRMATION_DISPLAYED,
             ),
-            hasWebauthnAuthentication: actionEvents.some(
-              (e) => e.phase === ProgressStep.WEBAUTHN_AUTHENTICATION,
+            hasPasskeyPrompt: actionEvents.some(
+              (e) => e.phase === SigningPhase.PASSKEY_PROMPT_STARTED,
             ),
             hasAuthenticationComplete: actionEvents.some(
-              (e) => e.phase === ProgressStep.AUTHENTICATION_COMPLETE,
+              (e) => e.phase === SigningPhase.AUTHENTICATION_COMPLETE,
             ),
-            hasTransactionSigningProgress: actionEvents.some(
-              (e) => e.phase === ProgressStep.TRANSACTION_SIGNING_PROGRESS,
+            hasTransactionSigned: actionEvents.some(
+              (e) => e.phase === SigningPhase.TRANSACTION_SIGNED,
             ),
-            hasTransactionSigningComplete: actionEvents.some(
-              (e) => e.phase === ProgressStep.TRANSACTION_SIGNING_COMPLETE,
+            hasBroadcastStarted: actionEvents.some(
+              (e) => e.phase === SigningPhase.BROADCAST_STARTED,
             ),
-            hasBroadcasting: actionEvents.some((e) => e.phase === ProgressStep.BROADCASTING),
-            hasActionComplete: actionEvents.some((e) => e.phase === ProgressStep.ACTION_COMPLETE),
-            hasError: actionEvents.some((e) => e.status === 'error'),
+            hasBroadcastAccepted: actionEvents.some(
+              (e) => e.phase === SigningPhase.BROADCAST_ACCEPTED,
+            ),
+            hasCompleted: actionEvents.some((e) => e.phase === SigningPhase.COMPLETED),
+            hasFailed: actionEvents.some((e) => e.status === 'failed'),
             // Event structure validation
             allEventsHaveRequiredFields: actionEvents.every(
               (e) =>
@@ -217,21 +216,24 @@ test.describe('Worker Communication Protocol', () => {
         lastIdx = idx;
       }
     };
-    const basePhaseSequence = ['preparation', 'user-confirmation'];
-    const authPhaseSequence = ['preparation', 'user-confirmation', 'webauthn-authentication'];
+    const basePhaseSequence = ['signing.started', 'signing.confirmation.displayed'];
+    const authPhaseSequence = [
+      'signing.started',
+      'signing.confirmation.displayed',
+      'signing.auth.passkey.prompt.started',
+    ];
     const signingPhaseSequence = [
-      'preparation',
-      'user-confirmation',
-      'transaction-signing-progress',
-      'transaction-signing-complete',
+      'signing.started',
+      'signing.confirmation.displayed',
+      'signing.transaction.signed',
     ];
     const successPhaseSequence = [
-      'preparation',
-      'user-confirmation',
-      'transaction-signing-progress',
-      'transaction-signing-complete',
-      'broadcasting',
-      'action-complete',
+      'signing.started',
+      'signing.confirmation.displayed',
+      'signing.transaction.signed',
+      'signing.broadcast.started',
+      'signing.broadcast.accepted',
+      'signing.completed',
     ];
 
     // Assertions
@@ -251,7 +253,9 @@ test.describe('Worker Communication Protocol', () => {
         console.log('No progress events captured - registration failed too early');
         console.log('This suggests the registration failed before progress tracking began');
         // Verify the error is a connectivity or registration failure (environment-dependent)
-        expect(result.error).toMatch(/Failed to fetch|CreateAccount|register(ed)?|relay|fetch/i);
+        expect(result.error).toMatch(
+          /Failed to fetch|CreateAccount|register(ed)?|relay|fetch|managed registration transport/i,
+        );
         console.log('Test passed - early failure matched expected patterns');
         return;
       }
@@ -263,13 +267,13 @@ test.describe('Worker Communication Protocol', () => {
       console.log('Captured events:', JSON.stringify(result.capturedEvents, null, 2));
 
       // Check for expected progress events even when operation fails
-      expect(result.hasPreparation).toBe(true);
-      expect(result.hasUserConfirmation).toBe(true);
+      expect(result.hasSigningStarted).toBe(true);
+      expect(result.hasConfirmationDisplayed).toBe(true);
       assertPhaseOrder(result.phases || [], basePhaseSequence, 'action failure');
-      if (result.hasWebauthnAuthentication) {
+      if (result.hasPasskeyPrompt) {
         assertPhaseOrder(result.phases || [], authPhaseSequence, 'action failure (auth)');
       }
-      // Note: authentication-complete may not be reached if contract verification fails
+      // Note: signing.authentication.complete may not be reached if validation fails.
       // This is expected behavior when the operation fails early
       if (result.hasAuthenticationComplete) {
         console.log('Authentication completed successfully before failure');
@@ -291,29 +295,31 @@ test.describe('Worker Communication Protocol', () => {
     console.log('Captured events:', JSON.stringify(result.capturedEvents, null, 2));
 
     // Check if operation failed - if so, we should still see the expected progress events
-    if (result.hasError) {
+    if (result.hasFailed) {
       console.log(
         'Operation failed with error - checking for expected progress events before failure',
       );
-      // Even if the operation fails, we should see preparation and confirmation phases
-      expect(result.hasPreparation).toBe(true);
-      expect(result.hasUserConfirmation).toBe(true);
+      expect(result.hasSigningStarted).toBe(true);
+      expect(result.hasConfirmationDisplayed).toBe(true);
       assertPhaseOrder(result.phases || [], basePhaseSequence, 'action error');
       if (Array.isArray(result.actionEvents)) {
         const confirmationIdx = result.actionEvents.findIndex(
-          (e: any) => e?.phase === 'user-confirmation',
+          (e: any) => e?.phase === 'signing.confirmation.displayed',
         );
-        const errorIdx = result.actionEvents.findIndex((e: any) => e?.status === 'error');
-        expect(confirmationIdx, 'missing user-confirmation event').toBeGreaterThanOrEqual(0);
-        expect(errorIdx, 'missing error status event').toBeGreaterThanOrEqual(0);
-        expect(errorIdx, 'error should occur after user-confirmation').toBeGreaterThan(
+        const errorIdx = result.actionEvents.findIndex((e: any) => e?.status === 'failed');
+        expect(
+          confirmationIdx,
+          'missing signing.confirmation.displayed event',
+        ).toBeGreaterThanOrEqual(0);
+        expect(errorIdx, 'missing failed status event').toBeGreaterThanOrEqual(0);
+        expect(errorIdx, 'failed event should occur after confirmation').toBeGreaterThan(
           confirmationIdx,
         );
       }
-      if (result.hasWebauthnAuthentication) {
+      if (result.hasPasskeyPrompt) {
         assertPhaseOrder(result.phases || [], authPhaseSequence, 'action error (auth)');
       }
-      // Note: authentication-complete may not be reached if contract verification fails
+      // Note: signing.authentication.complete may not be reached if validation fails.
       // This is expected behavior when the operation fails early
       if (result.hasAuthenticationComplete) {
         console.log('Authentication completed successfully before failure');
@@ -321,29 +327,28 @@ test.describe('Worker Communication Protocol', () => {
         console.log('Authentication did not complete due to early failure - this is expected');
       }
       // If verification succeeds but operation fails later, we should see verification complete
-      if (result.hasTransactionSigningComplete) {
-        expect(result.hasTransactionSigningProgress).toBe(true);
+      if (result.hasTransactionSigned) {
         assertPhaseOrder(result.phases || [], signingPhaseSequence, 'action error (signed)');
       }
     } else {
       // Operation succeeded - check all expected phases
-      expect(result.hasPreparation).toBe(true);
-      expect(result.hasUserConfirmation).toBe(true);
-      expect(result.hasTransactionSigningProgress).toBe(true);
-      expect(result.hasTransactionSigningComplete).toBe(true);
-      expect(result.hasBroadcasting).toBe(true);
-      expect(result.hasActionComplete).toBe(true);
-      if (result.hasWebauthnAuthentication) {
+      expect(result.hasSigningStarted).toBe(true);
+      expect(result.hasConfirmationDisplayed).toBe(true);
+      expect(result.hasTransactionSigned).toBe(true);
+      expect(result.hasBroadcastStarted).toBe(true);
+      expect(result.hasBroadcastAccepted).toBe(true);
+      expect(result.hasCompleted).toBe(true);
+      if (result.hasPasskeyPrompt) {
         assertPhaseOrder(result.phases || [], authPhaseSequence, 'action success (auth)');
       }
       if (result.hasAuthenticationComplete) {
         assertPhaseOrder(
           result.phases || [],
           [
-            'preparation',
-            'user-confirmation',
-            'webauthn-authentication',
-            'authentication-complete',
+            'signing.started',
+            'signing.confirmation.displayed',
+            'signing.auth.passkey.prompt.started',
+            'signing.authentication.complete',
           ],
           'action success (auth complete)',
         );
@@ -383,7 +388,7 @@ test.describe('Worker Communication Protocol', () => {
           capturedEvents,
           phases: capturedEvents.map((e) => e.phase),
           statuses: capturedEvents.map((e) => e.status),
-          errorMessages: capturedEvents.filter((e) => e.status === 'error').map((e) => e.message),
+          errorMessages: capturedEvents.filter((e) => e.status === 'failed').map((e) => e.message),
         };
       } catch (error: any) {
         return {
@@ -399,14 +404,14 @@ test.describe('Worker Communication Protocol', () => {
 
     expect(result.loginResult.success).toBe(false);
     expect(result.capturedEvents.length).toBeGreaterThan(0);
-    expect(result.phases).toContain('preparation');
-    expect(result.statuses).toContain('error');
+    expect(result.phases).toContain('unlock.started');
+    expect(result.statuses).toContain('failed');
     expect(result.loginResult.error || '').toMatch(/register an account/i);
     expect(result.errorMessages.some((msg: string) => /register an account/i.test(msg))).toBe(true);
-    const progressIdx = result.statuses.findIndex((status: string) => status === 'progress');
-    const errorIdx = result.statuses.findIndex((status: string) => status === 'error');
-    expect(progressIdx).toBeGreaterThanOrEqual(0);
-    expect(errorIdx).toBeGreaterThan(progressIdx);
+    const firstNonTerminalIdx = result.statuses.findIndex((status: string) => status !== 'failed');
+    const failedIdx = result.statuses.findIndex((status: string) => status === 'failed');
+    expect(firstNonTerminalIdx).toBeGreaterThanOrEqual(0);
+    expect(failedIdx).toBeGreaterThan(firstNonTerminalIdx);
   });
 
   // happy-path login: seed registration via relay mock and assert full login phase progression
@@ -516,18 +521,18 @@ test.describe('Worker Communication Protocol', () => {
     expect(result.loginEvents.length).toBeGreaterThan(0);
     expect(result.loginPhases).toEqual(
       expect.arrayContaining([
-        'preparation',
-        'webauthn-assertion',
-        'session-ready',
-        'login-complete',
+        'unlock.started',
+        'unlock.auth.passkey.prompt.started',
+        'unlock.session.ready',
+        'unlock.completed',
       ]),
     );
-    expect(result.loginStatuses).toContain('success');
+    expect(result.loginStatuses).toContain('succeeded');
     const loginPhaseSequence = [
-      'preparation',
-      'webauthn-assertion',
-      'session-ready',
-      'login-complete',
+      'unlock.started',
+      'unlock.auth.passkey.prompt.started',
+      'unlock.session.ready',
+      'unlock.completed',
     ];
     let lastIdx = -1;
     for (const phase of loginPhaseSequence) {
@@ -609,10 +614,11 @@ test.describe('Worker Communication Protocol', () => {
           success: true,
           totalEvents: progressEvents.length,
           messageTypes: Array.from(messageTypes),
-          // Event type analysis
-          progressCount: progressEvents.filter((e) => e.status === 'progress').length,
-          successCount: progressEvents.filter((e) => e.status === 'success').length,
-          errorCount: progressEvents.filter((e) => e.status === 'error').length,
+          runningCount: progressEvents.filter((e) =>
+            ['started', 'running', 'waiting_for_user'].includes(e.status),
+          ).length,
+          successCount: progressEvents.filter((e) => e.status === 'succeeded').length,
+          failedCount: progressEvents.filter((e) => e.status === 'failed').length,
         };
       } catch (error: any) {
         return {
@@ -628,6 +634,10 @@ test.describe('Worker Communication Protocol', () => {
       if (handleInfrastructureErrors(result)) {
         return; // Test was skipped due to infrastructure issues
       }
+      if (/managed registration transport/i.test(String(result.error || ''))) {
+        console.warn('Skipping message-type assertions; managed registration transport required');
+        return;
+      }
 
       // For other errors, fail as expected
       console.error('Message types test failed:', result.error);
@@ -641,12 +651,12 @@ test.describe('Worker Communication Protocol', () => {
     console.log(`   Total Events: ${result.totalEvents}`);
     console.log(`   Message Types: ${result.messageTypes?.join(', ') || 'none'}`);
     console.log(
-      `   Progress: ${result.progressCount}, Success: ${result.successCount}, Error: ${result.errorCount}`,
+      `   Running: ${result.runningCount}, Succeeded: ${result.successCount}, Failed: ${result.failedCount}`,
     );
 
     expect(result.totalEvents).toBeGreaterThan(0);
     expect(result.messageTypes?.length || 0).toBeGreaterThan(0);
-    expect(result.progressCount).toBeGreaterThan(0);
+    expect(result.runningCount).toBeGreaterThan(0);
     expect(result.successCount).toBeGreaterThan(0);
   });
 
@@ -700,7 +710,7 @@ test.describe('Worker Communication Protocol', () => {
             {
               onEvent: (event: any) => {
                 progressEvents.push(event);
-                if (event.status === 'error') {
+                if (event.status === 'failed') {
                   errorEvents.push(event);
                 }
               },
@@ -725,7 +735,7 @@ test.describe('Worker Communication Protocol', () => {
           progressEvents: progressEvents.length,
           errorEvents: errorEvents.length,
           hasErrorPhase: progressEvents.some(
-            (e) => e.phase === 'action-error' || e.status === 'error',
+            (e) => e.phase === 'registration.failed' || e.status === 'failed',
           ),
           phases: progressEvents.map((e) => e.phase),
           statuses: progressEvents.map((e) => e.status),
@@ -753,12 +763,12 @@ test.describe('Worker Communication Protocol', () => {
     expect(result.hasErrorPhase).toBe(true);
     expect(result.resultSuccess === false || result.threw === true).toBe(true);
     const statuses = result.statuses ?? [];
-    const progressIdx = statuses.findIndex((status: string) => status === 'progress');
-    const errorIdx = statuses.findIndex((status: string) => status === 'error');
-    expect(progressIdx).toBeGreaterThanOrEqual(0);
-    expect(errorIdx).toBeGreaterThan(progressIdx);
+    const firstNonTerminalIdx = statuses.findIndex((status: string) => status !== 'failed');
+    const failedIdx = statuses.findIndex((status: string) => status === 'failed');
+    expect(firstNonTerminalIdx).toBeGreaterThanOrEqual(0);
+    expect(failedIdx).toBeGreaterThan(firstNonTerminalIdx);
     if (result.lastEvent?.status) {
-      expect(result.lastEvent.status).toBe('error');
+      expect(result.lastEvent.status).toBe('failed');
     }
   });
 });

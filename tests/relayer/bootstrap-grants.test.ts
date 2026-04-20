@@ -392,9 +392,10 @@ test.describe('managed bootstrap grants', () => {
         },
       );
       expect(prepare.status, prepare.text).toBe(200);
-      expect(capturedPrepareInput?.orgId).toBe(authOrgId);
-      expect(capturedPrepareInput?.signingRootId).toBe(signingRootId);
-      expect(capturedPrepareInput).not.toHaveProperty('projectId');
+      const prepareInput = capturedPrepareInput as Record<string, unknown> | null;
+      expect(prepareInput?.orgId).toBe(authOrgId);
+      expect(prepareInput?.signingRootId).toBe(signingRootId);
+      expect(prepareInput).not.toHaveProperty('projectId');
     } finally {
       await srv.close();
     }
@@ -432,7 +433,21 @@ test.describe('managed bootstrap grants', () => {
           };
         },
         viewAccessKeyList: async () => ({
-          keys: keyVisible ? [{ public_key: 'ed25519:test-registration-public-key' }] : [],
+          block_hash: 'block-hash',
+          block_height: 1,
+          keys: keyVisible
+            ? [
+                {
+                  public_key: 'ed25519:test-registration-public-key',
+                  access_key: {
+                    block_hash: 'block-hash',
+                    block_height: 1,
+                    nonce: 0n,
+                    permission: 'FullAccess' as const,
+                  },
+                },
+              ]
+            : [],
         }),
       }),
       {
@@ -512,7 +527,7 @@ test.describe('managed bootstrap grants', () => {
           },
         })) as never,
         checkAccountExists: async () => true,
-        viewAccessKeyList: async () => ({ keys: [] }),
+        viewAccessKeyList: async () => ({ block_hash: 'block-hash', block_height: 1, keys: [] }),
         createAccount: async () => {
           throw new Error('createAccount must not be called for existing accounts');
         },

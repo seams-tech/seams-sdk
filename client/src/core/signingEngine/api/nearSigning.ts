@@ -1,6 +1,11 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { DelegateActionInput } from '@/core/types/delegate';
-import { ActionPhase, ActionStatus, type onProgressEvents } from '@/core/types/sdkSentEvents';
+import {
+  createSigningFlowEvent,
+  SigningEventPhase,
+  type CreateSigningFlowEventInput,
+  type SigningFlowEvent,
+} from '@/core/types/sdkSentEvents';
 import type {
   ConfirmationConfig,
   RpcCallPayload,
@@ -25,8 +30,19 @@ import { resolveThresholdEd25519CommitQueueKey } from './thresholdLifecycle/thre
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
   type ThresholdEd25519SessionRecord,
+  type ThresholdEcdsaSessionRecord,
 } from './thresholdLifecycle/thresholdSessionStore';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  readSigningSessionSealedRecord,
+  type SigningSessionSealedStoreRecord,
+} from './session/signingSessionSealedStore';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
+import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
+import { createWarmSessionManager } from '../session/WarmSessionManager';
+import { clearThresholdEcdsaClientPresignaturesForLane } from '../orchestration/walletOrigin/thresholdEcdsaCoordinator';
+import type { WarmSessionStatusResult } from '../touchConfirm';
+import type { WebAuthnAuthenticationCredential } from '@/core/types';
 
 export type SignDelegateActionResult = {
   signedDelegate: WasmSignedDelegate;
@@ -63,7 +79,7 @@ export type SignTransactionsWithActionsInput = {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
-  onEvent?: (update: onProgressEvents) => void;
+  onEvent?: (update: SigningFlowEvent) => void;
   sessionId?: string;
   sensitivePolicy?: SensitiveOperationPolicy;
 };
@@ -75,7 +91,7 @@ export type SignDelegateActionInput = {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   title?: string;
   body?: string;
-  onEvent?: (update: onProgressEvents) => void;
+  onEvent?: (update: SigningFlowEvent) => void;
 };
 
 export type NearSignIntentRequest =
@@ -151,9 +167,33 @@ export type NearSigningApiDeps = {
     operation?: 'transaction_sign' | 'export_key';
     remainingUses?: number;
   }) => Promise<{ sessionId: string }>;
+  reconnectPasskeyEd25519CapabilityForSigning?: (args: {
+    nearAccountId: AccountId | string;
+    record: ThresholdEd25519SessionRecord;
+    localPrfCredential: WebAuthnAuthenticationCredential;
+    usesNeeded?: number;
+  }) => Promise<{ sessionId: string }>;
   markThresholdEd25519EmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: AccountId | string;
     thresholdSessionId?: string;
+  }) => void;
+  getThresholdEcdsaSessionRecordForSigning?: (args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  }) => ThresholdEcdsaSessionRecord;
+  rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord?: (args: {
+    sealedRecord: SigningSessionSealedStoreRecord;
+    ecdsaRecord: ThresholdEcdsaSessionRecord;
+    ed25519Record?: ThresholdEd25519SessionRecord | null;
+  }) => Promise<{
+    bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    remainingUses: number;
+    expiresAtMs: number;
+  } | null>;
+  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  clearThresholdEcdsaSessionRecordForLane?: (args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
   }) => void;
   createSigningSessionId: (prefix: string) => string;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
@@ -174,11 +214,103 @@ function resolveNearTransactionAccountAuth(
   return resolveAccountAuthMetadataForSignerSource({ source: record?.source });
 }
 
+function emitNearSigningEvent(
+  onEvent: ((event: SigningFlowEvent) => void) | undefined,
+  accountId: AccountId | string,
+  event: Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId'>,
+): void {
+  try {
+    onEvent?.(
+      createSigningFlowEvent({
+        ...event,
+        flowId: `signing:near:${String(accountId)}:${event.phase}`,
+        accountId: String(accountId),
+      }),
+    );
+  } catch {}
+}
+
+async function tryRestoreEmailOtpSigningSessionForNearTransaction(args: {
+  deps: NearSigningApiDeps;
+  nearAccountId: AccountId;
+  onEvent?: (update: SigningFlowEvent) => void;
+}): Promise<void> {
+  if (
+    typeof args.deps.getThresholdEcdsaSessionRecordForSigning !== 'function' ||
+    typeof args.deps.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord !== 'function'
+  ) {
+    return;
+  }
+  const ctx = args.deps.getSignerWorkerContext();
+  const touchConfirm = ctx.touchConfirm;
+  if (!touchConfirm) return;
+  await createWarmSessionManager({
+    touchConfirm,
+    clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) => {
+      const record = args.deps.getThresholdEcdsaSessionRecordForSigning?.({
+        nearAccountId: String(nearAccountId),
+        chain,
+      });
+      if (!record) return;
+      clearThresholdEcdsaClientPresignaturesForLane({
+        relayerUrl: record.relayerUrl,
+        ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+        participantIds: record.participantIds,
+      });
+    },
+    ...(args.deps.clearThresholdEcdsaSessionRecordForLane
+      ? {
+          clearThresholdEcdsaSessionRecordForLane:
+            args.deps.clearThresholdEcdsaSessionRecordForLane,
+        }
+      : {}),
+    getThresholdEcdsaSessionRecordForSigning: args.deps.getThresholdEcdsaSessionRecordForSigning,
+    rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord:
+      args.deps.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord,
+    getEmailOtpWarmSessionStatus: args.deps.getEmailOtpWarmSessionStatus,
+    onSealedRestore: (event) => {
+      if (event.status === 'started') {
+        emitNearSigningEvent(args.onEvent, args.nearAccountId, {
+          phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
+          status: 'waiting_for_user',
+          message: 'Restoring signing session...',
+          interaction: { kind: 'transaction_confirmation', overlay: 'show' },
+          data: {
+            chain: event.chain,
+            thresholdSessionId: event.thresholdSessionId,
+            ...(event.walletSigningSessionId
+              ? { walletSigningSessionId: event.walletSigningSessionId }
+              : {}),
+          },
+        });
+        return;
+      }
+      if (event.status === 'restored') {
+        emitNearSigningEvent(args.onEvent, args.nearAccountId, {
+          phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
+          status: 'succeeded',
+          message: 'Signing session restored',
+          interaction: { kind: 'none', overlay: 'none' },
+          data: {
+            chain: event.chain,
+            thresholdSessionId: event.thresholdSessionId,
+            ...(event.walletSigningSessionId
+              ? { walletSigningSessionId: event.walletSigningSessionId }
+              : {}),
+          },
+        });
+      }
+    },
+  })
+    .getWarmSession(args.nearAccountId)
+    .catch(() => undefined);
+}
+
 async function resolveNearTransactionWalletAuth(args: {
   deps: NearSigningApiDeps;
   nearAccountId: AccountId;
   record: ThresholdEd25519SessionRecord | null;
-  onEvent?: (update: onProgressEvents) => void;
+  onEvent?: (update: SigningFlowEvent) => void;
   sensitivePolicy?: SensitiveOperationPolicy;
   usesNeeded?: number;
 }): Promise<{
@@ -215,11 +347,11 @@ async function resolveNearTransactionWalletAuth(args: {
         if (typeof args.deps.requestEmailOtpChallengeForSigning !== 'function') {
           throw new Error('[SigningEngine] Email OTP per-operation NEAR signing is not configured');
         }
-        args.onEvent?.({
-          step: 2,
-          phase: ActionPhase.STEP_2_USER_CONFIRMATION,
-          status: ActionStatus.PROGRESS,
+        emitNearSigningEvent(args.onEvent, args.nearAccountId, {
+          phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED,
+          status: 'running',
           message: 'Sending Email OTP for transaction authorization',
+          interaction: { kind: 'none', overlay: 'none' },
         });
         const challenge = await args.deps.requestEmailOtpChallengeForSigning({
           nearAccountId: args.nearAccountId,
@@ -231,11 +363,12 @@ async function resolveNearTransactionWalletAuth(args: {
             '[SigningEngine] Email OTP challenge response did not include challengeId',
           );
         }
-        args.onEvent?.({
-          step: 2,
-          phase: ActionPhase.STEP_2_USER_CONFIRMATION,
-          status: ActionStatus.SUCCESS,
+        emitNearSigningEvent(args.onEvent, args.nearAccountId, {
+          phase: SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_INPUT_REQUIRED,
+          status: 'waiting_for_user',
           message: 'Email OTP challenge ready',
+          interaction: { kind: 'otp_input', overlay: 'show' },
+          ...(challenge.emailHint ? { data: { emailHint: challenge.emailHint } } : {}),
         });
         return {
           challengeId,
@@ -275,6 +408,64 @@ async function resolveNearTransactionWalletAuth(args: {
         const isSingleUseEmailOtpRecord =
           record?.source === 'email_otp' && record.emailOtpAuthContext?.retention === 'single_use';
         if (!record || isSingleUseEmailOtpRecord) return null;
+        const sessionId = String(record.thresholdSessionId || '').trim();
+        if (!sessionId) return null;
+        const usesNeeded = Math.max(1, Math.floor(Number(args.usesNeeded) || 1));
+        const workerCtx = args.deps.getSignerWorkerContext();
+        const liveStatus = await createWarmSessionManager({
+          touchConfirm: workerCtx.touchConfirm,
+        })
+          .getEd25519SigningSessionStatus(args.nearAccountId)
+          .catch(() => null);
+        if (liveStatus?.sessionId === sessionId) {
+          if (liveStatus.status !== 'active') return null;
+          const remainingUses = Math.floor(Number(liveStatus.remainingUses) || 0);
+          if (remainingUses < usesNeeded) return null;
+          return {
+            kind: 'warmSession',
+            method: input.accountAuth.primaryAuthMethod,
+            accountId: input.accountId,
+            intent: input.intent,
+            ...(input.curve ? { curve: input.curve } : {}),
+            ...(record.runtimePolicyScope
+              ? {
+                  signingRootId: signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope)
+                    .signingRootId,
+                }
+              : {}),
+            sessionId,
+            retention: record.emailOtpAuthContext?.retention || 'session',
+            expiresAtMs: Math.floor(Number(liveStatus.expiresAtMs) || record.expiresAtMs),
+            remainingUses,
+          };
+        }
+        const sealedRecord = await readSigningSessionSealedRecord(sessionId).catch(() => null);
+        if (sealedRecord) {
+          const remainingUses = Math.floor(Number(sealedRecord.remainingUses) || 0);
+          const expiresAtMs = Math.floor(Number(sealedRecord.expiresAtMs) || 0);
+          if (remainingUses < usesNeeded || expiresAtMs <= Date.now()) return null;
+          return {
+            kind: 'warmSession',
+            method: input.accountAuth.primaryAuthMethod,
+            accountId: input.accountId,
+            intent: input.intent,
+            ...(input.curve ? { curve: input.curve } : {}),
+            ...(record.runtimePolicyScope
+              ? {
+                  signingRootId: signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope)
+                    .signingRootId,
+                }
+              : {}),
+            sessionId,
+            retention: record.emailOtpAuthContext?.retention || 'session',
+            expiresAtMs,
+            remainingUses,
+          };
+        }
+        if (workerCtx.touchConfirm) return null;
+        const remainingUses = Math.floor(Number(record.remainingUses) || 0);
+        const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
+        if (remainingUses < usesNeeded || expiresAtMs <= Date.now()) return null;
         return {
           kind: 'warmSession',
           method: input.accountAuth.primaryAuthMethod,
@@ -287,10 +478,10 @@ async function resolveNearTransactionWalletAuth(args: {
                   .signingRootId,
               }
             : {}),
-          sessionId: record.thresholdSessionId,
+          sessionId,
           retention: record.emailOtpAuthContext?.retention || 'session',
-          expiresAtMs: record.expiresAtMs,
-          remainingUses: record.remainingUses,
+          expiresAtMs,
+          remainingUses,
         };
       },
     },
@@ -376,11 +567,11 @@ export async function signTransactionsWithActions(
   const hasPendingEmailOtpEd25519Warmup = (): boolean =>
     deps.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true;
   if (!thresholdSessionRecord && hasPendingEmailOtpEd25519Warmup()) {
-    args.onEvent?.({
-      step: 1,
-      phase: ActionPhase.STEP_1_PREPARATION,
-      status: ActionStatus.PROGRESS,
-      message: 'Finalizing NEAR signing session...',
+    emitNearSigningEvent(args.onEvent, nearAccountId, {
+      phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
+      status: 'running',
+      message: 'Finalizing NEAR signing session',
+      interaction: { kind: 'none', overlay: 'none' },
     });
     await deps.waitForPendingEmailOtpEd25519Warmup?.({ nearAccountId });
     thresholdSessionRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
@@ -394,6 +585,12 @@ export async function signTransactionsWithActions(
           waitForReady: () => deps.waitForPendingEmailOtpEd25519Warmup!({ nearAccountId }),
         }
       : undefined;
+  await tryRestoreEmailOtpSigningSessionForNearTransaction({
+    deps,
+    nearAccountId,
+    onEvent: args.onEvent,
+  });
+  thresholdSessionRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
   const { walletAuthPlan, emailOtpSigning } = await resolveNearTransactionWalletAuth({
     deps,
     nearAccountId,
@@ -429,6 +626,21 @@ export async function signTransactionsWithActions(
           walletAuthPlan,
           ...(emailOtpSigning ? { emailOtpSigning } : {}),
           ...(ed25519Warmup ? { ed25519Warmup } : {}),
+          ...(walletAuthPlan.kind === 'passkeyReauth' &&
+          thresholdSessionRecord &&
+          typeof deps.reconnectPasskeyEd25519CapabilityForSigning === 'function'
+            ? {
+                passkeyEd25519Reconnect: {
+                  reconnect: async ({ credential, usesNeeded }) =>
+                    await deps.reconnectPasskeyEd25519CapabilityForSigning!({
+                      nearAccountId,
+                      record: thresholdSessionRecord,
+                      localPrfCredential: credential,
+                      usesNeeded,
+                    }),
+                },
+              }
+            : {}),
         },
       })) as unknown as SignTransactionResult[];
     },

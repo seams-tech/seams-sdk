@@ -1,6 +1,7 @@
 import React from 'react';
 import type { PasskeyAuthMenuSocialLoginHandler } from '../types';
 import { ChromeIcon, AppleIcon, AtSignIcon } from './icons';
+import { ArrowRightAnim } from '../../ArrowRightAnim';
 
 export type SocialLoginHandlers = {
   google?: PasskeyAuthMenuSocialLoginHandler;
@@ -67,7 +68,8 @@ export const SocialProviders: React.FC<SocialProvidersProps> = ({
               aria-describedby={helperId}
             >
               <Icon size={18} style={{ display: 'block' }} />
-              {buttonLabel}
+              <span>{buttonLabel}</span>
+              <ArrowRightAnim size={16} className="w3a-auth-method-arrow" />
             </button>
             {helperText ? (
               <p id={helperId} className="w3a-auth-method-note w3a-social-helper">

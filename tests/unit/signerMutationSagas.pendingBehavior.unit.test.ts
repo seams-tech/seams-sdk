@@ -280,7 +280,7 @@ test.describe('signer mutation saga pending behavior', () => {
     expect(result.after[0]?.status).toBe('failed');
     expect(result.after[0]?.attemptCount).toBe(1);
     expect(result.after[0]?.lastError).toContain('owner-management executor');
-    expect(result.after[0]?.nextAttemptAt).toBe(result.repairNow + 5_000);
+    expect(result.after[0]?.nextAttemptAt).toBe((result.repairNow ?? 0) + 5_000);
   });
 
   test('activates deployed add-signer operations after the owner-management executor succeeds', async ({

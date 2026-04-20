@@ -143,8 +143,8 @@ export default {
 - GET `/session/state` — returns `{ authenticated, claims? }` based on Authorization: Bearer or cookie
 - POST `/session/revoke` — rotates app-session version and clears session cookie
 - GET `/.well-known/webauthn` — Related Origin Requests manifest (wallet-scoped credentials) + sealed-refresh capabilities payload
-- POST `/threshold-ecdsa/prf-seal/apply-server-seal` — optional PRF sealed-session route
-- POST `/threshold-ecdsa/prf-seal/remove-server-seal` — optional PRF sealed-session route
+- POST `/threshold/signing-session-seal/apply-server-seal` — optional signing-session sealed-refresh route
+- POST `/threshold/signing-session-seal/remove-server-seal` — optional signing-session sealed-refresh route
 
 Smart-account deployment is an internal relay hook now. If you provide `smartAccountDeploy` to
 `createRelayRouter(..., { smartAccountDeploy })` or `createCloudflareRouter(..., { smartAccountDeploy })`,
@@ -224,43 +224,43 @@ Cloudflare CORS note
 
 ## PRF Session Seal Module (optional)
 
-`prfSessionSeal` routes are opt-in and can be composed with helper builders:
+`signingSessionSeal` routes are opt-in and can be composed with helper builders:
 
 ```ts
 import { createRelayRouter } from '@tatchi-xyz/sdk/server/router/express';
 import {
-  createPrfSessionSealRoutesOptions,
-  createPrfSessionSealPolicyFromEcdsaAuthSessionStore,
-  createPrfSessionSealShamir3PassCipherAdapter,
-  resolvePrfSessionSealRateLimitFromEnv,
+  createSigningSessionSealRoutesOptions,
+  createSigningSessionSealPolicyFromEcdsaAuthSessionStore,
+  createSigningSessionSealShamir3PassCipherAdapter,
+  resolveSigningSessionSealRateLimitFromEnv,
 } from '@tatchi-xyz/sdk/server';
 
 const ecdsaAuthSessionStore = /* your threshold-ecdsa auth session store */;
-const prfSessionSeal = createPrfSessionSealRoutesOptions({
-  sessionPolicy: createPrfSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
-  cipher: createPrfSessionSealShamir3PassCipherAdapter({
+const signingSessionSeal = createSigningSessionSealRoutesOptions({
+  sessionPolicy: createSigningSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
+  cipher: createSigningSessionSealShamir3PassCipherAdapter({
     currentKeyVersion: 'kek-s-2026-02',
     keys: [{
       keyVersion: 'kek-s-2026-02',
       // Development/test bootstrap only.
       // Production should load the active seal key material from a KMS/HSM boundary
       // and keep only the selected key version in ordinary app config.
-      shamirPrimeB64u: process.env.SHAMIR_P_B64U!,
-      serverEncryptExponentB64u: process.env.SHAMIR_E_S_B64U!,
-      serverDecryptExponentB64u: process.env.SHAMIR_D_S_B64U!,
+      shamirPrimeB64u: process.env.SIGNING_SESSION_SHAMIR_P_B64U!,
+      serverEncryptExponentB64u: process.env.SIGNING_SESSION_SEAL_E_S_B64U!,
+      serverDecryptExponentB64u: process.env.SIGNING_SESSION_SEAL_D_S_B64U!,
     }],
   }),
   capabilities: {
     mode: 'sealed_refresh_v1',
     keyVersion: 'kek-s-2026-02',
-    shamirPrimeB64u: process.env.SHAMIR_P_B64U!,
+    shamirPrimeB64u: process.env.SIGNING_SESSION_SHAMIR_P_B64U!,
   },
-  rateLimit: resolvePrfSessionSealRateLimitFromEnv({
+  rateLimit: resolveSigningSessionSealRateLimitFromEnv({
     limiterKind: 'upstash-redis-rest', // 'in-memory' | 'upstash-redis-rest' | 'redis-tcp'
     upstashUrl: process.env.UPSTASH_REDIS_REST_URL,
     upstashToken: process.env.UPSTASH_REDIS_REST_TOKEN,
     redisUrl: process.env.REDIS_URL,
-    keyPrefix: 'threshold:prf-seal:rate:',
+    keyPrefix: 'threshold:signing-session-seal:rate:',
     limit: 30,
     windowMs: 60_000,
   }),
@@ -270,15 +270,15 @@ const prfSessionSeal = createPrfSessionSealRoutesOptions({
 app.use('/', createRelayRouter(service, {
   session,
   threshold,
-  prfSessionSeal,
+  signingSessionSeal,
 }));
 ```
 
 Notes:
 
-- `createPrfSessionSealShamir3PassCipherAdapter(...)` supports pluggable runtimes; wire your `shamir-3-pass-rs` runtime in production.
+- `createSigningSessionSealShamir3PassCipherAdapter(...)` supports pluggable runtimes; wire your `shamir-3-pass-rs` runtime in production.
 - Do not log raw ciphertexts; audit helpers intentionally avoid ciphertext fields.
-- Use `resolvePrfSessionSealRateLimitFromEnv(...)` to wire in-memory, Upstash REST, or Redis TCP rate limiting without changing route code.
+- Use `resolveSigningSessionSealRateLimitFromEnv(...)` to wire in-memory, Upstash REST, or Redis TCP rate limiting without changing route code.
 - Keep `capabilities.keyVersion` and `capabilities.shamirPrimeB64u` aligned with your active cipher key material; clients in `sealed_refresh_v1` mode fail closed on parity mismatch.
 
 ## Config (required)

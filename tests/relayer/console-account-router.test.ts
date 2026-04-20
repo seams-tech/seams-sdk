@@ -208,8 +208,9 @@ for (const mode of ['express', 'cloudflare'] as const) {
         actorIsOwner: true,
         onboardingComplete: false,
       });
-      expect(String(createResponse.json?.organization?.id || '')).toMatch(/^org_[a-z0-9]+_[a-z0-9]{5}$/);
-      expect(String(createResponse.json?.organization?.id || '')).not.toContain('created_from_account');
+      const createdOrganization = createResponse.json?.organization as any;
+      expect(String(createdOrganization?.id || '')).toMatch(/^org_[a-z0-9]+_[a-z0-9]{5}$/);
+      expect(String(createdOrganization?.id || '')).not.toContain('created_from_account');
 
       const listResponse = await callConsoleRoute(mode, {
         auth,

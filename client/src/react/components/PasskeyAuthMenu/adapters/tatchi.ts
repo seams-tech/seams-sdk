@@ -7,6 +7,7 @@ export interface PasskeyAuthMenuRuntime {
   accountExists: boolean;
   inputUsername: string;
   targetAccountId: string;
+  accountOptions?: string[];
   setInputUsername: (v: string) => void;
   refreshLoginState: (nearAccountId?: string) => Promise<void>;
   sdkFlow: SDKFlowRuntime;
@@ -23,6 +24,7 @@ export function usePasskeyAuthMenuRuntime(): PasskeyAuthMenuRuntime {
     accountExists,
     inputUsername: ctx.accountInputState?.inputUsername ?? '',
     targetAccountId: ctx.accountInputState?.targetAccountId ?? '',
+    accountOptions: ctx.accountInputState?.indexDBAccounts ?? [],
     setInputUsername: ctx.setInputUsername,
     refreshLoginState: ctx.refreshLoginState,
     sdkFlow: ctx.sdkFlow,

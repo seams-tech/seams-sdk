@@ -194,6 +194,10 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
         });
       }
       if (data.type === 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY') {
+        if (data.payload?.otpCode === '000000') {
+          reject('invalid_email_otp', 'Invalid Email OTP code');
+          return;
+        }
         rememberAccount(data.payload?.nearAccountId || '');
         warmCapabilityActive = true;
         respond({ recovery: loginRecovery, bootstrap: bootstrapResult, warmCapability });
@@ -280,24 +284,47 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           },
         });
 
+        const registrationEvents: Array<Record<string, unknown>> = [];
+        const unlockEvents: Array<Record<string, unknown>> = [];
+        const perOperationUnlockEvents: Array<Record<string, unknown>> = [];
+        const failedUnlockEvents: Array<Record<string, unknown>> = [];
+        const enrollAndLoginEvents: Array<Record<string, unknown>> = [];
+        const secretRejectionEvents: Array<Record<string, unknown>> = [];
+        const captureEvent =
+          (events: Array<Record<string, unknown>>) => (event: Record<string, unknown>) => {
+            events.push({
+              flow: event.flow,
+              phase: event.phase,
+              status: event.status,
+              step: event.step,
+              authMethod: event.authMethod,
+              interaction: event.interaction,
+              error: event.error ?? null,
+            });
+          };
+
         const challenge = await pm.auth.requestEmailOtpChallenge({
           nearAccountId,
           appSessionJwt: 'app-session-jwt',
+          onEvent: captureEvent(unlockEvents),
         });
         const enrollmentChallenge = await pm.auth.requestEmailOtpEnrollmentChallenge({
           nearAccountId,
           appSessionJwt: 'app-session-jwt',
+          onEvent: captureEvent(registrationEvents),
         });
         const sessionExchange = await pm.auth.exchangeGoogleEmailOtpSession({
           idToken: 'google-id-token-1',
           accountMode: 'register',
           sessionKind: 'cookie',
+          onEvent: captureEvent(registrationEvents),
         });
         const enrollment = await pm.auth.enrollEmailOtp({
           nearAccountId,
           challengeId: enrollmentChallenge.challengeId,
           otpCode: '123456',
           appSessionJwt: 'app-session-jwt',
+          onEvent: captureEvent(registrationEvents),
         });
         const login = await pm.auth.loginWithEmailOtpEcdsaCapability({
           nearAccountId,
@@ -309,6 +336,7 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           sessionKind: 'cookie',
           ecdsaThresholdKeyId: 'threshold-key-1',
           participantIds: [1, 2],
+          onEvent: captureEvent(unlockEvents),
         });
         const perOperationLogin = await pm.auth.loginWithEmailOtpEcdsaCapability({
           nearAccountId,
@@ -320,7 +348,23 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           sessionKind: 'cookie',
           ecdsaThresholdKeyId: 'threshold-key-1',
           participantIds: [1, 2],
+          onEvent: captureEvent(perOperationUnlockEvents),
         });
+        const failedUnlockMessage = await pm.auth
+          .loginWithEmailOtpEcdsaCapability({
+            nearAccountId,
+            chain: 'evm',
+            emailOtpAuthPolicy: 'session',
+            challengeId: challenge.challengeId,
+            otpCode: '000000',
+            appSessionJwt: 'app-session-jwt',
+            sessionKind: 'cookie',
+            ecdsaThresholdKeyId: 'threshold-key-1',
+            participantIds: [1, 2],
+            onEvent: captureEvent(failedUnlockEvents),
+          })
+          .then(() => null)
+          .catch((error: unknown) => String((error as Error)?.message || error));
         const enrollAndLogin = await pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
           nearAccountId,
           chain: 'evm',
@@ -331,6 +375,7 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           sessionKind: 'cookie',
           ecdsaThresholdKeyId: 'threshold-key-1',
           participantIds: [1, 2],
+          onEvent: captureEvent(enrollAndLoginEvents),
         });
         const appOriginSecretRejection = await pm.auth
           .enrollEmailOtp({
@@ -338,6 +383,7 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
             challengeId: enrollmentChallenge.challengeId,
             otpCode: '123456',
             clientSecret32: new Uint8Array(32),
+            onEvent: captureEvent(secretRejectionEvents),
           })
           .then(() => null)
           .catch((error: unknown) => String((error as Error)?.message || error));
@@ -463,6 +509,33 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           loginAuthMethod: walletSession.login.authMethod,
           signingSessionAuthMethod: walletSession.signingSession?.authMethod || null,
           signingSessionRetention: walletSession.signingSession?.retention || null,
+          registrationEventPhases: registrationEvents.map((event) => event.phase),
+          registrationEventSteps: registrationEvents.map((event) => event.step),
+          registrationEventFlows: [...new Set(registrationEvents.map((event) => event.flow))],
+          registrationEventAuthMethods: [...new Set(registrationEvents.map((event) => event.authMethod))],
+          unlockEventPhases: unlockEvents.map((event) => event.phase),
+          unlockEventSteps: unlockEvents.map((event) => event.step),
+          unlockEventFlows: [...new Set(unlockEvents.map((event) => event.flow))],
+          unlockEventAuthMethods: [...new Set(unlockEvents.map((event) => event.authMethod))],
+          perOperationUnlockEventPhases: perOperationUnlockEvents.map((event) => event.phase),
+          perOperationUnlockEventSteps: perOperationUnlockEvents.map((event) => event.step),
+          perOperationUnlockEventFlows: [
+            ...new Set(perOperationUnlockEvents.map((event) => event.flow)),
+          ],
+          failedUnlockMessage,
+          failedUnlockEventPhases: failedUnlockEvents.map((event) => event.phase),
+          failedUnlockEventSteps: failedUnlockEvents.map((event) => event.step),
+          failedUnlockEventStatuses: failedUnlockEvents.map((event) => event.status),
+          failedUnlockEventInteractions: failedUnlockEvents.map((event) => event.interaction),
+          failedUnlockEventErrors: failedUnlockEvents.map((event) => event.error),
+          enrollAndLoginEventPhases: enrollAndLoginEvents.map((event) => event.phase),
+          enrollAndLoginEventSteps: enrollAndLoginEvents.map((event) => event.step),
+          enrollAndLoginEventFlows: [...new Set(enrollAndLoginEvents.map((event) => event.flow))],
+          secretRejectionEventPhases: secretRejectionEvents.map((event) => event.phase),
+          secretRejectionEventSteps: secretRejectionEvents.map((event) => event.step),
+          secretRejectionEventStatuses: secretRejectionEvents.map((event) => event.status),
+          secretRejectionEventInteractions: secretRejectionEvents.map((event) => event.interaction),
+          secretRejectionEventErrors: secretRejectionEvents.map((event) => event.error),
           appOriginForbiddenFields,
           clientDbDisabled: IndexedDBManager.clientDB.isDisabled(),
           accountKeyMaterialDbDisabled: IndexedDBManager.accountKeyMaterialDB.isDisabled(),
@@ -492,6 +565,68 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
       loginAuthMethod: 'email_otp',
       signingSessionAuthMethod: 'email_otp',
       signingSessionRetention: 'session',
+      registrationEventPhases: [
+        'registration.otp.challenge.started',
+        'registration.otp.challenge.sent',
+        'registration.session.exchange.started',
+        'registration.session.exchange.succeeded',
+        'registration.otp.verify.started',
+        'registration.otp.verify.succeeded',
+        'registration.signer.email_otp.enroll.succeeded',
+      ],
+      registrationEventSteps: [4, 4, 3, 3, 4, 4, 9],
+      registrationEventFlows: ['registration'],
+      registrationEventAuthMethods: ['email_otp'],
+      unlockEventPhases: [
+        'unlock.auth.email_otp.challenge.started',
+        'unlock.auth.email_otp.challenge.sent',
+        'unlock.auth.email_otp.verify.started',
+        'unlock.auth.email_otp.verify.succeeded',
+        'unlock.signing_session.ecdsa.ready',
+        'unlock.completed',
+      ],
+      unlockEventSteps: [3, 3, 3, 3, 5, 7],
+      unlockEventFlows: ['unlock'],
+      unlockEventAuthMethods: ['email_otp'],
+      perOperationUnlockEventPhases: [
+        'unlock.auth.email_otp.verify.started',
+        'unlock.auth.email_otp.verify.succeeded',
+        'unlock.signing_session.ecdsa.ready',
+        'unlock.completed',
+      ],
+      perOperationUnlockEventSteps: [3, 3, 5, 7],
+      perOperationUnlockEventFlows: ['unlock'],
+      failedUnlockMessage: 'Invalid Email OTP code',
+      failedUnlockEventPhases: ['unlock.auth.email_otp.verify.started', 'unlock.failed'],
+      failedUnlockEventSteps: [3, 0],
+      failedUnlockEventStatuses: ['running', 'failed'],
+      failedUnlockEventInteractions: [
+        { kind: 'otp_input', overlay: 'none' },
+        { kind: 'none', overlay: 'hide' },
+      ],
+      failedUnlockEventErrors: [null, { message: 'Invalid Email OTP code' }],
+      enrollAndLoginEventPhases: [
+        'registration.signer.email_otp.enroll.started',
+        'registration.signer.email_otp.enroll.succeeded',
+        'registration.signer.ecdsa.provision.succeeded',
+        'registration.completed',
+      ],
+      enrollAndLoginEventSteps: [9, 9, 10, 11],
+      enrollAndLoginEventFlows: ['registration'],
+      secretRejectionEventPhases: ['registration.otp.verify.started', 'registration.failed'],
+      secretRejectionEventSteps: [4, 0],
+      secretRejectionEventStatuses: ['running', 'failed'],
+      secretRejectionEventInteractions: [
+        { kind: 'otp_input', overlay: 'none' },
+        { kind: 'none', overlay: 'hide' },
+      ],
+      secretRejectionEventErrors: [
+        null,
+        {
+          message:
+            '[TatchiPasskey] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',
+        },
+      ],
       appOriginForbiddenFields: [],
       clientDbDisabled: true,
       accountKeyMaterialDbDisabled: true,
@@ -515,7 +650,7 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
     const emailOtpMessages = messages.filter((message: { type: string }) =>
       message.type.includes('EMAIL_OTP'),
     );
-    expect(emailOtpMessages).toHaveLength(7);
+    expect(emailOtpMessages).toHaveLength(8);
     for (const message of emailOtpMessages.filter(
       (message: { type: string }) => message.type !== 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION',
     )) {
@@ -532,6 +667,11 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
     expect(
       emailOtpMessages.some((message: { payload: Record<string, unknown> }) =>
         Object.prototype.hasOwnProperty.call(message.payload, 'clientSecret32'),
+      ),
+    ).toBe(false);
+    expect(
+      emailOtpMessages.some((message: { payload: Record<string, unknown> }) =>
+        Object.prototype.hasOwnProperty.call(message.payload, 'onEvent'),
       ),
     ).toBe(false);
     expect(

@@ -428,6 +428,7 @@ test.describe('cloudflare cron recovery authority continuation', () => {
               skipped: 0,
               failed: 0,
             },
+            monitoring: { stalePending: 0, staleSubmitted: 0, failed: 0 },
           };
         },
       },
@@ -538,6 +539,7 @@ test.describe('cloudflare cron per-job expression filters', () => {
               skipped: 0,
               failed: 0,
             },
+            monitoring: { stalePending: 0, staleSubmitted: 0, failed: 0 },
           };
         },
       },

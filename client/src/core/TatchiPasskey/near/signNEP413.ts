@@ -1,8 +1,9 @@
 import type { PasskeyManagerContext } from '../index';
 import type { SignNEP413HooksOptions } from '../../types/sdkSentEvents';
-import { ActionPhase, ActionStatus } from '../../types/sdkSentEvents';
+import { SigningEventPhase } from '../../types/sdkSentEvents';
 import type { AccountId } from '../../types/accountIds';
 import { base64Encode } from '@shared/utils/encoders';
+import { emitNearSigningEvent } from './signingEventHelpers';
 
 /**
  * NEP-413 message signing parameters
@@ -69,11 +70,11 @@ export async function signNEP413Message(args: {
 
   try {
     // Emit preparation event
-    options?.onEvent?.({
-      step: 1,
-      phase: ActionPhase.STEP_1_PREPARATION,
-      status: ActionStatus.PROGRESS,
+    emitNearSigningEvent(options?.onEvent, nearAccountId, {
+      phase: SigningEventPhase.STEP_01_STARTED,
+      status: 'started',
       message: 'Preparing NEP-413 message signing',
+      interaction: { kind: 'none', overlay: 'none' },
     });
 
     // Get user data for NEP-413 signing.
@@ -96,11 +97,11 @@ export async function signNEP413Message(args: {
     const nonce = base64Encode(nonceBytes);
 
     // Emit signing progress event
-    options?.onEvent?.({
-      step: 5,
-      phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
-      status: ActionStatus.PROGRESS,
+    emitNearSigningEvent(options?.onEvent, nearAccountId, {
+      phase: SigningEventPhase.STEP_10_COMMIT_STARTED,
+      status: 'running',
       message: 'Signing NEP-413 message',
+      interaction: { kind: 'none', overlay: 'none' },
     });
 
     // Send to SigningEngine for signing.
@@ -124,11 +125,11 @@ export async function signNEP413Message(args: {
 
     if (result.success) {
       // Emit completion event
-      options?.onEvent?.({
-        step: 8,
-        phase: ActionPhase.STEP_8_ACTION_COMPLETE,
-        status: ActionStatus.SUCCESS,
+      emitNearSigningEvent(options?.onEvent, nearAccountId, {
+        phase: SigningEventPhase.STEP_15_COMPLETED,
+        status: 'succeeded',
         message: 'NEP-413 message signed successfully',
+        interaction: { kind: 'none', overlay: 'none' },
       });
 
       return {
@@ -146,12 +147,12 @@ export async function signNEP413Message(args: {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
     // Emit error event
-    options?.onEvent?.({
-      step: 0,
-      phase: ActionPhase.ACTION_ERROR,
-      status: ActionStatus.ERROR,
+    emitNearSigningEvent(options?.onEvent, nearAccountId, {
+      phase: SigningEventPhase.FAILED,
+      status: 'failed',
       message: `NEP-413 signing failed: ${errorMessage}`,
-      error: errorMessage,
+      interaction: { kind: 'none', overlay: 'hide' },
+      error: { message: errorMessage },
     });
 
     options?.onError?.(error instanceof Error ? error : new Error(errorMessage));

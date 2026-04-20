@@ -1,5 +1,5 @@
 import React from 'react';
-import type { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
+import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
 import {
   AuthMenuMode,
@@ -59,7 +59,7 @@ export interface PasskeyAuthMenuProps {
   loadingScreenDelayMs?: number;
   /** Optional callbacks for the link-device QR flow */
   linkDeviceOptions?: {
-    onEvent?: (event: DeviceLinkingSSEEvent) => void;
+    onEvent?: (event: LinkDeviceFlowEvent) => void;
     onError?: (error: Error) => void;
     /** Called when the user manually cancels the link-device flow */
     onCancelled?: () => void;

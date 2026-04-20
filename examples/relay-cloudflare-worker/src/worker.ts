@@ -2,7 +2,7 @@ import {
   AuthService,
   CloudflareDurableObjectSigningRootSecretStore,
   createSigningRootSecretAesGcmDecryptAdapter,
-  createPrfSessionSealOptions,
+  createSigningSessionSealOptions,
   createRorOptions,
   type SigningRootSecretShareKekResolutionInput,
   type ThresholdStoreConfigInput,
@@ -36,11 +36,11 @@ type Env = RelayCloudflareWorkerEnv & {
   SESSION_COOKIE_NAME?: string;
   ACCOUNT_INITIAL_BALANCE?: string;
   CREATE_ACCOUNT_AND_REGISTER_GAS?: string;
-  SHAMIR_P_B64U: string;
-  SHAMIR_E_S_B64U: string;
-  SHAMIR_D_S_B64U: string;
-  PRF_SESSION_SEAL_ENABLED?: string;
-  PRF_SESSION_SEAL_KEY_VERSION?: string;
+  SIGNING_SESSION_SHAMIR_P_B64U: string;
+  SIGNING_SESSION_SEAL_E_S_B64U: string;
+  SIGNING_SESSION_SEAL_D_S_B64U: string;
+  SIGNING_SESSION_SEAL_ENABLED?: string;
+  SIGNING_SESSION_SEAL_KEY_VERSION?: string;
   EXPECTED_ORIGIN?: string;
   EXPECTED_WALLET_ORIGIN?: string;
   ENABLE_ROTATION?: string;
@@ -169,12 +169,12 @@ export default {
     const sessionCookieName =
       String(env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
     const jwtSession = createJwtSession(sessionCookieName);
-    const prfSessionSeal = createPrfSessionSealOptions({
-      enabled: env.PRF_SESSION_SEAL_ENABLED,
-      keyVersion: env.PRF_SESSION_SEAL_KEY_VERSION,
-      shamirPrimeB64u: env.SHAMIR_P_B64U,
-      serverEncryptExponentB64u: env.SHAMIR_E_S_B64U,
-      serverDecryptExponentB64u: env.SHAMIR_D_S_B64U,
+    const signingSessionSeal = createSigningSessionSealOptions({
+      enabled: env.SIGNING_SESSION_SEAL_ENABLED,
+      keyVersion: env.SIGNING_SESSION_SEAL_KEY_VERSION,
+      shamirPrimeB64u: env.SIGNING_SESSION_SHAMIR_P_B64U,
+      serverEncryptExponentB64u: env.SIGNING_SESSION_SEAL_E_S_B64U,
+      serverDecryptExponentB64u: env.SIGNING_SESSION_SEAL_D_S_B64U,
       thresholdStoreConfig: createThresholdStoreConfig(env),
     });
     const router = createCloudflareRouter(authService, {
@@ -192,7 +192,7 @@ export default {
       session: jwtSession,
       sessionCookieName,
       runtimeSnapshots: runtimeSnapshotCache.runtimeSnapshots,
-      prfSessionSeal,
+      signingSessionSeal,
     });
     return router(request, env, ctx);
   },

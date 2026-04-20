@@ -52,8 +52,8 @@ export function createManagerAssembly(args: {
       signingSessionPersistenceMode: args.tatchiPasskeyConfigs.signing.sessionPersistenceMode,
       ...(isSealedRefreshMode
         ? {
-            prfSessionSealKeyVersion: args.tatchiPasskeyConfigs.signing.sessionSeal.keyVersion,
-            prfSessionSealShamirPrimeB64u:
+            signingSessionSealKeyVersion: args.tatchiPasskeyConfigs.signing.sessionSeal.keyVersion,
+            signingSessionSealShamirPrimeB64u:
               args.tatchiPasskeyConfigs.signing.sessionSeal.shamirPrimeB64u,
           }
         : {}),

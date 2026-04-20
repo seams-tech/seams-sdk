@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { createEvmSmartAccountDeployHandler } from '../../server/src/router/evmSmartAccountDeploy';
+import type { SmartAccountDeployRequest } from '../../server/src/router/relay';
 
-function makeBaseRequest() {
+function makeBaseRequest(): SmartAccountDeployRequest {
   return {
     nearAccountId: 'alice.testnet',
     chain: 'evm' as const,
@@ -21,6 +22,13 @@ function makeBaseRequest() {
       activeOwnerAddresses: [`0x${'33'.repeat(20)}`],
       pendingOwnerAddresses: [],
       owners: [],
+      undeployedSignerSet: {
+        version: 'undeployed_smart_account_signer_set_v1',
+        ownerAddresses: [`0x${'33'.repeat(20)}`],
+        activeOwnerAddresses: [`0x${'33'.repeat(20)}`],
+        pendingOwnerAddresses: [],
+        owners: [],
+      },
       materializedAtMs: 1,
       source: 'canonical_account_signer' as const,
       factory: `0x${'22'.repeat(20)}`,
@@ -51,7 +59,6 @@ test.describe('evm smart-account deploy hook', () => {
       chain: 'tempo',
       chainId: 42431,
       accountModel: 'tempo-native',
-      evmDeploymentPlan: undefined,
     });
     expect(result).toEqual({
       ok: true,

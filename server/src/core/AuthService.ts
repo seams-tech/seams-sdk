@@ -147,10 +147,10 @@ import {
   type GoogleEmailOtpRegistrationAttemptRecord,
 } from './EmailOtpStores';
 import {
-  createPrfSessionSealShamir3PassCipherAdapter,
-  resolvePrfSessionSealRateLimitFromEnv,
-  type PrfSessionSealRateLimiter,
-} from '../threshold/session/prfSessionSeal';
+  createSigningSessionSealShamir3PassCipherAdapter,
+  resolveSigningSessionSealRateLimitFromEnv,
+  type SigningSessionSealRateLimiter,
+} from '../threshold/session/signingSessionSeal';
 import {
   validateSecp256k1PublicKey33,
   verifySecp256k1RecoverableSignatureAgainstPublicKey33,
@@ -607,7 +607,7 @@ export class AuthService {
   private emailOtpRegistrationAttemptStoreInitialized = false;
   private emailOtpRegistrationAttemptStore: EmailOtpRegistrationAttemptStore | null = null;
   private emailOtpRateLimiterInitialized = false;
-  private emailOtpRateLimiter: PrfSessionSealRateLimiter | null = null;
+  private emailOtpRateLimiter: SigningSessionSealRateLimiter | null = null;
   private readonly emailOtpMemoryOutbox = new Map<
     string,
     {
@@ -1565,7 +1565,7 @@ export class AuthService {
     return this.readConfigValue(name);
   }
 
-  private getEmailOtpRateLimiter(): PrfSessionSealRateLimiter {
+  private getEmailOtpRateLimiter(): SigningSessionSealRateLimiter {
     if (this.emailOtpRateLimiterInitialized && this.emailOtpRateLimiter) {
       return this.emailOtpRateLimiter;
     }
@@ -1576,7 +1576,7 @@ export class AuthService {
         | 'redis-tcp'
         | '') || null;
     const useSharedBackendConfig = Boolean(limiterKind) || this.isProductionEnvironment();
-    const limiter = resolvePrfSessionSealRateLimitFromEnv({
+    const limiter = resolveSigningSessionSealRateLimitFromEnv({
       limiterKind,
       upstashUrl:
         this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_UPSTASH_URL') ||
@@ -1783,22 +1783,22 @@ export class AuthService {
   private createEmailOtpShamirCipher() {
     // Local/dev bootstrap path only. Production should source the active Email OTP
     // seal material from a KMS/HSM boundary before constructing this adapter.
-    const keyVersion = this.readConfigValue('PRF_SESSION_SEAL_KEY_VERSION') || 'kek-s-2026-02';
-    const shamirPrimeB64u = this.readConfigValue('SHAMIR_P_B64U');
-    const serverEncryptExponentB64u = this.readConfigValue('SHAMIR_E_S_B64U');
-    const serverDecryptExponentB64u = this.readConfigValue('SHAMIR_D_S_B64U');
+    const keyVersion = this.readConfigValue('SIGNING_SESSION_SEAL_KEY_VERSION') || 'kek-s-2026-02';
+    const shamirPrimeB64u = this.readConfigValue('SIGNING_SESSION_SHAMIR_P_B64U');
+    const serverEncryptExponentB64u = this.readConfigValue('SIGNING_SESSION_SEAL_E_S_B64U');
+    const serverDecryptExponentB64u = this.readConfigValue('SIGNING_SESSION_SEAL_D_S_B64U');
     if (!shamirPrimeB64u || !serverEncryptExponentB64u || !serverDecryptExponentB64u) {
       return {
         ok: false as const,
         code: 'not_configured',
-        message: 'Email OTP unseal requires SHAMIR_P_B64U, SHAMIR_E_S_B64U, and SHAMIR_D_S_B64U',
+        message: 'Email OTP unseal requires SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
       };
     }
     try {
       return {
         ok: true as const,
         keyVersion,
-        cipher: createPrfSessionSealShamir3PassCipherAdapter({
+        cipher: createSigningSessionSealShamir3PassCipherAdapter({
           currentKeyVersion: keyVersion,
           keys: [
             {
@@ -8043,7 +8043,7 @@ export class AuthService {
         actions: input.actions,
       },
     };
-    // uses wasm signer worker's SignTransactionWithKeyPair action (no WebAuthn/PRF session required)
+    // uses wasm signer worker's SignTransactionWithKeyPair action (no WebAuthn/signing session required)
     let response: unknown;
     try {
       response = await handle_signer_message(message);

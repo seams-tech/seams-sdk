@@ -2,7 +2,6 @@ import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
 import {
-  ActionPhase,
   ActionResult,
   ActionType,
   TxExecutionStatus,
@@ -11,6 +10,7 @@ import {
 import type { ActionArgs, FunctionCallAction } from '@tatchi-xyz/sdk/react';
 
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '@/shared/types';
+import { handleSigningToastEvent } from './signingToast';
 
 type UseDemoNearActionsArgs = {
   isLoggedIn: boolean;
@@ -77,21 +77,14 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
         ],
         options: {
           onEvent: (event) => {
-            switch (event.phase) {
-              case ActionPhase.STEP_1_PREPARATION:
-              case ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION:
-              case ActionPhase.STEP_4_AUTHENTICATION_COMPLETE:
-              case ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS:
-              case ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE:
-                toast.loading(event.message, { id: 'greeting' });
-                break;
-              case ActionPhase.STEP_7_BROADCASTING:
-                toast.loading(event.message, { id: 'greeting' });
-                break;
-              case ActionPhase.ACTION_ERROR:
-              case ActionPhase.WASM_ERROR:
-                toast.error(`Transaction failed: ${event.error}`, { id: 'greeting' });
-                break;
+            const result = handleSigningToastEvent(event, {
+              toastId: 'greeting',
+              chainLabel: 'NEAR',
+              successMessage: 'Transaction complete',
+            });
+            if (result.status === 'failed' || result.status === 'cancelled') {
+              const message = result.message;
+              signingFailureMessage = message;
             }
           },
           onError: (error: unknown) => {
@@ -181,20 +174,11 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
         },
         options: {
           onEvent: (event) => {
-            switch (event.phase) {
-              case ActionPhase.STEP_1_PREPARATION:
-              case ActionPhase.STEP_2_USER_CONFIRMATION:
-              case ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS:
-                toast.loading(event.message, { id: 'delegate-greeting' });
-                break;
-              case ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE:
-                toast.success('Delegate action signed', { id: 'delegate-greeting' });
-                break;
-              case ActionPhase.ACTION_ERROR:
-              case ActionPhase.WASM_ERROR:
-                toast.error(`Delegate signing failed: ${event.error}`, { id: 'delegate-greeting' });
-                break;
-            }
+            handleSigningToastEvent(event, {
+              toastId: 'delegate-greeting',
+              chainLabel: 'NEAR',
+              successMessage: 'Delegate action signed',
+            });
           },
         },
       });

@@ -5,6 +5,13 @@ import {
   requireTrimmedString,
   toOptionalTrimmedNonEmptyString,
 } from '@shared/utils/validation';
+import {
+  joinNormalizedUrl,
+  normalizeNonNegativeInteger,
+  normalizeOptionalNonEmptyString,
+  normalizeOptionalTrimmedString,
+  normalizePositiveInteger,
+} from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   EMAIL_OTP_CHANNEL,
@@ -12,13 +19,23 @@ import {
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import {
+  EMAIL_OTP_HKDF_SALTS,
+  emailOtpEd25519RestoreInfoFields,
+  emailOtpSigningSessionRestoreRootInfoFields,
+  emailOtpThresholdEd25519HssInfoFields,
+  encodeSigningSessionHkdfTuple,
+} from '@shared/utils/signingSessionSeal';
+import {
   thresholdEcdsaHssFinalize,
   thresholdEcdsaHssPrepare,
   thresholdEcdsaHssRespond,
   type ThresholdEcdsaHssRouteAuth,
 } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
-import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/orchestration/thresholdActivation';
+import type {
+  ThresholdEcdsaActivationChain,
+  ThresholdEcdsaSessionBootstrapResult,
+} from '@/core/signingEngine/orchestration/thresholdActivation';
 import {
   clampThresholdSessionPolicy,
   DEFAULT_THRESHOLD_SESSION_POLICY,
@@ -188,6 +205,55 @@ type EmailOtpWorkerRequest =
     }
   | {
       id: string;
+      type: 'sealEmailOtpWarmSessionMaterial';
+      payload: {
+        sessionId: string;
+        transport: {
+          relayerUrl: string;
+          thresholdSessionJwt?: string;
+          keyVersion?: string;
+          shamirPrimeB64u?: string;
+        };
+      };
+    }
+  | {
+      id: string;
+      type: 'rehydrateEmailOtpEcdsaWarmSessionMaterial';
+      payload: {
+        sealedSecretB64u: string;
+        remainingUses: number;
+        expiresAtMs: number;
+        transport: {
+          relayerUrl: string;
+          thresholdSessionJwt?: string;
+          keyVersion?: string;
+          shamirPrimeB64u?: string;
+        };
+        restore: {
+          sessionId: string;
+          walletId: string;
+          userId?: string;
+          rpId: string;
+          chain?: ThresholdEcdsaActivationChain;
+          walletSigningSessionId: string;
+          signingRootId: string;
+          signingRootVersion?: string;
+          ecdsaThresholdKeyId: string;
+          relayerKeyId: string;
+          participantIds?: number[];
+          derivationPath?: string;
+          sessionKind?: 'jwt' | 'cookie';
+          runtimePolicyScope?: ThresholdRuntimePolicyScope;
+          ed25519?: {
+            sessionId: string;
+            relayerKeyId: string;
+            participantIds?: number[];
+          };
+        };
+      };
+    }
+  | {
+      id: string;
       type: 'claimEmailOtpEcdsaSigningShare';
       payload: {
         sessionId: string;
@@ -223,6 +289,7 @@ type WorkerErrorPayload = {
 
 type EmailOtpWarmSessionEntry = {
   clientRootShare32: Uint8Array;
+  signingSessionSecret32: Uint8Array;
   clientAdditiveShare32?: Uint8Array;
   expiresAtMs: number;
   remainingUses: number;
@@ -236,6 +303,43 @@ type EmailOtpWarmSessionClaimResult =
   | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
 
+type EmailOtpWarmSessionSealResult =
+  | {
+      ok: true;
+      sealedSecretB64u: string;
+      keyVersion?: string;
+      remainingUses: number;
+      expiresAtMs: number;
+    }
+  | { ok: false; code: string; message: string };
+
+type EmailOtpEcdsaWarmSessionRehydrateResult =
+  | {
+      ok: true;
+      bootstrap: ThresholdEcdsaSessionBootstrapResult;
+      remainingUses: number;
+      expiresAtMs: number;
+      ed25519RestoreSeedB64u?: string;
+    }
+  | { ok: false; code: string; message: string };
+
+type SigningSessionSealTransport = {
+  relayerUrl: string;
+  thresholdSessionJwt?: string;
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+};
+
+type SigningSessionSealRouteResult =
+  | {
+      ok: true;
+      ciphertext: string;
+      keyVersion?: string;
+      expiresAtMs?: number;
+      remainingUses?: number;
+    }
+  | { ok: false; code: string; message: string };
+
 type EmailOtpEcdsaSigningShareClaimResult =
   | { ok: true; clientSigningShare32: ArrayBuffer; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
@@ -245,6 +349,15 @@ type EmailOtpThresholdEcdsaBootstrapResult = ThresholdEcdsaSessionBootstrapResul
 };
 
 const emailOtpWarmSessions = new Map<string, EmailOtpWarmSessionEntry>();
+const signingSessionSealApplyInFlight = new Map<
+  string,
+  Promise<EmailOtpWarmSessionSealResult>
+>();
+const signingSessionSealRemoveInFlight = new Map<
+  string,
+  Promise<EmailOtpEcdsaWarmSessionRehydrateResult>
+>();
+const SIGNING_SESSION_SEAL_BASE_PATH = '/threshold/signing-session-seal';
 
 function asWorkerErrorPayload(err: unknown): WorkerErrorPayload {
   if (err && typeof err === 'object') {
@@ -288,29 +401,158 @@ function readOptionalThresholdRouteAuth(
   return undefined;
 }
 
+function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTransport | null {
+  const transport = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  if (!transport) return null;
+  const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
+  if (!relayerUrl) return null;
+  const thresholdSessionJwt = normalizeOptionalNonEmptyString(transport.thresholdSessionJwt);
+  const keyVersion = normalizeOptionalNonEmptyString(transport.keyVersion);
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
+  return {
+    relayerUrl,
+    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    ...(keyVersion ? { keyVersion } : {}),
+    ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
+  };
+}
+
+function parseSigningSessionSealRouteResult(value: unknown): SigningSessionSealRouteResult {
+  const result = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  if (!result || typeof result.ok !== 'boolean') {
+    return { ok: false, code: 'invalid_response', message: 'Invalid signing-session seal response' };
+  }
+  if (!result.ok) {
+    return {
+      ok: false,
+      code: typeof result.code === 'string' ? result.code : 'request_failed',
+      message:
+        typeof result.message === 'string'
+          ? result.message
+          : 'Signing-session seal request failed',
+    };
+  }
+  const ciphertext = normalizeOptionalTrimmedString(result.ciphertext);
+  if (!ciphertext) {
+    return {
+      ok: false,
+      code: 'invalid_response',
+      message: 'Missing ciphertext in signing-session seal response',
+    };
+  }
+  const keyVersion = normalizeOptionalNonEmptyString(result.keyVersion);
+  const expiresAtMs = normalizePositiveInteger(result.expiresAtMs);
+  const remainingUses = normalizeNonNegativeInteger(result.remainingUses);
+  return {
+    ok: true,
+    ciphertext,
+    ...(keyVersion ? { keyVersion } : {}),
+    ...(expiresAtMs != null ? { expiresAtMs } : {}),
+    ...(remainingUses != null ? { remainingUses } : {}),
+  };
+}
+
+function makeSigningSessionSealSingleFlightKey(args: {
+  operation: 'apply-server-seal' | 'remove-server-seal';
+  sessionId: string;
+  relayerUrl: string;
+  keyVersion?: string;
+  shamirPrimeB64u?: string;
+  payloadB64u?: string;
+}): string {
+  const operation =
+    args.operation === 'remove-server-seal' ? 'remove-server-seal' : 'apply-server-seal';
+  return [
+    operation,
+    normalizeOptionalTrimmedString(args.sessionId) || '',
+    normalizeOptionalTrimmedString(args.relayerUrl) || '',
+    normalizeOptionalNonEmptyString(args.keyVersion) || '',
+    normalizeOptionalNonEmptyString(args.shamirPrimeB64u) || '',
+    normalizeOptionalNonEmptyString(args.payloadB64u) || '',
+  ].join('|');
+}
+
+async function callSigningSessionSealRoute(args: {
+  operation: 'apply-server-seal' | 'remove-server-seal';
+  transport: SigningSessionSealTransport;
+  thresholdSessionId: string;
+  ciphertext: string;
+  keyVersion?: string;
+}): Promise<SigningSessionSealRouteResult> {
+  const operation =
+    args.operation === 'remove-server-seal' ? 'remove-server-seal' : 'apply-server-seal';
+  const url = joinNormalizedUrl(
+    args.transport.relayerUrl,
+    `${SIGNING_SESSION_SEAL_BASE_PATH}/${operation}`,
+  );
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const thresholdSessionJwt = normalizeOptionalNonEmptyString(args.transport.thresholdSessionJwt);
+    const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
+    if (thresholdSessionJwt) headers.Authorization = `Bearer ${thresholdSessionJwt}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      credentials: thresholdSessionJwt ? 'omit' : 'include',
+      headers,
+      body: JSON.stringify({
+        thresholdSessionId: args.thresholdSessionId,
+        ciphertext: args.ciphertext,
+        ...(keyVersion ? { keyVersion } : {}),
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    const parsed = parseSigningSessionSealRouteResult(data);
+    if (!response.ok && parsed.ok) {
+      return {
+        ok: false,
+        code: 'http_error',
+        message: `Signing-session seal route returned HTTP ${response.status}`,
+      };
+    }
+    return parsed;
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      code: 'network_error',
+      message:
+        error instanceof Error ? error.message : String(error || 'Signing-session seal request failed'),
+    };
+  }
+}
+
+function resolvePolicyFromServerAndLocal(args: {
+  localRemainingUses: number;
+  localExpiresAtMs: number;
+  serverRemainingUses?: number;
+  serverExpiresAtMs?: number;
+}): { ok: true; remainingUses: number; expiresAtMs: number } | { ok: false; code: string; message: string } {
+  const localRemainingUses = Math.max(0, Math.floor(Number(args.localRemainingUses) || 0));
+  const localExpiresAtMs = Math.max(0, Math.floor(Number(args.localExpiresAtMs) || 0));
+  const serverRemainingUses =
+    normalizeNonNegativeInteger(args.serverRemainingUses) ?? localRemainingUses;
+  const serverExpiresAtMs = normalizePositiveInteger(args.serverExpiresAtMs) || localExpiresAtMs;
+  const remainingUses = Math.min(localRemainingUses, serverRemainingUses);
+  const expiresAtMs = Math.min(localExpiresAtMs, serverExpiresAtMs);
+  if (remainingUses <= 0) {
+    return {
+      ok: false,
+      code: 'exhausted',
+      message: 'Email OTP warm-session material exhausted',
+    };
+  }
+  if (expiresAtMs <= Date.now()) {
+    return {
+      ok: false,
+      code: 'expired',
+      message: 'Email OTP warm-session material expired',
+    };
+  }
+  return { ok: true, remainingUses, expiresAtMs };
+}
+
 function zeroizeBytes(bytes?: Uint8Array | null): void {
   if (!(bytes instanceof Uint8Array)) return;
   bytes.fill(0);
-}
-
-function encodeEmailOtpTuple(fields: readonly string[]): Uint8Array {
-  const encoder = new TextEncoder();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (const field of fields) {
-    const bytes = encoder.encode(String(field || ''));
-    const len = new Uint8Array(4);
-    new DataView(len.buffer).setUint32(0, bytes.length, false);
-    chunks.push(len, bytes);
-    total += len.length + bytes.length;
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
 }
 
 async function deriveEmailOtpEd25519PrfFirstB64u(args: {
@@ -322,12 +564,8 @@ async function deriveEmailOtpEd25519PrfFirstB64u(args: {
   if (!subtle) {
     throw new Error('crypto.subtle is unavailable for Email OTP Ed25519 derivation');
   }
-  const salt = new TextEncoder().encode('tatchi/email-otp/threshold-ed25519-hss/v1');
-  const info = encodeEmailOtpTuple([
-    'threshold-ed25519-hss-client-seed',
-    String(args.walletId || '').trim(),
-    String(args.userId || '').trim(),
-  ]);
+  const salt = new TextEncoder().encode(EMAIL_OTP_HKDF_SALTS.thresholdEd25519Hss);
+  const info = encodeSigningSessionHkdfTuple(emailOtpThresholdEd25519HssInfoFields(args));
   const key = await subtle.importKey('raw', args.clientSecret32, 'HKDF', false, ['deriveBits']);
   const bits = await subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, key, 256);
   const seed32 = new Uint8Array(bits);
@@ -338,10 +576,67 @@ async function deriveEmailOtpEd25519PrfFirstB64u(args: {
   }
 }
 
+async function hkdfSha256Bytes(args: {
+  ikm: Uint8Array;
+  salt: string;
+  fields: string[];
+}): Promise<Uint8Array> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error('crypto.subtle is unavailable for Email OTP signing-session restore');
+  }
+  const salt = new TextEncoder().encode(args.salt);
+  const info = encodeSigningSessionHkdfTuple(args.fields);
+  const key = await subtle.importKey('raw', args.ikm, 'HKDF', false, ['deriveBits']);
+  return new Uint8Array(
+    await subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info }, key, 256),
+  );
+}
+
+async function deriveEmailOtpEd25519RestoreSeedB64u(args: {
+  signingSessionSecret32: Uint8Array;
+  walletId: string;
+  userId: string;
+  signingRootId: string;
+  signingRootVersion?: string;
+  walletSigningSessionId: string;
+  ed25519ThresholdSessionId: string;
+  relayerKeyId: string;
+  participantIds?: number[];
+}): Promise<string> {
+  const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
+  if (!participantIds) {
+    throw new Error('Email OTP Ed25519 restore requires participantIds');
+  }
+  let sessionRestoreRoot: Uint8Array | null = await hkdfSha256Bytes({
+    ikm: args.signingSessionSecret32,
+    salt: EMAIL_OTP_HKDF_SALTS.signingSessionRestoreRoot,
+    fields: emailOtpSigningSessionRestoreRootInfoFields(args),
+  });
+  let ed25519RestoreSeed32: Uint8Array | null = null;
+  try {
+    ed25519RestoreSeed32 = await hkdfSha256Bytes({
+      ikm: sessionRestoreRoot,
+      salt: EMAIL_OTP_HKDF_SALTS.thresholdEd25519RestoreSeed,
+      fields: emailOtpEd25519RestoreInfoFields({
+        ...args,
+        participantIds,
+      }),
+    });
+    return base64UrlEncode(ed25519RestoreSeed32);
+  } finally {
+    zeroizeBytes(sessionRestoreRoot);
+    zeroizeBytes(ed25519RestoreSeed32);
+    sessionRestoreRoot = null;
+    ed25519RestoreSeed32 = null;
+  }
+}
+
 function deleteEmailOtpWarmSession(sessionId: string): void {
   const entry = emailOtpWarmSessions.get(sessionId);
   if (entry) {
     zeroizeBytes(entry.clientRootShare32);
+    zeroizeBytes(entry.signingSessionSecret32);
     zeroizeBytes(entry.clientAdditiveShare32);
     emailOtpWarmSessions.delete(sessionId);
   }
@@ -386,6 +681,7 @@ function readEmailOtpWarmSessionStatus(sessionIdRaw: unknown): EmailOtpWarmSessi
 function putEmailOtpWarmSessionMaterial(args: {
   sessionId: string;
   clientRootShare32: Uint8Array;
+  signingSessionSecret32: Uint8Array;
   clientAdditiveShare32?: Uint8Array;
   expiresAtMs: number;
   remainingUses: number;
@@ -395,6 +691,12 @@ function putEmailOtpWarmSessionMaterial(args: {
   const remainingUses = Math.floor(Number(args.remainingUses) || 0);
   if (!(args.clientRootShare32 instanceof Uint8Array) || args.clientRootShare32.length !== 32) {
     throw new Error('clientRootShare32 must contain 32 bytes');
+  }
+  if (
+    !(args.signingSessionSecret32 instanceof Uint8Array) ||
+    args.signingSessionSecret32.length !== 32
+  ) {
+    throw new Error('signingSessionSecret32 must contain 32 bytes');
   }
   if (
     args.clientAdditiveShare32 &&
@@ -409,6 +711,7 @@ function putEmailOtpWarmSessionMaterial(args: {
   deleteEmailOtpWarmSession(sessionId);
   emailOtpWarmSessions.set(sessionId, {
     clientRootShare32: Uint8Array.from(args.clientRootShare32),
+    signingSessionSecret32: Uint8Array.from(args.signingSessionSecret32),
     ...(args.clientAdditiveShare32
       ? { clientAdditiveShare32: Uint8Array.from(args.clientAdditiveShare32) }
       : {}),
@@ -455,6 +758,325 @@ function claimEmailOtpWarmSessionMaterial(args: {
     remainingUses,
     expiresAtMs,
   };
+}
+
+async function sealEmailOtpWarmSessionMaterial(args: {
+  sessionId: string;
+  transport: SigningSessionSealTransport;
+}): Promise<EmailOtpWarmSessionSealResult> {
+  const sessionId = String(args.sessionId || '').trim();
+  if (!sessionId) {
+    return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+  }
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
+  if (!shamirPrimeB64u) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing shamirPrimeB64u for signing-session seal',
+    };
+  }
+  const status = readEmailOtpWarmSessionStatus(sessionId);
+  if (!status.ok) return status;
+  const entry = emailOtpWarmSessions.get(sessionId);
+  if (!entry) {
+    return {
+      ok: false,
+      code: 'not_found',
+      message: 'Email OTP warm-session material is not available',
+    };
+  }
+  const payloadB64u = base64UrlEncode(entry.signingSessionSecret32);
+  const singleFlightKey = makeSigningSessionSealSingleFlightKey({
+    operation: 'apply-server-seal',
+    sessionId,
+    relayerUrl: args.transport.relayerUrl,
+    keyVersion: args.transport.keyVersion,
+    shamirPrimeB64u,
+    payloadB64u,
+  });
+  const inFlight = signingSessionSealApplyInFlight.get(singleFlightKey);
+  if (inFlight) return await inFlight;
+
+  const task = (async (): Promise<EmailOtpWarmSessionSealResult> => {
+    try {
+      const runtime = await getShamir3PassRuntime();
+      const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
+      try {
+        const clientEncryptedCiphertext = await runtime.addClientSealBytesWithKeyHandle({
+          ciphertext: entry.signingSessionSecret32,
+          keyHandle: clientKeyHandle.keyHandle,
+        });
+        const applied = await callSigningSessionSealRoute({
+          operation: 'apply-server-seal',
+          transport: args.transport,
+          thresholdSessionId: sessionId,
+          ciphertext: readString(clientEncryptedCiphertext, 'clientEncryptedCiphertext'),
+          keyVersion: args.transport.keyVersion,
+        });
+        if (!applied.ok) return applied;
+        const sealedSecretB64u = await runtime.removeClientSealWithKeyHandle({
+          ciphertextB64u: applied.ciphertext,
+          keyHandle: clientKeyHandle.keyHandle,
+        });
+        const policy = resolvePolicyFromServerAndLocal({
+          localRemainingUses: entry.remainingUses,
+          localExpiresAtMs: entry.expiresAtMs,
+          serverRemainingUses: applied.remainingUses,
+          serverExpiresAtMs: applied.expiresAtMs,
+        });
+        if (!policy.ok) {
+          deleteEmailOtpWarmSession(sessionId);
+          return policy;
+        }
+        emailOtpWarmSessions.set(sessionId, {
+          clientRootShare32: entry.clientRootShare32,
+          signingSessionSecret32: entry.signingSessionSecret32,
+          ...(entry.clientAdditiveShare32 ? { clientAdditiveShare32: entry.clientAdditiveShare32 } : {}),
+          remainingUses: policy.remainingUses,
+          expiresAtMs: policy.expiresAtMs,
+        });
+        const keyVersion = normalizeOptionalNonEmptyString(applied.keyVersion);
+        return {
+          ok: true,
+          sealedSecretB64u: readString(sealedSecretB64u, 'sealedSecretB64u'),
+          ...(keyVersion ? { keyVersion } : {}),
+          remainingUses: policy.remainingUses,
+          expiresAtMs: policy.expiresAtMs,
+        };
+      } finally {
+        await runtime.destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle }).catch(
+          () => undefined,
+        );
+      }
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message:
+          error instanceof Error
+            ? error.message
+            : String(error || 'Failed to apply signing-session seal'),
+      };
+    }
+  })().finally(() => {
+    signingSessionSealApplyInFlight.delete(singleFlightKey);
+  });
+
+  signingSessionSealApplyInFlight.set(singleFlightKey, task);
+  return await task;
+}
+
+async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
+  sealedSecretB64u: string;
+  remainingUses: number;
+  expiresAtMs: number;
+  transport: SigningSessionSealTransport;
+  restore: {
+    sessionId: string;
+    walletId: string;
+    userId?: string;
+    rpId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    walletSigningSessionId: string;
+    signingRootId: string;
+    signingRootVersion?: string;
+    ecdsaThresholdKeyId: string;
+    relayerKeyId: string;
+    participantIds?: number[];
+    derivationPath?: string;
+    sessionKind?: 'jwt' | 'cookie';
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    ed25519?: {
+      sessionId: string;
+      relayerKeyId: string;
+      participantIds?: number[];
+    };
+  };
+}): Promise<EmailOtpEcdsaWarmSessionRehydrateResult> {
+  const sessionId = normalizeOptionalTrimmedString(args.restore.sessionId);
+  const sealedSecretB64u = normalizeOptionalTrimmedString(args.sealedSecretB64u);
+  if (!sessionId) return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
+  if (!sealedSecretB64u) return { ok: false, code: 'invalid_args', message: 'Missing sealedSecretB64u' };
+  const localRemainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
+  const localExpiresAtMs = Math.max(0, Math.floor(Number(args.expiresAtMs) || 0));
+  if (localRemainingUses <= 0) {
+    return { ok: false, code: 'exhausted', message: 'Email OTP signing-session seal exhausted' };
+  }
+  if (localExpiresAtMs <= Date.now()) {
+    return { ok: false, code: 'expired', message: 'Email OTP signing-session seal expired' };
+  }
+  const shamirPrimeB64u = normalizeOptionalNonEmptyString(args.transport.shamirPrimeB64u);
+  if (!shamirPrimeB64u) {
+    return {
+      ok: false,
+      code: 'invalid_args',
+      message: 'Missing shamirPrimeB64u for signing-session restore',
+    };
+  }
+  const participantIds = normalizeThresholdEd25519ParticipantIds(args.restore.participantIds);
+  if (!participantIds) {
+    return { ok: false, code: 'invalid_args', message: 'Missing participantIds for ECDSA restore' };
+  }
+  const singleFlightKey = makeSigningSessionSealSingleFlightKey({
+    operation: 'remove-server-seal',
+    sessionId,
+    relayerUrl: args.transport.relayerUrl,
+    keyVersion: args.transport.keyVersion,
+    shamirPrimeB64u,
+    payloadB64u: sealedSecretB64u,
+  });
+  const inFlight = signingSessionSealRemoveInFlight.get(singleFlightKey);
+  if (inFlight) return await inFlight;
+
+  const task = (async (): Promise<EmailOtpEcdsaWarmSessionRehydrateResult> => {
+    let signingSessionSecret32: Uint8Array | null = null;
+    let clientRootShare32: Uint8Array | null = null;
+    let emailOtpClientAdditiveShare32: Uint8Array | null = null;
+    let serverRemainingUses: number | undefined;
+    let serverExpiresAtMs: number | undefined;
+    try {
+      const runtime = await getShamir3PassRuntime();
+      const clientKeyHandle = await runtime.createClientKeyHandle({ shamirPrimeB64u });
+      try {
+        const clientEncryptedCiphertext = await runtime.addClientSealWithKeyHandle({
+          ciphertextB64u: sealedSecretB64u,
+          keyHandle: clientKeyHandle.keyHandle,
+        });
+        const removed = await callSigningSessionSealRoute({
+          operation: 'remove-server-seal',
+          transport: args.transport,
+          thresholdSessionId: sessionId,
+          ciphertext: readString(clientEncryptedCiphertext, 'clientEncryptedCiphertext'),
+          keyVersion: args.transport.keyVersion,
+        });
+        if (!removed.ok) return removed;
+        serverRemainingUses = removed.remainingUses;
+        serverExpiresAtMs = removed.expiresAtMs;
+        signingSessionSecret32 = await runtime.removeClientSealWithKeyHandleToBytes({
+          ciphertextB64u: removed.ciphertext,
+          keyHandle: clientKeyHandle.keyHandle,
+        });
+      } finally {
+        await runtime.destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle }).catch(
+          () => undefined,
+        );
+      }
+
+      if (signingSessionSecret32.length !== 32) {
+        return {
+          ok: false,
+          code: 'invalid_response',
+          message: 'Signing-session secret must decode to 32 bytes',
+        };
+      }
+      const userId =
+        String(args.restore.userId || args.restore.walletId || '').trim() ||
+        readString(args.restore.walletId, 'walletId');
+      const ed25519RestoreSeedB64u = args.restore.ed25519
+        ? await deriveEmailOtpEd25519RestoreSeedB64u({
+            signingSessionSecret32,
+            walletId: readString(args.restore.walletId, 'walletId'),
+            userId,
+            signingRootId: readString(args.restore.signingRootId, 'signingRootId'),
+            signingRootVersion: args.restore.signingRootVersion,
+            walletSigningSessionId: readString(
+              args.restore.walletSigningSessionId,
+              'walletSigningSessionId',
+            ),
+            ed25519ThresholdSessionId: readString(
+              args.restore.ed25519.sessionId,
+              'ed25519.sessionId',
+            ),
+            relayerKeyId: readString(args.restore.ed25519.relayerKeyId, 'ed25519.relayerKeyId'),
+            participantIds: args.restore.ed25519.participantIds,
+          })
+        : '';
+      clientRootShare32 = Uint8Array.from(signingSessionSecret32);
+      const policy = resolvePolicyFromServerAndLocal({
+        localRemainingUses,
+        localExpiresAtMs,
+        serverRemainingUses,
+        serverExpiresAtMs,
+      });
+      if (!policy.ok) return policy;
+      const sessionKind = args.restore.sessionKind || 'jwt';
+      const thresholdRouteAuth: AppOrThresholdSessionAuth | undefined =
+        args.transport.thresholdSessionJwt
+          ? { kind: 'threshold_session', jwt: args.transport.thresholdSessionJwt }
+          : undefined;
+      if (!thresholdRouteAuth && sessionKind !== 'cookie') {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Missing threshold-session auth for Email OTP ECDSA restore',
+        };
+      }
+      const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
+        relayUrl: readString(args.transport.relayerUrl, 'relayerUrl'),
+        userId,
+        rpId: readString(args.restore.rpId, 'rpId'),
+        clientRootShare32,
+        operation: 'session_bootstrap',
+        ecdsaThresholdKeyId: readString(args.restore.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+        participantIds,
+        sessionKind,
+        sessionId,
+        walletSigningSessionId: readString(
+          args.restore.walletSigningSessionId,
+          'walletSigningSessionId',
+        ),
+        thresholdRouteAuth,
+        ...(args.restore.runtimePolicyScope
+          ? { runtimePolicyScope: args.restore.runtimePolicyScope }
+          : {}),
+        ttlMs: Math.max(1, policy.expiresAtMs - Date.now()),
+        remainingUses: policy.remainingUses,
+      });
+      const { emailOtpClientAdditiveShare32: additiveShare32, ...bootstrap } = workerBootstrap;
+      emailOtpClientAdditiveShare32 = additiveShare32;
+      const resolvedRemainingUses = Math.min(
+        policy.remainingUses,
+        Math.max(0, Math.floor(Number(bootstrap.session?.remainingUses) || policy.remainingUses)),
+      );
+      const resolvedExpiresAtMs = Math.min(
+        policy.expiresAtMs,
+        Math.max(0, Math.floor(Number(bootstrap.session?.expiresAtMs) || policy.expiresAtMs)),
+      );
+      putEmailOtpWarmSessionMaterial({
+        sessionId: readString(bootstrap.session?.sessionId || sessionId, 'thresholdSessionId'),
+        clientRootShare32,
+        signingSessionSecret32,
+        clientAdditiveShare32: emailOtpClientAdditiveShare32,
+        expiresAtMs: resolvedExpiresAtMs,
+        remainingUses: resolvedRemainingUses,
+      });
+      return {
+        ok: true,
+        bootstrap,
+        remainingUses: resolvedRemainingUses,
+        expiresAtMs: resolvedExpiresAtMs,
+        ...(ed25519RestoreSeedB64u ? { ed25519RestoreSeedB64u } : {}),
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message:
+          error instanceof Error
+            ? error.message
+            : String(error || 'Failed to rehydrate Email OTP signing session'),
+      };
+    } finally {
+      zeroizeBytes(signingSessionSecret32);
+      zeroizeBytes(clientRootShare32);
+      zeroizeBytes(emailOtpClientAdditiveShare32);
+      signingSessionSealRemoveInFlight.delete(singleFlightKey);
+    }
+  })();
+
+  signingSessionSealRemoveInFlight.set(singleFlightKey, task);
+  return await task;
 }
 
 function claimEmailOtpWarmSessionClientRootShare(args: { sessionId: string; uses?: number }):
@@ -748,6 +1370,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   appSessionJwt?: string;
   clientSecret32?: Uint8Array;
   returnClientRootShare32?: boolean;
+  returnClientSecret32?: boolean;
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
   thresholdEd25519PrfFirstB64u: string;
@@ -757,6 +1380,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   unlockPublicKeyB64u: string;
   unlockKeyVersion: string;
   clientRootShare32?: Uint8Array;
+  clientSecret32?: Uint8Array;
 }> {
   await ensureEthSignerWasm();
   const runtime = await getShamir3PassRuntime();
@@ -865,6 +1489,11 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
     if (returnedClientRootShare32) {
       thresholdClientRootShare32 = null;
     }
+    const returnedClientSecret32 =
+      args.returnClientSecret32 && clientSecret32 ? clientSecret32 : null;
+    if (returnedClientSecret32) {
+      clientSecret32 = null;
+    }
 
     return {
       thresholdEcdsaClientVerifyingShareB64u,
@@ -875,6 +1504,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       unlockPublicKeyB64u,
       unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
       ...(returnedClientRootShare32 ? { clientRootShare32: returnedClientRootShare32 } : {}),
+      ...(returnedClientSecret32 ? { clientSecret32: returnedClientSecret32 } : {}),
     };
   } finally {
     zeroizeBytes(clientSecret32);
@@ -896,7 +1526,9 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
   shamirPrimeB64u: string;
   appSessionJwt?: string;
   operation?: WalletEmailOtpLoginOperation;
+  returnClientSecret32?: boolean;
 }): Promise<{
+  clientSecret32?: Uint8Array;
   clientRootShare32: Uint8Array;
   thresholdEd25519PrfFirstB64u: string;
   loginGrant: string;
@@ -981,7 +1613,13 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
       walletId,
       userId: String(args.userId || walletId).trim() || walletId,
     });
+    const returnedClientSecret32 =
+      args.returnClientSecret32 && clientSecret32 ? clientSecret32 : null;
+    if (returnedClientSecret32) {
+      clientSecret32 = null;
+    }
     return {
+      ...(returnedClientSecret32 ? { clientSecret32: returnedClientSecret32 } : {}),
       clientRootShare32: unlocked.clientRootShare32,
       thresholdEd25519PrfFirstB64u,
       loginGrant,
@@ -1502,16 +2140,18 @@ self.addEventListener('message', async (event: MessageEvent) => {
           throw new Error('Email OTP enrollment did not return client root share for bootstrap');
         }
         let emailOtpClientAdditiveShare32: Uint8Array | null = null;
+        let signingSessionSecret32: Uint8Array | null = null;
         try {
           const runtimePolicyScope =
             normalizeThresholdRuntimePolicyScope(msg.payload.runtimePolicyScope) ||
             parseThresholdRuntimePolicyScopeFromJwt(msg.payload.thresholdRouteAuth?.jwt) ||
             parseThresholdRuntimePolicyScopeFromJwt(msg.payload.appSessionJwt);
+          const userId =
+            String(msg.payload.userId || msg.payload.walletId || '').trim() ||
+            readString(msg.payload.walletId, 'walletId');
           const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
-            userId:
-              String(msg.payload.userId || msg.payload.walletId || '').trim() ||
-              readString(msg.payload.walletId, 'walletId'),
+            userId,
             rpId: readString(msg.payload.rpId, 'rpId'),
             clientRootShare32,
             operation: 'email_otp_bootstrap',
@@ -1519,6 +2159,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             participantIds: msg.payload.participantIds,
             sessionKind: msg.payload.sessionKind,
             sessionId: msg.payload.sessionId,
+            walletSigningSessionId: msg.payload.walletSigningSessionId,
             ...(readOptionalThresholdRouteAuth(msg.payload.thresholdRouteAuth)
               ? { thresholdRouteAuth: readOptionalThresholdRouteAuth(msg.payload.thresholdRouteAuth) }
               : {}),
@@ -1528,9 +2169,11 @@ self.addEventListener('message', async (event: MessageEvent) => {
           });
           const { emailOtpClientAdditiveShare32: additiveShare32, ...bootstrap } = workerBootstrap;
           emailOtpClientAdditiveShare32 = additiveShare32;
+          signingSessionSecret32 = Uint8Array.from(clientRootShare32);
           putEmailOtpWarmSessionMaterial({
             sessionId: readString(bootstrap.session?.sessionId, 'thresholdSessionId'),
             clientRootShare32,
+            signingSessionSecret32,
             clientAdditiveShare32: emailOtpClientAdditiveShare32,
             expiresAtMs: Math.floor(Number(bootstrap.session?.expiresAtMs) || 0),
             remainingUses: Math.floor(Number(bootstrap.session?.remainingUses) || 0),
@@ -1554,6 +2197,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           });
         } finally {
           zeroizeBytes(clientRootShare32);
+          zeroizeBytes(signingSessionSecret32);
           zeroizeBytes(emailOtpClientAdditiveShare32);
         }
         return;
@@ -1627,16 +2271,18 @@ self.addEventListener('message', async (event: MessageEvent) => {
           operation: msg.payload.operation,
         });
         let emailOtpClientAdditiveShare32: Uint8Array | null = null;
+        let signingSessionSecret32: Uint8Array | null = null;
         try {
           const runtimePolicyScope =
             normalizeThresholdRuntimePolicyScope(msg.payload.runtimePolicyScope) ||
             parseThresholdRuntimePolicyScopeFromJwt(msg.payload.thresholdRouteAuth?.jwt) ||
             parseThresholdRuntimePolicyScopeFromJwt(msg.payload.appSessionJwt);
+          const userId =
+            String(msg.payload.userId || msg.payload.walletId || '').trim() ||
+            readString(msg.payload.walletId, 'walletId');
           const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
-            userId:
-              String(msg.payload.userId || msg.payload.walletId || '').trim() ||
-              readString(msg.payload.walletId, 'walletId'),
+            userId,
             rpId: readString(msg.payload.rpId, 'rpId'),
             clientRootShare32: result.clientRootShare32,
             operation: 'email_otp_bootstrap',
@@ -1644,6 +2290,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             participantIds: msg.payload.participantIds,
             sessionKind: msg.payload.sessionKind,
             sessionId: msg.payload.sessionId,
+            walletSigningSessionId: msg.payload.walletSigningSessionId,
             ...(readOptionalThresholdRouteAuth(msg.payload.thresholdRouteAuth)
               ? { thresholdRouteAuth: readOptionalThresholdRouteAuth(msg.payload.thresholdRouteAuth) }
               : {}),
@@ -1653,9 +2300,11 @@ self.addEventListener('message', async (event: MessageEvent) => {
           });
           const { emailOtpClientAdditiveShare32: additiveShare32, ...bootstrap } = workerBootstrap;
           emailOtpClientAdditiveShare32 = additiveShare32;
+          signingSessionSecret32 = Uint8Array.from(result.clientRootShare32);
           putEmailOtpWarmSessionMaterial({
             sessionId: readString(bootstrap.session?.sessionId, 'thresholdSessionId'),
             clientRootShare32: result.clientRootShare32,
+            signingSessionSecret32,
             clientAdditiveShare32: emailOtpClientAdditiveShare32,
             expiresAtMs: Math.floor(Number(bootstrap.session?.expiresAtMs) || 0),
             remainingUses: Math.floor(Number(bootstrap.session?.remainingUses) || 0),
@@ -1679,6 +2328,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           });
         } finally {
           zeroizeBytes(result.clientRootShare32);
+          zeroizeBytes(signingSessionSecret32);
           zeroizeBytes(emailOtpClientAdditiveShare32);
         }
         return;
@@ -1699,6 +2349,47 @@ self.addEventListener('message', async (event: MessageEvent) => {
             sessionId: readString(msg.payload.sessionId, 'sessionId'),
             uses: msg.payload.uses,
           }),
+        });
+        return;
+      }
+      case 'sealEmailOtpWarmSessionMaterial': {
+        const transport = parseSigningSessionSealTransport(msg.payload.transport);
+        const result = transport
+          ? await sealEmailOtpWarmSessionMaterial({
+              sessionId: readString(msg.payload.sessionId, 'sessionId'),
+              transport,
+            })
+          : {
+              ok: false,
+              code: 'invalid_args',
+              message: 'Invalid signing-session seal transport',
+            };
+        postToMainThread({
+          id: msg.id,
+          ok: true,
+          result,
+        });
+        return;
+      }
+      case 'rehydrateEmailOtpEcdsaWarmSessionMaterial': {
+        const transport = parseSigningSessionSealTransport(msg.payload.transport);
+        const result = transport
+          ? await rehydrateEmailOtpEcdsaWarmSessionMaterial({
+              sealedSecretB64u: readString(msg.payload.sealedSecretB64u, 'sealedSecretB64u'),
+              remainingUses: Math.floor(Number(msg.payload.remainingUses) || 0),
+              expiresAtMs: Math.floor(Number(msg.payload.expiresAtMs) || 0),
+              transport,
+              restore: msg.payload.restore,
+            })
+          : {
+              ok: false,
+              code: 'invalid_args',
+              message: 'Invalid signing-session seal transport',
+            };
+        postToMainThread({
+          id: msg.id,
+          ok: true,
+          result,
         });
         return;
       }

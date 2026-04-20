@@ -175,7 +175,7 @@ test.describe('near signing session selection', () => {
           withThresholdEd25519CommitQueue: async ({ task }) => await task(),
         },
         {
-          rpcCall: { nearAccountId: 'alice.testnet' },
+          rpcCall: { nearAccountId: 'alice.testnet', nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           transactions: [
             {

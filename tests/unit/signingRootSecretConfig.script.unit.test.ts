@@ -49,7 +49,7 @@ test('signing-root resolver config composes storage and decrypt adapters', async
       storageAdapter: store,
       decryptAdapter: {
         adapterKind: 'aws-kms',
-        decryptSigningRootSecretShare: async (record) => {
+        decryptSigningRootSecretShare: async (record: any) => {
           decryptCalls.push(record.shareId);
           return new Uint8Array([record.shareId, ...new Uint8Array(32)]);
         },
@@ -76,7 +76,7 @@ test('signing-root resolver config accepts store plus external decrypt adapter',
     signingRootSecretShareStore: store,
     signingRootSecretShareDecryptAdapter: {
       adapterKind: 'tee',
-      decryptSigningRootSecretShare: async (record) =>
+      decryptSigningRootSecretShare: async (record: any) =>
         new Uint8Array([record.shareId, ...new Uint8Array(32)]),
     },
   });
@@ -116,7 +116,7 @@ test('signing-root share resolver config composes storage and decrypt adapters',
       storageAdapter: store,
       decryptAdapter: {
         adapterKind: 'aws-kms',
-        decryptSigningRootSecretShare: async (record) => {
+        decryptSigningRootSecretShare: async (record: any) => {
           decryptCalls.push(record.shareId);
           return new Uint8Array([record.shareId, ...new Uint8Array(32)]);
         },

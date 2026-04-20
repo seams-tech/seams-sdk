@@ -9,7 +9,6 @@ import {
 export { WorkerRequestType, WorkerResponseType }; // Export the WASM enums directly
 
 import type { StripFree } from './index.js';
-import type { onProgressEvents } from './sdkSentEvents.js';
 import type { TransactionContext } from './rpc.js';
 import type { ActionArgsWasm } from './actions.js';
 
@@ -516,6 +515,17 @@ export enum ProgressStep {
   ERROR = 'error', // Rust: Error
 }
 
+export type NearWorkerProgressStatus = 'progress' | 'success' | 'error';
+
+export interface NearWorkerProgressEvent {
+  step: number;
+  phase: string;
+  status: NearWorkerProgressStatus;
+  message: string;
+  data?: Record<string, unknown>;
+  logs?: string[];
+}
+
 export interface ProgressStepMap {
   [wasmModule.ProgressStep.Preparation]: ProgressStep.PREPARATION;
   [wasmModule.ProgressStep.WebauthnAuthentication]: ProgressStep.WEBAUTHN_AUTHENTICATION;
@@ -582,7 +592,7 @@ export enum WorkerErrorCode {
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
 }
 
-export interface WorkerProgressResponse extends BaseWorkerResponse<onProgressEvents> {
+export interface WorkerProgressResponse extends BaseWorkerResponse<NearWorkerProgressEvent> {
   type: SignerWorkerResponseType;
 }
 

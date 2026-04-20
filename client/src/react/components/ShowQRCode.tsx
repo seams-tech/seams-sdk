@@ -2,9 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 
 import { useTatchi } from '../context';
 import {
-  DeviceLinkingSSEEvent,
-  DeviceLinkingStatus,
-  DeviceLinkingPhase,
+  LinkDeviceFlowEvent,
+  LinkDeviceEventPhase,
 } from '../../core/types/sdkSentEvents';
 import { toAccountId } from '../../core/types/accountIds';
 import './ShowQRCode.css';
@@ -12,7 +11,7 @@ import './ShowQRCode.css';
 export interface ShowQRCodeProps {
   isOpen: boolean;
   onClose: () => void;
-  onEvent: (event: DeviceLinkingSSEEvent) => void;
+  onEvent: (event: LinkDeviceFlowEvent) => void;
   onError: (error: Error) => void;
 }
 
@@ -48,7 +47,7 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
         const { qrCodeDataURL } = await startDevice2LinkingFlow({
           ...(accountIdRaw ? { accountId: toAccountId(accountIdRaw) } : {}),
           options: {
-            onEvent: (event: DeviceLinkingSSEEvent) => {
+            onEvent: (event: LinkDeviceFlowEvent) => {
               if (cancelled) return;
               setDeviceLinkingState((prev) => ({
                 ...prev,
@@ -57,8 +56,8 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
               }));
               onEvent(event);
               if (
-                event.phase === DeviceLinkingPhase.STEP_7_LINKING_COMPLETE &&
-                event.status === DeviceLinkingStatus.SUCCESS
+                event.phase === LinkDeviceEventPhase.STEP_08_COMPLETED &&
+                event.status === 'succeeded'
               ) {
                 try {
                   onClose();

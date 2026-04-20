@@ -41,10 +41,10 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
   - Handles the CONNECT → READY handshake using MessageChannel
   - Manages iframe permissions and security attributes
   - Waits for iframe load events to avoid race conditions
-- **`client/progress/on-events-progress-bus.ts`** - Manages the overlay visibility based on operation phases:
-  - Shows overlay during WebAuthn authentication phases
-  - Hides overlay during non-interactive phases (signing, broadcasting)
-  - Uses heuristics to minimize blocking time
+- **`client/progress/on-events-progress-bus.ts`** - Manages overlay visibility from v2 event metadata:
+  - Shows overlay when `interaction.overlay` is `'show'`
+  - Hides overlay when `interaction.overlay` is `'hide'`
+  - Leaves overlay unchanged when `interaction.overlay` is `'none'`
 
 #### 3. **Host-Side Execution Layer** (Runs in Iframe)
 
@@ -244,24 +244,21 @@ class OverlayController {
 - Anchored overlays for inline UI:
   - `setOverlayBounds()` anchors the iframe to a DOMRect via `OverlayController.showAnchored()` for UI components that must appear at a specific viewport location.
 
-- When the overlay shows/hides automatically (heuristics):
-  - `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts` implements `defaultPhaseHeuristics`, which inspects `payload.phase` values emitted by the host.
-  - Behavior (tuned to minimize blocking time):
-    - Show for phases that require immediate user activation: `user-confirmation`, `webauthn-authentication`, registration `webauthn-verification`, device-linking `authorization`, device-linking `registration`, account sync `webauthn-authentication`, and login `webauthn-assertion`.
-      - Important: `user-confirmation` must remain in the show list so the modal rendered inside the wallet iframe is visible and can capture a click when `behavior: 'requireClick'`.
-    - Hide for post-activation phases such as `authentication-complete`, `transaction-signing-progress`, `transaction-signing-complete`, `broadcasting`, `action-complete`, plus the completion/error phases for registration, login, device linking, and account sync.
+- When the overlay shows/hides automatically:
+  - `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts` implements `defaultOverlayIntentResolver`, which reads v2 `WalletFlowEvent.interaction.overlay`.
+  - Behavior is declared by each emitted event:
+    - `overlay: 'show'` for phases that require immediate user activation or an iframe-hosted confirmation prompt.
+    - `overlay: 'hide'` when activation is complete, the user leaves the app for recovery, or a terminal failed/cancelled event must close a prior prompt.
+    - `overlay: 'none'` for non-interactive threshold signer, nonce, broadcast, persistence, polling, and finalization work.
 
 ### Why the overlay may block clicks after sending
 
-With the tuned heuristics, the overlay contracts immediately after TouchID completes (`authentication-complete`), even if subsequent phases (signing, broadcasting, waiting) continue. This minimizes the time the overlay blocks clicks.
+With explicit v2 overlay metadata, the overlay contracts immediately after the event that completes the user-interactive step, even if subsequent signing, broadcasting, or waiting events continue. This minimizes the time the overlay blocks clicks.
 
 ### Options to adjust behavior
 
-- Tweak heuristics to hide sooner:
-- The repo now hides on phases that indicate TouchID is done (e.g., `authentication-complete`) and when moving to non-interactive phases. Adjust further in `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts:101` if needed.
-
-- Emit a “completion” phase from the host:
-  - Update host flows to post a PROGRESS with `phase: 'user-confirmation-complete'` as soon as WebAuthn finishes. The existing heuristic will then hide without further code changes.
+- Adjust the emitting event metadata:
+  - Set `interaction.overlay` on the flow event that owns the UI transition. The progress bus should stay a small metadata reader.
 
 - Last‑resort local control:
   - If needed for a specific integration, you can wrap calls with your own timing to ensure the overlay hides immediately after activation by invoking flows that don’t rely on the heuristic (e.g., those already calling `showFrameForActivation()` explicitly) and ensuring the host emits the completion phase promptly.

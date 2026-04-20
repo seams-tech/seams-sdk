@@ -13,13 +13,16 @@ import type { PasskeyManagerContext } from '../index';
 import type { SignedTransaction } from '../../rpcClients/near/NearClient';
 import type { AccountId } from '../../types/accountIds';
 import {
-  ActionPhase,
-  ActionStatus,
-  type ActionSSEEvent,
-  type onProgressEvents,
+  SigningEventPhase,
 } from '../../types/sdkSentEvents';
 import { toError, getNearShortErrorMessage } from '@shared/utils/errors';
 import { resolvePrimaryNearRpcUrl } from '../../config/chains';
+import { emitNearSigningEvent } from './signingEventHelpers';
+
+function resolveSignedTransactionAccountId(signedTransaction: SignedTransaction): string {
+  const tx = signedTransaction.transaction as { signerId?: unknown };
+  return String(tx.signerId || 'unknown');
+}
 
 async function yieldForUiPaint(): Promise<void> {
   if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -173,11 +176,11 @@ export async function sendTransaction({
   signedTransaction: SignedTransaction;
   options?: SendTransactionHooksOptions;
 }): Promise<ActionResult> {
-  options?.onEvent?.({
-    step: 7,
-    phase: ActionPhase.STEP_7_BROADCASTING,
-    status: ActionStatus.PROGRESS,
-    message: `Broadcasting transaction...`,
+  const accountId = resolveSignedTransactionAccountId(signedTransaction);
+  emitNearSigningEvent(options?.onEvent, accountId, {
+    phase: SigningEventPhase.STEP_12_BROADCAST_STARTED,
+    status: 'running',
+    interaction: { kind: 'none', overlay: 'none' },
   });
 
   let transactionResult;
@@ -216,17 +219,19 @@ export async function sendTransaction({
         // don't fail transaction if nonce update fails
       });
 
-    options?.onEvent?.({
-      step: 7,
-      phase: ActionPhase.STEP_7_BROADCASTING,
-      status: ActionStatus.SUCCESS,
+    emitNearSigningEvent(options?.onEvent, accountId, {
+      phase: SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
+      status: 'succeeded',
       message: `Transaction ${txId} sent successfully`,
+      interaction: { kind: 'none', overlay: 'none' },
+      ...(txId ? { data: { txId } } : {}),
     });
-    options?.onEvent?.({
-      step: 8,
-      phase: ActionPhase.STEP_8_ACTION_COMPLETE,
-      status: ActionStatus.SUCCESS,
-      message: `Transaction ${txId} completed `,
+    emitNearSigningEvent(options?.onEvent, accountId, {
+      phase: SigningEventPhase.STEP_15_COMPLETED,
+      status: 'succeeded',
+      message: `Transaction ${txId} completed`,
+      interaction: { kind: 'none', overlay: 'none' },
+      ...(txId ? { data: { txId } } : {}),
     });
   } catch (error: unknown) {
     const e = toError(error);
@@ -243,6 +248,12 @@ export async function sendTransaction({
     } catch (nonceError) {
       console.warn('[sendTransaction]: Failed to release nonce after failure:', nonceError);
     }
+    emitNearSigningEvent(options?.onEvent, accountId, {
+      phase: SigningEventPhase.FAILED,
+      status: 'failed',
+      interaction: { kind: 'none', overlay: 'hide' },
+      error: { message: e.message },
+    });
     throw e;
   }
 
@@ -324,12 +335,12 @@ export async function executeActionInternal({
     const details = (e as { details?: unknown }).details;
     const short = (e as { short?: string }).short || getNearShortErrorMessage(e);
     onError?.(e);
-    onEvent?.({
-      step: 0,
-      phase: ActionPhase.ACTION_ERROR,
-      status: ActionStatus.ERROR,
+    emitNearSigningEvent(onEvent, nearAccountId, {
+      phase: SigningEventPhase.FAILED,
+      status: 'failed',
       message: `Action failed: ${short || e.message}`,
-      error: short || e.message,
+      interaction: { kind: 'none', overlay: 'hide' },
+      error: { message: short || e.message },
     });
     const result: ActionResult = {
       success: false,
@@ -385,12 +396,12 @@ export async function signAndSendTransactionsInternal({
     context.signingEngine.getNonceManager().releaseAllNonces();
     const e = toError(error);
     const short = (e as { short?: string }).short || getNearShortErrorMessage(e) || e.message;
-    options?.onEvent?.({
-      step: 0,
-      phase: ActionPhase.ACTION_ERROR,
-      status: ActionStatus.ERROR,
+    emitNearSigningEvent(options?.onEvent, nearAccountId, {
+      phase: SigningEventPhase.FAILED,
+      status: 'failed',
       message: `Action failed: ${short}`,
-      error: short,
+      interaction: { kind: 'none', overlay: 'hide' },
+      error: { message: short },
     });
     options?.onError?.(e);
     throw e;
@@ -424,25 +435,25 @@ export async function signTransactionsWithActionsInternal({
 
   try {
     // Emit started event
-    onEvent?.({
-      step: 1,
-      phase: ActionPhase.STEP_1_PREPARATION,
-      status: ActionStatus.PROGRESS,
+    emitNearSigningEvent(onEvent, nearAccountId, {
+      phase: SigningEventPhase.STEP_01_STARTED,
+      status: 'started',
       message:
         transactionInputs.length > 1
           ? `Starting batched transaction with ${transactionInputs.length} actions`
           : `Starting ${transactionInputs[0].actions[0].type} action`,
+      interaction: { kind: 'none', overlay: 'none' },
     });
 
     // 1. Basic validation (NEAR data fetching moved to confirmation flow)
     await validateInputsOnly(nearAccountId, transactionInputs, { onEvent, onError, waitUntil });
 
     // 2. UserConfirm/WebAuthn + transaction signing (NEAR data fetched in confirmation flow)
-    onEvent?.({
-      step: 2,
-      phase: ActionPhase.STEP_2_USER_CONFIRMATION,
-      status: ActionStatus.PROGRESS,
-      message: 'Requesting user confirmation...',
+    emitNearSigningEvent(onEvent, nearAccountId, {
+      phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
+      status: 'waiting_for_user',
+      message: 'Requesting user confirmation',
+      interaction: { kind: 'transaction_confirmation', overlay: 'show' },
     });
     await yieldForUiPaint();
 
@@ -457,7 +468,7 @@ export async function signTransactionsWithActionsInternal({
     // WebAuthn challenge digest and NEAR data are computed in the confirmation flow
     // - Nonce will be fetched within the confirmation flow
     // This eliminates the ~500ms blocking operations before modal display
-    return context.signingEngine.signNear({
+    return (await context.signingEngine.signNear({
       chain: 'near',
       kind: 'transactionsWithActions',
       args: {
@@ -470,58 +481,20 @@ export async function signTransactionsWithActionsInternal({
         confirmationConfigOverride: confirmationConfigOverride,
         title: confirmerText?.title,
         body: confirmerText?.body,
-        // Pass through the onEvent callback for progress updates
-        onEvent: onEvent
-          ? (progressEvent: onProgressEvents) => {
-              if (progressEvent.phase === ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION) {
-                onEvent?.({
-                  step: 3,
-                  phase: ActionPhase.STEP_3_WEBAUTHN_AUTHENTICATION,
-                  status: ActionStatus.PROGRESS,
-                  message: 'Authenticating with passkey...',
-                });
-              }
-              if (progressEvent.phase === ActionPhase.STEP_4_AUTHENTICATION_COMPLETE) {
-                onEvent?.({
-                  step: 4,
-                  phase: ActionPhase.STEP_4_AUTHENTICATION_COMPLETE,
-                  status: ActionStatus.SUCCESS,
-                  message: 'WebAuthn verification complete',
-                });
-              }
-              if (progressEvent.phase === ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS) {
-                onEvent?.({
-                  step: 5,
-                  phase: ActionPhase.STEP_5_TRANSACTION_SIGNING_PROGRESS,
-                  status: ActionStatus.PROGRESS,
-                  message: 'Signing transaction...',
-                });
-              }
-              if (progressEvent.phase === ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE) {
-                onEvent?.({
-                  step: 6,
-                  phase: ActionPhase.STEP_6_TRANSACTION_SIGNING_COMPLETE,
-                  status: ActionStatus.SUCCESS,
-                  message: 'Transaction signed successfully',
-                });
-              }
-              // Bridge worker onProgressEvents (generic) to ActionSSEEvent expected by public hooks
-              onEvent(progressEvent as ActionSSEEvent);
-            }
-          : undefined,
+        onEvent,
       },
-    });
+    })) as SignTransactionResult[];
   } catch (error: unknown) {
     console.error('[signTransactionsWithActions] Error during execution:', error);
     const e = toError(error);
     const short = (e as { short?: string }).short || getNearShortErrorMessage(e) || e.message;
     onError?.(e);
-    onEvent?.({
-      step: 0,
-      phase: ActionPhase.ACTION_ERROR,
-      status: ActionStatus.ERROR,
+    emitNearSigningEvent(onEvent, nearAccountId, {
+      phase: SigningEventPhase.FAILED,
+      status: 'failed',
       message: `Action failed: ${short}`,
-      error: short,
+      interaction: { kind: 'none', overlay: 'hide' },
+      error: { message: short },
     });
     throw e;
   }
@@ -539,11 +512,11 @@ async function validateInputsOnly(
     throw new Error('User not logged in or NEAR account ID not set for direct action.');
   }
 
-  onEvent?.({
-    step: 1,
-    phase: ActionPhase.STEP_1_PREPARATION,
-    status: ActionStatus.PROGRESS,
-    message: 'Validating inputs...',
+  emitNearSigningEvent(onEvent, nearAccountId, {
+    phase: SigningEventPhase.STEP_02_REQUEST_PREPARED,
+    status: 'running',
+    message: 'Validating inputs',
+    interaction: { kind: 'none', overlay: 'none' },
   });
 
   if (transactionInputs.length === 0) {

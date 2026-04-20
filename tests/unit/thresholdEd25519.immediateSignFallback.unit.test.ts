@@ -7,6 +7,7 @@ import {
   markThresholdEd25519EmailOtpSessionConsumedForAccount,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { ActionType } from '@/core/types/actions';
+import { SigningEventPhase, type SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import { WorkerResponseType } from '@/core/types/signer-worker';
 
 class MemorySessionStorage implements Pick<
@@ -90,6 +91,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       let workerThresholdSessionJwt = '';
       let workerCredentialJson = '';
       let workerXClientBaseB64u = '';
+      const progressEvents: SigningFlowEvent[] = [];
 
       const signed = await signTransactionsWithActions({
         ctx: {
@@ -189,9 +191,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
           },
         ],
-        rpcCall: { nearAccountId },
+        rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
         signerSlot: 1,
         sessionId,
+        onEvent: (event) => progressEvents.push(event),
       });
 
       expect(Array.isArray(signed)).toBe(true);
@@ -202,6 +205,60 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       expect(workerThresholdSessionJwt).toBe('email-otp-threshold-jwt');
       expect(workerCredentialJson).toBe('');
       expect(workerXClientBaseB64u).toBe('email-otp-x-client-base');
+
+      const phases = progressEvents.map((event) => event.phase);
+      expect(phases).toEqual(
+        expect.arrayContaining([
+          SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
+          SigningEventPhase.STEP_08_SIGNER_PREPARE_STARTED,
+          SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE,
+          SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED,
+          SigningEventPhase.STEP_10_COMMIT_STARTED,
+          SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
+          SigningEventPhase.STEP_15_COMPLETED,
+        ]),
+      );
+      expect(phases.indexOf(SigningEventPhase.STEP_05_CONFIRMATION_APPROVED)).toBeLessThan(
+        phases.indexOf(SigningEventPhase.STEP_08_SIGNER_PREPARE_STARTED),
+      );
+      expect(phases.indexOf(SigningEventPhase.STEP_08_SIGNER_PREPARE_STARTED)).toBeLessThan(
+        phases.indexOf(SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE),
+      );
+      expect(phases.indexOf(SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE)).toBeLessThan(
+        phases.indexOf(SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED),
+      );
+      expect(phases.indexOf(SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED)).toBeLessThan(
+        phases.indexOf(SigningEventPhase.STEP_10_COMMIT_STARTED),
+      );
+
+      const signerPrepareStarted = progressEvents.find(
+        (event) => event.phase === SigningEventPhase.STEP_08_SIGNER_PREPARE_STARTED,
+      );
+      expect(signerPrepareStarted).toMatchObject({
+        step: 8,
+        status: 'running',
+        message: 'Preparing NEAR signer',
+      });
+      const signerPrepareSucceeded = progressEvents.find(
+        (event) => event.phase === SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED,
+      );
+      expect(signerPrepareSucceeded).toMatchObject({
+        step: 8,
+        status: 'succeeded',
+        message: 'NEAR signer ready',
+        data: expect.objectContaining({
+          signer: 'threshold-ed25519',
+          clientBaseSource: 'cached',
+        }),
+      });
+      const authComplete = progressEvents.find(
+        (event) => event.phase === SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE,
+      );
+      expect(authComplete).toMatchObject({
+        step: 7,
+        status: 'succeeded',
+        authMethod: 'warm_session',
+      });
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
       sessionStorage.clear();
@@ -375,7 +432,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
           },
         ],
-        rpcCall: { nearAccountId },
+        rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
         signerSlot: 1,
         sessionId: staleSessionId,
         emailOtpSigning: {
@@ -560,7 +617,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
             },
           ],
-          rpcCall: { nearAccountId },
+          rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           sessionId,
         }),
@@ -739,7 +796,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
           },
         ],
-        rpcCall: { nearAccountId },
+        rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
         signerSlot: 1,
         sessionId,
       });

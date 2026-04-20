@@ -91,10 +91,10 @@ function makeServiceWithLogger(logger: {
     createAccountAndRegisterGas: '1',
     logger,
     thresholdStore: {
-      PRF_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
-      SHAMIR_P_B64U: base64UrlEncode(Uint8Array.from([0x01, 0x01])),
-      SHAMIR_E_S_B64U: base64UrlEncode(Uint8Array.from([0x03])),
-      SHAMIR_D_S_B64U: base64UrlEncode(Uint8Array.from([0xab])),
+      SIGNING_SESSION_SEAL_KEY_VERSION: EMAIL_OTP_KEY_VERSION,
+      SIGNING_SESSION_SHAMIR_P_B64U: base64UrlEncode(Uint8Array.from([0x01, 0x01])),
+      SIGNING_SESSION_SEAL_E_S_B64U: base64UrlEncode(Uint8Array.from([0x03])),
+      SIGNING_SESSION_SEAL_D_S_B64U: base64UrlEncode(Uint8Array.from([0xab])),
     },
   });
 }
@@ -512,6 +512,7 @@ test.describe('AuthService Email OTP policy', () => {
         sessionHash: SESSION_HASH,
         appSessionVersion: APP_SESSION_VERSION,
         action: 'wallet_email_otp_registration',
+        operation: 'registration',
         createdAtMs: nowMs,
         expiresAtMs,
         attemptCount: 0,

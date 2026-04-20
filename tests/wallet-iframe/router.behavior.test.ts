@@ -143,10 +143,15 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
                 type: 'PROGRESS',
                 requestId,
                 payload: {
-                  step: 2,
-                  phase: 'still-working',
-                  status: 'progress',
-                  message: 'continuous progress from harness'
+                  version: 2,
+                  flow: 'signing',
+                  step: 10,
+                  phase: 'signing.commit.started',
+                  status: 'running',
+                  message: 'Creating threshold signature',
+                  flowId: 'signing:test:' + requestId,
+                  requestId,
+                  interaction: { kind: 'none', overlay: 'none' }
                 }
               });
             } catch (err) {

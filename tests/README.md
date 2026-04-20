@@ -157,7 +157,7 @@ pnpm -C sdk build
   - `unit/confirmTxFlow.determineConfirmationConfig.test.ts` override precedence
   - `unit/confirmTxFlow.common.helpers.test.ts` sanitization + summary parsing
   - `unit/awaitUserConfirmationV2.test.ts` error/abort/timeout/mismatch via worker global
-  - `unit/progressBus.defaultPhaseHeuristics.test.ts` phase → visibility mapping
+  - `unit/progressBus.overlayIntentResolver.test.ts` event metadata → visibility mapping
   - `unit/overlayController.test.ts` aria/anchor/sticky behavior
   - `unit/handleSecureConfirmRequest.test.ts` request handler behavior
 
@@ -204,7 +204,7 @@ To keep iframe tests stable:
 - Theme regression guardrails for confirm UI (light vs dark tokens)
 - Consider gating `data-w3a-router-id` to debug/test builds only (cosmetic)
 - Optional: convenience `waitForOverlayShown/Hidden` helpers in harness (wrap `captureOverlay` + `waitFor`)
-- Keep the wallet stub aligned with production host: adopt ports, reply to `PM_CANCEL` with `ERROR{ code: 'cancelled' }`, emit expected phases (e.g., `user-confirmation`) so overlay assertions have signal
+- Keep the wallet stub aligned with production host: adopt ports, reply to `PM_CANCEL` with `ERROR{ code: 'cancelled' }`, emit v2 `WalletFlowEvent` payloads with explicit `interaction.overlay` so overlay assertions have signal
 
 If you update the handshake logic, re-run:
 

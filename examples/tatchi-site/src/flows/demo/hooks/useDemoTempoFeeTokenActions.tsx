@@ -19,6 +19,7 @@ import {
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import type { EvmAddress, TempoFeeTokenConfigTarget } from './demoThresholdTypes';
+import { handleSigningToastEvent } from './signingToast';
 
 type UseDemoTempoFeeTokenActionsArgs = {
   isLoggedIn: boolean;
@@ -117,6 +118,14 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
             pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,
           },
           payloadExpectation,
+          options: {
+            onEvent: (event) =>
+              handleSigningToastEvent(event, {
+                toastId,
+                chainLabel: 'Tempo',
+                successMessage: 'Tempo fee-token transaction complete',
+              }),
+          },
           postFinalizationCheck: async () => {
             const thresholdSender = await thresholdSenderPromise;
             const refreshedFeeToken = thresholdSender

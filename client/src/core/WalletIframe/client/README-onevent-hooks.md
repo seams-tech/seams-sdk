@@ -14,7 +14,7 @@ await walletRouter.registerPasskey({
   nearAccountId,
   options: {
     onEvent: (ev) => {
-      // ev is RegistrationSSEEvent
+      // ev is RegistrationFlowEvent
     },
   },
 });
@@ -24,11 +24,12 @@ await walletRouter.registerPasskey({
 
 - The wallet host wraps `TatchiPasskey` calls and translates `onEvent(ev)` into:
   `post({ type: 'PROGRESS', requestId, payload: ev })`.
-- Payloads reuse existing event shapes: `RegistrationSSEEvent | LoginSSEvent | ActionSSEEvent | DeviceLinkingSSEEvent | SyncAccountSSEEvent`.
+- Payloads use the v2 wallet flow event envelope for migrated flows:
+  `RegistrationFlowEvent | UnlockFlowEvent | SigningFlowEvent | LinkDeviceFlowEvent | EmailRecoveryFlowEvent | AccountSyncFlowEvent`.
 
 3. Parent bridges PROGRESS → onEvent
 
-- For each request, the client registers an `onProgress` handler created via `wrapOnEvent(onEvent, isXxxSSEEvent)`.
+- For each request, the client registers an `onProgress` handler created via `wrapOnEvent(onEvent, isXxxFlowEvent)`.
 - When a `PROGRESS` message arrives, the client:
   - correlates by `requestId`
   - routes through a small `OnEventsProgressBus`
@@ -40,7 +41,7 @@ await walletRouter.registerPasskey({
 
 ## Message Shapes (child → parent)
 
-- PROGRESS: `{ type: 'PROGRESS', requestId: string, payload: { step: number, phase: string, status: 'progress'|'success'|'error', message?: string, data?: unknown } }`
+- PROGRESS: `{ type: 'PROGRESS', requestId: string, payload: WalletFlowEvent }`
 - PM_RESULT: `{ type: 'PM_RESULT', requestId: string, payload: { ok: true, result: unknown } }`
 - ERROR: `{ type: 'ERROR', requestId: string, payload: { code: string, message: string, details?: unknown } }`
 
@@ -55,7 +56,7 @@ Ordering is FIFO per `requestId`.
   - `src/core/WalletIframe/client/router.ts`
     - `post()` registers `{ onProgress }` per request
     - `onPortMessage()` dispatches `PROGRESS` to `OnEventsProgressBus`
-    - `wrapOnEvent(onEvent, isXxxSSEEvent)` narrows `ProgressPayload` before calling `onEvent`
+    - `wrapOnEvent(onEvent, isXxxFlowEvent)` narrows `ProgressPayload` before calling `onEvent`
 - Message contracts:
   - `src/core/WalletIframe/shared/messages.ts` (`ProgressPayload`, PROGRESS/PM_RESULT/ERROR envelopes, `options.sticky`)
 
@@ -63,5 +64,5 @@ Ordering is FIFO per `requestId`.
 
 - No functions ever cross the boundary; app callbacks run in the parent only.
 - Timeouts are refreshed on each `PROGRESS` received.
-- Type guards (`isRegistrationSSEEvent`, `isLoginSSEvent`, `isActionSSEEvent`, etc.) ensure your `onEvent` only receives the expected shape.
+- Type guards (`isRegistrationFlowEvent`, `isUnlockFlowEvent`, `isSigningFlowEvent`, etc.) ensure your `onEvent` only receives the expected shape.
 - Use `sticky` when a flow should keep receiving status after the main result (e.g., certain device‑linking screens).

@@ -171,41 +171,41 @@ Notes
   The example config enables CORS with `origin: [EXPECTED_ORIGIN, EXPECTED_WALLET_ORIGIN]` and `credentials: true`.
   Your frontend must use `credentials: 'include'` with fetch.
 
-### PRF session seal routes (`POST /threshold-ecdsa/prf-seal/*`) (optional)
+### Signing-session seal routes (`POST /threshold/signing-session-seal/*`) (optional)
 
 When enabled, this example mounts:
 
-- `POST /threshold-ecdsa/prf-seal/apply-server-seal`
-- `POST /threshold-ecdsa/prf-seal/remove-server-seal`
+- `POST /threshold/signing-session-seal/apply-server-seal`
+- `POST /threshold/signing-session-seal/remove-server-seal`
 - `GET /.well-known/webauthn` response includes `capabilities.signingSessionSeal` so sealed-refresh clients can enforce startup parity (`mode`, `keyVersion`, `shamirPrimeB64u`)
 
-Enable with `PRF_SESSION_SEAL_ENABLED=1` and provide:
+Enable with `SIGNING_SESSION_SEAL_ENABLED=1` and provide:
 
-- `PRF_SESSION_SEAL_KEY_VERSION`
-- `SHAMIR_P_B64U`
-- `SHAMIR_E_S_B64U`
-- `SHAMIR_D_S_B64U`
+- `SIGNING_SESSION_SEAL_KEY_VERSION`
+- `SIGNING_SESSION_SHAMIR_P_B64U`
+- `SIGNING_SESSION_SEAL_E_S_B64U`
+- `SIGNING_SESSION_SEAL_D_S_B64U`
 
 Generate matching server/client values:
 
 ```bash
 # from repo root
-pnpm prf-seal:keygen
+pnpm signing-session-seal:keygen
 ```
 
 The command prints:
 
-- server env values: `SHAMIR_P_B64U`, `SHAMIR_E_S_B64U`, `SHAMIR_D_S_B64U`, `PRF_SESSION_SEAL_KEY_VERSION`
+- server env values: `SIGNING_SESSION_SHAMIR_P_B64U`, `SIGNING_SESSION_SEAL_E_S_B64U`, `SIGNING_SESSION_SEAL_D_S_B64U`, `SIGNING_SESSION_SEAL_KEY_VERSION`
 - client env values: `VITE_SIGNING_SESSION_PERSISTENCE_MODE`, `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`, `VITE_SIGNING_SESSION_SHAMIR_P_B64U`
 
-Keep the printed client values aligned with relay `PRF_SESSION_SEAL_*` values. Sealed-refresh clients fail closed on mismatch.
+Keep the printed client values aligned with relay `SIGNING_SESSION_*` values. Sealed-refresh clients fail closed on mismatch.
 
 Optional limiter config:
 
-- `PRF_SESSION_SEAL_RATE_LIMIT_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp`)
-- `PRF_SESSION_SEAL_RATE_LIMIT`
-- `PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS`
-- `PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX`
+- `SIGNING_SESSION_SEAL_RATE_LIMIT_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp`)
+- `SIGNING_SESSION_SEAL_RATE_LIMIT`
+- `SIGNING_SESSION_SEAL_RATE_LIMIT_WINDOW_MS`
+- `SIGNING_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX`
 
 Email OTP challenge, verify, and unseal-grant routes have independent abuse controls:
 
@@ -223,12 +223,12 @@ Non-production defaults are local-friendly (`100` challenge, verify, and grant a
 
 Optional idempotency replay config (for multi-instance apply/remove dedupe):
 
-- `PRF_SESSION_SEAL_IDEMPOTENCY_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp` | `postgres`)
-- `PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS`
-- `PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX`
-- `PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL` / `PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN` (optional overrides)
-- `PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL` (optional override)
-- `PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL` / `PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE` (optional overrides)
+- `SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp` | `postgres`)
+- `SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS`
+- `SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX`
+- `SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL` / `SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN` (optional overrides)
+- `SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL` (optional override)
+- `SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL` / `SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE` (optional overrides)
 
 ### `POST /recover-email` (email recovery)
 
@@ -336,17 +336,17 @@ RELAY_API_KEY_AUTH_ENABLED=1
 # falls back to VITE_TATCHI_ENVIRONMENT_ID, then CONSOLE_DEMO_PROJECT_ID, then local-dev.
 # THRESHOLD_SIGNING_ROOT_ID=proj_example:dev
 
-# Optional PRF seal/unseal routes for refresh rehydrate.
-# PRF_SESSION_SEAL_ENABLED=1
-# PRF_SESSION_SEAL_KEY_VERSION=kek-s-2026-02
-# Generate values with: pnpm prf-seal:keygen
-# SHAMIR_P_B64U=...
-# SHAMIR_E_S_B64U=...
-# SHAMIR_D_S_B64U=...
-# PRF_SESSION_SEAL_RATE_LIMIT_KIND=in-memory
-# PRF_SESSION_SEAL_RATE_LIMIT=30
-# PRF_SESSION_SEAL_RATE_LIMIT_WINDOW_MS=60000
-# PRF_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX=threshold:prf-seal:rate:
+# Optional signing-session seal/unseal routes for refresh rehydrate.
+# SIGNING_SESSION_SEAL_ENABLED=1
+# SIGNING_SESSION_SEAL_KEY_VERSION=kek-s-2026-02
+# Generate values with: pnpm signing-session-seal:keygen
+# SIGNING_SESSION_SHAMIR_P_B64U=...
+# SIGNING_SESSION_SEAL_E_S_B64U=...
+# SIGNING_SESSION_SEAL_D_S_B64U=...
+# SIGNING_SESSION_SEAL_RATE_LIMIT_KIND=in-memory
+# SIGNING_SESSION_SEAL_RATE_LIMIT=30
+# SIGNING_SESSION_SEAL_RATE_LIMIT_WINDOW_MS=60000
+# SIGNING_SESSION_SEAL_RATE_LIMIT_KEY_PREFIX=threshold:signing-session-seal:rate:
 # EMAIL_OTP_DELIVERY_MODE=memory
 # EMAIL_OTP_RATE_LIMITER_KIND=in-memory
 # EMAIL_OTP_RATE_LIMIT_KEY_PREFIX=email-otp:v2:
@@ -356,14 +356,14 @@ RELAY_API_KEY_AUTH_ENABLED=1
 # EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS=60000
 # EMAIL_OTP_GRANT_RATE_LIMIT_MAX=100
 # EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS=60000
-# PRF_SESSION_SEAL_IDEMPOTENCY_KIND=in-memory
-# PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS=90000
-# PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX=threshold:prf-seal:idempotency:
-# PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL=
-# PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN=
-# PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL=
-# PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL=
-# PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE=
+# SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND=in-memory
+# SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS=90000
+# SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX=threshold:signing-session-seal:idempotency:
+# SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL=
+# SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN=
+# SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL=
+# SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL=
+# SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE=
 ```
 
 ## Development

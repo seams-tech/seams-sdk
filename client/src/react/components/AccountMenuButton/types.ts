@@ -1,5 +1,5 @@
 import type { ToggleColorProps } from './Toggle';
-import type { DeviceLinkingSSEEvent } from '@/core/types/sdkSentEvents';
+import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { LinkDeviceResult } from '@/core/types/linkDevice';
 import type { ThemeName } from '@/core/signingEngine/touchConfirm/ui/confirm-ui-types';
 
@@ -48,7 +48,7 @@ export interface DeviceLinkingScannerParams {
   onDeviceLinked?: (result: LinkDeviceResult) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
-  onEvent?: (event: DeviceLinkingSSEEvent) => void;
+  onEvent?: (event: LinkDeviceFlowEvent) => void;
   fundingAmount?: string;
 }
 

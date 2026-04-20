@@ -423,22 +423,22 @@ export type ThresholdStoreEnvInput = {
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS?: string;
-  /** Optional PRF session-seal key metadata and Shamir 3-pass parameters. */
-  PRF_SESSION_SEAL_KEY_VERSION?: string;
-  SHAMIR_P_B64U?: string;
-  SHAMIR_E_S_B64U?: string;
-  SHAMIR_D_S_B64U?: string;
-  /** Optional PRF session-seal idempotency backend configuration. */
-  PRF_SESSION_SEAL_IDEMPOTENCY_KIND?: string;
-  PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL?: string;
-  PRF_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN?: string;
-  PRF_SESSION_SEAL_IDEMPOTENCY_REDIS_URL?: string;
-  PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL?: string;
-  PRF_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE?: string;
-  PRF_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX?: string;
-  PRF_SESSION_SEAL_IDEMPOTENCY_TTL_MS?: string;
-  prfSessionSealIdempotencyKind?: string;
-  prfSessionSealIdempotencyTtlMs?: string | number;
+  /** Optional signing session-seal key metadata and Shamir 3-pass parameters. */
+  SIGNING_SESSION_SEAL_KEY_VERSION?: string;
+  SIGNING_SESSION_SHAMIR_P_B64U?: string;
+  SIGNING_SESSION_SEAL_E_S_B64U?: string;
+  SIGNING_SESSION_SEAL_D_S_B64U?: string;
+  /** Optional signing session-seal idempotency backend configuration. */
+  SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND?: string;
+  SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL?: string;
+  SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN?: string;
+  SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL?: string;
+  SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL?: string;
+  SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE?: string;
+  SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX?: string;
+  SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS?: string;
+  signingSessionSealIdempotencyKind?: string;
+  signingSessionSealIdempotencyTtlMs?: string | number;
   /**
    * Core signing-root dependency for signing. Hosted deployments usually build
    * this from storage/decrypt adapters. Direct self-host deployments can supply

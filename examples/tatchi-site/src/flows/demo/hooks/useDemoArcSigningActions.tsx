@@ -13,6 +13,7 @@ import {
   resolveClickTimeEip1559FeeCaps,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
+import { handleSigningToastEvent } from './signingToast';
 
 type UseDemoArcSigningActionsArgs = {
   canSignEvm: boolean;
@@ -67,6 +68,14 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
         payloadExpectation: {
           to: request.tx.to,
           input: request.tx.data || '0x',
+        },
+        options: {
+          onEvent: (event) =>
+            handleSigningToastEvent(event, {
+              toastId,
+              chainLabel: 'EVM',
+              successMessage: 'EVM transaction complete',
+            }),
         },
         postFinalizationCheck: async () => {
           await fetchArcGreeting({ silent: true });

@@ -26,7 +26,7 @@ export interface UserConfirmProgressEvent {
   requestId: string;
   step: number;
   phase: string;
-  status: 'progress' | 'success' | 'error';
+  status: 'running' | 'succeeded' | 'failed';
   message?: string;
   data?: unknown;
 }

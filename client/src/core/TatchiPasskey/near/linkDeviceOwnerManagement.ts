@@ -11,6 +11,7 @@ import { getNearAccountIdForProfile } from '../../accountData/near/accountProjec
 import type { EvmContractAbi } from '../../signingEngine/chainAdaptors/evm/types';
 import { executeEvmFamilyTransactionLifecycle } from '../tempo/executeEvmFamilyTransaction';
 import { createEvmClient, parseRpcHexQuantity } from '../../rpcClients/evm/EvmClient';
+import type { SigningFlowEvent } from '../../types/sdkSentEvents';
 import {
   getTatchiSmartAccountMethodSelector,
   TATCHI_SMART_ACCOUNT_ADD_OWNER_ABI,
@@ -114,13 +115,7 @@ async function resolveFeeCaps(args: {
 export function createLocalDeployedSignerMutationRuntime(args: {
   context: PasskeyManagerContext;
   confirmationConfig?: Partial<ConfirmationConfig>;
-  onEvent?: (event: {
-    step: number;
-    phase: string;
-    status: 'progress' | 'success' | 'error';
-    message?: string;
-    data?: unknown;
-  }) => void;
+  onEvent?: (event: SigningFlowEvent) => void;
 }): {
   resolveOwnerAccountId: (input: {
     profileId: string;
@@ -179,13 +174,7 @@ export function createLocalDeployedSignerMutationRuntime(args: {
 async function executeDeployedSignerMutation(args: {
   context: PasskeyManagerContext;
   confirmationConfig?: Partial<ConfirmationConfig>;
-  onEvent?: (event: {
-    step: number;
-    phase: string;
-    status: 'progress' | 'success' | 'error';
-    message?: string;
-    data?: unknown;
-  }) => void;
+  onEvent?: (event: SigningFlowEvent) => void;
   nearAccountId: string;
   chainAccount: ChainAccountRecord;
   signerAddress: `0x${string}`;

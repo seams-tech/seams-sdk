@@ -154,8 +154,9 @@ test.describe('smart-account deployment request assembly', () => {
         }),
       }),
     );
-    expect(result.calls[1]?.body?.factory).toBeUndefined();
-    expect(result.calls[1]?.body?.entryPoint).toBeUndefined();
-    expect(result.calls[1]?.body?.salt).toBeUndefined();
+    const requestBody = result.calls[1]?.body as any;
+    expect(requestBody?.factory).toBeUndefined();
+    expect(requestBody?.entryPoint).toBeUndefined();
+    expect(requestBody?.salt).toBeUndefined();
   });
 });

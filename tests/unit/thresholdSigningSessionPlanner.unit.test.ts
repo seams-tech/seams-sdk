@@ -6,6 +6,7 @@ import {
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
 } from '@/core/signingEngine/orchestration/shared/thresholdSigningSessionPlanner';
+import { isThresholdSessionAuthUnavailableError } from '@/core/signingEngine/threshold/session/sessionPolicy';
 
 test.describe('threshold signing session planner', () => {
   test('asserts ready when warm session cache is available', async () => {
@@ -56,6 +57,33 @@ test.describe('threshold signing session planner', () => {
         },
       }),
     ).rejects.toThrow(THRESHOLD_SESSION_EXHAUSTED_ERROR);
+  });
+
+  test('classifies canonical signingSession expiry and exhaustion as reauth candidates', () => {
+    expect(
+      isThresholdSessionAuthUnavailableError(
+        new Error(
+          '[chains] threshold signingSession is not_found; reconnect threshold session before signing',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isThresholdSessionAuthUnavailableError(
+        new Error(
+          '[chains] threshold signingSession is expired; reconnect threshold session before signing',
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      isThresholdSessionAuthUnavailableError(new Error(THRESHOLD_SESSION_EXHAUSTED_ERROR)),
+    ).toBe(true);
+    expect(
+      isThresholdSessionAuthUnavailableError(
+        new Error(
+          '[chains] threshold signingSession auth is unavailable; reconnect threshold session before signing',
+        ),
+      ),
+    ).toBe(true);
   });
 
   test('normalizes cache miss errors to canonical reconnect message', async () => {

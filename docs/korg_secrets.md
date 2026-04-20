@@ -1,6 +1,6 @@
 # Availability-First MPC Custody: Signing Root Secrets Plan
 
-Date updated: 2026-04-17
+Date updated: 2026-04-20
 
 ## Objective
 
@@ -10,12 +10,12 @@ custody.
 The goals are:
 
 - avoid durable plaintext signing-root storage
-- avoid per-wallet durable server secret storage
+- avoid authoritative per-wallet durable server secret storage
 - avoid a deterministic platform `master_secret` that can rederive customer
   roots after self-host migration
 - preserve wallet addresses when custody shares are refreshed
 - keep normal signing simple enough for a single Cloudflare Worker in Phase 1
-- leave a clean upgrade path to a two-server threshold-PRF model later
+- leave a clean upgrade path to distributed threshold-PRF guardians later
 
 This is a forward-looking design plan. Breaking package and API changes are
 allowed where they cleanly replace the current model.
@@ -38,13 +38,28 @@ For each project:
 6. Let the Phase 1 Cloudflare signer request any two sealed shares, decrypt
    them in memory, compute two threshold-PRF partials, combine them into
    `y_relayer`, and sign.
-7. Later, upgrade to a two-server model where separate workers hold or unwrap
-   distinct root shares and use threshold-PRF partial evaluation.
+7. Later, upgrade to distributed models where separate workers or guardians
+   hold or unwrap distinct root shares and use threshold-PRF partial
+   evaluation.
 
 The canonical durable recovery material is the set of encrypted signing-root
 shares plus any customer backup package. There is no central platform
 `master_secret -> k_org` derivation step. If all recoverable root shares and
 customer backups are lost, the signing root is lost.
+
+Current rollout decision:
+
+- ship Phase 1 first: one Cloudflare signer, no TEE, no share-worker network
+  split, and no independent guardian services
+- keep the `threshold-prf` derivation path even in Phase 1 so later phases
+  preserve wallet addresses
+- optimize first for cost, operational simplicity, and avoiding catastrophic
+  data loss, not for malicious-runtime resistance
+- defer TEE provider selection, attestation policy, multi-server deployment, and
+  guardian operations until customer count, asset value, or compliance pressure
+  justifies the extra infrastructure
+- build storage, resolver, and derivation interfaces so Phase 2 and Phase 3 can
+  be added without changing the signing-root data model
 
 Phase 1 does not claim that Cloudflare runtime compromise cannot expose
 `k_org`. The claim is narrower:
@@ -107,8 +122,8 @@ The Phase 1 design does not fully protect against:
 - Cloudflare runtime compromise during an authorized signing operation
 - a party that can unwrap or decrypt any two root shares and execute the signer
 
-Those risks are addressed later by stricter deployment controls, the two-server
-threshold-PRF model, and optional TEE hardening.
+Those risks are addressed later by stricter deployment controls, distributed
+share-worker or guardian threshold-PRF models, and optional TEE hardening.
 
 ## Secret Hierarchy
 
@@ -197,11 +212,23 @@ Do not store or depend on:
 - durable plaintext `signing_root_secret`
 - durable plaintext signing-root shares
 - a platform `master_secret` that can deterministically rederive `k_org`
-- per-wallet server signing secrets
+- authoritative per-wallet server signing secrets
 
 The sealed shares are the source of recovery. Wrapping keys and storage
 providers can be rotated, but rotation must preserve the underlying
 `signing_root_secret` unless an explicit wallet-key migration is intended.
+
+Per-wallet server material may be cached for performance, but only as
+disposable cache state:
+
+- it must be deterministically rederived from the signing root shares and wallet
+  context
+- it must not be the source of truth for wallet recovery
+- deleting it must not cause wallet loss
+- cache miss may require the normal user/passkey flow once to rederive the
+  final server signing material
+- integrated wallet records should store rederivation metadata, not plaintext
+  server signing material as authoritative state
 
 The initial storage layout can be:
 
@@ -446,7 +473,7 @@ The protocol should:
 8. delete old sealed shares after the new epoch is committed
 
 In Phase 1, the single signer or provisioning service may reconstruct `k_org`
-during refresh. In later two-server or TEE models, refresh should become a
+during refresh. In later distributed or TEE models, refresh should become a
 distributed resharing protocol.
 
 ## Recovery Model
@@ -493,26 +520,31 @@ Therefore Phase 1 needs operational controls:
 - short-lived in-memory plaintext with zeroization
 - customer backup confirmation before production activation
 
-## Phase 2 Two-Server Threshold-PRF Upgrade Path
+## Distributed Threshold-PRF Upgrade Path
 
-The next security upgrade is a two-server threshold-PRF model, pending
-prototype benchmarks.
+The current launch target is still Phase 1: one signer runtime, no TEE, and no
+distributed share guardians. This keeps cost and operations low while still
+removing durable plaintext `k_org` storage.
 
-Target shape:
+The later security upgrades split threshold-PRF evaluation across separate
+execution boundaries. They preserve the same signing root, derivation context,
+`y_relayer`, and wallet addresses.
+
+Phase 2 target shape:
 
 ```text
-Cloudflare worker A reads and decrypts encrypted root share A
-Cloudflare worker B reads and decrypts encrypted root share B
+share worker A reads and decrypts encrypted root share A
+share worker B reads and decrypts encrypted root share B
 worker A computes threshold-PRF partial A
 worker B computes threshold-PRF partial B
-combiner computes y_relayer from partial A and partial B
+the existing signer combines partial A and partial B into y_relayer
 existing ed25519-hss or ecdsa-hss flow consumes y_relayer
 ```
 
-This avoids reconstructing `k_org` in one runtime. It does not, by itself,
-make current HSS flows consume `y_relayer` shares. Current HSS flows consume a
-full `y_relayer`. If we want no single process to observe `y_relayer`, that is
-a later HSS/MPC integration change.
+This avoids reconstructing `k_org` in one runtime. It does not require TEEs and
+does not, by itself, make current HSS flows consume `y_relayer` shares. Current
+HSS flows consume a full `y_relayer`. If we want no single process to observe
+`y_relayer`, that is a later HSS/MPC integration change.
 
 ```mermaid
 flowchart TD
@@ -522,14 +554,15 @@ flowchart TD
   W2["worker B<br/>share B only"]
   P1["PRF partial A"]
   P2["PRF partial B"]
+  Signer["signer / combiner"]
   Y["y_relayer"]
   HSS["ed25519-hss / ecdsa-hss"]
 
   S1 --> W1 --> P1
   S2 --> W2 --> P2
-  P1 --> Y
-  P2 --> Y
-  Y --> HSS
+  P1 --> Signer
+  P2 --> Signer
+  Signer --> Y --> HSS
 ```
 
 The Phase 1 data model must be compatible with this:
@@ -539,8 +572,28 @@ The Phase 1 data model must be compatible with this:
 - `root_share_epoch` already supports refresh
 - self-host migration can use share refresh or resharing
 
-TEE deployment can be added later as a stricter implementation of the same
-share boundaries.
+Phase 3 target shape:
+
+```text
+guardian A owns one root-share custody path and returns partial A
+guardian B owns one root-share custody path and returns partial B
+the signer receives partials, verifies proofs or attestations, combines
+partials into y_relayer, and runs the existing signing flow
+```
+
+Phase 3 is stronger than Phase 2 only if the guardians have independent deploy,
+admin, storage, and wrapping-key boundaries. Running two guardian processes under
+the same operator account is primarily an implementation refactor, not a major
+custody-boundary improvement.
+
+TEE deployment can be added later as a stricter implementation of any runtime
+boundary:
+
+- Phase 1B: one signer runtime in a TEE
+- Phase 2B: two share-worker runtimes in TEEs
+- Phase 3B: independent guardian runtimes in TEEs
+
+These TEE phases are optional hardening stages, not launch requirements.
 
 ## Self-Host Migration
 
@@ -661,7 +714,7 @@ Operations that do not require passkey re-registration:
 - share rewrap
 - share refresh
 - self-host transfer of the same signing root
-- moving to a two-server or TEE custody model with the same root
+- moving to a distributed or TEE custody model with the same root
 
 Replacing `signing_root_secret` can reuse the same passkey-derived client input
 where protocol support exists, but it usually changes the threshold public key
@@ -679,7 +732,24 @@ Therefore:
 
 ## Implementation Phases
 
-### Phase 1. Single Cloudflare Worker With Encrypted Root Shares
+These phases describe the runtime custody architecture for threshold-PRF
+derivation. Root ceremony, backups, share refresh, self-host export, and root
+replacement are implementation workstreams that must remain compatible with all
+runtime phases.
+
+The current target is Phase 1 only. Do not require TEEs or multiple servers to
+ship the first managed custody version.
+
+| Phase    | Runtime Shape                                      | TEE Required | Launch Requirement |
+| -------- | -------------------------------------------------- | ------------ | ------------------ |
+| Phase 1  | one signer decrypts two shares and combines PRF partials | no           | yes                |
+| Phase 1B | same as Phase 1 inside one attested runtime        | yes          | no                 |
+| Phase 2  | two share workers compute partials, one signer combines | no           | no                 |
+| Phase 2B | same as Phase 2 with attested share workers        | yes          | no                 |
+| Phase 3  | two independent guardians compute partials, third signer combines | no | no |
+| Phase 3B | same as Phase 3 with attested guardians            | yes          | no                 |
+
+### Phase 1. Single Signer With Encrypted Root Shares
 
 1. Generate random `signing_root_secret` at project creation.
 2. Split it into 2-of-3 signing root shares.
@@ -691,14 +761,16 @@ Therefore:
 7. Compute and combine two threshold-PRF partials locally to derive
    `y_relayer`.
 8. Feed `y_relayer` into the existing `ed25519-hss` or `ecdsa-hss` flow.
-9. Keep per-wallet server secrets out of durable storage.
+9. Keep per-wallet server secrets out of durable storage; if server-side
+   per-wallet material is cached for performance, treat it as reconstructible
+   cache state and never as the recovery source of truth.
 10. Add audit logs for share reads, unwraps, reconstruction, refresh, and
     export.
 
 This is Option A: single-worker threshold-PRF. It is more performant and
-operationally simpler than a two-server distributed path. It is also less
-secure because one signer runtime observes two plaintext root shares, which is
-enough material to reconstruct `k_org`.
+operationally simpler than a distributed path. It is also less secure because
+one signer runtime observes two plaintext root shares, which is enough material
+to reconstruct `k_org`.
 
 Exit criteria:
 
@@ -708,21 +780,43 @@ Exit criteria:
 - customer backup restore is tested
 - known wallet addresses remain stable after share refresh
 
-### Phase 2. Two Cloudflare Worker Threshold-PRF Model
+### Phase 1B. Single Signer In A TEE
 
-This is Option B: distributed threshold-PRF derivation.
+This is the same topology as Phase 1, but the signer runs inside an attested
+runtime.
+
+1. Keep the same sealed-share storage model.
+2. Bind share unwrap or decrypt permission to an attested signer identity.
+3. Decrypt two root shares inside the TEE.
+4. Compute and combine threshold-PRF partials inside the TEE.
+5. Feed `y_relayer` into the existing signing flow.
+
+This is optional hardening. It should not block Phase 1 because TEE
+provisioning, attestation, and provider cost are operationally heavier than the
+current risk justifies for zero or very few customers.
+
+Exit criteria:
+
+- attestation policy is specified and tested
+- share release is bound to attested code identity
+- Phase 1B output is byte-identical to Phase 1 output
+- wallet addresses do not change
+
+### Phase 2. Two Share Workers And One Signer Combiner
+
+This is distributed threshold-PRF derivation without TEEs.
 
 1. Complete the `threshold-prf` prototype.
 2. Benchmark direct reference evaluation, partial evaluation, and partial
    combine.
 3. Continue only if latency and compute are low enough for signing-scale use.
-4. Give worker A access to one encrypted signing-root share.
-5. Give worker B access to another encrypted signing-root share.
-6. Each worker decrypts only its own share in memory.
-7. Each worker computes a threshold-PRF partial for the requested wallet
+4. Give share worker A access to one encrypted signing-root share.
+5. Give share worker B access to another encrypted signing-root share.
+6. Each share worker decrypts only its own share in memory.
+7. Each share worker computes a threshold-PRF partial for the requested wallet
    context.
-8. Combine the partials to derive the same `y_relayer` as Phase 1
-   single-worker threshold-PRF evaluation.
+8. The existing signer service combines the partials to derive the same
+   `y_relayer` as Phase 1 single-worker threshold-PRF evaluation.
 9. Feed `y_relayer` into the existing `ed25519-hss` or `ecdsa-hss` flow.
 
 Important boundary:
@@ -740,10 +834,72 @@ Exit criteria:
 - wallet addresses do not change
 - benchmark results are recorded and acceptable
 - share partials are bound to context and purpose
-- DLEQ proofs or TEE attestation are specified before treating this as
-  malicious-server safe
+- DLEQ proofs or equivalent partial verification are specified before treating
+  this as malicious-server safe
 
-### Phase 3. Share Refresh And Self-Host Export
+### Phase 2B. Two Share Workers In TEEs
+
+This is Phase 2 with attested share-worker runtimes.
+
+1. Run each share worker in a TEE.
+2. Give each TEE worker a distinct root-share custody path.
+3. Bind share release to attested code identity.
+4. Return threshold-PRF partials plus attestation evidence to the signer.
+5. Keep the signer as the `y_relayer` combiner and HSS caller.
+
+Exit criteria:
+
+- Phase 2B output is byte-identical to Phase 1 and Phase 2 output
+- wallet addresses do not change
+- attestation evidence is verified before partials are accepted
+- provider cost and operational runbooks are acceptable
+
+### Phase 3. Independent Guardian Partial Services
+
+This is the stronger distributed custody target.
+
+1. Operate at least two independent guardian services.
+2. Give each guardian one root-share custody path.
+3. Split deploy permissions, storage permissions, wrapping keys, and audit logs
+   across guardian boundaries.
+4. Each guardian decrypts only its own root share and returns a threshold-PRF
+   partial for the requested wallet context.
+5. The signer verifies partial proofs, combines partials into `y_relayer`, and
+   runs the existing signing flow.
+
+Important boundary:
+
+- guardians should not see `y_relayer`
+- the signer should not see plaintext root shares
+- the signer still sees full `y_relayer`
+- preventing any one process from seeing `y_relayer` requires a later HSS/MPC
+  integration change
+
+Exit criteria:
+
+- two independent guardians can produce byte-identical wallet outputs to Phase 1
+- partial proof verification is mandatory
+- guardian failures and fallback policies are specified
+- guardian custody boundaries are operationally independent enough to justify
+  the added complexity
+
+### Phase 3B. Independent Guardian TEEs
+
+This is Phase 3 with attested guardian runtimes.
+
+1. Run each guardian inside a TEE.
+2. Bind each guardian's share release to attested code identity.
+3. Return partials plus attestation evidence.
+4. Require signer-side verification before combining partials.
+
+Exit criteria:
+
+- Phase 3B output is byte-identical to all earlier phases
+- wallet addresses do not change
+- TEE cost and operational overhead are acceptable
+- incident-response runbooks cover guardian and attestation failures
+
+### Cross-Cutting Workstream. Share Refresh And Self-Host Export
 
 1. Implement proactive root-share refresh.
 2. Implement share rewrap.
@@ -752,23 +908,14 @@ Exit criteria:
 5. Add address verification before and after refresh/export.
 6. Add hosted-signing disablement and share deletion flows.
 
-### Phase 4. Independent Storage And Wrapping Boundaries
+### Cross-Cutting Workstream. Independent Storage And Wrapping Boundaries
 
 1. Move shares into separate provider or account boundaries where practical.
 2. Use independent share wrapping keys.
 3. Separate permissions for signer deploy, storage read, and share unwrap.
 4. Add alerting for unusual share access patterns.
 
-### Phase 5. Two-TEE Server Model
-
-1. Provision two TEE signing nodes.
-2. Give each TEE node a distinct root-share custody path.
-3. Add remote attestation before share release.
-4. Move reconstruction into the attested boundary.
-5. Later evaluate distributed derivation or HSS/MPC signing so no single
-   non-TEE runtime observes `k_org`.
-
-### Phase 6. Project-Root Replacement
+### Cross-Cutting Workstream. Project-Root Replacement
 
 1. Add explicit wallet-key migration to a new signing root.
 2. Reuse passkey-derived client input where supported.
@@ -778,9 +925,9 @@ Exit criteria:
 Project-root replacement is not normal rotation. It is compromise response or
 intentional rekeying.
 
-## Phased Todo List
+## Implementation Todo List
 
-### Phase 1A. Data Model
+### Milestone A. Data Model
 
 - Define `SigningRootRecord`.
 - Define `SigningRootSecretShareRecord`.
@@ -796,7 +943,7 @@ intentional rekeying.
 - Treat `sealed_signing_root_secret_share` records and customer backups as the only
   durable recovery sources for `k_org`.
 
-### Phase 1B. Root Ceremony
+### Milestone B. Root Ceremony
 
 - Implement random root generation.
 - Implement 2-of-3 Shamir splitting.
@@ -807,10 +954,14 @@ intentional rekeying.
 - Add recovery drills proving project creation, backup restore, and signing do
   not depend on platform master-secret rederivation.
 
-### Phase 1C. Cloudflare Signer Partial Evaluation
+### Milestone C. Cloudflare Signer Partial Evaluation
 
 - Implement share resolution for a project through `SigningRootSecretResolver`
   adapters.
+- Keep Phase 1 execution in one signer process; do not introduce share-worker or
+  guardian RPC hops for the launch path.
+- Keep the resolver and derivation APIs narrow enough that Phase 2 share workers
+  and Phase 3 guardians can reuse them later.
 - Refactor the signing service to depend on a single
   `SigningRootShareResolver.resolveSigningRootSharePair` abstraction:
 
@@ -826,15 +977,17 @@ intentional rekeying.
 
 - Support durable storage adapters for Cloudflare Durable Objects, Postgres,
   and custom AWS/GCP Secret Manager record sources.
-- Support decrypt adapters for local AES-GCM KEK resolution, AWS KMS, GCP KMS,
-  and TEE-backed unwrap/decrypt flows.
+- Support decrypt adapters for local AES-GCM KEK resolution, AWS KMS, and GCP
+  KMS.
+- Keep the decrypt-adapter interface compatible with future TEE-backed
+  unwrap/decrypt flows, but do not require a TEE adapter in Phase 1.
 - Compute threshold-PRF partials from two plaintext root shares in one worker.
 - Combine partials into full `y_relayer`.
 - Feed `y_relayer` into the existing HSS/threshold signing path.
 - Zeroize root material after use.
 - Add redaction guards for logs and errors.
 
-### Phase 1C.0. Context Propagation Invariants
+### Milestone C.0. Context Propagation Invariants
 
 Tenant-root lookup is project-scoped. HSS signing context may still be
 org-scoped.
@@ -865,7 +1018,7 @@ Refactor guardrails:
 - Public code must not reintroduce legacy root naming, legacy self-host root
   routes, or threshold master-secret env-var surfaces.
 
-### Phase 1C.1. Hosted And Self-Hosted Resolver Modes
+### Milestone C.1. Hosted And Self-Hosted Resolver Modes
 
 - [x] Implement hosted multi-customer resolver composition:
       `createHostedSigningRootShareResolver({ storageAdapter, decryptAdapter })`.
@@ -900,7 +1053,7 @@ decryptAdapter })`.
       `SIGNING_ROOT_SECRET_SHARE_KEK_B64U`, while KMS/TEE modes should not expose
       a raw KEK env var.
 
-### Phase 1C.2. Tenant-Root Secret Naming Cleanup
+### Milestone C.2. Tenant-Root Secret Naming Cleanup
 
 - [x] Rename the public share wire/id surface to `SigningRootSecretShare`,
       `SigningRootSecretShareWireV1`, and `SigningRootSecretShareId`.
@@ -921,7 +1074,7 @@ decryptAdapter })`.
       mode.
 - [x] Keep `master_secret` out of the new public API names.
 
-### Phase 1D. Recovery Drills
+### Milestone D. Recovery Drills
 
 - Test memory cache miss.
 - Test loss of one sealed share.
@@ -930,7 +1083,7 @@ decryptAdapter })`.
 - Test customer backup restore.
 - Test project activation blocked until backup confirmation.
 
-### Phase 2A. Threshold-PRF Prototype Gate
+### Milestone E. Threshold-PRF Prototype Gate
 
 - [x] Implement the `crates/threshold-prf` prototype.
 - [x] Prove one-worker 2-of-3 partial evaluation and two-worker 2-of-3 partial
@@ -945,20 +1098,41 @@ decryptAdapter })`.
 - [x] Do not wire Phase 2 into signing until vectors and benchmark reports are
       committed.
 
-### Phase 2B. Two-Worker Threshold-PRF Derivation
+### Phase 2 Todo. Two Share Workers And One Signer Combiner
 
-- Give worker A access to one encrypted signing-root share.
-- Give worker B access to another encrypted signing-root share.
+- Give share worker A access to one encrypted signing-root share.
+- Give share worker B access to another encrypted signing-root share.
 - Decrypt each share only in the owning worker memory.
 - Compute threshold-PRF partials for the requested wallet context.
 - Combine partials into full `y_relayer`.
 - Feed full `y_relayer` into the existing HSS flow.
-- Add tests proving Phase 1 one-worker partial mode and Phase 2 two-worker
+- Add tests proving Phase 1 one-worker partial mode and Phase 2 two-share-worker
   partial mode preserve the same wallet addresses.
 - Defer HSS changes for shared `y_relayer` consumption unless we explicitly
   choose a stronger no-single-`y_relayer` model later.
 
-### Phase 3A. Share Refresh
+### Phase 3 Todo. Independent Guardian Partial Services
+
+- Define the guardian partial-evaluation request and response format.
+- Require each guardian response to bind the partial to project id, signing root
+  id, signing root version, derivation version, wallet context, and key purpose.
+- Add partial proof verification before the signer combines guardian outputs.
+- Split guardian deploy, storage, wrapping-key, and audit boundaries.
+- Add failure handling for one guardian unavailable, stale root epoch, duplicate
+  partials, invalid proofs, and replayed partials.
+- Add parity tests proving guardian partials derive the same `y_relayer` and
+  wallet addresses as Phase 1.
+
+### TEE Hardening Backlog
+
+- Phase 1B: define single-signer TEE attestation requirements.
+- Phase 1B: bind share release to the attested signer code identity.
+- Phase 2B: define share-worker TEE attestation and partial-response evidence.
+- Phase 3B: define guardian TEE attestation and signer-side verification.
+- Keep all TEE stages optional until provider cost, latency, and operational
+  runbooks justify the extra infrastructure.
+
+### Cross-Cutting Todo. Share Refresh
 
 - Implement root-share refresh for the same signing root.
 - Increment `root_share_epoch`.
@@ -966,7 +1140,7 @@ decryptAdapter })`.
 - Delete or retire old share epochs after commit.
 - Add rollback behavior for failed refresh.
 
-### Phase 3B. Self-Host Migration
+### Cross-Cutting Todo. Self-Host Migration
 
 - Export root shares and metadata to customer.
 - Support share refresh into customer custody.
@@ -975,7 +1149,7 @@ decryptAdapter })`.
 - Delete or retire hosted shares.
 - Export audit evidence.
 
-### Phase 4. Hardening
+### Cross-Cutting Todo. Operational Hardening
 
 - Move shares to independent storage boundaries.
 - Move share wrapping keys to independent custody boundaries.
@@ -983,19 +1157,11 @@ decryptAdapter })`.
 - Add anomaly detection for share access.
 - Add break-glass recovery runbooks.
 
-### Phase 5. Two-TEE Upgrade
-
-- Define TEE attestation requirements.
-- Bind share release to attested code identity.
-- Move reconstruction into TEE nodes.
-- Evaluate distributed derivation or HSS/MPC upgrade after the attested
-  reconstruction model is stable.
-
 ## Non-Goals
 
 - durable plaintext `k_org` storage
 - deterministic platform rederivation of customer roots
-- per-wallet durable server secret storage
+- authoritative per-wallet durable server secret storage
 - pretending single-worker reconstruction protects against malicious signer code
 - distributed HSS derivation in Phase 1
 - transparent wallet identity preservation when the signing root is replaced
@@ -1010,7 +1176,10 @@ decryptAdapter })`.
 - What backup confirmation UX is required before production activation?
 - What real Cloudflare Worker runtime overhead should we record before the
   Worker integration target ships?
-- Which TEE provider and attestation model should Phase 5 target?
+- What customer count, asset value, compliance requirement, or incident should
+  trigger moving from Phase 1 to Phase 1B, Phase 2, or Phase 3?
+- Which TEE provider and attestation model should Phase 1B, Phase 2B, and Phase
+  3B target if cost later justifies TEE hardening?
 - Do we want self-host migration to export raw shares, reshare into customer
   nodes, or support both?
 
@@ -1025,11 +1194,15 @@ The target model is:
 - customer backup required
 - Phase 1 single Cloudflare signer computes and combines two threshold-PRF
   partials in one runtime
+- Phase 1 is the current launch target; TEEs and multiple servers are not
+  initial requirements
 - per-wallet server input is `y_relayer`, derived from `k_org`
-- Phase 2 two-worker threshold-PRF can derive the same `y_relayer` without
-  reconstructing `k_org` in one runtime, pending benchmark results
+- Phase 2 two-share-worker threshold-PRF can derive the same `y_relayer`
+  without reconstructing `k_org` in one runtime, pending operational need
+- Phase 3 independent guardians can make the share custody boundary stronger
+  without changing wallet addresses
 - share refresh preserves wallet addresses
 - signing-root replacement changes wallet identity unless the product layer
   absorbs it
-- later TEE deployment can reduce runtime exposure without changing the
-  root/share metadata model
+- later TEE deployment can reduce runtime exposure in Phase 1B, Phase 2B, or
+  Phase 3B without changing the root/share metadata model

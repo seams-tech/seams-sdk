@@ -689,8 +689,9 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.success).toBe(true);
       expect(credentialPrompts).toBe(1);
       expect(capturedConnectArgs).not.toBeNull();
-      expect(String(capturedConnectArgs?.appSessionJwt || '')).toBe('app-jwt-passkey-warm');
-      expect(capturedConnectArgs?.localPrfCredential).toBe(loginCredential);
+      const connectArgs = capturedConnectArgs as Record<string, any> | null;
+      expect(String(connectArgs?.appSessionJwt || '')).toBe('app-jwt-passkey-warm');
+      expect(connectArgs?.localPrfCredential).toBe(loginCredential);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -734,6 +735,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                 userId: 'alice.testnet',
                 relayerUrl: 'https://relay.example',
                 ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+                signingRootId: 'proj_local:dev',
                 backendBinding: {
                   relayerKeyId: 'rk-1',
                   clientVerifyingShareB64u: 'AQ',
@@ -780,15 +782,16 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.success).toBe(true);
       expect(result.jwt).toBe('app-jwt-oidc-1');
       expect(bootstrapCalls).toBe(2);
-      expect(bootstrapArgs?.thresholdRouteAuth).toEqual({
+      const bootstrap = bootstrapArgs as Record<string, any> | null;
+      expect(bootstrap?.thresholdRouteAuth).toEqual({
         kind: 'app_session',
         jwt: 'app-jwt-oidc-1',
       });
-      expect('sessionId' in (bootstrapArgs || {})).toBe(false);
-      expect(String(bootstrapArgs?.clientRootShare32B64u || '')).toBe(
+      expect('sessionId' in (bootstrap || {})).toBe(false);
+      expect(String(bootstrap?.clientRootShare32B64u || '')).toBe(
         ECDSA_CLIENT_ROOT_SHARE32_B64U,
       );
-      expect(String(bootstrapArgs?.ecdsaThresholdKeyId || '')).toBe(ECDSA_THRESHOLD_KEY_ID);
+      expect(String(bootstrap?.ecdsaThresholdKeyId || '')).toBe(ECDSA_THRESHOLD_KEY_ID);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -1057,9 +1060,10 @@ test.describe('unlock threshold warm-session requirements', () => {
 
       expect(result.success).toBe(true);
       expect(capturedConnectArgs).not.toBeNull();
-      expect(String(capturedConnectArgs?.appSessionJwt || '')).toBe('');
-      expect(capturedConnectArgs?.useAppSessionCookie).toBe(true);
-      expect(capturedConnectArgs?.localPrfCredential).toBe(loginCredential);
+      const connectArgs = capturedConnectArgs as Record<string, any> | null;
+      expect(String(connectArgs?.appSessionJwt || '')).toBe('');
+      expect(connectArgs?.useAppSessionCookie).toBe(true);
+      expect(connectArgs?.localPrfCredential).toBe(loginCredential);
     } finally {
       globalThis.fetch = originalFetch;
     }

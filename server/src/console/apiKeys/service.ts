@@ -36,7 +36,7 @@ interface StoredApiKey extends ConsoleApiKey {
 export interface ConsoleApiKeysContext {
   orgId: string;
   actorUserId: string;
-  roles: string[];
+  roles: readonly string[];
 }
 
 export interface InMemoryConsoleApiKeyServiceOptions {

@@ -181,7 +181,7 @@ export {
   type RecoveryAuthorityMonitoringSummary,
 } from './router/recoveryAuthorityMonitoring';
 export * from './email-recovery';
-export * from './threshold/session/prfSessionSeal';
+export * from './threshold/session/signingSessionSeal';
 export * from './router/ror';
 export * from './console/account';
 export * from './console/gasSponsorship';

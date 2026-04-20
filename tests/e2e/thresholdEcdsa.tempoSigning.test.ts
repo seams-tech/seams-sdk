@@ -1484,7 +1484,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
             type ProgressEvent = {
               label: 'first' | 'second';
               phase: string;
-              status: 'progress' | 'success' | 'error';
+              status: string;
               atMs: number;
             };
             const progressEvents: ProgressEvent[] = [];
@@ -1505,12 +1505,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
                       progressEvents.push({
                         label,
                         phase: String(ev?.phase || ''),
-                        status:
-                          ev?.status === 'error'
-                            ? 'error'
-                            : ev?.status === 'success'
-                              ? 'success'
-                              : 'progress',
+                        status: String(ev?.status || ''),
                         atMs: Math.max(0, performance.now() - startedAtMs),
                       });
                     },
@@ -1541,7 +1536,8 @@ test.describe('threshold-ecdsa tempo signing', () => {
             const [first, second] = await Promise.all([firstPromise, secondPromise]);
 
             const secondUserConfirmationAtMs = progressEvents.find(
-              (event) => event.label === 'second' && event.phase === 'user-confirmation',
+              (event) =>
+                event.label === 'second' && event.phase === 'signing.confirmation.displayed',
             )?.atMs;
             const firstSettledAtMs = settledAtMs.first;
 

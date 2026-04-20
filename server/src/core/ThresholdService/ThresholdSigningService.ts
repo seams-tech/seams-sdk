@@ -262,6 +262,7 @@ const THRESHOLD_ECDSA_HSS_KEY_PURPOSE_V1 = 'evm-signing';
 const THRESHOLD_ECDSA_HSS_KEY_VERSION_V1 = 'v1';
 const THRESHOLD_ECDSA_SIGNING_ROOT_VERSION_DEFAULT = 'default';
 const THRESHOLD_ECDSA_DERIVATION_VERSION_V1 = 1;
+const WALLET_SIGNING_BUDGET_RELAYER_KEY_ID = 'wallet-signing-budget';
 
 type DerivedEcdsaKeyMaterial = {
   participantIds: number[];
@@ -1676,7 +1677,6 @@ export class ThresholdSigningService {
     walletSigningSessionId: string;
     userId: string;
     rpId: string;
-    relayerKeyId: string;
     participantIds: number[];
     ttlMs: number;
     remainingUses: number;
@@ -1699,13 +1699,6 @@ export class ThresholdSigningService {
           ok: false,
           code: 'unauthorized',
           message: 'walletSigningSessionId already exists for a different user',
-        };
-      }
-      if (existingSession.relayerKeyId !== input.relayerKeyId) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message: 'walletSigningSessionId already exists for a different relayerKeyId',
         };
       }
       if (existingSession.rpId !== input.rpId) {
@@ -1738,7 +1731,7 @@ export class ThresholdSigningService {
       sessionId,
       record: {
         expiresAtMs,
-        relayerKeyId: input.relayerKeyId,
+        relayerKeyId: WALLET_SIGNING_BUDGET_RELAYER_KEY_ID,
         userId: input.userId,
         rpId: input.rpId,
         participantIds: input.participantIds,
@@ -2116,7 +2109,6 @@ export class ThresholdSigningService {
           walletSigningSessionId,
           userId: nearAccountId,
           rpId,
-          relayerKeyId,
           participantIds: existingSession.participantIds,
           ttlMs,
           remainingUses,
@@ -2162,7 +2154,6 @@ export class ThresholdSigningService {
         walletSigningSessionId,
         userId: nearAccountId,
         rpId,
-        relayerKeyId,
         participantIds,
         ttlMs,
         remainingUses,
@@ -2967,7 +2958,6 @@ export class ThresholdSigningService {
         walletSigningSessionId,
         userId,
         rpId,
-        relayerKeyId,
         participantIds: existingSession.participantIds,
         ttlMs,
         remainingUses,
@@ -3002,7 +2992,6 @@ export class ThresholdSigningService {
       walletSigningSessionId,
       userId,
       rpId,
-      relayerKeyId,
       participantIds,
       ttlMs,
       remainingUses,
@@ -3144,6 +3133,9 @@ export class ThresholdSigningService {
         const appSessionClaims = request.appSessionClaims
           ? parseAppSessionClaims(request.appSessionClaims)
           : null;
+        const ecdsaSessionClaims = request.ecdsaSessionClaims
+          ? parseThresholdEcdsaSessionClaims(request.ecdsaSessionClaims)
+          : null;
         const sameParticipants = (expected: number[], actual: number[]): boolean =>
           expected.length === actual.length &&
           expected.every((value, index) => value === actual[index]);
@@ -3151,12 +3143,11 @@ export class ThresholdSigningService {
           (request.sessionPolicy as Record<string, unknown> | undefined)?.participantIds,
         );
 
-        if (!ed25519Claims && !appSessionClaims) {
+        if (!ed25519Claims && !appSessionClaims && !ecdsaSessionClaims) {
           return {
             ok: false,
             code: 'unauthorized',
-            message:
-              'session_bootstrap requires an authenticated threshold-ed25519 session or app session',
+            message: 'session_bootstrap requires an authenticated threshold session or app session',
           };
         }
 
@@ -3227,6 +3218,57 @@ export class ThresholdSigningService {
               code: 'unauthorized',
               message:
                 'session_bootstrap app-session path requires sessionPolicy.participantIds to match the active ECDSA signer set',
+            };
+          }
+        } else if (ecdsaSessionClaims) {
+          if (!ecdsaThresholdKeyId) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'session_bootstrap with threshold-ecdsa session requires ecdsaThresholdKeyId',
+            };
+          }
+          const integratedKey = await this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
+          if (!integratedKey) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'ecdsaThresholdKeyId is not active on this server',
+            };
+          }
+          const requestedSessionId = toOptionalTrimmedString(
+            (request.sessionPolicy as Record<string, unknown> | undefined)?.sessionId,
+          );
+          if (requestedSessionId && requestedSessionId !== ecdsaSessionClaims.sessionId) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'session_bootstrap threshold-ecdsa sessionId mismatch',
+            };
+          }
+          if (
+            ecdsaSessionClaims.sub !== userId ||
+            integratedKey.userId !== ecdsaSessionClaims.sub ||
+            integratedKey.rpId !== ecdsaSessionClaims.rpId ||
+            ecdsaSessionClaims.rpId !== rpId
+          ) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message: 'threshold-ecdsa session does not match requested signing scope',
+            };
+          }
+          if (
+            ecdsaSessionClaims.thresholdExpiresAtMs <= Date.now() ||
+            !requestedPolicyParticipantIds ||
+            !sameParticipants(integratedKey.participantIds, requestedPolicyParticipantIds) ||
+            !sameParticipants(ecdsaSessionClaims.participantIds, requestedPolicyParticipantIds)
+          ) {
+            return {
+              ok: false,
+              code: 'unauthorized',
+              message:
+                'session_bootstrap threshold-ecdsa path requires an active matching signer set',
             };
           }
         }
@@ -4079,7 +4121,6 @@ export class ThresholdSigningService {
           walletSigningSessionId,
           userId: nearAccountId,
           rpId,
-          relayerKeyId,
           participantIds: existingSession.participantIds,
           ttlMs,
           remainingUses,
@@ -4113,7 +4154,6 @@ export class ThresholdSigningService {
         walletSigningSessionId,
         userId: nearAccountId,
         rpId,
-        relayerKeyId,
         participantIds,
         ttlMs,
         remainingUses,

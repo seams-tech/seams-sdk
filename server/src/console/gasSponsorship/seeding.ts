@@ -23,7 +23,7 @@ async function publishCurrentEnvironmentSnapshot(input: {
   const payload = await resolveConsoleRuntimeSnapshotPayload({
     orgId: input.ctx.orgId,
     actorUserId: input.ctx.actorUserId,
-    roles: input.ctx.roles,
+    roles: [...input.ctx.roles],
     environmentId: input.environment.id,
     projectId: input.environment.projectId,
     policies: input.policies,
@@ -49,7 +49,7 @@ async function seedEnvironment(input: {
     ctx: {
       orgId: input.ctx.orgId,
       actorUserId: input.ctx.actorUserId,
-      roles: input.ctx.roles,
+      roles: [...input.ctx.roles],
     },
     projectId: input.environment.projectId,
     environmentId: input.environment.id,

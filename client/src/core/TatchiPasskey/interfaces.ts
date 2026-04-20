@@ -29,12 +29,15 @@ import type {
   DelegateRelayHooksOptions,
   LoginHooksOptions,
   RegistrationHooksOptions,
+  RegistrationFlowEvent,
   SendTransactionHooksOptions,
   SignAndSendDelegateActionHooksOptions,
   SignAndSendTransactionHooksOptions,
   SignNEP413HooksOptions,
   SignTransactionHooksOptions,
+  SigningFlowEvent,
   SyncAccountHooksOptions,
+  UnlockFlowEvent,
 } from '../types/sdkSentEvents';
 import type {
   ConfirmationBehavior,
@@ -77,23 +80,11 @@ export type SignTempoArgs = {
     confirmationConfig?: Partial<ConfirmationConfig>;
     /** Internal host-only cancellation probe; ignored in wallet-router calls. */
     shouldAbort?: () => boolean;
-    onEvent?: (event: {
-      step: number;
-      phase: string;
-      status: 'progress' | 'success' | 'error';
-      message?: string;
-      data?: unknown;
-    }) => void;
+    onEvent?: (event: SigningFlowEvent) => void;
   };
 };
 
-export type TempoNonceLifecycleEvent = {
-  step: number;
-  phase: string;
-  status: 'progress' | 'success' | 'error';
-  message?: string;
-  data?: unknown;
-};
+export type TempoNonceLifecycleEvent = SigningFlowEvent;
 
 export type TempoNonceLifecycleOptions = {
   onEvent?: (event: TempoNonceLifecycleEvent) => void;
@@ -238,6 +229,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   remainingUses?: number;
   registrationAttemptId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  onEvent?: (event: UnlockFlowEvent) => void;
 };
 
 export type EmailOtpEcdsaCapabilityResult = {
@@ -246,8 +238,9 @@ export type EmailOtpEcdsaCapabilityResult = {
   warmCapability: WarmSessionEcdsaCapabilityState;
 };
 
-export type EmailOtpEcdsaEnrollmentCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
+export type EmailOtpEcdsaEnrollmentCapabilityArgs = Omit<EmailOtpEcdsaCapabilityArgs, 'onEvent'> & {
   clientSecret32?: Uint8Array;
+  onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
 };
 
 export type EmailOtpEcdsaEnrollmentCapabilityResult = {
@@ -275,11 +268,13 @@ export interface AuthCapability {
     relayUrl?: string;
     appSessionJwt?: string;
     operation?: WalletEmailOtpLoginOperation;
+    onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
   requestEmailOtpEnrollmentChallenge(args: {
     nearAccountId: string;
     relayUrl?: string;
     appSessionJwt?: string;
+    onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
   exchangeGoogleEmailOtpSession(args: {
     idToken: string;
@@ -287,6 +282,7 @@ export interface AuthCapability {
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
     rerollRegistrationAttempt?: boolean;
+    onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
   }): Promise<GoogleEmailOtpSessionExchangeResult>;
   enrollEmailOtp(args: {
     nearAccountId: string;
@@ -296,6 +292,7 @@ export interface AuthCapability {
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
+    onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpEnrollmentResult>;
   loginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaCapabilityArgs,

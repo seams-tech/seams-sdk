@@ -1,12 +1,12 @@
 import type { ActionResult } from './tatchi';
-import type { AfterCall, DeviceLinkingSSEEvent, EventCallback } from './sdkSentEvents';
-import { DeviceLinkingPhase } from './sdkSentEvents';
+import type { AfterCall, EventCallback, LinkDeviceFlowEvent } from './sdkSentEvents';
+import { LinkDeviceEventPhase } from './sdkSentEvents';
 import { AccountId } from './accountIds';
 import { SignedTransaction } from '../rpcClients/near/NearClient';
 import { WebAuthnRegistrationCredential } from '.';
 import type { ConfirmationConfig } from './signer-worker';
 
-export { DeviceLinkingPhase } from './sdkSentEvents';
+export { LinkDeviceEventPhase } from './sdkSentEvents';
 
 // === DEVICE LINKING TYPES ===
 export interface DeviceLinkingQRData {
@@ -31,7 +31,7 @@ export interface DeviceLinkingSession {
   signerSlot?: number;
   nearPublicKey: string;
   credential: WebAuthnRegistrationCredential | null; // Null for Option F until real account discovered
-  phase: DeviceLinkingPhase;
+  phase: LinkDeviceEventPhase;
   createdAt: number;
   expiresAt: number;
   tempPrivateKey?: string; // For Option F flow - temporary private key before replacement
@@ -86,7 +86,7 @@ export interface StartDevice2LinkingFlowResults {
 export interface StartDeviceLinkingOptionsDevice2 {
   cameraId?: string;
   options?: {
-    onEvent?: EventCallback<DeviceLinkingSSEEvent>;
+    onEvent?: EventCallback<LinkDeviceFlowEvent>;
     onError?: (error: Error) => void;
     afterCall?: AfterCall<any>;
     confirmationConfig?: Partial<ConfirmationConfig>;
@@ -96,7 +96,7 @@ export interface StartDeviceLinkingOptionsDevice2 {
 
 export interface ScanAndLinkDeviceOptionsDevice1 {
   fundingAmount: string;
-  onEvent?: EventCallback<DeviceLinkingSSEEvent>;
+  onEvent?: EventCallback<LinkDeviceFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<any>;
   confirmationConfig?: Partial<ConfirmationConfig>;

@@ -7,7 +7,11 @@ import type {
   LinkDeviceResult,
   ScanAndLinkDeviceOptionsDevice1,
 } from '../types/linkDevice';
-import { DeviceLinkingPhase, DeviceLinkingStatus } from '../types/sdkSentEvents';
+import {
+  createLinkDeviceFlowEvent,
+  LinkDeviceEventPhase,
+  type CreateLinkDeviceFlowEventInput,
+} from '../types/sdkSentEvents';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../types/linkDevice';
 import { DEVICE_LINKING_CONFIG } from '../../config.js';
 import { executeDeviceLinkingContractCalls } from '../rpcClients/near/rpcCalls';
@@ -16,6 +20,30 @@ import { errorMessage } from '@shared/utils/errors';
 import { IndexedDBManager } from '../indexedDB';
 import { persistPreparedLinkDeviceSmartAccountSigners } from './near/linkDevicePreparedEcdsa';
 import { createLocalDeployedSignerMutationRuntime } from './near/linkDeviceOwnerManagement';
+
+type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
+  accountId?: string;
+};
+
+function emitScannerLinkDeviceEvent(
+  onEvent: ScanAndLinkDeviceOptionsDevice1['onEvent'] | undefined,
+  qrData: DeviceLinkingQRData,
+  event: EmitLinkDeviceEventInput,
+): void {
+  const sessionId = String(qrData?.sessionId || '').trim();
+  const device2PublicKey = String(qrData?.device2PublicKey || '').trim();
+  onEvent?.(
+    createLinkDeviceFlowEvent({
+      flowId: sessionId || `link-device-scan:${device2PublicKey || 'unknown'}`,
+      ...(event.accountId ? { accountId: event.accountId } : {}),
+      ...event,
+      data: {
+        role: 'scanner',
+        ...(event.data || {}),
+      },
+    }),
+  );
+}
 
 /**
  * Device1 (original device): Link device using pre-scanned QR data
@@ -28,15 +56,26 @@ export async function linkDeviceWithScannedQRData(
   const { onEvent, onError } = options || {};
 
   try {
-    onEvent?.({
-      step: 2,
-      phase: DeviceLinkingPhase.STEP_2_SCANNING,
-      status: DeviceLinkingStatus.PROGRESS,
-      message: 'Validating QR data...',
+    emitScannerLinkDeviceEvent(onEvent, qrData, {
+      phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+      status: 'running',
+      interaction: {
+        kind: 'qr_scan',
+        overlay: 'none',
+      },
     });
 
     // Validate QR data
     validateDeviceLinkingQRData(qrData);
+
+    emitScannerLinkDeviceEvent(onEvent, qrData, {
+      phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_SUCCEEDED,
+      status: 'succeeded',
+      interaction: {
+        kind: 'qr_scan',
+        overlay: 'none',
+      },
+    });
 
     // 3. Get Device1's current account (the account that will receive the new key)
     const { login: device1LoginState } = await getWalletSession(context);
@@ -56,18 +95,27 @@ export async function linkDeviceWithScannedQRData(
       throw new Error('Invalid device public key format');
     }
 
-    onEvent?.({
-      step: 3,
-      phase: DeviceLinkingPhase.STEP_3_AUTHORIZATION,
-      status: DeviceLinkingStatus.PROGRESS,
-      message: `Performing TouchID authentication for device linking...`,
+    emitScannerLinkDeviceEvent(onEvent, qrData, {
+      phase: LinkDeviceEventPhase.STEP_03_AUTHORIZATION_STARTED,
+      status: 'waiting_for_user',
+      accountId: String(device1AccountId),
+      interaction: {
+        kind: 'transaction_confirmation',
+        overlay: 'show',
+      },
     });
 
-    onEvent?.({
-      step: 6,
-      phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
-      status: DeviceLinkingStatus.PROGRESS,
-      message: 'TouchID successful! Signing AddKey transaction...',
+    emitScannerLinkDeviceEvent(onEvent, qrData, {
+      phase: LinkDeviceEventPhase.STEP_04_LINK_REQUEST_SUBMITTED,
+      status: 'running',
+      accountId: String(device1AccountId),
+      data: {
+        device2PublicKey,
+      },
+      interaction: {
+        kind: 'transaction_confirmation',
+        overlay: 'hide',
+      },
     });
 
     // Execute device linking transactions using the centralized RPC function
@@ -145,11 +193,14 @@ export async function linkDeviceWithScannedQRData(
       linkedToAccount: device1AccountId, // Include which account the key was added to
     };
 
-    onEvent?.({
-      step: 6,
-      phase: DeviceLinkingPhase.STEP_6_REGISTRATION,
-      status: DeviceLinkingStatus.SUCCESS,
-      message: `Device2's key added to ${device1AccountId} successfully!`,
+    emitScannerLinkDeviceEvent(onEvent, qrData, {
+      phase: LinkDeviceEventPhase.STEP_08_COMPLETED,
+      status: 'succeeded',
+      accountId: String(device1AccountId),
+      data: {
+        device2PublicKey,
+        transactionId: result.transactionId,
+      },
     });
 
     return result;
@@ -157,6 +208,20 @@ export async function linkDeviceWithScannedQRData(
     console.error('LinkDeviceFlow: linkDeviceWithQRData caught error:', error);
 
     const message = `Failed to scan and link device: ${errorMessage(error)}`;
+    emitScannerLinkDeviceEvent(onEvent, qrData, {
+      phase: LinkDeviceEventPhase.FAILED,
+      status: 'failed',
+      message,
+      interaction: {
+        kind: 'transaction_confirmation',
+        overlay: 'hide',
+      },
+      error: {
+        code: DeviceLinkingErrorCode.AUTHORIZATION_TIMEOUT,
+        message,
+        retryable: true,
+      },
+    });
     onError?.(new Error(message));
 
     throw new DeviceLinkingError(

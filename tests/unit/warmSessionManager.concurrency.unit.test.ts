@@ -85,8 +85,8 @@ test.describe('WarmSessionManager concurrency', () => {
         });
         claimsBySessionId[bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || ''] = {
           ok: true,
-          remainingUses: bootstrap.session.remainingUses,
-          expiresAtMs: bootstrap.session.expiresAtMs,
+          remainingUses: bootstrap.session.remainingUses ?? 5,
+          expiresAtMs: bootstrap.session.expiresAtMs ?? Date.now() + 120_000,
         };
         return bootstrap;
       },
@@ -148,7 +148,7 @@ test.describe('WarmSessionManager concurrency', () => {
     let sealCalls = 0;
     const sealDeferred = createDeferred<{
       ok: true;
-      sealedPrfFirstB64u: string;
+      sealedSecretB64u: string;
       remainingUses: number;
       expiresAtMs: number;
     }>();
@@ -185,7 +185,7 @@ test.describe('WarmSessionManager concurrency', () => {
 
     sealDeferred.resolve({
       ok: true,
-      sealedPrfFirstB64u: 'sealed-concurrent-prf',
+      sealedSecretB64u: 'sealed-concurrent-prf',
       remainingUses: 4,
       expiresAtMs: record.expiresAtMs || Date.now() + 120_000,
     });

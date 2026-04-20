@@ -259,7 +259,7 @@ Critical rules:
 
 ## 9. Sealed Refresh (`sealed_refresh_v1`) Integration
 
-Use this only when the server-side PRF seal module is enabled.
+Use this only when the server-side signing-session seal module is enabled.
 
 Client config (opt-in):
 
@@ -276,19 +276,19 @@ const tatchi = createTatchiPasskey({
 Requirements:
 
 1. `signingSessionSeal.shamirPrimeB64u` must be valid base64url without padding.
-2. Server exposes authenticated PRF seal routes:
-   - `POST /threshold-ecdsa/prf-seal/apply-server-seal`
-   - `POST /threshold-ecdsa/prf-seal/remove-server-seal`
+2. Server exposes authenticated signing-session seal routes:
+   - `POST /threshold/signing-session-seal/apply-server-seal`
+   - `POST /threshold/signing-session-seal/remove-server-seal`
 3. Wallet iframe and touchConfirm worker run under wallet origin with sessionStorage available.
 
 Key material generation:
 
-1. Run `pnpm prf-seal:keygen` from the repo root.
+1. Run `pnpm signing-session-seal:keygen` from the repo root.
 2. Copy server outputs into relay env:
-   - `PRF_SESSION_SEAL_KEY_VERSION`
-   - `SHAMIR_P_B64U`
-   - `SHAMIR_E_S_B64U`
-   - `SHAMIR_D_S_B64U`
+   - `SIGNING_SESSION_SEAL_KEY_VERSION`
+   - `SIGNING_SESSION_SHAMIR_P_B64U`
+   - `SIGNING_SESSION_SEAL_E_S_B64U`
+   - `SIGNING_SESSION_SEAL_D_S_B64U`
 3. Copy client outputs into app env:
    - `VITE_SIGNING_SESSION_PERSISTENCE_MODE=sealed_refresh_v1`
    - `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`

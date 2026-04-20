@@ -14,3 +14,4 @@ export * from './recoveryEmail';
 export * from './undeployedSmartAccountSignerSet';
 export * from './evmSmartAccountSpec';
 export * from './paillier';
+export * from './signingSessionSeal';

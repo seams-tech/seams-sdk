@@ -80,6 +80,7 @@ function makePreparedLinkDeviceService() {
           entryPoint: `0x${'44'.repeat(20)}`,
           salt: '0x1234',
           counterfactualAddress: `0x${'22'.repeat(20)}`,
+          deployed: false,
         },
       ],
     }),
