@@ -11,6 +11,8 @@ Use Google SSO as the dashboard login path:
 3. relay issues `app_session_v1` cookie
 4. dashboard bootstraps auth via `GET /console/session`
 
+Dashboard Google SSO does not send `exchange.account_mode`. That field is reserved for the Google Email OTP wallet lane, where `register` and `login` select wallet registration/unlock behavior. Plain Google SSO is the console lane and must not resolve or create Email OTP wallet state.
+
 This document is the canonical dashboard auth reference. Any dashboard auth behavior change must update this file in the same changeset.
 
 ## Constraints
@@ -28,6 +30,7 @@ This document is the canonical dashboard auth reference. Any dashboard auth beha
 - Shared app-session console auth helper (`createAppSessionConsoleAuthAdapter`) is exported from both adaptors.
 - Example relay server uses shared app-session console auth.
 - First-login SSO provisioning is implemented (org ensure, membership bootstrap, audit event).
+- First-login SSO without a configured/default org creates a stable org context for the OIDC user, then bootstraps owner/admin membership so a fresh database can reach onboarding.
 - Session-state UX distinguishes `401 unauthorized` vs `403 forbidden`.
 - Shared auth output uses optional `projectId` / `environmentId` claims.
 

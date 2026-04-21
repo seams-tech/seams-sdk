@@ -298,6 +298,7 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
         userId,
         rpId,
         sessionId: 'ecdsa-session-email-otp-1',
+        walletSigningSessionId: 'wallet-signing-session-email-otp-1',
         runtimePolicyScope: TEST_RUNTIME_SCOPE,
         ttlMs: 60_000,
         remainingUses: 3,
@@ -330,6 +331,84 @@ test.describe('threshold-ecdsa hss bootstrap policy', () => {
     expect(String(finalize.clientVerifyingShareB64u || '')).toBeTruthy();
     expect(String(finalize.ecdsaThresholdKeyId || '')).toBeTruthy();
     expect(finalize.sessionId).toBe('ecdsa-session-email-otp-1');
+    expect(finalize.walletSigningSessionId).toBe('wallet-signing-session-email-otp-1');
+  });
+
+  test('email_otp_bootstrap accepts threshold-session auth for a Google Email OTP enrollment', async () => {
+    const { svc } = createThresholdSigningServiceForUnitTests({});
+    const userId = 'email-wallet-restored.testnet';
+    const googleSub = 'google:subject-restored';
+    const rpId = 'wallet.example.test';
+    const participantIds = [1, 2];
+    const clientRootShare32B64u = Buffer.from(new Uint8Array(32).fill(24)).toString(
+      'base64url',
+    );
+    const clientVerifyingShareB64u =
+      clientVerifyingShareB64uFromRootShare(clientRootShare32B64u);
+
+    const prepare = await svc.ecdsaHss.prepare({
+      userId,
+      rpId,
+      operation: 'email_otp_bootstrap',
+      keygenSessionId: 'ecdsa-email-otp-keygen-restored-1',
+      ecdsaSessionClaims: {
+        kind: 'threshold_ecdsa_session_v1',
+        sub: userId,
+        walletId: userId,
+        sessionId: 'existing-ecdsa-session-restored-1',
+        walletSigningSessionId: 'wallet-signing-restored-1',
+        relayerKeyId: 'relayer-key-restored-1',
+        rpId,
+        thresholdExpiresAtMs: Date.now() + 60_000,
+        participantIds,
+      },
+      emailOtpEnrollmentClaims: {
+        walletId: userId,
+        userId: googleSub,
+        otpChannel: 'email_otp',
+        thresholdEcdsaClientVerifyingShareB64u: clientVerifyingShareB64u,
+      },
+      sessionPolicy: {
+        version: 'threshold_session_v1',
+        userId,
+        rpId,
+        sessionId: 'ecdsa-session-email-otp-restored-1',
+        walletSigningSessionId: 'wallet-signing-session-email-otp-restored-1',
+        runtimePolicyScope: TEST_RUNTIME_SCOPE,
+        ttlMs: 60_000,
+        remainingUses: 3,
+        participantIds,
+      },
+    });
+    expect(prepare.ok).toBe(true);
+
+    const ceremonyId = String(prepare.ceremonyId || '');
+    const staged = await createHiddenEvalBootstrapMessages({
+      ceremonyId,
+      preparedServerSessionB64u: String(prepare.preparedServerSessionB64u || ''),
+      serverAssistInitB64u: String(prepare.serverAssistInitB64u || ''),
+      clientRootShare32B64u,
+      nearAccountId: userId,
+    });
+    const respond = await svc.ecdsaHss.respond({
+      ceremonyId,
+      requestMessageB64u: staged.requestMessageB64u,
+    });
+    expect(respond.ok).toBe(true);
+    const finalize = await svc.ecdsaHss.finalize({
+      ceremonyId,
+      clientFinalizeMessageB64u: await staged.createFinalizeMessage(
+        String(respond.responseMessageB64u || ''),
+      ),
+    });
+
+    expect(finalize.ok).toBe(true);
+    expect(String(finalize.clientVerifyingShareB64u || '')).toBeTruthy();
+    expect(String(finalize.ecdsaThresholdKeyId || '')).toBeTruthy();
+    expect(finalize.sessionId).toBe('ecdsa-session-email-otp-restored-1');
+    expect(finalize.walletSigningSessionId).toBe(
+      'wallet-signing-session-email-otp-restored-1',
+    );
   });
 
   test('email_otp_bootstrap rejects recovered material that does not match the enrollment verifier', async () => {

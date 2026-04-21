@@ -17,6 +17,7 @@ import {
   SENSITIVE_OPERATION_POLICIES,
   type SensitiveOperationPolicy,
 } from '@shared/utils/signerDomain';
+import type { EmailOtpAuthLane } from '../emailOtp/authLane';
 import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
@@ -153,8 +154,12 @@ export type NearSigningApiDeps = {
     nearAccountId: AccountId | string;
     chain: 'near';
     operation?: 'transaction_sign' | 'export_key';
-    appSessionJwt?: string;
+    authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string }>;
+  resolveEmailOtpSigningSessionAuthLane?: (args: {
+    thresholdSessionId: string;
+    curve: 'ed25519';
+  }) => EmailOtpAuthLane | null;
   isEmailOtpEd25519WarmupPending?: (args: { nearAccountId: AccountId | string }) => boolean;
   waitForPendingEmailOtpEd25519Warmup?: (args: {
     nearAccountId: AccountId | string;
@@ -166,6 +171,7 @@ export type NearSigningApiDeps = {
     record: ThresholdEd25519SessionRecord;
     operation?: 'transaction_sign' | 'export_key';
     remainingUses?: number;
+    authLane?: EmailOtpAuthLane;
   }) => Promise<{ sessionId: string }>;
   reconnectPasskeyEd25519CapabilityForSigning?: (args: {
     nearAccountId: AccountId | string;
@@ -353,9 +359,16 @@ async function resolveNearTransactionWalletAuth(args: {
           message: 'Sending Email OTP for transaction authorization',
           interaction: { kind: 'none', overlay: 'none' },
         });
+        const authLane = args.record
+          ? args.deps.resolveEmailOtpSigningSessionAuthLane?.({
+              thresholdSessionId: args.record.thresholdSessionId,
+              curve: 'ed25519',
+            }) || undefined
+          : undefined;
         const challenge = await args.deps.requestEmailOtpChallengeForSigning({
           nearAccountId: args.nearAccountId,
           chain: 'near',
+          ...(authLane ? { authLane } : {}),
         });
         const challengeId = String(challenge.challengeId || '').trim();
         if (!challengeId) {
@@ -382,12 +395,18 @@ async function resolveNearTransactionWalletAuth(args: {
         ) {
           throw new Error('[SigningEngine] Email OTP per-operation NEAR signing is not configured');
         }
+        const authLane =
+          args.deps.resolveEmailOtpSigningSessionAuthLane?.({
+            thresholdSessionId: args.record.thresholdSessionId,
+            curve: 'ed25519',
+          }) || undefined;
         const refreshed = await args.deps.loginWithEmailOtpEd25519CapabilityForSigning({
           nearAccountId: args.nearAccountId,
           challengeId,
           otpCode: code,
           record: args.record,
           operation: 'transaction_sign',
+          ...(authLane ? { authLane } : {}),
           remainingUses: Math.max(
             Math.floor(Number(args.usesNeeded) || 1) + 1,
             args.record.emailOtpAuthContext?.retention === 'session'

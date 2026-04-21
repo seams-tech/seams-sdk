@@ -1,6 +1,6 @@
 # Email OTP Sealed Refresh Persistence
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 ## Goal
 
@@ -45,6 +45,7 @@ These decisions close the main ambiguity before implementation starts.
 13. Multi-tab behavior uses a storage lease around restore. Multiple tabs may eventually restore while server budget remains valid, but only one restore attempt per wallet signing session should run at a time.
 14. Logout, lock, account switch, revocation, TTL expiry, and use exhaustion must delete the IndexedDB store records, not just `sessionStorage`.
 15. Migration order is generic passkey first, PRF cleanup second, Email OTP enablement third. Do not build Email OTP persistence on names we already plan to delete.
+16. Email OTP and signing-session persistence must fail closed instead of using backfills, fallbacks, compatibility aliases, or alternate secret/auth routes.
 
 ## Current Passkey Sealed-Refresh Note
 
@@ -230,10 +231,87 @@ Threshold session auth:
 App-session auth for fresh-auth operations:
 
 1. export/link-device/add-signer still require fresh operation-scoped auth after reload
-2. JWT-mode Email OTP unlocks cache the app-session JWT in wallet-origin `sessionStorage` only, so same-tab reload can request the fresh OTP challenge
-3. this app-session cache is not stored in IndexedDB and does not survive browser restart
-4. cookie-mode app sessions may use the relay session cookie instead
+2. Email OTP export challenge issuance after sealed refresh uses restored signing-session authority, not a JS-readable persisted `app_session_v1` JWT
+3. app-session JWTs may be kept in memory during the active page lifetime, but are not written to `sessionStorage` or IndexedDB as a reload continuity primitive
+4. restored signing-session authority can only request a fresh OTP challenge; it cannot directly authorize export/link-device/add-signer
 5. app-session JWTs must never be substituted for threshold-session JWTs, or vice versa
+
+Fresh-auth challenge target:
+
+The target is to stop treating a JS-readable `app_session_v1` JWT as the reload continuity primitive for sensitive-operation challenge issuance.
+
+For Email OTP accounts, a restored signing session may authorize only the request to send a fresh sensitive-operation OTP challenge to the server-known verified email. The restored signing session must not authorize the sensitive operation itself.
+
+Target flow:
+
+```text
+1. Reload restores K from the sealed signing-session refresh artifact.
+2. Worker restores threshold signing state.
+3. Client requests an export/link-device/add-signer OTP challenge using restored signing-session authority.
+4. Server validates the restored signing-session lane and sends OTP to the account email from server-side state.
+5. User verifies the fresh OTP.
+6. OTP verification creates a short-lived operation-scoped authorization.
+7. The sensitive operation executes with that operation authorization.
+```
+
+This avoids storing app-session JWTs in browser storage and fits "bring your own auth" integrations where the customer may not want relay-owned HttpOnly cookies.
+
+Security boundary:
+
+1. restored signing-session authority may initiate a fresh Email OTP challenge only
+2. restored signing-session authority must never directly authorize key export, link-device, add-signer, or other sensitive operations
+3. the OTP destination must be derived from server-side account state, never from client input
+4. OTP challenge issuance through this lane must be separately rate-limited and audited
+5. OTP verification must mint a narrow single-purpose operation grant, not a general app session and not a renewed transaction signing session
+6. passkey accounts continue to use WebAuthn/passkey fresh auth for sensitive operations and must not use Email OTP challenge issuance
+
+## Server-Owned Email OTP Enrollment Identity
+
+The session-persistence work exposed a pre-existing bad invariant: an active Email OTP enrollment can currently exist without a server-owned verified email. That was tolerable while sensitive-operation export flows could lean on app-session email, but signing-session-authorized challenge issuance needs a canonical enrollment email that is independent of app-session continuity.
+
+Target invariant:
+
+```text
+active Email OTP enrollment => server-owned verified email exists
+```
+
+The Email OTP enrollment record should be the canonical source of the mailbox used for login, export, link-device, and add-signer OTP challenges. Login OTP verification must not repair enrollment identity as a normal side effect. A successful login OTP proves control of the challenge mailbox for that login ceremony; it must not silently mutate the long-lived enrollment binding.
+
+Target enrollment shape:
+
+```ts
+type EmailOtpEnrollment = {
+  walletId: string;
+  authSubjectId: string;
+  verifiedEmailNormalized: string;
+  verifiedEmailHash: string;
+  emailVerifiedAtMs: number;
+  enrollmentVersion: number;
+  enrollmentStatus: 'active';
+  enrollmentEscrowRefs: unknown;
+  thresholdVerifierRefs: unknown;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+```
+
+Rules:
+
+1. active Email OTP enrollment creation must require a server-verified email
+2. Email OTP challenge routes must resolve the destination email from active enrollment state, never from client input
+3. app-session email may help select or validate an enrollment during fresh login, but it must not replace the enrolled mailbox
+4. signing-session-authorized operation challenges must use the same enrolled mailbox resolution as app-session-authorized login challenges
+5. OTP verify routes may mint operation grants or login grants, but must not repair missing enrollment email
+6. invalid active enrollments without a verified email must fail closed with a re-enrollment-required error
+7. any repair of existing invalid data must be an explicit one-time migration or local data reset, not request-path behavior
+
+No backfills or fallbacks rule:
+
+1. no request path may repair missing Email OTP enrollment identity
+2. no Email OTP challenge path may fall back to app-session email, client-provided email, or login challenge email
+3. no signing-session seal path may fall back to a default seal key version or generic Redis/Postgres/Upstash environment variables
+4. no sealed-refresh path may accept legacy route names, config names, storage names, or secret artifacts
+5. invalid, missing, or ambiguous state must return an explicit error and require re-enrollment, reauth, or operator migration outside the request path
 
 Do not use these names in the new steady-state API:
 
@@ -586,6 +664,86 @@ Use threshold-session auth for:
 
 Do not use app-session auth to restore a threshold signing session from a sealed refresh artifact. App-session auth answers "is the user logged in"; threshold-session auth answers "is this signing capability still valid."
 
+### Threshold-Session JWT Identity
+
+Threshold-session JWTs must carry an explicit `walletId` claim:
+
+```ts
+{
+  kind: 'threshold_ecdsa_session_v1',
+  sub: walletId,
+  walletId,
+  sessionId,
+  walletSigningSessionId,
+  relayerKeyId,
+  rpId,
+  thresholdExpiresAtMs,
+  participantIds,
+}
+```
+
+`sub` remains only as the standard JWT subject alias. Parsers must require `walletId === sub`, but route and business logic must read `walletId` when authorizing threshold-session scope. This avoids colliding with app-session `sub`, which can be a Google/OIDC provider subject.
+
+## Auth-Lane Plumbing Refactor
+
+The implementation centralizes `appSessionJwt`, generic `routeAuth`, cookie sessions, and stored threshold-session JWTs into one typed Email OTP auth lane before worker payloads or route choices are built.
+
+Target shape:
+
+```ts
+type EmailOtpAuthLane =
+  | { kind: 'app_session'; jwt: string }
+  | {
+      kind: 'signing_session';
+      jwt: string;
+      thresholdSessionId: string;
+      walletSigningSessionId?: string;
+      curve?: 'ed25519' | 'ecdsa';
+    }
+  | { kind: 'cookie' };
+
+type EmailOtpRoutePlan = {
+  routeFamily: 'login' | 'registration' | 'signing_session';
+  authLane: EmailOtpAuthLane;
+  operation: WalletEmailOtpLoginOperation;
+};
+```
+
+Design rules:
+
+1. public SDK and iframe message boundaries may accept `appSessionJwt` for fresh Google SSO/Email OTP unlock and registration flows
+2. deeper Email OTP coordinator, signing, and worker APIs should receive an `EmailOtpRoutePlan` or resolved `EmailOtpAuthLane`, not raw `appSessionJwt`
+3. stored threshold-session JWTs must be read only from canonical threshold-session records, never from sealed refresh records
+4. normal unlock and registration must resolve to `app_session` or `cookie`, never `signing_session`
+5. transaction signing and sensitive-operation OTP challenge issuance after sealed refresh should resolve to `signing_session`
+6. app-session JWTs and threshold-session JWTs must never be silently substituted for each other
+7. route selection should be a result of the plan, not a local worker heuristic spread across call sites
+
+Todo:
+
+1. [x] Add shared `EmailOtpAuthLane` and `EmailOtpRoutePlan` types near the Email OTP coordinator or shared Email OTP domain module.
+2. [x] Add `resolveEmailOtpAuthLane(...)` for converting edge inputs into one lane:
+   - `appSessionJwt` -> `{ kind: 'app_session', jwt }` for JWT fresh unlock/registration
+   - `sessionKind: 'cookie'` -> `{ kind: 'cookie' }`
+   - Email OTP warm-session record with threshold-session JWT -> `{ kind: 'signing_session', jwt, thresholdSessionId, walletSigningSessionId, curve }`
+3. [x] Add `buildEmailOtpRoutePlan(...)` for choosing `login`, `registration`, or `signing_session` route family from ceremony type, operation, and resolved auth lane.
+4. [x] Refactor `EmailOtpThresholdSessionCoordinator` so `loginWithEcdsaCapabilityInternal`, `enrollAndLoginWithEcdsaCapabilityInternal`, `requestChallengeForSigning`, `loginWithEd25519CapabilityForSigning`, and `loginWithEcdsaCapabilityForSigning` call the resolver instead of hand-normalizing auth.
+5. [x] Refactor NEAR and EVM transaction signing adapters to call one shared helper for deriving signing-session auth from Email OTP warm-session records.
+6. [x] Refactor `createOrchestrationDependencyBundle` to forward resolved auth lanes for transaction-signing Email OTP challenge/verify instead of partially normalized `routeAuth` plus optional `appSessionJwt`.
+7. [x] Refactor the Email OTP worker to receive an explicit route plan and remove local route-family inference except for validation assertions.
+8. [x] Keep lower-level threshold HSS bootstrap auth separate. If renamed, use a precise name such as `thresholdBootstrapAuth` or `hssRouteAuth`, not generic `routeAuth`.
+9. [x] Add tests for the resolver matrix:
+   - fresh unlock with `appSessionJwt`
+   - fresh unlock with cookie session
+   - registration with `appSessionJwt`
+   - transaction signing after sealed refresh with Ed25519 threshold-session auth
+   - transaction signing after sealed refresh with ECDSA threshold-session auth
+   - sensitive-operation challenge after sealed refresh with signing-session auth
+   - mismatched or missing auth lane fails closed
+10. [x] Add static guards that prevent raw `appSessionJwt` from crossing below the public SDK/iframe boundary into worker payload builders, except where the route plan explicitly serializes an app-session lane.
+11. [x] Add static guards that prevent Email OTP public/worker payload surfaces from reintroducing `thresholdRouteAuth`.
+12. [x] Update docs and tests to describe "auth lanes" and "route plans" consistently, while keeping server-side validation authoritative.
+
 ## WarmSessionManager Responsibilities
 
 `WarmSessionManager` should own policy and lifecycle, but secret bytes should stay in workers.
@@ -730,6 +888,73 @@ Worker responsibilities:
 21. [x] Unit test route metadata mismatches fail closed against server-derived threshold-session state.
 22. [x] Unit test apply/remove rate-limit status mapping.
 
+### Phase 9: Remove App-Session JWT Continuity For Sensitive-Operation Challenges
+
+Long-term target: after sealed refresh restores an Email OTP signing session, use restored signing-session authority to request a fresh sensitive-operation OTP challenge. Do not rely on a JS-readable `app_session_v1` JWT as the same-tab reload continuity primitive.
+
+1. [x] Add server routes for requesting and verifying sensitive-operation OTP challenges with threshold-session auth:
+   `/wallet/email-otp/signing-session/challenge`,
+   `/wallet/email-otp/signing-session/verify`, and
+   `/wallet/email-otp/signing-session/unseal`.
+2. [x] Validate restored threshold-session claims and server auth-session status are complete, unexpired, not exhausted, and bound to the same user and `walletSigningSessionId` before challenge issuance. Keep this check budget-neutral; do not consume transaction signing use count while only requesting a fresh OTP challenge.
+3. [x] Restrict the signing-session challenge lane to Email OTP enrollment state and `export_key`.
+4. [x] Derive the challenge destination email only from server-side enrollment state.
+5. [x] Reject account identifier mismatch and ignore client-supplied email destination.
+6. [x] Ensure the route only sends a fresh OTP challenge and does not mint export/link-device/add-signer authorization by itself.
+7. [x] Ensure OTP verification mints a short-lived operation-scoped grant for exactly `export_key`.
+8. [x] Keep transaction signing `remainingUses` unchanged by challenge issuance and enforce separate challenge rate limits.
+9. [x] Add audit events for signing-session-authorized sensitive-operation challenge requests without logging OTP codes, JWTs, ciphertexts, or secrets.
+10. [x] Update the Email OTP coordinator to prefer signing-session-authorized challenge issuance after reload.
+11. [x] Remove the same-tab `sessionStorage` app-session JWT cache after the new challenge path is covered by tests.
+12. [x] Add tests proving restored signing-session authority cannot directly export keys or mint a general app session.
+13. [x] Add tests proving passkey accounts continue to use WebAuthn/passkey fresh auth and cannot use the Email OTP challenge route.
+14. [x] Add tests proving expired, mismatched, exhausted, and cross-wallet threshold sessions cannot request sensitive-operation OTP challenges.
+15. [x] Add budget-neutral threshold auth-session status reads for the signing-session challenge, verify, and unseal routes. These checks validate both the curve session and wallet-signing budget without calling `consumeUseCount`.
+
+### Phase 10: Enforce Server-Owned Email OTP Enrollment Identity
+
+Remove login-time enrollment email repair from the normal flow. Session persistence should restore signing-session authority only; it must not compensate for incomplete Email OTP enrollment identity data.
+
+1. [x] Make active Email OTP enrollment validation require the server-owned enrolled email.
+2. [x] Ensure Email OTP enrollment verify is the only normal route that creates or updates the enrolled verified email.
+3. [x] Remove login OTP verify behavior that fills missing enrollment email from the verified login challenge.
+4. [x] Update login challenge issuance to fail closed with `reenrollment_required` when the active enrollment is missing a verified email.
+5. [x] Update signing-session operation challenge issuance to fail closed with `reenrollment_required` when the active enrollment is missing a verified email.
+6. [x] Ensure app-session email can validate enrollment selection but cannot overwrite the enrolled mailbox.
+7. [x] Ensure signing-session-authorized challenges and app-session-authorized login challenges use one shared server-side enrollment email resolver.
+8. [x] Add unit tests proving login OTP verify never mutates enrollment email.
+9. [x] Add route tests proving missing verified enrollment email fails for login challenge and signing-session operation challenge.
+10. [x] Add route tests proving client-supplied email and app-session email mismatch do not change the enrolled mailbox.
+11. [x] Add a static or unit guard that forbids request-path "backfill", "repair", or "fill missing email" logic in Email OTP login verify handlers.
+12. [x] For development data, document re-enrollment or local store reset as the cleanup path instead of keeping compatibility code.
+13. [x] If production data ever needs migration, implement it as an explicit audited migration script that only writes a verified email from historical enrollment verification evidence, not from login challenges.
+14. [x] Add a static guard that forbids backfill/fallback/legacy/compatibility terms in scoped Email OTP and signing-session persistence source surfaces.
+
+### Post-Phase 9/10 Code Review
+
+Current code review status: Phase 9 and Phase 10 are implemented in the active code paths.
+
+Evidence:
+
+1. [x] `emailOtpRouteHandlers.ts` includes signing-session-authorized Email OTP challenge and verify handlers.
+2. [x] Signing-session-authorized Email OTP challenges are restricted to `export_key`.
+3. [x] Signing-session-authorized Email OTP challenge delivery uses the server-owned Email OTP enrollment email, not a client-supplied email.
+4. [x] `emailOtpSessionRouteHelpers.ts` and session routes bind the signing-session challenge lane to threshold-session claims, `walletSigningSessionId`, expiry, and session policy status.
+5. [x] `EmailOtpThresholdSessionCoordinator.ts` can issue Email OTP challenge/verify requests through an explicit `signing_session` route family after sealed refresh.
+6. [x] Static and unit guards cover app-session removal, no login-time enrollment email backfill, no legacy/fallback repair terms, and worker route-plan boundaries.
+
+Remaining hardening tasks:
+
+1. [ ] Tighten `normalizeEmailOtpRoutePlan` so `operation` is parsed through shared Email OTP operation validation instead of accepting any non-empty string and casting it.
+2. [ ] Require a non-empty `thresholdSessionId` for `signing_session` route plans before constructing worker payloads.
+3. [ ] Add focused unit tests for malformed route-plan operation rejection and missing `thresholdSessionId` rejection.
+4. [ ] Re-run the focused route/auth matrix after those hardening edits:
+   `emailOtpAuthLane.unit.test.ts`,
+   `emailOtpRouteAuthRefactor.guard.unit.test.ts`,
+   `emailOtpEnrollmentIdentity.guard.unit.test.ts`,
+   `emailOtpSigningSession.noBackfillFallback.guard.unit.test.ts`,
+   and `email-otp.routes.test.ts`.
+
 ## Acceptance Criteria
 
 1. Email OTP `session` policy survives accidental page refresh without a new OTP while the server budget remains valid.
@@ -743,6 +968,7 @@ Worker responsibilities:
 9. Server-side TTL, remaining uses, revocation, and signing-root checks are authoritative.
 10. No PRF-only sealed-refresh APIs remain after the migration.
 11. Sealed refresh apply/remove does not consume transaction signing `remainingUses` and is enforced by separate rate limits.
+12. Active Email OTP enrollments always have a server-owned verified email, and login OTP verify never repairs enrollment identity as a request-path side effect.
 
 ## Static Guard
 

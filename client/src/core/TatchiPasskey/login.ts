@@ -827,7 +827,7 @@ async function primeThresholdLoginWarmSigners(args: {
           const useAppSessionBootstrapJwt =
             !!appSessionJwt &&
             !!String(args.canonicalEcdsaContext.ecdsaThresholdKeyId || '').trim();
-          const thresholdRouteAuth: AppOrThresholdSessionAuth | undefined =
+          const routeAuth: AppOrThresholdSessionAuth | undefined =
             useAppSessionBootstrapJwt && appSessionJwt
               ? { kind: 'app_session', jwt: appSessionJwt }
               : warmState.jwt
@@ -850,7 +850,7 @@ async function primeThresholdLoginWarmSigners(args: {
               ttlMs: args.ttlMs,
               remainingUses: args.remainingUses,
               clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
-              ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
+              ...(routeAuth ? { thresholdRouteAuth: routeAuth } : {}),
               ...(args.canonicalEcdsaContext.runtimePolicyScope
                 ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
                 : {}),
@@ -1227,6 +1227,11 @@ export async function getRecentUnlocks(
   const lastUsedAccount = await signingEngine.getLastUser();
   return {
     accountIds,
+    accounts: allUsersData.map((user) => ({
+      nearAccountId: user.nearAccountId,
+      signerSlot: user.signerSlot,
+      authMethod: user.authMethod || null,
+    })),
     lastUsedAccount,
   };
 }

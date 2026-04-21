@@ -129,17 +129,21 @@ import {
   type WebAuthnSyncChallengeStore,
 } from './WebAuthnSyncChallengeStore';
 import {
+  createEmailOtpWalletEnrollmentStore,
+  createEmailOtpAuthStateStore,
   createEmailOtpChallengeStore,
-  createEmailOtpEnrollmentStore,
   createEmailOtpGrantStore,
   createEmailOtpRegistrationAttemptStore,
   createEmailOtpUnlockChallengeStore,
+  type EmailOtpWalletEnrollmentRecord,
+  type EmailOtpWalletEnrollmentStore,
+  type EmailOtpAuthStateRecord,
+  type EmailOtpAuthStateStore,
   type EmailOtpChannel,
   type EmailOtpChallengeAction,
   type EmailOtpChallengeOperation,
   type EmailOtpChallengeRecord,
   type EmailOtpChallengeStore,
-  type EmailOtpEnrollmentStore,
   type EmailOtpGrantStore,
   type EmailOtpLoginChallengeOperation,
   type EmailOtpRegistrationAttemptStore,
@@ -600,8 +604,10 @@ export class AuthService {
   private emailOtpChallengeStore: EmailOtpChallengeStore | null = null;
   private emailOtpGrantStoreInitialized = false;
   private emailOtpGrantStore: EmailOtpGrantStore | null = null;
-  private emailOtpEnrollmentStoreInitialized = false;
-  private emailOtpEnrollmentStore: EmailOtpEnrollmentStore | null = null;
+  private emailOtpWalletEnrollmentStoreInitialized = false;
+  private emailOtpWalletEnrollmentStore: EmailOtpWalletEnrollmentStore | null = null;
+  private emailOtpAuthStateStoreInitialized = false;
+  private emailOtpAuthStateStore: EmailOtpAuthStateStore | null = null;
   private emailOtpUnlockChallengeStoreInitialized = false;
   private emailOtpUnlockChallengeStore: EmailOtpUnlockChallengeStore | null = null;
   private emailOtpRegistrationAttemptStoreInitialized = false;
@@ -896,7 +902,7 @@ export class AuthService {
     if (attempt) {
       if (!this.isHostedHmacReadableRelayerSubaccount(attempt.walletId)) {
         attempt.state = 'failed';
-        attempt.failureCode = 'legacy_email_derived_wallet_id';
+        attempt.failureCode = 'non_hmac_readable_wallet_id';
         attempt.updatedAtMs = now;
         await this.getEmailOtpRegistrationAttemptStore().put(attempt);
         return null;
@@ -924,6 +930,10 @@ export class AuthService {
       throw new Error('Google Email OTP accountMode must be register or login');
     }
     const email = toOptionalTrimmedString(input.email)?.toLowerCase() || '';
+    const orgId = toOptionalTrimmedString(input.runtimePolicyScope?.orgId) || '';
+    if (!orgId) {
+      throw new Error('Google Email OTP requires orgId tenant scope');
+    }
     const walletSubject = `wallet:${providerSubject}`;
     const identity = this.getIdentityStore();
     const linkedWalletId = await identity.getUserIdBySubject(walletSubject);
@@ -942,7 +952,11 @@ export class AuthService {
         error.code = 'not_found';
         throw error;
       }
-      const enrollment = await this.readEmailOtpEnrollment({ walletId: linkedWalletId });
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId: linkedWalletId,
+        orgId,
+        providerUserId: providerSubject,
+      });
       if (!enrollment.ok) {
         const error = new Error(enrollment.message) as Error & { code?: string };
         error.code = enrollment.code;
@@ -991,7 +1005,7 @@ export class AuthService {
     }
 
     if (linkedIsUsableRelayerWallet && linkedIsHostedHmacReadableWallet) {
-      const enrollment = await this.readEmailOtpEnrollment({ walletId: linkedWalletId });
+      const enrollment = await this.readEmailOtpEnrollment({ walletId: linkedWalletId, orgId });
       if (enrollment.ok) {
         return {
           ok: true,
@@ -1230,8 +1244,8 @@ export class AuthService {
       };
     }
 
-    const enrollment = await this.readEmailOtpEnrollment({ walletId: linkedWalletId });
-    if (enrollment.ok) {
+    const activeEnrollment = await this.getEmailOtpWalletEnrollmentStore().get(linkedWalletId);
+    if (activeEnrollment) {
       return {
         ok: true,
         providerSubject,
@@ -1241,10 +1255,6 @@ export class AuthService {
         orphanedWalletMappingSkippedReason: 'active_email_otp_enrollment',
       };
     }
-    if (enrollment.code !== 'not_found') {
-      return enrollment;
-    }
-
     const deleted = await identity.deleteSubjectLinkForDevCleanup({
       userId: linkedWalletId,
       subject,
@@ -1483,25 +1493,46 @@ export class AuthService {
     return this.emailOtpGrantStore;
   }
 
-  private getEmailOtpEnrollmentStore(): EmailOtpEnrollmentStore {
-    if (this.emailOtpEnrollmentStoreInitialized && this.emailOtpEnrollmentStore) {
-      return this.emailOtpEnrollmentStore;
+  private getEmailOtpWalletEnrollmentStore(): EmailOtpWalletEnrollmentStore {
+    if (this.emailOtpWalletEnrollmentStoreInitialized && this.emailOtpWalletEnrollmentStore) {
+      return this.emailOtpWalletEnrollmentStore;
     }
-    if (this.emailOtpEnrollmentStoreInitialized) {
-      this.emailOtpEnrollmentStore = createEmailOtpEnrollmentStore({
+    if (this.emailOtpWalletEnrollmentStoreInitialized) {
+      this.emailOtpWalletEnrollmentStore = createEmailOtpWalletEnrollmentStore({
         config: this.config.thresholdStore || null,
         logger: this.logger,
         isNode: this.isNodeEnvironment(),
       });
-      return this.emailOtpEnrollmentStore;
+      return this.emailOtpWalletEnrollmentStore;
     }
-    this.emailOtpEnrollmentStoreInitialized = true;
-    this.emailOtpEnrollmentStore = createEmailOtpEnrollmentStore({
+    this.emailOtpWalletEnrollmentStoreInitialized = true;
+    this.emailOtpWalletEnrollmentStore = createEmailOtpWalletEnrollmentStore({
       config: this.config.thresholdStore || null,
       logger: this.logger,
       isNode: this.isNodeEnvironment(),
     });
-    return this.emailOtpEnrollmentStore;
+    return this.emailOtpWalletEnrollmentStore;
+  }
+
+  private getEmailOtpAuthStateStore(): EmailOtpAuthStateStore {
+    if (this.emailOtpAuthStateStoreInitialized && this.emailOtpAuthStateStore) {
+      return this.emailOtpAuthStateStore;
+    }
+    if (this.emailOtpAuthStateStoreInitialized) {
+      this.emailOtpAuthStateStore = createEmailOtpAuthStateStore({
+        config: this.config.thresholdStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
+      return this.emailOtpAuthStateStore;
+    }
+    this.emailOtpAuthStateStoreInitialized = true;
+    this.emailOtpAuthStateStore = createEmailOtpAuthStateStore({
+      config: this.config.thresholdStore || null,
+      logger: this.logger,
+      isNode: this.isNodeEnvironment(),
+    });
+    return this.emailOtpAuthStateStore;
   }
 
   private getEmailOtpUnlockChallengeStore(): EmailOtpUnlockChallengeStore {
@@ -1575,21 +1606,11 @@ export class AuthService {
         | 'upstash-redis-rest'
         | 'redis-tcp'
         | '') || null;
-    const useSharedBackendConfig = Boolean(limiterKind) || this.isProductionEnvironment();
     const limiter = resolveSigningSessionSealRateLimitFromEnv({
       limiterKind,
-      upstashUrl:
-        this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_UPSTASH_URL') ||
-        (useSharedBackendConfig ? this.readEmailOtpConfigValue('UPSTASH_REDIS_REST_URL') : '') ||
-        null,
-      upstashToken:
-        this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_UPSTASH_TOKEN') ||
-        (useSharedBackendConfig ? this.readEmailOtpConfigValue('UPSTASH_REDIS_REST_TOKEN') : '') ||
-        null,
-      redisUrl:
-        this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_REDIS_URL') ||
-        (useSharedBackendConfig ? this.readEmailOtpConfigValue('REDIS_URL') : '') ||
-        null,
+      upstashUrl: this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_UPSTASH_URL') || null,
+      upstashToken: this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_UPSTASH_TOKEN') || null,
+      redisUrl: this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_REDIS_URL') || null,
       keyPrefix: this.readEmailOtpConfigValue('EMAIL_OTP_RATE_LIMIT_KEY_PREFIX') || 'email-otp:v2:',
       limit: 1,
       windowMs: 1,
@@ -1604,61 +1625,79 @@ export class AuthService {
     verify: { limit: number; windowMs: number };
     grant: { limit: number; windowMs: number };
   } {
-    const clampInt = (raw: string, fallback: number, min: number, max: number): number => {
-      if (!String(raw || '').trim()) return fallback;
-      const n = Number(raw);
-      if (!Number.isFinite(n)) return fallback;
-      return Math.min(Math.max(Math.floor(n), min), max);
+    const parseConfiguredInt = (
+      name: string,
+      raw: string,
+      defaultValue: number,
+      min: number,
+      max: number,
+    ): number => {
+      const normalized = String(raw || '').trim();
+      if (!normalized) return defaultValue;
+      const n = Number(normalized);
+      if (!Number.isFinite(n)) {
+        throw new Error(`${name} must be a finite number`);
+      }
+      if (n < min || n > max) {
+        throw new Error(`${name} must be between ${min} and ${max}`);
+      }
+      return Math.floor(n);
     };
     const production = this.isProductionEnvironment();
-    const challengeFallback = production
+    const challengeDefault = production
       ? { limit: 5, windowMs: 5 * 60_000 }
       : { limit: 100, windowMs: 60_000 };
-    const verifyFallback = production
+    const verifyDefault = production
       ? { limit: 10, windowMs: 5 * 60_000 }
       : { limit: 100, windowMs: 60_000 };
-    const grantFallback = production
+    const grantDefault = production
       ? { limit: 8, windowMs: 5 * 60_000 }
       : { limit: 100, windowMs: 60_000 };
     return {
       challenge: {
-        limit: clampInt(
+        limit: parseConfiguredInt(
+          'EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX',
           this.readEmailOtpConfigValue('EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX'),
-          challengeFallback.limit,
+          challengeDefault.limit,
           1,
           500,
         ),
-        windowMs: clampInt(
+        windowMs: parseConfiguredInt(
+          'EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS',
           this.readEmailOtpConfigValue('EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS'),
-          challengeFallback.windowMs,
+          challengeDefault.windowMs,
           1_000,
           24 * 60 * 60_000,
         ),
       },
       verify: {
-        limit: clampInt(
+        limit: parseConfiguredInt(
+          'EMAIL_OTP_VERIFY_RATE_LIMIT_MAX',
           this.readEmailOtpConfigValue('EMAIL_OTP_VERIFY_RATE_LIMIT_MAX'),
-          verifyFallback.limit,
+          verifyDefault.limit,
           1,
           1000,
         ),
-        windowMs: clampInt(
+        windowMs: parseConfiguredInt(
+          'EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS',
           this.readEmailOtpConfigValue('EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS'),
-          verifyFallback.windowMs,
+          verifyDefault.windowMs,
           1_000,
           24 * 60 * 60_000,
         ),
       },
       grant: {
-        limit: clampInt(
+        limit: parseConfiguredInt(
+          'EMAIL_OTP_GRANT_RATE_LIMIT_MAX',
           this.readEmailOtpConfigValue('EMAIL_OTP_GRANT_RATE_LIMIT_MAX'),
-          grantFallback.limit,
+          grantDefault.limit,
           1,
           1000,
         ),
-        windowMs: clampInt(
+        windowMs: parseConfiguredInt(
+          'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS',
           this.readEmailOtpConfigValue('EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS'),
-          grantFallback.windowMs,
+          grantDefault.windowMs,
           1_000,
           24 * 60 * 60_000,
         ),
@@ -1725,43 +1764,87 @@ export class AuthService {
     maxActiveChallengesPerContext: number;
   } {
     const deliveryModeRaw = this.readEmailOtpConfigValue('EMAIL_OTP_DELIVERY_MODE').toLowerCase();
-    const deliveryMode =
-      deliveryModeRaw === 'email_provider' || deliveryModeRaw === 'log'
-        ? deliveryModeRaw
-        : 'memory';
-    const clampInt = (raw: string, fallback: number, min: number, max: number): number => {
-      if (!String(raw || '').trim()) return fallback;
-      const n = Number(raw);
-      if (!Number.isFinite(n)) return fallback;
-      return Math.min(Math.max(Math.floor(n), min), max);
+    let deliveryMode: 'email_provider' | 'log' | 'memory';
+    if (!deliveryModeRaw) {
+      deliveryMode = 'memory';
+    } else if (
+      deliveryModeRaw === 'email_provider' ||
+      deliveryModeRaw === 'log' ||
+      deliveryModeRaw === 'memory'
+    ) {
+      deliveryMode = deliveryModeRaw;
+    } else {
+      throw new Error('EMAIL_OTP_DELIVERY_MODE must be one of email_provider, log, or memory');
+    }
+    const parseConfiguredInt = (
+      name: string,
+      raw: string,
+      defaultValue: number,
+      min: number,
+      max: number,
+    ): number => {
+      const normalized = String(raw || '').trim();
+      if (!normalized) return defaultValue;
+      const n = Number(normalized);
+      if (!Number.isFinite(n)) {
+        throw new Error(`${name} must be a finite number`);
+      }
+      if (n < min || n > max) {
+        throw new Error(`${name} must be between ${min} and ${max}`);
+      }
+      return Math.floor(n);
     };
-    const challengeTtlMs = clampInt(
+    const challengeTtlMs = parseConfiguredInt(
+      'EMAIL_OTP_CHALLENGE_TTL_MS',
       this.readEmailOtpConfigValue('EMAIL_OTP_CHALLENGE_TTL_MS'),
       5 * 60_000,
       30_000,
       15 * 60_000,
     );
-    const grantTtlMs = clampInt(
+    const grantTtlMs = parseConfiguredInt(
+      'EMAIL_OTP_GRANT_TTL_MS',
       this.readEmailOtpConfigValue('EMAIL_OTP_GRANT_TTL_MS'),
       30_000,
       10_000,
       5 * 60_000,
     );
-    const maxAttempts = clampInt(this.readEmailOtpConfigValue('EMAIL_OTP_MAX_ATTEMPTS'), 5, 1, 10);
-    const lockoutTtlMs = clampInt(
+    const maxAttempts = parseConfiguredInt(
+      'EMAIL_OTP_MAX_ATTEMPTS',
+      this.readEmailOtpConfigValue('EMAIL_OTP_MAX_ATTEMPTS'),
+      5,
+      1,
+      10,
+    );
+    const lockoutTtlMs = parseConfiguredInt(
+      'EMAIL_OTP_LOCKOUT_TTL_MS',
       this.readEmailOtpConfigValue('EMAIL_OTP_LOCKOUT_TTL_MS'),
       15 * 60_000,
       60_000,
       24 * 60 * 60_000,
     );
-    const codeLength = clampInt(this.readEmailOtpConfigValue('EMAIL_OTP_CODE_LENGTH'), 6, 6, 8);
-    const maxActiveChallengesPerContext = clampInt(
+    const codeLength = parseConfiguredInt(
+      'EMAIL_OTP_CODE_LENGTH',
+      this.readEmailOtpConfigValue('EMAIL_OTP_CODE_LENGTH'),
+      6,
+      6,
+      8,
+    );
+    const maxActiveChallengesPerContext = parseConfiguredInt(
+      'EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_CONTEXT',
       this.readEmailOtpConfigValue('EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_CONTEXT'),
       5,
       1,
       20,
     );
     const devOutboxEnabledRaw = this.readEmailOtpConfigValue('EMAIL_OTP_DEV_OUTBOX_ENABLED');
+    if (
+      devOutboxEnabledRaw &&
+      !['1', 'true', 'yes', 'on', '0', 'false', 'no', 'off'].includes(
+        devOutboxEnabledRaw.toLowerCase(),
+      )
+    ) {
+      throw new Error('EMAIL_OTP_DEV_OUTBOX_ENABLED must be a boolean flag when provided');
+    }
     const devOutboxEnabled =
       deliveryMode === 'memory' &&
       !this.isProductionEnvironment() &&
@@ -1783,15 +1866,15 @@ export class AuthService {
   private createEmailOtpShamirCipher() {
     // Local/dev bootstrap path only. Production should source the active Email OTP
     // seal material from a KMS/HSM boundary before constructing this adapter.
-    const keyVersion = this.readConfigValue('SIGNING_SESSION_SEAL_KEY_VERSION') || 'kek-s-2026-02';
+    const keyVersion = this.readConfigValue('SIGNING_SESSION_SEAL_KEY_VERSION');
     const shamirPrimeB64u = this.readConfigValue('SIGNING_SESSION_SHAMIR_P_B64U');
     const serverEncryptExponentB64u = this.readConfigValue('SIGNING_SESSION_SEAL_E_S_B64U');
     const serverDecryptExponentB64u = this.readConfigValue('SIGNING_SESSION_SEAL_D_S_B64U');
-    if (!shamirPrimeB64u || !serverEncryptExponentB64u || !serverDecryptExponentB64u) {
+    if (!keyVersion || !shamirPrimeB64u || !serverEncryptExponentB64u || !serverDecryptExponentB64u) {
       return {
         ok: false as const,
         code: 'not_configured',
-        message: 'Email OTP unseal requires SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
+        message: 'Email OTP unseal requires SIGNING_SESSION_SEAL_KEY_VERSION, SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
       };
     }
     try {
@@ -2099,6 +2182,64 @@ export class AuthService {
       isNode: this.isNodeEnvironment(),
     });
     return this.nearPublicKeyStore;
+  }
+
+  async recordNearPublicKeyMetadata(input: {
+    userId?: unknown;
+    publicKey?: unknown;
+    kind: NearPublicKeyKind;
+    signerSlot?: unknown;
+    credentialIdB64u?: unknown;
+    rpId?: unknown;
+    addedTxHash?: unknown;
+    removedAtMs?: unknown;
+    source?: string;
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const userId = toOptionalTrimmedString(input.userId);
+    const publicKey = toOptionalTrimmedString(input.publicKey);
+    if (!userId || !publicKey) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'userId and publicKey are required',
+      };
+    }
+
+    const now = Date.now();
+    const signerSlotRaw =
+      typeof input.signerSlot === 'number' ? input.signerSlot : Number(input.signerSlot);
+    const removedAtMsRaw =
+      typeof input.removedAtMs === 'number' ? input.removedAtMs : Number(input.removedAtMs);
+    const credentialIdB64u = toOptionalTrimmedString(input.credentialIdB64u);
+    const rpId = toOptionalTrimmedString(input.rpId);
+    const addedTxHash = toOptionalTrimmedString(input.addedTxHash);
+    const record: NearPublicKeyRecord = {
+      version: 'near_public_key_v1',
+      userId,
+      publicKey,
+      kind: input.kind,
+      ...(Number.isFinite(signerSlotRaw) && signerSlotRaw >= 1
+        ? { signerSlot: Math.floor(signerSlotRaw) }
+        : {}),
+      ...(credentialIdB64u ? { credentialIdB64u } : {}),
+      ...(rpId ? { rpId } : {}),
+      createdAtMs: now,
+      updatedAtMs: now,
+      ...(addedTxHash ? { addedTxHash } : {}),
+      ...(Number.isFinite(removedAtMsRaw) && removedAtMsRaw > 0
+        ? { removedAtMs: Math.floor(removedAtMsRaw) }
+        : {}),
+    };
+
+    try {
+      await this.getNearPublicKeyStore().put(record);
+      return { ok: true };
+    } catch (error: unknown) {
+      const source = toOptionalTrimmedString(input.source) || 'near-public-key-metadata';
+      const message = errorMessage(error) || 'Failed to persist NEAR public key metadata';
+      this.logger.warn(`[AuthService] ${source} failed for ${userId}`, error);
+      return { ok: false, code: 'internal', message };
+    }
   }
 
   private getAccountSignerStore(): AccountSignerStore {
@@ -3168,7 +3309,7 @@ export class AuthService {
         }
 
         // 2) Create the on-chain account as a subaccount of the relayer signer.
-        // In the legacy-challenge-free / lite architecture, account creation is done directly (no WebAuthn contract call).
+        // In the lite architecture, account creation is done directly (no WebAuthn contract call).
         const accountExists = await this.checkAccountExists(accountId);
         if (accountExists) {
           throw new Error(`Account ${accountId} already exists. Cannot create duplicate account.`);
@@ -3360,33 +3501,21 @@ export class AuthService {
         // Best-effort: persist NEAR public key metadata for UI surfaces.
         // This is not required for account correctness, so keep it off the blocking path.
         void (async () => {
-          try {
-            const nearPublicKeyMetadataStartedAt = Date.now();
-            const pkStore = this.getNearPublicKeyStore();
-            const thresholdPk = newPublicKey;
-            if (thresholdPk) {
-              const thresholdRecord: NearPublicKeyRecord = {
-                version: 'near_public_key_v1',
-                userId: accountId,
-                publicKey: thresholdPk,
-                kind: 'threshold',
-                signerSlot,
-                rpId,
-                credentialIdB64u,
-                createdAtMs: now,
-                updatedAtMs: now,
-              };
-              await pkStore.put(thresholdRecord);
-            }
+          const nearPublicKeyMetadataStartedAt = Date.now();
+          const recorded = await this.recordNearPublicKeyMetadata({
+            userId: accountId,
+            publicKey: newPublicKey,
+            kind: 'threshold',
+            signerSlot,
+            rpId,
+            credentialIdB64u,
+            source: 'atomic registration NEAR public key metadata persistence',
+          });
+          if (recorded.ok) {
             this.logger.info('[AuthService] atomic registration async persistence', {
               nearAccountId: accountId,
               nearPublicKeyMetadataMs: Date.now() - nearPublicKeyMetadataStartedAt,
             });
-          } catch (error: unknown) {
-            this.logger.warn(
-              `[AuthService] failed to persist NEAR public key metadata after registration for ${accountId}`,
-              error,
-            );
           }
         })();
 
@@ -3464,7 +3593,7 @@ export class AuthService {
    * - and that `clientDataJSON.origin` is within the RP ID domain.
    *
    * Notes:
-   * - This intentionally does not involve legacy challenge proofs or `verify_authentication_response`.
+   * - This intentionally does not involve on-chain challenge proofs or `verify_authentication_response`.
    * - Replay protection is handled by upstream protocol bindings (e.g., unique sessionPolicyDigest32 via sessionId).
    */
   async verifyWebAuthnAuthenticationLite(input: {
@@ -3923,6 +4052,7 @@ export class AuthService {
 
   async createEmailOtpUnlockChallenge(request: {
     walletId?: unknown;
+    orgId?: unknown;
     ttlMs?: unknown;
     ttl_ms?: unknown;
   }): Promise<
@@ -3938,15 +4068,15 @@ export class AuthService {
   > {
     try {
       const walletId = toOptionalTrimmedString(request.walletId);
+      const orgId = toOptionalTrimmedString(request.orgId) || undefined;
       if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
       if (!isValidAccountId(walletId)) {
         return { ok: false, code: 'invalid_body', message: 'Invalid walletId' };
       }
 
-      const enrollment = await this.getEmailOtpEnrollmentStore().get(walletId);
-      if (!enrollment) {
-        return { ok: false, code: 'not_found', message: 'Email OTP enrollment not found' };
-      }
+      const activeEnrollment = await this.readActiveEmailOtpEnrollment({ walletId, orgId });
+      if (!activeEnrollment.ok) return activeEnrollment;
+      const enrollment = activeEnrollment.enrollment;
 
       const ttlMsRaw = request.ttlMs ?? request.ttl_ms;
       const ttlMs = (() => {
@@ -3972,8 +4102,8 @@ export class AuthService {
         version: 'email_otp_unlock_challenge_v1',
         challengeId,
         walletId: enrollment.walletId,
-        userId: enrollment.userId,
-        ...(enrollment.orgId ? { orgId: enrollment.orgId } : {}),
+        userId: enrollment.providerUserId,
+        orgId: enrollment.orgId,
         challengeB64u,
         createdAtMs,
         expiresAtMs,
@@ -3998,6 +4128,7 @@ export class AuthService {
 
   async verifyEmailOtpUnlockProof(request: {
     walletId?: unknown;
+    orgId?: unknown;
     challengeId?: unknown;
     unlockProof?: unknown;
   }): Promise<
@@ -4012,6 +4143,7 @@ export class AuthService {
   > {
     try {
       const walletId = toOptionalTrimmedString(request.walletId);
+      const orgId = toOptionalTrimmedString(request.orgId) || undefined;
       const challengeId = toOptionalTrimmedString(request.challengeId);
       if (!walletId)
         return { ok: false, verified: false, code: 'invalid_body', message: 'Missing walletId' };
@@ -4083,18 +4215,19 @@ export class AuthService {
         };
       }
 
-      const enrollment = await this.getEmailOtpEnrollmentStore().get(walletId);
-      if (!enrollment) {
+      const activeEnrollment = await this.readActiveEmailOtpEnrollment({ walletId, orgId });
+      if (!activeEnrollment.ok) {
         return {
           ok: false,
           verified: false,
-          code: 'not_found',
-          message: 'Email OTP enrollment not found',
+          code: activeEnrollment.code,
+          message: activeEnrollment.message,
         };
       }
+      const enrollment = activeEnrollment.enrollment;
       if (
-        challengeRecord.userId !== enrollment.userId ||
-        String(challengeRecord.orgId || '') !== String(enrollment.orgId || '')
+        challengeRecord.userId !== enrollment.providerUserId ||
+        challengeRecord.orgId !== enrollment.orgId
       ) {
         return {
           ok: false,
@@ -4154,7 +4287,7 @@ export class AuthService {
         };
       }
 
-      const enrolledPublicKey = base64UrlDecode(enrollment.unlockPublicKey);
+      const enrolledPublicKey = base64UrlDecode(enrollment.clientUnlockPublicKeyB64u);
       if (
         enrolledPublicKey.length !== publicKey33.length ||
         !enrolledPublicKey.every((value, index) => value === publicKey33[index])
@@ -4163,7 +4296,7 @@ export class AuthService {
           ok: false,
           verified: false,
           code: 'invalid_unlock_proof',
-          message: 'unlockProof.publicKey does not match the enrolled unlockPublicKey',
+          message: 'unlockProof.publicKey does not match the enrolled clientUnlockPublicKeyB64u',
         };
       }
 
@@ -4203,16 +4336,14 @@ export class AuthService {
       }
 
       const nowMs = Date.now();
-      await this.getEmailOtpEnrollmentStore().put({
-        ...enrollment,
-        updatedAtMs: nowMs,
+      await this.putEmailOtpAuthStateForEnrollment(enrollment, {
         lastEmailOtpLoginAtMs: nowMs,
       });
 
       return {
         ok: true,
         verified: true,
-        userId: enrollment.userId,
+        userId: enrollment.walletId,
         walletId: enrollment.walletId,
         unlockKeyVersion: enrollment.unlockKeyVersion,
       };
@@ -4279,6 +4410,67 @@ export class AuthService {
     }
   }
 
+  private async readEmailOtpAuthStateForEnrollment(
+    enrollmentRecord: EmailOtpWalletEnrollmentRecord,
+  ): Promise<
+    | { ok: true; state: EmailOtpAuthStateRecord | null }
+    | { ok: false; code: string; message: string }
+  > {
+    const state = await this.getEmailOtpAuthStateStore().get(enrollmentRecord.walletId);
+    if (!state) return { ok: true, state: null };
+    if (state.orgId !== enrollmentRecord.orgId || state.providerUserId !== enrollmentRecord.providerUserId) {
+      return {
+        ok: false,
+        code: 'auth_state_enrollment_mismatch',
+        message: 'Email OTP auth state does not match the active enrollment',
+      };
+    }
+    return { ok: true, state };
+  }
+
+  private async putEmailOtpAuthStateForEnrollment(
+    enrollmentRecord: EmailOtpWalletEnrollmentRecord,
+    patch: Partial<
+      Pick<
+        EmailOtpAuthStateRecord,
+        | 'otpFailureCount'
+        | 'lastOtpFailureAtMs'
+        | 'otpLockedUntilMs'
+        | 'lastEmailOtpLoginAtMs'
+        | 'lastStrongAuthAtMs'
+      >
+    >,
+  ): Promise<EmailOtpAuthStateRecord> {
+    const nowMs = Date.now();
+    const existing = await this.getEmailOtpAuthStateStore().get(enrollmentRecord.walletId);
+    if (
+      existing &&
+      (existing.orgId !== enrollmentRecord.orgId || existing.providerUserId !== enrollmentRecord.providerUserId)
+    ) {
+      throw new Error('Email OTP auth state does not match the active enrollment');
+    }
+    const next: EmailOtpAuthStateRecord = {
+      version: 'email_otp_auth_state_v1',
+      walletId: enrollmentRecord.walletId,
+      providerUserId: enrollmentRecord.providerUserId,
+      orgId: enrollmentRecord.orgId,
+      createdAtMs: existing?.createdAtMs ?? nowMs,
+      updatedAtMs: nowMs,
+      ...(existing?.otpFailureCount != null
+        ? { otpFailureCount: existing.otpFailureCount }
+        : {}),
+      ...(existing?.lastOtpFailureAtMs ? { lastOtpFailureAtMs: existing.lastOtpFailureAtMs } : {}),
+      ...(existing?.otpLockedUntilMs ? { otpLockedUntilMs: existing.otpLockedUntilMs } : {}),
+      ...(existing?.lastEmailOtpLoginAtMs
+        ? { lastEmailOtpLoginAtMs: existing.lastEmailOtpLoginAtMs }
+        : {}),
+      ...(existing?.lastStrongAuthAtMs ? { lastStrongAuthAtMs: existing.lastStrongAuthAtMs } : {}),
+      ...patch,
+    };
+    await this.getEmailOtpAuthStateStore().put(next);
+    return next;
+  }
+
   private async createEmailOtpChallengeWithAction(request: {
     userId?: unknown;
     walletId?: unknown;
@@ -4299,7 +4491,7 @@ export class AuthService {
           expiresAtMs: number;
           userId: string;
           walletId: string;
-          orgId?: string;
+          orgId: string;
           otpChannel: EmailOtpChannel;
           sessionHash: string;
           appSessionVersion: string;
@@ -4323,7 +4515,7 @@ export class AuthService {
     try {
       const userId = toOptionalTrimmedString(request.userId);
       const walletId = toOptionalTrimmedString(request.walletId);
-      const orgId = toOptionalTrimmedString(request.orgId) || undefined;
+      const orgId = toOptionalTrimmedString(request.orgId) || '';
       const email = toOptionalTrimmedString(request.email)?.toLowerCase() || '';
       const otpChannel = toOptionalTrimmedString(request.otpChannel);
       const sessionHash = toOptionalTrimmedString(request.sessionHash);
@@ -4344,13 +4536,7 @@ export class AuthService {
       }
       if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
       if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
-      if (!email) {
-        return {
-          ok: false,
-          code: 'recovery_email_missing',
-          message: 'Current app session does not include a recovery email',
-        };
-      }
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
       if (otpChannel !== EMAIL_OTP_CHANNEL) {
         return {
           ok: false,
@@ -4362,19 +4548,37 @@ export class AuthService {
       if (!appSessionVersion) {
         return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
       }
-      const existingEnrollment = await this.getEmailOtpEnrollmentStore().get(walletId);
-      if (action === WALLET_EMAIL_OTP_ACTIONS.login && !existingEnrollment) {
-        return { ok: false, code: 'not_found', message: 'Email OTP enrollment not found' };
+      const activeEnrollment =
+        action === WALLET_EMAIL_OTP_ACTIONS.login
+          ? await this.readActiveEmailOtpEnrollment({ walletId, orgId })
+          : null;
+      if (activeEnrollment && !activeEnrollment.ok) return activeEnrollment;
+      const existingEnrollment = activeEnrollment?.ok ? activeEnrollment.enrollment : null;
+      const existingAuthStateResult = existingEnrollment
+        ? await this.readEmailOtpAuthStateForEnrollment(existingEnrollment)
+        : { ok: true as const, state: null };
+      if (!existingAuthStateResult.ok) return existingAuthStateResult;
+      const existingAuthState = existingAuthStateResult.state;
+      const challengeEmail =
+        action === WALLET_EMAIL_OTP_ACTIONS.login
+          ? existingEnrollment?.verifiedEmail || ''
+          : email;
+      if (!challengeEmail) {
+        return {
+          ok: false,
+          code: 'recovery_email_missing',
+          message: 'Current app session does not include a recovery email',
+        };
       }
       if (
-        existingEnrollment?.otpLockedUntilMs &&
-        existingEnrollment.otpLockedUntilMs > Date.now()
+        existingAuthState?.otpLockedUntilMs &&
+        existingAuthState.otpLockedUntilMs > Date.now()
       ) {
         return {
           ok: false,
           code: 'otp_locked_out',
           message: 'Email OTP is temporarily locked for this wallet',
-          lockedUntilMs: existingEnrollment.otpLockedUntilMs,
+          lockedUntilMs: existingAuthState.otpLockedUntilMs,
         };
       }
       const rateLimit = await this.consumeEmailOtpRateLimit({
@@ -4405,7 +4609,7 @@ export class AuthService {
         challengeStore,
         userId,
         walletId,
-        ...(orgId ? { orgId } : {}),
+        orgId,
         otpChannel: EMAIL_OTP_CHANNEL,
         sessionHash,
         appSessionVersion,
@@ -4420,9 +4624,9 @@ export class AuthService {
         challengeId,
         userId,
         walletId,
-        ...(orgId ? { orgId } : {}),
+        orgId,
         otpChannel: EMAIL_OTP_CHANNEL,
-        email,
+        email: challengeEmail,
         otpCode,
         sessionHash,
         appSessionVersion,
@@ -4448,7 +4652,7 @@ export class AuthService {
         walletId,
         userId,
         otpChannel: EMAIL_OTP_CHANNEL,
-        email,
+        email: challengeEmail,
         otpCode,
         expiresAtMs,
       });
@@ -4466,7 +4670,7 @@ export class AuthService {
           expiresAtMs,
           userId,
           walletId,
-          ...(orgId ? { orgId } : {}),
+          orgId,
           otpChannel: EMAIL_OTP_CHANNEL,
           sessionHash,
           appSessionVersion,
@@ -4506,7 +4710,7 @@ export class AuthService {
           expiresAtMs: number;
           userId: string;
           walletId: string;
-          orgId?: string;
+          orgId: string;
           otpChannel: EmailOtpChannel;
           sessionHash: string;
           appSessionVersion: string;
@@ -4556,7 +4760,7 @@ export class AuthService {
           expiresAtMs: number;
           userId: string;
           walletId: string;
-          orgId?: string;
+          orgId: string;
           otpChannel: EmailOtpChannel;
           sessionHash: string;
           appSessionVersion: string;
@@ -4604,7 +4808,8 @@ export class AuthService {
         challengeId: string;
         userId: string;
         walletId: string;
-        orgId?: string;
+        orgId: string;
+        email?: string;
         otpChannel: EmailOtpChannel;
       }
     | {
@@ -4618,7 +4823,7 @@ export class AuthService {
     try {
       const userId = toOptionalTrimmedString(request.userId);
       const walletId = toOptionalTrimmedString(request.walletId);
-      const orgId = toOptionalTrimmedString(request.orgId) || undefined;
+      const orgId = toOptionalTrimmedString(request.orgId) || '';
       const challengeId = toOptionalTrimmedString(request.challengeId);
       const otpCode = toOptionalTrimmedString(request.otpCode);
       const otpChannel = toOptionalTrimmedString(request.otpChannel);
@@ -4629,6 +4834,7 @@ export class AuthService {
       const expectedOperation = request.expectedOperation;
       if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
       if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
       if (!challengeId) return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
       if (!otpCode) return { ok: false, code: 'invalid_body', message: 'Missing otpCode' };
       if (otpChannel !== EMAIL_OTP_CHANNEL) {
@@ -4652,14 +4858,30 @@ export class AuthService {
       });
       if (!rateLimit.ok) return rateLimit;
 
-      const enrollmentStore = this.getEmailOtpEnrollmentStore();
-      const enrollment = await enrollmentStore.get(walletId);
-      if (expectedAction === WALLET_EMAIL_OTP_ACTIONS.login && !enrollment) {
-        return { ok: false, code: 'not_found', message: 'Email OTP enrollment not found' };
+      const activeEnrollment =
+        expectedAction === WALLET_EMAIL_OTP_ACTIONS.login
+          ? await this.readActiveEmailOtpEnrollment({ walletId, orgId })
+          : null;
+      if (activeEnrollment && !activeEnrollment.ok) return activeEnrollment;
+      const enrollment =
+        activeEnrollment?.ok
+          ? activeEnrollment.enrollment
+          : await this.getEmailOtpWalletEnrollmentStore().get(walletId);
+      if (enrollment && enrollment.orgId !== orgId) {
+        return {
+          ok: false,
+          code: 'tenant_scope_mismatch',
+          message: 'Email OTP enrollment does not match the requested orgId',
+        };
       }
+      const authStateResult = enrollment
+        ? await this.readEmailOtpAuthStateForEnrollment(enrollment)
+        : { ok: true as const, state: null };
+      if (!authStateResult.ok) return authStateResult;
+      const authState = authStateResult.state;
       const activeLockoutUntilMs =
-        enrollment?.otpLockedUntilMs && enrollment.otpLockedUntilMs > Date.now()
-          ? enrollment.otpLockedUntilMs
+        authState?.otpLockedUntilMs && authState.otpLockedUntilMs > Date.now()
+          ? authState.otpLockedUntilMs
           : undefined;
       if (activeLockoutUntilMs) {
         return {
@@ -4678,7 +4900,7 @@ export class AuthService {
         record = await challengeStore.findActiveByContext({
           userId,
           walletId,
-          ...(orgId ? { orgId } : {}),
+          orgId,
           otpChannel: EMAIL_OTP_CHANNEL,
           sessionHash,
           appSessionVersion,
@@ -4734,7 +4956,7 @@ export class AuthService {
         const matchingRecord = await challengeStore.findActiveByContext({
           userId,
           walletId,
-          ...(orgId ? { orgId } : {}),
+          orgId,
           otpChannel: EMAIL_OTP_CHANNEL,
           sessionHash,
           appSessionVersion,
@@ -4755,15 +4977,12 @@ export class AuthService {
           nextAttemptCount >= record.maxAttempts ? Date.now() + otpConfig.lockoutTtlMs : undefined;
         if (enrollment) {
           const nowMsForFailure = Date.now();
-          const nextFailureCount = Number(enrollment.otpFailureCount || 0) + 1;
-          const nextEnrollmentRecord = {
-            ...enrollment,
-            updatedAtMs: nowMsForFailure,
+          const nextFailureCount = Number(authState?.otpFailureCount || 0) + 1;
+          await this.putEmailOtpAuthStateForEnrollment(enrollment, {
             otpFailureCount: nextFailureCount,
             lastOtpFailureAtMs: nowMsForFailure,
             ...(nextLockedUntilMs ? { otpLockedUntilMs: nextLockedUntilMs } : {}),
-          };
-          await enrollmentStore.put(nextEnrollmentRecord);
+          });
         }
         if (nextAttemptCount >= record.maxAttempts) {
           await challengeStore.del(record.challengeId);
@@ -4794,13 +5013,11 @@ export class AuthService {
 
       if (enrollment) {
         const hadOtpFailureState =
-          Number(enrollment.otpFailureCount || 0) > 0 ||
-          enrollment.lastOtpFailureAtMs != null ||
-          enrollment.otpLockedUntilMs != null;
+          Number(authState?.otpFailureCount || 0) > 0 ||
+          authState?.lastOtpFailureAtMs != null ||
+          authState?.otpLockedUntilMs != null;
         if (hadOtpFailureState) {
-          await enrollmentStore.put({
-            ...enrollment,
-            updatedAtMs: nowMs,
+          await this.putEmailOtpAuthStateForEnrollment(enrollment, {
             otpFailureCount: 0,
             lastOtpFailureAtMs: undefined,
             otpLockedUntilMs: undefined,
@@ -4813,7 +5030,8 @@ export class AuthService {
         challengeId: record.challengeId,
         userId,
         walletId,
-        ...(orgId ? { orgId } : {}),
+        orgId,
+        ...(record.email ? { email: record.email } : {}),
         otpChannel: EMAIL_OTP_CHANNEL,
       };
     } catch (e: unknown) {
@@ -4879,7 +5097,7 @@ export class AuthService {
       grantToken,
       userId: verified.userId,
       walletId: verified.walletId,
-      ...(verified.orgId ? { orgId: verified.orgId } : {}),
+      orgId: verified.orgId,
       challengeId: verified.challengeId,
       otpChannel: verified.otpChannel,
       sessionHash: String(request.sessionHash || '').trim(),
@@ -4898,58 +5116,75 @@ export class AuthService {
   }
 
   private async validateEmailOtpEnrollmentMaterial(request: {
-    emailOtpEscrowBlob?: unknown;
-    emailOtpKeyVersion?: unknown;
-    unlockPublicKey?: unknown;
+    enrollmentEscrowCiphertextB64u?: unknown;
+    enrollmentSealKeyVersion?: unknown;
+    clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
-    enrollmentDeviceId?: unknown;
     thresholdEcdsaClientVerifyingShareB64u?: unknown;
   }): Promise<
     | {
         ok: true;
-        emailOtpEscrowBlob: string;
-        emailOtpKeyVersion: string;
-        unlockPublicKey: string;
+        enrollmentEscrowCiphertextB64u: string;
+        enrollmentSealKeyVersion: string;
+        clientUnlockPublicKeyB64u: string;
         unlockKeyVersion: string;
-        thresholdEcdsaClientVerifyingShareB64u?: string;
+        thresholdEcdsaClientVerifyingShareB64u: string;
       }
     | { ok: false; code: string; message: string }
   > {
-    const emailOtpEscrowBlob = toOptionalTrimmedString(request.emailOtpEscrowBlob);
-    const emailOtpKeyVersion = toOptionalTrimmedString(request.emailOtpKeyVersion);
-    const unlockPublicKey = toOptionalTrimmedString(request.unlockPublicKey);
+    const enrollmentEscrowCiphertextB64u = toOptionalTrimmedString(
+      request.enrollmentEscrowCiphertextB64u,
+    );
+    const enrollmentSealKeyVersion = toOptionalTrimmedString(request.enrollmentSealKeyVersion);
+    const clientUnlockPublicKeyB64u = toOptionalTrimmedString(request.clientUnlockPublicKeyB64u);
     const unlockKeyVersion = toOptionalTrimmedString(request.unlockKeyVersion);
     const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
       request.thresholdEcdsaClientVerifyingShareB64u,
     );
-    if (!emailOtpEscrowBlob) {
-      return { ok: false, code: 'invalid_body', message: 'emailOtpEscrowBlob is required' };
+    if (!enrollmentEscrowCiphertextB64u) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'enrollmentEscrowCiphertextB64u is required',
+      };
     }
-    if (!emailOtpKeyVersion) {
-      return { ok: false, code: 'invalid_body', message: 'emailOtpKeyVersion is required' };
+    if (!enrollmentSealKeyVersion) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'enrollmentSealKeyVersion is required',
+      };
     }
-    if (!unlockPublicKey) {
-      return { ok: false, code: 'invalid_body', message: 'unlockPublicKey is required' };
+    if (!clientUnlockPublicKeyB64u) {
+      return { ok: false, code: 'invalid_body', message: 'clientUnlockPublicKeyB64u is required' };
     }
     if (!unlockKeyVersion) {
       return { ok: false, code: 'invalid_body', message: 'unlockKeyVersion is required' };
     }
+    if (!thresholdEcdsaClientVerifyingShareB64u) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'thresholdEcdsaClientVerifyingShareB64u is required',
+      };
+    }
 
     let unlockPublicKeyBytes: Uint8Array;
     try {
-      unlockPublicKeyBytes = base64UrlDecode(unlockPublicKey);
+      unlockPublicKeyBytes = base64UrlDecode(clientUnlockPublicKeyB64u);
     } catch {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'unlockPublicKey must be valid base64url',
+        message: 'clientUnlockPublicKeyB64u must be valid base64url',
       };
     }
     if (unlockPublicKeyBytes.length !== 33) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'unlockPublicKey must decode to 33 bytes (compressed secp256k1 pubkey)',
+        message:
+          'clientUnlockPublicKeyB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
       };
     }
     try {
@@ -4958,47 +5193,45 @@ export class AuthService {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'unlockPublicKey is not a valid secp256k1 public key',
+        message: 'clientUnlockPublicKeyB64u is not a valid secp256k1 public key',
       };
     }
 
-    if (thresholdEcdsaClientVerifyingShareB64u) {
-      let clientVerifyingShareBytes: Uint8Array;
-      try {
-        clientVerifyingShareBytes = base64UrlDecode(thresholdEcdsaClientVerifyingShareB64u);
-      } catch {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'thresholdEcdsaClientVerifyingShareB64u must be valid base64url',
-        };
-      }
-      if (clientVerifyingShareBytes.length !== 33) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message:
-            'thresholdEcdsaClientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
-        };
-      }
-      try {
-        await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
-      } catch {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'thresholdEcdsaClientVerifyingShareB64u is not a valid secp256k1 public key',
-        };
-      }
+    let clientVerifyingShareBytes: Uint8Array;
+    try {
+      clientVerifyingShareBytes = base64UrlDecode(thresholdEcdsaClientVerifyingShareB64u);
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'thresholdEcdsaClientVerifyingShareB64u must be valid base64url',
+      };
+    }
+    if (clientVerifyingShareBytes.length !== 33) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message:
+          'thresholdEcdsaClientVerifyingShareB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+      };
+    }
+    try {
+      await validateSecp256k1PublicKey33(clientVerifyingShareBytes);
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'thresholdEcdsaClientVerifyingShareB64u is not a valid secp256k1 public key',
+      };
     }
 
     return {
       ok: true,
-      emailOtpEscrowBlob,
-      emailOtpKeyVersion,
-      unlockPublicKey,
+      enrollmentEscrowCiphertextB64u,
+      enrollmentSealKeyVersion,
+      clientUnlockPublicKeyB64u,
       unlockKeyVersion,
-      ...(thresholdEcdsaClientVerifyingShareB64u ? { thresholdEcdsaClientVerifyingShareB64u } : {}),
+      thresholdEcdsaClientVerifyingShareB64u,
     };
   }
 
@@ -5006,16 +5239,15 @@ export class AuthService {
     userId?: unknown;
     walletId?: unknown;
     orgId?: unknown;
-    enrollmentDeviceId?: unknown;
     challengeId?: unknown;
     otpCode?: unknown;
     otpChannel?: unknown;
     sessionHash?: unknown;
     appSessionVersion?: unknown;
     clientIp?: unknown;
-    emailOtpEscrowBlob?: unknown;
-    emailOtpKeyVersion?: unknown;
-    unlockPublicKey?: unknown;
+    enrollmentEscrowCiphertextB64u?: unknown;
+    enrollmentSealKeyVersion?: unknown;
+    clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
     thresholdEcdsaClientVerifyingShareB64u?: unknown;
   }): Promise<
@@ -5026,7 +5258,7 @@ export class AuthService {
         enrollment: {
           createdAtMs: number;
           updatedAtMs: number;
-          emailOtpKeyVersion: string;
+          enrollmentSealKeyVersion: string;
           unlockKeyVersion: string;
         };
       }
@@ -5043,38 +5275,68 @@ export class AuthService {
       expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
     });
     if (!verified.ok) return verified;
+    const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase();
+    if (!verifiedEmail) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'Email OTP enrollment verification did not include a verified email',
+      };
+    }
     const enrollmentMaterial = await this.validateEmailOtpEnrollmentMaterial(request);
     if (!enrollmentMaterial.ok) return enrollmentMaterial;
-    const existing = await this.getEmailOtpEnrollmentStore().get(verified.walletId);
+    const orgId = toOptionalTrimmedString(verified.orgId) || '';
+    if (!orgId) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP enrollment requires orgId tenant scope',
+      };
+    }
+    const existing = await this.getEmailOtpWalletEnrollmentStore().get(verified.walletId);
+    const existingState = await this.getEmailOtpAuthStateStore().get(verified.walletId);
     const nowMs = Date.now();
-    await this.getEmailOtpEnrollmentStore().put({
-      version: 'email_otp_enrollment_v1',
+    const enrollmentRecord: EmailOtpWalletEnrollmentRecord = {
+      version: 'email_otp_wallet_enrollment_v1',
       walletId: verified.walletId,
-      userId: verified.userId,
-      ...(verified.orgId ? { orgId: verified.orgId } : {}),
-      ...(toOptionalTrimmedString(request.enrollmentDeviceId)
-        ? { enrollmentDeviceId: toOptionalTrimmedString(request.enrollmentDeviceId) }
-        : {}),
-      otpChannel: verified.otpChannel,
-      emailOtpEscrowBlob: enrollmentMaterial.emailOtpEscrowBlob,
-      emailOtpKeyVersion: enrollmentMaterial.emailOtpKeyVersion,
-      unlockPublicKey: enrollmentMaterial.unlockPublicKey,
+      providerUserId: verified.userId,
+      orgId,
+      verifiedEmail,
+      enrollmentEscrowCiphertextB64u: enrollmentMaterial.enrollmentEscrowCiphertextB64u,
+      enrollmentSealKeyVersion: enrollmentMaterial.enrollmentSealKeyVersion,
+      clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
       unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
-      ...(enrollmentMaterial.thresholdEcdsaClientVerifyingShareB64u
-        ? {
-            thresholdEcdsaClientVerifyingShareB64u:
-              enrollmentMaterial.thresholdEcdsaClientVerifyingShareB64u,
-          }
-        : {}),
+      thresholdEcdsaClientVerifyingShareB64u:
+        enrollmentMaterial.thresholdEcdsaClientVerifyingShareB64u,
       createdAtMs: existing?.createdAtMs ?? nowMs,
+      updatedAtMs: nowMs,
+    };
+    await this.getEmailOtpWalletEnrollmentStore().put(enrollmentRecord);
+    await this.getEmailOtpAuthStateStore().put({
+      version: 'email_otp_auth_state_v1',
+      walletId: enrollmentRecord.walletId,
+      providerUserId: enrollmentRecord.providerUserId,
+      orgId: enrollmentRecord.orgId,
+      createdAtMs:
+        existingState &&
+        existingState.providerUserId === enrollmentRecord.providerUserId &&
+        existingState.orgId === enrollmentRecord.orgId
+          ? existingState.createdAtMs
+          : nowMs,
       updatedAtMs: nowMs,
       otpFailureCount: 0,
       lastOtpFailureAtMs: undefined,
       otpLockedUntilMs: undefined,
-      ...(existing?.lastEmailOtpLoginAtMs
-        ? { lastEmailOtpLoginAtMs: existing.lastEmailOtpLoginAtMs }
+      ...(existingState?.lastEmailOtpLoginAtMs &&
+      existingState.providerUserId === enrollmentRecord.providerUserId &&
+      existingState.orgId === enrollmentRecord.orgId
+        ? { lastEmailOtpLoginAtMs: existingState.lastEmailOtpLoginAtMs }
         : {}),
-      ...(existing?.lastStrongAuthAtMs ? { lastStrongAuthAtMs: existing.lastStrongAuthAtMs } : {}),
+      ...(existingState?.lastStrongAuthAtMs &&
+      existingState.providerUserId === enrollmentRecord.providerUserId &&
+      existingState.orgId === enrollmentRecord.orgId
+        ? { lastStrongAuthAtMs: existingState.lastStrongAuthAtMs }
+        : {}),
     });
     return {
       ok: true,
@@ -5083,42 +5345,70 @@ export class AuthService {
       enrollment: {
         createdAtMs: existing?.createdAtMs ?? nowMs,
         updatedAtMs: nowMs,
-        emailOtpKeyVersion: enrollmentMaterial.emailOtpKeyVersion,
+        enrollmentSealKeyVersion: enrollmentMaterial.enrollmentSealKeyVersion,
         unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
       },
     };
   }
 
-  async readEmailOtpEnrollment(request: { walletId?: unknown }): Promise<
+  async readEmailOtpEnrollment(request: { walletId?: unknown; orgId: unknown }): Promise<
     | {
         ok: true;
-        enrollment: {
-          walletId: string;
-          userId: string;
-          orgId?: string;
-          enrollmentDeviceId?: string;
-          otpChannel: EmailOtpChannel;
-          emailOtpEscrowBlob: string;
-          emailOtpKeyVersion: string;
-          unlockPublicKey: string;
-          unlockKeyVersion: string;
-          thresholdEcdsaClientVerifyingShareB64u?: string;
-          createdAtMs: number;
-          updatedAtMs: number;
-          otpFailureCount?: number;
-          lastOtpFailureAtMs?: number;
-          otpLockedUntilMs?: number;
-          lastEmailOtpLoginAtMs?: number;
-          lastStrongAuthAtMs?: number;
-        };
+        enrollment: EmailOtpWalletEnrollmentRecord;
       }
     | { ok: false; code: string; message: string }
   > {
     const walletId = toOptionalTrimmedString(request.walletId);
+    const orgId = toOptionalTrimmedString(request.orgId);
     if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
-    const enrollment = await this.getEmailOtpEnrollmentStore().get(walletId);
+    if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+    const enrollment = await this.getEmailOtpWalletEnrollmentStore().get(walletId);
     if (!enrollment) {
       return { ok: false, code: 'not_found', message: 'Email OTP enrollment not found' };
+    }
+    if (enrollment.orgId !== orgId) {
+      return {
+        ok: false,
+        code: 'tenant_scope_mismatch',
+        message: 'Email OTP enrollment does not match the requested orgId',
+      };
+    }
+    return { ok: true, enrollment };
+  }
+
+  async readActiveEmailOtpEnrollment(request: {
+    walletId?: unknown;
+    orgId: unknown;
+    providerUserId?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        enrollment: EmailOtpWalletEnrollmentRecord;
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    const walletId = toOptionalTrimmedString(request.walletId);
+    const orgId = toOptionalTrimmedString(request.orgId);
+    const providerUserId = toOptionalTrimmedString(request.providerUserId) || undefined;
+    if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+    if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+    const enrollment = await this.getEmailOtpWalletEnrollmentStore().get(walletId);
+    if (!enrollment) {
+      return { ok: false, code: 'not_found', message: 'Email OTP enrollment not found' };
+    }
+    if (enrollment.orgId !== orgId) {
+      return {
+        ok: false,
+        code: 'tenant_scope_mismatch',
+        message: 'Email OTP enrollment does not match the requested orgId',
+      };
+    }
+    if (providerUserId && enrollment.providerUserId !== providerUserId) {
+      return {
+        ok: false,
+        code: 'provider_identity_mismatch',
+        message: 'Email OTP enrollment does not match the requested provider user',
+      };
     }
     return { ok: true, enrollment };
   }
@@ -5135,16 +5425,22 @@ export class AuthService {
   > {
     const walletId = toOptionalTrimmedString(request.walletId);
     if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
-    const enrollment = await this.getEmailOtpEnrollmentStore().get(walletId);
+    const enrollment = await this.getEmailOtpWalletEnrollmentStore().get(walletId);
     if (!enrollment) {
       return { ok: true, required: false, walletId };
     }
+    const authState = await this.readEmailOtpAuthStateForEnrollment(enrollment);
+    if (!authState.ok) return authState;
+    const state = authState.state;
+    if (!state) {
+      return { ok: true, required: false, walletId };
+    }
     const lastEmailOtpLoginAtMs =
-      typeof enrollment.lastEmailOtpLoginAtMs === 'number'
-        ? enrollment.lastEmailOtpLoginAtMs
+      typeof state.lastEmailOtpLoginAtMs === 'number'
+        ? state.lastEmailOtpLoginAtMs
         : undefined;
     const lastStrongAuthAtMs =
-      typeof enrollment.lastStrongAuthAtMs === 'number' ? enrollment.lastStrongAuthAtMs : undefined;
+      typeof state.lastStrongAuthAtMs === 'number' ? state.lastStrongAuthAtMs : undefined;
     return {
       ok: true,
       required: Boolean(
@@ -5165,13 +5461,10 @@ export class AuthService {
   > {
     const walletId = toOptionalTrimmedString(request.walletId);
     if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
-    const enrollmentStore = this.getEmailOtpEnrollmentStore();
-    const enrollment = await enrollmentStore.get(walletId);
+    const enrollment = await this.getEmailOtpWalletEnrollmentStore().get(walletId);
     if (!enrollment) return { ok: true, walletId };
     const nowMs = Date.now();
-    await enrollmentStore.put({
-      ...enrollment,
-      updatedAtMs: nowMs,
+    await this.putEmailOtpAuthStateForEnrollment(enrollment, {
       lastStrongAuthAtMs: nowMs,
     });
     return { ok: true, walletId, lastStrongAuthAtMs: nowMs };
@@ -5198,7 +5491,7 @@ export class AuthService {
       const loginGrant = toOptionalTrimmedString(request.loginGrant);
       const userId = toOptionalTrimmedString(request.userId);
       const walletId = toOptionalTrimmedString(request.walletId);
-      const orgId = toOptionalTrimmedString(request.orgId) || undefined;
+      const orgId = toOptionalTrimmedString(request.orgId) || '';
       const otpChannel = toOptionalTrimmedString(request.otpChannel);
       const sessionHash = toOptionalTrimmedString(request.sessionHash);
       const appSessionVersion = toOptionalTrimmedString(request.appSessionVersion);
@@ -5208,6 +5501,7 @@ export class AuthService {
       }
       if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
       if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
       if (otpChannel !== EMAIL_OTP_CHANNEL) {
         return {
           ok: false,
@@ -5251,7 +5545,7 @@ export class AuthService {
         record.otpChannel !== EMAIL_OTP_CHANNEL ||
         record.sessionHash !== sessionHash ||
         record.appSessionVersion !== appSessionVersion ||
-        String(record.orgId || '') !== String(orgId || '');
+        record.orgId !== orgId;
       if (bindingMismatch) {
         return {
           ok: false,
@@ -5337,7 +5631,7 @@ export class AuthService {
   async removeEmailOtpServerSeal(request: {
     wrappedCiphertext?: unknown;
   }): Promise<
-    | { ok: true; ciphertext: string; emailOtpKeyVersion: string }
+    | { ok: true; ciphertext: string; enrollmentSealKeyVersion: string }
     | { ok: false; code: string; message: string }
   > {
     try {
@@ -5362,7 +5656,7 @@ export class AuthService {
       return {
         ok: true,
         ciphertext: removed.ciphertext,
-        emailOtpKeyVersion: removed.keyVersion || shamir.keyVersion,
+        enrollmentSealKeyVersion: removed.keyVersion || shamir.keyVersion,
       };
     } catch (e: unknown) {
       return {
@@ -5376,7 +5670,7 @@ export class AuthService {
   async applyEmailOtpServerSeal(request: {
     wrappedCiphertext?: unknown;
   }): Promise<
-    | { ok: true; ciphertext: string; emailOtpKeyVersion: string }
+    | { ok: true; ciphertext: string; enrollmentSealKeyVersion: string }
     | { ok: false; code: string; message: string }
   > {
     try {
@@ -5401,7 +5695,7 @@ export class AuthService {
       return {
         ok: true,
         ciphertext: applied.ciphertext,
-        emailOtpKeyVersion: applied.keyVersion || shamir.keyVersion,
+        enrollmentSealKeyVersion: applied.keyVersion || shamir.keyVersion,
       };
     } catch (e: unknown) {
       return {
@@ -6683,20 +6977,14 @@ export class AuthService {
 
       // Best-effort: persist the ephemeral (device2) key metadata. This key is expected to be deleted
       // by Device2 during completion, but storing it helps UIs classify access keys while linking is in flight.
-      try {
-        const pkStore = this.getNearPublicKeyStore();
-        const record: NearPublicKeyRecord = {
-          version: 'near_public_key_v1',
-          userId: accountId,
-          publicKey: device2PublicKey,
-          kind: 'ephemeral',
-          signerSlot,
-          createdAtMs: now,
-          updatedAtMs: now,
-          ...(addKeyTxHash ? { addedTxHash: addKeyTxHash } : {}),
-        };
-        await pkStore.put(record);
-      } catch {}
+      await this.recordNearPublicKeyMetadata({
+        userId: accountId,
+        publicKey: device2PublicKey,
+        kind: 'ephemeral',
+        signerSlot,
+        ...(addKeyTxHash ? { addedTxHash: addKeyTxHash } : {}),
+        source: 'link-device ephemeral NEAR public key metadata persistence',
+      });
 
       this.logger.info('[link-device] session claimed', {
         sessionId,
@@ -7144,21 +7432,15 @@ export class AuthService {
       });
 
       // Best-effort: persist key metadata for UI surfaces like "Linked Devices".
-      try {
-        const pkStore = this.getNearPublicKeyStore();
-        const thresholdRecord: NearPublicKeyRecord = {
-          version: 'near_public_key_v1',
-          userId: accountId,
-          publicKey: keygen.publicKey,
-          kind: 'threshold',
-          signerSlot,
-          rpId,
-          credentialIdB64u,
-          createdAtMs: now,
-          updatedAtMs: now,
-        };
-        await pkStore.put(thresholdRecord);
-      } catch {}
+      await this.recordNearPublicKeyMetadata({
+        userId: accountId,
+        publicKey: keygen.publicKey,
+        kind: 'threshold',
+        signerSlot,
+        rpId,
+        credentialIdB64u,
+        source: 'WebAuthn registration NEAR public key metadata persistence',
+      });
 
       let linkedAccounts: LinkedSmartAccountRecord[] | undefined;
       if (thresholdEcdsaKeygen) {

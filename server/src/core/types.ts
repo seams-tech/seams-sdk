@@ -437,8 +437,6 @@ export type ThresholdStoreEnvInput = {
   SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS?: string;
-  signingSessionSealIdempotencyKind?: string;
-  signingSessionSealIdempotencyTtlMs?: string | number;
   /**
    * Core signing-root dependency for signing. Hosted deployments usually build
    * this from storage/decrypt adapters. Direct self-host deployments can supply

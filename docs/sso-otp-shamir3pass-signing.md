@@ -652,7 +652,7 @@ Enrollment authorization:
 Persisted server-side data:
 
 1. escrow blob `E_ks(S)`
-2. `emailOtpKeyVersion`
+2. `enrollmentSealKeyVersion`
 3. `unlockPublicKey`
 4. `unlockKeyVersion`
 5. `thresholdEcdsaClientVerifyingShareB64u` when applicable
@@ -1107,12 +1107,12 @@ The local/dev Email OTP signing flow is wired, but the following issues must be 
    - remaining `clientRootShare32` or `prfFirstB64u` handoffs for Ed25519 paths must either move behind worker-owned opaque signing handles or be documented as temporary compatibility exceptions
    - remaining transferred `clientSigningShare32` ECDSA handoffs to main thread must either move behind worker-owned signing or remain tightly scoped with transfer-list ownership, single-use policy enforcement, and immediate zeroization tests
 8. narrow the public Email OTP helper surface:
-   - avoid exposing `emailOtpEscrowBlob` to app/main-thread callers except through the worker-owned combined flow
+   - avoid exposing `enrollmentEscrowCiphertextB64u` to app/main-thread callers except through the worker-owned combined flow
    - keep direct challenge and verify helpers limited to non-secret test or internal route usage where possible
    - add tests proving the default SDK login/register flow does not expose recovered `S`, client-root-share material, or ECDSA additive share bytes to app-origin code
 9. validate enrollment material more strictly:
-   - enforce expected shape and size for `emailOtpEscrowBlob`
-   - validate `emailOtpKeyVersion`, `unlockPublicKey`, and optional ECDSA verifying share formats before persistence
+   - enforce expected shape and size for `enrollmentEscrowCiphertextB64u`
+   - validate `enrollmentSealKeyVersion`, `unlockPublicKey`, and optional ECDSA verifying share formats before persistence
    - reject malformed escrow material before it reaches the enrollment store
 10. add lifecycle cleanup for persisted Email OTP artifacts:
     - add periodic or request-path cleanup for expired challenges, expired grants, and expired unlock challenges

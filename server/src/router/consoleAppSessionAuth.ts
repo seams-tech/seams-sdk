@@ -186,6 +186,44 @@ function readEnvironmentKeyCandidate(environmentId: string): 'dev' | 'staging' |
   return null;
 }
 
+const CONSOLE_SSO_ORG_ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+function deriveConsoleSsoOrganizationId(input: {
+  userId: string;
+  claims: Record<string, unknown>;
+}): string {
+  const source =
+    String(input.claims.providerSubject || '').trim() ||
+    String(input.claims.oidcSub || '').trim() ||
+    String(input.userId || '').trim();
+  let h1 = 0x811c9dc5;
+  let h2 = 0x9e3779b9;
+  for (let index = 0; index < source.length; index += 1) {
+    const code = source.charCodeAt(index);
+    h1 = Math.imul(h1 ^ code, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 + code + index, 0x85ebca6b) >>> 0;
+  }
+  let suffix = '';
+  for (let index = 0; index < 12; index += 1) {
+    h1 = Math.imul(h1 ^ (h2 + index), 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ (h1 + index), 0xc2b2ae35) >>> 0;
+    const alphabetIndex = ((h1 ^ h2) >>> 0) % CONSOLE_SSO_ORG_ID_ALPHABET.length;
+    suffix += CONSOLE_SSO_ORG_ID_ALPHABET[alphabetIndex] || '0';
+  }
+  return `org_${suffix}`;
+}
+
+function shouldCreateConsoleSsoOrganization(input: {
+  userId: string;
+  claims: Record<string, unknown>;
+  bootstrapRoles: ConsoleOrgScopedTeamRole[];
+}): boolean {
+  if (!String(input.userId || '').trim()) return false;
+  if (input.bootstrapRoles.length === 0) return false;
+  const provider = String(input.claims.provider || '').trim();
+  return provider === 'oidc';
+}
+
 function createConsoleScopeReadContext(input: {
   orgId: string;
   userId: string;
@@ -212,6 +250,7 @@ async function reconcileConsoleScopeClaims(input: {
   orgId: string;
   projectId: string;
   environmentId: string;
+  bootstrapRoles: ConsoleOrgScopedTeamRole[];
 }): Promise<{ orgId: string; projectId: string; environmentId: string }> {
   if (!input.orgProjectEnv) {
     return {
@@ -265,6 +304,21 @@ async function reconcileConsoleScopeClaims(input: {
             throw error;
           }
         }
+      }
+    }
+
+    if (!orgId) {
+      if (
+        shouldCreateConsoleSsoOrganization({
+          userId: input.userId,
+          claims: input.claims,
+          bootstrapRoles: input.bootstrapRoles,
+        })
+      ) {
+        orgId = deriveConsoleSsoOrganizationId({
+          userId: input.userId,
+          claims: input.claims,
+        });
       }
     }
 
@@ -560,6 +614,7 @@ export function createAppSessionConsoleAuthAdapter(
         orgId: String(claims.orgId || '').trim() || resolvedDefaultOrgId,
         projectId: String(claims.projectId || '').trim() || defaultProjectId,
         environmentId: String(claims.environmentId || '').trim() || defaultEnvironmentId,
+        bootstrapRoles,
       });
       const orgId = scopedClaims.orgId;
       const projectId = scopedClaims.projectId;

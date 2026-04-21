@@ -278,6 +278,25 @@ export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519Au
     return record;
   }
 
+  async getSessionStatus(id: string) {
+    const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
+    if (!resp.ok) return null;
+    const raw = resp.value;
+    const entry = isObject(raw) ? (raw as Record<string, unknown>) : null;
+    const record = entry
+      ? parseEd25519AuthSessionRecord((entry as { record?: unknown }).record)
+      : null;
+    const expiresAtMs = entry ? Number((entry as { expiresAtMs?: unknown }).expiresAtMs) : NaN;
+    const remainingUses = entry ? Number((entry as { remainingUses?: unknown }).remainingUses) : NaN;
+    if (!record || !Number.isFinite(expiresAtMs) || !Number.isFinite(remainingUses)) return null;
+    if (Date.now() > expiresAtMs) return null;
+    return {
+      record,
+      expiresAtMs,
+      remainingUses,
+    };
+  }
+
   async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
     const resp = await callDo<{ remainingUses: number }>(this.stub, {
       op: 'authConsumeUseCount',

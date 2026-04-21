@@ -126,6 +126,7 @@ async function installThresholdRegistrationBootstrapMock(
       const expSec = Math.floor(args.expiresAtMs / 1000);
       return await input.session.signJwt(accountId, {
         kind: args.kind,
+        walletId: accountId,
         sessionId: args.sessionId,
         relayerKeyId: args.relayerKeyId,
         rpId,

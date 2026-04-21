@@ -838,7 +838,7 @@ export class TatchiPasskey {
           status: 'succeeded',
           interaction: { kind: 'otp_input', overlay: 'hide' },
           ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { otpChannel: result.otpChannel, emailOtpKeyVersion: result.emailOtpKeyVersion },
+          data: { otpChannel: result.otpChannel, enrollmentSealKeyVersion: result.enrollmentSealKeyVersion },
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
@@ -868,7 +868,7 @@ export class TatchiPasskey {
         status: 'succeeded',
         interaction: { kind: 'otp_input', overlay: 'hide' },
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { otpChannel: result.otpChannel, emailOtpKeyVersion: result.emailOtpKeyVersion },
+        data: { otpChannel: result.otpChannel, enrollmentSealKeyVersion: result.enrollmentSealKeyVersion },
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
@@ -902,7 +902,7 @@ export class TatchiPasskey {
     otpCode: string;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
-    thresholdRouteAuth?: AppOrThresholdSessionAuth;
+    routeAuth?: AppOrThresholdSessionAuth;
     ecdsaThresholdKeyId?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -1006,7 +1006,7 @@ export class TatchiPasskey {
     challengeId?: string;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
-    thresholdRouteAuth?: AppOrThresholdSessionAuth;
+    routeAuth?: AppOrThresholdSessionAuth;
     ecdsaThresholdKeyId?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';

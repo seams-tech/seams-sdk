@@ -129,6 +129,9 @@ test.describe('relay-server console config resolution', () => {
       CONSOLE_OBSERVABILITY_RETENTION_TTL_MS: '86400000',
       CONSOLE_OBSERVABILITY_RETENTION_PRUNE_INTERVAL_MS: '90000',
       CONSOLE_OBSERVABILITY_RETENTION_BATCH_SIZE: '500',
+      CONSOLE_RUNTIME_SNAPSHOT_RETENTION_TTL_MS: '604800000',
+      CONSOLE_RUNTIME_SNAPSHOT_RETENTION_PRUNE_INTERVAL_MS: '120000',
+      CONSOLE_RUNTIME_SNAPSHOT_RETENTION_BATCH_SIZE: '250',
     });
 
     expect(cfg.consoleObservabilityQueryMaxWindowMs).toBe(600000);
@@ -137,6 +140,9 @@ test.describe('relay-server console config resolution', () => {
     expect(cfg.consoleObservabilityRetentionTtlMs).toBe(86400000);
     expect(cfg.consoleObservabilityRetentionPruneIntervalMs).toBe(90000);
     expect(cfg.consoleObservabilityRetentionBatchSize).toBe(500);
+    expect(cfg.consoleRuntimeSnapshotRetentionTtlMs).toBe(604800000);
+    expect(cfg.consoleRuntimeSnapshotRetentionPruneIntervalMs).toBe(120000);
+    expect(cfg.consoleRuntimeSnapshotRetentionBatchSize).toBe(250);
 
     expect(() =>
       resolveRelayServerConsoleConfig({
@@ -151,6 +157,13 @@ test.describe('relay-server console config resolution', () => {
       }),
     ).toThrow(
       'Invalid CONSOLE_OBSERVABILITY_INGEST_MAX_BATCH_SIZE="abc". Expected a positive integer.',
+    );
+    expect(() =>
+      resolveRelayServerConsoleConfig({
+        CONSOLE_RUNTIME_SNAPSHOT_RETENTION_TTL_MS: '0',
+      }),
+    ).toThrow(
+      'Invalid CONSOLE_RUNTIME_SNAPSHOT_RETENTION_TTL_MS="0". Expected a positive integer.',
     );
   });
 

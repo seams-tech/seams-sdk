@@ -13,6 +13,11 @@ import {
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
 } from '../signingEngine/threshold/session/sessionPolicy';
+import {
+  buildEmailOtpRoutePlan,
+  resolveEmailOtpAuthLane,
+  type EmailOtpRouteFamily,
+} from '../signingEngine/emailOtp/authLane';
 
 type FetchLike = typeof fetch;
 
@@ -51,8 +56,8 @@ export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
-  emailOtpKeyVersion: string;
-  unlockPublicKeyB64u: string;
+  enrollmentSealKeyVersion: string;
+  clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
 };
 
@@ -124,6 +129,22 @@ function buildAuthHeaders(args: { appSessionJwt?: string; publishableKey?: strin
   return headers;
 }
 
+function buildWorkerEmailOtpRoutePlan(args: {
+  routeFamily: EmailOtpRouteFamily;
+  appSessionJwt?: string;
+  operation?: WalletEmailOtpLoginOperation;
+}) {
+  const appSessionJwt = readOptionalString(args.appSessionJwt);
+  return buildEmailOtpRoutePlan({
+    routeFamily: args.routeFamily,
+    authLane: resolveEmailOtpAuthLane({
+      sessionKind: appSessionJwt ? 'jwt' : 'cookie',
+      ...(appSessionJwt ? { appSessionJwt } : {}),
+    }),
+    ...(args.operation ? { operation: args.operation } : {}),
+  });
+}
+
 async function postJson(args: {
   url: string;
   body: JsonObject;
@@ -186,9 +207,11 @@ export async function requestEmailOtpChallenge(args: {
         payload: {
           relayUrl: readString(args.relayUrl, 'relayUrl'),
           walletId: readString(args.walletId, 'walletId'),
-          ...(readOptionalString(args.appSessionJwt)
-            ? { appSessionJwt: readOptionalString(args.appSessionJwt) }
-            : {}),
+          routePlan: buildWorkerEmailOtpRoutePlan({
+            routeFamily: 'login',
+            appSessionJwt: args.appSessionJwt,
+            operation: args.operation,
+          }),
           ...(args.operation ? { operation: args.operation } : {}),
           otpChannel: EMAIL_OTP_CHANNEL,
         },
@@ -241,9 +264,10 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
         payload: {
           relayUrl: readString(args.relayUrl, 'relayUrl'),
           walletId: readString(args.walletId, 'walletId'),
-          ...(readOptionalString(args.appSessionJwt)
-            ? { appSessionJwt: readOptionalString(args.appSessionJwt) }
-            : {}),
+          routePlan: buildWorkerEmailOtpRoutePlan({
+            routeFamily: 'registration',
+            appSessionJwt: args.appSessionJwt,
+          }),
           otpChannel: EMAIL_OTP_CHANNEL,
         },
       },
@@ -288,7 +312,7 @@ export async function verifyEmailOtpCode(args: {
 }): Promise<{
   loginGrant: string;
   otpChannel: WalletEmailOtpChannel;
-  emailOtpEscrowBlob: string;
+  enrollmentEscrowCiphertextB64u: string;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -300,9 +324,10 @@ export async function verifyEmailOtpCode(args: {
           walletId: readString(args.walletId, 'walletId'),
           challengeId: readString(args.challengeId, 'challengeId'),
           otpCode: readString(args.otpCode, 'otpCode'),
-          ...(readOptionalString(args.appSessionJwt)
-            ? { appSessionJwt: readOptionalString(args.appSessionJwt) }
-            : {}),
+          routePlan: buildWorkerEmailOtpRoutePlan({
+            routeFamily: 'login',
+            appSessionJwt: args.appSessionJwt,
+          }),
           otpChannel: EMAIL_OTP_CHANNEL,
         },
       },
@@ -322,9 +347,9 @@ export async function verifyEmailOtpCode(args: {
   return {
     loginGrant: readString(response.loginGrant, 'wallet/email-otp/login/verify loginGrant'),
     otpChannel: EMAIL_OTP_CHANNEL,
-    emailOtpEscrowBlob: readString(
-      response.emailOtpEscrowBlob,
-      'wallet/email-otp/login/verify emailOtpEscrowBlob',
+    enrollmentEscrowCiphertextB64u: readString(
+      response.enrollmentEscrowCiphertextB64u,
+      'wallet/email-otp/login/verify enrollmentEscrowCiphertextB64u',
     ),
   };
 }
@@ -435,9 +460,10 @@ export async function enrollEmailOtpWallet(args: {
             : {}),
           otpCode: readString(args.otpCode, 'otpCode'),
           shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
-          ...(readOptionalString(args.appSessionJwt)
-            ? { appSessionJwt: readOptionalString(args.appSessionJwt) }
-            : {}),
+          routePlan: buildWorkerEmailOtpRoutePlan({
+            routeFamily: 'registration',
+            appSessionJwt: args.appSessionJwt,
+          }),
           otpChannel: EMAIL_OTP_CHANNEL,
           ...(workerClientSecret32
             ? { clientSecret32: workerClientSecret32.buffer.slice(0) }

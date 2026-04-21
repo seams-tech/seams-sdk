@@ -208,7 +208,7 @@
 .w3a-auth-method-stack {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 0.25rem;
 }
 
 .w3a-auth-method-note {
@@ -479,6 +479,7 @@
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  margin-bottom: 0.25rem;
   z-index: 4;
 }
 
@@ -564,13 +565,14 @@
   height: 34px;
   display: grid;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 12%);
+  border: 0;
   border-radius: 999px;
-  background: var(--w3a-colors-colorBackground);
+  background: transparent;
   color: color-mix(in srgb, var(--w3a-colors-textSecondary), var(--w3a-colors-textPrimary) 28%);
   cursor: pointer;
   outline: none;
   padding: 0;
+  margin-top: 0.25rem;
   transition:
     background-color 160ms ease,
     border-color 160ms ease,
@@ -582,8 +584,6 @@
 .w3a-account-menu-trigger:hover:not(:disabled),
 .w3a-account-menu-trigger:focus-visible,
 .w3a-account-menu.is-open .w3a-account-menu-trigger {
-  background: var(--w3a-colors-surface2);
-  border-color: color-mix(in srgb, var(--w3a-colors-primary), transparent 30%);
   color: var(--w3a-colors-textPrimary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--w3a-colors-primary), transparent 76%);
 }

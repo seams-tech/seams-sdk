@@ -1,5 +1,6 @@
 import { errorMessage } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
+import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 
 export type EmailOtpWorkerJson = Record<string, unknown>;
 
@@ -10,9 +11,12 @@ function requireObjectJson(value: unknown, label: string): EmailOtpWorkerJson {
   return value as EmailOtpWorkerJson;
 }
 
-function buildSessionHeaders(appSessionJwt?: string): HeadersInit {
+function buildSessionHeaders(args: {
+  appSessionJwt?: string;
+  sessionAuth?: AppOrThresholdSessionAuth;
+}): HeadersInit {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = String(appSessionJwt || '').trim();
+  const token = String(args.sessionAuth?.jwt || args.appSessionJwt || '').trim();
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
@@ -22,13 +26,14 @@ export async function postEmailOtpJson(args: {
   route: string;
   body: EmailOtpWorkerJson;
   appSessionJwt?: string;
+  sessionAuth?: AppOrThresholdSessionAuth;
 }): Promise<EmailOtpWorkerJson> {
   const url = joinNormalizedUrl(args.relayUrl, args.route);
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: buildSessionHeaders(args.appSessionJwt),
-      credentials: 'include',
+      headers: buildSessionHeaders({ appSessionJwt: args.appSessionJwt, sessionAuth: args.sessionAuth }),
+      credentials: args.appSessionJwt || args.sessionAuth ? 'omit' : 'include',
       body: JSON.stringify(args.body),
     });
     const text = await response.text();

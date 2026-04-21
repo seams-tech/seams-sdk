@@ -190,8 +190,8 @@ export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
-  emailOtpKeyVersion: string;
-  unlockPublicKeyB64u: string;
+  enrollmentSealKeyVersion: string;
+  clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
 };
 
@@ -220,7 +220,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  thresholdRouteAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrThresholdSessionAuth;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';

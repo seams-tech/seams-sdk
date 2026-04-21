@@ -35,10 +35,6 @@ import type {
 } from '../passkeyClientDB.types';
 import {
   DB_CONFIG,
-  DB_MULTICHAIN_MIGRATION_LOCK_KEY,
-  DB_MULTICHAIN_MIGRATION_LOCK_NAME,
-  DB_MULTICHAIN_MIGRATION_LOCK_TTL_MS,
-  DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION,
   LAST_PROFILE_STATE_APP_STATE_KEY,
   type PasskeyClientDBConfig,
   upgradePasskeyClientDBSchema,
@@ -50,7 +46,6 @@ import {
   setSignerOperationRecordStatus,
 } from './outbox';
 import {
-  ALLOWED_SIGNER_STATUS_TRANSITIONS,
   createAccountSignerRepository,
   type AccountSignerRepository,
 } from './accountSignerRepository';
@@ -58,19 +53,10 @@ import {
   createChainAccountRepository,
   type ChainAccountRepository,
 } from './chainAccountRepository';
-import { parseLastProfileState } from '../lastProfileState';
 import {
   createLastProfileStateRepository,
   type LastProfileStateRepository,
 } from './lastProfileStateRepository';
-import {
-  collectMigrationParity as collectMigrationParityValue,
-  validateAndQuarantineInvariantViolations as validateAndQuarantineInvariantViolationsValue,
-} from './invariants';
-import {
-  type DbMultichainMigrationLock,
-  runMigrationsIfNeeded as runMigrationsIfNeededValue,
-} from './migrations';
 import { deleteProfileData as deleteProfileDataValue } from './profileCleanup';
 import {
   createProfileAuthenticatorRepository,
@@ -105,7 +91,6 @@ export type {
   EnqueueSignerOperationInput,
   IndexedDBEvent,
   LastProfileState,
-  MigrationQuarantineRecord,
   ProfileAuthenticatorRecord,
   ProfileContinuitySnapshot,
   ProfileId,
@@ -258,8 +243,8 @@ export class PasskeyClientDBManager {
 
     try {
       this.db = await openDB(this.config.dbName, this.config.dbVersion, {
-        upgrade: (db, oldVersion, _newVersion, transaction): void => {
-          upgradePasskeyClientDBSchema(db, oldVersion, transaction);
+        upgrade: (db, _previousVersion, _newVersion, transaction): void => {
+          upgradePasskeyClientDBSchema(db, transaction);
         },
         blocked() {
           console.warn('PasskeyClientDB connection is blocked.');
@@ -272,11 +257,6 @@ export class PasskeyClientDBManager {
           this.db = null;
         },
       });
-
-      // Post-open migrations (non-blocking)
-      try {
-        await this.runMigrationsIfNeeded(this.db);
-      } catch {}
     } catch (err: any) {
       const msg = String(err?.message || '');
       if (err?.name === 'VersionError' || /less than the existing version/i.test(msg)) {
@@ -293,170 +273,6 @@ export class PasskeyClientDBManager {
     }
 
     return this.db;
-  }
-
-  private async getAppStateFromDb<T = unknown>(
-    db: IDBPDatabase,
-    key: string,
-  ): Promise<T | undefined> {
-    const result = await db.get(DB_CONFIG.appStateStore, key);
-    return result?.value as T | undefined;
-  }
-
-  private async setAppStateInDb<T = unknown>(
-    db: IDBPDatabase,
-    key: string,
-    value: T,
-  ): Promise<void> {
-    const entry: AppStateEntry<T> = { key, value };
-    await db.put(DB_CONFIG.appStateStore, entry);
-  }
-
-  private createMigrationOwnerId(): string {
-    return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `migration-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  }
-
-  private isMigrationLockFresh(
-    lock: DbMultichainMigrationLock | null | undefined,
-    now: number = Date.now(),
-  ): boolean {
-    if (!lock) return false;
-    if (!lock.ownerTabId) return false;
-    if (!Number.isFinite(lock.heartbeatAt)) return false;
-    return now - lock.heartbeatAt <= DB_MULTICHAIN_MIGRATION_LOCK_TTL_MS;
-  }
-
-  private async tryAcquireMigrationLeaseInAppState(
-    db: IDBPDatabase,
-    ownerTabId: string,
-    acquiredAt: number,
-  ): Promise<boolean> {
-    const now = Date.now();
-    const tx = db.transaction(DB_CONFIG.appStateStore, 'readwrite');
-    const existing = (await tx.store.get(DB_MULTICHAIN_MIGRATION_LOCK_KEY)) as
-      | AppStateEntry<DbMultichainMigrationLock | null>
-      | undefined;
-    const lock = (existing?.value || null) as DbMultichainMigrationLock | null;
-    if (lock && lock.ownerTabId !== ownerTabId && this.isMigrationLockFresh(lock, now)) {
-      await tx.done;
-      return false;
-    }
-    const nextLock: DbMultichainMigrationLock = {
-      ownerTabId,
-      acquiredAt:
-        lock?.ownerTabId === ownerTabId && Number.isFinite(lock?.acquiredAt)
-          ? lock.acquiredAt
-          : acquiredAt,
-      heartbeatAt: now,
-    };
-    await tx.store.put({ key: DB_MULTICHAIN_MIGRATION_LOCK_KEY, value: nextLock });
-    await tx.done;
-    return true;
-  }
-
-  private async refreshMigrationLeaseInAppState(
-    db: IDBPDatabase,
-    ownerTabId: string,
-    acquiredAt: number,
-  ): Promise<void> {
-    await this.setAppStateInDb(db, DB_MULTICHAIN_MIGRATION_LOCK_KEY, {
-      ownerTabId,
-      acquiredAt,
-      heartbeatAt: Date.now(),
-    } satisfies DbMultichainMigrationLock);
-  }
-
-  private async clearMigrationLeaseInAppState(db: IDBPDatabase, ownerTabId: string): Promise<void> {
-    const tx = db.transaction(DB_CONFIG.appStateStore, 'readwrite');
-    const existing = (await tx.store.get(DB_MULTICHAIN_MIGRATION_LOCK_KEY)) as
-      | AppStateEntry<DbMultichainMigrationLock | null>
-      | undefined;
-    const lock = (existing?.value || null) as DbMultichainMigrationLock | null;
-    if (!lock || lock.ownerTabId === ownerTabId) {
-      await tx.store.put({ key: DB_MULTICHAIN_MIGRATION_LOCK_KEY, value: null });
-    }
-    await tx.done;
-  }
-
-  private async tryRunWithNavigatorMigrationLock(
-    runner: () => Promise<void>,
-  ): Promise<'executed' | 'unavailable' | 'unsupported'> {
-    const lockManager = typeof navigator !== 'undefined' ? (navigator as any)?.locks : null;
-    if (!lockManager || typeof lockManager.request !== 'function') {
-      return 'unsupported';
-    }
-    try {
-      let executed = false;
-      await lockManager.request(
-        DB_MULTICHAIN_MIGRATION_LOCK_NAME,
-        { mode: 'exclusive', ifAvailable: true },
-        async (lock: unknown) => {
-          if (!lock) return;
-          executed = true;
-          await runner();
-        },
-      );
-      return executed ? 'executed' : 'unavailable';
-    } catch (error) {
-      console.warn(
-        'PasskeyClientDB: navigator.locks coordination failed; falling back to app-state migration lock',
-        error,
-      );
-      return 'unsupported';
-    }
-  }
-
-  private async collectMigrationParity(db: IDBPDatabase) {
-    return collectMigrationParityValue(db, {
-      stores: {
-        profileAuthenticatorStore: DB_CONFIG.profileAuthenticatorStore,
-        profilesStore: DB_CONFIG.profilesStore,
-        chainAccountsStore: DB_CONFIG.chainAccountsStore,
-        accountSignersStore: DB_CONFIG.accountSignersStore,
-        recoveryEmailStore: DB_CONFIG.recoveryEmailStore,
-      },
-    });
-  }
-
-  private async validateAndQuarantineInvariantViolations(
-    db: IDBPDatabase,
-  ): Promise<{ checked: number; violations: number; quarantined: number }> {
-    return validateAndQuarantineInvariantViolationsValue(db, {
-      stores: {
-        appStateStore: DB_CONFIG.appStateStore,
-        profileAuthenticatorStore: DB_CONFIG.profileAuthenticatorStore,
-        profilesStore: DB_CONFIG.profilesStore,
-        chainAccountsStore: DB_CONFIG.chainAccountsStore,
-        accountSignersStore: DB_CONFIG.accountSignersStore,
-        recoveryEmailStore: DB_CONFIG.recoveryEmailStore,
-        migrationQuarantineStore: DB_CONFIG.migrationQuarantineStore,
-      },
-      schemaVersion: DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION,
-      lastProfileStateAppStateKey: LAST_PROFILE_STATE_APP_STATE_KEY,
-      parseLastProfileState,
-      allowedSignerStatuses: ALLOWED_SIGNER_STATUS_TRANSITIONS.pending,
-    });
-  }
-
-  private async runMigrationsIfNeeded(db: IDBPDatabase): Promise<void> {
-    await runMigrationsIfNeededValue({
-      db,
-      getAppStateFromDb: (targetDb, key) => this.getAppStateFromDb(targetDb, key),
-      setAppStateInDb: (targetDb, key, value) => this.setAppStateInDb(targetDb, key, value),
-      createMigrationOwnerId: () => this.createMigrationOwnerId(),
-      tryAcquireMigrationLeaseInAppState: (targetDb, ownerTabId, acquiredAt) =>
-        this.tryAcquireMigrationLeaseInAppState(targetDb, ownerTabId, acquiredAt),
-      refreshMigrationLeaseInAppState: (targetDb, ownerTabId, acquiredAt) =>
-        this.refreshMigrationLeaseInAppState(targetDb, ownerTabId, acquiredAt),
-      clearMigrationLeaseInAppState: (targetDb, ownerTabId) =>
-        this.clearMigrationLeaseInAppState(targetDb, ownerTabId),
-      tryRunWithNavigatorMigrationLock: (runner) => this.tryRunWithNavigatorMigrationLock(runner),
-      collectMigrationParity: (targetDb) => this.collectMigrationParity(targetDb),
-      validateAndQuarantineInvariantViolations: (targetDb) =>
-        this.validateAndQuarantineInvariantViolations(targetDb),
-    });
   }
 
   // App state

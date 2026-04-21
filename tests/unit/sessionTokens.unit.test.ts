@@ -13,7 +13,11 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
 
 test.describe('session JWT kind helpers', () => {
   test('rejects threshold-session JWTs at app-session boundaries', () => {
-    const jwt = jwtWithPayload({ kind: 'threshold_ecdsa_session_v1', sub: 'alice.testnet' });
+    const jwt = jwtWithPayload({
+      kind: 'threshold_ecdsa_session_v1',
+      sub: 'alice.testnet',
+      walletId: 'alice.testnet',
+    });
 
     expect(() => requireAppSessionJwt(jwt)).toThrow('must be an app-session JWT');
   });
@@ -52,6 +56,7 @@ test.describe('session JWT kind helpers', () => {
     const thresholdJwt = jwtWithPayload({
       kind: 'threshold_ecdsa_session_v1',
       sub: 'alice.testnet',
+      walletId: 'alice.testnet',
     });
     const appJwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
 

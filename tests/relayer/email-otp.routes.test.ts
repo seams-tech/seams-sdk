@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import { signSecp256k1Recoverable } from '@server/core/ThresholdService/ethSignerWasm';
+import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
 import {
   createInMemoryConsoleWebhookService,
   createRelayRouter,
@@ -35,6 +36,11 @@ const VALID_SECP256K1_PUBLIC_KEY_33_B64U = base64UrlEncode(
   ),
 );
 const GOOGLE_EMAIL_OTP_USER_ID = 'google:117142622123955425762';
+const DEFAULT_RUNTIME_POLICY_SCOPE = {
+  orgId: 'org_email_otp_routes',
+  projectId: 'project_email_otp_routes',
+  envId: 'env_email_otp_routes',
+} as const;
 
 function encodePositiveBigIntB64u(value: bigint): string {
   if (value <= 0n) throw new Error('value must be > 0');
@@ -75,6 +81,35 @@ function makeWrappedCiphertext(plaintextSecretB64u: string): {
     }),
   );
   return { wrappedCiphertext, clientCiphertext };
+}
+
+function makeEcdsaThresholdAdapter(input: {
+  prepare: (request: Record<string, unknown>) => Promise<Record<string, unknown>>;
+}): {
+  getSchemeModule: (schemeId: string) => Record<string, unknown> | null;
+} {
+  return {
+    getSchemeModule: (schemeId: string) => {
+      if (schemeId !== THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID) return null;
+      return {
+        schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+        healthz: async () => ({ ok: true }),
+        hss: {
+          prepare: async (request: Record<string, unknown>) => await input.prepare(request),
+          respond: async () => ({
+            ok: false,
+            code: 'not_implemented',
+            message: 'not implemented',
+          }),
+          finalize: async () => ({
+            ok: false,
+            code: 'not_implemented',
+            message: 'not implemented',
+          }),
+        },
+      };
+    },
+  };
 }
 
 function removeClientSeal(ciphertextB64u: string): string {
@@ -135,6 +170,8 @@ function makeAppSessionAdapter(appSessionVersion: string) {
       claims: {
         kind: 'app_session_v1',
         sub: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+        runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
         appSessionVersion,
         email: 'alice@example.com',
       },
@@ -150,6 +187,8 @@ function makeGoogleEmailOtpAppSessionAdapter(appSessionVersion: string) {
         kind: 'app_session_v1',
         sub: GOOGLE_EMAIL_OTP_USER_ID,
         walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+        runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
         appSessionVersion,
         provider: 'oidc',
         oidcProvider: 'google',
@@ -171,9 +210,132 @@ function makeTokenBoundAppSessionAdapter(
       const entry = claimsByToken[token];
       const claims = typeof entry === 'function' ? entry() : entry;
       if (!claims) return { ok: false } as const;
+      if (claims.kind === 'app_session_v1') {
+        return {
+          ok: true,
+          claims: {
+            orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+            runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
+            ...claims,
+          } as any,
+        } as const;
+      }
+      if (
+        claims.kind === 'threshold_ed25519_session_v1' ||
+        claims.kind === 'threshold_ecdsa_session_v1'
+      ) {
+        return {
+          ok: true,
+          claims: {
+            orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+            runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
+            ...claims,
+          } as any,
+        } as const;
+      }
       return { ok: true, claims: claims as any } as const;
     },
   });
+}
+
+function makeThresholdSessionClaims(overrides?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    kind: 'threshold_ecdsa_session_v1',
+    sub: 'alice.testnet',
+    walletId: 'alice.testnet',
+    sessionId: 'ecdsa-session-1',
+    walletSigningSessionId: 'wallet-signing-session-1',
+    relayerKeyId: 'relayer-key-1',
+    rpId: 'example.localhost',
+    orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+    runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
+    thresholdExpiresAtMs: Date.now() + 60_000,
+    participantIds: [1, 2],
+    ...overrides,
+  };
+}
+
+function makeSigningSessionStatusPolicy(args?: {
+  claims?: Record<string, unknown>;
+  statusById?: Record<string, any | null>;
+  onStatusRead?: (thresholdSessionId: string) => void;
+  onConsumeUseCount?: (thresholdSessionId: string) => void;
+}) {
+  const claims = args?.claims || makeThresholdSessionClaims();
+  const userId = String(claims.sub || 'alice.testnet');
+  const sessionId = String(claims.sessionId || 'ecdsa-session-1');
+  const walletSigningSessionId = String(
+    claims.walletSigningSessionId || 'wallet-signing-session-1',
+  );
+  const rpId = String(claims.rpId || 'example.localhost');
+  const relayerKeyId = String(claims.relayerKeyId || 'relayer-key-1');
+  const participantIds = Array.isArray(claims.participantIds)
+    ? claims.participantIds.map((value) => Number(value))
+    : [1, 2];
+  const expiresAtMs = Math.floor(Number(claims.thresholdExpiresAtMs) || Date.now() + 60_000);
+  const makeStatus = (id: string, recordRelayerKeyId: string) => ({
+    thresholdSessionId: id,
+    userId,
+    expiresAtMs,
+    remainingUses: 7,
+    record: {
+      userId,
+      rpId,
+      relayerKeyId: recordRelayerKeyId,
+      participantIds,
+      expiresAtMs,
+    },
+  });
+  const walletBudgetId = `wallet-signing:${walletSigningSessionId}`;
+  const statusById: Record<string, any | null> = {
+    [sessionId]: makeStatus(sessionId, relayerKeyId),
+    [walletBudgetId]: makeStatus(walletBudgetId, 'wallet-signing-budget'),
+    ...(args?.statusById || {}),
+  };
+  return {
+    getSession: async (thresholdSessionId: string) => {
+      const status = statusById[thresholdSessionId];
+      if (!status) return null;
+      return {
+        thresholdSessionId,
+        userId: status.userId,
+        expiresAtMs: status.expiresAtMs,
+        remainingUses: status.remainingUses,
+      };
+    },
+    getSessionStatus: async (thresholdSessionId: string) => {
+      args?.onStatusRead?.(thresholdSessionId);
+      return statusById[thresholdSessionId] || null;
+    },
+    consumeUseCount: async (thresholdSessionId: string) => {
+      args?.onConsumeUseCount?.(thresholdSessionId);
+      return { ok: false, code: 'test_forbidden', message: 'unexpected consumeUseCount' };
+    },
+  };
+}
+
+function makeSigningSessionSealOptions(args?: {
+  claims?: Record<string, unknown>;
+  statusById?: Record<string, any | null>;
+  onStatusRead?: (thresholdSessionId: string) => void;
+  onConsumeUseCount?: (thresholdSessionId: string) => void;
+}) {
+  return {
+    enabled: true,
+    service: {
+      applyServerSeal: async () => ({
+        ok: false as const,
+        code: 'not_implemented',
+        message: 'not implemented',
+      }),
+      removeServerSeal: async () => ({
+        ok: false as const,
+        code: 'not_implemented',
+        message: 'not implemented',
+      }),
+    },
+    sessionPolicy: makeSigningSessionStatusPolicy(args),
+  };
 }
 
 function makeWebhookRecorder() {
@@ -231,7 +393,7 @@ async function enrollEmailOtpOverExpress(args: {
     }),
   });
   expect(enrollSeal.status).toBe(200);
-  const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
+  const enrollmentEscrowCiphertextB64u = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
   const enrollVerify = await fetchJson(`${args.baseUrl}/wallet/email-otp/registration/finalize`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
@@ -240,9 +402,9 @@ async function enrollEmailOtpOverExpress(args: {
       challengeId: enrollChallengeId,
       otpChannel: 'email_otp',
       otpCode: enrollOtpCode,
-      emailOtpEscrowBlob,
-      emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
-      unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      enrollmentEscrowCiphertextB64u,
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
       unlockKeyVersion: 'email-otp-unlock-v1',
       thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     }),
@@ -289,7 +451,7 @@ async function enrollEmailOtpOverCloudflare(args: {
     ctx: args.ctx,
   });
   expect(enrollSeal.status).toBe(200);
-  const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
+  const enrollmentEscrowCiphertextB64u = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
   const enrollVerify = await callCf(args.handler, {
     method: 'POST',
     path: '/wallet/email-otp/registration/finalize',
@@ -299,9 +461,9 @@ async function enrollEmailOtpOverCloudflare(args: {
       challengeId: enrollChallengeId,
       otpChannel: 'email_otp',
       otpCode: enrollOtpCode,
-      emailOtpEscrowBlob,
-      emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
-      unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      enrollmentEscrowCiphertextB64u,
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
       unlockKeyVersion: 'email-otp-unlock-v1',
       thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     },
@@ -465,6 +627,498 @@ test.describe('Email OTP routes', () => {
         policyId: 'policy_export_allowed',
         approvalId: 'approval_verify',
       });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('Express: signing-session auth can request and verify export OTP without app-session refresh', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
+    const { dispatched, webhooks } = makeWebhookRecorder();
+    await webhooks.createEndpoint(
+      { orgId: 'org-email-otp-signing-session-export', actorUserId: 'test-admin', roles: ['admin'] },
+      {
+        url: 'https://example.com/relay-webhooks',
+        eventCategories: ['wallet'],
+      },
+    );
+    const authorizations: Array<Record<string, unknown>> = [];
+    const thresholdClaims = makeThresholdSessionClaims({
+      projectId: 'proj_local',
+      environmentId: 'dev',
+    });
+    const statusReads: string[] = [];
+    const consumeUseCountCalls: string[] = [];
+    const router = createRelayRouter(service, {
+      session: makeTokenBoundAppSessionAdapter({
+        'app-session': {
+          kind: 'app_session_v1',
+          sub: 'alice.testnet',
+          appSessionVersion,
+          email: 'alice@example.com',
+        },
+        'threshold-session': thresholdClaims,
+      }),
+      signingSessionSeal: makeSigningSessionSealOptions({
+        claims: thresholdClaims,
+        onStatusRead: (thresholdSessionId) => statusReads.push(thresholdSessionId),
+        onConsumeUseCount: (thresholdSessionId) => consumeUseCountCalls.push(thresholdSessionId),
+      }),
+      relayWebhooks: {
+        service: webhooks,
+        orgId: 'org-email-otp-signing-session-export',
+      },
+      emailOtpExportPolicy: {
+        authorize: async (input) => {
+          authorizations.push(input as unknown as Record<string, unknown>);
+          return {
+            ok: true,
+            decision: 'ALLOW',
+            policyId: 'policy_signing_session_export_allowed',
+            approvalId: `approval_${input.phase}`,
+            reason: 'test signing-session export policy allow',
+          };
+        },
+      },
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      const challenge = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            otpChannel: 'email_otp',
+            operation: 'export_key',
+            email: 'attacker@example.com',
+          }),
+        },
+      );
+      expect(challenge.status).toBe(200);
+      expect(challenge.json?.challenge?.operation).toBe('export_key');
+      const challengeId = String(challenge.json?.challenge?.challengeId || '');
+      const outbox = await service.readEmailOtpOutboxEntry({
+        challengeId,
+        userId: 'alice.testnet',
+        walletId: 'alice.testnet',
+      });
+      expect(outbox.ok).toBe(true);
+      expect((service as any).emailOtpMemoryOutbox.get(challengeId)?.email).toBe(
+        'alice@example.com',
+      );
+      const otpCode = outbox.ok ? outbox.otpCode : '';
+
+      const verified = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/verify`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            challengeId,
+            otpChannel: 'email_otp',
+            otpCode,
+            operation: 'export_key',
+          }),
+        },
+      );
+      expect(verified.status).toBe(200);
+      expect(verified.json?.ok).toBe(true);
+      expect(verified.json?.appSessionJwt).toBeUndefined();
+      const loginGrant = String(verified.json?.loginGrant || '');
+      expect(loginGrant.length).toBeGreaterThan(10);
+
+      const plaintextSecretB64u = encodePositiveBigIntB64u(19n);
+      const wrapped = makeWrappedCiphertext(plaintextSecretB64u);
+      const unsealed = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/unseal`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            loginGrant,
+            wrappedCiphertext: wrapped.wrappedCiphertext,
+          }),
+        },
+      );
+      expect(unsealed.status).toBe(200);
+      expect(unsealed.json?.ok).toBe(true);
+      expect(unsealed.json?.ciphertext).toBe(wrapped.clientCiphertext);
+
+      expect(authorizations.map((entry) => entry.phase)).toEqual(['challenge', 'verify']);
+      expect(authorizations[0]).toMatchObject({
+        operation: 'export_key',
+        sourceIp: expect.any(String),
+        appSessionVersion:
+          'signing-session:threshold_ecdsa_session_v1:wallet-signing-session-1:ecdsa-session-1',
+      });
+      const issuedEvent = dispatched.find(
+        (entry) => entry.eventType === 'wallet.email_otp.export_challenge_issued',
+      );
+      expect(issuedEvent?.payload).toMatchObject({
+        walletId: 'alice.testnet',
+        operation: 'export_key',
+        source: 'signing_session_challenge',
+        challengeId,
+      });
+      const approvedEvent = dispatched.find(
+        (entry) => entry.eventType === 'wallet.email_otp.export_approved',
+      );
+      expect(approvedEvent?.payload).toMatchObject({
+        walletId: 'alice.testnet',
+        operation: 'export_key',
+        source: 'signing_session_verify',
+        challengeId,
+      });
+      expect(statusReads).toContain('ecdsa-session-1');
+      expect(statusReads).toContain('wallet-signing:wallet-signing-session-1');
+      expect(consumeUseCountCalls).toEqual([]);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('Express: Google SSO Email OTP enrollment can request export OTP through restored signing-session auth', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: GOOGLE_EMAIL_OTP_USER_ID });
+    expect(appVersion.ok).toBe(true);
+    const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
+    const thresholdClaims = makeThresholdSessionClaims();
+    let capturedPrepareRequest: Record<string, unknown> | null = null;
+    const threshold = makeEcdsaThresholdAdapter({
+      prepare: async (request) => {
+        capturedPrepareRequest = request;
+        return {
+          ok: true,
+          ceremonyId: 'ecdsa-email-otp-route-ceremony-1',
+          preparedServerSessionB64u: 'prepared-server-session',
+          serverAssistInitB64u: 'server-assist-init',
+        };
+      },
+    });
+    const router = createRelayRouter(service, {
+      session: makeTokenBoundAppSessionAdapter({
+        'google-app-session': {
+          kind: 'app_session_v1',
+          sub: GOOGLE_EMAIL_OTP_USER_ID,
+          walletId: 'alice.testnet',
+          appSessionVersion,
+          provider: 'oidc',
+          oidcProvider: 'google',
+          providerSubject: GOOGLE_EMAIL_OTP_USER_ID,
+          email: 'alice@example.com',
+        },
+        'threshold-session': thresholdClaims,
+      }),
+      signingSessionSeal: makeSigningSessionSealOptions({ claims: thresholdClaims }),
+      threshold: threshold as any,
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      await enrollEmailOtpOverExpress({
+        baseUrl: srv.baseUrl,
+        authToken: 'google-app-session',
+      });
+      const enrollment = await service.readEmailOtpEnrollment({
+        walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+      });
+      expect(enrollment.ok).toBe(true);
+      expect(enrollment.ok && enrollment.enrollment.providerUserId).toBe(GOOGLE_EMAIL_OTP_USER_ID);
+
+      const challenge = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            otpChannel: 'email_otp',
+            operation: 'export_key',
+          }),
+        },
+      );
+      expect(challenge.status).toBe(200);
+      const challengeId = String(challenge.json?.challenge?.challengeId || '');
+      const outbox = await service.readEmailOtpOutboxEntry({
+        challengeId,
+        userId: 'alice.testnet',
+        walletId: 'alice.testnet',
+      });
+      expect(outbox.ok).toBe(true);
+      expect((service as any).emailOtpMemoryOutbox.get(challengeId)?.email).toBe(
+        'alice@example.com',
+      );
+
+      const prepare = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/hss/prepare`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer threshold-session',
+        },
+        body: JSON.stringify({
+          userId: 'alice.testnet',
+          rpId: 'example.localhost',
+          operation: 'email_otp_bootstrap',
+          keygenSessionId: 'ecdsa-email-otp-route-keygen-1',
+          sessionPolicy: {
+            version: 'threshold_session_v1',
+            userId: 'alice.testnet',
+            rpId: 'example.localhost',
+            sessionId: 'ecdsa-session-email-otp-route-1',
+            walletSigningSessionId: 'wallet-signing-session-1',
+            ttlMs: 60_000,
+            remainingUses: 3,
+            participantIds: [1, 2],
+          },
+        }),
+      });
+      expect(prepare.status).toBe(200);
+      expect(prepare.json?.ok).toBe(true);
+      const captured = capturedPrepareRequest as Record<string, unknown> | null;
+      expect(captured).not.toBeNull();
+      expect((captured as Record<string, unknown>).ecdsaSessionClaims).toMatchObject({
+        sub: 'alice.testnet',
+        walletSigningSessionId: 'wallet-signing-session-1',
+      });
+      expect((captured as Record<string, unknown>).emailOtpEnrollmentClaims).toMatchObject({
+        walletId: 'alice.testnet',
+        userId: GOOGLE_EMAIL_OTP_USER_ID,
+        otpChannel: 'email_otp',
+        thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('Express: invalid Email OTP enrollment without verified email is rejected', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
+    const thresholdClaims = makeThresholdSessionClaims();
+    const router = createRelayRouter(service, {
+      session: makeTokenBoundAppSessionAdapter({
+        'app-session': {
+          kind: 'app_session_v1',
+          sub: 'alice.testnet',
+          appSessionVersion,
+          email: 'alice@example.com',
+        },
+        'threshold-session': thresholdClaims,
+      }),
+      signingSessionSeal: makeSigningSessionSealOptions({ claims: thresholdClaims }),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const nowMs = Date.now();
+      await expect((service as any).getEmailOtpWalletEnrollmentStore().put({
+        version: 'email_otp_wallet_enrollment_v1',
+        walletId: 'alice.testnet',
+        providerUserId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+        verifiedEmail: '',
+        enrollmentEscrowCiphertextB64u: 'invalid-email-otp-escrow-blob',
+        enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+        clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+        unlockKeyVersion: 'email-otp-unlock-v1',
+        thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+      })).rejects.toThrow('Invalid Email OTP wallet enrollment record');
+
+      const loginChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          otpChannel: 'email_otp',
+        }),
+      });
+      expect(loginChallenge.status).toBe(404);
+      expect(loginChallenge.json?.code).toBe('not_found');
+
+      const exportChallenge = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            otpChannel: 'email_otp',
+            operation: 'export_key',
+          }),
+        },
+      );
+      expect(exportChallenge.status).toBe(404);
+      expect(exportChallenge.json?.code).toBe('not_found');
+
+      const unchangedEnrollment = await service.readEmailOtpEnrollment({
+        walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+      });
+      expect(unchangedEnrollment.ok).toBe(false);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('Express: signing-session Email OTP challenge rejects non-export and mismatched auth', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const appSessionVersion = (appVersion as { appSessionVersion: string }).appSessionVersion;
+    const thresholdClaims = makeThresholdSessionClaims();
+    const exhaustedThresholdClaims = makeThresholdSessionClaims({
+      sessionId: 'exhausted-ecdsa-session',
+      walletSigningSessionId: 'exhausted-wallet-signing-session',
+    });
+    const exhaustedSessionStatus = makeSigningSessionStatusPolicy({
+      claims: exhaustedThresholdClaims,
+    });
+    const router = createRelayRouter(service, {
+      session: makeTokenBoundAppSessionAdapter({
+        'app-session': {
+          kind: 'app_session_v1',
+          sub: 'alice.testnet',
+          appSessionVersion,
+          email: 'alice@example.com',
+        },
+        'threshold-session': thresholdClaims,
+        'expired-threshold-session': makeThresholdSessionClaims({
+          sessionId: 'expired-ecdsa-session',
+          thresholdExpiresAtMs: Date.now() - 1_000,
+        }),
+        'exhausted-threshold-session': exhaustedThresholdClaims,
+      }),
+      signingSessionSeal: makeSigningSessionSealOptions({
+        claims: thresholdClaims,
+        statusById: {
+          'exhausted-ecdsa-session': {
+            ...((await exhaustedSessionStatus.getSessionStatus('exhausted-ecdsa-session')) as any),
+            remainingUses: 0,
+          },
+          'wallet-signing:exhausted-wallet-signing-session': {
+            ...((await exhaustedSessionStatus.getSessionStatus(
+              'wallet-signing:exhausted-wallet-signing-session',
+            )) as any),
+            remainingUses: 0,
+          },
+        },
+      }),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      const appSessionAttempt = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            otpChannel: 'email_otp',
+            operation: 'export_key',
+          }),
+        },
+      );
+      expect(appSessionAttempt.status).toBe(401);
+      expect(appSessionAttempt.json?.code).toBe('unauthorized');
+
+      const nonExport = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            otpChannel: 'email_otp',
+            operation: 'transaction_sign',
+          }),
+        },
+      );
+      expect(nonExport.status).toBe(403);
+      expect(nonExport.json?.code).toBe('forbidden');
+
+      const crossWallet = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'bob.testnet',
+            otpChannel: 'email_otp',
+            operation: 'export_key',
+          }),
+        },
+      );
+      expect(crossWallet.status).toBe(403);
+      expect(crossWallet.json?.code).toBe('wallet_identity_mismatch');
+
+      const expired = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer expired-threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            otpChannel: 'email_otp',
+            operation: 'export_key',
+          }),
+        },
+      );
+      expect(expired.status).toBe(401);
+      expect(expired.json?.code).toBe('unauthorized');
+
+      const exhausted = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer exhausted-threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            otpChannel: 'email_otp',
+            operation: 'export_key',
+          }),
+        },
+      );
+      expect(exhausted.status).toBe(401);
+      expect(exhausted.json?.code).toBe('unauthorized');
     } finally {
       await srv.close();
     }
@@ -673,9 +1327,9 @@ test.describe('Email OTP routes', () => {
         }),
       });
       expect(enrollSeal.status).toBe(200);
-      expect(enrollSeal.json?.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
-      const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
-      expect(emailOtpEscrowBlob).toBe(addServerSeal(enrollPlaintextSecretB64u));
+      expect(enrollSeal.json?.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+      const enrollmentEscrowCiphertextB64u = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
+      expect(enrollmentEscrowCiphertextB64u).toBe(addServerSeal(enrollPlaintextSecretB64u));
       const enrollVerify = await fetchJson(`${srv.baseUrl}/wallet/email-otp/registration/finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
@@ -684,19 +1338,22 @@ test.describe('Email OTP routes', () => {
           challengeId: enrollChallengeId,
           otpChannel: 'email_otp',
           otpCode: enrollOtpCode,
-          emailOtpEscrowBlob,
-          emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
-          unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+          enrollmentEscrowCiphertextB64u,
+          enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+          clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
           unlockKeyVersion: 'email-otp-unlock-v1',
           thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
         }),
       });
       expect(enrollVerify.status).toBe(200);
-      const enrolled = await service.readEmailOtpEnrollment({ walletId: 'alice.testnet' });
+      const enrolled = await service.readEmailOtpEnrollment({
+        walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+      });
       expect(enrolled.ok).toBe(true);
-      expect(enrolled.ok && enrolled.enrollment.emailOtpEscrowBlob).toBe(emailOtpEscrowBlob);
-      expect(enrolled.ok && enrolled.enrollment.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
-      expect(enrolled.ok && enrolled.enrollment.unlockPublicKey).toBe(
+      expect(enrolled.ok && enrolled.enrollment.enrollmentEscrowCiphertextB64u).toBe(enrollmentEscrowCiphertextB64u);
+      expect(enrolled.ok && enrolled.enrollment.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+      expect(enrolled.ok && enrolled.enrollment.clientUnlockPublicKeyB64u).toBe(
         VALID_SECP256K1_PUBLIC_KEY_33_B64U,
       );
       expect(
@@ -760,7 +1417,7 @@ test.describe('Email OTP routes', () => {
       });
       expect(unsealed.status).toBe(200);
       expect(unsealed.json?.ok).toBe(true);
-      expect(unsealed.json?.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+      expect(unsealed.json?.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
       expect(unsealed.json?.ciphertext).toBe(wrapped.clientCiphertext);
       expect(removeClientSeal(String(unsealed.json?.ciphertext || ''))).toBe(plaintextSecretB64u);
 
@@ -770,6 +1427,7 @@ test.describe('Email OTP routes', () => {
         body: JSON.stringify({
           unlockBackend: 'email_otp',
           walletId: 'alice.testnet',
+          orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
         }),
       });
       expect(unlockChallenge.status).toBe(200);
@@ -788,6 +1446,7 @@ test.describe('Email OTP routes', () => {
         body: JSON.stringify({
           unlockBackend: 'email_otp',
           walletId: 'alice.testnet',
+          orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
           challengeId: unlockChallengeId,
           unlockProof: {
             publicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
@@ -799,10 +1458,9 @@ test.describe('Email OTP routes', () => {
       expect(unlockVerify.json?.ok).toBe(true);
       expect(unlockVerify.json?.unlocked).toBe(true);
       expect(unlockVerify.json?.unlockBackend).toBe('email_otp');
-      const enrolledAfterUnlock = await service.readEmailOtpEnrollment({ walletId: 'alice.testnet' });
-      expect(enrolledAfterUnlock.ok).toBe(true);
+      const authStateAfterUnlock = await (service as any).getEmailOtpAuthStateStore().get('alice.testnet');
       expect(
-        enrolledAfterUnlock.ok && typeof enrolledAfterUnlock.enrollment.lastEmailOtpLoginAtMs === 'number',
+        typeof authStateAfterUnlock?.lastEmailOtpLoginAtMs === 'number',
       ).toBe(true);
 
       const replay = await fetchJson(`${srv.baseUrl}/wallet/email-otp/unseal`, {
@@ -872,11 +1530,10 @@ test.describe('Email OTP routes', () => {
       expect(exhausted.json?.attemptsRemaining).toBe(0);
       expect(typeof exhausted.json?.lockedUntilMs).toBe('number');
 
-      const enrollment = await service.readEmailOtpEnrollment({ walletId: 'alice.testnet' });
-      expect(enrollment.ok).toBe(true);
-      expect(enrollment.ok && enrollment.enrollment.otpFailureCount).toBe(totalAttempts);
-      expect(enrollment.ok && typeof enrollment.enrollment.lastOtpFailureAtMs).toBe('number');
-      expect(enrollment.ok && typeof enrollment.enrollment.otpLockedUntilMs).toBe('number');
+      const authState = await (service as any).getEmailOtpAuthStateStore().get('alice.testnet');
+      expect(authState?.otpFailureCount).toBe(totalAttempts);
+      expect(typeof authState?.lastOtpFailureAtMs).toBe('number');
+      expect(typeof authState?.otpLockedUntilMs).toBe('number');
 
       const lockedChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
@@ -967,6 +1624,7 @@ test.describe('Email OTP routes', () => {
         body: JSON.stringify({
           unlockBackend: 'email_otp',
           walletId: 'alice.testnet',
+          orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
         }),
       });
       expect(unlockChallenge.status).toBe(200);
@@ -982,6 +1640,7 @@ test.describe('Email OTP routes', () => {
         body: JSON.stringify({
           unlockBackend: 'email_otp',
           walletId: 'alice.testnet',
+          orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
           challengeId: unlockChallengeId,
           unlockProof: {
             publicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
@@ -1056,7 +1715,7 @@ test.describe('Email OTP routes', () => {
     }
   });
 
-  test('Express: Email OTP routes emit a new-device login event when the login app session device differs from enrollment', async () => {
+  test('Express: Email OTP routes do not emit device-diff events after enrollment cleanup', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
@@ -1150,10 +1809,7 @@ test.describe('Email OTP routes', () => {
       const newDeviceEvent = dispatched.find(
         (entry) => entry.eventType === 'wallet.email_otp.new_device',
       );
-      expect(newDeviceEvent?.payload.walletId).toBe('alice.testnet');
-      expect(newDeviceEvent?.payload.challengeId).toBe(challengeId);
-      expect(newDeviceEvent?.payload.enrolledDeviceId).toBe('device-enroll');
-      expect(newDeviceEvent?.payload.currentDeviceId).toBe('device-login');
+      expect(newDeviceEvent).toBeUndefined();
     } finally {
       await srv.close();
     }
@@ -1229,9 +1885,9 @@ test.describe('Email OTP routes', () => {
       ctx: cf.ctx,
     });
     expect(enrollSeal.status).toBe(200);
-    expect(enrollSeal.json?.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
-    const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
-    expect(emailOtpEscrowBlob).toBe(addServerSeal(enrollPlaintextSecretB64u));
+    expect(enrollSeal.json?.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+    const enrollmentEscrowCiphertextB64u = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
+    expect(enrollmentEscrowCiphertextB64u).toBe(addServerSeal(enrollPlaintextSecretB64u));
     const enrollVerify = await callCf(handler, {
       method: 'POST',
       path: '/wallet/email-otp/registration/finalize',
@@ -1241,18 +1897,21 @@ test.describe('Email OTP routes', () => {
         challengeId: enrollChallengeId,
         otpChannel: 'email_otp',
         otpCode: enrollOtpCode,
-        emailOtpEscrowBlob,
-        emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
-        unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+        enrollmentEscrowCiphertextB64u,
+        enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+        clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
         unlockKeyVersion: 'email-otp-unlock-v1',
         thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
       },
       ctx: cf.ctx,
     });
     expect(enrollVerify.status).toBe(200);
-    const enrolled = await service.readEmailOtpEnrollment({ walletId: 'alice.testnet' });
+    const enrolled = await service.readEmailOtpEnrollment({
+      walletId: 'alice.testnet',
+      orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+    });
     expect(enrolled.ok).toBe(true);
-    expect(enrolled.ok && enrolled.enrollment.emailOtpEscrowBlob).toBe(emailOtpEscrowBlob);
+    expect(enrolled.ok && enrolled.enrollment.enrollmentEscrowCiphertextB64u).toBe(enrollmentEscrowCiphertextB64u);
 
     const challenge = await callCf(handler, {
       method: 'POST',
@@ -1310,7 +1969,7 @@ test.describe('Email OTP routes', () => {
       ctx: cf.ctx,
     });
     expect(unsealed.status).toBe(200);
-    expect(unsealed.json?.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+    expect(unsealed.json?.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
     expect(unsealed.json?.ciphertext).toBe(wrapped.clientCiphertext);
     expect(removeClientSeal(String(unsealed.json?.ciphertext || ''))).toBe(plaintextSecretB64u);
 
@@ -1320,6 +1979,7 @@ test.describe('Email OTP routes', () => {
       body: {
         unlockBackend: 'email_otp',
         walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
       },
       ctx: cf.ctx,
     });
@@ -1339,6 +1999,7 @@ test.describe('Email OTP routes', () => {
       body: {
         unlockBackend: 'email_otp',
         walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
         challengeId: unlockChallengeId,
         unlockProof: {
           publicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
@@ -1351,10 +2012,9 @@ test.describe('Email OTP routes', () => {
     expect(unlockVerify.json?.ok).toBe(true);
     expect(unlockVerify.json?.unlocked).toBe(true);
     expect(unlockVerify.json?.unlockBackend).toBe('email_otp');
-    const enrolledAfterUnlock = await service.readEmailOtpEnrollment({ walletId: 'alice.testnet' });
-    expect(enrolledAfterUnlock.ok).toBe(true);
+    const authStateAfterUnlock = await (service as any).getEmailOtpAuthStateStore().get('alice.testnet');
     expect(
-      enrolledAfterUnlock.ok && typeof enrolledAfterUnlock.enrollment.lastEmailOtpLoginAtMs === 'number',
+      typeof authStateAfterUnlock?.lastEmailOtpLoginAtMs === 'number',
     ).toBe(true);
 
     const consumedReplay = await callCf(handler, {
@@ -1426,11 +2086,10 @@ test.describe('Email OTP routes', () => {
     expect(exhausted.json?.attemptsRemaining).toBe(0);
     expect(typeof exhausted.json?.lockedUntilMs).toBe('number');
 
-    const enrollment = await service.readEmailOtpEnrollment({ walletId: 'alice.testnet' });
-    expect(enrollment.ok).toBe(true);
-    expect(enrollment.ok && enrollment.enrollment.otpFailureCount).toBe(totalAttempts);
-    expect(enrollment.ok && typeof enrollment.enrollment.lastOtpFailureAtMs).toBe('number');
-    expect(enrollment.ok && typeof enrollment.enrollment.otpLockedUntilMs).toBe('number');
+    const authState = await (service as any).getEmailOtpAuthStateStore().get('alice.testnet');
+    expect(authState?.otpFailureCount).toBe(totalAttempts);
+    expect(typeof authState?.lastOtpFailureAtMs).toBe('number');
+    expect(typeof authState?.otpLockedUntilMs).toBe('number');
 
     const lockedChallenge = await callCf(handler, {
       method: 'POST',
@@ -1524,6 +2183,7 @@ test.describe('Email OTP routes', () => {
       body: {
         unlockBackend: 'email_otp',
         walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
       },
       ctx: cf.ctx,
     });
@@ -1540,6 +2200,7 @@ test.describe('Email OTP routes', () => {
       body: {
         unlockBackend: 'email_otp',
         walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
         challengeId: unlockChallengeId,
         unlockProof: {
           publicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
@@ -1618,7 +2279,7 @@ test.describe('Email OTP routes', () => {
     );
   });
 
-  test('Cloudflare: Email OTP routes emit a new-device login event when the login app session device differs from enrollment', async () => {
+  test('Cloudflare: Email OTP routes do not emit device-diff events after enrollment cleanup', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
@@ -1711,10 +2372,7 @@ test.describe('Email OTP routes', () => {
     const newDeviceEvent = dispatched.find(
       (entry) => entry.eventType === 'wallet.email_otp.new_device',
     );
-    expect(newDeviceEvent?.payload.walletId).toBe('alice.testnet');
-    expect(newDeviceEvent?.payload.challengeId).toBe(challengeId);
-    expect(newDeviceEvent?.payload.enrolledDeviceId).toBe('cf-device-enroll');
-    expect(newDeviceEvent?.payload.currentDeviceId).toBe('cf-device-login');
+    expect(newDeviceEvent).toBeUndefined();
   });
 
   test('Cloudflare: unseal rejects an invalid login grant', async () => {
@@ -1753,13 +2411,23 @@ test.describe('Email OTP routes', () => {
     );
     try {
       await enrollEmailOtpOverExpress({ baseUrl: server.baseUrl });
-      const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+      const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
       const current = await enrollmentStore.get('alice.testnet');
       expect(current).toBeTruthy();
+      const nowMs = Date.now();
+      await (service as any).getEmailOtpAuthStateStore().put({
+        version: 'email_otp_auth_state_v1',
+        walletId: 'alice.testnet',
+        providerUserId: current.providerUserId,
+        orgId: current.orgId,
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+        lastEmailOtpLoginAtMs: nowMs,
+      });
+
       await enrollmentStore.put({
         ...current,
         updatedAtMs: Date.now(),
-        lastEmailOtpLoginAtMs: Date.now(),
       });
 
       const gated = await fetchJson(`${server.baseUrl}/wallet/email-otp/registration/challenge`, {
@@ -1792,13 +2460,18 @@ test.describe('Email OTP routes', () => {
     );
     try {
       await enrollEmailOtpOverExpress({ baseUrl: server.baseUrl });
-      const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+      const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
       const current = await enrollmentStore.get('alice.testnet');
       expect(current).toBeTruthy();
-      await enrollmentStore.put({
-        ...current,
-        updatedAtMs: Date.now(),
-        lastEmailOtpLoginAtMs: Date.now(),
+      const nowMs = Date.now();
+      await (service as any).getEmailOtpAuthStateStore().put({
+        version: 'email_otp_auth_state_v1',
+        walletId: 'alice.testnet',
+        providerUserId: current.providerUserId,
+        orgId: current.orgId,
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+        lastEmailOtpLoginAtMs: nowMs,
       });
 
       await enrollEmailOtpOverExpress({ baseUrl: server.baseUrl });
@@ -1817,13 +2490,18 @@ test.describe('Email OTP routes', () => {
     const cf = makeCfCtx();
 
     await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
-    const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
     const current = await enrollmentStore.get('alice.testnet');
     expect(current).toBeTruthy();
-    await enrollmentStore.put({
-      ...current,
-      updatedAtMs: Date.now(),
-      lastEmailOtpLoginAtMs: Date.now(),
+    const nowMs = Date.now();
+    await (service as any).getEmailOtpAuthStateStore().put({
+      version: 'email_otp_auth_state_v1',
+      walletId: 'alice.testnet',
+      providerUserId: current.providerUserId,
+      orgId: current.orgId,
+      createdAtMs: nowMs,
+      updatedAtMs: nowMs,
+      lastEmailOtpLoginAtMs: nowMs,
     });
 
     const gated = await callCf(handler, {
@@ -1854,13 +2532,18 @@ test.describe('Email OTP routes', () => {
     const cf = makeCfCtx();
 
     await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
-    const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
     const current = await enrollmentStore.get('alice.testnet');
     expect(current).toBeTruthy();
-    await enrollmentStore.put({
-      ...current,
-      updatedAtMs: Date.now(),
-      lastEmailOtpLoginAtMs: Date.now(),
+    const nowMs = Date.now();
+    await (service as any).getEmailOtpAuthStateStore().put({
+      version: 'email_otp_auth_state_v1',
+      walletId: 'alice.testnet',
+      providerUserId: current.providerUserId,
+      orgId: current.orgId,
+      createdAtMs: nowMs,
+      updatedAtMs: nowMs,
+      lastEmailOtpLoginAtMs: nowMs,
     });
 
     await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });

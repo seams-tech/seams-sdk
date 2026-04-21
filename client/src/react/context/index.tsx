@@ -66,6 +66,7 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
     isUsingExistingAccount,
     accountExists,
     indexDBAccounts,
+    indexDBAccountOptions,
     setInputUsername,
     refreshAccountData,
   } = accountInputHook;
@@ -80,6 +81,7 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
       isUsingExistingAccount,
       accountExists,
       indexDBAccounts,
+      indexDBAccountOptions,
     }),
     [
       inputUsername,
@@ -90,6 +92,7 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
       isUsingExistingAccount,
       accountExists,
       indexDBAccounts,
+      indexDBAccountOptions,
     ],
   );
 

@@ -3,6 +3,7 @@ import type { TatchiPasskey } from '@/core/TatchiPasskey';
 import { checkNearAccountExistsBestEffort } from '@/core/rpcClients/near/rpcCalls';
 import { awaitWalletIframeReady } from '../utils/walletIframe';
 import { isObject } from '@shared/utils/validation';
+import type { StoredAccountOption } from '../types';
 
 async function discoverRelayerAccountFromHealthz(relayUrl: string): Promise<string | null> {
   const base = String(relayUrl || '')
@@ -40,6 +41,7 @@ export interface AccountInputState {
   isUsingExistingAccount: boolean;
   accountExists: boolean;
   indexDBAccounts: string[];
+  indexDBAccountOptions: StoredAccountOption[];
 }
 
 export interface UseAccountInputOptions {
@@ -62,6 +64,36 @@ function extractUsernameFromAccountId(accountId: string | null | undefined): str
   const normalized = String(accountId || '').trim();
   if (!normalized) return '';
   return normalized.split('.')[0] || '';
+}
+
+function normalizeStoredAccountOptions(input: {
+  accountIds?: string[];
+  accounts?: Array<{
+    nearAccountId?: string | null;
+    signerSlot?: number;
+    authMethod?: StoredAccountOption['authMethod'];
+  }> | null;
+}): StoredAccountOption[] {
+  const accounts: Array<{
+    nearAccountId?: string | null;
+    signerSlot?: number;
+    authMethod?: StoredAccountOption['authMethod'];
+  }> =
+    input.accounts && input.accounts.length > 0
+      ? input.accounts
+      : (input.accountIds ?? []).map((nearAccountId) => ({ nearAccountId }));
+
+  const byAccountId = new Map<string, StoredAccountOption>();
+  for (const account of accounts) {
+    const nearAccountId = String(account.nearAccountId || '').trim();
+    if (!nearAccountId) continue;
+    byAccountId.set(nearAccountId, {
+      nearAccountId,
+      ...(typeof account.signerSlot === 'number' ? { signerSlot: account.signerSlot } : {}),
+      ...(account.authMethod ? { authMethod: account.authMethod } : {}),
+    });
+  }
+  return [...byAccountId.values()];
 }
 
 export function useAccountInput({
@@ -120,6 +152,7 @@ export function useAccountInput({
     isUsingExistingAccount: false,
     accountExists: false,
     indexDBAccounts: [],
+    indexDBAccountOptions: [],
   });
 
   // Await wallet iframe readiness when needed
@@ -132,7 +165,11 @@ export function useAccountInput({
   const refreshAccountData = useCallback(async () => {
     try {
       await awaitWalletIframeIfNeeded();
-      const { accountIds, lastUsedAccount } = await tatchi.auth.getRecentUnlocks();
+      const recentUnlocks = await tatchi.auth.getRecentUnlocks();
+      const accountIds = recentUnlocks.accountIds ?? [];
+      const accounts = recentUnlocks.accounts ?? [];
+      const lastUsedAccount = recentUnlocks.lastUsedAccount ?? null;
+      const storedAccountOptions = normalizeStoredAccountOptions({ accountIds, accounts });
 
       const fallbackAccountId = accountIds[0] || '';
       const selectedPrefillAccountId = lastUsedAccount?.nearAccountId || fallbackAccountId;
@@ -143,6 +180,7 @@ export function useAccountInput({
       setState((prevState) => ({
         ...prevState,
         indexDBAccounts: accountIds,
+        indexDBAccountOptions: storedAccountOptions,
         lastLoggedInUsername: lastUsername,
         lastLoggedInDomain: lastDomain,
         inputUsername:
@@ -302,7 +340,9 @@ export function useAccountInput({
       } else {
         // No logged-in user, try to get last used account
         await awaitWalletIframeIfNeeded();
-        const { lastUsedAccount, accountIds } = await tatchi.auth.getRecentUnlocks();
+        const recentUnlocks = await tatchi.auth.getRecentUnlocks();
+        const lastUsedAccount = recentUnlocks.lastUsedAccount ?? null;
+        const accountIds = recentUnlocks.accountIds ?? [];
         const prefillAccountId = lastUsedAccount?.nearAccountId || accountIds?.[0] || '';
         if (prefillAccountId) {
           const username = extractUsernameFromAccountId(prefillAccountId);
@@ -321,7 +361,9 @@ export function useAccountInput({
       if (!isLoggedIn && !currentNearAccountId) {
         try {
           await awaitWalletIframeIfNeeded();
-          const { lastUsedAccount, accountIds } = await tatchi.auth.getRecentUnlocks();
+          const recentUnlocks = await tatchi.auth.getRecentUnlocks();
+          const lastUsedAccount = recentUnlocks.lastUsedAccount ?? null;
+          const accountIds = recentUnlocks.accountIds ?? [];
           const prefillAccountId = lastUsedAccount?.nearAccountId || accountIds?.[0] || '';
           if (prefillAccountId) {
             const username = extractUsernameFromAccountId(prefillAccountId);

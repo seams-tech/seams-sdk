@@ -7,7 +7,11 @@ import {
   normalizePayloadEnvelope,
   sanitizePayload,
 } from './envelope';
-import { DB_CONFIG, type PasskeyAccountKeyMaterialDBConfig, upgradePasskeyAccountKeyMaterialDBSchema } from './schema';
+import {
+  DB_CONFIG,
+  type PasskeyAccountKeyMaterialDBConfig,
+  upgradePasskeyAccountKeyMaterialDBSchema,
+} from './schema';
 
 export type {
   KeyMaterialAlgorithm,
@@ -68,7 +72,7 @@ export class AccountKeyMaterialDBManager {
     }
 
     this.db = await openDB(this.config.dbName, this.config.dbVersion, {
-      upgrade(db, _oldVersion, _newVersion, tx): void {
+      upgrade(db, _previousVersion, _newVersion, tx): void {
         upgradePasskeyAccountKeyMaterialDBSchema(db, tx);
       },
       blocked() {
@@ -99,9 +103,7 @@ export class AccountKeyMaterialDBManager {
       throw new Error('PasskeyAccountKeyMaterialDB: Missing profileId for key material record');
     }
     if (!Number.isSafeInteger(data.signerSlot) || data.signerSlot < 1) {
-      throw new Error(
-        'PasskeyAccountKeyMaterialDB: Invalid signerSlot for key material record',
-      );
+      throw new Error('PasskeyAccountKeyMaterialDB: Invalid signerSlot for key material record');
     }
     if (!chainIdKey) {
       throw new Error('PasskeyAccountKeyMaterialDB: Missing chainIdKey for key material record');

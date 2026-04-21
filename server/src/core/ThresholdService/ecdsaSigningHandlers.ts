@@ -583,7 +583,7 @@ export class ThresholdEcdsaSigningHandlers {
     const { ecdsaThresholdKeyId } = parsedRequest.value;
 
     const claims = input.claims;
-    const userId = toOptionalTrimmedString(claims?.sub);
+    const userId = toOptionalTrimmedString(claims?.walletId);
     if (!userId)
       return {
         ok: false,
@@ -870,7 +870,7 @@ export class ThresholdEcdsaSigningHandlers {
       };
 
       const claims = input.claims;
-      const tokenUserId = toOptionalTrimmedString(claims?.sub);
+      const tokenUserId = toOptionalTrimmedString(claims?.walletId);
       const tokenRpId = toOptionalTrimmedString(claims?.rpId);
       const tokenParticipantIds = normalizeThresholdEd25519ParticipantIds(claims?.participantIds);
       if (!tokenUserId || !tokenRpId || !tokenParticipantIds) {

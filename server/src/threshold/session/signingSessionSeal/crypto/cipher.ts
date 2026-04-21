@@ -206,7 +206,10 @@ function cipherFailure(code: string, message: string): SigningSessionSealCipherO
   return { ok: false, code, message };
 }
 
-function mapCipherError(error: unknown, fallback: string): SigningSessionSealCipherOperationResult {
+function mapCipherError(
+  error: unknown,
+  defaultMessage: string,
+): SigningSessionSealCipherOperationResult {
   if (
     error &&
     typeof error === 'object' &&
@@ -214,12 +217,13 @@ function mapCipherError(error: unknown, fallback: string): SigningSessionSealCip
     (error as { code?: unknown }).code
   ) {
     const code = toOptionalTrimmedString((error as { code?: unknown }).code) || 'internal';
-    const message = toOptionalTrimmedString((error as { message?: unknown }).message) || fallback;
+    const message =
+      toOptionalTrimmedString((error as { message?: unknown }).message) || defaultMessage;
     return cipherFailure(code, message);
   }
 
   const message =
-    toOptionalTrimmedString(error instanceof Error ? error.message : error) || fallback;
+    toOptionalTrimmedString(error instanceof Error ? error.message : error) || defaultMessage;
   const lowered = message.toLowerCase();
   if (lowered.includes('keyversion')) {
     return cipherFailure('invalid_key_version', message);

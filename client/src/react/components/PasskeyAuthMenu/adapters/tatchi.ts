@@ -1,13 +1,13 @@
 import { useTatchi } from '@/react/context';
 import type { TatchiPasskey } from '@/core/TatchiPasskey';
-import { type SDKFlowRuntime } from '@/react/types';
+import { type SDKFlowRuntime, type StoredAccountOption } from '@/react/types';
 
 export interface PasskeyAuthMenuRuntime {
   tatchiPasskey: TatchiPasskey;
   accountExists: boolean;
   inputUsername: string;
   targetAccountId: string;
-  accountOptions?: string[];
+  accountOptions?: StoredAccountOption[];
   setInputUsername: (v: string) => void;
   refreshLoginState: (nearAccountId?: string) => Promise<void>;
   sdkFlow: SDKFlowRuntime;
@@ -24,7 +24,9 @@ export function usePasskeyAuthMenuRuntime(): PasskeyAuthMenuRuntime {
     accountExists,
     inputUsername: ctx.accountInputState?.inputUsername ?? '',
     targetAccountId: ctx.accountInputState?.targetAccountId ?? '',
-    accountOptions: ctx.accountInputState?.indexDBAccounts ?? [],
+    accountOptions:
+      ctx.accountInputState?.indexDBAccountOptions ??
+      (ctx.accountInputState?.indexDBAccounts ?? []).map((nearAccountId) => ({ nearAccountId })),
     setInputUsername: ctx.setInputUsername,
     refreshLoginState: ctx.refreshLoginState,
     sdkFlow: ctx.sdkFlow,

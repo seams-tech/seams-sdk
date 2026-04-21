@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { EmailOtpThresholdSessionCoordinator } from '@/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSessionPersistence';
+import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 
 function jsonB64u(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
@@ -40,10 +42,10 @@ function createCoordinator(overrides?: {
           recovery: {
             loginGrant: 'login-grant',
             challengeId: call.request.payload.challengeId,
-            emailOtpKeyVersion: 'email-v1',
+            enrollmentSealKeyVersion: 'email-v1',
             unlockChallengeId: 'unlock-challenge',
             unlockChallengeB64u: 'unlock-challenge-b64u',
-            unlockPublicKeyB64u: 'unlock-public',
+            clientUnlockPublicKeyB64u: 'unlock-public',
             unlockSignatureB64u: 'unlock-sig',
             thresholdEd25519PrfFirstB64u: 'prf-first-ecdsa-login',
           },
@@ -116,8 +118,8 @@ function createCoordinator(overrides?: {
             thresholdEcdsaClientVerifyingShareB64u: 'verifying-share',
             challengeId: call.request.payload.challengeId,
             otpChannel: 'email_otp',
-            emailOtpKeyVersion: 'email-v1',
-            unlockPublicKeyB64u: 'unlock-public',
+            enrollmentSealKeyVersion: 'email-v1',
+            clientUnlockPublicKeyB64u: 'unlock-public',
             unlockKeyVersion: 'unlock-v1',
             thresholdEd25519PrfFirstB64u: 'prf-first-ecdsa-enroll',
           },
@@ -298,9 +300,12 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         payload: {
           relayUrl: 'https://relay.example',
           walletId: 'alice.testnet',
-          appSessionJwt: cachedJwt,
+          routePlan: {
+            routeFamily: 'login',
+            authLane: { kind: 'app_session', jwt: cachedJwt },
+            operation: 'transaction_sign',
+          },
           otpChannel: 'email_otp',
-          operation: 'transaction_sign',
         },
       },
     });
@@ -351,31 +356,42 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       {
         relayUrl: 'https://relay.example',
         walletId: 'alice.testnet',
-        appSessionJwt: 'fresh-app-session-jwt',
+        routePlan: {
+          routeFamily: 'login',
+          authLane: { kind: 'app_session', jwt: 'fresh-app-session-jwt' },
+          operation: 'export_key',
+        },
         otpChannel: 'email_otp',
-        operation: 'export_key',
       },
       {
         relayUrl: 'https://relay.example',
         walletId: 'alice.testnet',
-        appSessionJwt: 'fresh-app-session-jwt',
+        routePlan: {
+          routeFamily: 'login',
+          authLane: { kind: 'app_session', jwt: 'fresh-app-session-jwt' },
+          operation: 'export_key',
+        },
         otpChannel: 'email_otp',
-        operation: 'export_key',
       },
     ]);
   });
 
-  test('normalizes app-session route auth and remembers the JWT', async () => {
-    const { coordinator, getRefreshCount } = createCoordinator();
+  test('converts app-session lane into a route plan and remembers the JWT', async () => {
+    const { coordinator, getRefreshCount, workerCalls } = createCoordinator();
     const jwt = appSessionJwt();
 
-    const resolved = coordinator.resolveAppSessionJwtFromRouteAuth({
+    const challenge = await coordinator.requestChallengeForSigning({
       nearAccountId: 'alice.testnet',
-      thresholdRouteAuth: { kind: 'app_session', jwt },
+      chain: 'near',
+      routeAuth: { kind: 'app_session', jwt },
     });
 
-    expect(resolved).toBe(jwt);
-    expect(coordinator.appSessionRouteAuth(jwt)).toEqual({ kind: 'app_session', jwt });
+    expect(challenge.appSessionJwt).toBe(jwt);
+    expect(workerCalls[0].request.payload.routePlan).toEqual({
+      routeFamily: 'login',
+      authLane: { kind: 'app_session', jwt },
+      operation: 'transaction_sign',
+    });
     await expect(
       coordinator.resolveAppSessionJwt({
         nearAccountId: 'alice.testnet',
@@ -441,6 +457,72 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
   });
 
+  test('uses the restored Ed25519 threshold session for Email OTP export instead of minting a new session', async () => {
+    const { coordinator, workerCalls, ed25519ProvisionCalls, hydratedSessions, getRefreshCount } =
+      createCoordinator();
+    const thresholdSessionJwt = `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
+      kind: 'threshold_ed25519_session_v1',
+      sessionId: 'ed25519-restored-session',
+      sub: 'alice.testnet',
+      walletId: 'alice.testnet',
+      exp: Math.floor(Date.now() / 1000) + 3600,
+    })}.sig`;
+    coordinator.provisionEd25519Capability = async (args) => {
+      ed25519ProvisionCalls.push(args);
+      throw new Error('Ed25519 export should use the restored session, not mint a new one');
+    };
+
+    const result = await coordinator.loginWithEd25519CapabilityForSigning({
+      nearAccountId: 'alice.testnet',
+      challengeId: 'challenge-1',
+      otpCode: '123456',
+      operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+      routeAuth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
+      record: {
+        thresholdSessionId: 'ed25519-restored-session',
+        relayerUrl: 'https://relay.example',
+        rpId: 'localhost',
+        relayerKeyId: 'relayer-key',
+        keyVersion: 'v1',
+        participantIds: [1, 2],
+        thresholdSessionKind: 'jwt',
+        thresholdSessionJwt,
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: 4,
+        source: 'email_otp',
+      } as any,
+    });
+
+    expect(result).toEqual({ sessionId: 'ed25519-restored-session' });
+    expect(ed25519ProvisionCalls).toEqual([]);
+    expect(getRefreshCount()).toBe(0);
+    expect(workerCalls[0].request).toMatchObject({
+      type: 'loginWithEmailOtpWallet',
+      payload: {
+        walletId: 'alice.testnet',
+        challengeId: 'challenge-1',
+        otpCode: '123456',
+        routePlan: {
+          routeFamily: 'signing_session',
+          authLane: { kind: 'signing_session', jwt: thresholdSessionJwt },
+          operation: 'export_key',
+        },
+      },
+    });
+    expect(hydratedSessions).toEqual([
+      expect.objectContaining({
+        sessionId: 'ed25519-restored-session',
+        prfFirstB64u: 'prf-first',
+        remainingUses: 4,
+        transport: {
+          curve: 'ed25519',
+          relayerUrl: 'https://relay.example',
+          thresholdSessionJwt,
+        },
+      }),
+    ]);
+  });
+
   test('logs in ECDSA Email OTP capability with normalized worker payload and persistence callback', async () => {
     const { coordinator, workerCalls, ecdsaCommitCalls, ed25519ProvisionCalls } =
       createCoordinator();
@@ -465,7 +547,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
-      thresholdRouteAuth: { kind: 'app_session', jwt },
+      routeAuth: { kind: 'app_session', jwt },
       ecdsaThresholdKeyId: 'ecdsa-key',
       participantIds: [1, 3],
       sessionKind: 'jwt',
@@ -484,14 +566,17 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
           userId: 'alice.testnet',
           challengeId: 'challenge-1',
           otpCode: '123456',
-          appSessionJwt: jwt,
+          routePlan: {
+            routeFamily: 'login',
+            authLane: { kind: 'app_session', jwt },
+            operation: 'wallet_unlock',
+          },
           otpChannel: 'email_otp',
           rpId: 'localhost',
           ecdsaThresholdKeyId: 'ecdsa-key',
           participantIds: [1, 3],
           sessionKind: 'jwt',
           sessionId: 'ecdsa-session',
-          thresholdRouteAuth: { kind: 'app_session', jwt },
           remainingUses: 1,
         },
       },
@@ -519,6 +604,88 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
   });
 
+  test('normal ECDSA Email OTP login derives app-session route auth from appSessionJwt', async () => {
+    const { coordinator, workerCalls } = createCoordinator();
+    const jwt = appSessionJwt();
+    coordinator.provisionEd25519Capability = async () => ({
+      publicKey: 'ed25519-public',
+      relayerKeyId: 'relayer-key',
+      keyVersion: 'v1',
+      sessionId: 'ed-session',
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 1,
+      participantIds: [1, 2],
+      jwt: 'threshold-jwt',
+    });
+
+    await coordinator.loginWithEcdsaCapabilityInternal({
+      nearAccountId: 'alice.testnet',
+      chain: 'tempo',
+      challengeId: 'challenge-1',
+      otpCode: '123456',
+      appSessionJwt: jwt,
+      ecdsaThresholdKeyId: 'ecdsa-key',
+      participantIds: [1, 3],
+      sessionKind: 'jwt',
+      sessionId: 'ecdsa-session',
+    });
+
+    expect(workerCalls.at(-1)).toMatchObject({
+      kind: 'emailOtp',
+      request: {
+        type: 'loginWithEmailOtpAndBootstrapEcdsaSession',
+        payload: {
+          routePlan: {
+            routeFamily: 'login',
+            authLane: { kind: 'app_session', jwt },
+            operation: 'wallet_unlock',
+          },
+        },
+      },
+    });
+  });
+
+  test('Email OTP registration bootstrap derives app-session route auth from appSessionJwt', async () => {
+    const { coordinator, workerCalls } = createCoordinator();
+    const jwt = appSessionJwt();
+    coordinator.provisionEd25519Capability = async () => ({
+      publicKey: 'ed25519-public',
+      relayerKeyId: 'relayer-key',
+      keyVersion: 'v1',
+      sessionId: 'ed-session',
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 1,
+      participantIds: [1, 2],
+      jwt: 'threshold-jwt',
+    });
+
+    await coordinator.enrollAndLoginWithEcdsaCapabilityInternal({
+      nearAccountId: 'alice.testnet',
+      chain: 'tempo',
+      challengeId: 'challenge-1',
+      otpCode: '123456',
+      appSessionJwt: jwt,
+      ecdsaThresholdKeyId: 'ecdsa-key',
+      participantIds: [1, 3],
+      sessionKind: 'jwt',
+      sessionId: 'ecdsa-session',
+    });
+
+    expect(workerCalls.at(-1)).toMatchObject({
+      kind: 'emailOtp',
+      request: {
+        type: 'enrollEmailOtpWalletAndBootstrapEcdsaSession',
+        payload: {
+          routePlan: {
+            routeFamily: 'registration',
+            authLane: { kind: 'app_session', jwt },
+            operation: 'wallet_unlock',
+          },
+        },
+      },
+    });
+  });
+
   test('persists sealed Email OTP signing-session refresh only for session-retained ECDSA login', async () => {
     const { coordinator, workerCalls, sealedRecordWrites } = createCoordinator({
       configs: {
@@ -534,10 +701,10 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
             recovery: {
               loginGrant: 'login-grant',
               challengeId: 'challenge-1',
-              emailOtpKeyVersion: 'email-v1',
+              enrollmentSealKeyVersion: 'email-v1',
               unlockChallengeId: 'unlock-challenge',
               unlockChallengeB64u: 'unlock-challenge-b64u',
-              unlockPublicKeyB64u: 'unlock-public',
+              clientUnlockPublicKeyB64u: 'unlock-public',
               unlockSignatureB64u: 'unlock-sig',
             },
             bootstrap: {
@@ -584,7 +751,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
-      thresholdRouteAuth: { kind: 'app_session', jwt },
+      routeAuth: { kind: 'app_session', jwt },
       ecdsaThresholdKeyId: 'ecdsa-key',
       participantIds: [1, 3],
       sessionKind: 'jwt',
@@ -655,7 +822,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
-      thresholdRouteAuth: { kind: 'app_session', jwt },
+      routeAuth: { kind: 'app_session', jwt },
       ecdsaThresholdKeyId: 'ecdsa-key',
       participantIds: [1, 3],
       sessionKind: 'jwt',
@@ -725,7 +892,9 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       request: {
         payload: {
           challengeId: 'export-challenge-1',
-          operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+          routePlan: {
+            operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+          },
           remainingUses: 1,
         },
       },
@@ -969,10 +1138,35 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       }),
     });
 
-    await (coordinator as any).attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
-      ecdsaThresholdSessionId: 'ecdsa-session',
-      ed25519ThresholdSessionId: 'ed25519-session',
-    });
+    try {
+      persistWarmSessionEd25519Capability({
+        nearAccountId: 'alice.testnet',
+        rpId: 'localhost',
+        relayerUrl: 'https://relay.example',
+        relayerKeyId: 'relayer-key',
+        participantIds: [1, 2],
+        sessionId: 'ed25519-session',
+        walletSigningSessionId: 'wallet-session-1',
+        expiresAtMs,
+        remainingUses: 2,
+        jwt: appSessionJwt(),
+        xClientBaseB64u: 'x-client-base',
+        emailOtpAuthContext: {
+          policy: 'session',
+          retention: 'session',
+          reason: 'login',
+          authMethod: 'email_otp',
+        },
+        source: 'email_otp',
+      });
+
+      await (coordinator as any).attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
+        ecdsaThresholdSessionId: 'ecdsa-session',
+        ed25519ThresholdSessionId: 'ed25519-session',
+      });
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+    }
 
     expect(sealedRecordWrites).toHaveLength(1);
     expect(sealedRecordWrites[0]).toMatchObject({
@@ -1009,7 +1203,7 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       challengeId: 'challenge-1',
       otpCode: '123456',
       appSessionJwt: jwt,
-      thresholdRouteAuth: { kind: 'app_session', jwt },
+      routeAuth: { kind: 'app_session', jwt },
       clientSecret32: new Uint8Array(32).fill(7),
       registrationAttemptId: 'registration-attempt-1',
     });

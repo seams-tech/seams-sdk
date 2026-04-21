@@ -164,7 +164,6 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_E_S_B64U) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_D_S_B64U) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_KIND) ||
-    toOptionalTrimmedString(c.signingSessionSealIdempotencyKind) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL) ||
@@ -172,7 +171,6 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS) ||
-    toOptionalTrimmedString(c.signingSessionSealIdempotencyTtlMs) ||
     c.signingRootShareResolver ||
     c.signingRootSecretResolverAdapters ||
     c.signingRootSecretStore ||

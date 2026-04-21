@@ -275,6 +275,7 @@ export async function signThresholdSessionJwt(args: {
     !rpId ||
     !relayerKeyId ||
     !sessionId ||
+    !walletSigningSessionId ||
     !Number.isFinite(thresholdExpiresAtMs) ||
     thresholdExpiresAtMs <= 0 ||
     !participantIds ||
@@ -292,8 +293,9 @@ export async function signThresholdSessionJwt(args: {
   const expSec = Math.floor(thresholdExpiresAtMs / 1000);
   const jwt = await session.signJwt(userId, {
     kind: args.kind,
+    walletId: userId,
     sessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    walletSigningSessionId,
     relayerKeyId,
     rpId,
     participantIds,

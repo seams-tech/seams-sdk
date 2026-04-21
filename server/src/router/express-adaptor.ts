@@ -608,6 +608,7 @@ export {
   ensureConsoleRuntimeSnapshotsPostgresSchema,
   createPostgresConsoleRuntimeSnapshotService,
   runPostgresConsoleRuntimeSnapshotOutboxDispatch,
+  runPostgresConsoleRuntimeSnapshotRetentionCleanup,
   parseListConsoleRuntimeSnapshotsRequest,
   parseGetLatestConsoleRuntimeSnapshotRequest,
   parsePublishConsoleRuntimeSnapshotRequest,

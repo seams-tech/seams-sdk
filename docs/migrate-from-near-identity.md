@@ -169,21 +169,17 @@ Canonical API shape:
 
 ---
 
-## Phase 6: Schema/Migration Validation
+## Phase 6: Schema Validation
 
 ### Files
 
 - `/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/indexedDB/passkeyClientDB/schema.ts`
-- `/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/indexedDB/passkeyClientDB/migrations.ts`
-- `/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/indexedDB/passkeyClientDB/invariants.ts`
 - `/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/indexedDB/passkeyClientDB/profileCleanup.ts`
 
 ### TODO
 
-- [ ] Add migration logic for renamed stores/fields where needed.
-- [ ] Verify invariants with multichain rows containing non-NEAR accounts.
-- [ ] Ensure migration does not orphan authenticator/key material rows.
-- [ ] Verify upgrade path from current `dbVersion` works without data loss.
+- [ ] Verify fresh schema invariants with multichain rows containing non-NEAR accounts.
+- [ ] Verify profile cleanup removes authenticator and key material rows.
 
 ---
 

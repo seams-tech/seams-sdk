@@ -109,7 +109,6 @@ signing APIs.
 | `rootVersion` in signing-root APIs | `signingRootVersion` |
 | resolver input `projectId` | `signingRootId` |
 | storage key `projectId` for signing roots | `signingRootId` |
-| old tenant-named signing-root env vars | `THRESHOLD_SIGNING_ROOT_ID` |
 | `SIGNING_ROOT_SECRET_SHARE_KEK_B64U` | `SIGNING_ROOT_SECRET_SHARE_KEK_B64U` |
 | self-host route `/self-host/signing-root/*` | `/self-host/signing-root/*` |
 
@@ -119,11 +118,15 @@ environment variables, storage prefixes, or new specs for signing root custody.
 
 Local/self-host signing-root configuration:
 
-- Prefer configuring `THRESHOLD_SIGNING_ROOT_ID` directly when a deployment has a
-  fixed signing-root custody scope.
-- Hosted local-dev fixtures may derive `signingRootId` from `projectId + ":" +
-  envId`; they should not carry an env var named `tenant` or overload
-  `projectId` for signing-root custody.
+- Hosted relays must not configure a process-wide signing-root id. They derive
+  `signingRootId` from the authenticated project/environment runtime scope for
+  each request and resolve signing-root shares from per-project storage.
+- Local-dev fixtures may accept the request `signingRootId` dynamically while
+  reusing development-only fixture shares. This is only for localhost harnesses
+  and must not be used for real funds.
+- Direct single-root self-host deployments may wire a fixed resolver in code,
+  but that mode is not the hosted relay path and must not be represented as a
+  hosted relay environment variable.
 - Remove old tenant-named signing-root env vars entirely. Do not keep them as
   fallbacks or compatibility aliases.
 
@@ -355,7 +358,7 @@ Local reset requirements:
     webauthn_credential_bindings,
     email_otp_challenges,
     email_otp_grants,
-    email_otp_enrollments,
+    email_otp_wallet_enrollments,
     email_otp_unlock_challenges,
     near_public_keys,
     account_signers

@@ -169,15 +169,15 @@ async function main() {
   const adminUser = readEnv('POSTGRES_BOOTSTRAP_ADMIN_USER', 'tatchi');
 
   const signer = {
-    dbName: readEnv('SIGNER_DB_NAME', 'tatchi_signer'),
-    runtimeUser: readEnv('SIGNER_RUNTIME_USER', 'tatchi_signer'),
-    migratorUser: readEnv('SIGNER_MIGRATOR_USER', 'tatchi_signer_migrator'),
+    dbName: readEnv('SIGNER_DB_NAME', 'seams_signer'),
+    runtimeUser: readEnv('SIGNER_RUNTIME_USER', 'seams_signer'),
+    migratorUser: readEnv('SIGNER_MIGRATOR_USER', 'seams_signer_migrator'),
   };
 
   const consoleDomain = {
-    dbName: readEnv('CONSOLE_DB_NAME', 'tatchi_console'),
-    runtimeUser: readEnv('CONSOLE_RUNTIME_USER', 'tatchi_console'),
-    migratorUser: readEnv('CONSOLE_MIGRATOR_USER', 'tatchi_console_migrator'),
+    dbName: readEnv('CONSOLE_DB_NAME', 'seams_console'),
+    runtimeUser: readEnv('CONSOLE_RUNTIME_USER', 'seams_console'),
+    migratorUser: readEnv('CONSOLE_MIGRATOR_USER', 'seams_console_migrator'),
   };
 
   // Validate all role identifiers before issuing any external commands so

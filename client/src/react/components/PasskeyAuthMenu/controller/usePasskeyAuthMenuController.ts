@@ -1,6 +1,7 @@
 import React from 'react';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
+import type { StoredAccountOption } from '@/react/types';
 import type { PasskeyAuthMenuRuntime } from '../adapters/tatchi';
 import { AuthMenuMode, type PasskeyAuthMenuOtpPrompt, type PasskeyAuthMenuProps } from '../types';
 import type { SocialLoginHandlers } from '../ui/SocialProviders';
@@ -45,7 +46,7 @@ export interface PasskeyAuthMenuController {
   otpPrompt: PasskeyAuthMenuOtpPromptController | null;
   methodError?: string;
   currentValue: string;
-  passkeyAccountOptions: string[];
+  passkeyAccountOptions: StoredAccountOption[];
   postfixText?: string;
   isUsingExistingAccount?: boolean;
   secure: boolean;
@@ -238,14 +239,21 @@ export function usePasskeyAuthMenuController(
   });
 
   const passkeyAccountOptions = React.useMemo(
-    () =>
-      Array.from(
-        new Set(
-          (runtime.accountOptions ?? [])
-            .map((accountId) => String(accountId || '').trim())
-            .filter(Boolean),
-        ),
-      ).sort((a, b) => a.localeCompare(b)),
+    () => {
+      const byAccountId = new Map<string, StoredAccountOption>();
+      for (const option of runtime.accountOptions ?? []) {
+        const nearAccountId = String(option.nearAccountId || '').trim();
+        if (!nearAccountId) continue;
+        byAccountId.set(nearAccountId, {
+          nearAccountId,
+          ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
+          ...(option.authMethod ? { authMethod: option.authMethod } : {}),
+        });
+      }
+      return [...byAccountId.values()].sort((a, b) =>
+        a.nearAccountId.localeCompare(b.nearAccountId),
+      );
+    },
     [runtime.accountOptions],
   );
 

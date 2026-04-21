@@ -105,18 +105,32 @@ export interface EmailOtpGrantStore {
   del(grantToken: string): Promise<void>;
 }
 
-export type EmailOtpEnrollmentRecord = {
-  version: 'email_otp_enrollment_v1';
+export type EmailOtpWalletEnrollmentRecord = {
+  version: 'email_otp_wallet_enrollment_v1';
   walletId: string;
-  userId: string;
-  orgId?: string;
-  enrollmentDeviceId?: string;
-  otpChannel: EmailOtpChannel;
-  emailOtpEscrowBlob: string;
-  emailOtpKeyVersion: string;
-  unlockPublicKey: string;
+  providerUserId: string;
+  orgId: string;
+  verifiedEmail: string;
+  enrollmentEscrowCiphertextB64u: string;
+  enrollmentSealKeyVersion: string;
+  clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
-  thresholdEcdsaClientVerifyingShareB64u?: string;
+  thresholdEcdsaClientVerifyingShareB64u: string;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+export interface EmailOtpWalletEnrollmentStore {
+  get(walletId: string): Promise<EmailOtpWalletEnrollmentRecord | null>;
+  put(record: EmailOtpWalletEnrollmentRecord): Promise<void>;
+  del(walletId: string): Promise<void>;
+}
+
+export type EmailOtpAuthStateRecord = {
+  version: 'email_otp_auth_state_v1';
+  walletId: string;
+  providerUserId: string;
+  orgId: string;
   createdAtMs: number;
   updatedAtMs: number;
   otpFailureCount?: number;
@@ -126,9 +140,9 @@ export type EmailOtpEnrollmentRecord = {
   lastStrongAuthAtMs?: number;
 };
 
-export interface EmailOtpEnrollmentStore {
-  get(walletId: string): Promise<EmailOtpEnrollmentRecord | null>;
-  put(record: EmailOtpEnrollmentRecord): Promise<void>;
+export interface EmailOtpAuthStateStore {
+  get(walletId: string): Promise<EmailOtpAuthStateRecord | null>;
+  put(record: EmailOtpAuthStateRecord): Promise<void>;
   del(walletId: string): Promise<void>;
 }
 
@@ -376,22 +390,65 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
   };
 }
 
-function parseEnrollmentRecord(raw: unknown): EmailOtpEnrollmentRecord | null {
+function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentRecord | null {
   raw = parseJsonRecord(raw);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const obj = raw as Record<string, unknown>;
   const version = toOptionalTrimmedString(obj.version);
   const walletId = toOptionalTrimmedString(obj.walletId);
-  const userId = toOptionalTrimmedString(obj.userId);
-  const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
-  const enrollmentDeviceId = toOptionalTrimmedString(obj.enrollmentDeviceId) || undefined;
-  const otpChannel = toOptionalTrimmedString(obj.otpChannel);
-  const emailOtpEscrowBlob = toOptionalTrimmedString(obj.emailOtpEscrowBlob);
-  const emailOtpKeyVersion = toOptionalTrimmedString(obj.emailOtpKeyVersion);
-  const unlockPublicKey = toOptionalTrimmedString(obj.unlockPublicKey);
+  const providerUserId = toOptionalTrimmedString(obj.providerUserId);
+  const orgId = toOptionalTrimmedString(obj.orgId);
+  const verifiedEmail = toOptionalTrimmedString(obj.verifiedEmail)?.toLowerCase() || '';
+  const enrollmentEscrowCiphertextB64u = toOptionalTrimmedString(
+    obj.enrollmentEscrowCiphertextB64u,
+  );
+  const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
+  const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
   const thresholdEcdsaClientVerifyingShareB64u =
-    toOptionalTrimmedString(obj.thresholdEcdsaClientVerifyingShareB64u) || undefined;
+    toOptionalTrimmedString(obj.thresholdEcdsaClientVerifyingShareB64u) || '';
+  const createdAtMs = Number(obj.createdAtMs);
+  const updatedAtMs = Number(obj.updatedAtMs);
+  if (version !== 'email_otp_wallet_enrollment_v1') return null;
+  if (
+    !walletId ||
+    !providerUserId ||
+    !orgId ||
+    !verifiedEmail ||
+    !enrollmentEscrowCiphertextB64u ||
+    !enrollmentSealKeyVersion
+  ) {
+    return null;
+  }
+  if (!clientUnlockPublicKeyB64u || !unlockKeyVersion || !thresholdEcdsaClientVerifyingShareB64u) {
+    return null;
+  }
+  if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
+  if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
+  return {
+    version: 'email_otp_wallet_enrollment_v1',
+    walletId,
+    providerUserId,
+    orgId,
+    verifiedEmail,
+    enrollmentEscrowCiphertextB64u,
+    enrollmentSealKeyVersion,
+    clientUnlockPublicKeyB64u,
+    unlockKeyVersion,
+    thresholdEcdsaClientVerifyingShareB64u,
+    createdAtMs: Math.floor(createdAtMs),
+    updatedAtMs: Math.floor(updatedAtMs),
+  };
+}
+
+function parseAuthStateRecord(raw: unknown): EmailOtpAuthStateRecord | null {
+  raw = parseJsonRecord(raw);
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const version = toOptionalTrimmedString(obj.version);
+  const walletId = toOptionalTrimmedString(obj.walletId);
+  const providerUserId = toOptionalTrimmedString(obj.providerUserId);
+  const orgId = toOptionalTrimmedString(obj.orgId);
   const createdAtMs = Number(obj.createdAtMs);
   const updatedAtMs = Number(obj.updatedAtMs);
   const otpFailureCount = obj.otpFailureCount == null ? undefined : Number(obj.otpFailureCount);
@@ -403,10 +460,8 @@ function parseEnrollmentRecord(raw: unknown): EmailOtpEnrollmentRecord | null {
     obj.lastEmailOtpLoginAtMs == null ? undefined : Number(obj.lastEmailOtpLoginAtMs);
   const lastStrongAuthAtMs =
     obj.lastStrongAuthAtMs == null ? undefined : Number(obj.lastStrongAuthAtMs);
-  if (version !== 'email_otp_enrollment_v1') return null;
-  if (!walletId || !userId || !emailOtpEscrowBlob || !emailOtpKeyVersion) return null;
-  if (!unlockPublicKey || !unlockKeyVersion) return null;
-  if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
+  if (version !== 'email_otp_auth_state_v1') return null;
+  if (!walletId || !providerUserId || !orgId) return null;
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
   if (otpFailureCount != null && (!Number.isFinite(otpFailureCount) || otpFailureCount < 0)) {
@@ -425,17 +480,10 @@ function parseEnrollmentRecord(raw: unknown): EmailOtpEnrollmentRecord | null {
     return null;
   }
   return {
-    version: 'email_otp_enrollment_v1',
+    version: 'email_otp_auth_state_v1',
     walletId,
-    userId,
-    ...(orgId ? { orgId } : {}),
-    ...(enrollmentDeviceId ? { enrollmentDeviceId } : {}),
-    otpChannel: EMAIL_OTP_CHANNEL,
-    emailOtpEscrowBlob,
-    emailOtpKeyVersion,
-    unlockPublicKey,
-    unlockKeyVersion,
-    ...(thresholdEcdsaClientVerifyingShareB64u ? { thresholdEcdsaClientVerifyingShareB64u } : {}),
+    providerUserId,
+    orgId,
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
     ...(otpFailureCount != null ? { otpFailureCount: Math.floor(otpFailureCount) } : {}),
@@ -658,19 +706,42 @@ class InMemoryEmailOtpGrantStore implements EmailOtpGrantStore {
   }
 }
 
-class InMemoryEmailOtpEnrollmentStore implements EmailOtpEnrollmentStore {
-  private readonly map = new Map<string, EmailOtpEnrollmentRecord>();
+class InMemoryEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentStore {
+  private readonly map = new Map<string, EmailOtpWalletEnrollmentRecord>();
 
-  async get(walletId: string): Promise<EmailOtpEnrollmentRecord | null> {
+  async get(walletId: string): Promise<EmailOtpWalletEnrollmentRecord | null> {
     const key = toOptionalTrimmedString(walletId);
     if (!key) return null;
     const record = this.map.get(key);
     return record ? cloneRecord(record) : null;
   }
 
-  async put(record: EmailOtpEnrollmentRecord): Promise<void> {
-    const parsed = parseEnrollmentRecord(record);
-    if (!parsed) throw new Error('Invalid Email OTP enrollment record');
+  async put(record: EmailOtpWalletEnrollmentRecord): Promise<void> {
+    const parsed = parseWalletEnrollmentRecord(record);
+    if (!parsed) throw new Error('Invalid Email OTP wallet enrollment record');
+    this.map.set(parsed.walletId, cloneRecord(parsed));
+  }
+
+  async del(walletId: string): Promise<void> {
+    const key = toOptionalTrimmedString(walletId);
+    if (!key) return;
+    this.map.delete(key);
+  }
+}
+
+class InMemoryEmailOtpAuthStateStore implements EmailOtpAuthStateStore {
+  private readonly map = new Map<string, EmailOtpAuthStateRecord>();
+
+  async get(walletId: string): Promise<EmailOtpAuthStateRecord | null> {
+    const key = toOptionalTrimmedString(walletId);
+    if (!key) return null;
+    const record = this.map.get(key);
+    return record ? cloneRecord(record) : null;
+  }
+
+  async put(record: EmailOtpAuthStateRecord): Promise<void> {
+    const parsed = parseAuthStateRecord(record);
+    if (!parsed) throw new Error('Invalid Email OTP auth state record');
     this.map.set(parsed.walletId, cloneRecord(parsed));
   }
 
@@ -1030,7 +1101,7 @@ class PostgresEmailOtpGrantStore implements EmailOtpGrantStore {
   }
 }
 
-class PostgresEmailOtpEnrollmentStore implements EmailOtpEnrollmentStore {
+class PostgresEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentStore {
   private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
   private readonly namespace: string;
 
@@ -1039,19 +1110,19 @@ class PostgresEmailOtpEnrollmentStore implements EmailOtpEnrollmentStore {
     this.namespace = input.namespace;
   }
 
-  async get(walletId: string): Promise<EmailOtpEnrollmentRecord | null> {
+  async get(walletId: string): Promise<EmailOtpWalletEnrollmentRecord | null> {
     const key = toOptionalTrimmedString(walletId);
     if (!key) return null;
     const pool = await this.poolPromise;
     const { rows } = await pool.query(
       `
         SELECT record_json
-        FROM email_otp_enrollments
+        FROM email_otp_wallet_enrollments
         WHERE namespace = $1 AND wallet_id = $2
       `,
       [this.namespace, key],
     );
-    const parsed = parseEnrollmentRecord(rows[0]?.record_json);
+    const parsed = parseWalletEnrollmentRecord(rows[0]?.record_json);
     if (!parsed) {
       if (rows[0]) await this.del(key);
       return null;
@@ -1059,18 +1130,21 @@ class PostgresEmailOtpEnrollmentStore implements EmailOtpEnrollmentStore {
     return cloneRecord(parsed);
   }
 
-  async put(record: EmailOtpEnrollmentRecord): Promise<void> {
-    const parsed = parseEnrollmentRecord(record);
-    if (!parsed) throw new Error('Invalid Email OTP enrollment record');
+  async put(record: EmailOtpWalletEnrollmentRecord): Promise<void> {
+    const parsed = parseWalletEnrollmentRecord(record);
+    if (!parsed) throw new Error('Invalid Email OTP wallet enrollment record');
     const pool = await this.poolPromise;
     await pool.query(
       `
-        INSERT INTO email_otp_enrollments (namespace, wallet_id, record_json, updated_at_ms)
-        VALUES ($1, $2, $3::jsonb, $4)
+        INSERT INTO email_otp_wallet_enrollments (namespace, wallet_id, org_id, record_json, updated_at_ms)
+        VALUES ($1, $2, $3, $4::jsonb, $5)
         ON CONFLICT (namespace, wallet_id)
-        DO UPDATE SET record_json = EXCLUDED.record_json, updated_at_ms = EXCLUDED.updated_at_ms
+        DO UPDATE SET
+          org_id = EXCLUDED.org_id,
+          record_json = EXCLUDED.record_json,
+          updated_at_ms = EXCLUDED.updated_at_ms
       `,
-      [this.namespace, parsed.walletId, JSON.stringify(parsed), parsed.updatedAtMs],
+      [this.namespace, parsed.walletId, parsed.orgId, JSON.stringify(parsed), parsed.updatedAtMs],
     );
   }
 
@@ -1078,7 +1152,65 @@ class PostgresEmailOtpEnrollmentStore implements EmailOtpEnrollmentStore {
     const key = toOptionalTrimmedString(walletId);
     if (!key) return;
     const pool = await this.poolPromise;
-    await pool.query('DELETE FROM email_otp_enrollments WHERE namespace = $1 AND wallet_id = $2', [
+    await pool.query('DELETE FROM email_otp_wallet_enrollments WHERE namespace = $1 AND wallet_id = $2', [
+      this.namespace,
+      key,
+    ]);
+  }
+}
+
+class PostgresEmailOtpAuthStateStore implements EmailOtpAuthStateStore {
+  private readonly poolPromise: Promise<Awaited<ReturnType<typeof getPostgresPool>>>;
+  private readonly namespace: string;
+
+  constructor(input: { postgresUrl: string; namespace: string }) {
+    this.poolPromise = getPostgresPool(input.postgresUrl);
+    this.namespace = input.namespace;
+  }
+
+  async get(walletId: string): Promise<EmailOtpAuthStateRecord | null> {
+    const key = toOptionalTrimmedString(walletId);
+    if (!key) return null;
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json
+        FROM email_otp_auth_states
+        WHERE namespace = $1 AND wallet_id = $2
+      `,
+      [this.namespace, key],
+    );
+    const parsed = parseAuthStateRecord(rows[0]?.record_json);
+    if (!parsed) {
+      if (rows[0]) await this.del(key);
+      return null;
+    }
+    return cloneRecord(parsed);
+  }
+
+  async put(record: EmailOtpAuthStateRecord): Promise<void> {
+    const parsed = parseAuthStateRecord(record);
+    if (!parsed) throw new Error('Invalid Email OTP auth state record');
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO email_otp_auth_states (namespace, wallet_id, org_id, record_json, updated_at_ms)
+        VALUES ($1, $2, $3, $4::jsonb, $5)
+        ON CONFLICT (namespace, wallet_id)
+        DO UPDATE SET
+          org_id = EXCLUDED.org_id,
+          record_json = EXCLUDED.record_json,
+          updated_at_ms = EXCLUDED.updated_at_ms
+      `,
+      [this.namespace, parsed.walletId, parsed.orgId, JSON.stringify(parsed), parsed.updatedAtMs],
+    );
+  }
+
+  async del(walletId: string): Promise<void> {
+    const key = toOptionalTrimmedString(walletId);
+    if (!key) return;
+    const pool = await this.poolPromise;
+    await pool.query('DELETE FROM email_otp_auth_states WHERE namespace = $1 AND wallet_id = $2', [
       this.namespace,
       key,
     ]);
@@ -1281,16 +1413,28 @@ export function createEmailOtpGrantStore(input?: EmailOtpStoreFactoryInput): Ema
   return new InMemoryEmailOtpGrantStore();
 }
 
-export function createEmailOtpEnrollmentStore(
+export function createEmailOtpWalletEnrollmentStore(
   input?: EmailOtpStoreFactoryInput,
-): EmailOtpEnrollmentStore {
+): EmailOtpWalletEnrollmentStore {
   const postgres = resolvePostgresEmailOtpStore(input, 'enrollment');
   if (postgres) {
-    input?.logger?.info('[email-otp] Using Postgres enrollment store');
-    return new PostgresEmailOtpEnrollmentStore(postgres);
+    input?.logger?.info('[email-otp] Using Postgres wallet enrollment store');
+    return new PostgresEmailOtpWalletEnrollmentStore(postgres);
   }
-  input?.logger?.info('[email-otp] Using in-memory enrollment store (non-persistent)');
-  return new InMemoryEmailOtpEnrollmentStore();
+  input?.logger?.info('[email-otp] Using in-memory wallet enrollment store (non-persistent)');
+  return new InMemoryEmailOtpWalletEnrollmentStore();
+}
+
+export function createEmailOtpAuthStateStore(
+  input?: EmailOtpStoreFactoryInput,
+): EmailOtpAuthStateStore {
+  const postgres = resolvePostgresEmailOtpStore(input, 'auth state');
+  if (postgres) {
+    input?.logger?.info('[email-otp] Using Postgres auth state store');
+    return new PostgresEmailOtpAuthStateStore(postgres);
+  }
+  input?.logger?.info('[email-otp] Using in-memory auth state store (non-persistent)');
+  return new InMemoryEmailOtpAuthStateStore();
 }
 
 export function createEmailOtpUnlockChallengeStore(

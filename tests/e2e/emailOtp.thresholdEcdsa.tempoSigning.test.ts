@@ -354,7 +354,7 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(result.ecdsaKeyBinding?.ecdsaThresholdKeyId).toBeTruthy();
       expect(result.ecdsaKeyBinding?.participantIds).toEqual([1, 2]);
       expect(result.emailOtpEnrollment?.challengeId).toBeTruthy();
-      expect(result.emailOtpEnrollment?.emailOtpKeyVersion).toBeTruthy();
+      expect(result.emailOtpEnrollment?.enrollmentSealKeyVersion).toBeTruthy();
       expect(result.emailOtpLogin?.policy).toBe('session');
       expect(result.emailOtpLogin?.retention).toBe('session');
       expect(result.emailOtpLogin?.warmState).toBe('ready');

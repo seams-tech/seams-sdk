@@ -12,9 +12,8 @@ import type {
 import type { ThresholdRuntimePolicyScope } from '../threshold/session/sessionPolicy';
 import type {
   WalletEmailOtpChannel,
-  WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { EmailOtpRoutePlan } from '../emailOtp/authLane';
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -143,9 +142,8 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
-      appSessionJwt?: string;
+      routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
-      operation?: WalletEmailOtpLoginOperation;
     };
     result: {
       challengeId: string;
@@ -158,7 +156,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
-      appSessionJwt?: string;
+      routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
     };
     result: {
@@ -176,7 +174,7 @@ export interface EmailOtpWorkerOperationMap {
       challengeId?: string;
       otpCode: string;
       shamirPrimeB64u: string;
-      appSessionJwt?: string;
+      routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
     };
@@ -185,8 +183,8 @@ export interface EmailOtpWorkerOperationMap {
       thresholdEd25519PrfFirstB64u: string;
       challengeId: string;
       otpChannel: WalletEmailOtpChannel;
-      emailOtpKeyVersion: string;
-      unlockPublicKeyB64u: string;
+      enrollmentSealKeyVersion: string;
+      clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
     };
   };
@@ -196,14 +194,13 @@ export interface EmailOtpWorkerOperationMap {
       walletId: string;
       challengeId: string;
       otpCode: string;
-      appSessionJwt?: string;
+      routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
-      operation?: WalletEmailOtpLoginOperation;
     };
     result: {
       loginGrant: string;
       otpChannel: WalletEmailOtpChannel;
-      emailOtpEscrowBlob: string;
+      enrollmentEscrowCiphertextB64u: string;
     };
   };
   loginWithEmailOtpWallet: {
@@ -214,18 +211,18 @@ export interface EmailOtpWorkerOperationMap {
       challengeId?: string;
       otpCode: string;
       shamirPrimeB64u: string;
-      appSessionJwt?: string;
+      routePlan: EmailOtpRoutePlan;
       otpChannel?: WalletEmailOtpChannel;
-      operation?: WalletEmailOtpLoginOperation;
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
     };
     result: {
       recovery: {
         loginGrant: string;
         challengeId: string;
-        emailOtpKeyVersion: string;
+        enrollmentSealKeyVersion: string;
         unlockChallengeId: string;
         unlockChallengeB64u: string;
-        unlockPublicKeyB64u: string;
+        clientUnlockPublicKeyB64u: string;
         unlockSignatureB64u: string;
         thresholdEd25519PrfFirstB64u: string;
       };
@@ -239,16 +236,14 @@ export interface EmailOtpWorkerOperationMap {
       challengeId?: string;
       otpCode: string;
       shamirPrimeB64u: string;
-      appSessionJwt?: string;
       otpChannel?: WalletEmailOtpChannel;
-      operation?: WalletEmailOtpLoginOperation;
       rpId: string;
       ecdsaThresholdKeyId?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
       sessionId?: string;
       walletSigningSessionId?: string;
-      thresholdRouteAuth?: AppOrThresholdSessionAuth;
+      routePlan: EmailOtpRoutePlan;
       ttlMs?: number;
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -257,10 +252,10 @@ export interface EmailOtpWorkerOperationMap {
       recovery: {
         loginGrant: string;
         challengeId: string;
-        emailOtpKeyVersion: string;
+        enrollmentSealKeyVersion: string;
         unlockChallengeId: string;
         unlockChallengeB64u: string;
-        unlockPublicKeyB64u: string;
+        clientUnlockPublicKeyB64u: string;
         unlockSignatureB64u: string;
         thresholdEd25519PrfFirstB64u: string;
       };
@@ -284,7 +279,7 @@ export interface EmailOtpWorkerOperationMap {
       sessionKind?: 'jwt' | 'cookie';
       sessionId?: string;
       walletSigningSessionId?: string;
-      thresholdRouteAuth?: AppOrThresholdSessionAuth;
+      routePlan: EmailOtpRoutePlan;
       ttlMs?: number;
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -295,8 +290,8 @@ export interface EmailOtpWorkerOperationMap {
         thresholdEd25519PrfFirstB64u: string;
         challengeId: string;
         otpChannel: WalletEmailOtpChannel;
-        emailOtpKeyVersion: string;
-        unlockPublicKeyB64u: string;
+        enrollmentSealKeyVersion: string;
+        clientUnlockPublicKeyB64u: string;
         unlockKeyVersion: string;
       };
       bootstrap: ThresholdEcdsaSessionBootstrapResult;

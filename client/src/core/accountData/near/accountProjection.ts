@@ -1,6 +1,11 @@
 import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
-import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import {
+  SIGNER_AUTH_METHODS,
+  SIGNER_KINDS,
+  SIGNER_SOURCES,
+  type WalletAuthMethod,
+} from '@shared/utils/signerDomain';
 import { toTrimmedString } from '@shared/utils/validation';
 import { DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
 import type { ClientUserData, StoreUserDataInput } from './types';
@@ -128,6 +133,12 @@ type NearAccountClientDbPort = Pick<
   | 'updatePreferences'
 >;
 
+function toWalletAuthMethod(authMethod: unknown): WalletAuthMethod | null {
+  if (authMethod === SIGNER_AUTH_METHODS.emailOtp) return SIGNER_AUTH_METHODS.emailOtp;
+  if (authMethod === SIGNER_AUTH_METHODS.passkey) return SIGNER_AUTH_METHODS.passkey;
+  return null;
+}
+
 export async function resolveNearAccountContext(
   clientDB: Pick<PasskeyClientDBManager, 'resolveProfileAccountContext'>,
   nearAccountId: AccountId,
@@ -227,6 +238,7 @@ export async function getNearAccountProjection(
       id: passkeyCredentialId,
       rawId: passkeyCredentialRawId,
     },
+    authMethod: toWalletAuthMethod(projection.selectedSigner.signerAuthMethod),
     preferences: projection.profile.preferences,
   };
 }

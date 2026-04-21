@@ -449,11 +449,19 @@ export interface SignTransactionResult {
   logs?: string[];
 }
 
+export interface RecentUnlockAccount {
+  nearAccountId: AccountId;
+  signerSlot: number;
+  authMethod?: WalletAuthMethod | null;
+}
+
 export interface GetRecentUnlocksResult {
   accountIds: string[];
+  accounts?: RecentUnlockAccount[];
   lastUsedAccount: {
     nearAccountId: AccountId;
     signerSlot: number;
+    authMethod?: WalletAuthMethod | null;
   } | null;
 }
 

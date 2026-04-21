@@ -83,6 +83,7 @@ import {
   type WarmSessionTransitionEvent,
 } from './warmSessionTransitions';
 import { claimWarmSessionPrfFirst, ensureEcdsaPrfSealPersisted } from './warmSessionRuntime';
+import type { EmailOtpAuthLane } from '../emailOtp/authLane';
 export type {
   WarmSessionTransitionCapabilitySnapshot,
   WarmSessionTransitionEvent,
@@ -369,6 +370,11 @@ export type WarmSessionManager = {
   resolveEcdsaAuthByThresholdSessionId: (
     thresholdSessionId: string,
   ) => WarmSessionEcdsaAuthMaterial | null;
+  resolveEmailOtpSigningSessionAuthLane: (args: {
+    thresholdSessionId: string;
+    curve: 'ed25519' | 'ecdsa';
+    chain?: ThresholdEcdsaActivationChain;
+  }) => EmailOtpAuthLane | null;
   getEd25519CapabilityByThresholdSessionId: (
     thresholdSessionId: string,
   ) => Promise<WarmSessionEd25519CapabilityState | null>;
@@ -993,6 +999,42 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     ): WarmSessionEcdsaAuthMaterial | null {
       const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
       return record ? resolveEcdsaAuthMaterial(record) : null;
+    },
+
+    resolveEmailOtpSigningSessionAuthLane(args: {
+      thresholdSessionId: string;
+      curve: 'ed25519' | 'ecdsa';
+      chain?: ThresholdEcdsaActivationChain;
+    }): EmailOtpAuthLane | null {
+      const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+      if (!thresholdSessionId) return null;
+      if (args.curve === 'ed25519') {
+        const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
+        const jwt = String(record?.thresholdSessionJwt || '').trim();
+        if (record?.source !== 'email_otp' || !jwt) return null;
+        return {
+          kind: 'signing_session',
+          jwt,
+          thresholdSessionId,
+          ...(record.walletSigningSessionId
+            ? { walletSigningSessionId: record.walletSigningSessionId }
+            : {}),
+          curve: 'ed25519',
+        };
+      }
+      const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
+      const jwt = String(record?.thresholdSessionJwt || '').trim();
+      if (record?.source !== 'email_otp' || !jwt) return null;
+      return {
+        kind: 'signing_session',
+        jwt,
+        thresholdSessionId,
+        ...(record.walletSigningSessionId
+          ? { walletSigningSessionId: record.walletSigningSessionId }
+          : {}),
+        curve: 'ecdsa',
+        chain: args.chain || record.chain,
+      };
     },
 
     async getEd25519CapabilityByThresholdSessionId(

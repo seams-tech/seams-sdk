@@ -320,7 +320,7 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  thresholdRouteAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrThresholdSessionAuth;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';

@@ -79,6 +79,13 @@ function wantsCreateIfMissingAccountProvisioning(body: Record<string, unknown>):
   return String(raw.mode || '').trim() === 'create_if_missing';
 }
 
+function readSignerSlotMetadata(body: Record<string, unknown>): number | undefined {
+  const raw = body.signerSlot ?? body.signer_slot;
+  const value = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(value) || value < 1) return undefined;
+  return Math.floor(value);
+}
+
 async function hasAccessKey(input: {
   authService: AuthService;
   nearAccountId: string;
@@ -325,6 +332,15 @@ export const handleRelayRegistrationThresholdEd25519HssFinalize: RelayRegistrati
       message: completed.message,
     });
   }
+
+  await input.services.authService.recordNearPublicKeyMetadata({
+    userId: body.new_account_id,
+    publicKey: result.publicKey,
+    kind: 'threshold',
+    rpId: body.rp_id,
+    signerSlot: readSignerSlotMetadata(body),
+    source: 'Email OTP threshold Ed25519 registration NEAR public key metadata persistence',
+  });
 
   return routeJson(200, {
     ...result,

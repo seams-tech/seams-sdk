@@ -63,6 +63,7 @@ import { createWarmSessionManager } from '../session/WarmSessionManager';
 import type { BootstrapEcdsaSessionArgs } from './thresholdLifecycle/thresholdSessionActivation';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { isThresholdSessionAuthUnavailableError } from '../threshold/session/sessionPolicy';
+import type { EmailOtpAuthLane } from '../emailOtp/authLane';
 import {
   createSigningFlowEvent,
   SigningEventPhase,
@@ -100,8 +101,13 @@ export type EvmFamilySigningDeps = {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
     operation?: 'transaction_sign' | 'export_key';
-    appSessionJwt?: string;
+    authLane?: EmailOtpAuthLane;
   }) => Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }>;
+  resolveEmailOtpSigningSessionAuthLane?: (args: {
+    thresholdSessionId: string;
+    curve: 'ecdsa';
+    chain: 'tempo' | 'evm';
+  }) => EmailOtpAuthLane | null;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     nearAccountId: string;
     chain: 'tempo' | 'evm';
@@ -110,6 +116,7 @@ export type EvmFamilySigningDeps = {
     record: ThresholdEcdsaSessionRecord;
     operation?: 'transaction_sign' | 'export_key';
     appSessionJwt?: string;
+    authLane?: EmailOtpAuthLane;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord?: (args: {
     sealedRecord: SigningSessionSealedStoreRecord;
@@ -764,9 +771,17 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
           accountId: args.nearAccountId,
           interaction: { kind: 'none', overlay: 'none' },
         });
+        const authLane = args.record
+          ? args.deps.resolveEmailOtpSigningSessionAuthLane?.({
+              thresholdSessionId: args.record.thresholdSessionId,
+              curve: 'ecdsa',
+              chain: args.chain,
+            }) || undefined
+          : undefined;
         const challenge = await args.deps.requestEmailOtpChallengeForSigning({
           nearAccountId: args.nearAccountId,
           chain: args.chain,
+          ...(authLane ? { authLane } : {}),
         });
         const challengeId = String(challenge.challengeId || '').trim();
         if (!challengeId) {
@@ -797,6 +812,12 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
         ) {
           throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
         }
+        const authLane =
+          args.deps.resolveEmailOtpSigningSessionAuthLane?.({
+            thresholdSessionId: args.record.thresholdSessionId,
+            curve: 'ecdsa',
+            chain: args.chain,
+          }) || undefined;
         const refreshed = await args.deps.loginWithEmailOtpEcdsaCapabilityForSigning({
           nearAccountId: args.nearAccountId,
           chain: args.chain,
@@ -807,6 +828,7 @@ async function resolveEvmFamilyTransactionWalletAuth(args: {
           ...(appSessionJwtByChallengeId.get(challengeId)
             ? { appSessionJwt: appSessionJwtByChallengeId.get(challengeId)! }
             : {}),
+          ...(authLane ? { authLane } : {}),
         });
         return {
           method: 'email_otp',

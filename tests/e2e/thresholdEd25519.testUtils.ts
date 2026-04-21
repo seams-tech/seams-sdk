@@ -496,6 +496,7 @@ export async function installCreateAccountAndRegisterUserMock(
       const expSec = Math.floor(args.expiresAtMs / 1000);
       return await input.session.signJwt(accountId, {
         kind: args.kind,
+        walletId: accountId,
         sessionId: args.sessionId,
         relayerKeyId: args.relayerKeyId,
         rpId: String(payload?.rp_id || '').trim() || 'example.localhost',
@@ -984,6 +985,7 @@ export async function installThresholdEd25519RegistrationMocks(
       sessionId && input.session?.signJwt
         ? await input.session.signJwt(accountId, {
             kind: 'threshold_ed25519_session_v1',
+            walletId: accountId,
             sessionId,
             relayerKeyId,
             rpId,

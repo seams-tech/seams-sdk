@@ -7,7 +7,91 @@
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--fe-text);
-  margin: 0;
+  margin: 0 0 1rem;
+}
+
+.wallet-session-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--fe-gap-2) var(--fe-gap-3);
+  width: 100%;
+  margin: 0 auto;
+  padding: var(--fe-gap-3) 0;
+  border-top: 1px solid var(--fe-border);
+  border-bottom: 1px solid var(--fe-border);
+  text-align: left;
+}
+
+.wallet-session-status__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  color: var(--fe-text-primary);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.wallet-session-status__dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--fe-text-secondary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fe-text-secondary) 14%, transparent);
+}
+
+.wallet-session-status__dot.is-active {
+  background: var(--fe-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fe-success) 18%, transparent);
+}
+
+.wallet-session-status__dot.is-warning {
+  background: var(--w3a-colors-secondary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-secondary) 18%, transparent);
+}
+
+.wallet-session-status__dot.is-muted {
+  opacity: 0.62;
+}
+
+.wallet-session-status__grid {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.wallet-session-status__metric {
+  min-width: 0;
+}
+
+.wallet-session-status__label {
+  display: block;
+  color: var(--fe-text-secondary);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.wallet-session-status__value {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--fe-text);
+  font-size: 0.88rem;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallet-session-status__refresh {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
 }
 
 .greeting-controls-box {
@@ -142,6 +226,10 @@
   .demo-page-header,
   .greeting-content {
     padding: var(--fe-gap-4);
+  }
+
+  .wallet-session-status__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .greeting-input-group {

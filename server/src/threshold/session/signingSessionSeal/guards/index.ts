@@ -138,9 +138,9 @@ export interface CreateSigningSessionSealRateLimitGuardOptions {
   onRejected?: (event: SigningSessionSealRateLimitRejectedEvent) => Promise<void> | void;
 }
 
-function coercePositiveInt(value: unknown, fallback: number): number {
+function coercePositiveInt(value: unknown, defaultValue: number): number {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
   return Math.floor(parsed);
 }
 

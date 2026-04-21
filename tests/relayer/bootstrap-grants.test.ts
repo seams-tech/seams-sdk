@@ -7,8 +7,10 @@ import {
   createRelayRouter,
 } from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
+import { AuthService } from '@server/core/AuthService';
 import { computeRegistrationBootstrapRequestHashSha256 } from '@shared/utils/registrationBootstrapHash';
 import { callCf, fetchJson, makeFakeAuthService, startExpressRouter } from './helpers';
+import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const authOrgId = 'org-bootstrap-grants';
 const authUserId = 'user-bootstrap-grants';
@@ -401,55 +403,69 @@ test.describe('managed bootstrap grants', () => {
     }
   });
 
-  test('express registration HSS finalize provisions the finalized threshold Ed25519 key', async () => {
+  test('express Google Email OTP registration HSS finalize provisions and records the finalized threshold Ed25519 key', async () => {
     const orgProjectEnv = await seedEnvironment();
     const { apiKeys, secret } = await createPublishableKey({});
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
     const createdAccounts: Array<{ accountId: string; publicKey?: string }> = [];
+    const completedGoogleAttempts: Array<Record<string, unknown>> = [];
     let keyVisible = false;
-    const router = createRelayRouter(
-      makeFakeAuthService({
-        getThresholdSigningService: (() => ({
-          ed25519Hss: {
-            finalizeForRegistration: async () => ({
-              ok: true,
-              publicKey: 'ed25519:test-registration-public-key',
-              relayerKeyId: 'relayer-key-id',
-            }),
-          },
-        })) as never,
-        checkAccountExists: async () => false,
-        createAccount: async (request) => {
-          createdAccounts.push({
-            accountId: String(request.accountId),
-            publicKey: request.publicKey ? String(request.publicKey) : undefined,
-          });
-          keyVisible = true;
-          return {
-            success: true,
-            accountId: String(request.accountId),
-            transactionHash: 'tx-hss-account-create',
-            message: 'created',
-          };
-        },
-        viewAccessKeyList: async () => ({
-          block_hash: 'block-hash',
-          block_height: 1,
-          keys: keyVisible
-            ? [
-                {
-                  public_key: 'ed25519:test-registration-public-key',
-                  access_key: {
-                    block_hash: 'block-hash',
-                    block_height: 1,
-                    nonce: 0n,
-                    permission: 'FullAccess' as const,
-                  },
-                },
-              ]
-            : [],
+    const service = new AuthService({
+      relayerAccount: 'w3a-relayer.testnet',
+      relayerPrivateKey: 'ed25519:dummy',
+      nearRpcUrl: DEFAULT_TEST_CONFIG.nearRpcUrl,
+      networkId: DEFAULT_TEST_CONFIG.nearNetwork,
+      accountInitialBalance: '1',
+      createAccountAndRegisterGas: '1',
+      logger: null,
+      thresholdStore: {},
+    });
+    (service as any).getThresholdSigningService = () => ({
+      ed25519Hss: {
+        finalizeForRegistration: async () => ({
+          ok: true,
+          publicKey: 'ed25519:test-registration-public-key',
+          relayerKeyId: 'relayer-key-id',
         }),
-      }),
+      },
+    });
+    (service as any).checkAccountExists = async () => false;
+    (service as any).createAccount = async (request: { accountId?: unknown; publicKey?: unknown }) => {
+      createdAccounts.push({
+        accountId: String(request.accountId),
+        publicKey: request.publicKey ? String(request.publicKey) : undefined,
+      });
+      keyVisible = true;
+      return {
+        success: true,
+        accountId: String(request.accountId),
+        transactionHash: 'tx-hss-account-create',
+        message: 'created',
+      };
+    };
+    (service as any).viewAccessKeyList = async () => ({
+      block_hash: 'block-hash',
+      block_height: 1,
+      keys: keyVisible
+        ? [
+            {
+              public_key: 'ed25519:test-registration-public-key',
+              access_key: {
+                block_hash: 'block-hash',
+                block_height: 1,
+                nonce: 0n,
+                permission: 'FullAccess' as const,
+              },
+            },
+          ]
+        : [],
+    });
+    (service as any).completeGoogleEmailOtpRegistrationAttempt = async (input: unknown) => {
+      completedGoogleAttempts.push(input as Record<string, unknown>);
+      return { ok: true };
+    };
+    const router = createRelayRouter(
+      service,
       {
         bootstrapGrantBroker: createRelayBootstrapGrantBroker({
           apiKeys,
@@ -488,7 +504,9 @@ test.describe('managed bootstrap grants', () => {
             new_account_id: relayBody.new_account_id,
             rp_id: relayBody.rp_id,
             ceremonyHandle: 'ceremony-test',
+            google_email_otp_registration_attempt_id: 'google-email-otp-attempt-test',
             account_provisioning: { mode: 'create_if_missing' },
+            signer_slot: 7,
           }),
         },
       );
@@ -504,6 +522,25 @@ test.describe('managed bootstrap grants', () => {
         {
           accountId: relayBody.new_account_id,
           publicKey: 'ed25519:test-registration-public-key',
+        },
+      ]);
+      expect(completedGoogleAttempts).toEqual([
+        {
+          registrationAttemptId: 'google-email-otp-attempt-test',
+          walletId: relayBody.new_account_id,
+          finalizedPublicKey: 'ed25519:test-registration-public-key',
+        },
+      ]);
+      const listed = await service.listNearPublicKeysForUser({ userId: relayBody.new_account_id });
+      expect(listed.ok).toBe(true);
+      expect(listed.keys).toEqual([
+        {
+          publicKey: 'ed25519:test-registration-public-key',
+          kind: 'threshold',
+          signerSlot: 7,
+          createdAtMs: expect.any(Number),
+          updatedAtMs: expect.any(Number),
+          rpId: relayBody.rp_id,
         },
       ]);
     } finally {

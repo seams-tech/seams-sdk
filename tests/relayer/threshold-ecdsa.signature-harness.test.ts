@@ -435,6 +435,7 @@ async function mintThresholdEd25519SessionJwt(args: {
 }): Promise<string> {
   return await args.session.signJwt(args.userId, {
     kind: 'threshold_ed25519_session_v1',
+    walletId: args.userId,
     sessionId: args.sessionId,
     relayerKeyId: String(args.relayerKeyId || 'ed25519:mock-relayer-key').trim(),
     rpId: args.rpId,

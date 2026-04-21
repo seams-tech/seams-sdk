@@ -26,6 +26,11 @@ const CLIENT_ENCRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(5n);
 const CLIENT_DECRYPT_EXPONENT_B64U = encodePositiveBigIntB64u(
   modInverse(5n, decodePositiveBigIntB64u(SHAMIR_PRIME_B64U) - 1n),
 );
+const DEFAULT_RUNTIME_POLICY_SCOPE = {
+  orgId: 'org_email_otp_bootstrap_integration',
+  projectId: 'project_email_otp_bootstrap_integration',
+  envId: 'env_email_otp_bootstrap_integration',
+} as const;
 
 function decodePositiveBigIntB64u(value: string): bigint {
   const bytes = base64UrlDecode(value);
@@ -92,6 +97,8 @@ function makeAppSessionAdapter(appSessionVersion: string) {
       claims: {
         kind: 'app_session_v1',
         sub: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+        runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
         appSessionVersion,
         email: 'alice@example.com',
       },
@@ -110,6 +117,16 @@ function makeTokenBoundAppSessionAdapter(
       const entry = claimsByToken[token];
       const claims = typeof entry === 'function' ? entry() : entry;
       if (!claims) return { ok: false } as const;
+      if (claims.kind === 'app_session_v1') {
+        return {
+          ok: true,
+          claims: {
+            orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+            runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
+            ...claims,
+          } as any,
+        } as const;
+      }
       return { ok: true, claims: claims as any } as const;
     },
   });
@@ -251,7 +268,15 @@ function createEmailOtpRouteWorkerCtx(args: {
   fetchImpl: typeof fetch;
   relayUrl: string;
 }) {
+  const readPayloadAppSessionJwt = (payload: Record<string, any>): string => {
+    const directJwt = String(payload.appSessionJwt || '').trim();
+    if (directJwt) return directJwt;
+    const authLane = payload.routePlan?.authLane;
+    return authLane?.kind === 'app_session' ? String(authLane.jwt || '').trim() : '';
+  };
+
   const loginWithEmailOtp = async (payload: Record<string, any>) => {
+    const appSessionJwt = readPayloadAppSessionJwt(payload);
     const walletId = String(payload.walletId || '').trim();
     const userId = String(payload.userId || walletId).trim() || walletId;
     const challengeId = String(payload.challengeId || '').trim();
@@ -259,7 +284,7 @@ function createEmailOtpRouteWorkerCtx(args: {
       fetchImpl: args.fetchImpl,
       relayUrl: args.relayUrl,
       path: '/wallet/email-otp/login/verify',
-      appSessionJwt: payload.appSessionJwt,
+      appSessionJwt,
       body: {
         walletId,
         challengeId,
@@ -267,12 +292,12 @@ function createEmailOtpRouteWorkerCtx(args: {
         otpChannel: 'email_otp',
       },
     });
-    const wrappedCiphertext = addClientSeal(String(verified.emailOtpEscrowBlob || ''));
+    const wrappedCiphertext = addClientSeal(String(verified.enrollmentEscrowCiphertextB64u || ''));
     const unsealed = await postWorkerJson({
       fetchImpl: args.fetchImpl,
       relayUrl: args.relayUrl,
       path: '/wallet/email-otp/unseal',
-      appSessionJwt: payload.appSessionJwt,
+      appSessionJwt,
       body: {
         loginGrant: String(verified.loginGrant || ''),
         wrappedCiphertext,
@@ -283,7 +308,7 @@ function createEmailOtpRouteWorkerCtx(args: {
       clientSecretB64u,
       walletId,
     });
-    const unlockPublicKeyB64u = base64UrlEncode(await secp256k1PrivateKey32ToPublicKey33(unlockSeed));
+    const clientUnlockPublicKeyB64u = base64UrlEncode(await secp256k1PrivateKey32ToPublicKey33(unlockSeed));
     const unlockChallenge = await postWorkerJson({
       fetchImpl: args.fetchImpl,
       relayUrl: args.relayUrl,
@@ -291,6 +316,7 @@ function createEmailOtpRouteWorkerCtx(args: {
       body: {
         unlockBackend: 'email_otp',
         walletId,
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
       },
     });
     const unlockChallengeB64u = String(unlockChallenge.challengeB64u || '');
@@ -304,9 +330,10 @@ function createEmailOtpRouteWorkerCtx(args: {
       body: {
         unlockBackend: 'email_otp',
         walletId,
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
         challengeId: String(unlockChallenge.challengeId || ''),
         unlockProof: {
-          publicKey: unlockPublicKeyB64u,
+          publicKey: clientUnlockPublicKeyB64u,
           signature: unlockSignatureB64u,
         },
       },
@@ -320,10 +347,10 @@ function createEmailOtpRouteWorkerCtx(args: {
       clientRootShare32B64u,
       loginGrant: String(verified.loginGrant || ''),
       challengeId,
-      emailOtpKeyVersion: String(unsealed.emailOtpKeyVersion || ''),
+      enrollmentSealKeyVersion: String(unsealed.enrollmentSealKeyVersion || ''),
       unlockChallengeId: String(unlockChallenge.challengeId || ''),
       unlockChallengeB64u,
-      unlockPublicKeyB64u,
+      clientUnlockPublicKeyB64u,
       unlockSignatureB64u,
     };
   };
@@ -332,6 +359,7 @@ function createEmailOtpRouteWorkerCtx(args: {
     requestWorkerOperation: async ({ request }: any) => {
       const payload = request.payload || {};
       if (request.type === 'enrollEmailOtpWallet') {
+        const appSessionJwt = readPayloadAppSessionJwt(payload);
         const walletId = String(payload.walletId || '').trim();
         const userId = String(payload.userId || walletId).trim() || walletId;
         const clientSecret32 =
@@ -343,19 +371,19 @@ function createEmailOtpRouteWorkerCtx(args: {
           fetchImpl: args.fetchImpl,
           relayUrl: args.relayUrl,
           path: '/wallet/email-otp/registration/seal',
-          appSessionJwt: payload.appSessionJwt,
+          appSessionJwt,
           body: {
             walletId,
             wrappedCiphertext: addClientSeal(clientSecretB64u),
           },
         });
-        const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.ciphertext || ''));
+        const enrollmentEscrowCiphertextB64u = removeClientSeal(String(enrollSeal.ciphertext || ''));
         const clientRootShare32B64u = await deriveEmailOtpEcdsaClientRootShare32B64u({
           clientSecretB64u,
           walletId,
           userId,
         });
-        const unlockPublicKeyB64u = base64UrlEncode(
+        const clientUnlockPublicKeyB64u = base64UrlEncode(
           await secp256k1PrivateKey32ToPublicKey33(
             await deriveEmailOtpUnlockAuthSeed({ clientSecretB64u, walletId }),
           ),
@@ -367,15 +395,15 @@ function createEmailOtpRouteWorkerCtx(args: {
           fetchImpl: args.fetchImpl,
           relayUrl: args.relayUrl,
           path: '/wallet/email-otp/registration/finalize',
-          appSessionJwt: payload.appSessionJwt,
+          appSessionJwt,
           body: {
             walletId,
             challengeId: String(payload.challengeId || ''),
             otpCode: String(payload.otpCode || ''),
             otpChannel: 'email_otp',
-            emailOtpEscrowBlob,
-            emailOtpKeyVersion: String(enrollSeal.emailOtpKeyVersion || ''),
-            unlockPublicKey: unlockPublicKeyB64u,
+            enrollmentEscrowCiphertextB64u,
+            enrollmentSealKeyVersion: String(enrollSeal.enrollmentSealKeyVersion || ''),
+            clientUnlockPublicKeyB64u: clientUnlockPublicKeyB64u,
             unlockKeyVersion: 'email-otp-unlock-v1',
             thresholdEcdsaClientVerifyingShareB64u,
           },
@@ -385,8 +413,8 @@ function createEmailOtpRouteWorkerCtx(args: {
           thresholdEcdsaClientVerifyingShareB64u,
           challengeId: String(payload.challengeId || ''),
           otpChannel: 'email_otp',
-          emailOtpKeyVersion: String(enrollSeal.emailOtpKeyVersion || ''),
-          unlockPublicKeyB64u,
+          enrollmentSealKeyVersion: String(enrollSeal.enrollmentSealKeyVersion || ''),
+          clientUnlockPublicKeyB64u,
           unlockKeyVersion: 'email-otp-unlock-v1',
         };
       }
@@ -398,10 +426,10 @@ function createEmailOtpRouteWorkerCtx(args: {
         return {
           loginGrant: recovered.loginGrant,
           challengeId: recovered.challengeId,
-          emailOtpKeyVersion: recovered.emailOtpKeyVersion,
+          enrollmentSealKeyVersion: recovered.enrollmentSealKeyVersion,
           unlockChallengeId: recovered.unlockChallengeId,
           unlockChallengeB64u: recovered.unlockChallengeB64u,
-          unlockPublicKeyB64u: recovered.unlockPublicKeyB64u,
+          clientUnlockPublicKeyB64u: recovered.clientUnlockPublicKeyB64u,
           unlockSignatureB64u: recovered.unlockSignatureB64u,
           clientRootShare32: base64UrlDecode(recovered.clientRootShare32B64u).buffer.slice(0),
         };
@@ -444,7 +472,7 @@ async function bootstrapEmailOtpViaRouteWorker(args: {
   challengeId: string;
   otpCode: string;
   appSessionJwt: string;
-  thresholdRouteAuth: { kind: 'app_session'; jwt: string };
+  routeAuth: { kind: 'app_session'; jwt: string };
   sessionId: string;
   ecdsaThresholdKeyId: string;
   participantIds: number[];
@@ -467,11 +495,16 @@ async function bootstrapEmailOtpViaRouteWorker(args: {
       },
     },
   });
-  const clientRootShare32B64u = String(prepared.clientRootShare32B64u || '').trim();
-  if (!clientRootShare32B64u) {
-    throw new Error('Email OTP ECDSA preparation did not return clientRootShare32B64u');
+  const preparedRecord = prepared as Record<string, unknown>;
+  const clientRootShare32 =
+    preparedRecord.clientRootShare32 instanceof ArrayBuffer
+      ? new Uint8Array(preparedRecord.clientRootShare32)
+      : String(preparedRecord.clientRootShare32B64u || '').trim()
+        ? base64UrlDecode(String(preparedRecord.clientRootShare32B64u || '').trim())
+        : null;
+  if (!clientRootShare32) {
+    throw new Error('Email OTP ECDSA preparation did not return clientRootShare32');
   }
-  const clientRootShare32 = base64UrlDecode(clientRootShare32B64u);
   try {
     const bootstrap = await args.bootstrapEcdsaSession({
       nearAccountId: args.walletId,
@@ -481,17 +514,17 @@ async function bootstrapEmailOtpViaRouteWorker(args: {
       participantIds: args.participantIds,
       sessionKind: args.sessionKind,
       sessionId: args.sessionId,
-      thresholdRouteAuth: args.thresholdRouteAuth,
+      routeAuth: args.routeAuth,
       clientRootShare32,
     });
     return {
       recovery: {
         loginGrant: prepared.loginGrant,
         challengeId: prepared.challengeId,
-        emailOtpKeyVersion: prepared.emailOtpKeyVersion,
+        enrollmentSealKeyVersion: prepared.enrollmentSealKeyVersion,
         unlockChallengeId: prepared.unlockChallengeId,
         unlockChallengeB64u: prepared.unlockChallengeB64u,
-        unlockPublicKeyB64u: prepared.unlockPublicKeyB64u,
+        clientUnlockPublicKeyB64u: prepared.clientUnlockPublicKeyB64u,
         unlockSignatureB64u: prepared.unlockSignatureB64u,
       },
       bootstrap,
@@ -573,7 +606,7 @@ test.describe('Email OTP bootstrap integration', () => {
       challengeId: recoveryOtp.challengeId,
       otpCode: recoveryOtp.otpCode,
       appSessionJwt: 'app-session-recover',
-      thresholdRouteAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
+      routeAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
       sessionId: 'ecdsa-session-cf-1',
       ecdsaThresholdKeyId: 'ecdsa-key-cf-1',
       participantIds: [1, 2],
@@ -621,7 +654,7 @@ test.describe('Email OTP bootstrap integration', () => {
 
     expect('clientSecretB64u' in result.recovery).toBe(false);
     expect('clientRootShare32B64u' in result.recovery).toBe(false);
-    expect(result.recovery.unlockPublicKeyB64u).toBe(enrolled.unlockPublicKeyB64u);
+    expect(result.recovery.clientUnlockPublicKeyB64u).toBe(enrolled.clientUnlockPublicKeyB64u);
     expect(bootstrapCalls).toHaveLength(1);
     expect(bootstrapCalls[0]).toEqual({
       nearAccountId: 'alice.testnet',
@@ -631,7 +664,7 @@ test.describe('Email OTP bootstrap integration', () => {
       participantIds: [1, 2],
       sessionKind: 'jwt',
       sessionId: 'ecdsa-session-cf-1',
-      thresholdRouteAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
+      routeAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
       clientRootShare32: base64UrlDecode(expectedClientRootShare32B64u),
     });
   });
@@ -709,14 +742,18 @@ test.describe('Email OTP bootstrap integration', () => {
 
       expect('clientSecretB64u' in recovered).toBe(false);
       expect(recovered.clientRootShare32B64u).toBe(expectedClientRootShare32B64u);
-      expect(recovered.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
-      expect(recovered.unlockPublicKeyB64u).toBe(enrolled.unlockPublicKeyB64u);
+      expect(recovered.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+      expect(recovered.clientUnlockPublicKeyB64u).toBe(enrolled.clientUnlockPublicKeyB64u);
 
-      const enrollmentRecord = await service.readEmailOtpEnrollment({ walletId: 'alice.testnet' });
+      const enrollmentRecord = await service.readEmailOtpEnrollment({
+        walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+      });
       expect(enrollmentRecord.ok).toBe(true);
       if (!enrollmentRecord.ok) return;
-      expect(typeof enrollmentRecord.enrollment.lastEmailOtpLoginAtMs).toBe('number');
-      expect(enrollmentRecord.enrollment.lastEmailOtpLoginAtMs).toBeGreaterThan(0);
+      const authState = await (service as any).getEmailOtpAuthStateStore().get('alice.testnet');
+      expect(typeof authState?.lastEmailOtpLoginAtMs).toBe('number');
+      expect(authState?.lastEmailOtpLoginAtMs).toBeGreaterThan(0);
     } finally {
       await srv.close();
     }
@@ -731,6 +768,7 @@ test.describe('Email OTP bootstrap integration', () => {
         'threshold-session-token': {
           kind: 'threshold_ecdsa_session_v1',
           sub: 'alice.testnet',
+          walletId: 'alice.testnet',
           rpId: 'example.localhost',
           sessionId: 'threshold-ecdsa-session-1',
           relayerKeyId: 'rk-1',
@@ -826,28 +864,31 @@ test.describe('Email OTP bootstrap integration', () => {
       });
 
       expect('clientSecretB64u' in result).toBe(false);
-      expect(result.unlockPublicKeyB64u).toBe(expectedUnlockPublicKeyB64u);
+      expect(result.clientUnlockPublicKeyB64u).toBe(expectedUnlockPublicKeyB64u);
       expect(result.thresholdEcdsaClientVerifyingShareB64u).toBe(
         expectedThresholdEcdsaClientVerifyingShareB64u,
       );
-      expect(result.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+      expect(result.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
 
-      const enrolled = await service.readEmailOtpEnrollment({ walletId: 'alice.testnet' });
+      const enrolled = await service.readEmailOtpEnrollment({
+        walletId: 'alice.testnet',
+        orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+      });
       expect(enrolled.ok).toBe(true);
       if (!enrolled.ok) return;
       expect(enrolled.enrollment.walletId).toBe('alice.testnet');
-      expect(enrolled.enrollment.userId).toBe('alice.testnet');
-      expect(enrolled.enrollment.otpChannel).toBe('email_otp');
-      expect(enrolled.enrollment.emailOtpEscrowBlob).toBe(addServerSeal(plaintextSecretB64u));
-      expect(enrolled.enrollment.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
-      expect(enrolled.enrollment.unlockPublicKey).toBe(expectedUnlockPublicKeyB64u);
+      expect(enrolled.enrollment.providerUserId).toBe('alice.testnet');
+      expect(enrolled.enrollment.enrollmentEscrowCiphertextB64u).toBe(addServerSeal(plaintextSecretB64u));
+      expect(enrolled.enrollment.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+      expect(enrolled.enrollment.clientUnlockPublicKeyB64u).toBe(expectedUnlockPublicKeyB64u);
       expect(enrolled.enrollment.unlockKeyVersion).toBe('email-otp-unlock-v1');
       expect(enrolled.enrollment.thresholdEcdsaClientVerifyingShareB64u).toBe(
         expectedThresholdEcdsaClientVerifyingShareB64u,
       );
-      expect(enrolled.enrollment.otpFailureCount).toBe(0);
-      expect(enrolled.enrollment.otpLockedUntilMs).toBeUndefined();
-      expect(enrolled.enrollment.lastEmailOtpLoginAtMs).toBeUndefined();
+      const authState = await (service as any).getEmailOtpAuthStateStore().get('alice.testnet');
+      expect(authState?.otpFailureCount).toBe(0);
+      expect(authState?.otpLockedUntilMs).toBeUndefined();
+      expect(authState?.lastEmailOtpLoginAtMs).toBeUndefined();
     } finally {
       await srv.close();
     }
@@ -893,7 +934,7 @@ test.describe('Email OTP bootstrap integration', () => {
         }),
       });
       expect(enrollSeal.status).toBe(200);
-      const emailOtpEscrowBlob = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
+      const enrollmentEscrowCiphertextB64u = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
       const expectedClientRootShare32B64u = await deriveEmailOtpEcdsaClientRootShare32B64u({
         clientSecretB64u: plaintextSecretB64u,
         walletId: 'alice.testnet',
@@ -918,9 +959,9 @@ test.describe('Email OTP bootstrap integration', () => {
           challengeId: enrollChallengeId,
           otpChannel: 'email_otp',
           otpCode: enrollOutbox.otpCode,
-          emailOtpEscrowBlob,
-          emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
-          unlockPublicKey,
+          enrollmentEscrowCiphertextB64u,
+          enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+          clientUnlockPublicKeyB64u: unlockPublicKey,
           unlockKeyVersion: 'email-otp-unlock-v1',
           thresholdEcdsaClientVerifyingShareB64u,
         }),
@@ -942,7 +983,7 @@ test.describe('Email OTP bootstrap integration', () => {
         challengeId: recoveryOtp.challengeId,
         otpCode: recoveryOtp.otpCode,
         appSessionJwt: 'app-session',
-        thresholdRouteAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
+        routeAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
         sessionId: 'ecdsa-session-otp-1',
         ecdsaThresholdKeyId: 'ecdsa-key-otp-1',
         participantIds: [1, 2],
@@ -999,7 +1040,7 @@ test.describe('Email OTP bootstrap integration', () => {
         participantIds: [1, 2],
         sessionKind: 'jwt',
         sessionId: 'ecdsa-session-otp-1',
-        thresholdRouteAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
+        routeAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
         clientRootShare32: base64UrlDecode(expectedClientRootShare32B64u),
       });
     } finally {

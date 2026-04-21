@@ -692,7 +692,12 @@ export function parseThresholdEcdsaPresignatureRelayerShareRecord(
 }
 
 export type ThresholdEd25519SessionClaims = {
+  /**
+   * Standard JWT subject. For threshold-session tokens this must match walletId.
+   * Route/business logic should use walletId so it never collides with app-session provider subjects.
+   */
   sub: string;
+  walletId: string;
   kind: 'threshold_ed25519_session_v1';
   sessionId: string;
   walletSigningSessionId?: string;
@@ -732,13 +737,14 @@ export function parseThresholdEd25519SessionClaims(
   const kind = toOptionalString(raw.kind);
   if (kind !== 'threshold_ed25519_session_v1') return null;
   const sub = toOptionalString(raw.sub);
+  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
   const sessionId = toOptionalString(raw.sessionId);
   const walletSigningSessionId = toOptionalString(
     (raw as { walletSigningSessionId?: unknown }).walletSigningSessionId,
   );
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const rpId = toOptionalString(raw.rpId);
-  if (!sub || !sessionId || !relayerKeyId || !rpId) return null;
+  if (!sub || !walletId || walletId !== sub || !sessionId || !relayerKeyId || !rpId) return null;
   const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
   if (!isValidNumber(thresholdExpiresAtMs)) return null;
   const participantIds = normalizeThresholdEd25519ParticipantIds(
@@ -747,6 +753,7 @@ export function parseThresholdEd25519SessionClaims(
   if (!participantIds || participantIds.length < 2) return null;
   const out: ThresholdEd25519SessionClaims = {
     sub,
+    walletId,
     kind,
     sessionId,
     ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
@@ -843,7 +850,12 @@ export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
 }
 
 export type ThresholdEcdsaSessionClaims = {
+  /**
+   * Standard JWT subject. For threshold-session tokens this must match walletId.
+   * Route/business logic should use walletId so it never collides with app-session provider subjects.
+   */
   sub: string;
+  walletId: string;
   kind: 'threshold_ecdsa_session_v1';
   sessionId: string;
   walletSigningSessionId?: string;
@@ -871,13 +883,14 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
   const kind = toOptionalString(raw.kind);
   if (kind !== 'threshold_ecdsa_session_v1') return null;
   const sub = toOptionalString(raw.sub);
+  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
   const sessionId = toOptionalString(raw.sessionId);
   const walletSigningSessionId = toOptionalString(
     (raw as { walletSigningSessionId?: unknown }).walletSigningSessionId,
   );
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const rpId = toOptionalString(raw.rpId);
-  if (!sub || !sessionId || !relayerKeyId || !rpId) return null;
+  if (!sub || !walletId || walletId !== sub || !sessionId || !relayerKeyId || !rpId) return null;
   const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
   if (!isValidNumber(thresholdExpiresAtMs)) return null;
   const participantIds = normalizeThresholdEd25519ParticipantIds(
@@ -886,6 +899,7 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
   if (!participantIds || participantIds.length < 2) return null;
   const out: ThresholdEcdsaSessionClaims = {
     sub,
+    walletId,
     kind,
     sessionId,
     ...(walletSigningSessionId ? { walletSigningSessionId } : {}),

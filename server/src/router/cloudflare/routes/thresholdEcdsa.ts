@@ -149,26 +149,41 @@ async function resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
   ctx: CloudflareRelayContext,
   body: ThresholdEcdsaHssPrepareRequest,
   appSessionClaims: ReturnType<typeof parseAppSessionClaims>,
+  ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>,
+  ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>,
 ): Promise<ThresholdEcdsaHssPrepareRequest['emailOtpEnrollmentClaims'] | undefined> {
-  if (body.operation !== 'email_otp_bootstrap' || !appSessionClaims) return undefined;
-  const walletId = String(appSessionClaims.walletId || appSessionClaims.sub || '').trim();
+  if (body.operation !== 'email_otp_bootstrap') return undefined;
+  const sessionClaims = appSessionClaims || ed25519SessionClaims || ecdsaSessionClaims;
+  if (!sessionClaims) return undefined;
   const userId = String(body.userId || '').trim();
-  if (!walletId || !userId || walletId !== userId) return undefined;
-  const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId: userId });
+  const sessionWalletId = String(
+    appSessionClaims ? appSessionClaims.walletId || '' : sessionClaims.walletId || '',
+  ).trim();
+  if (!sessionWalletId || !userId || sessionWalletId !== userId) return undefined;
+  const sessionOrgId =
+    appSessionClaims?.runtimePolicyScope?.orgId ||
+    ed25519SessionClaims?.runtimePolicyScope?.orgId ||
+    ecdsaSessionClaims?.runtimePolicyScope?.orgId;
+  const enrollment = await ctx.service.readActiveEmailOtpEnrollment({
+    walletId: userId,
+    orgId: String(sessionOrgId || '').trim() || undefined,
+    providerUserId: appSessionClaims ? appSessionClaims.sub : undefined,
+  });
   if (!enrollment.ok) return undefined;
   const verifier = String(
     enrollment.enrollment.thresholdEcdsaClientVerifyingShareB64u || '',
   ).trim();
+  // App-session auth is scoped to the provider subject. Threshold-session auth
+  // is scoped to the wallet id, so its `sub` is not comparable to providerUserId.
   if (
-    enrollment.enrollment.userId !== appSessionClaims.sub ||
-    enrollment.enrollment.otpChannel !== EMAIL_OTP_CHANNEL ||
+    (appSessionClaims && enrollment.enrollment.providerUserId !== appSessionClaims.sub) ||
     !verifier
   ) {
     return undefined;
   }
   return {
     walletId: enrollment.enrollment.walletId,
-    userId: enrollment.enrollment.userId,
+    userId: enrollment.enrollment.providerUserId,
     otpChannel: EMAIL_OTP_CHANNEL,
     thresholdEcdsaClientVerifyingShareB64u: verifier,
   };
@@ -263,6 +278,8 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       ctx,
       reqBody,
       appSessionClaims,
+      ed25519SessionClaims,
+      ecdsaSessionClaims,
     );
     const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
       explicitScopeRaw: reqBody.sessionPolicy?.runtimePolicyScope,

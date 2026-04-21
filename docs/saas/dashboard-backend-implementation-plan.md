@@ -31,9 +31,9 @@ This plan assumes:
 - Maintain separate DB users/permissions/migration streams per domain:
   - signer domain: threshold signing + relay runtime tables.
   - console domain: org/project/environment, dashboard settings, billing, webhooks, API keys.
-- Local cluster anchor is derived from provided URL:
-  - provided: `postgresql://tatchi:tatchi@127.0.0.1/tatchi?statusColor=686B6F&env=local&name=tatchi&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
-  - target logical DBs: `tatchi_signer` and `tatchi_console` on the same `127.0.0.1` cluster.
+- Local cluster anchor:
+  - `postgresql://tatchi:tatchi@127.0.0.1/seams?statusColor=686B6F&env=local&name=seams&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
+  - target logical DBs: `seams_signer` and `seams_console` on the same `127.0.0.1` cluster.
 - Integration between signer and console domains stays API/event-based; no direct cross-database joins.
 
 ## Current State (as of February 27, 2026)
@@ -911,7 +911,7 @@ Compliance:
   - Progress: relay-server now includes explicit least-privilege verification (`postgres:verify:split`) and validated local flow (`postgres:up` -> `postgres:bootstrap:split` -> `postgres:migrate:all` -> `postgres:verify:split`).
   - Progress: relay-server now exposes a one-shot bootstrap+migrate+verify command (`postgres:setup:split`) for repeatable local bring-up.
   - Progress: relay-server now exposes a one-shot monolith-to-split data migration command (`postgres:migrate:split-from-monolith`) with explicit source/target envs.
-  - Progress: local migration from monolith `tatchi` into `tatchi_signer` + `tatchi_console` has been executed and verified for table-count parity across signer tables and most console tables.
+  - Progress: local migration from monolith `seams` into `seams_signer` + `seams_console` has been executed and verified for table-count parity across signer tables and most console tables.
   - Progress: migration runner now logs/skips legacy-incompatible rows missing required target fields (notably historical `console_payment_state_transitions` rows with `NULL org_id`) and tracks these for explicit follow-up policy.
   - Progress: CI now includes a dedicated `relay-server-postgres-split-smoke` job that executes split bootstrap+migrate+verify and always tears down compose resources.
   - Progress: verifier failure-path coverage now includes invalid-identifier fast-fail assertions (`tests/unit/postgresVerifySplitDomains.script.unit.test.ts`).

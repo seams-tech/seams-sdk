@@ -76,78 +76,25 @@ import {
   writeSigningSessionSealedRecord,
   type SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/api/session/signingSessionSealedStore';
+import {
+  authLaneAppSessionJwt,
+  authLaneToRouteAuth,
+  buildEmailOtpRoutePlan,
+  resolveEmailOtpAuthLane,
+  routeFamilyForAuthLane,
+  type EmailOtpAuthLane,
+  type EmailOtpRoutePlan,
+} from './authLane';
 
 export type EmailOtpSigningOperation = WalletEmailOtpLoginOperation;
-
-type SessionStoragePort = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
-
-const EMAIL_OTP_APP_SESSION_JWT_STORAGE_PREFIX = 'tatchi:email-otp:app-session-jwt:v1:';
-
-function getSessionStorageSafe(): SessionStoragePort | null {
-  const globalObj = globalThis as { sessionStorage?: SessionStoragePort };
-  const storage = globalObj?.sessionStorage;
-  if (!storage) return null;
-  try {
-    storage.getItem('__tatchi_email_otp_app_session_probe__');
-    return storage;
-  } catch {
-    return null;
-  }
-}
-
-function appSessionJwtStorageKey(accountId: string): string {
-  return `${EMAIL_OTP_APP_SESSION_JWT_STORAGE_PREFIX}${encodeURIComponent(accountId)}`;
-}
-
-function readPersistedAppSessionJwt(accountId: string): string {
-  const normalizedAccountId = String(accountId || '').trim();
-  if (!normalizedAccountId) return '';
-  const storage = getSessionStorageSafe();
-  if (!storage) return '';
-  try {
-    const jwt = String(storage.getItem(appSessionJwtStorageKey(normalizedAccountId)) || '').trim();
-    if (!jwt || !isAppSessionJwt(jwt)) {
-      storage.removeItem(appSessionJwtStorageKey(normalizedAccountId));
-      return '';
-    }
-    if (!isSessionJwtUnexpired(jwt)) {
-      storage.removeItem(appSessionJwtStorageKey(normalizedAccountId));
-      return '';
-    }
-    return jwt;
-  } catch {
-    return '';
-  }
-}
-
-function writePersistedAppSessionJwt(accountId: string, jwtRaw: string): void {
-  const normalizedAccountId = String(accountId || '').trim();
-  const jwt = String(jwtRaw || '').trim();
-  if (!normalizedAccountId || !jwt || !isAppSessionJwt(jwt)) return;
-  const storage = getSessionStorageSafe();
-  if (!storage) return;
-  try {
-    storage.setItem(appSessionJwtStorageKey(normalizedAccountId), jwt);
-  } catch {}
-}
-
-function deletePersistedAppSessionJwt(accountId: string): void {
-  const normalizedAccountId = String(accountId || '').trim();
-  if (!normalizedAccountId) return;
-  const storage = getSessionStorageSafe();
-  if (!storage) return;
-  try {
-    storage.removeItem(appSessionJwtStorageKey(normalizedAccountId));
-  } catch {}
-}
 
 export type EmailOtpBootstrapRecovery = {
   loginGrant: string;
   challengeId: string;
-  emailOtpKeyVersion: string;
+  enrollmentSealKeyVersion: string;
   unlockChallengeId: string;
   unlockChallengeB64u: string;
-  unlockPublicKeyB64u: string;
+  clientUnlockPublicKeyB64u: string;
   unlockSignatureB64u: string;
   thresholdEd25519PrfFirstB64u?: string;
 };
@@ -207,6 +154,7 @@ export type ProvisionEmailOtpThresholdEd25519CapabilityArgs = {
   prfFirstB64u: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   appSessionJwt?: string;
+  routeAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   registrationAttemptId?: string;
   participantIds?: number[];
@@ -227,12 +175,13 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   operation?: WalletEmailOtpLoginOperation;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  thresholdRouteAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrThresholdSessionAuth;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   walletSigningSessionId?: string;
+  routePlan?: EmailOtpRoutePlan;
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -248,12 +197,13 @@ export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
   challengeId?: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
-  thresholdRouteAuth?: AppOrThresholdSessionAuth;
+  routeAuth?: AppOrThresholdSessionAuth;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   walletSigningSessionId?: string;
+  routePlan?: EmailOtpRoutePlan;
   ttlMs?: number;
   remainingUses?: number;
   clientSecret32?: Uint8Array;
@@ -431,7 +381,6 @@ export class EmailOtpThresholdSessionCoordinator {
       this.appSessionJwtByAccount = new Map();
     }
     this.appSessionJwtByAccount.set(accountId, jwt);
-    writePersistedAppSessionJwt(accountId, jwt);
   }
 
   async resolveAppSessionJwt(args: {
@@ -446,23 +395,11 @@ export class EmailOtpThresholdSessionCoordinator {
     if (cached && isAppSessionJwt(cached) && isSessionJwtUnexpired(cached, { skewMs: 30_000 })) {
       return cached;
     }
-    const persisted = accountId ? readPersistedAppSessionJwt(accountId) : '';
-    if (
-      persisted &&
-      isAppSessionJwt(persisted) &&
-      isSessionJwtUnexpired(persisted, { skewMs: 30_000 })
-    ) {
-      this.appSessionJwtByAccount.set(accountId, persisted);
-      return persisted;
-    }
     const refreshCandidate =
       cached && isAppSessionJwt(cached) && isSessionJwtUnexpired(cached)
         ? cached
-        : persisted && isAppSessionJwt(persisted) && isSessionJwtUnexpired(persisted)
-          ? persisted
-          : '';
+        : '';
     if (accountId) this.appSessionJwtByAccount.delete(accountId);
-    if (accountId && !refreshCandidate) deletePersistedAppSessionJwt(accountId);
     const refreshed = this.deps.refreshAppSessionJwt
       ? await this.deps.refreshAppSessionJwt({ relayUrl: args.relayUrl })
       : await this.refreshAppSessionJwt({
@@ -504,25 +441,45 @@ export class EmailOtpThresholdSessionCoordinator {
     return jwt;
   }
 
-  appSessionRouteAuth(appSessionJwt?: string): AppOrThresholdSessionAuth | undefined {
-    const jwt = String(appSessionJwt || '').trim();
-    return jwt ? { kind: 'app_session', jwt } : undefined;
+  private buildRoutePlan(args: {
+    freshRouteFamily: 'login' | 'registration';
+    routeAuth?: AppOrThresholdSessionAuth;
+    appSessionJwt?: string;
+    sessionKind?: 'jwt' | 'cookie';
+    thresholdSessionId?: string;
+    walletSigningSessionId?: string;
+    curve?: 'ed25519' | 'ecdsa';
+    chain?: ThresholdEcdsaActivationChain;
+    operation?: WalletEmailOtpLoginOperation;
+  }): EmailOtpRoutePlan {
+    const authLane = resolveEmailOtpAuthLane({
+      sessionKind: args.sessionKind,
+      appSessionJwt: args.appSessionJwt,
+      routeAuth: args.routeAuth,
+      thresholdSessionId: args.thresholdSessionId,
+      walletSigningSessionId: args.walletSigningSessionId,
+      curve: args.curve,
+      chain: args.chain,
+    });
+    if (!authLane) {
+      throw new Error(`Email OTP ${args.freshRouteFamily} requires route auth`);
+    }
+    return buildEmailOtpRoutePlan({
+      routeFamily: routeFamilyForAuthLane({
+        authLane,
+        freshRouteFamily: args.freshRouteFamily,
+      }),
+      authLane,
+      operation: args.operation,
+    });
   }
 
-  resolveAppSessionJwtFromRouteAuth(args: {
-    nearAccountId: AccountId | string;
-    appSessionJwt?: string;
-    thresholdRouteAuth?: AppOrThresholdSessionAuth;
-  }): string {
-    const jwt = String(
-      args.appSessionJwt ||
-        (args.thresholdRouteAuth?.kind === 'app_session' &&
-        isAppSessionJwt(args.thresholdRouteAuth.jwt)
-          ? args.thresholdRouteAuth.jwt
-          : ''),
-    ).trim();
-    this.rememberAppSessionJwt({ nearAccountId: args.nearAccountId, appSessionJwt: jwt });
-    return jwt;
+  private routeAuthFromPlan(routePlan: EmailOtpRoutePlan): AppOrThresholdSessionAuth | undefined {
+    return authLaneToRouteAuth(routePlan.authLane);
+  }
+
+  private appSessionJwtFromLane(authLane?: EmailOtpAuthLane): string {
+    return authLaneAppSessionJwt(authLane);
   }
 
   isEd25519WarmupPending(args: { nearAccountId: AccountId | string }): boolean {
@@ -569,6 +526,8 @@ export class EmailOtpThresholdSessionCoordinator {
     chain: 'near' | ThresholdEcdsaActivationChain;
     operation?: EmailOtpSigningOperation;
     appSessionJwt?: string;
+    routeAuth?: AppOrThresholdSessionAuth;
+    authLane?: EmailOtpAuthLane;
   }): Promise<{ challengeId: string; emailHint?: string; appSessionJwt?: string }> {
     void args.chain;
     const nearAccountId = toAccountId(args.nearAccountId);
@@ -577,13 +536,42 @@ export class EmailOtpThresholdSessionCoordinator {
     if (!workerCtx) {
       throw new Error('Email OTP signing requires the dedicated emailOtp worker');
     }
+    const providedAuthLane = args.authLane;
+    const providedRouteAuth = providedAuthLane
+      ? authLaneToRouteAuth(providedAuthLane)
+      : args.routeAuth;
     const appSessionJwt =
-      String(args.appSessionJwt || '').trim() ||
-      (await this.resolveAppSessionJwt({
-        nearAccountId,
-        relayUrl,
-      }));
-    this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
+      providedAuthLane
+        ? this.appSessionJwtFromLane(providedAuthLane)
+        : providedRouteAuth?.kind === 'threshold_session'
+        ? String(args.appSessionJwt || '').trim()
+        : String(
+            args.appSessionJwt ||
+              (providedRouteAuth?.kind === 'app_session' ? providedRouteAuth.jwt : ''),
+          ).trim() ||
+          (await this.resolveAppSessionJwt({
+            nearAccountId,
+            relayUrl,
+          }));
+    if (appSessionJwt) this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
+    const operation = args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION;
+    const routePlan = providedAuthLane
+      ? buildEmailOtpRoutePlan({
+          routeFamily: routeFamilyForAuthLane({
+            authLane: providedAuthLane,
+            freshRouteFamily: 'login',
+          }),
+          authLane: providedAuthLane,
+          operation,
+        })
+      : this.buildRoutePlan({
+          freshRouteFamily: 'login',
+          routeAuth: providedRouteAuth,
+          ...(appSessionJwt ? { appSessionJwt } : {}),
+          curve: args.chain === 'near' ? 'ed25519' : 'ecdsa',
+          ...(args.chain !== 'near' ? { chain: args.chain } : {}),
+          operation,
+        });
     const response = await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
@@ -592,9 +580,8 @@ export class EmailOtpThresholdSessionCoordinator {
         payload: {
           relayUrl,
           walletId: String(nearAccountId),
-          ...(appSessionJwt ? { appSessionJwt } : {}),
+          routePlan,
           otpChannel: EMAIL_OTP_CHANNEL,
-          operation: args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
         },
       },
     });
@@ -607,7 +594,9 @@ export class EmailOtpThresholdSessionCoordinator {
       ...(String(response.emailHint || '').trim()
         ? { emailHint: String(response.emailHint || '').trim() }
         : {}),
-      ...(appSessionJwt ? { appSessionJwt } : {}),
+      ...(this.appSessionJwtFromLane(routePlan.authLane)
+        ? { appSessionJwt: this.appSessionJwtFromLane(routePlan.authLane) }
+        : {}),
     };
   }
 
@@ -617,6 +606,8 @@ export class EmailOtpThresholdSessionCoordinator {
     publicKey: string;
     curve: WalletAuthCurve;
     appSessionJwt?: string;
+    routeAuth?: AppOrThresholdSessionAuth;
+    authLane?: EmailOtpAuthLane;
   }): Promise<{ challengeId: string; otpCode: string }> {
     const nearAccountId = toAccountId(args.nearAccountId);
     const exportIntent: WalletAuthIntent =
@@ -627,6 +618,8 @@ export class EmailOtpThresholdSessionCoordinator {
         chain: args.chain,
         operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
         ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+        ...(args.routeAuth ? { routeAuth: args.routeAuth } : {}),
+        ...(args.authLane ? { authLane: args.authLane } : {}),
       });
       const challengeId = String(challenge.challengeId || '').trim();
       if (!challengeId) {
@@ -775,6 +768,8 @@ export class EmailOtpThresholdSessionCoordinator {
     record: ThresholdEcdsaSessionRecord;
     operation?: EmailOtpSigningOperation;
     appSessionJwt?: string;
+    routeAuth?: AppOrThresholdSessionAuth;
+    authLane?: EmailOtpAuthLane;
   }): Promise<ThresholdEcdsaSecp256k1KeyRef> {
     const record = args.record;
     const nearAccountId = toAccountId(args.nearAccountId);
@@ -792,14 +787,42 @@ export class EmailOtpThresholdSessionCoordinator {
             Math.floor(Number(record.remainingUses) || 0),
             Math.floor(Number(this.deps.configs.signing.sessionDefaults?.remainingUses) || 0),
           );
+    const explicitAuthLane = args.authLane;
+    const explicitRouteAuth = explicitAuthLane ? authLaneToRouteAuth(explicitAuthLane) : args.routeAuth;
     const appSessionJwt =
-      String(args.appSessionJwt || '').trim() ||
-      (await this.resolveAppSessionJwt({
-        nearAccountId,
-        relayUrl,
-      }));
-    this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
-    const thresholdRouteAuth = this.appSessionRouteAuth(appSessionJwt);
+      explicitAuthLane
+        ? this.appSessionJwtFromLane(explicitAuthLane)
+        : explicitRouteAuth?.kind === 'threshold_session'
+        ? String(args.appSessionJwt || '').trim()
+        : String(
+            args.appSessionJwt ||
+              (explicitRouteAuth?.kind === 'app_session' ? explicitRouteAuth.jwt : ''),
+          ).trim() ||
+          (await this.resolveAppSessionJwt({
+            nearAccountId,
+            relayUrl,
+          }));
+    if (appSessionJwt) this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
+    const operation = args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION;
+    const routePlan = explicitAuthLane
+      ? buildEmailOtpRoutePlan({
+          routeFamily: routeFamilyForAuthLane({
+            authLane: explicitAuthLane,
+            freshRouteFamily: 'login',
+          }),
+          authLane: explicitAuthLane,
+          operation,
+        })
+      : this.buildRoutePlan({
+          freshRouteFamily: 'login',
+          routeAuth: explicitRouteAuth,
+          ...(appSessionJwt ? { appSessionJwt } : {}),
+          thresholdSessionId: record.thresholdSessionId,
+          walletSigningSessionId: record.walletSigningSessionId,
+          curve: 'ecdsa',
+          chain: args.chain,
+          operation,
+        });
     await this.loginWithEcdsaCapabilityInternal({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
@@ -811,8 +834,7 @@ export class EmailOtpThresholdSessionCoordinator {
       ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
       participantIds: record.participantIds,
       sessionKind: record.thresholdSessionKind,
-      ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
-      ...(appSessionJwt ? { appSessionJwt } : {}),
+      routePlan,
       remainingUses,
       ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
     });
@@ -844,27 +866,29 @@ export class EmailOtpThresholdSessionCoordinator {
           ? 1
           : undefined;
     const workerCtx = this.deps.getSignerWorkerContext();
-    const thresholdRouteAuth = args.thresholdRouteAuth;
     const sessionKind = args.sessionKind || 'jwt';
     const walletSigningSessionId =
       String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
     const rpId = this.requireRpId('Email OTP login');
+    const routePlan =
+      args.routePlan ||
+      this.buildRoutePlan({
+        freshRouteFamily: 'login',
+        routeAuth: args.routeAuth,
+        appSessionJwt: args.appSessionJwt,
+        sessionKind,
+        walletSigningSessionId,
+        curve: 'ecdsa',
+        chain,
+        operation: args.operation,
+      });
+    const routeAuth = this.routeAuthFromPlan(routePlan);
 
     if (!workerCtx) {
       throw new Error('Email OTP login requires the dedicated emailOtp worker');
     }
-    if (!thresholdRouteAuth && sessionKind !== 'cookie') {
-      throw new Error('Email OTP ECDSA bootstrap requires app-session route auth for JWT sessions');
-    }
-    if (thresholdRouteAuth && thresholdRouteAuth.kind !== 'app_session') {
-      throw new Error('Email OTP ECDSA bootstrap requires app-session route auth');
-    }
-    const appSessionJwt = this.resolveAppSessionJwtFromRouteAuth({
-      nearAccountId,
-      appSessionJwt: args.appSessionJwt,
-      ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
-    });
-    this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
+    const appSessionJwt = this.appSessionJwtFromLane(routePlan.authLane);
+    if (appSessionJwt) this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
     const workerResult = await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
@@ -877,8 +901,7 @@ export class EmailOtpThresholdSessionCoordinator {
           ...(args.challengeId ? { challengeId: args.challengeId } : {}),
           otpCode: args.otpCode,
           shamirPrimeB64u,
-          ...(appSessionJwt ? { appSessionJwt } : {}),
-          ...(args.operation ? { operation: args.operation } : {}),
+          routePlan,
           otpChannel: EMAIL_OTP_CHANNEL,
           rpId,
           ...(args.ecdsaThresholdKeyId ? { ecdsaThresholdKeyId: args.ecdsaThresholdKeyId } : {}),
@@ -888,7 +911,6 @@ export class EmailOtpThresholdSessionCoordinator {
           sessionKind,
           ...(args.sessionId ? { sessionId: args.sessionId } : {}),
           walletSigningSessionId,
-          ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
           ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
           ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
           ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
@@ -922,6 +944,7 @@ export class EmailOtpThresholdSessionCoordinator {
         prfFirstB64u: thresholdEd25519PrfFirstB64u,
         emailOtpAuthContext,
         ...(appSessionJwt ? { appSessionJwt } : {}),
+        ...(routeAuth ? { routeAuth } : {}),
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
         ...(Array.isArray(args.participantIds) ? { participantIds: args.participantIds } : {}),
         ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
@@ -956,26 +979,28 @@ export class EmailOtpThresholdSessionCoordinator {
     };
     const relayUrl = String(args.relayUrl || this.requireRelayUrl()).trim();
     const shamirPrimeB64u = String(args.shamirPrimeB64u || this.requireShamirPrimeB64u()).trim();
-    const thresholdRouteAuth = args.thresholdRouteAuth;
     const sessionKind = args.sessionKind || 'jwt';
     const walletSigningSessionId =
       String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
-    if (!thresholdRouteAuth && sessionKind !== 'cookie') {
-      throw new Error(
-        'Email OTP enrollment login requires threshold route auth for JWT ECDSA bootstrap',
-      );
-    }
+    const routePlan =
+      args.routePlan ||
+      this.buildRoutePlan({
+        freshRouteFamily: 'registration',
+        routeAuth: args.routeAuth,
+        appSessionJwt: args.appSessionJwt,
+        sessionKind,
+        walletSigningSessionId,
+        curve: 'ecdsa',
+        chain,
+      });
+    const routeAuth = this.routeAuthFromPlan(routePlan);
     const workerCtx = this.deps.getSignerWorkerContext();
     if (!workerCtx) {
       throw new Error('Email OTP enrollment login requires the dedicated emailOtp worker');
     }
     const rpId = this.requireRpId('Email OTP enrollment login');
-    const appSessionJwt = this.resolveAppSessionJwtFromRouteAuth({
-      nearAccountId,
-      appSessionJwt: args.appSessionJwt,
-      ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
-    });
-    this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
+    const appSessionJwt = this.appSessionJwtFromLane(routePlan.authLane);
+    if (appSessionJwt) this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
     const remainingUses =
       typeof args.remainingUses === 'number'
         ? args.remainingUses
@@ -996,7 +1021,7 @@ export class EmailOtpThresholdSessionCoordinator {
             ...(args.challengeId ? { challengeId: args.challengeId } : {}),
             otpCode: args.otpCode,
             shamirPrimeB64u,
-            ...(appSessionJwt ? { appSessionJwt } : {}),
+            routePlan,
             otpChannel: EMAIL_OTP_CHANNEL,
             ...(workerClientSecret32
               ? { clientSecret32: workerClientSecret32.buffer.slice(0) }
@@ -1009,7 +1034,6 @@ export class EmailOtpThresholdSessionCoordinator {
             sessionKind,
             ...(args.sessionId ? { sessionId: args.sessionId } : {}),
             walletSigningSessionId,
-            ...(thresholdRouteAuth ? { thresholdRouteAuth } : {}),
             ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
             ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
             ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
@@ -1043,6 +1067,7 @@ export class EmailOtpThresholdSessionCoordinator {
           prfFirstB64u: thresholdEd25519PrfFirstB64u,
           emailOtpAuthContext,
           ...(appSessionJwt ? { appSessionJwt } : {}),
+          ...(routeAuth ? { routeAuth } : {}),
           ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
           ...(args.registrationAttemptId
             ? { registrationAttemptId: args.registrationAttemptId }
@@ -1357,6 +1382,8 @@ export class EmailOtpThresholdSessionCoordinator {
     record: ThresholdEd25519SessionRecord;
     operation?: EmailOtpSigningOperation;
     appSessionJwt?: string;
+    routeAuth?: AppOrThresholdSessionAuth;
+    authLane?: EmailOtpAuthLane;
     remainingUses?: number;
   }): Promise<{ sessionId: string }> {
     const nearAccountId = toAccountId(args.nearAccountId);
@@ -1374,13 +1401,42 @@ export class EmailOtpThresholdSessionCoordinator {
     if (!workerCtx) {
       throw new Error('Email OTP Ed25519 signing requires the dedicated emailOtp worker');
     }
+    const providedAuthLane = args.authLane;
+    const providedRouteAuth = providedAuthLane ? authLaneToRouteAuth(providedAuthLane) : args.routeAuth;
     const appSessionJwt =
-      String(args.appSessionJwt || '').trim() ||
-      (await this.resolveAppSessionJwt({
-        nearAccountId,
-        relayUrl,
-      }));
-    this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
+      providedAuthLane
+        ? this.appSessionJwtFromLane(providedAuthLane)
+        : providedRouteAuth?.kind === 'threshold_session'
+        ? String(args.appSessionJwt || '').trim()
+        : String(
+            args.appSessionJwt ||
+              (providedRouteAuth?.kind === 'app_session' ? providedRouteAuth.jwt : ''),
+          ).trim() ||
+          (await this.resolveAppSessionJwt({
+            nearAccountId,
+            relayUrl,
+          }));
+    if (appSessionJwt) this.rememberAppSessionJwt({ nearAccountId, appSessionJwt });
+    const operation = args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION;
+    const routePlan = providedAuthLane
+      ? buildEmailOtpRoutePlan({
+          routeFamily: routeFamilyForAuthLane({
+            authLane: providedAuthLane,
+            freshRouteFamily: 'login',
+          }),
+          authLane: providedAuthLane,
+          operation,
+        })
+      : this.buildRoutePlan({
+          freshRouteFamily: 'login',
+          routeAuth: providedRouteAuth,
+          ...(appSessionJwt ? { appSessionJwt } : {}),
+          thresholdSessionId: args.record.thresholdSessionId,
+          walletSigningSessionId: args.record.walletSigningSessionId,
+          curve: 'ed25519',
+          operation,
+        });
+    const routeAuth = this.routeAuthFromPlan(routePlan);
     const workerResult = await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
@@ -1392,9 +1448,8 @@ export class EmailOtpThresholdSessionCoordinator {
           userId: String(nearAccountId),
           challengeId: args.challengeId,
           otpCode: args.otpCode,
-          operation: args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
           shamirPrimeB64u,
-          ...(appSessionJwt ? { appSessionJwt } : {}),
+          routePlan,
           otpChannel: EMAIL_OTP_CHANNEL,
         },
       },
@@ -1424,6 +1479,36 @@ export class EmailOtpThresholdSessionCoordinator {
               Math.floor(Number(this.deps.configs.signing.sessionDefaults.remainingUses) || 0),
             )
           : Math.max(2, Math.floor(Number(args.remainingUses) || 0));
+    const existingThresholdSessionId = String(args.record.thresholdSessionId || '').trim();
+    const existingThresholdSessionJwt = String(args.record.thresholdSessionJwt || '').trim();
+    const shouldUseRestoredSessionForExport =
+      operation === WALLET_EMAIL_OTP_EXPORT_OPERATION &&
+      routeAuth?.kind === 'threshold_session' &&
+      Boolean(existingThresholdSessionId) &&
+      Boolean(existingThresholdSessionJwt) &&
+      routeAuth.jwt === existingThresholdSessionJwt;
+    if (shouldUseRestoredSessionForExport) {
+      const expiresAtMs = Math.floor(Number(args.record.expiresAtMs) || 0);
+      const remainingUses = Math.max(
+        0,
+        Math.floor(Number(args.record.remainingUses) || Number(args.remainingUses) || 0),
+      );
+      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+        throw new Error('Email OTP Ed25519 export requires an active restored signing session');
+      }
+      await this.deps.hydrateSigningSession({
+        sessionId: existingThresholdSessionId,
+        prfFirstB64u,
+        expiresAtMs,
+        remainingUses,
+        transport: {
+          curve: 'ed25519',
+          relayerUrl: relayUrl,
+          thresholdSessionJwt: existingThresholdSessionJwt,
+        },
+      });
+      return { sessionId: existingThresholdSessionId };
+    }
     const provisioned = await this.provisionEd25519Capability({
       nearAccountId,
       relayUrl,
@@ -1431,6 +1516,7 @@ export class EmailOtpThresholdSessionCoordinator {
       prfFirstB64u,
       emailOtpAuthContext,
       ...(appSessionJwt ? { appSessionJwt } : {}),
+      ...(routeAuth ? { routeAuth } : {}),
       ...(args.record.runtimePolicyScope
         ? { runtimePolicyScope: args.record.runtimePolicyScope }
         : {}),
@@ -1621,7 +1707,10 @@ export class EmailOtpThresholdSessionCoordinator {
     });
     const minted = await postJsonExpectOk({
       url: joinUrlPath(relayerUrl, '/threshold-ed25519/session'),
-      headers: args.appSessionJwt ? { Authorization: `Bearer ${args.appSessionJwt}` } : {},
+      headers:
+        args.routeAuth?.jwt || args.appSessionJwt
+          ? { Authorization: `Bearer ${args.routeAuth?.jwt || args.appSessionJwt}` }
+          : {},
       credentials: 'include',
       operation: 'Email OTP threshold-ed25519 session mint',
       body: {

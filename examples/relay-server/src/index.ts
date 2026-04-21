@@ -9,7 +9,6 @@ import {
   createRecoveryAuthorityIntervalRunner,
   createEvmSmartAccountDeployHandler,
   createEcdsaAuthSessionStore,
-  createSelfHostedSigningRootShareResolver,
   createSigningSessionSealPolicyFromThresholdAuthSessionStores,
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealShamir3PassCipherAdapter,
@@ -253,6 +252,30 @@ function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'));
 }
 
+function cloneLocalDevSigningRootSharePair(
+  preferredShareIds?: readonly [SigningRootSecretShareId, SigningRootSecretShareId],
+): readonly [Uint8Array, Uint8Array] {
+  const shares = new Map<SigningRootSecretShareId, Uint8Array>(
+    LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES.map((share) => [
+      share.shareId,
+      hexToBytes(share.wireHex),
+    ]),
+  );
+  const selectedIds =
+    preferredShareIds ??
+    ([...shares.keys()].sort((a, b) => a - b).slice(0, 2) as [
+      SigningRootSecretShareId,
+      SigningRootSecretShareId,
+    ]);
+  if (selectedIds.length !== 2 || selectedIds[0] === selectedIds[1]) {
+    throw new Error('preferredShareIds must identify two distinct signing-root shares');
+  }
+  const first = shares.get(selectedIds[0]);
+  const second = shares.get(selectedIds[1]);
+  if (!first || !second) throw new Error('requested signing-root shares are not available');
+  return [new Uint8Array(first), new Uint8Array(second)] as const;
+}
+
 function shouldEnableLocalDevSigningRootResolver(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly expectedOrigin: string;
@@ -271,20 +294,14 @@ function shouldEnableLocalDevSigningRootResolver(input: {
   );
 }
 
-function createLocalDevSigningRootShareResolver(signingRootId: string): SigningRootShareResolver {
-  return createSelfHostedSigningRootShareResolver({
-    signingRootId,
-    signingRootVersion: 'default',
-    shares: LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES.map((share) => ({
-      shareId: share.shareId,
-      shareWire: hexToBytes(share.wireHex),
-    })),
-  });
-}
-
-function signingRootIdFromManagedEnvironmentId(environmentId: unknown): string {
-  const raw = String(environmentId || '').trim();
-  return raw.includes(':') ? raw : '';
+function createLocalDevSigningRootShareResolver(): SigningRootShareResolver {
+  return {
+    resolveSigningRootSharePair: async (request) => {
+      const signingRootId = String(request.signingRootId || '').trim();
+      if (!signingRootId) throw new Error('signingRootId is required');
+      return cloneLocalDevSigningRootSharePair(request.preferredShareIds);
+    },
+  };
 }
 
 async function resolveConsoleDemoOrgId(input: {
@@ -856,6 +873,9 @@ async function main() {
     consoleObservabilityRetentionTtlMs,
     consoleObservabilityRetentionPruneIntervalMs,
     consoleObservabilityRetentionBatchSize,
+    consoleRuntimeSnapshotRetentionTtlMs,
+    consoleRuntimeSnapshotRetentionPruneIntervalMs,
+    consoleRuntimeSnapshotRetentionBatchSize,
     consoleBillingStripeWebhookSecret,
   } = resolveRelayServerConsoleConfig(env as Record<string, unknown>);
   const usePostgresForThreshold = Boolean(thresholdPostgresUrl);
@@ -925,22 +945,16 @@ async function main() {
       .map((s) => s.trim())
       .filter(Boolean),
   ]);
-  const localDevSigningRootId = String(
-    env.THRESHOLD_SIGNING_ROOT_ID ||
-      signingRootIdFromManagedEnvironmentId(env.VITE_TATCHI_ENVIRONMENT_ID) ||
-      env.CONSOLE_DEMO_PROJECT_ID ||
-      'local-dev',
-  ).trim();
   const localDevSigningRootResolver = shouldEnableLocalDevSigningRootResolver({
     env,
     expectedOrigin: config.expectedOrigin,
     expectedWalletOrigin: config.expectedWalletOrigin,
   })
-    ? createLocalDevSigningRootShareResolver(localDevSigningRootId || 'local-dev')
+    ? createLocalDevSigningRootShareResolver()
     : undefined;
   if (localDevSigningRootResolver) {
     console.warn(
-      `[threshold] using local-dev fixture signing-root shares for signingRootId=${localDevSigningRootId || 'local-dev'}; do not use this signer for real funds.`,
+      '[threshold] using dynamic local-dev fixture signing-root shares; do not use this signer for real funds.',
     );
   }
 
@@ -1236,6 +1250,9 @@ async function main() {
       namespace: consoleCoreNamespace,
       logger: console as any,
       ensureSchema: true,
+      retentionTtlMs: consoleRuntimeSnapshotRetentionTtlMs,
+      retentionPruneIntervalMs: consoleRuntimeSnapshotRetentionPruneIntervalMs,
+      retentionBatchSize: consoleRuntimeSnapshotRetentionBatchSize,
     });
     consoleTeamRbac = await createPostgresConsoleTeamRbacService({
       postgresUrl: consolePostgresUrl,
@@ -1704,6 +1721,13 @@ async function main() {
     console.log(`Console core backend: ${consolePostgresUrl ? 'postgres' : 'memory'}`);
     if (consolePostgresUrl) {
       console.log(`Console core namespace: ${consoleCoreNamespace}`);
+      console.log(`Console runtime snapshot retention TTL (ms): ${consoleRuntimeSnapshotRetentionTtlMs}`);
+      console.log(
+        `Console runtime snapshot retention prune interval (ms): ${consoleRuntimeSnapshotRetentionPruneIntervalMs}`,
+      );
+      console.log(
+        `Console runtime snapshot retention batch size: ${consoleRuntimeSnapshotRetentionBatchSize}`,
+      );
     }
     console.log('Console routes mounted at /console/*');
     console.log(

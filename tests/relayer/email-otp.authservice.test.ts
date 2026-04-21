@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import {
   createEmailOtpChallengeStore,
-  createEmailOtpEnrollmentStore,
+  createEmailOtpWalletEnrollmentStore,
   createEmailOtpGrantStore,
   createEmailOtpUnlockChallengeStore,
 } from '@server/core/EmailOtpStores';
@@ -21,6 +21,7 @@ const VALID_SECP256K1_PUBLIC_KEY_33_B64U = base64UrlEncode(
 );
 const USER_ID = 'alice.testnet';
 const WALLET_ID = 'alice.testnet';
+const ORG_ID = 'org_email_otp_authservice';
 const EMAIL = 'alice@example.com';
 const SESSION_HASH = 'session-hash-v1';
 const APP_SESSION_VERSION = 'app-session-v1';
@@ -129,6 +130,7 @@ async function createEmailOtpLoginChallenge(service: AuthService): Promise<{
   const challenge = await service.createEmailOtpChallenge({
     userId: USER_ID,
     walletId: WALLET_ID,
+    orgId: ORG_ID,
     email: EMAIL,
     otpChannel: 'email_otp',
     sessionHash: SESSION_HASH,
@@ -150,18 +152,19 @@ async function createEmailOtpLoginChallenge(service: AuthService): Promise<{
 }
 
 async function seedEmailOtpEnrollment(service: AuthService): Promise<void> {
-  const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+  const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
   const existing = await enrollmentStore.get(WALLET_ID);
   if (existing) return;
   const nowMs = Date.now();
   await enrollmentStore.put({
-    version: 'email_otp_enrollment_v1',
+    version: 'email_otp_wallet_enrollment_v1',
     walletId: WALLET_ID,
-    userId: USER_ID,
-    otpChannel: 'email_otp',
-    emailOtpEscrowBlob: 'recovery-escrow-blob',
-    emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
-    unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+    providerUserId: USER_ID,
+    orgId: ORG_ID,
+    verifiedEmail: EMAIL,
+    enrollmentEscrowCiphertextB64u: 'recovery-escrow-blob',
+    enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+    clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     unlockKeyVersion: 'email-otp-unlock-v1',
     thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     createdAtMs: nowMs,
@@ -183,6 +186,7 @@ async function enrollRecoveryWallet(service: AuthService): Promise<void> {
   const challenge = await service.createEmailOtpEnrollmentChallenge({
     userId: USER_ID,
     walletId: WALLET_ID,
+    orgId: ORG_ID,
     email: EMAIL,
     otpChannel: 'email_otp',
     sessionHash: SESSION_HASH,
@@ -199,14 +203,15 @@ async function enrollRecoveryWallet(service: AuthService): Promise<void> {
   const verified = await service.verifyEmailOtpEnrollment({
     userId: USER_ID,
     walletId: WALLET_ID,
+    orgId: ORG_ID,
     challengeId,
     otpCode: outbox.ok ? outbox.otpCode : '',
     otpChannel: 'email_otp',
     sessionHash: SESSION_HASH,
     appSessionVersion: APP_SESSION_VERSION,
-    emailOtpEscrowBlob: 'recovery-escrow-blob',
-    emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
-    unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+    enrollmentEscrowCiphertextB64u: 'recovery-escrow-blob',
+    enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+    clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     unlockKeyVersion: 'email-otp-unlock-v1',
     thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
   });
@@ -232,6 +237,7 @@ test.describe('AuthService Email OTP policy', () => {
     const missingEnrollmentChallenge = await service.createEmailOtpChallenge({
       userId: USER_ID,
       walletId: WALLET_ID,
+      orgId: ORG_ID,
       email: EMAIL,
       otpChannel: 'email_otp',
       sessionHash: SESSION_HASH,
@@ -244,6 +250,7 @@ test.describe('AuthService Email OTP policy', () => {
     const missingEnrollmentVerify = await service.verifyEmailOtpChallenge({
       userId: USER_ID,
       walletId: WALLET_ID,
+      orgId: ORG_ID,
       challengeId: 'missing-challenge',
       otpCode: '123456',
       otpChannel: 'email_otp',
@@ -258,6 +265,7 @@ test.describe('AuthService Email OTP policy', () => {
     const enrolledChallenge = await service.createEmailOtpChallenge({
       userId: USER_ID,
       walletId: WALLET_ID,
+      orgId: ORG_ID,
       email: EMAIL,
       otpChannel: 'email_otp',
       sessionHash: SESSION_HASH,
@@ -266,12 +274,43 @@ test.describe('AuthService Email OTP policy', () => {
     expect(enrolledChallenge.ok).toBe(true);
   });
 
+  test('Email OTP enrollment reads require tenant scope', async () => {
+    const service = makeService();
+    await seedEmailOtpEnrollment(service);
+
+    const missingOrg = await service.readEmailOtpEnrollment({ walletId: WALLET_ID } as any);
+    expect(missingOrg.ok).toBe(false);
+    expect(missingOrg.ok ? '' : missingOrg.code).toBe('invalid_body');
+    expect(missingOrg.ok ? '' : missingOrg.message).toBe('Missing orgId');
+
+    const wrongOrg = await service.readEmailOtpEnrollment({
+      walletId: WALLET_ID,
+      orgId: 'org_other',
+    });
+    expect(wrongOrg.ok).toBe(false);
+    expect(wrongOrg.ok ? '' : wrongOrg.code).toBe('tenant_scope_mismatch');
+
+    const activeMissingOrg = await service.readActiveEmailOtpEnrollment({
+      walletId: WALLET_ID,
+    } as any);
+    expect(activeMissingOrg.ok).toBe(false);
+    expect(activeMissingOrg.ok ? '' : activeMissingOrg.code).toBe('invalid_body');
+
+    const active = await service.readActiveEmailOtpEnrollment({
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      providerUserId: USER_ID,
+    });
+    expect(active.ok).toBe(true);
+  });
+
   test('Email OTP login challenges bind export_key operation through verification', async () => {
     const service = makeService();
     await seedEmailOtpEnrollment(service);
     const challenge = await service.createEmailOtpChallenge({
       userId: USER_ID,
       walletId: WALLET_ID,
+      orgId: ORG_ID,
       email: EMAIL,
       otpChannel: 'email_otp',
       sessionHash: SESSION_HASH,
@@ -293,6 +332,7 @@ test.describe('AuthService Email OTP policy', () => {
     const wrongOperation = await service.verifyEmailOtpChallenge({
       userId: USER_ID,
       walletId: WALLET_ID,
+      orgId: ORG_ID,
       challengeId: challenge.challenge.challengeId,
       otpCode: outbox.otpCode,
       otpChannel: 'email_otp',
@@ -307,6 +347,7 @@ test.describe('AuthService Email OTP policy', () => {
     const verified = await service.verifyEmailOtpChallenge({
       userId: USER_ID,
       walletId: WALLET_ID,
+      orgId: ORG_ID,
       challengeId: challenge.challenge.challengeId,
       otpCode: outbox.otpCode,
       otpChannel: 'email_otp',
@@ -315,6 +356,97 @@ test.describe('AuthService Email OTP policy', () => {
       operation: 'export_key',
     });
     expect(verified.ok).toBe(true);
+  });
+
+  test('Email OTP enrollment rejects missing verified email and login never repairs it', async () => {
+    const service = makeService();
+    const nowMs = Date.now();
+    await expect((service as any).getEmailOtpWalletEnrollmentStore().put({
+      version: 'email_otp_wallet_enrollment_v1',
+      walletId: WALLET_ID,
+      providerUserId: USER_ID,
+      orgId: ORG_ID,
+      verifiedEmail: '',
+      enrollmentEscrowCiphertextB64u: 'invalid-recovery-escrow-blob',
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      unlockKeyVersion: 'email-otp-unlock-v1',
+      thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      createdAtMs: nowMs,
+      updatedAtMs: nowMs,
+    })).rejects.toThrow('Invalid Email OTP wallet enrollment record');
+
+    const challenge = await service.createEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      email: EMAIL,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(challenge.ok).toBe(false);
+    expect(challenge.ok ? '' : challenge.code).toBe('not_found');
+
+    await (service as any).getEmailOtpChallengeStore().put({
+      version: 'email_otp_challenge_v1',
+      challengeId: 'login-challenge-with-email',
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      otpChannel: 'email_otp',
+      email: EMAIL,
+      otpCode: '123456',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+      action: 'wallet_email_otp_login',
+      operation: 'wallet_unlock',
+      createdAtMs: nowMs,
+      expiresAtMs: nowMs + 60_000,
+      attemptCount: 0,
+      maxAttempts: 3,
+    });
+
+    const verified = await service.verifyEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      challengeId: 'login-challenge-with-email',
+      otpCode: '123456',
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(verified.ok).toBe(false);
+    expect(verified.ok ? '' : verified.code).toBe('not_found');
+
+    const enrollment = await service.readEmailOtpEnrollment({ walletId: WALLET_ID, orgId: ORG_ID });
+    expect(enrollment.ok).toBe(false);
+  });
+
+  test('Email OTP login challenge ignores app-session email after enrollment has a verified mailbox', async () => {
+    const service = makeService();
+    await seedEmailOtpEnrollment(service);
+    const changedEmailChallenge = await service.createEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      email: 'changed@example.com',
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(changedEmailChallenge.ok).toBe(true);
+    if (!changedEmailChallenge.ok) return;
+    expect(
+      (service as any).emailOtpMemoryOutbox.get(changedEmailChallenge.challenge.challengeId)?.email,
+    ).toBe(EMAIL);
+    const unchangedEnrollment = await service.readEmailOtpEnrollment({
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+    });
+    expect(unchangedEnrollment.ok).toBe(true);
+    expect(unchangedEnrollment.ok && unchangedEnrollment.enrollment.verifiedEmail).toBe(EMAIL);
   });
 
   test('Email OTP resend accepts any active matching code for the same context', async () => {
@@ -326,6 +458,7 @@ test.describe('AuthService Email OTP policy', () => {
       const verifiedFirstViaLatestChallenge = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: second.challengeId,
         otpCode: first.otpCode,
         otpChannel: 'email_otp',
@@ -339,6 +472,7 @@ test.describe('AuthService Email OTP policy', () => {
       const verifiedSecond = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: second.challengeId,
         otpCode: second.otpCode,
         otpChannel: 'email_otp',
@@ -361,6 +495,7 @@ test.describe('AuthService Email OTP policy', () => {
       const expiredOlderCode = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: second.challengeId,
         otpCode: first.otpCode,
         otpChannel: 'email_otp',
@@ -372,6 +507,7 @@ test.describe('AuthService Email OTP policy', () => {
       const verifiedSecond = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: second.challengeId,
         otpCode: second.otpCode,
         otpChannel: 'email_otp',
@@ -391,6 +527,7 @@ test.describe('AuthService Email OTP policy', () => {
       const wrongSession = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: second.challengeId,
         otpCode: first.otpCode,
         otpChannel: 'email_otp',
@@ -404,6 +541,7 @@ test.describe('AuthService Email OTP policy', () => {
       const verifiedFirst = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: second.challengeId,
         otpCode: first.otpCode,
         otpChannel: 'email_otp',
@@ -431,6 +569,7 @@ test.describe('AuthService Email OTP policy', () => {
           const prunedFirst = await service.verifyEmailOtpChallenge({
             userId: USER_ID,
             walletId: WALLET_ID,
+            orgId: ORG_ID,
             challengeId: third.challengeId,
             otpCode: first.otpCode,
             otpChannel: 'email_otp',
@@ -442,6 +581,7 @@ test.describe('AuthService Email OTP policy', () => {
           const verifiedSecond = await service.verifyEmailOtpChallenge({
             userId: USER_ID,
             walletId: WALLET_ID,
+            orgId: ORG_ID,
             challengeId: third.challengeId,
             otpCode: second.otpCode,
             otpChannel: 'email_otp',
@@ -453,6 +593,7 @@ test.describe('AuthService Email OTP policy', () => {
           const verifiedThird = await service.verifyEmailOtpChallenge({
             userId: USER_ID,
             walletId: WALLET_ID,
+            orgId: ORG_ID,
             challengeId: third.challengeId,
             otpCode: third.otpCode,
             otpChannel: 'email_otp',
@@ -480,7 +621,7 @@ test.describe('AuthService Email OTP policy', () => {
       const pool = await getPostgresPool(postgresUrl);
       await pool.query('DELETE FROM email_otp_challenges WHERE namespace = $1', [emailOtpPrefix]);
       await pool.query('DELETE FROM email_otp_grants WHERE namespace = $1', [emailOtpPrefix]);
-      await pool.query('DELETE FROM email_otp_enrollments WHERE namespace = $1', [
+      await pool.query('DELETE FROM email_otp_wallet_enrollments WHERE namespace = $1', [
         emailOtpPrefix,
       ]);
       await pool.query('DELETE FROM email_otp_unlock_challenges WHERE namespace = $1', [
@@ -506,6 +647,7 @@ test.describe('AuthService Email OTP policy', () => {
         challengeId: 'challenge-pg',
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         otpChannel: 'email_otp',
         email: EMAIL,
         otpCode: '169670',
@@ -530,6 +672,7 @@ test.describe('AuthService Email OTP policy', () => {
         grantToken: 'grant-pg',
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: 'challenge-pg',
         otpChannel: 'email_otp',
         sessionHash: SESSION_HASH,
@@ -541,22 +684,23 @@ test.describe('AuthService Email OTP policy', () => {
       expect((await grantReader.consume('grant-pg'))?.challengeId).toBe('challenge-pg');
       expect(await grantWriter.consume('grant-pg')).toBeNull();
 
-      const enrollmentWriter = createEmailOtpEnrollmentStore(storeInput);
-      const enrollmentReader = createEmailOtpEnrollmentStore(storeInput);
+      const enrollmentWriter = createEmailOtpWalletEnrollmentStore(storeInput);
+      const enrollmentReader = createEmailOtpWalletEnrollmentStore(storeInput);
       await enrollmentWriter.put({
-        version: 'email_otp_enrollment_v1',
+        version: 'email_otp_wallet_enrollment_v1',
         walletId: WALLET_ID,
-        userId: USER_ID,
-        otpChannel: 'email_otp',
-        emailOtpEscrowBlob: 'escrow-blob',
-        emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
-        unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+        providerUserId: USER_ID,
+        orgId: ORG_ID,
+        verifiedEmail: EMAIL,
+        enrollmentEscrowCiphertextB64u: 'escrow-blob',
+        enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+        clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
         unlockKeyVersion: 'unlock-v1',
         thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
         createdAtMs: nowMs,
         updatedAtMs: nowMs,
       });
-      expect((await enrollmentReader.get(WALLET_ID))?.emailOtpEscrowBlob).toBe('escrow-blob');
+      expect((await enrollmentReader.get(WALLET_ID))?.enrollmentEscrowCiphertextB64u).toBe('escrow-blob');
       await enrollmentReader.del(WALLET_ID);
       expect(await enrollmentWriter.get(WALLET_ID)).toBeNull();
 
@@ -610,6 +754,7 @@ test.describe('AuthService Email OTP policy', () => {
           const challenge = await service.createEmailOtpEnrollmentChallenge({
             userId: USER_ID,
             walletId: WALLET_ID,
+            orgId: ORG_ID,
             email: EMAIL,
             otpChannel: 'email_otp',
             sessionHash: SESSION_HASH,
@@ -622,14 +767,15 @@ test.describe('AuthService Email OTP policy', () => {
           const verified = await service.verifyEmailOtpEnrollment({
             userId: USER_ID,
             walletId: WALLET_ID,
+            orgId: ORG_ID,
             challengeId: challenge.challenge.challengeId,
             otpCode: '123456',
             otpChannel: 'email_otp',
             sessionHash: SESSION_HASH,
             appSessionVersion: APP_SESSION_VERSION,
-            emailOtpEscrowBlob: sensitiveEmailOtpEscrowBlob,
-            emailOtpKeyVersion: EMAIL_OTP_KEY_VERSION,
-            unlockPublicKey: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+            enrollmentEscrowCiphertextB64u: sensitiveEmailOtpEscrowBlob,
+            enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+            clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
             unlockKeyVersion: 'email-otp-unlock-v1',
             thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
           });
@@ -647,7 +793,7 @@ test.describe('AuthService Email OTP policy', () => {
     expect(serializedLogs).toContain('123456');
     expect(serializedLogs).toContain('devOtpCode');
     expect(serializedLogs).not.toContain('email-otp-escrow-sensitive-marker');
-    expect(serializedLogs).not.toContain('emailOtpEscrowBlob');
+    expect(serializedLogs).not.toContain('enrollmentEscrowCiphertextB64u');
     expect(serializedLogs).toContain('development OTP code');
   });
 
@@ -663,6 +809,7 @@ test.describe('AuthService Email OTP policy', () => {
         const challenge = await service.createEmailOtpEnrollmentChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           email: EMAIL,
           otpChannel: 'email_otp',
           sessionHash: SESSION_HASH,
@@ -693,6 +840,7 @@ test.describe('AuthService Email OTP policy', () => {
         const challenge = await service.createEmailOtpEnrollmentChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           email: EMAIL,
           otpChannel: 'email_otp',
           sessionHash: SESSION_HASH,
@@ -720,6 +868,7 @@ test.describe('AuthService Email OTP policy', () => {
     const challenge = await service.createEmailOtpEnrollmentChallenge({
       userId: USER_ID,
       walletId: WALLET_ID,
+      orgId: ORG_ID,
       email: EMAIL,
       otpChannel: 'email_otp',
       sessionHash: SESSION_HASH,
@@ -748,6 +897,7 @@ test.describe('AuthService Email OTP policy', () => {
         const challenge = await service.createEmailOtpEnrollmentChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           email: EMAIL,
           otpChannel: 'email_otp',
           sessionHash: SESSION_HASH,
@@ -835,6 +985,7 @@ test.describe('AuthService Email OTP policy', () => {
       const expired = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: expiring.challengeId,
         otpCode: expiring.otpCode,
         otpChannel: 'email_otp',
@@ -850,6 +1001,7 @@ test.describe('AuthService Email OTP policy', () => {
       const verified = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: replayable.challengeId,
         otpCode: replayable.otpCode,
         otpChannel: 'email_otp',
@@ -861,6 +1013,7 @@ test.describe('AuthService Email OTP policy', () => {
       const replay = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: replayable.challengeId,
         otpCode: replayable.otpCode,
         otpChannel: 'email_otp',
@@ -884,6 +1037,7 @@ test.describe('AuthService Email OTP policy', () => {
         const invalid = await service.verifyEmailOtpChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           challengeId: challenge.challengeId,
           otpCode: '000000',
           otpChannel: 'email_otp',
@@ -903,6 +1057,7 @@ test.describe('AuthService Email OTP policy', () => {
       const lockedChallenge = await service.createEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         email: EMAIL,
         otpChannel: 'email_otp',
         sessionHash: SESSION_HASH,
@@ -912,17 +1067,16 @@ test.describe('AuthService Email OTP policy', () => {
       if (lockedChallenge.ok) return;
       expect(lockedChallenge.code).toBe('otp_locked_out');
 
-      const lockedEnrollment = await service.readEmailOtpEnrollment({ walletId: WALLET_ID });
-      expect(lockedEnrollment.ok).toBe(true);
-      if (!lockedEnrollment.ok) return;
-      expect(lockedEnrollment.enrollment.otpFailureCount).toBeGreaterThan(0);
-      expect(typeof lockedEnrollment.enrollment.otpLockedUntilMs).toBe('number');
+      const lockedState = await (service as any).getEmailOtpAuthStateStore().get(WALLET_ID);
+      expect(lockedState?.otpFailureCount).toBeGreaterThan(0);
+      expect(typeof lockedState?.otpLockedUntilMs).toBe('number');
 
-      setNowMs((lockedEnrollment.enrollment.otpLockedUntilMs || 0) + 1);
+      setNowMs((lockedState?.otpLockedUntilMs || 0) + 1);
       const resetChallenge = await createEmailOtpLoginChallenge(service);
       const resetVerify = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: resetChallenge.challengeId,
         otpCode: resetChallenge.otpCode,
         otpChannel: 'email_otp',
@@ -931,12 +1085,10 @@ test.describe('AuthService Email OTP policy', () => {
       });
       expect(resetVerify.ok).toBe(true);
 
-      const resetEnrollment = await service.readEmailOtpEnrollment({ walletId: WALLET_ID });
-      expect(resetEnrollment.ok).toBe(true);
-      if (!resetEnrollment.ok) return;
-      expect(resetEnrollment.enrollment.otpFailureCount).toBe(0);
-      expect(resetEnrollment.enrollment.lastOtpFailureAtMs).toBeUndefined();
-      expect(resetEnrollment.enrollment.otpLockedUntilMs).toBeUndefined();
+      const resetState = await (service as any).getEmailOtpAuthStateStore().get(WALLET_ID);
+      expect(resetState?.otpFailureCount).toBe(0);
+      expect(resetState?.lastOtpFailureAtMs).toBeUndefined();
+      expect(resetState?.otpLockedUntilMs).toBeUndefined();
     });
   });
 
@@ -947,6 +1099,7 @@ test.describe('AuthService Email OTP policy', () => {
       const verified = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: singleUse.challengeId,
         otpCode: singleUse.otpCode,
         otpChannel: 'email_otp',
@@ -960,6 +1113,7 @@ test.describe('AuthService Email OTP policy', () => {
         loginGrant: verified.loginGrant,
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         otpChannel: 'email_otp',
         sessionHash: SESSION_HASH,
         appSessionVersion: APP_SESSION_VERSION,
@@ -970,6 +1124,7 @@ test.describe('AuthService Email OTP policy', () => {
         loginGrant: verified.loginGrant,
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         otpChannel: 'email_otp',
         sessionHash: SESSION_HASH,
         appSessionVersion: APP_SESSION_VERSION,
@@ -983,6 +1138,7 @@ test.describe('AuthService Email OTP policy', () => {
       const expiringVerified = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         challengeId: expiring.challengeId,
         otpCode: expiring.otpCode,
         otpChannel: 'email_otp',
@@ -997,6 +1153,7 @@ test.describe('AuthService Email OTP policy', () => {
         loginGrant: expiringVerified.loginGrant,
         userId: USER_ID,
         walletId: WALLET_ID,
+        orgId: ORG_ID,
         otpChannel: 'email_otp',
         sessionHash: SESSION_HASH,
         appSessionVersion: APP_SESSION_VERSION,
@@ -1094,6 +1251,7 @@ test.describe('AuthService Email OTP policy', () => {
         const challenge1 = await service.createEmailOtpChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           email: EMAIL,
           otpChannel: 'email_otp',
           sessionHash: SESSION_HASH,
@@ -1105,6 +1263,7 @@ test.describe('AuthService Email OTP policy', () => {
         const challenge2 = await service.createEmailOtpChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           email: EMAIL,
           otpChannel: 'email_otp',
           sessionHash: SESSION_HASH,
@@ -1120,6 +1279,7 @@ test.describe('AuthService Email OTP policy', () => {
         const verify1 = await verifyService.verifyEmailOtpChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           challengeId: verifyChallenge.challengeId,
           otpCode: '000000',
           otpChannel: 'email_otp',
@@ -1134,6 +1294,7 @@ test.describe('AuthService Email OTP policy', () => {
         const verify2 = await verifyService.verifyEmailOtpChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           challengeId: verifyChallenge.challengeId,
           otpCode: '000000',
           otpChannel: 'email_otp',
@@ -1150,6 +1311,7 @@ test.describe('AuthService Email OTP policy', () => {
         const verifiedGrant = await grantService.verifyEmailOtpChallenge({
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           challengeId: grantChallenge.challengeId,
           otpCode: grantChallenge.otpCode,
           otpChannel: 'email_otp',
@@ -1164,6 +1326,7 @@ test.describe('AuthService Email OTP policy', () => {
           loginGrant: verifiedGrant.loginGrant,
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           otpChannel: 'email_otp',
           sessionHash: SESSION_HASH,
           appSessionVersion: APP_SESSION_VERSION,
@@ -1175,6 +1338,7 @@ test.describe('AuthService Email OTP policy', () => {
           loginGrant: 'invalid-grant',
           userId: USER_ID,
           walletId: WALLET_ID,
+          orgId: ORG_ID,
           otpChannel: 'email_otp',
           sessionHash: SESSION_HASH,
           appSessionVersion: APP_SESSION_VERSION,
@@ -1196,12 +1360,15 @@ test.describe('AuthService Email OTP policy', () => {
     if (!initialGate.ok) return;
     expect(initialGate.required).toBe(false);
 
-    const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
-    const current = await enrollmentStore.get(WALLET_ID);
-    expect(current).toBeTruthy();
+    const enrollment = await (service as any).getEmailOtpWalletEnrollmentStore().get(WALLET_ID);
+    expect(enrollment).toBeTruthy();
     const emailOtpLoginAtMs = Date.now();
-    await enrollmentStore.put({
-      ...current,
+    await (service as any).getEmailOtpAuthStateStore().put({
+      version: 'email_otp_auth_state_v1',
+      walletId: WALLET_ID,
+      providerUserId: USER_ID,
+      orgId: ORG_ID,
+      createdAtMs: emailOtpLoginAtMs,
       updatedAtMs: emailOtpLoginAtMs,
       lastEmailOtpLoginAtMs: emailOtpLoginAtMs,
     });

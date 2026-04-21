@@ -10,14 +10,13 @@ export interface PasskeyClientDBConfig {
   accountSignersStore: string;
   signerOpsOutboxStore: string;
   recoveryEmailStore: string;
-  migrationQuarantineStore: string;
 }
 
 export const SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX = 'status_nextAttemptAt' as const;
 
 export const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 29, // v29: full IndexedDB reset for profile authenticator signerSlot records
+  dbVersion: 30,
   appStateStore: 'appState',
   profileAuthenticatorStore: 'profileAuthenticators',
   profilesStore: 'profiles',
@@ -25,41 +24,14 @@ export const DB_CONFIG: PasskeyClientDBConfig = {
   accountSignersStore: 'accountSigners',
   signerOpsOutboxStore: 'signerOpsOutbox',
   recoveryEmailStore: 'recoveryEmailsV2',
-  migrationQuarantineStore: 'migrationQuarantine',
 } as const;
 
 export const LAST_PROFILE_STATE_APP_STATE_KEY = 'lastProfileState' as const;
-export const DB_MULTICHAIN_MIGRATION_STATE_KEY = 'migration.dbMultichainSchema.v1' as const;
-export const DB_MULTICHAIN_MIGRATION_LOCK_KEY = 'migration.dbMultichainSchema.v1.lock' as const;
-export const DB_MULTICHAIN_MIGRATION_CHECKPOINTS_KEY =
-  'migration.dbMultichainSchema.v1.checkpoints' as const;
-export const DB_MULTICHAIN_MIGRATION_LOCK_NAME =
-  'passkey-client-db-multichain-migration-v1' as const;
-export const DB_MULTICHAIN_MIGRATION_LOCK_TTL_MS = 2 * 60_000;
-export const DB_MULTICHAIN_MIGRATION_HEARTBEAT_INTERVAL_MS = 5_000;
-export const DB_MULTICHAIN_MIGRATION_SCHEMA_VERSION = 8 as const;
-const DB_FULL_RESET_ON_UPGRADE_VERSION = 29 as const;
-
-const OBSOLETE_CLIENT_STORES_TO_DROP = [
-  'users',
-  'authenticators',
-  'derivedAddresses',
-  'derivedAddressesV2',
-  'recoveryEmails',
-] as const;
 
 export function upgradePasskeyClientDBSchema(
   db: IDBPDatabase,
-  oldVersion: number,
   transaction: any,
 ): void {
-  if (oldVersion > 0 && oldVersion < DB_FULL_RESET_ON_UPGRADE_VERSION) {
-    // Breaking cutover: wipe all legacy/mixed-shape data and recreate canonical stores.
-    for (const storeName of Array.from(db.objectStoreNames)) {
-      db.deleteObjectStore(storeName);
-    }
-  }
-
   if (!db.objectStoreNames.contains(DB_CONFIG.appStateStore)) {
     db.createObjectStore(DB_CONFIG.appStateStore, { keyPath: 'key' });
   }
@@ -114,7 +86,9 @@ export function upgradePasskeyClientDBSchema(
       });
     } catch {}
     try {
-      chainAccounts.createIndex('profileId_chainIdKey', ['profileId', 'chainIdKey'], { unique: false });
+      chainAccounts.createIndex('profileId_chainIdKey', ['profileId', 'chainIdKey'], {
+        unique: false,
+      });
     } catch {}
   }
 
@@ -182,28 +156,5 @@ export function upgradePasskeyClientDBSchema(
     try {
       recoveryEmails.createIndex('profileId', 'profileId', { unique: false });
     } catch {}
-  }
-
-  {
-    const quarantine = !db.objectStoreNames.contains(DB_CONFIG.migrationQuarantineStore)
-      ? db.createObjectStore(DB_CONFIG.migrationQuarantineStore, {
-          keyPath: 'quarantineId',
-          autoIncrement: true,
-        })
-      : transaction.objectStore(DB_CONFIG.migrationQuarantineStore);
-    try {
-      quarantine.createIndex('sourceStore', 'sourceStore', { unique: false });
-    } catch {}
-    try {
-      quarantine.createIndex('detectedAt', 'detectedAt', { unique: false });
-    } catch {}
-  }
-
-  if (oldVersion < 24) {
-    for (const storeName of OBSOLETE_CLIENT_STORES_TO_DROP) {
-      if (db.objectStoreNames.contains(storeName)) {
-        db.deleteObjectStore(storeName);
-      }
-    }
   }
 }

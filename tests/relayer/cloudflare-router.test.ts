@@ -58,7 +58,7 @@ function validLoginVerifyBody(overrides?: Partial<any>): any {
   return {
     unlockBackend: 'passkey',
     challengeId: 'challenge-123',
-    webauthnAuthentication: { ok: true, ...(overrides?.webauthnAuthentication || {}) },
+    webauthn_authentication: { ok: true, ...(overrides?.webauthn_authentication || {}) },
     ...overrides,
   };
 }
@@ -1150,6 +1150,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         ok: true as const,
         claims: {
           sub: 'user-123',
+          walletId: 'user-123',
           kind: 'threshold_ecdsa_session_v1',
           sessionId: 'sess-1',
           relayerKeyId: 'relayer-key-1',
@@ -1254,6 +1255,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         ok: true as const,
         claims: {
           sub: 'user-123',
+          walletId: 'user-123',
           kind: 'threshold_ecdsa_session_v1',
           sessionId: 'sess-1',
           relayerKeyId: 'relayer-key-1',
@@ -1608,6 +1610,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         ok: true,
         claims: {
           sub: 'alice.testnet',
+          walletId: 'alice.testnet',
           kind: 'threshold_ed25519_session_v1',
           sessionId: 'session-ed25519-scoped-ecdsa-cf',
           relayerKeyId: 'relayer-ed25519-cf-1',
@@ -1616,7 +1619,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
           participantIds: [1, 2],
           runtimePolicyScope: {
             orgId: 'org-ecdsa-cf-1',
-            environmentId: 'env-ecdsa-cf-1',
+            projectId: 'project-ecdsa-cf-1',
+            envId: 'env-ecdsa-cf-1',
           },
         },
       }),
@@ -1652,7 +1656,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
           sessionId: 'session-ecdsa-scoped-cf-1',
           runtimePolicyScope: {
             orgId: 'org-body-ignored',
-            environmentId: 'env-body-ignored',
+            projectId: 'project-body-ignored',
+            envId: 'env-body-ignored',
           },
           participantIds: [1, 2],
           ttlMs: 300_000,
@@ -1665,7 +1670,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(200);
     expect(getPath(capturedRequest, 'sessionPolicy', 'runtimePolicyScope')).toEqual({
       orgId: 'org-ecdsa-cf-1',
-      environmentId: 'env-ecdsa-cf-1',
+      projectId: 'project-ecdsa-cf-1',
+      envId: 'env-ecdsa-cf-1',
     });
   });
 
@@ -2159,7 +2165,53 @@ test.describe('relayer router (cloudflare) – P0', () => {
     });
   });
 
-  test('POST /session/exchange: Google Email OTP requires account_mode', async () => {
+  test('POST /session/exchange: Google dashboard SSO does not require Email OTP account_mode', async () => {
+    let emailOtpResolverCalled = false;
+    const session = makeSessionAdapter({ signJwt: async () => 'google-dashboard-cf-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:dashboard-cf-user-1',
+        providerSubject: 'google:dashboard-cf-user-1',
+        sub: 'dashboard-cf-user-1',
+        email: 'dashboard-cf@example.com',
+        name: 'Dashboard CF User',
+      }),
+      resolveGoogleEmailOtpSession: async () => {
+        emailOtpResolverCalled = true;
+        throw new Error('Google dashboard SSO must not enter Email OTP wallet resolution');
+      },
+      getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+    });
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      body: {
+        sessionKind: 'jwt',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          token: 'google.id.token',
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.json?.ok).toBe(true);
+    expect(getPath(res.json, 'session', 'userId')).toBe('google:dashboard-cf-user-1');
+    expect(getPath(res.json, 'session', 'walletId')).toBeUndefined();
+    expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toBeUndefined();
+    expect(emailOtpResolverCalled).toBe(false);
+  });
+
+  test('POST /session/exchange: Google Email OTP rejects invalid account_mode', async () => {
     const session = makeSessionAdapter({ signJwt: async () => 'unused-google-cf-jwt' });
     const service = makeFakeAuthService();
     const handler = createCloudflareRouter(service, {
@@ -2176,6 +2228,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         exchange: {
           type: 'oidc_jwt',
           provider: 'google',
+          account_mode: 'dashboard',
           token: 'google.id.token',
         },
       },
@@ -2250,7 +2303,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
             ? String(extra.appSessionVersion).trim()
             : '';
         const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
-        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        issuedClaimsByToken.set(token, { sub, appSessionVersion, ...(extra || {}) });
         return token;
       },
       parse: async (headers) => {
@@ -2374,7 +2427,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
             ? String(extra.appSessionVersion).trim()
             : '';
         const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
-        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        issuedClaimsByToken.set(token, { sub, appSessionVersion, ...(extra || {}) });
         return token;
       },
       parse: async (headers) => {
@@ -2511,7 +2564,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       signJwt: async (sub, extra) => {
         const appSessionVersion = String(extra?.appSessionVersion || '').trim() || 'app-v1';
         const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
-        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        issuedClaimsByToken.set(token, { sub, appSessionVersion, ...(extra || {}) });
         return token;
       },
       parse: async (headers) => {
@@ -2538,6 +2591,8 @@ test.describe('relayer router (cloudflare) – P0', () => {
         verified: true,
         userId: 'user-no-membership-cf-1',
         providerSubject: 'oidc:https://issuer.example.com:user-no-membership-cf-1',
+        email: 'alice@example.com',
+        name: 'Alice Example',
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
       validateAppSessionVersion: async () => ({ ok: true }),
@@ -3720,6 +3775,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         ok: true,
         claims: {
           sub: 'bob.testnet',
+          walletId: 'bob.testnet',
           kind: 'threshold_ed25519_session_v1',
           sessionId: 'session-ed25519-runtime-cf',
           relayerKeyId: 'relayer-key-cf-1',
@@ -3729,7 +3785,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
           runtimePolicyScope: {
             orgId: 'org-runtime-cf-1',
             projectId: 'project-runtime-cf-1',
-            environmentId: 'env-runtime-cf-1',
+            envId: 'env-runtime-cf-1',
           },
         },
       }),

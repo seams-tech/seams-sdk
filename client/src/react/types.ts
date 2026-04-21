@@ -49,6 +49,12 @@ export interface LoginState {
   thresholdEcdsaPublicKeyB64u?: string | null;
 }
 
+export interface StoredAccountOption {
+  nearAccountId: string;
+  signerSlot?: number;
+  authMethod?: WalletAuthMethod | null;
+}
+
 // UI input state - tracks user input and form state
 export interface AccountInputState {
   // The username portion being typed by the user (e.g., "alice")
@@ -67,6 +73,8 @@ export interface AccountInputState {
   accountExists: boolean;
   // All account IDs stored in IndexDB
   indexDBAccounts: string[];
+  // Stored accounts with signer auth method metadata, used by account picker UIs.
+  indexDBAccountOptions: StoredAccountOption[];
 }
 
 // Account input hook types

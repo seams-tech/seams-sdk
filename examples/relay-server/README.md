@@ -254,15 +254,15 @@ EXPECTED_ORIGIN=http://localhost:3000
 # EXPECTED_WALLET_ORIGIN=http://localhost:4173
 
 # Runtime/signer persistence (threshold sessions/shares/auth)
-# POSTGRES_URL=postgres://tatchi_signer:tatchi_signer@127.0.0.1:5432/tatchi_signer
+# POSTGRES_URL=postgres://seams_signer:seams_signer@127.0.0.1:5432/seams_signer
 # Optional signer migration URL (recommended separate migrator role)
-# POSTGRES_MIGRATION_URL=postgres://tatchi_signer_migrator:tatchi_signer_migrator@127.0.0.1:5432/tatchi_signer
+# POSTGRES_MIGRATION_URL=postgres://seams_signer_migrator:seams_signer_migrator@127.0.0.1:5432/seams_signer
 
 # Optional console persistence override (billing + webhooks + observability + console data)
 # Keep this separate from POSTGRES_URL signer state.
-# CONSOLE_POSTGRES_URL=postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
+# CONSOLE_POSTGRES_URL=postgres://seams_console:seams_console@127.0.0.1:5432/seams_console
 # Optional console migration URL (recommended separate migrator role)
-# CONSOLE_POSTGRES_MIGRATION_URL=postgres://tatchi_console_migrator:tatchi_console_migrator@127.0.0.1:5432/tatchi_console
+# CONSOLE_POSTGRES_MIGRATION_URL=postgres://seams_console_migrator:seams_console_migrator@127.0.0.1:5432/seams_console
 
 # Google OIDC for /session/exchange (exchange.type=oidc_jwt)
 # GOOGLE_OIDC_CLIENT_ID=
@@ -331,10 +331,8 @@ RELAY_API_KEY_AUTH_ENABLED=1
 # unless NODE_ENV=production.
 # Use real sealed signing-root share storage before using the signer for real funds.
 # THRESHOLD_SIGNING_ROOT_LOCAL_DEV_RESOLVER=1
-# For managed local registration, the fixture signing root must match the runtime scope.
-# Prefer THRESHOLD_SIGNING_ROOT_ID=<projectId>:<envId>. If unset, local dev
-# falls back to VITE_TATCHI_ENVIRONMENT_ID, then CONSOLE_DEMO_PROJECT_ID, then local-dev.
-# THRESHOLD_SIGNING_ROOT_ID=proj_example:dev
+# The authenticated project/environment runtime scope supplies signingRootId per request.
+# Do not configure a process-wide signing root on the relay for hosted multi-project flows.
 
 # Optional signing-session seal/unseal routes for refresh rehydrate.
 # SIGNING_SESSION_SEAL_ENABLED=1
@@ -392,15 +390,15 @@ Then in your relay `.env`:
 
 ```bash
 # runtime/signer data (threshold session/auth/share stores)
-POSTGRES_URL=postgres://tatchi_signer:tatchi_signer@127.0.0.1:5432/tatchi_signer
+POSTGRES_URL=postgres://seams_signer:seams_signer@127.0.0.1:5432/seams_signer
 
 # optional: console domain data (billing/webhooks/observability/admin control-plane)
 # keep separate from POSTGRES_URL
-CONSOLE_POSTGRES_URL=postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
+CONSOLE_POSTGRES_URL=postgres://seams_console:seams_console@127.0.0.1:5432/seams_console
 
 # optional: migration-only URLs (recommended for least-privilege runtime users)
-POSTGRES_MIGRATION_URL=postgres://tatchi_signer_migrator:tatchi_signer_migrator@127.0.0.1:5432/tatchi_signer
-CONSOLE_POSTGRES_MIGRATION_URL=postgres://tatchi_console_migrator:tatchi_console_migrator@127.0.0.1:5432/tatchi_console
+POSTGRES_MIGRATION_URL=postgres://seams_signer_migrator:seams_signer_migrator@127.0.0.1:5432/seams_signer
+CONSOLE_POSTGRES_MIGRATION_URL=postgres://seams_console_migrator:seams_console_migrator@127.0.0.1:5432/seams_console
 ```
 
 Alternatively, run Redis and set `REDIS_URL`:
@@ -439,13 +437,13 @@ Migrate an existing single-DB setup into split signer/console databases:
 
 ```bash
 # source monolith DB (required)
-MONOLITH_POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi
+MONOLITH_POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams
 
 # target signer DB (required; migration URL preferred)
-POSTGRES_MIGRATION_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi_signer
+POSTGRES_MIGRATION_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams_signer
 
 # target console DB (required; migration URL preferred)
-CONSOLE_POSTGRES_MIGRATION_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi_console
+CONSOLE_POSTGRES_MIGRATION_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams_console
 
 # optional:
 # SPLIT_MIGRATION_CREATE_DATABASES=1   # default 1, auto-create target DBs if missing
@@ -457,8 +455,8 @@ pnpm run postgres:migrate:split-from-monolith
 After migration, set runtime URLs to the split DBs:
 
 ```bash
-POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi_signer
-CONSOLE_POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/tatchi_console
+POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams_signer
+CONSOLE_POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams_console
 ```
 
 Bootstrap/verify scripts support optional env overrides for non-default local role/db names:

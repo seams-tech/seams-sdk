@@ -5,6 +5,7 @@ import {
   createPostgresConsoleRuntimeSnapshotService,
   createPostgresConsoleSmartWalletService,
   runPostgresConsoleRuntimeSnapshotOutboxDispatch,
+  runPostgresConsoleRuntimeSnapshotRetentionCleanup,
 } from '@server/router/express-adaptor';
 import {
   projectConsoleGasSponsorshipPolicyProjection,
@@ -684,6 +685,99 @@ test.describe('console config modules postgres services', () => {
     );
     expect(Number(summaryRows.rows[0]?.total_count || 0)).toBeGreaterThanOrEqual(3);
     expect(Number(summaryRows.rows[0]?.dispatched_count || 0)).toBeGreaterThanOrEqual(3);
+  });
+
+  test('runtime snapshot retention prunes old outbox rows and keeps latest snapshot per scope', async () => {
+    test.skip(!enabled, 'POSTGRES_URL not set');
+    let current = new Date('2026-03-01T00:00:00.000Z');
+    const service = await createPostgresConsoleRuntimeSnapshotService({
+      postgresUrl,
+      namespace,
+      logger: console as any,
+      ensureSchema: true,
+      now: () => current,
+      retentionTtlMs: 1000 * 60 * 60 * 24 * 7,
+      retentionPruneIntervalMs: 1,
+      retentionBatchSize: 100,
+    });
+    const environmentId = 'prod-retention';
+
+    await service.publishSnapshot(adminCtx, {
+      environmentId,
+      payload: {
+        policy: { defaultPolicyId: 'old-1' },
+        gasSponsorship: { enabled: true },
+        smartWallets: { mode: 'OPTIONAL' },
+      },
+    });
+    current = new Date('2026-03-02T00:00:00.000Z');
+    await service.publishSnapshot(adminCtx, {
+      environmentId,
+      payload: {
+        policy: { defaultPolicyId: 'old-2' },
+        gasSponsorship: { enabled: true },
+        smartWallets: { mode: 'OPTIONAL' },
+      },
+    });
+    current = new Date('2026-03-10T00:00:00.000Z');
+    await service.publishSnapshot(adminCtx, {
+      environmentId,
+      payload: {
+        policy: { defaultPolicyId: 'latest' },
+        gasSponsorship: { enabled: false },
+        smartWallets: { mode: 'REQUIRED' },
+      },
+    });
+
+    const retained = await service.listSnapshots(adminCtx, {
+      environmentId,
+      limit: 10,
+    });
+    expect(retained.map((snapshot) => snapshot.version)).toEqual([3]);
+    expect(retained[0]?.payload.policy).toEqual({ defaultPolicyId: 'latest' });
+
+    const pool = await getPostgresPool(postgresUrl);
+    const outboxRows = await withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) =>
+      q.query(
+        `SELECT snapshot_version
+           FROM console_runtime_snapshot_outbox
+          WHERE namespace = $1
+            AND org_id = $2
+            AND environment_id = $3
+          ORDER BY snapshot_version ASC`,
+        [namespace, orgId, environmentId],
+      ),
+    );
+    expect(outboxRows.rows.map((row) => Number(row.snapshot_version))).toEqual([3]);
+
+    const singleScopeEnvironmentId = 'prod-retention-single';
+    current = new Date('2026-03-01T00:00:00.000Z');
+    await service.publishSnapshot(adminCtx, {
+      environmentId: singleScopeEnvironmentId,
+      payload: {
+        policy: { defaultPolicyId: 'only' },
+        gasSponsorship: { enabled: true },
+        smartWallets: { mode: 'OPTIONAL' },
+      },
+    });
+    const cleanup = await runPostgresConsoleRuntimeSnapshotRetentionCleanup({
+      postgresUrl,
+      namespace,
+      orgId,
+      logger: console as any,
+      ensureSchema: false,
+      now: () => new Date('2026-03-20T00:00:00.000Z'),
+      ttlMs: 1000 * 60 * 60 * 24 * 7,
+      batchSize: 100,
+    });
+    expect(cleanup.deletedOutbox).toBeGreaterThanOrEqual(1);
+
+    const singleRetained = await service.listSnapshots(adminCtx, {
+      environmentId: singleScopeEnvironmentId,
+      limit: 10,
+    });
+    expect(singleRetained).toHaveLength(1);
+    expect(singleRetained[0]?.payload.policy).toEqual({ defaultPolicyId: 'only' });
   });
 
   test('gas/smart-wallet tables enforce DB-level tenant RLS policies', async () => {

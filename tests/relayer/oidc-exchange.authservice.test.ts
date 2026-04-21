@@ -2,6 +2,13 @@ import { test, expect } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
+const ORG_ID = 'org_oidc_exchange_tests';
+const RUNTIME_POLICY_SCOPE = {
+  orgId: ORG_ID,
+  projectId: 'project_oidc_exchange_tests',
+  envId: 'env_oidc_exchange_tests',
+} as const;
+
 function b64u(input: Uint8Array | string): string {
   const bytes = typeof input === 'string' ? Buffer.from(input, 'utf8') : Buffer.from(input);
   return bytes
@@ -201,6 +208,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-1',
       email: 'Alice.Example+demo@Example.COM',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(registered.ok).toBe(true);
     if (!registered.ok) return;
@@ -230,6 +238,7 @@ test.describe('AuthService OIDC exchange verification', () => {
         providerSubject: 'google:subject-1',
         email: 'different@example.com',
         accountMode: 'login',
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toMatchObject({
       code: 'not_found',
@@ -244,11 +253,13 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-resume',
       email: 'resume@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     const second = await service.resolveGoogleEmailOtpSession({
       providerSubject: 'google:subject-resume',
       email: 'resume@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
     expect(first.ok).toBe(true);
@@ -267,6 +278,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-finalize',
       email: 'finalize@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(registered.ok).toBe(true);
     if (!registered.ok || registered.mode !== 'register_started') return;
@@ -288,21 +300,23 @@ test.describe('AuthService OIDC exchange verification', () => {
   test('Google Email OTP register with existing active wallet switches to login resolution', async () => {
     const service = makeService();
     const identity = (service as any).getIdentityStore();
-    const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
     await identity.linkSubjectToUserId({
-      userId: 'existing-active.relayer.testnet',
+      userId: 'existing-active-a1b2c3d4e5.relayer.testnet',
       subject: 'wallet:google:subject-existing-active',
       allowMoveIfSoleIdentity: false,
     });
     await enrollmentStore.put({
-      version: 'email_otp_enrollment_v1',
-      walletId: 'existing-active.relayer.testnet',
-      userId: 'google:subject-existing-active',
-      otpChannel: 'email_otp',
-      emailOtpEscrowBlob: 'escrow',
-      emailOtpKeyVersion: 'email-key-v1',
-      unlockPublicKey: 'unlock-public',
+      version: 'email_otp_wallet_enrollment_v1',
+      walletId: 'existing-active-a1b2c3d4e5.relayer.testnet',
+      providerUserId: 'google:subject-existing-active',
+      orgId: ORG_ID,
+      verifiedEmail: 'existing-active@example.com',
+      enrollmentEscrowCiphertextB64u: 'escrow',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
+      thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
       createdAtMs: 1,
       updatedAtMs: 1,
     });
@@ -311,11 +325,12 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-existing-active',
       email: 'existing@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
     expect(resolved.mode).toBe('existing_wallet');
-    expect(resolved.walletId).toBe('existing-active.relayer.testnet');
+    expect(resolved.walletId).toBe('existing-active-a1b2c3d4e5.relayer.testnet');
   });
 
   test('Google Email OTP login never creates wallets', async () => {
@@ -326,6 +341,7 @@ test.describe('AuthService OIDC exchange verification', () => {
         providerSubject: 'google:subject-login-missing',
         email: 'missing@example.com',
         accountMode: 'login',
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toMatchObject({
       code: 'not_found',
@@ -340,7 +356,7 @@ test.describe('AuthService OIDC exchange verification', () => {
     const service = makeService();
     const identity = (service as any).getIdentityStore();
     await identity.linkSubjectToUserId({
-      userId: 'stale-failed.relayer.testnet',
+      userId: 'stale-failed-c1d2e3f4g5.relayer.testnet',
       subject: 'wallet:google:subject-stale-failed',
       allowMoveIfSoleIdentity: false,
     });
@@ -349,19 +365,21 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-stale-failed',
       email: 'stale.failed@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(resolved.ok).toBe(false);
     if (resolved.ok) return;
     expect(resolved.mode).toBe('registration_incomplete');
-    expect(resolved.walletId).toBe('stale-failed.relayer.testnet');
+    expect(resolved.walletId).toBe('stale-failed-c1d2e3f4g5.relayer.testnet');
   });
 
-  test('completed Google Email OTP registration resolves through legacy OIDC helper only after finalization', async () => {
+  test('completed Google Email OTP registration resolves through OIDC wallet helper only after finalization', async () => {
     const service = makeService();
     const registered = await service.resolveGoogleEmailOtpSession({
-      providerSubject: 'google:subject-legacy-helper',
-      email: 'legacy@example.com',
+      providerSubject: 'google:subject-finalized-helper',
+      email: 'finalized@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(registered.ok).toBe(true);
     if (!registered.ok || registered.mode !== 'register_started') return;
@@ -369,22 +387,25 @@ test.describe('AuthService OIDC exchange verification', () => {
       registrationAttemptId: registered.registrationAttemptId,
       walletId: registered.walletId,
     });
-    await (service as any).getEmailOtpEnrollmentStore().put({
-      version: 'email_otp_enrollment_v1',
+    await (service as any).getEmailOtpWalletEnrollmentStore().put({
+      version: 'email_otp_wallet_enrollment_v1',
       walletId: registered.walletId,
-      userId: 'google:subject-legacy-helper',
-      otpChannel: 'email_otp',
-      emailOtpEscrowBlob: 'escrow',
-      emailOtpKeyVersion: 'email-key-v1',
-      unlockPublicKey: 'unlock-public',
+      providerUserId: 'google:subject-finalized-helper',
+      orgId: ORG_ID,
+      verifiedEmail: 'finalized-helper@example.com',
+      enrollmentEscrowCiphertextB64u: 'escrow',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
+      thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
       createdAtMs: 1,
       updatedAtMs: 1,
     });
 
     const walletId = await service.resolveOidcWalletId({
-      providerSubject: 'google:subject-legacy-helper',
+      providerSubject: 'google:subject-finalized-helper',
       accountMode: 'login',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(walletId).toBe(registered.walletId);
   });
@@ -395,6 +416,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-privacy',
       email: 'Alice.Example+demo@Example.COM',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(registered.ok).toBe(true);
     if (!registered.ok) return;
@@ -412,6 +434,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-deterministic',
       email: 'first@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
@@ -424,6 +447,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-deterministic',
       email: 'second@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(second.ok).toBe(true);
     if (!second.ok) return;
@@ -433,21 +457,23 @@ test.describe('AuthService OIDC exchange verification', () => {
   test('Google Email OTP registration keeps existing active wallet login semantics', async () => {
     const service = makeService();
     const identity = (service as any).getIdentityStore();
-    const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
     await identity.linkSubjectToUserId({
-      userId: 'active-stable.relayer.testnet',
+      userId: 'active-stable-b1c2d3e4f5.relayer.testnet',
       subject: 'wallet:google:subject-active-stable',
       allowMoveIfSoleIdentity: false,
     });
     await enrollmentStore.put({
-      version: 'email_otp_enrollment_v1',
-      walletId: 'active-stable.relayer.testnet',
-      userId: 'google:subject-active-stable',
-      otpChannel: 'email_otp',
-      emailOtpEscrowBlob: 'escrow',
-      emailOtpKeyVersion: 'email-key-v1',
-      unlockPublicKey: 'unlock-public',
+      version: 'email_otp_wallet_enrollment_v1',
+      walletId: 'active-stable-b1c2d3e4f5.relayer.testnet',
+      providerUserId: 'google:subject-active-stable',
+      orgId: ORG_ID,
+      verifiedEmail: 'active-stable@example.com',
+      enrollmentEscrowCiphertextB64u: 'escrow',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
+      thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
       createdAtMs: 1,
       updatedAtMs: 1,
     });
@@ -456,11 +482,12 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-active-stable',
       email: 'Dev.Active.Stable@Example.COM',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
     expect(resolved.mode).toBe('existing_wallet');
-    expect(resolved.walletId).toBe('active-stable.relayer.testnet');
+    expect(resolved.walletId).toBe('active-stable-b1c2d3e4f5.relayer.testnet');
   });
 
   test('dev cleanup removes expired attempts and orphaned Google wallet mappings', async () => {
@@ -503,21 +530,23 @@ test.describe('AuthService OIDC exchange verification', () => {
   test('dev cleanup keeps Google mappings with active Email OTP enrollment', async () => {
     const service = makeService();
     const identity = (service as any).getIdentityStore();
-    const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
     await identity.linkSubjectToUserId({
       userId: 'active.relayer.testnet',
       subject: 'wallet:google:subject-active-cleanup',
       allowMoveIfSoleIdentity: false,
     });
     await enrollmentStore.put({
-      version: 'email_otp_enrollment_v1',
+      version: 'email_otp_wallet_enrollment_v1',
       walletId: 'active.relayer.testnet',
-      userId: 'google:subject-active-cleanup',
-      otpChannel: 'email_otp',
-      emailOtpEscrowBlob: 'escrow',
-      emailOtpKeyVersion: 'email-key-v1',
-      unlockPublicKey: 'unlock-public',
+      providerUserId: 'google:subject-active-cleanup',
+      orgId: ORG_ID,
+      verifiedEmail: 'active-cleanup@example.com',
+      enrollmentEscrowCiphertextB64u: 'escrow',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
+      thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
       createdAtMs: 1,
       updatedAtMs: 1,
     });
@@ -537,7 +566,7 @@ test.describe('AuthService OIDC exchange verification', () => {
     );
   });
 
-  test('falls back to HMAC-readable OIDC wallet id when no registration mapping exists', async () => {
+  test('derives HMAC-readable OIDC wallet id when no registration mapping exists', async () => {
     const service = makeService();
     const walletId = await service.resolveOidcWalletId({
       providerSubject: 'oidc:https://issuer.example.com:subject-no-registration',
@@ -546,12 +575,13 @@ test.describe('AuthService OIDC exchange verification', () => {
     expect(walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
   });
 
-  test('Google Email OTP login does not fall back to a hashed wallet id without registration', async () => {
+  test('Google Email OTP login requires registration before resolving a wallet id', async () => {
     const service = makeService();
     await expect(
       service.resolveGoogleEmailOtpSession({
         providerSubject: 'google:subject-no-registration',
         accountMode: 'login',
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toMatchObject({
       code: 'not_found',
@@ -572,6 +602,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       service.resolveGoogleEmailOtpSession({
         providerSubject: 'google:subject-stale-top-level',
         accountMode: 'login',
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toMatchObject({
       code: 'not_found',
@@ -585,6 +616,7 @@ test.describe('AuthService OIDC exchange verification', () => {
         providerSubject: 'google:subject-stale-top-level',
         email: 'stale@example.com',
         accountMode: 'register',
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       });
       expect(registered.ok).toBe(true);
       if (!registered.ok) return;
@@ -602,6 +634,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       service.resolveOidcWalletId({
         providerSubject: 'google:subject-without-email',
         accountMode: 'register',
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toThrow('Email is required to register a Google Email OTP wallet id');
   });

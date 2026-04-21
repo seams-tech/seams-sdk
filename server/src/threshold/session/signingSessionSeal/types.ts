@@ -90,6 +90,7 @@ export interface SigningSessionSealRoutesOptions {
   enabled?: boolean;
   basePath?: string;
   service: SigningSessionSealService;
+  sessionPolicy?: SigningSessionSealThresholdSessionPolicy;
   capabilities?: SigningSessionSealStartupCapabilities;
   authorize?: (
     input: SigningSessionSealAuthorizeInput,
@@ -111,12 +112,27 @@ export interface SigningSessionSealThresholdSessionRecord {
   remainingUses?: number;
 }
 
+export interface SigningSessionSealThresholdSessionStatus
+  extends SigningSessionSealThresholdSessionRecord {
+  remainingUses: number;
+  record: {
+    expiresAtMs: number;
+    relayerKeyId: string;
+    userId: string;
+    rpId: string;
+    participantIds: number[];
+  };
+}
+
 export type SigningSessionSealConsumeUseResult =
   | { ok: true; remainingUses?: number }
   | { ok: false; code: string; message: string };
 
 export interface SigningSessionSealThresholdSessionPolicy {
   getSession(thresholdSessionId: string): Promise<SigningSessionSealThresholdSessionRecord | null>;
+  getSessionStatus?(
+    thresholdSessionId: string,
+  ): Promise<SigningSessionSealThresholdSessionStatus | null>;
   consumeUseCount?(thresholdSessionId: string): Promise<SigningSessionSealConsumeUseResult>;
 }
 

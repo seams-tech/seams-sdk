@@ -53,6 +53,7 @@ export async function handleWalletUnlockChallengeRoute(input: {
         })
       : await input.service.createEmailOtpUnlockChallenge({
           walletId: body.walletId,
+          orgId: body.orgId,
           ttlMs: body.ttlMs,
         });
 
@@ -98,22 +99,26 @@ export async function handleWalletUnlockVerifyRoute(input: {
   const result =
     unlockBackend === 'passkey'
       ? await (async () => {
-          if (!body.webauthnAuthentication || typeof body.webauthnAuthentication !== 'object') {
+          if (
+            !body.webauthn_authentication ||
+            typeof body.webauthn_authentication !== 'object'
+          ) {
             return {
               ok: false,
               verified: false,
               code: 'invalid_body',
-              message: 'webauthnAuthentication is required',
+              message: 'webauthn_authentication is required',
             } as const;
           }
           return input.service.verifyWebAuthnLogin({
             challengeId,
-            webauthn_authentication: body.webauthnAuthentication,
+            webauthn_authentication: body.webauthn_authentication,
             expected_origin: input.origin,
           });
         })()
       : await input.service.verifyEmailOtpUnlockProof({
           walletId: body.walletId,
+          orgId: body.orgId,
           challengeId,
           unlockProof: body.unlockProof,
         });

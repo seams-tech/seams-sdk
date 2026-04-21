@@ -2,6 +2,13 @@ import { expect, test } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
+const ORG_ID = 'org_hosted_account_privacy_tests';
+const RUNTIME_POLICY_SCOPE = {
+  orgId: ORG_ID,
+  projectId: 'project_hosted_account_privacy_tests',
+  envId: 'dev',
+} as const;
+
 function makeService(): AuthService {
   process.env.ACCOUNT_ID_DERIVATION_SECRET ||= 'test-account-id-derivation-secret';
   return new AuthService({
@@ -15,36 +22,38 @@ function makeService(): AuthService {
   });
 }
 
-async function seedLegacyEmailOtpMapping(service: AuthService, input: {
+async function seedNonHostedEmailOtpMapping(service: AuthService, input: {
   providerSubject: string;
   walletId: string;
 }): Promise<void> {
   const identity = (service as any).getIdentityStore();
-  const enrollmentStore = (service as any).getEmailOtpEnrollmentStore();
+  const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
   await identity.linkSubjectToUserId({
     userId: input.walletId,
     subject: `wallet:${input.providerSubject}`,
     allowMoveIfSoleIdentity: false,
   });
   await enrollmentStore.put({
-    version: 'email_otp_enrollment_v1',
+    version: 'email_otp_wallet_enrollment_v1',
     walletId: input.walletId,
-    userId: input.providerSubject,
-    otpChannel: 'email_otp',
-    emailOtpEscrowBlob: 'escrow',
-    emailOtpKeyVersion: 'email-key-v1',
-    unlockPublicKey: 'unlock-public',
+    providerUserId: input.providerSubject,
+    orgId: ORG_ID,
+    verifiedEmail: 'active@example.com',
+    enrollmentEscrowCiphertextB64u: 'escrow',
+    enrollmentSealKeyVersion: 'email-key-v1',
+    clientUnlockPublicKeyB64u: 'unlock-public',
     unlockKeyVersion: 'unlock-key-v1',
+    thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
     createdAtMs: 1,
     updatedAtMs: 1,
   });
 }
 
 test.describe('hosted Google Email OTP account privacy', () => {
-  test('registration does not reuse legacy email-derived wallet mappings', async () => {
+  test('registration does not reuse non-HMAC-readable email-derived wallet mappings', async () => {
     const service = makeService();
-    const providerSubject = 'google:subject-legacy-email-wallet';
-    await seedLegacyEmailOtpMapping(service, {
+    const providerSubject = 'google:subject-non-hmac-email-wallet';
+    await seedNonHostedEmailOtpMapping(service, {
       providerSubject,
       walletId: 'alice-example-com-1776502017920.relayer.testnet',
     });
@@ -53,6 +62,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'alice@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
     expect(resolved.ok).toBe(true);
@@ -64,10 +74,10 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(resolved.walletId).not.toContain('example');
   });
 
-  test('login does not accept legacy email-derived wallet mappings', async () => {
+  test('login does not accept non-HMAC-readable email-derived wallet mappings', async () => {
     const service = makeService();
-    const providerSubject = 'google:subject-legacy-login';
-    await seedLegacyEmailOtpMapping(service, {
+    const providerSubject = 'google:subject-non-hmac-login';
+    await seedNonHostedEmailOtpMapping(service, {
       providerSubject,
       walletId: 'alice-example-com.relayer.testnet',
     });
@@ -77,19 +87,20 @@ test.describe('hosted Google Email OTP account privacy', () => {
         providerSubject,
         email: 'alice@example.com',
         accountMode: 'login',
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toMatchObject({
       code: 'not_found',
     });
   });
 
-  test('registration discards legacy resumable attempts before allocating an HMAC-readable wallet', async () => {
+  test('registration discards non-HMAC-readable resumable attempts before allocating an HMAC-readable wallet', async () => {
     const service = makeService();
     const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
-    const providerSubject = 'google:subject-legacy-attempt';
+    const providerSubject = 'google:subject-non-hmac-attempt';
     await attemptStore.put({
       version: 'google_email_otp_registration_attempt_v1',
-      attemptId: 'legacy-attempt',
+      attemptId: 'non-hmac-attempt',
       providerSubject,
       email: 'alice@example.com',
       walletId: 'alice-example-com-1776502017920.relayer.testnet',
@@ -106,6 +117,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'alice@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
     expect(resolved.ok).toBe(true);
@@ -113,11 +125,11 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(resolved.mode).toBe('register_started');
     if (resolved.mode !== 'register_started') return;
     expect(resolved.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
-    expect(resolved.registrationAttemptId).not.toBe('legacy-attempt');
+    expect(resolved.registrationAttemptId).not.toBe('non-hmac-attempt');
 
-    await expect(attemptStore.get('legacy-attempt')).resolves.toMatchObject({
+    await expect(attemptStore.get('non-hmac-attempt')).resolves.toMatchObject({
       state: 'failed',
-      failureCode: 'legacy_email_derived_wallet_id',
+      failureCode: 'non_hmac_readable_wallet_id',
     });
   });
 
@@ -130,6 +142,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'reroll@example.com',
       accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(first.ok).toBe(true);
     if (!first.ok) return;
@@ -141,6 +154,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       email: 'reroll@example.com',
       accountMode: 'register',
       rerollRegistrationAttempt: true,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(second.ok).toBe(true);
     if (!second.ok) return;

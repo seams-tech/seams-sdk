@@ -1939,6 +1939,13 @@ export function createRelayRouteDefinitions(
       ['authService', 'session'],
     ),
     userSessionRoute(
+      'wallet_email_otp_signing_session_challenge',
+      'POST',
+      '/wallet/email-otp/signing-session/challenge',
+      'Create Email OTP operation challenge for a restored signing session',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
       'wallet_email_otp_login_verify',
       'POST',
       '/wallet/email-otp/login/verify',
@@ -1946,10 +1953,24 @@ export function createRelayRouteDefinitions(
       ['authService', 'session'],
     ),
     userSessionRoute(
+      'wallet_email_otp_signing_session_verify',
+      'POST',
+      '/wallet/email-otp/signing-session/verify',
+      'Verify Email OTP operation challenge for a restored signing session',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
       'wallet_email_otp_unseal',
       'POST',
       '/wallet/email-otp/unseal',
       'Remove the server Shamir seal after Email OTP authorization',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
+      'wallet_email_otp_signing_session_unseal',
+      'POST',
+      '/wallet/email-otp/signing-session/unseal',
+      'Remove the server Shamir seal after signing-session Email OTP authorization',
       ['authService', 'session'],
     ),
     publicRoute(
@@ -1964,6 +1985,13 @@ export function createRelayRouteDefinitions(
           'This development-only cleanup path verifies a Google id token before touching stale local registration state.',
       },
       ['authService'],
+    ),
+    userSessionRoute(
+      'wallet_email_otp_dev_otp_outbox',
+      'GET',
+      '/wallet/email-otp/dev/otp-outbox',
+      'Read local development Email OTP outbox entry for the current app session',
+      ['authService', 'session'],
     ),
     userSessionRoute('wallet_state', 'GET', '/wallet/state', 'Read wallet state', [
       'authService',

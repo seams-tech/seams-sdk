@@ -33,7 +33,6 @@ export type {
   AccountAddress,
   SignerId,
   AccountRef,
-  MigrationQuarantineRecord,
   PasskeyCredentialRecord,
   ProfileRecord,
   ChainAccountRecord,

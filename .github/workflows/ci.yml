@@ -200,10 +200,10 @@ jobs:
 
       - name: Run split-domain Postgres bootstrap+migrate+verify smoke
         env:
-          POSTGRES_URL: postgres://tatchi_signer:tatchi_signer@127.0.0.1:5432/tatchi_signer
-          POSTGRES_MIGRATION_URL: postgres://tatchi_signer_migrator:tatchi_signer_migrator@127.0.0.1:5432/tatchi_signer
-          CONSOLE_POSTGRES_URL: postgres://tatchi_console:tatchi_console@127.0.0.1:5432/tatchi_console
-          CONSOLE_POSTGRES_MIGRATION_URL: postgres://tatchi_console_migrator:tatchi_console_migrator@127.0.0.1:5432/tatchi_console
+          POSTGRES_URL: postgres://seams_signer:seams_signer@127.0.0.1:5432/seams_signer
+          POSTGRES_MIGRATION_URL: postgres://seams_signer_migrator:seams_signer_migrator@127.0.0.1:5432/seams_signer
+          CONSOLE_POSTGRES_URL: postgres://seams_console:seams_console@127.0.0.1:5432/seams_console
+          CONSOLE_POSTGRES_MIGRATION_URL: postgres://seams_console_migrator:seams_console_migrator@127.0.0.1:5432/seams_console
         run: pnpm -C examples/relay-server run postgres:setup:split
 
       - name: Teardown relay-server Postgres compose stack

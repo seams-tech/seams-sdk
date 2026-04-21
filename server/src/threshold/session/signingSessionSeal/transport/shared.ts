@@ -124,7 +124,7 @@ function claimsFromUnknown(value: unknown): SigningSessionSealSessionClaims {
 }
 
 function userIdFromClaims(claims: SigningSessionSealSessionClaims): string {
-  const raw = (claims as { sub?: unknown }).sub;
+  const raw = (claims as { walletId?: unknown }).walletId;
   return typeof raw === 'string' ? raw.trim() : '';
 }
 

@@ -48,6 +48,7 @@ export function emailOtpStatusCode(code: string | undefined): number {
   if (code === 'not_found') return 404;
   if (code === 'rate_limited') return 429;
   if (code === 'stronger_auth_required') return 403;
+  if (code === 'reenrollment_required') return 409;
   return 400;
 }
 
@@ -124,7 +125,7 @@ export function emailOtpLoggedInWebhookEventDescriptor(input: {
 export function emailOtpEnrolledWebhookEventDescriptor(input: {
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
-  emailOtpKeyVersion: string;
+  enrollmentSealKeyVersion: string;
   unlockKeyVersion?: string;
 }): EmailOtpWebhookEventDescriptor {
   return {
@@ -132,26 +133,8 @@ export function emailOtpEnrolledWebhookEventDescriptor(input: {
     eventId: input.challengeId,
     payload: {
       otpChannel: input.otpChannel,
-      emailOtpKeyVersion: input.emailOtpKeyVersion,
+      enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
       unlockKeyVersion: input.unlockKeyVersion,
-    },
-  };
-}
-
-export function emailOtpNewDeviceWebhookEventDescriptor(input: {
-  challengeId: string;
-  otpChannel: WalletEmailOtpChannel;
-  enrolledDeviceId: string;
-  currentDeviceId: string;
-}): EmailOtpWebhookEventDescriptor {
-  return {
-    eventType: 'wallet.email_otp.new_device',
-    eventId: input.challengeId,
-    payload: {
-      otpChannel: input.otpChannel,
-      challengeId: input.challengeId,
-      enrolledDeviceId: input.enrolledDeviceId,
-      currentDeviceId: input.currentDeviceId,
     },
   };
 }
@@ -249,10 +232,40 @@ export function stableEmailOtpSessionBindingClaims(
   return stable;
 }
 
+export function stableEmailOtpSigningSessionBindingClaims(
+  claims: Record<string, unknown>,
+): Record<string, unknown> {
+  const stable: Record<string, unknown> = {};
+  for (const key of [
+    'kind',
+    'sub',
+    'sessionId',
+    'walletSigningSessionId',
+    'relayerKeyId',
+    'rpId',
+    'runtimePolicyScope',
+    'thresholdExpiresAtMs',
+    'participantIds',
+  ]) {
+    const value = claims[key];
+    if (value !== undefined && value !== null && value !== '') {
+      stable[key] = value;
+    }
+  }
+  return stable;
+}
+
 export async function hashEmailOtpAppSessionClaims(
   claims: Record<string, unknown>,
 ): Promise<string> {
   const json = alphabetizeStringify(stableEmailOtpSessionBindingClaims(claims));
+  return base64UrlEncode(await sha256BytesUtf8(json));
+}
+
+export async function hashEmailOtpSigningSessionClaims(
+  claims: Record<string, unknown>,
+): Promise<string> {
+  const json = alphabetizeStringify(stableEmailOtpSigningSessionBindingClaims(claims));
   return base64UrlEncode(await sha256BytesUtf8(json));
 }
 
@@ -303,7 +316,7 @@ export function emailOtpChallengeResponseBody(result: {
 
 export function emailOtpServerSealResponseBody(
   result:
-    | { ok: true; ciphertext: string; emailOtpKeyVersion: string }
+    | { ok: true; ciphertext: string; enrollmentSealKeyVersion: string }
     | ({ ok: false; code: string; message: string } & Record<string, unknown>),
   walletId: string,
 ): Record<string, unknown> {
@@ -312,7 +325,7 @@ export function emailOtpServerSealResponseBody(
     ok: true,
     walletId,
     ciphertext: result.ciphertext,
-    emailOtpKeyVersion: result.emailOtpKeyVersion,
+    enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
   };
 }
 
@@ -325,7 +338,7 @@ export function emailOtpEnrollmentFinalizeResponseBody(
         enrollment: {
           createdAtMs: number;
           updatedAtMs: number;
-          emailOtpKeyVersion: string;
+          enrollmentSealKeyVersion: string;
           unlockKeyVersion?: string;
         };
       }
@@ -339,7 +352,7 @@ export function emailOtpEnrollmentFinalizeResponseBody(
     enrollment: {
       createdAt: new Date(result.enrollment.createdAtMs).toISOString(),
       updatedAt: new Date(result.enrollment.updatedAtMs).toISOString(),
-      emailOtpKeyVersion: result.enrollment.emailOtpKeyVersion,
+      enrollmentSealKeyVersion: result.enrollment.enrollmentSealKeyVersion,
       unlockKeyVersion: result.enrollment.unlockKeyVersion,
     },
   };
@@ -355,7 +368,7 @@ export function emailOtpLoginVerifyResponseBody(args: {
   };
   enrollment: {
     enrollment: {
-      emailOtpEscrowBlob: unknown;
+      enrollmentEscrowCiphertextB64u: unknown;
     };
   };
 }): Record<string, unknown> {
@@ -365,6 +378,6 @@ export function emailOtpLoginVerifyResponseBody(args: {
     loginGrant: args.result.loginGrant,
     grantExpiresAt: new Date(args.result.grantExpiresAtMs).toISOString(),
     otpChannel: args.result.otpChannel,
-    emailOtpEscrowBlob: args.enrollment.enrollment.emailOtpEscrowBlob,
+    enrollmentEscrowCiphertextB64u: args.enrollment.enrollment.enrollmentEscrowCiphertextB64u,
   };
 }

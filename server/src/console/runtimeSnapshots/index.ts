@@ -23,11 +23,14 @@ export type {
   ConsoleRuntimeSnapshotOutboxEvent,
   PostgresConsoleRuntimeSnapshotOutboxDispatchOptions,
   PostgresConsoleRuntimeSnapshotOutboxDispatchResult,
+  PostgresConsoleRuntimeSnapshotRetentionCleanupOptions,
 } from './postgres';
+export type { PostgresConsoleRuntimeSnapshotRetentionCleanupResult } from './retention';
 export {
   ensureConsoleRuntimeSnapshotsPostgresSchema,
   createPostgresConsoleRuntimeSnapshotService,
   runPostgresConsoleRuntimeSnapshotOutboxDispatch,
+  runPostgresConsoleRuntimeSnapshotRetentionCleanup,
 } from './postgres';
 
 export {

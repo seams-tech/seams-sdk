@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_USER: tatchi
       POSTGRES_PASSWORD: tatchi
-      POSTGRES_DB: tatchi
+      POSTGRES_DB: seams
     ports:
       - '5432:5432'
     volumes:

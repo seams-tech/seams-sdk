@@ -6,6 +6,9 @@ const DEFAULT_OBSERVABILITY_INGEST_MAX_EVENTS_PER_MINUTE = 10_000;
 const DEFAULT_OBSERVABILITY_RETENTION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const DEFAULT_OBSERVABILITY_RETENTION_PRUNE_INTERVAL_MS = 1000 * 60 * 5;
 const DEFAULT_OBSERVABILITY_RETENTION_BATCH_SIZE = 1_000;
+const DEFAULT_RUNTIME_SNAPSHOT_RETENTION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const DEFAULT_RUNTIME_SNAPSHOT_RETENTION_PRUNE_INTERVAL_MS = 1000 * 60 * 5;
+const DEFAULT_RUNTIME_SNAPSHOT_RETENTION_BATCH_SIZE = 1_000;
 
 export interface RelayServerConsoleConfig {
   thresholdPostgresUrl: string;
@@ -27,6 +30,9 @@ export interface RelayServerConsoleConfig {
   consoleObservabilityRetentionTtlMs: number;
   consoleObservabilityRetentionPruneIntervalMs: number;
   consoleObservabilityRetentionBatchSize: number;
+  consoleRuntimeSnapshotRetentionTtlMs: number;
+  consoleRuntimeSnapshotRetentionPruneIntervalMs: number;
+  consoleRuntimeSnapshotRetentionBatchSize: number;
   consoleBillingStripeWebhookSecret: string;
 }
 
@@ -143,6 +149,21 @@ export function resolveRelayServerConsoleConfig(env: Record<string, unknown>): R
       env.CONSOLE_OBSERVABILITY_RETENTION_BATCH_SIZE,
       DEFAULT_OBSERVABILITY_RETENTION_BATCH_SIZE,
       'CONSOLE_OBSERVABILITY_RETENTION_BATCH_SIZE',
+    ),
+    consoleRuntimeSnapshotRetentionTtlMs: parsePositiveIntegerEnv(
+      env.CONSOLE_RUNTIME_SNAPSHOT_RETENTION_TTL_MS,
+      DEFAULT_RUNTIME_SNAPSHOT_RETENTION_TTL_MS,
+      'CONSOLE_RUNTIME_SNAPSHOT_RETENTION_TTL_MS',
+    ),
+    consoleRuntimeSnapshotRetentionPruneIntervalMs: parsePositiveIntegerEnv(
+      env.CONSOLE_RUNTIME_SNAPSHOT_RETENTION_PRUNE_INTERVAL_MS,
+      DEFAULT_RUNTIME_SNAPSHOT_RETENTION_PRUNE_INTERVAL_MS,
+      'CONSOLE_RUNTIME_SNAPSHOT_RETENTION_PRUNE_INTERVAL_MS',
+    ),
+    consoleRuntimeSnapshotRetentionBatchSize: parsePositiveIntegerEnv(
+      env.CONSOLE_RUNTIME_SNAPSHOT_RETENTION_BATCH_SIZE,
+      DEFAULT_RUNTIME_SNAPSHOT_RETENTION_BATCH_SIZE,
+      'CONSOLE_RUNTIME_SNAPSHOT_RETENTION_BATCH_SIZE',
     ),
     consoleBillingStripeWebhookSecret: normalizeString(env.CONSOLE_BILLING_STRIPE_WEBHOOK_SECRET),
   };

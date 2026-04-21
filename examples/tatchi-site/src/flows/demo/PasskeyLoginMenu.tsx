@@ -351,7 +351,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               relayUrl: relayerBaseUrl,
               sessionKind: 'jwt',
               appSessionJwt,
-              thresholdRouteAuth: { kind: 'app_session', jwt: appSessionJwt },
+              routeAuth: { kind: 'app_session', jwt: appSessionJwt },
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
               ...(googleResolution?.registrationAttemptId
                 ? { registrationAttemptId: googleResolution.registrationAttemptId }
@@ -369,7 +369,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               relayUrl: relayerBaseUrl,
               sessionKind: 'jwt',
               appSessionJwt,
-              thresholdRouteAuth: { kind: 'app_session', jwt: appSessionJwt },
+              routeAuth: { kind: 'app_session', jwt: appSessionJwt },
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
               ...(exchange.session.runtimePolicyScope
                 ? { runtimePolicyScope: exchange.session.runtimePolicyScope }

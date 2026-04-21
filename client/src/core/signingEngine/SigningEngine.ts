@@ -942,16 +942,19 @@ export class SigningEngine {
           this.tatchiPasskeyConfigs.network.relayer?.url ||
           '',
       ).trim();
-      const exportAppSessionJwt = await this.emailOtpSessions.resolveAppSessionJwt({
-        nearAccountId: args.nearAccountId,
-        relayUrl: exportRelayUrl,
-      });
+      const exportThresholdRouteAuth = {
+        kind: 'threshold_session' as const,
+        jwt: requireThresholdSessionJwt(
+          String(currentRecord.thresholdSessionJwt || '').trim(),
+          'exportThresholdSessionJwt',
+        ),
+      };
       const authorization = await this.emailOtpSessions.requestExportAuthorization({
         nearAccountId: args.nearAccountId,
         chain: args.chain,
         publicKey: exportPublicKey,
         curve: 'ecdsa',
-        appSessionJwt: exportAppSessionJwt,
+        routeAuth: exportThresholdRouteAuth,
       });
       await this.emailOtpSessions.loginWithEcdsaCapabilityForSigning({
         nearAccountId: args.nearAccountId,
@@ -960,7 +963,7 @@ export class SigningEngine {
         otpCode: authorization.otpCode,
         record: currentRecord,
         operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-        appSessionJwt: exportAppSessionJwt,
+        routeAuth: exportThresholdRouteAuth,
       });
       const refreshedRecord = this.getThresholdEcdsaSessionRecordForSigning({
         nearAccountId: args.nearAccountId,
@@ -1700,16 +1703,19 @@ export class SigningEngine {
           });
         };
         try {
-          const exportAppSessionJwt = await this.emailOtpSessions.resolveAppSessionJwt({
-            nearAccountId,
-            relayUrl: relayerUrl,
-          });
+          const exportThresholdRouteAuth = {
+            kind: 'threshold_session' as const,
+            jwt: requireThresholdSessionJwt(
+              String(sessionRecord.thresholdSessionJwt || '').trim(),
+              'exportThresholdSessionJwt',
+            ),
+          };
           const authorization = await this.emailOtpSessions.requestExportAuthorization({
             nearAccountId,
             chain: 'near',
             publicKey: expectedPublicKey,
             curve: 'ed25519',
-            appSessionJwt: exportAppSessionJwt,
+            routeAuth: exportThresholdRouteAuth,
           });
           const refreshed = await this.emailOtpSessions.loginWithEd25519CapabilityForSigning({
             nearAccountId,
@@ -1717,7 +1723,7 @@ export class SigningEngine {
             otpCode: authorization.otpCode,
             record: sessionRecord,
             operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-            appSessionJwt: exportAppSessionJwt,
+            routeAuth: exportThresholdRouteAuth,
           });
           exportThresholdSessionId = refreshed.sessionId;
           const refreshedRecord =
@@ -1980,7 +1986,7 @@ export class SigningEngine {
     operation?: WalletEmailOtpLoginOperation;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
-    thresholdRouteAuth?: AppOrThresholdSessionAuth;
+    routeAuth?: AppOrThresholdSessionAuth;
     ecdsaThresholdKeyId?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -2134,7 +2140,7 @@ export class SigningEngine {
     challengeId?: string;
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
-    thresholdRouteAuth?: AppOrThresholdSessionAuth;
+    routeAuth?: AppOrThresholdSessionAuth;
     ecdsaThresholdKeyId?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';

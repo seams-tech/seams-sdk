@@ -1,6 +1,7 @@
 import type { Ed25519AuthSessionStore } from '../../../../core/ThresholdService/stores/AuthSessionStore';
 import type {
   SigningSessionSealConsumeUseResult,
+  SigningSessionSealThresholdSessionStatus,
   SigningSessionSealThresholdSessionPolicy,
   SigningSessionSealThresholdSessionRecord,
 } from '../types';
@@ -23,6 +24,22 @@ function normalizeSessionRecord(
     thresholdSessionId,
     userId,
     expiresAtMs: Math.floor(expiresAtMs),
+  };
+}
+
+function normalizeSessionStatus(
+  thresholdSessionId: string,
+  raw: Awaited<ReturnType<Ed25519AuthSessionStore['getSessionStatus']>>,
+): SigningSessionSealThresholdSessionStatus | null {
+  if (!raw) return null;
+  const normalized = normalizeSessionRecord(thresholdSessionId, raw.record);
+  const remainingUses = toNonNegativeInt(raw.remainingUses);
+  if (!normalized || remainingUses === undefined) return null;
+  return {
+    ...normalized,
+    expiresAtMs: Math.floor(Number(raw.expiresAtMs) || normalized.expiresAtMs),
+    remainingUses,
+    record: raw.record,
   };
 }
 
@@ -55,6 +72,22 @@ function normalizeStoreResult(
   })();
 }
 
+function normalizeStatusAcrossStores(
+  thresholdSessionId: string,
+  stores: readonly Ed25519AuthSessionStore[],
+): Promise<SigningSessionSealThresholdSessionStatus | null> {
+  return (async () => {
+    for (const store of stores) {
+      const normalized = normalizeSessionStatus(
+        thresholdSessionId,
+        await store.getSessionStatus(thresholdSessionId),
+      );
+      if (normalized) return normalized;
+    }
+    return null;
+  })();
+}
+
 function normalizeConsumeAcrossStores(
   thresholdSessionId: string,
   stores: readonly Ed25519AuthSessionStore[],
@@ -80,6 +113,8 @@ export function createSigningSessionSealPolicyFromThresholdAuthSessionStores(inp
   return {
     getSession: async (thresholdSessionId: string) =>
       await normalizeStoreResult(thresholdSessionId, stores),
+    getSessionStatus: async (thresholdSessionId: string) =>
+      await normalizeStatusAcrossStores(thresholdSessionId, stores),
     consumeUseCount: async (thresholdSessionId: string) =>
       await normalizeConsumeAcrossStores(thresholdSessionId, stores),
   };

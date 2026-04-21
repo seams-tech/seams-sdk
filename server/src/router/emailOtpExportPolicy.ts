@@ -42,7 +42,7 @@ export async function authorizeEmailOtpExportPolicy(
 }
 
 export function emailOtpExportPolicyAuditPayload(input: {
-  source: 'login_challenge' | 'login_verify';
+  source: 'login_challenge' | 'login_verify' | 'signing_session_challenge' | 'signing_session_verify';
   decision: ResolvedEmailOtpExportPolicyDecision;
   challengeId?: string;
   otpChannel?: string;
@@ -66,7 +66,7 @@ export function emailOtpExportPolicyWebhookEventDescriptor(input: {
     | 'wallet.email_otp.export_denied'
     | 'wallet.email_otp.export_challenge_issued'
     | 'wallet.email_otp.export_approved';
-  source: 'login_challenge' | 'login_verify';
+  source: 'login_challenge' | 'login_verify' | 'signing_session_challenge' | 'signing_session_verify';
   decision: ResolvedEmailOtpExportPolicyDecision;
   challengeId?: string;
   otpChannel?: string;

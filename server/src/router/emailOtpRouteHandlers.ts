@@ -14,7 +14,6 @@ import {
   emailOtpEnrolledWebhookEventDescriptor,
   emailOtpFailureWebhookEventDescriptors,
   emailOtpLoginVerifyResponseBody,
-  emailOtpNewDeviceWebhookEventDescriptor,
   emailOtpResultStatus,
   emailOtpServerSealResponseBody,
   emailOtpStatusCode,
@@ -109,7 +108,7 @@ export async function handleEmailOtpRegistrationChallengeRoute(input: {
   const result = await input.service.createEmailOtpEnrollmentChallenge({
     userId: input.userId,
     walletId,
-    orgId: input.claims.orgId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
     email,
     otpChannel,
     sessionHash,
@@ -213,17 +212,16 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
   const result = await input.service.verifyEmailOtpEnrollment({
     userId: input.userId,
     walletId,
-    orgId: input.claims.orgId,
-    enrollmentDeviceId: input.claims.deviceId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
     challengeId,
     otpCode,
     otpChannel,
     sessionHash,
     appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
-    emailOtpEscrowBlob: body.emailOtpEscrowBlob,
-    emailOtpKeyVersion: body.emailOtpKeyVersion,
-    unlockPublicKey: body.unlockPublicKey,
+    enrollmentEscrowCiphertextB64u: body.enrollmentEscrowCiphertextB64u,
+    enrollmentSealKeyVersion: body.enrollmentSealKeyVersion,
+    clientUnlockPublicKeyB64u: body.clientUnlockPublicKeyB64u,
     unlockKeyVersion: body.unlockKeyVersion,
     thresholdEcdsaClientVerifyingShareB64u: body.thresholdEcdsaClientVerifyingShareB64u,
   });
@@ -233,7 +231,7 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
       descriptor: emailOtpEnrolledWebhookEventDescriptor({
         challengeId,
         otpChannel: result.otpChannel,
-        emailOtpKeyVersion: result.enrollment.emailOtpKeyVersion,
+        enrollmentSealKeyVersion: result.enrollment.enrollmentSealKeyVersion,
         unlockKeyVersion: result.enrollment.unlockKeyVersion,
       }),
       claims: input.claims,
@@ -294,8 +292,6 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
     return { status: channelValidation.status, body: channelValidation.body };
   const otpChannel = channelValidation.otpChannel;
 
-  const email =
-    typeof input.claims.email === 'string' ? input.claims.email.trim().toLowerCase() : '';
   const parsedOperation = parseWalletEmailOtpLoginOperation(body.operation);
   if (!parsedOperation.ok) return { status: 400, body: parsedOperation };
 
@@ -307,7 +303,7 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
           phase: 'challenge',
           userId: input.userId,
           walletId,
-          orgId: toOptionalRecordString(input.claims, 'orgId'),
+          orgId: readEmailOtpOrgIdFromClaims(input.claims),
           projectId: toOptionalRecordString(input.claims, 'projectId'),
           environmentId: toOptionalRecordString(input.claims, 'environmentId'),
           appSessionVersion: input.appSessionVersion,
@@ -339,11 +335,19 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
     };
   }
 
+  const email = await readServerKnownEmailOtpAddress({
+    service: input.service,
+    walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    providerUserId: input.userId,
+  });
+  if (!email.ok) return { status: email.status, body: email.body };
+
   const result = await input.service.createEmailOtpChallenge({
     userId: input.userId,
     walletId,
-    orgId: input.claims.orgId,
-    email,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    email: email.email,
     otpChannel: EMAIL_OTP_CHANNEL,
     sessionHash,
     appSessionVersion: input.appSessionVersion,
@@ -377,6 +381,202 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
       descriptor: emailOtpExportPolicyWebhookEventDescriptor({
         eventType: 'wallet.email_otp.export_challenge_issued',
         source: 'login_challenge',
+        decision: exportPolicy,
+        challengeId: result.challenge.challengeId,
+        otpChannel,
+      }),
+      claims: input.claims,
+      userId: input.userId,
+      walletId,
+    });
+  }
+
+  return {
+    status: emailOtpResultStatus(result),
+    body: emailOtpChallengeResponseBody(result),
+  };
+}
+
+function validateSigningSessionWalletId(input: {
+  body: Record<string, unknown>;
+  userId: string;
+}): { ok: true; walletId: string } | { ok: false; response: EmailOtpRouteResponse } {
+  const walletId = String(input.body.walletId || '').trim();
+  if (!walletId) {
+    return {
+      ok: false,
+      response: {
+        status: 400,
+        body: { ok: false, code: 'invalid_body', message: 'walletId is required' },
+      },
+    };
+  }
+  if (walletId !== String(input.userId || '').trim()) {
+    return {
+      ok: false,
+      response: {
+        status: 403,
+        body: {
+          ok: false,
+          code: 'wallet_identity_mismatch',
+          message: 'walletId must match the restored signing-session wallet',
+        },
+      },
+    };
+  }
+  return { ok: true, walletId };
+}
+
+function readEmailOtpOrgIdFromClaims(claims: Record<string, unknown>): string {
+  const directOrgId = toOptionalRecordString(claims, 'orgId');
+  if (directOrgId) return directOrgId;
+  const runtimePolicyScope =
+    claims.runtimePolicyScope && typeof claims.runtimePolicyScope === 'object'
+      ? (claims.runtimePolicyScope as Record<string, unknown>)
+      : null;
+  return runtimePolicyScope ? toOptionalRecordString(runtimePolicyScope, 'orgId') || '' : '';
+}
+
+async function readServerKnownEmailOtpAddress(input: {
+  service: AuthService;
+  walletId: string;
+  orgId?: string;
+  providerUserId?: string;
+}): Promise<
+  | { ok: true; email: string; orgId: string }
+  | { ok: false; status: number; body: Record<string, unknown> }
+> {
+  const orgId = String(input.orgId || '').trim();
+  if (!orgId) {
+    return {
+      ok: false,
+      status: 400,
+      body: { ok: false, code: 'invalid_body', message: 'Missing orgId' },
+    };
+  }
+  const enrollment = await input.service.readActiveEmailOtpEnrollment({
+    walletId: input.walletId,
+    orgId,
+    providerUserId: input.providerUserId,
+  });
+  if (!enrollment.ok) {
+    return { ok: false, status: emailOtpStatusCode(enrollment.code), body: enrollment };
+  }
+  if (
+    enrollment.enrollment.walletId !== input.walletId ||
+    enrollment.enrollment.orgId !== orgId
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      body: {
+        ok: false,
+        code: 'forbidden',
+        message: 'Email OTP enrollment does not match the requested wallet',
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    email: enrollment.enrollment.verifiedEmail,
+    orgId: enrollment.enrollment.orgId,
+  };
+}
+
+export async function handleEmailOtpSigningSessionChallengeRoute(input: {
+  body: unknown;
+  claims: Record<string, unknown>;
+  userId: string;
+  appSessionVersion: string;
+  sessionHash: string;
+  clientIp?: string;
+  service: AuthService;
+  opts: RelayRouterOptions;
+  emitWebhook: EmitEmailOtpRouteWebhook;
+}): Promise<EmailOtpRouteResponse> {
+  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
+  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
+
+  const body = bodyValidation.body;
+  const walletValidation = validateSigningSessionWalletId({ body, userId: input.userId });
+  if (!walletValidation.ok) return walletValidation.response;
+  const walletId = walletValidation.walletId;
+
+  const channelValidation = validateEmailOtpChannel(body);
+  if (!channelValidation.ok)
+    return { status: channelValidation.status, body: channelValidation.body };
+  const otpChannel = channelValidation.otpChannel;
+
+  const parsedOperation = parseWalletEmailOtpLoginOperation(body.operation);
+  if (!parsedOperation.ok) return { status: 400, body: parsedOperation };
+  if (parsedOperation.operation !== WALLET_EMAIL_OTP_EXPORT_OPERATION) {
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        code: 'forbidden',
+        message: 'Restored signing-session Email OTP challenge requests are limited to export_key',
+      },
+    };
+  }
+
+  const email = await readServerKnownEmailOtpAddress({
+    service: input.service,
+    walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+  });
+  if (!email.ok) return { status: email.status, body: email.body };
+
+  const exportPolicy = await authorizeEmailOtpExportPolicy(input.opts, {
+    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+    phase: 'challenge',
+    userId: input.userId,
+    walletId,
+    ...(email.orgId ? { orgId: email.orgId } : {}),
+    projectId: toOptionalRecordString(input.claims, 'projectId'),
+    environmentId: toOptionalRecordString(input.claims, 'environmentId'),
+    appSessionVersion: input.appSessionVersion,
+    sourceIp: input.clientIp,
+  });
+
+  if (!exportPolicy.ok) {
+    await input.emitWebhook({
+      descriptor: emailOtpExportPolicyWebhookEventDescriptor({
+        eventType: 'wallet.email_otp.export_denied',
+        source: 'signing_session_challenge',
+        decision: exportPolicy,
+        otpChannel,
+        code: exportPolicy.code,
+        message: exportPolicy.message,
+      }),
+      claims: input.claims,
+      userId: input.userId,
+      walletId,
+    });
+    return {
+      status: 403,
+      body: { ok: false, code: exportPolicy.code, message: exportPolicy.message },
+    };
+  }
+
+  const result = await input.service.createEmailOtpChallenge({
+    userId: input.userId,
+    walletId,
+    ...(email.orgId ? { orgId: email.orgId } : {}),
+    email: email.email,
+    otpChannel: EMAIL_OTP_CHANNEL,
+    sessionHash: input.sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    clientIp: input.clientIp,
+    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  });
+
+  if (result.ok) {
+    await input.emitWebhook({
+      descriptor: emailOtpExportPolicyWebhookEventDescriptor({
+        eventType: 'wallet.email_otp.export_challenge_issued',
+        source: 'signing_session_challenge',
         decision: exportPolicy,
         challengeId: result.challenge.challengeId,
         otpChannel,
@@ -443,7 +643,7 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
           phase: 'verify',
           userId: input.userId,
           walletId,
-          orgId: toOptionalRecordString(input.claims, 'orgId'),
+          orgId: readEmailOtpOrgIdFromClaims(input.claims),
           projectId: toOptionalRecordString(input.claims, 'projectId'),
           environmentId: toOptionalRecordString(input.claims, 'environmentId'),
           appSessionVersion: input.appSessionVersion,
@@ -480,7 +680,7 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
   const result = await input.service.verifyEmailOtpChallenge({
     userId: input.userId,
     walletId,
-    orgId: input.claims.orgId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
     challengeId,
     otpCode,
     otpChannel,
@@ -505,7 +705,10 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
         walletId,
       });
     }
-    const enrollment = await input.service.readEmailOtpEnrollment({ walletId });
+    const enrollment = await input.service.readEmailOtpEnrollment({
+      walletId,
+      orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    });
     if (!enrollment.ok) {
       return { status: emailOtpStatusCode(enrollment.code), body: enrollment };
     }
@@ -561,6 +764,159 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
   return { status: emailOtpStatusCode(result.code), body: result };
 }
 
+export async function handleEmailOtpSigningSessionVerifyRoute(input: {
+  body: unknown;
+  claims: Record<string, unknown>;
+  userId: string;
+  appSessionVersion: string;
+  sessionHash: string;
+  clientIp?: string;
+  service: AuthService;
+  opts: RelayRouterOptions;
+  emitWebhook: EmitEmailOtpRouteWebhook;
+}): Promise<EmailOtpRouteResponse> {
+  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
+  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
+
+  const body = bodyValidation.body;
+  const walletValidation = validateSigningSessionWalletId({ body, userId: input.userId });
+  if (!walletValidation.ok) return walletValidation.response;
+  const walletId = walletValidation.walletId;
+
+  const challengeIdValidation = validateEmailOtpRequiredString(body, 'challengeId');
+  if (!challengeIdValidation.ok) {
+    return { status: challengeIdValidation.status, body: challengeIdValidation.body };
+  }
+  const challengeId = challengeIdValidation.value;
+
+  const otpCodeValidation = validateEmailOtpRequiredString(body, 'otpCode');
+  if (!otpCodeValidation.ok) {
+    return { status: otpCodeValidation.status, body: otpCodeValidation.body };
+  }
+  const otpCode = otpCodeValidation.value;
+
+  const channelValidation = validateEmailOtpChannel(body);
+  if (!channelValidation.ok)
+    return { status: channelValidation.status, body: channelValidation.body };
+  const otpChannel = channelValidation.otpChannel;
+
+  const parsedOperation = parseWalletEmailOtpLoginOperation(body.operation);
+  if (!parsedOperation.ok) return { status: 400, body: parsedOperation };
+  if (parsedOperation.operation !== WALLET_EMAIL_OTP_EXPORT_OPERATION) {
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        code: 'forbidden',
+        message: 'Restored signing-session Email OTP verification is limited to export_key',
+      },
+    };
+  }
+
+  const email = await readServerKnownEmailOtpAddress({
+    service: input.service,
+    walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+  });
+  if (!email.ok) return { status: email.status, body: email.body };
+
+  const exportPolicy = await authorizeEmailOtpExportPolicy(input.opts, {
+    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+    phase: 'verify',
+    userId: input.userId,
+    walletId,
+    ...(email.orgId ? { orgId: email.orgId } : {}),
+    projectId: toOptionalRecordString(input.claims, 'projectId'),
+    environmentId: toOptionalRecordString(input.claims, 'environmentId'),
+    appSessionVersion: input.appSessionVersion,
+    challengeId,
+    sourceIp: input.clientIp,
+  });
+
+  if (!exportPolicy.ok) {
+    await input.emitWebhook({
+      descriptor: emailOtpExportPolicyWebhookEventDescriptor({
+        eventType: 'wallet.email_otp.export_denied',
+        source: 'signing_session_verify',
+        decision: exportPolicy,
+        challengeId,
+        otpChannel,
+        code: exportPolicy.code,
+        message: exportPolicy.message,
+      }),
+      claims: input.claims,
+      userId: input.userId,
+      walletId,
+    });
+    return {
+      status: 403,
+      body: { ok: false, code: exportPolicy.code, message: exportPolicy.message },
+    };
+  }
+
+  const result = await input.service.verifyEmailOtpChallenge({
+    userId: input.userId,
+    walletId,
+    ...(email.orgId ? { orgId: email.orgId } : {}),
+    challengeId,
+    otpCode,
+    otpChannel,
+    sessionHash: input.sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    clientIp: input.clientIp,
+    operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+  });
+
+  if (result.ok) {
+    await input.emitWebhook({
+      descriptor: emailOtpExportPolicyWebhookEventDescriptor({
+        eventType: 'wallet.email_otp.export_approved',
+        source: 'signing_session_verify',
+        decision: exportPolicy,
+        challengeId: result.challengeId,
+        otpChannel,
+      }),
+      claims: input.claims,
+      userId: input.userId,
+      walletId,
+    });
+    const enrollment = await input.service.readEmailOtpEnrollment({
+      walletId,
+      orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    });
+    if (!enrollment.ok) {
+      return { status: emailOtpStatusCode(enrollment.code), body: enrollment };
+    }
+    return {
+      status: 200,
+      body: emailOtpLoginVerifyResponseBody({ result, enrollment }),
+    };
+  }
+
+  await input.emitWebhook({
+    descriptor: emailOtpExportPolicyWebhookEventDescriptor({
+      eventType: 'wallet.email_otp.export_denied',
+      source: 'signing_session_verify',
+      decision: emailOtpExportDeniedDecisionFromResult({
+        code: result.code,
+        message: result.message,
+        policySource: exportPolicy.policySource,
+        ...(exportPolicy.policyId ? { policyId: exportPolicy.policyId } : {}),
+        ...(exportPolicy.approvalId ? { approvalId: exportPolicy.approvalId } : {}),
+      }),
+      challengeId,
+      otpChannel,
+      code: result.code,
+      message: result.message,
+    }),
+    claims: input.claims,
+    userId: input.userId,
+    walletId,
+  });
+
+  return { status: emailOtpStatusCode(result.code), body: result };
+}
+
 export async function handleEmailOtpUnsealRoute(input: {
   body: unknown;
   claims: Record<string, unknown>;
@@ -595,7 +951,7 @@ export async function handleEmailOtpUnsealRoute(input: {
     loginGrant,
     userId: input.userId,
     walletId: sessionWalletId,
-    orgId: input.claims.orgId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
     otpChannel: EMAIL_OTP_CHANNEL,
     sessionHash,
     appSessionVersion: input.appSessionVersion,
@@ -608,34 +964,88 @@ export async function handleEmailOtpUnsealRoute(input: {
   });
   if (!result.ok) return { status: emailOtpStatusCode(result.code), body: result };
 
-  const enrollment = await input.service.readEmailOtpEnrollment({ walletId: sessionWalletId });
-  const currentDeviceId =
-    typeof input.claims.deviceId === 'string' ? String(input.claims.deviceId).trim() : '';
-  const enrolledDeviceId =
-    enrollment.ok && typeof enrollment.enrollment.enrollmentDeviceId === 'string'
-      ? String(enrollment.enrollment.enrollmentDeviceId).trim()
-      : '';
-  if (currentDeviceId && enrolledDeviceId && currentDeviceId !== enrolledDeviceId) {
-    await input.emitWebhook({
-      descriptor: emailOtpNewDeviceWebhookEventDescriptor({
-        challengeId: grant.challengeId,
-        otpChannel: grant.otpChannel,
-        enrolledDeviceId,
-        currentDeviceId,
-      }),
-      claims: input.claims,
-      userId: input.userId,
-      walletId: sessionWalletId,
-    });
-  }
-
   return {
     status: 200,
     body: {
       ok: true,
       ciphertext: result.ciphertext,
-      emailOtpKeyVersion: result.emailOtpKeyVersion,
+      enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
     },
+  };
+}
+
+export async function handleEmailOtpSigningSessionUnsealRoute(input: {
+  body: unknown;
+  claims: Record<string, unknown>;
+  userId: string;
+  appSessionVersion: string;
+  sessionHash: string;
+  clientIp?: string;
+  service: AuthService;
+  emitWebhook: EmitEmailOtpRouteWebhook;
+}): Promise<EmailOtpRouteResponse> {
+  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
+  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
+
+  const body = bodyValidation.body;
+  const walletValidation = validateSigningSessionWalletId({ body, userId: input.userId });
+  if (!walletValidation.ok) return walletValidation.response;
+  const walletId = walletValidation.walletId;
+
+  const loginGrantValidation = validateEmailOtpRequiredString(body, 'loginGrant');
+  if (!loginGrantValidation.ok) {
+    return { status: loginGrantValidation.status, body: loginGrantValidation.body };
+  }
+  const loginGrant = loginGrantValidation.value;
+
+  const wrappedCiphertextValidation = validateEmailOtpRequiredString(body, 'wrappedCiphertext');
+  if (!wrappedCiphertextValidation.ok) {
+    return {
+      status: wrappedCiphertextValidation.status,
+      body: wrappedCiphertextValidation.body,
+    };
+  }
+  const wrappedCiphertext = wrappedCiphertextValidation.value;
+
+  const grant = await input.service.consumeEmailOtpGrant({
+    loginGrant,
+    userId: input.userId,
+    walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    otpChannel: EMAIL_OTP_CHANNEL,
+    sessionHash: input.sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    clientIp: input.clientIp,
+  });
+  if (!grant.ok) return { status: emailOtpStatusCode(grant.code), body: grant };
+
+  const result = await input.service.removeEmailOtpServerSeal({
+    wrappedCiphertext,
+  });
+  if (!result.ok) return { status: emailOtpStatusCode(result.code), body: result };
+
+  const enrollment = await input.service.readEmailOtpEnrollment({
+    walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+  });
+  if (
+    enrollment.ok &&
+    (enrollment.enrollment.walletId !== walletId ||
+      enrollment.enrollment.orgId !== readEmailOtpOrgIdFromClaims(input.claims))
+  ) {
+    return {
+      status: 403,
+      body: {
+        ok: false,
+        code: 'forbidden',
+        message: 'Email OTP enrollment does not match the restored signing session',
+      },
+    };
+  }
+
+  return {
+    status: 200,
+    body: emailOtpServerSealResponseBody(result, walletId),
   };
 }
 

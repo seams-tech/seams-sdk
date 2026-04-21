@@ -7,7 +7,6 @@ import {
   emailOtpFailureWebhookEventDescriptors,
   emailOtpLoginVerifyResponseBody,
   emailOtpLoggedInWebhookEventDescriptor,
-  emailOtpNewDeviceWebhookEventDescriptor,
   emailOtpServerSealResponseBody,
   shouldEmitEmailOtpLockedWebhook,
   validateEmailOtpChannel,
@@ -127,14 +126,14 @@ test.describe('Email OTP route helpers', () => {
 
     expect(
       emailOtpServerSealResponseBody(
-        { ok: true, ciphertext: 'ciphertext', emailOtpKeyVersion: 'k1' },
+        { ok: true, ciphertext: 'ciphertext', enrollmentSealKeyVersion: 'k1' },
         'wallet.testnet',
       ),
     ).toEqual({
       ok: true,
       walletId: 'wallet.testnet',
       ciphertext: 'ciphertext',
-      emailOtpKeyVersion: 'k1',
+      enrollmentSealKeyVersion: 'k1',
     });
 
     expect(
@@ -145,7 +144,7 @@ test.describe('Email OTP route helpers', () => {
         enrollment: {
           createdAtMs: 1_700_000_000_000,
           updatedAtMs: 1_700_000_060_000,
-          emailOtpKeyVersion: 'k1',
+          enrollmentSealKeyVersion: 'k1',
           unlockKeyVersion: 'u1',
         },
       }),
@@ -156,7 +155,7 @@ test.describe('Email OTP route helpers', () => {
       enrollment: {
         createdAt: '2023-11-14T22:13:20.000Z',
         updatedAt: '2023-11-14T22:14:20.000Z',
-        emailOtpKeyVersion: 'k1',
+        enrollmentSealKeyVersion: 'k1',
         unlockKeyVersion: 'u1',
       },
     });
@@ -170,7 +169,7 @@ test.describe('Email OTP route helpers', () => {
           grantExpiresAtMs: 1_700_000_060_000,
           otpChannel: 'email_otp',
         },
-        enrollment: { enrollment: { emailOtpEscrowBlob: { v: 1 } } },
+        enrollment: { enrollment: { enrollmentEscrowCiphertextB64u: { v: 1 } } },
       }),
     ).toEqual({
       ok: true,
@@ -178,7 +177,7 @@ test.describe('Email OTP route helpers', () => {
       loginGrant: 'grant',
       grantExpiresAt: '2023-11-14T22:14:20.000Z',
       otpChannel: 'email_otp',
-      emailOtpEscrowBlob: { v: 1 },
+      enrollmentEscrowCiphertextB64u: { v: 1 },
     });
   });
 
@@ -256,7 +255,7 @@ test.describe('Email OTP route helpers', () => {
       emailOtpEnrolledWebhookEventDescriptor({
         challengeId: 'ch_1',
         otpChannel: 'email_otp',
-        emailOtpKeyVersion: 'k1',
+        enrollmentSealKeyVersion: 'k1',
         unlockKeyVersion: 'u1',
       }),
     ).toEqual({
@@ -264,25 +263,8 @@ test.describe('Email OTP route helpers', () => {
       eventId: 'ch_1',
       payload: {
         otpChannel: 'email_otp',
-        emailOtpKeyVersion: 'k1',
+        enrollmentSealKeyVersion: 'k1',
         unlockKeyVersion: 'u1',
-      },
-    });
-    expect(
-      emailOtpNewDeviceWebhookEventDescriptor({
-        challengeId: 'ch_1',
-        otpChannel: 'email_otp',
-        enrolledDeviceId: 'device_a',
-        currentDeviceId: 'device_b',
-      }),
-    ).toEqual({
-      eventType: 'wallet.email_otp.new_device',
-      eventId: 'ch_1',
-      payload: {
-        otpChannel: 'email_otp',
-        challengeId: 'ch_1',
-        enrolledDeviceId: 'device_a',
-        currentDeviceId: 'device_b',
       },
     });
   });

@@ -214,6 +214,7 @@ export function makeFakeAuthService(
     listRecoveryExecutionsByStatus: AuthService['listRecoveryExecutionsByStatus'];
     listAccountSignersByAccount: AuthService['listAccountSignersByAccount'];
     putAccountSigner: AuthService['putAccountSigner'];
+    recordNearPublicKeyMetadata: AuthService['recordNearPublicKeyMetadata'];
     listIdentities: AuthService['listIdentities'];
     linkIdentity: AuthService['linkIdentity'];
     unlinkIdentity: AuthService['unlinkIdentity'];
@@ -296,9 +297,9 @@ export function makeFakeAuthService(
           ),
           userId: 'user.testnet',
           otpChannel: 'email_otp',
-          emailOtpEscrowBlob: 'test-escrow',
-          emailOtpKeyVersion: 'test-email-otp-key-v1',
-          unlockPublicKey: 'test-unlock-public-key',
+          enrollmentEscrowCiphertextB64u: 'test-escrow',
+          enrollmentSealKeyVersion: 'test-email-otp-key-v1',
+          clientUnlockPublicKeyB64u: 'test-unlock-public-key',
           unlockKeyVersion: 'test-unlock-key-v1',
           createdAtMs: 0,
           updatedAtMs: 0,
@@ -392,6 +393,8 @@ export function makeFakeAuthService(
     putAccountSigner:
       overrides.putAccountSigner ||
       (async (record) => ({ ok: true, record })),
+    recordNearPublicKeyMetadata:
+      overrides.recordNearPublicKeyMetadata || (async () => ({ ok: true })),
     listIdentities: overrides.listIdentities || (async () => ({ ok: true, subjects: [] })),
     linkIdentity:
       overrides.linkIdentity ||

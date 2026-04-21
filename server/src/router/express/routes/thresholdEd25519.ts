@@ -208,6 +208,7 @@ export function registerThresholdEd25519Routes(
         const expSec = Math.floor(thresholdExpiresAtMs / 1000);
         const token = await session.signJwt(userId, {
           kind: 'threshold_ed25519_session_v1',
+          walletId: userId,
           sessionId,
           ...(result.walletSigningSessionId
             ? { walletSigningSessionId: result.walletSigningSessionId }

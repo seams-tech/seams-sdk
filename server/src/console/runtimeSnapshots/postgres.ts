@@ -21,12 +21,20 @@ import {
   type ConsoleRuntimeSnapshotContext,
   type ConsoleRuntimeSnapshotService,
 } from './service';
+import {
+  maybeRunConsoleRuntimeSnapshotRetentionForTenant,
+  pruneConsoleRuntimeSnapshotRetentionForTenant,
+  type PostgresConsoleRuntimeSnapshotRetentionCleanupResult,
+} from './retention';
 
 type PgPool = Awaited<ReturnType<typeof getPostgresPool>>;
 type Queryable = Pick<PgPool, 'query'>;
 type PgRow = Record<string, unknown>;
 
 const CONSOLE_RUNTIME_SNAPSHOTS_MIGRATION_LOCK_ID = 9452360123599;
+const DEFAULT_RETENTION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
+const DEFAULT_RETENTION_PRUNE_INTERVAL_MS = 1000 * 60 * 5;
+const DEFAULT_RETENTION_BATCH_SIZE = 1_000;
 
 function nowMs(now: Date): number {
   return now.getTime();
@@ -156,6 +164,20 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
   return (out.rows[0] as PgRow) || null;
 }
 
+function normalizePositiveInteger(raw: unknown, fallback: number): number {
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.floor(value);
+}
+
+function normalizeRequiredString(field: string, raw: unknown): string {
+  const value = String(raw || '').trim();
+  if (!value) {
+    throw new Error(`Missing ${field} for Postgres console runtime snapshot retention cleanup`);
+  }
+  return value;
+}
+
 export interface PostgresConsoleRuntimeSnapshotSchemaOptions {
   postgresUrl: string;
   logger: NormalizedLogger;
@@ -255,6 +277,9 @@ export interface PostgresConsoleRuntimeSnapshotServiceOptions {
   logger?: NormalizedLogger;
   ensureSchema?: boolean;
   now?: () => Date;
+  retentionTtlMs?: number;
+  retentionPruneIntervalMs?: number;
+  retentionBatchSize?: number;
 }
 
 export interface PostgresConsoleRuntimeSnapshotOutboxDispatchOptions {
@@ -281,6 +306,16 @@ export interface PostgresConsoleRuntimeSnapshotOutboxDispatchResult {
   }>;
 }
 
+export interface PostgresConsoleRuntimeSnapshotRetentionCleanupOptions
+  extends PostgresConsoleRuntimeSnapshotSchemaOptions {
+  namespace?: string;
+  orgId: string;
+  ensureSchema?: boolean;
+  now?: () => Date;
+  ttlMs?: number;
+  batchSize?: number;
+}
+
 export async function createPostgresConsoleRuntimeSnapshotService(
   options: PostgresConsoleRuntimeSnapshotServiceOptions,
 ): Promise<ConsoleRuntimeSnapshotService> {
@@ -292,6 +327,16 @@ export async function createPostgresConsoleRuntimeSnapshotService(
   const namespace = ensureNamespace(options.namespace);
   const logger = options.logger || console;
   const nowFn = options.now || (() => new Date());
+  const retentionTtlMs = normalizePositiveInteger(options.retentionTtlMs, DEFAULT_RETENTION_TTL_MS);
+  const retentionPruneIntervalMs = normalizePositiveInteger(
+    options.retentionPruneIntervalMs,
+    DEFAULT_RETENTION_PRUNE_INTERVAL_MS,
+  );
+  const retentionBatchSize = normalizePositiveInteger(
+    options.retentionBatchSize,
+    DEFAULT_RETENTION_BATCH_SIZE,
+  );
+  const nextRetentionRunAtByOrg = new Map<string, number>();
 
   if (options.ensureSchema !== false) {
     await ensureConsoleRuntimeSnapshotsPostgresSchema({
@@ -507,12 +552,64 @@ export async function createPostgresConsoleRuntimeSnapshotService(
         },
       );
 
+      try {
+        await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (q) => {
+          await maybeRunConsoleRuntimeSnapshotRetentionForTenant(q, {
+            namespace,
+            orgId: ctx.orgId,
+            nowValueMs: createdAtMs,
+            ttlMs: retentionTtlMs,
+            pruneIntervalMs: retentionPruneIntervalMs,
+            batchSize: retentionBatchSize,
+            nextRunAtByOrg: nextRetentionRunAtByOrg,
+          });
+        });
+      } catch (error: unknown) {
+        logger.warn('[console-runtime-snapshots][postgres] retention cleanup failed', {
+          namespace,
+          orgId: ctx.orgId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+
       return {
         ...inserted,
         payload: clonePayload(inserted.payload),
       };
     },
   };
+}
+
+export async function runPostgresConsoleRuntimeSnapshotRetentionCleanup(
+  options: PostgresConsoleRuntimeSnapshotRetentionCleanupOptions,
+): Promise<PostgresConsoleRuntimeSnapshotRetentionCleanupResult> {
+  const postgresUrl = String(options.postgresUrl || '').trim();
+  if (!postgresUrl) {
+    throw new Error('Missing POSTGRES_URL for Postgres console runtime snapshot retention cleanup');
+  }
+  const namespace = ensureNamespace(options.namespace);
+  const orgId = normalizeRequiredString('orgId', options.orgId);
+  const now = options.now || (() => new Date());
+  const ttlMs = normalizePositiveInteger(options.ttlMs, DEFAULT_RETENTION_TTL_MS);
+  const batchSize = normalizePositiveInteger(options.batchSize, DEFAULT_RETENTION_BATCH_SIZE);
+
+  if (options.ensureSchema !== false) {
+    await ensureConsoleRuntimeSnapshotsPostgresSchema({
+      postgresUrl,
+      logger: options.logger,
+    });
+  }
+
+  const pool = await getPostgresPool(postgresUrl);
+  return withConsoleTenantContextTx(pool, { namespace, orgId }, async (q) => {
+    const cutoffMs = Math.max(0, nowMs(now()) - ttlMs);
+    return pruneConsoleRuntimeSnapshotRetentionForTenant(q, {
+      namespace,
+      orgId,
+      cutoffMs,
+      batchSize,
+    });
+  });
 }
 
 export async function runPostgresConsoleRuntimeSnapshotOutboxDispatch(

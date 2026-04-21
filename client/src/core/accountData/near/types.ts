@@ -4,6 +4,7 @@ import type {
   PasskeyCredentialRecord,
   UserPreferences,
 } from '../../indexedDB/passkeyClientDB.types';
+import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 
 export interface ClientUserData {
   nearAccountId: AccountId;
@@ -14,6 +15,7 @@ export interface ClientUserData {
   lastUpdated?: number;
   operationalPublicKey: string;
   passkeyCredential: PasskeyCredentialRecord;
+  authMethod?: WalletAuthMethod | null;
   preferences?: UserPreferences;
 }
 

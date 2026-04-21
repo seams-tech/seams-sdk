@@ -109,6 +109,7 @@ export function createSigningSessionSealRoutesOptions(
 
   const options: SigningSessionSealRoutesOptions = {
     service: createSigningSessionSealService(serviceOptions),
+    sessionPolicy: input.sessionPolicy,
   };
   if (input.enabled !== undefined) {
     options.enabled = input.enabled;
@@ -119,9 +120,41 @@ export function createSigningSessionSealRoutesOptions(
   if (input.authorize) {
     options.authorize = input.authorize;
   } else {
-    options.authorize = async ({ thresholdSessionId }) => {
-      const session = await input.sessionPolicy.getSession(String(thresholdSessionId || '').trim());
+    options.authorize = async ({ headers, session, thresholdSessionId }) => {
       if (!session) {
+        return {
+          ok: false,
+          code: 'sessions_disabled',
+          message: 'Sessions are not configured for Signing-session seal routes',
+          status: 501,
+        };
+      }
+      const parsed = await session.parse(headers);
+      if (!parsed.ok) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'No valid session',
+          status: 401,
+        };
+      }
+      const claims =
+        parsed.claims && typeof parsed.claims === 'object' && !Array.isArray(parsed.claims)
+          ? (parsed.claims as Record<string, unknown>)
+          : {};
+      const userId = typeof claims.walletId === 'string' ? claims.walletId.trim() : '';
+      if (!userId) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Invalid session subject',
+          status: 401,
+        };
+      }
+      const thresholdSession = await input.sessionPolicy.getSession(
+        String(thresholdSessionId || '').trim(),
+      );
+      if (!thresholdSession) {
         return {
           ok: false,
           code: 'unauthorized',
@@ -129,13 +162,21 @@ export function createSigningSessionSealRoutesOptions(
           status: 401,
         };
       }
+      if (thresholdSession.userId !== userId) {
+        return {
+          ok: false,
+          code: 'forbidden',
+          message: 'thresholdSessionId does not belong to authenticated user',
+          status: 403,
+        };
+      }
       return {
         ok: true,
         auth: {
-          userId: session.userId,
+          userId,
           claims: {
-            sub: session.userId,
-            thresholdSessionId: session.thresholdSessionId,
+            ...claims,
+            thresholdSessionId: thresholdSession.thresholdSessionId,
           },
         },
       };

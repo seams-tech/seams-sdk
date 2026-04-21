@@ -27,7 +27,7 @@ const USER_ID = 'alice.testnet';
 
 function makeSession(userId = USER_ID) {
   return makeSessionAdapter({
-    parse: async () => ({ ok: true as const, claims: { sub: userId } }),
+    parse: async () => ({ ok: true as const, claims: { sub: userId, walletId: userId } }),
   });
 }
 

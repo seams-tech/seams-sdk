@@ -42,16 +42,6 @@ export interface ProfileAuthenticatorRecord {
   syncedAt: string;
 }
 
-export interface MigrationQuarantineRecord {
-  quarantineId?: number;
-  sourceStore: string;
-  sourcePrimaryKey: string;
-  reason: string;
-  record: unknown;
-  detectedAt: number;
-  schemaVersion: number;
-}
-
 export interface SignerMutationOptions {
   routeThroughOutbox?: boolean;
   opId?: string;

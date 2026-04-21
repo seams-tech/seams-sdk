@@ -36,8 +36,8 @@ This plan covers:
 
 Use one shared Postgres cluster/instance with separate logical databases per major domain:
 
-- `tatchi_signer` logical DB for threshold signing + relay runtime paths.
-- `tatchi_console` logical DB for `/console` control-plane features (org/project/environment, settings, billing, webhooks, API keys).
+- `seams_signer` logical DB for threshold signing + relay runtime paths.
+- `seams_console` logical DB for `/console` control-plane features (org/project/environment, settings, billing, webhooks, API keys).
 - Within each logical DB, enforce tenant-aware tables and strict RLS where multi-tenant data exists:
   - every tenant row includes `org_id`,
   - project-scoped rows include `project_id`,
@@ -66,11 +66,11 @@ Reason:
 
 ### Local development connection anchor
 
-- Current local cluster connection provided by team:
-  - `postgresql://tatchi:tatchi@127.0.0.1/tatchi?statusColor=686B6F&env=local&name=tatchi&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
+- Current local cluster connection:
+  - `postgresql://tatchi:tatchi@127.0.0.1/seams?statusColor=686B6F&env=local&name=seams&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
 - Planned logical DB targets on the same cluster:
-  - `tatchi_signer`
-  - `tatchi_console`
+  - `seams_signer`
+  - `seams_console`
 - Plan keeps separate DB users and migration runners per logical DB to reduce blast radius and keep least privilege boundaries explicit.
 
 ## High-Level Domain Model
@@ -270,10 +270,10 @@ Notes:
 
 Logical databases + schemas:
 
-- `tatchi_signer`:
+- `seams_signer`:
   - `runtime`: signer/relay execution state.
   - `audit`: signer-domain immutable logs.
-- `tatchi_console`:
+- `seams_console`:
   - `control`: org, projects, environments, memberships, settings, policy configs.
   - `billing`: metering, invoices, ledger projections, prepaid purchase records, and Stripe webhook records.
   - `integrations`: api keys, webhook endpoints/deliveries/retries.

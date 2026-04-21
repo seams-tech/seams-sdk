@@ -1,4 +1,5 @@
 import React from 'react';
+import type { StoredAccountOption } from '@/react/types';
 import { AuthMenuMode } from '../authMenuTypes';
 import { AccountExistsBadge } from './AccountExistsBadge';
 import { usePostfixPosition } from './usePostfixPosition';
@@ -11,7 +12,7 @@ export interface PasskeyInputProps {
   postfixText?: string;
   isUsingExistingAccount?: boolean;
   accountExists?: boolean;
-  accountOptions?: string[];
+  accountOptions?: StoredAccountOption[];
   onProceed: () => void;
   /** Current signup mode for status badge */
   mode?: AuthMenuMode;
@@ -23,27 +24,26 @@ export interface PasskeyInputProps {
 
 type AccountOptionGroup = {
   label: 'Passkey' | 'Email OTP';
-  accounts: string[];
+  accounts: StoredAccountOption[];
 };
 
-function isEmailOtpAccount(accountId: string): boolean {
-  const normalized = accountId.toLowerCase();
-  // Temporary development grouping for Google SSO-derived Email OTP accounts.
-  return (
-    normalized.includes('gmail-com') ||
-    normalized.includes('google') ||
-    normalized.includes('email-otp')
-  );
-}
+function groupAccountOptions(accountOptions?: StoredAccountOption[]): AccountOptionGroup[] {
+  const uniqueAccounts = new Map<string, StoredAccountOption>();
+  for (const option of accountOptions ?? []) {
+    const nearAccountId = String(option.nearAccountId || '').trim();
+    if (!nearAccountId) continue;
+    uniqueAccounts.set(nearAccountId, {
+      nearAccountId,
+      ...(typeof option.signerSlot === 'number' ? { signerSlot: option.signerSlot } : {}),
+      ...(option.authMethod ? { authMethod: option.authMethod } : {}),
+    });
+  }
 
-function groupAccountOptions(accountOptions?: string[]): AccountOptionGroup[] {
-  const uniqueAccounts = Array.from(
-    new Set(
-      (accountOptions ?? []).map((accountId) => String(accountId || '').trim()).filter(Boolean),
-    ),
-  ).sort((a, b) => a.localeCompare(b));
-  const passkeyAccounts = uniqueAccounts.filter((accountId) => !isEmailOtpAccount(accountId));
-  const emailOtpAccounts = uniqueAccounts.filter(isEmailOtpAccount);
+  const sortedAccounts = [...uniqueAccounts.values()].sort((a, b) =>
+    a.nearAccountId.localeCompare(b.nearAccountId),
+  );
+  const passkeyAccounts = sortedAccounts.filter((option) => option.authMethod !== 'email_otp');
+  const emailOtpAccounts = sortedAccounts.filter((option) => option.authMethod === 'email_otp');
   const groups: AccountOptionGroup[] = [
     { label: 'Passkey', accounts: passkeyAccounts },
     { label: 'Email OTP', accounts: emailOtpAccounts },
@@ -206,23 +206,23 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
                 {accountGroups.map((group) => (
                   <div key={group.label} className="w3a-account-menu-group">
                     <div className="w3a-account-menu-group-label">{group.label}</div>
-                    {group.accounts.map((accountId) => {
-                      const selected = accountId.toLowerCase() === value.toLowerCase();
+                    {group.accounts.map((account) => {
+                      const selected = account.nearAccountId.toLowerCase() === value.toLowerCase();
                       return (
                         <button
-                          key={accountId}
+                          key={account.nearAccountId}
                           type="button"
                           role="option"
                           aria-selected={selected}
                           className={`w3a-account-menu-option${selected ? ' is-selected' : ''}`}
-                          title={accountId}
+                          title={account.nearAccountId}
                           onClick={() => {
-                            onChange(accountId);
+                            onChange(account.nearAccountId);
                             setAccountMenuOpen(false);
                           }}
                         >
                           <span className="w3a-account-menu-check" aria-hidden="true" />
-                          <span className="w3a-account-menu-account">{accountId}</span>
+                          <span className="w3a-account-menu-account">{account.nearAccountId}</span>
                         </button>
                       );
                     })}

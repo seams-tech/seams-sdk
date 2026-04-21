@@ -74,14 +74,14 @@ export type EmailOtpEcdsaTempoFlowResult = {
   };
   emailOtpEnrollment?: {
     challengeId: string;
-    emailOtpKeyVersion: string;
+    enrollmentSealKeyVersion: string;
     unlockKeyVersion: string;
   };
   emailOtpLogin?: {
     retention: 'session' | 'single_use';
     policy: EmailOtpAuthPolicy;
     challengeId: string;
-    emailOtpKeyVersion: string;
+    enrollmentSealKeyVersion: string;
     warmState: string;
   };
   otpCounters?: {
@@ -272,7 +272,10 @@ export async function setupEmailOtpEcdsaTempoHarness(
       });
     },
     readEmailOtpEnrollment: async (walletId) => {
-      const result = await service.readEmailOtpEnrollment({ walletId });
+      const result = await service.readEmailOtpEnrollment({
+        walletId,
+        orgId: runtimePolicyScope.orgId,
+      });
       return result;
     },
     close: harness.close,
@@ -526,7 +529,7 @@ export async function runEmailOtpEcdsaTempoFlow(
           challengeId: enrollmentOtp.challengeId,
           otpCode: enrollmentOtp.otpCode,
           appSessionJwt: enrollAppSessionJwt,
-          thresholdRouteAuth: { kind: 'app_session', jwt: enrollAppSessionJwt },
+          routeAuth: { kind: 'app_session', jwt: enrollAppSessionJwt },
           sessionKind: 'jwt',
           ...(requestedEcdsaThresholdKeyId
             ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
@@ -558,7 +561,7 @@ export async function runEmailOtpEcdsaTempoFlow(
           accountId,
           emailOtpEnrollment: {
             challengeId: String(enrolled?.challengeId || ''),
-            emailOtpKeyVersion: String(enrolled?.emailOtpKeyVersion || ''),
+            enrollmentSealKeyVersion: String(enrolled?.enrollmentSealKeyVersion || ''),
             unlockKeyVersion: String(enrolled?.unlockKeyVersion || ''),
           },
           error: 'Email OTP registration bootstrap did not return canonical ECDSA key metadata',
@@ -576,7 +579,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         challengeId: loginOtp.challengeId,
         otpCode: loginOtp.otpCode,
         appSessionJwt: loginAppSessionJwt,
-        thresholdRouteAuth: { kind: 'app_session', jwt: loginAppSessionJwt },
+        routeAuth: { kind: 'app_session', jwt: loginAppSessionJwt },
         ecdsaThresholdKeyId,
         participantIds: resolvedParticipantIds,
         sessionKind: 'jwt',
@@ -806,7 +809,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         },
         emailOtpEnrollment: {
           challengeId: String(enrolled?.challengeId || ''),
-          emailOtpKeyVersion: String(enrolled?.emailOtpKeyVersion || ''),
+          enrollmentSealKeyVersion: String(enrolled?.enrollmentSealKeyVersion || ''),
           unlockKeyVersion: String(enrolled?.unlockKeyVersion || ''),
         },
         emailOtpLogin: {
@@ -817,7 +820,7 @@ export async function runEmailOtpEcdsaTempoFlow(
             loggedIn?.warmCapability?.emailOtpAuthContext?.policy || '',
           ) as EmailOtpAuthPolicy,
           challengeId: String(loggedIn?.recovery?.challengeId || ''),
-          emailOtpKeyVersion: String(loggedIn?.recovery?.emailOtpKeyVersion || ''),
+          enrollmentSealKeyVersion: String(loggedIn?.recovery?.enrollmentSealKeyVersion || ''),
           warmState: String(loggedIn?.warmCapability?.state || ''),
         },
         otpCounters: {

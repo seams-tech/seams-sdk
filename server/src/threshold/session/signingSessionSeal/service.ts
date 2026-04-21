@@ -21,14 +21,14 @@ const SIGNING_SESSION_SEAL_REPLAYABLE_ERROR_CODES = new Set([
   'invalid_key_version',
 ]);
 
-function toMessage(input: unknown, fallback: string): string {
+function toMessage(input: unknown, defaultMessage: string): string {
   const value = String(input || '').trim();
-  return value || fallback;
+  return value || defaultMessage;
 }
 
-function toCode(input: unknown, fallback: string): string {
+function toCode(input: unknown, defaultCode: string): string {
   const value = String(input || '').trim();
-  return value || fallback;
+  return value || defaultCode;
 }
 
 function toNonNegativeInt(value: unknown): number | undefined {
@@ -37,9 +37,9 @@ function toNonNegativeInt(value: unknown): number | undefined {
   return Math.max(0, Math.floor(parsed));
 }
 
-function toPositiveInt(value: unknown, fallback: number): number {
+function toPositiveInt(value: unknown, defaultValue: number): number {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  if (!Number.isFinite(parsed) || parsed <= 0) return defaultValue;
   return Math.floor(parsed);
 }
 

@@ -212,18 +212,18 @@ async function main() {
   const port = Number(readEnv('POSTGRES_BOOTSTRAP_PORT', '5432')) || 5432;
 
   const signer = {
-    dbName: readEnv('SIGNER_DB_NAME', 'tatchi_signer'),
-    runtimeUser: readEnv('SIGNER_RUNTIME_USER', 'tatchi_signer'),
-    runtimePassword: readEnv('SIGNER_RUNTIME_PASSWORD', 'tatchi_signer'),
-    migratorUser: readEnv('SIGNER_MIGRATOR_USER', 'tatchi_signer_migrator'),
-    migratorPassword: readEnv('SIGNER_MIGRATOR_PASSWORD', 'tatchi_signer_migrator'),
+    dbName: readEnv('SIGNER_DB_NAME', 'seams_signer'),
+    runtimeUser: readEnv('SIGNER_RUNTIME_USER', 'seams_signer'),
+    runtimePassword: readEnv('SIGNER_RUNTIME_PASSWORD', 'seams_signer'),
+    migratorUser: readEnv('SIGNER_MIGRATOR_USER', 'seams_signer_migrator'),
+    migratorPassword: readEnv('SIGNER_MIGRATOR_PASSWORD', 'seams_signer_migrator'),
   };
   const consoleDomain = {
-    dbName: readEnv('CONSOLE_DB_NAME', 'tatchi_console'),
-    runtimeUser: readEnv('CONSOLE_RUNTIME_USER', 'tatchi_console'),
-    runtimePassword: readEnv('CONSOLE_RUNTIME_PASSWORD', 'tatchi_console'),
-    migratorUser: readEnv('CONSOLE_MIGRATOR_USER', 'tatchi_console_migrator'),
-    migratorPassword: readEnv('CONSOLE_MIGRATOR_PASSWORD', 'tatchi_console_migrator'),
+    dbName: readEnv('CONSOLE_DB_NAME', 'seams_console'),
+    runtimeUser: readEnv('CONSOLE_RUNTIME_USER', 'seams_console'),
+    runtimePassword: readEnv('CONSOLE_RUNTIME_PASSWORD', 'seams_console'),
+    migratorUser: readEnv('CONSOLE_MIGRATOR_USER', 'seams_console_migrator'),
+    migratorPassword: readEnv('CONSOLE_MIGRATOR_PASSWORD', 'seams_console_migrator'),
   };
 
   await dockerCompose(relayCwd, ['up', '-d', 'postgres']);

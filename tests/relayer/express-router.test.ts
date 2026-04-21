@@ -58,7 +58,7 @@ function validLoginVerifyBody(overrides?: Partial<any>): any {
   return {
     unlockBackend: 'passkey',
     challengeId: 'challenge-123',
-    webauthnAuthentication: { ok: true, ...(overrides?.webauthnAuthentication || {}) },
+    webauthn_authentication: { ok: true, ...(overrides?.webauthn_authentication || {}) },
     ...overrides,
   };
 }
@@ -1044,6 +1044,7 @@ test.describe('relayer router (express) – P0', () => {
         ok: true as const,
         claims: {
           sub: 'user-123',
+          walletId: 'user-123',
           kind: 'threshold_ecdsa_session_v1',
           sessionId: 'sess-1',
           relayerKeyId: 'relayer-key-1',
@@ -1149,6 +1150,7 @@ test.describe('relayer router (express) – P0', () => {
         ok: true as const,
         claims: {
           sub: 'user-123',
+          walletId: 'user-123',
           kind: 'threshold_ecdsa_session_v1',
           sessionId: 'sess-1',
           relayerKeyId: 'relayer-key-1',
@@ -1515,6 +1517,7 @@ test.describe('relayer router (express) – P0', () => {
         ok: true,
         claims: {
           sub: 'alice.testnet',
+          walletId: 'alice.testnet',
           kind: 'threshold_ed25519_session_v1',
           sessionId: 'session-ed25519-scoped-ecdsa',
           relayerKeyId: 'relayer-ed25519-1',
@@ -1523,7 +1526,8 @@ test.describe('relayer router (express) – P0', () => {
           participantIds: [1, 2],
           runtimePolicyScope: {
             orgId: 'org-ecdsa-express-1',
-            environmentId: 'env-ecdsa-express-1',
+            projectId: 'project-ecdsa-express-1',
+            envId: 'env-ecdsa-express-1',
           },
         },
       }),
@@ -1558,7 +1562,8 @@ test.describe('relayer router (express) – P0', () => {
             sessionId: 'session-ecdsa-scoped-1',
             runtimePolicyScope: {
               orgId: 'org-body-ignored',
-              environmentId: 'env-body-ignored',
+              projectId: 'project-body-ignored',
+              envId: 'env-body-ignored',
             },
             participantIds: [1, 2],
             ttlMs: 300_000,
@@ -1570,7 +1575,8 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.status).toBe(200);
       expect(getPath(capturedRequest, 'sessionPolicy', 'runtimePolicyScope')).toEqual({
         orgId: 'org-ecdsa-express-1',
-        environmentId: 'env-ecdsa-express-1',
+        projectId: 'project-ecdsa-express-1',
+        envId: 'env-ecdsa-express-1',
       });
     } finally {
       await srv.close();
@@ -2078,7 +2084,52 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/exchange: Google Email OTP requires account_mode', async () => {
+  test('POST /session/exchange: Google dashboard SSO does not require Email OTP account_mode', async () => {
+    let emailOtpResolverCalled = false;
+    const session = makeSessionAdapter({ signJwt: async () => 'google-dashboard-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:dashboard-user-1',
+        providerSubject: 'google:dashboard-user-1',
+        sub: 'dashboard-user-1',
+        email: 'dashboard@example.com',
+        name: 'Dashboard User',
+      }),
+      resolveGoogleEmailOtpSession: async () => {
+        emailOtpResolverCalled = true;
+        throw new Error('Google dashboard SSO must not enter Email OTP wallet resolution');
+      },
+      getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+    });
+    const router = createRelayRouter(service, { session });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          exchange: {
+            type: 'oidc_jwt',
+            provider: 'google',
+            token: 'google.id.token',
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.json?.ok).toBe(true);
+      expect(getPath(res.json, 'session', 'userId')).toBe('google:dashboard-user-1');
+      expect(getPath(res.json, 'session', 'walletId')).toBeUndefined();
+      expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toBeUndefined();
+      expect(emailOtpResolverCalled).toBe(false);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /session/exchange: Google Email OTP rejects invalid account_mode', async () => {
     const session = makeSessionAdapter({ signJwt: async () => 'unused-google-jwt' });
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, { session });
@@ -2092,6 +2143,7 @@ test.describe('relayer router (express) – P0', () => {
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
+            account_mode: 'dashboard',
             token: 'google.id.token',
           },
         }),
@@ -2167,7 +2219,7 @@ test.describe('relayer router (express) – P0', () => {
             ? String(extra.appSessionVersion).trim()
             : '';
         const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
-        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        issuedClaimsByToken.set(token, { sub, appSessionVersion, ...(extra || {}) });
         return token;
       },
       parse: async (headers) => {
@@ -2285,7 +2337,7 @@ test.describe('relayer router (express) – P0', () => {
             ? String(extra.appSessionVersion).trim()
             : '';
         const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
-        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        issuedClaimsByToken.set(token, { sub, appSessionVersion, ...(extra || {}) });
         return token;
       },
       parse: async (headers) => {
@@ -2410,7 +2462,7 @@ test.describe('relayer router (express) – P0', () => {
       signJwt: async (sub, extra) => {
         const appSessionVersion = String(extra?.appSessionVersion || '').trim() || 'app-v1';
         const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
-        issuedClaimsByToken.set(token, { sub, appSessionVersion });
+        issuedClaimsByToken.set(token, { sub, appSessionVersion, ...(extra || {}) });
         return token;
       },
       parse: async (headers) => {
@@ -2438,6 +2490,8 @@ test.describe('relayer router (express) – P0', () => {
         verified: true,
         userId: 'user-no-membership-express-1',
         providerSubject: 'oidc:https://issuer.example.com:user-no-membership-express-1',
+        email: 'alice@example.com',
+        name: 'Alice Example',
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
       validateAppSessionVersion: async () => ({ ok: true }),
@@ -2606,6 +2660,88 @@ test.describe('relayer router (express) – P0', () => {
       const rows = Array.isArray(auditEvents.json?.events) ? auditEvents.json?.events : [];
       const actions = rows.map((row: any) => String(row?.action || ''));
       expect(actions).toContain('member.owner.bootstrap');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('GET /console/session: first Google dashboard login creates an org context when storage is empty', async () => {
+    const issuedClaimsByToken = new Map<string, IssuedAppSessionClaims>();
+    const session = makeSessionAdapter({
+      signJwt: async (sub, extra) => {
+        const appSessionVersion = String(extra?.appSessionVersion || '').trim() || 'app-v1';
+        const token = `app-session:${sub}:${appSessionVersion}:${issuedClaimsByToken.size + 1}`;
+        issuedClaimsByToken.set(token, { sub, appSessionVersion, ...(extra || {}) });
+        return token;
+      },
+      parse: async (headers) => {
+        const cookieHeader = String(headers.cookie ?? headers.Cookie ?? '').trim();
+        const token = cookieHeader
+          .split(';')
+          .map((part) => part.trim())
+          .find((part) => part.startsWith('tatchi-jwt='))
+          ?.slice('tatchi-jwt='.length);
+        const claims = token ? issuedClaimsByToken.get(token) : null;
+        return claims ? ({ ok: true, claims } as const) : ({ ok: false } as const);
+      },
+      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
+    });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:first-dashboard-user',
+        providerSubject: 'google:first-dashboard-user',
+        sub: 'first-dashboard-user',
+        email: 'first-dashboard@example.com',
+        name: 'First Dashboard User',
+      }),
+      getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+      validateAppSessionVersion: async () => ({ ok: true }),
+    });
+    const teamRbac = createInMemoryConsoleTeamRbacService();
+    const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+    const consoleAuth = createAppSessionConsoleAuthAdapter({
+      session,
+      authService: service,
+      provisioning: {
+        teamRbac,
+        orgProjectEnv,
+        bootstrapRoles: ['owner', 'admin'],
+      },
+    });
+    const relayRouter = createRelayRouter(service, { session }) as any;
+    relayRouter.use(createConsoleRouter({ auth: consoleAuth, teamRbac, orgProjectEnv }));
+    const srv = await startExpressRouter(relayRouter);
+    try {
+      const exchange = await fetchJson(`${srv.baseUrl}/session/exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionKind: 'cookie',
+          exchange: { type: 'oidc_jwt', provider: 'google', token: 'google.id.token' },
+        }),
+      });
+      expect(exchange.status).toBe(200);
+      const cookieHeader = String(exchange.headers.get('set-cookie') || '').split(';')[0] || '';
+
+      const consoleSession = await fetchJson(`${srv.baseUrl}/console/session`, {
+        method: 'GET',
+        headers: { Cookie: cookieHeader },
+      });
+      expect(consoleSession.status).toBe(200);
+      const orgId = String(getPath(consoleSession.json, 'claims', 'orgId') || '');
+      expect(orgId).toMatch(/^org_[a-z0-9]{12}$/);
+      expect(getPath(consoleSession.json, 'claims', 'roles')).toEqual(
+        expect.arrayContaining(['owner', 'admin']),
+      );
+
+      const organization = await orgProjectEnv.getOrganization({
+        orgId,
+        actorUserId: 'test',
+        roles: ['admin'],
+      });
+      expect(organization.id).toBe(orgId);
     } finally {
       await srv.close();
     }
@@ -3669,6 +3805,7 @@ test.describe('relayer router (express) – P0', () => {
         ok: true,
         claims: {
           sub: 'bob.testnet',
+          walletId: 'bob.testnet',
           kind: 'threshold_ed25519_session_v1',
           sessionId: 'session-ed25519-runtime',
           relayerKeyId: 'relayer-key-1',
@@ -3678,7 +3815,7 @@ test.describe('relayer router (express) – P0', () => {
           runtimePolicyScope: {
             orgId: 'org-runtime-express-1',
             projectId: 'project-runtime-express-1',
-            environmentId: 'env-runtime-express-1',
+            envId: 'env-runtime-express-1',
           },
         },
       }),

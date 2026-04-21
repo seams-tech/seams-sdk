@@ -39,7 +39,7 @@ export function registerSmartAccountDeploymentRoutes(
 
       const manifest = await readCanonicalSmartAccountDeploymentManifest({
         authService: ctx.service,
-        expectedUserId: validated.claims.sub,
+        expectedUserId: validated.claims.walletId,
         chainIdKey: `${parsed.chain}:${parsed.chainId}`,
         accountAddress: parsed.accountAddress,
       });
@@ -104,7 +104,7 @@ export function registerSmartAccountDeploymentRoutes(
 
       const synced = await syncSmartAccountRecoverySubjectDeployment({
         authService: ctx.service,
-        expectedUserId: validated.claims.sub,
+        expectedUserId: validated.claims.walletId,
         update: {
           chain,
           chainId,

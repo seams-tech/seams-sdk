@@ -13,19 +13,27 @@ import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
   handleEmailOtpLoginChallengeRoute,
+  handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpLoginVerifyRoute,
+  handleEmailOtpSigningSessionVerifyRoute,
   handleEmailOtpRegistrationChallengeRoute,
   handleEmailOtpRegistrationFinalizeRoute,
   handleEmailOtpRegistrationSealRoute,
   handleEmailOtpUnsealRoute,
+  handleEmailOtpSigningSessionUnsealRoute,
 } from '../../emailOtpRouteHandlers';
 import {
   emailOtpStatusCode,
   emailOtpFailureAuditPayload,
   hashEmailOtpAppSessionClaims,
+  hashEmailOtpSigningSessionClaims,
   parseOidcAccountMode,
 } from '../../emailOtpSessionRouteHelpers';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
+import {
+  parseThresholdEcdsaSessionClaims,
+  parseThresholdEd25519SessionClaims,
+} from '../../../core/ThresholdService/validation';
 
 async function emitSessionExchangeFailed(
   ctx: CloudflareRelayContext,
@@ -210,6 +218,134 @@ async function hashAppSessionClaims(claims: Record<string, unknown>): Promise<st
   return hashEmailOtpAppSessionClaims(claims);
 }
 
+async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext): Promise<
+  | {
+      ok: true;
+      claims: Record<string, unknown>;
+      userId: string;
+      appSessionVersion: string;
+      sessionHash: string;
+    }
+  | { ok: false; response: Response }
+> {
+  const session = ctx.opts.session;
+  if (!session) {
+    return {
+      ok: false,
+      response: json(
+        { authenticated: false, code: 'sessions_disabled', message: 'Sessions are not configured' },
+        { status: 501 },
+      ),
+    };
+  }
+  const parsed = await session.parse(headersToRecord(ctx.request.headers));
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'unauthorized',
+          message: 'Missing or invalid threshold session token',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  const rawClaims = ((parsed as any).claims || {}) as Record<string, unknown>;
+  const ed25519Claims = parseThresholdEd25519SessionClaims(rawClaims);
+  const ecdsaClaims = parseThresholdEcdsaSessionClaims(rawClaims);
+  const claims = ed25519Claims || ecdsaClaims;
+  if (!claims) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'unauthorized',
+          message: 'Invalid threshold session token claims',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  const userId = String(claims.walletId || '').trim();
+  const sessionId = String(claims.sessionId || '').trim();
+  const walletSigningSessionId = String(claims.walletSigningSessionId || '').trim();
+  const expiresAtMs = Math.floor(Number(claims.thresholdExpiresAtMs) || 0);
+  if (!userId || !sessionId || !walletSigningSessionId || expiresAtMs <= Date.now()) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'unauthorized',
+          message: 'Expired or incomplete threshold session token',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  const sessionPolicy = ctx.opts.signingSessionSeal?.sessionPolicy;
+  if (!sessionPolicy?.getSessionStatus) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'sessions_disabled',
+          message: 'Threshold session status reads are not configured',
+        },
+        { status: 501 },
+      ),
+    };
+  }
+  const curveStatus = await sessionPolicy.getSessionStatus(sessionId);
+  const walletBudgetStatus = await sessionPolicy.getSessionStatus(
+    `wallet-signing:${walletSigningSessionId}`,
+  );
+  const participantIds = Array.isArray(claims.participantIds) ? claims.participantIds : [];
+  const sameParticipants = (actual: unknown): boolean => {
+    if (!Array.isArray(actual) || actual.length !== participantIds.length) return false;
+    return actual.every((value, index) => Number(value) === Number(participantIds[index]));
+  };
+  const curveRecord = curveStatus?.record;
+  const walletBudgetRecord = walletBudgetStatus?.record;
+  const statusMatches =
+    curveStatus &&
+    walletBudgetStatus &&
+    curveStatus.remainingUses > 0 &&
+    walletBudgetStatus.remainingUses > 0 &&
+    curveRecord?.userId === userId &&
+    curveRecord?.rpId === claims.rpId &&
+    curveRecord?.relayerKeyId === claims.relayerKeyId &&
+    sameParticipants(curveRecord?.participantIds) &&
+    walletBudgetRecord?.userId === userId &&
+    walletBudgetRecord?.rpId === claims.rpId &&
+    sameParticipants(walletBudgetRecord?.participantIds);
+  if (!statusMatches) {
+    return {
+      ok: false,
+      response: json(
+        {
+          authenticated: false,
+          code: 'unauthorized',
+          message: 'Threshold session is no longer active',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  const sessionHash = await hashEmailOtpSigningSessionClaims(rawClaims);
+  return {
+    ok: true,
+    claims: rawClaims,
+    userId,
+    appSessionVersion: `signing-session:${claims.kind}:${walletSigningSessionId}:${sessionId}`,
+    sessionHash,
+  };
+}
+
 async function maybeEmitWarmExpiredFromValidationFailure(input: {
   ctx: CloudflareRelayContext;
   validated:
@@ -349,13 +485,19 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         }
       | undefined;
     let runtimePolicyScope: RuntimePolicyScope | undefined;
+    let isGoogleEmailOtpExchange = false;
 
     if (exchangeType === 'oidc_jwt') {
       oidcProvider = String(exchange.provider || '')
         .trim()
         .toLowerCase();
-      oidcAccountMode = parseOidcAccountMode(exchange.account_mode);
-      if (oidcProvider === 'google' && !oidcAccountMode) {
+      const oidcAccountModeRaw = exchange.account_mode ?? exchange.accountMode;
+      const hasOidcAccountMode =
+        Object.prototype.hasOwnProperty.call(exchange, 'account_mode') ||
+        Object.prototype.hasOwnProperty.call(exchange, 'accountMode');
+      oidcAccountMode = parseOidcAccountMode(oidcAccountModeRaw);
+      isGoogleEmailOtpExchange = oidcProvider === 'google' && Boolean(oidcAccountMode);
+      if (oidcProvider === 'google' && hasOidcAccountMode && !oidcAccountMode) {
         await emitSessionExchangeFailed(ctx, {
           status: 400,
           code: 'invalid_body',
@@ -421,7 +563,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         typeof (verified as any).family_name === 'string' && (verified as any).family_name.trim()
           ? (verified as any).family_name.trim()
           : undefined;
-      if (oidcProvider === 'google' && oidcAccountMode === 'register' && !oidcEmail) {
+      if (isGoogleEmailOtpExchange && oidcAccountMode === 'register' && !oidcEmail) {
         await emitSessionExchangeFailed(ctx, {
           status: 400,
           code: 'invalid_claims',
@@ -440,7 +582,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         );
       }
       try {
-        if (oidcProvider === 'google') {
+        if (isGoogleEmailOtpExchange) {
           const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
             explicitScopeRaw: undefined,
             runtimeEnvironmentIdRaw: (parsedBody as { runtimeEnvironmentId?: unknown })
@@ -499,7 +641,7 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
                 }
               : {}),
           };
-        } else {
+        } else if (oidcProvider !== 'google') {
           walletId = await ctx.service.resolveOidcWalletId({
             providerSubject,
             sub: oidcSub,
@@ -521,8 +663,11 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
         });
         return json({ ok: false, code, message }, { status });
       }
-      if (oidcProvider === 'google' && oidcAccountMode === 'login') {
-        const enrollment = await ctx.service.readEmailOtpEnrollment({ walletId });
+      if (isGoogleEmailOtpExchange && oidcAccountMode === 'login') {
+        const enrollment = await ctx.service.readEmailOtpEnrollment({
+          walletId,
+          orgId: runtimePolicyScope?.orgId,
+        });
         if (!enrollment.ok) {
           const status = emailOtpStatusCode(enrollment.code);
           await emitSessionExchangeFailed(ctx, {
@@ -1047,6 +1192,39 @@ export async function handleWalletEmailOtpLoginChallenge(
   return json(response.body, { status: response.status });
 }
 
+export async function handleWalletEmailOtpSigningSessionChallenge(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (
+    ctx.method !== 'POST' ||
+    ctx.pathname !== '/wallet/email-otp/signing-session/challenge'
+  ) {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateEmailOtpSigningSession(ctx);
+  if (!validated.ok) return validated.response;
+  const response = await handleEmailOtpSigningSessionChallengeRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    sessionHash: validated.sessionHash,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
+    opts: ctx.opts,
+    emitWebhook: async (event) => {
+      await emitEmailOtpWebhookDescriptor(ctx, {
+        descriptor: event.descriptor,
+        claims: event.claims,
+        userId: event.userId,
+        ...(event.walletId ? { walletId: event.walletId } : {}),
+      });
+    },
+  });
+  return json(response.body, { status: response.status });
+}
+
 export async function handleWalletEmailOtpLoginVerify(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
@@ -1081,6 +1259,39 @@ export async function handleWalletEmailOtpLoginVerify(
   return json(response.body, { status: response.status });
 }
 
+export async function handleWalletEmailOtpSigningSessionVerify(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (
+    ctx.method !== 'POST' ||
+    ctx.pathname !== '/wallet/email-otp/signing-session/verify'
+  ) {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateEmailOtpSigningSession(ctx);
+  if (!validated.ok) return validated.response;
+  const response = await handleEmailOtpSigningSessionVerifyRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    sessionHash: validated.sessionHash,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
+    opts: ctx.opts,
+    emitWebhook: async (event) => {
+      await emitEmailOtpWebhookDescriptor(ctx, {
+        descriptor: event.descriptor,
+        claims: event.claims,
+        userId: event.userId,
+        ...(event.walletId ? { walletId: event.walletId } : {}),
+      });
+    },
+  });
+  return json(response.body, { status: response.status });
+}
+
 export async function handleWalletEmailOtpUnseal(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
@@ -1100,6 +1311,38 @@ export async function handleWalletEmailOtpUnseal(
     claims: validated.claims,
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
+    emitWebhook: async (event) => {
+      await emitEmailOtpWebhookDescriptor(ctx, {
+        descriptor: event.descriptor,
+        claims: event.claims,
+        userId: event.userId,
+        ...(event.walletId ? { walletId: event.walletId } : {}),
+      });
+    },
+  });
+  return json(response.body, { status: response.status });
+}
+
+export async function handleWalletEmailOtpSigningSessionUnseal(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (
+    ctx.method !== 'POST' ||
+    ctx.pathname !== '/wallet/email-otp/signing-session/unseal'
+  ) {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateEmailOtpSigningSession(ctx);
+  if (!validated.ok) return validated.response;
+  const response = await handleEmailOtpSigningSessionUnsealRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    sessionHash: validated.sessionHash,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
     service: ctx.service,
     emitWebhook: async (event) => {

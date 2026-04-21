@@ -86,7 +86,7 @@ test.describe('Email OTP shamir3pass semantics', () => {
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
 
-    expect(applied.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+    expect(applied.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
     expect(applied.ciphertext).not.toBe(wrappedCiphertext);
     expect(removeClientSeal(applied.ciphertext)).toBe(addServerSeal(plaintextSecretB64u));
   });
@@ -102,7 +102,7 @@ test.describe('Email OTP shamir3pass semantics', () => {
     expect(removed.ok).toBe(true);
     if (!removed.ok) return;
 
-    expect(removed.emailOtpKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+    expect(removed.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
     expect(removed.ciphertext).not.toBe(wrappedCiphertext);
     expect(removeClientSeal(removed.ciphertext)).toBe(plaintextSecretB64u);
   });

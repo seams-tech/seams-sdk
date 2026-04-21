@@ -39,6 +39,7 @@ import {
 import type {
   ThresholdEd25519AuthConsumeUsesResult,
   Ed25519AuthSessionRecord,
+  Ed25519AuthSessionStatus,
   Ed25519AuthSessionStore,
 } from '@server/core/ThresholdService/stores/AuthSessionStore';
 
@@ -118,6 +119,7 @@ function makeAuthServiceForThreshold(input?: {
 } {
   const thresholdConfig = {
     THRESHOLD_NODE_ROLE: 'coordinator',
+    ACCOUNT_ID_DERIVATION_SECRET: 'test-account-id-derivation-secret',
     signingRootShareResolver: createFixtureSigningRootShareResolverForUnitTests(),
   } as const;
   const logger = input?.logger ?? null;
@@ -282,6 +284,16 @@ class SplitAuthSessionStore implements Ed25519AuthSessionStore {
 
   async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
     return this.records.get(id) ?? null;
+  }
+
+  async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
+    const record = await this.getSession(id);
+    if (!record) return null;
+    return {
+      record,
+      expiresAtMs: record.expiresAtMs,
+      remainingUses: this.uses.get(id) ?? 0,
+    };
   }
 
   async consumeUse(id: string): Promise<ThresholdEd25519AuthConsumeResult> {
@@ -534,6 +546,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
       });
       const ecdsaJwt = await session.signJwt('bob.testnet', {
         kind: 'threshold_ecdsa_session_v1',
+        walletId: 'bob.testnet',
         sessionId: 'ecdsa-session-for-ed25519-mint',
         relayerKeyId: 'ecdsa-relayer-key',
         rpId: 'example.localhost',
@@ -673,8 +686,9 @@ test.describe('threshold-ed25519 scope (express)', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          user_id: 'bob.testnet',
-          rp_id: 'example.localhost',
+          unlockBackend: 'passkey',
+          userId: 'bob.testnet',
+          rpId: 'example.localhost',
         }),
       });
       expect(unlockOptions.status, unlockOptions.text).toBe(200);
@@ -1379,7 +1393,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
     }
   });
 
-  test('hss finalize rejects relayer-share repair on wrong binding', async () => {
+  test('hss finalize ignores client-supplied evaluation artifact and uses staged binding', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const { session } = createTestSessionAdapter();
     const router = createRelayRouter(service, { threshold, session });
@@ -1460,9 +1474,12 @@ test.describe('threshold-ed25519 scope (express)', () => {
           },
         }),
       });
-      expect(finalized.status, finalized.text).toBe(400);
-      expect(finalized.json?.code, finalized.text).toBe('invalid_body');
-      expect(await (threshold as any).keyStore.get(relayerKeyId)).toBeNull();
+      expect(finalized.status, finalized.text).toBe(200);
+      expect(finalized.json?.ok, finalized.text).toBe(true);
+      expect(finalized.json?.finalizedReport?.contextBindingB64u, finalized.text).toBe(
+        preparedSession.contextBindingB64u,
+      );
+      expect(await (threshold as any).keyStore.get(relayerKeyId)).toBeTruthy();
     } finally {
       await srv.close();
     }
@@ -1908,6 +1925,7 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
     });
     const ecdsaJwt = await session.signJwt('bob.testnet', {
       kind: 'threshold_ecdsa_session_v1',
+      walletId: 'bob.testnet',
       sessionId: 'ecdsa-session-for-ed25519-mint',
       relayerKeyId: 'ecdsa-relayer-key',
       rpId: 'example.localhost',
@@ -2062,8 +2080,9 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
       path: '/wallet/unlock/challenge',
       origin: 'https://example.localhost',
       body: {
-        user_id: 'bob.testnet',
-        rp_id: 'example.localhost',
+        unlockBackend: 'passkey',
+        userId: 'bob.testnet',
+        rpId: 'example.localhost',
       },
       ctx,
     });

@@ -31,6 +31,12 @@ export type ThresholdEd25519AuthConsumeUsesResult =
   | { ok: true; remainingUses: number }
   | { ok: false; code: string; message: string };
 
+export type Ed25519AuthSessionStatus = {
+  record: Ed25519AuthSessionRecord;
+  expiresAtMs: number;
+  remainingUses: number;
+};
+
 export interface Ed25519AuthSessionStore {
   putSession(
     id: string,
@@ -38,6 +44,7 @@ export interface Ed25519AuthSessionStore {
     opts: { ttlMs: number; remainingUses: number },
   ): Promise<void>;
   getSession(id: string): Promise<Ed25519AuthSessionRecord | null>;
+  getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null>;
   /**
    * Consume one use from the session counter without fetching the session record.
    *
@@ -86,6 +93,21 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       return null;
     }
     return entry.record;
+  }
+
+  async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
+    const key = this.key(id);
+    const entry = this.map.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAtMs) {
+      this.map.delete(key);
+      return null;
+    }
+    return {
+      record: entry.record,
+      expiresAtMs: entry.expiresAtMs,
+      remainingUses: entry.remainingUses,
+    };
   }
 
   async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
@@ -145,6 +167,20 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
     return parseEd25519AuthSessionRecord(raw);
   }
 
+  async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
+    const record = parseEd25519AuthSessionRecord(await this.client.getJson(this.metaKey(id)));
+    if (!record) return null;
+    const remainingUsesRaw = await this.client.getRaw(this.usesKey(id));
+    const remainingUses =
+      typeof remainingUsesRaw === 'number' ? remainingUsesRaw : Number(remainingUsesRaw);
+    if (!Number.isFinite(remainingUses)) return null;
+    return {
+      record,
+      expiresAtMs: record.expiresAtMs,
+      remainingUses,
+    };
+  }
+
   async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
     try {
       const remainingUses = await this.client.incrby(this.usesKey(id), -1);
@@ -198,6 +234,21 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
     const raw = await redisGetJson(this.client, this.metaKey(id));
     return parseEd25519AuthSessionRecord(raw);
+  }
+
+  async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
+    const record = parseEd25519AuthSessionRecord(await redisGetJson(this.client, this.metaKey(id)));
+    if (!record) return null;
+    const resp = await this.client.send(['GET', this.usesKey(id)]);
+    if (resp.type === 'error') throw new Error(`Redis GET error: ${resp.value}`);
+    if (resp.type !== 'bulk' || resp.value == null) return null;
+    const remainingUses = Number(resp.value);
+    if (!Number.isFinite(remainingUses)) return null;
+    return {
+      record,
+      expiresAtMs: record.expiresAtMs,
+      remainingUses,
+    };
   }
 
   async consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult> {
@@ -269,6 +320,33 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       [this.namespace, 'auth', id, nowMs],
     );
     return parseEd25519AuthSessionRecord(rows[0]?.record_json);
+  }
+
+  async getSessionStatus(id: string): Promise<Ed25519AuthSessionStatus | null> {
+    const pool = await this.poolPromise;
+    const nowMs = Date.now();
+    const { rows } = await pool.query(
+      `
+        SELECT record_json, expires_at_ms, remaining_uses
+        FROM threshold_ed25519_sessions
+        WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
+        LIMIT 1
+      `,
+      [this.namespace, 'auth', id, nowMs],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    const record = parseEd25519AuthSessionRecord(row.record_json);
+    const expiresAtMs =
+      typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
+    const remainingUses =
+      typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
+    if (!record || !Number.isFinite(expiresAtMs) || !Number.isFinite(remainingUses)) return null;
+    return {
+      record,
+      expiresAtMs,
+      remainingUses,
+    };
   }
 
   private async explainMissing(

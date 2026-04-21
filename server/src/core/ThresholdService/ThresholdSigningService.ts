@@ -1584,7 +1584,7 @@ export class ThresholdSigningService {
     serverOutput: { contextBindingB64u: string; xRelayerBaseB64u: string };
   }): Promise<{ repaired: boolean }> {
     const relayerKeyId = toOptionalTrimmedString(input.claims.relayerKeyId);
-    const nearAccountId = toOptionalTrimmedString(input.claims.sub);
+    const nearAccountId = toOptionalTrimmedString(input.claims.walletId);
     const rpId = toOptionalTrimmedString(input.claims.rpId);
     const keyVersion = toOptionalTrimmedString(input.context.keyVersion);
     const relayerSigningShareB64u = toOptionalTrimmedString(input.serverOutput.xRelayerBaseB64u);
@@ -3052,28 +3052,37 @@ export class ThresholdSigningService {
         const appSessionClaims = request.appSessionClaims
           ? parseAppSessionClaims(request.appSessionClaims)
           : null;
+        const ed25519SessionClaims = request.ed25519SessionClaims
+          ? parseThresholdEd25519SessionClaims(request.ed25519SessionClaims)
+          : null;
+        const ecdsaSessionClaims = request.ecdsaSessionClaims
+          ? parseThresholdEcdsaSessionClaims(request.ecdsaSessionClaims)
+          : null;
+        const authClaims = appSessionClaims || ed25519SessionClaims || ecdsaSessionClaims;
         const enrollmentClaims = request.emailOtpEnrollmentClaims;
-        const sessionWalletId =
-          toOptionalTrimmedString(appSessionClaims?.walletId) ||
-          toOptionalTrimmedString(appSessionClaims?.sub);
+        const sessionWalletId = appSessionClaims
+          ? toOptionalTrimmedString(appSessionClaims.walletId)
+          : toOptionalTrimmedString(authClaims?.walletId);
+        const enrollmentWalletId = toOptionalTrimmedString(enrollmentClaims?.walletId);
+        const enrollmentUserId = toOptionalTrimmedString(enrollmentClaims?.userId);
         const requestedPolicyParticipantIds = normalizeThresholdEd25519ParticipantIds(
           (request.sessionPolicy as Record<string, unknown> | undefined)?.participantIds,
         );
         const sameParticipants = (expected: number[], actual: number[]): boolean =>
           expected.length === actual.length &&
           expected.every((value, index) => value === actual[index]);
-        if (!appSessionClaims) {
+        if (!authClaims) {
           return {
             ok: false,
             code: 'unauthorized',
-            message: 'email_otp_bootstrap requires an authenticated app session',
+            message: 'email_otp_bootstrap requires authenticated app-session or threshold-session auth',
           };
         }
         if (
           !enrollmentClaims ||
           enrollmentClaims.otpChannel !== 'email_otp' ||
-          !toOptionalTrimmedString(enrollmentClaims.walletId) ||
-          !toOptionalTrimmedString(enrollmentClaims.userId) ||
+          !enrollmentWalletId ||
+          !enrollmentUserId ||
           !toOptionalTrimmedString(enrollmentClaims.thresholdEcdsaClientVerifyingShareB64u)
         ) {
           return {
@@ -3083,14 +3092,14 @@ export class ThresholdSigningService {
           };
         }
         if (
-          enrollmentClaims.walletId !== userId ||
+          enrollmentWalletId !== userId ||
           sessionWalletId !== userId ||
-          enrollmentClaims.userId !== appSessionClaims.sub
+          (appSessionClaims && enrollmentUserId !== appSessionClaims.sub)
         ) {
           return {
             ok: false,
             code: 'unauthorized',
-            message: 'Email OTP enrollment does not match app-session wallet scope',
+            message: 'Email OTP enrollment does not match authenticated wallet scope',
           };
         }
         if (ecdsaThresholdKeyId) {
@@ -3162,7 +3171,7 @@ export class ThresholdSigningService {
               };
             }
             if (
-              integratedKey.userId !== ed25519Claims.sub ||
+              integratedKey.userId !== ed25519Claims.walletId ||
               integratedKey.rpId !== ed25519Claims.rpId
             ) {
               return {
@@ -3247,8 +3256,8 @@ export class ThresholdSigningService {
             };
           }
           if (
-            ecdsaSessionClaims.sub !== userId ||
-            integratedKey.userId !== ecdsaSessionClaims.sub ||
+            ecdsaSessionClaims.walletId !== userId ||
+            integratedKey.userId !== ecdsaSessionClaims.walletId ||
             integratedKey.rpId !== ecdsaSessionClaims.rpId ||
             ecdsaSessionClaims.rpId !== rpId
           ) {
@@ -3309,7 +3318,10 @@ export class ThresholdSigningService {
             message: 'ecdsaThresholdKeyId is not active on this server',
           };
         }
-        if (integratedKey.userId !== ecdsaClaims.sub || integratedKey.rpId !== ecdsaClaims.rpId) {
+        if (
+          integratedKey.userId !== ecdsaClaims.walletId ||
+          integratedKey.rpId !== ecdsaClaims.rpId
+        ) {
           return {
             ok: false,
             code: 'unauthorized',
@@ -3739,6 +3751,7 @@ export class ThresholdSigningService {
         salt: bootstrap.salt,
         counterfactualAddress: bootstrap.counterfactualAddress,
         sessionId: bootstrap.sessionId,
+        walletSigningSessionId: bootstrap.walletSigningSessionId,
         expiresAtMs: bootstrap.expiresAtMs,
         expiresAt: bootstrap.expiresAt,
         remainingUses: bootstrap.remainingUses,
@@ -3761,7 +3774,7 @@ export class ThresholdSigningService {
       const sessionId = toOptionalTrimmedString(claims?.sessionId);
       if (!sessionId)
         return { ok: false, code: 'unauthorized', message: 'Missing threshold sessionId' };
-      const userId = toOptionalTrimmedString(claims?.sub);
+      const userId = toOptionalTrimmedString(claims?.walletId);
       if (!userId) return { ok: false, code: 'unauthorized', message: 'Missing threshold userId' };
 
       const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
@@ -3992,7 +4005,7 @@ export class ThresholdSigningService {
       );
       const hasEcdsaSessionAuth = Boolean(
         ecdsaSessionClaims &&
-          ecdsaSessionClaims.sub === nearAccountId &&
+          ecdsaSessionClaims.walletId === nearAccountId &&
           ecdsaSessionClaims.rpId === rpId &&
           ecdsaSessionClaims.thresholdExpiresAtMs > Date.now() &&
           (!policySigningRootId || ecdsaSigningRootId === policySigningRootId),
@@ -4193,7 +4206,7 @@ export class ThresholdSigningService {
     if (!sessionId) {
       return { ok: false, code: 'unauthorized', message: 'Missing threshold sessionId' };
     }
-    const userId = toOptionalTrimmedString(input.claims?.sub);
+    const userId = toOptionalTrimmedString(input.claims?.walletId);
     if (!userId) return { ok: false, code: 'unauthorized', message: 'Missing threshold userId' };
     const tokenRelayerKeyId = toOptionalTrimmedString(input.claims?.relayerKeyId);
     if (!tokenRelayerKeyId) {
@@ -5023,7 +5036,7 @@ export class ThresholdSigningService {
       const sessionId = toOptionalTrimmedString(claims?.sessionId);
       if (!sessionId)
         return { ok: false, code: 'unauthorized', message: 'Missing threshold sessionId' };
-      const userId = toOptionalTrimmedString(claims?.sub);
+      const userId = toOptionalTrimmedString(claims?.walletId);
       if (!userId) return { ok: false, code: 'unauthorized', message: 'Missing threshold userId' };
 
       const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);

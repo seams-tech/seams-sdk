@@ -7,6 +7,7 @@ const IMPORT_PATHS = {
   passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
   passkeyAuthMenuController:
     '/sdk/esm/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.js',
+  passkeyInput: '/sdk/esm/react/components/PasskeyAuthMenu/ui/PasskeyInput.js',
   authMenuTypes: '/sdk/esm/react/components/PasskeyAuthMenu/authMenuTypes.js',
   reactStyles: '/sdk/esm/react/styles/styles.css',
 } as const;
@@ -208,6 +209,89 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         'Creates a Google SSO account that uses a 6-digit Email OTP for signing. Passkey is recommended for stronger security.',
       ),
     ).toBeVisible();
+  });
+
+  test('account dropdown groups accounts from auth method metadata', async ({ page }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        await new Promise<void>((resolve, reject) => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = paths.reactStyles;
+          link.addEventListener('load', () => resolve());
+          link.addEventListener('error', () =>
+            reject(new Error(`Failed to load: ${paths.reactStyles}`)),
+          );
+          document.head.appendChild(link);
+        });
+
+        const mount = document.createElement('div');
+        mount.id = 'pam2-account-groups-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const inputMod: any = await import(paths.passkeyInput);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const PasskeyInput = inputMod.PasskeyInput || inputMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        function Harness() {
+          const [value, setValue] = React.useState('sage-shore-3scqvgt7hl.w3a-relayer.testnet');
+          return React.createElement(PasskeyInput, {
+            value,
+            onChange: setValue,
+            placeholder: 'Enter your username',
+            mode: AuthMenuMode.Login,
+            onProceed: () => undefined,
+            accountOptions: [
+              {
+                nearAccountId: 'gorp12.w3a-relayer.testnet',
+                signerSlot: 1,
+                authMethod: 'passkey',
+              },
+              {
+                nearAccountId: 'gorp13.w3a-relayer.testnet',
+                signerSlot: 1,
+                authMethod: 'passkey',
+              },
+              {
+                nearAccountId: 'sage-shore-3scqvgt7hl.w3a-relayer.testnet',
+                signerSlot: 1,
+                authMethod: 'email_otp',
+              },
+              {
+                nearAccountId: 'n6378056-gmail-com-1776502017920.w3a-relayer.testnet',
+                signerSlot: 1,
+                authMethod: 'email_otp',
+              },
+            ],
+          });
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-account-groups-mount');
+    await mount.getByRole('button', { name: 'Saved accounts' }).click();
+
+    const passkeyGroup = mount.locator('.w3a-account-menu-group').filter({ hasText: 'PASSKEY' });
+    const emailOtpGroup = mount.locator('.w3a-account-menu-group').filter({ hasText: 'EMAIL OTP' });
+
+    await expect(passkeyGroup).toContainText('gorp12.w3a-relayer.testnet');
+    await expect(passkeyGroup).toContainText('gorp13.w3a-relayer.testnet');
+    await expect(passkeyGroup).not.toContainText('sage-shore-3scqvgt7hl.w3a-relayer.testnet');
+    await expect(emailOtpGroup).toContainText('sage-shore-3scqvgt7hl.w3a-relayer.testnet');
+    await expect(emailOtpGroup).toContainText(
+      'n6378056-gmail-com-1776502017920.w3a-relayer.testnet',
+    );
   });
 
   test('Google SSO can hand off to the Email OTP unlock prompt', async ({ page }) => {
