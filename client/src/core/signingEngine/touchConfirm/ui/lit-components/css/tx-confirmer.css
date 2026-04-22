@@ -565,8 +565,9 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
 .email-otp-confirm {
   display: grid;
   gap: 0.45rem;
-  margin: 0.8rem 0.5rem 0.25rem;
+  margin: 0.8rem auto 0.25rem;
   max-width: 340px;
+  width: 100%;
 }
 
 .email-otp-confirm__label {

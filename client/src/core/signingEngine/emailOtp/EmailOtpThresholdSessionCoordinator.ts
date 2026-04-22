@@ -31,9 +31,7 @@ import {
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
-import {
-  type WalletAuthCurve,
-} from '@/core/signingEngine/auth';
+import { type WalletAuthCurve } from '@/core/signingEngine/auth';
 import {
   UserConfirmationType,
   type UserConfirmDecision,
@@ -772,8 +770,7 @@ export class EmailOtpThresholdSessionCoordinator {
             ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
             title: 'Enter email code to export',
             body: 'This one-time code authorizes private key export only.',
-            helperText:
-              'Key export is sensitive. The recovered export material is discarded after the viewer closes.',
+            helperText: 'Enter the 6-digit code sent to your email',
             onResend: async () => {
               challenge = await requestExportChallenge();
               return challenge;
@@ -785,8 +782,7 @@ export class EmailOtpThresholdSessionCoordinator {
           ...(challenge.emailHint ? { emailHint: challenge.emailHint } : {}),
           title: 'Enter email code to export',
           body: 'This one-time code authorizes private key export only.',
-          helperText:
-            'Key export is sensitive. The recovered export material is discarded after the viewer closes.',
+          helperText: 'Enter the 6-digit code sent to your email',
           onResend: async () => {
             challenge = await requestExportChallenge();
             return challenge;

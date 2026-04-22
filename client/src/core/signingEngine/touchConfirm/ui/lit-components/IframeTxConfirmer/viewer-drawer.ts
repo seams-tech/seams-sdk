@@ -567,7 +567,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               .loading=${this.loading}
               .errorMessage=${this.errorMessage || ''}
               .title=${this.title}
-              .confirmText=${this._isEmailOtpMode() ? 'Verify code' : this.confirmText}
+              .confirmText=${this._isEmailOtpMode() ? 'Confirm Code' : this.confirmText}
               .cancelText=${this.cancelText}
               @lit-confirm=${this.onContentConfirm}
               @lit-cancel=${this.onContentCancel}

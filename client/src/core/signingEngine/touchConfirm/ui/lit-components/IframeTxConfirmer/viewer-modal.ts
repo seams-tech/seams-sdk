@@ -549,7 +549,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
               .loading=${this.loading}
               .errorMessage=${this.errorMessage || ''}
               .title=${this.title}
-              .confirmText=${this._isEmailOtpMode() ? 'Verify code' : this.confirmText}
+              .confirmText=${this._isEmailOtpMode() ? 'Confirm Code' : this.confirmText}
               .cancelText=${this.cancelText}
               @lit-confirm=${this._handleConfirm}
               @lit-cancel=${this._handleCancel}
