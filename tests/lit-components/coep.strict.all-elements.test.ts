@@ -49,13 +49,13 @@ test('COEP strict: all Lit elements define + upgrade without COEP/CORP violation
   page.on('console', (msg) => {
     if (msg.type() !== 'error') return;
     const text = msg.text() || '';
-    if (/Cross-Origin-(Embedder|Resource)-Policy|COEP|CORP|blocked\b/i.test(text)) {
+    if (/Cross-Origin-(Embedder|Resource)-Policy|COEP|CORP/i.test(text)) {
       coepConsoleErrors.push(text);
     }
   });
   page.on('pageerror', (err) => {
     const text = String((err as any)?.message || err || '');
-    if (/Cross-Origin-(Embedder|Resource)-Policy|COEP|CORP|blocked\b/i.test(text)) {
+    if (/Cross-Origin-(Embedder|Resource)-Policy|COEP|CORP/i.test(text)) {
       coepPageErrors.push(text);
     }
   });

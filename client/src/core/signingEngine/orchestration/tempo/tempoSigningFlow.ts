@@ -39,6 +39,7 @@ import {
 } from '@/core/signingEngine/touchConfirm/intentDigestPreparationRegistry';
 import {
   asThresholdEcdsaKeyRef,
+  formatEmailOtpSentText,
   inferDigest32FromSignRequest,
   makeRequestId,
   resolveKeyRefForSignRequest,
@@ -118,7 +119,7 @@ export async function signTempoWithTouchConfirm(args: {
         challengeId: args.emailOtpSigning.challengeId,
         ...(args.emailOtpSigning.emailHint ? { emailHint: args.emailOtpSigning.emailHint } : {}),
         title: 'Enter email code to sign',
-        helperText: 'Enter the 6-digit code sent to your email to sign this transaction.',
+        helperText: formatEmailOtpSentText(args.emailOtpSigning.emailHint),
         ...(args.emailOtpSigning.resend ? { onResend: args.emailOtpSigning.resend } : {}),
       }
     : undefined;

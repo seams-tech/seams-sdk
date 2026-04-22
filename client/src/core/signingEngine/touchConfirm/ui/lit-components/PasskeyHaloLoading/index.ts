@@ -18,6 +18,7 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
     innerPadding: { type: String, attribute: 'inner-padding' },
     innerBackground: { type: String, attribute: 'inner-background' },
     // Local visual props
+    iconVariant: { type: String, attribute: 'icon-variant' },
     height: { type: Number },
     width: { type: Number },
     // Icon container overrides
@@ -35,6 +36,7 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
   declare padding?: string;
   declare innerPadding?: string;
   declare innerBackground?: string;
+  declare iconVariant?: 'fingerprint' | 'mail';
   declare height?: number;
   declare width?: number;
   declare iconContainerBorderRadius?: string;
@@ -120,6 +122,7 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
     const padding = this.padding;
     const innerPadding = this.innerPadding ?? '4px';
     const innerBackground = this.innerBackground;
+    const iconVariant = this.iconVariant === 'mail' ? 'mail' : 'fingerprint';
 
     return html`
       <div class="w3a-passkey-loading-root ${theme}">
@@ -136,14 +139,28 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
           .innerBackground=${innerBackground}
         >
           <div class="w3a-passkey-loading-touch-icon-container">
-            ${this.renderTouchIcon({ height, width })}
+            ${this.renderIcon({ height, width, iconVariant })}
           </div>
         </w3a-halo-border>
       </div>
     `;
   }
 
-  private renderTouchIcon({ height, width }: { height: number; width: number }) {
+  private renderIcon({
+    height,
+    width,
+    iconVariant,
+  }: {
+    height: number;
+    width: number;
+    iconVariant: 'fingerprint' | 'mail';
+  }) {
+    return iconVariant === 'mail'
+      ? this.renderMailIcon({ height, width })
+      : this.renderFingerprintIcon({ height, width });
+  }
+
+  private renderFingerprintIcon({ height, width }: { height: number; width: number }) {
     const strokeWidth = 'var(--w3a-modal__passkey-halo-loading-touch-icon__stroke-width, 3)';
 
     return html`
@@ -163,6 +180,38 @@ export class PasskeyHaloLoadingElement extends LitElementWithProps {
           stroke-linejoin="round"
           vector-effect="non-scaling-stroke"
           pathLength="1"
+        />
+      </svg>
+    `;
+  }
+
+  private renderMailIcon({ height, width }: { height: number; width: number }) {
+    const strokeWidth = 'var(--w3a-modal__passkey-halo-loading-touch-icon__stroke-width, 3)';
+
+    return html`
+      <svg
+        class="w3a-passkey-loading-touch-icon"
+        width=${width}
+        height=${height}
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M4.5 6.5H19.5C20.0523 6.5 20.5 6.94772 20.5 7.5V16.5C20.5 17.0523 20.0523 17.5 19.5 17.5H4.5C3.94772 17.5 3.5 17.0523 3.5 16.5V7.5C3.5 6.94772 3.94772 6.5 4.5 6.5Z"
+          stroke="currentColor"
+          stroke-width=${strokeWidth}
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          vector-effect="non-scaling-stroke"
+        />
+        <path
+          d="M4.25 7.25L12 12.75L19.75 7.25"
+          stroke="currentColor"
+          stroke-width=${strokeWidth}
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          vector-effect="non-scaling-stroke"
         />
       </svg>
     `;

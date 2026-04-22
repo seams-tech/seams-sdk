@@ -22,6 +22,8 @@ const LazyShowQRCode = React.lazy(() =>
 
 const preloadShowQRCode = () => import('../ShowQRCode').then(() => undefined);
 
+const OTP_CODE_LENGTH = 6;
+
 export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   onLogin,
   onRegister,
@@ -70,6 +72,8 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
   const prefetchQRCode = React.useCallback(() => {
     void preloadShowQRCode().catch(() => {});
   }, []);
+  const otpInputRef = React.useRef<HTMLInputElement | null>(null);
+  const lastAutoOtpSubmitRef = React.useRef('');
 
   const segActiveBg = 'var(--w3a-passkey-auth-menu2-seg-active-bg)';
   const rootStyle = React.useMemo<CSSVarStyle>(
@@ -108,6 +112,27 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
     showSDKEvents,
   ]);
 
+  const otpDigits = React.useMemo(() => {
+    const code = controller.otpPrompt?.code ?? '';
+    return Array.from({ length: OTP_CODE_LENGTH }, (_, index) => code[index] ?? '');
+  }, [controller.otpPrompt?.code]);
+
+  React.useEffect(() => {
+    const prompt = controller.otpPrompt;
+    if (!prompt) {
+      lastAutoOtpSubmitRef.current = '';
+      return;
+    }
+    const code = prompt.code;
+    if (!/^\d{6}$/.test(code) || prompt.submitting) {
+      if (code.length < OTP_CODE_LENGTH) lastAutoOtpSubmitRef.current = '';
+      return;
+    }
+    if (lastAutoOtpSubmitRef.current === code) return;
+    lastAutoOtpSubmitRef.current = code;
+    prompt.onSubmit();
+  }, [controller.otpPrompt]);
+
   return (
     <div
       className={`w3a-signup-menu-root${className ? ` ${className}` : ''}`}
@@ -121,18 +146,14 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
         waiting={controller.waiting}
         waitingText={
           controller.waitingReason === 'social'
-            ? 'Waiting for Google sign-in…'
+            ? 'Waiting for Google SSO authentication...'
             : controller.mode === AuthMenuMode.Register
               ? 'Creating passkey wallet…'
               : controller.mode === AuthMenuMode.Sync
                 ? 'Syncing account…'
                 : 'Signing in…'
         }
-        waitingSubtext={
-          controller.waitingReason === 'social'
-            ? 'Use the Google prompt if it appears. If nothing appears, go back and retry.'
-            : ''
-        }
+        waitingSubtext=""
         waitingSDKEventsText={waitingSDKEventsText}
         backButton={
           <button
@@ -210,21 +231,34 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
             <label className="w3a-field-label" htmlFor="w3a-email-otp-code">
               Email code
             </label>
-            <input
-              id="w3a-email-otp-code"
-              className="w3a-otp-input"
-              value={controller.otpPrompt.code}
-              onChange={(event) => controller.otpPrompt?.onCodeChange(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') controller.otpPrompt?.onSubmit();
-              }}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]*"
-              maxLength={6}
-              placeholder="000000"
-              disabled={controller.otpPrompt.submitting}
-            />
+            <div
+              className="w3a-otp-code-field"
+              data-disabled={controller.otpPrompt.submitting ? 'true' : 'false'}
+              onClick={() => otpInputRef.current?.focus()}
+            >
+              <input
+                ref={otpInputRef}
+                id="w3a-email-otp-code"
+                className="w3a-otp-input"
+                value={controller.otpPrompt.code}
+                onChange={(event) => controller.otpPrompt?.onCodeChange(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') controller.otpPrompt?.onSubmit();
+                }}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]*"
+                maxLength={OTP_CODE_LENGTH}
+                disabled={controller.otpPrompt.submitting}
+              />
+              <div className="w3a-otp-slots" aria-hidden="true">
+                {otpDigits.map((digit, index) => (
+                  <span key={index} className={`w3a-otp-slot${digit ? ' is-filled' : ''}`}>
+                    {digit}
+                  </span>
+                ))}
+              </div>
+            </div>
             {controller.otpPrompt.error ? (
               <p className="w3a-otp-error" role="alert">
                 {controller.otpPrompt.error}

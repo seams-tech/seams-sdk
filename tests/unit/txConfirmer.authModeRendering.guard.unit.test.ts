@@ -26,7 +26,9 @@ test.describe('Tx Confirmer auth-mode rendering guard', () => {
       true,
     );
     expect(content.includes('id="email-otp-confirm-code"')).toBe(true);
-    expect(content.includes("this._isEmailOtpMode() ? '6' : '✓'")).toBe(true);
+    expect(content.includes(".iconVariant=${this._isEmailOtpMode() ? 'mail' : 'fingerprint'}")).toBe(
+      true,
+    );
     expect(content.includes('w3a-passkey-halo-loading')).toBe(true);
   });
 

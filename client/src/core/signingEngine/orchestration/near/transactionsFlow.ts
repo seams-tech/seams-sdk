@@ -28,6 +28,7 @@ import type {
 import type { WalletAuthPlan } from '../../auth';
 import {
   emailOtpSigningAuthPlan,
+  formatEmailOtpSentText,
   passkeySigningAuthPlan,
   signingAuthPlanFromWalletAuthPlan,
 } from '../shared/touchConfirmSigning';
@@ -266,7 +267,7 @@ export async function signTransactionsWithActions({
         challengeId: emailOtpSigning.challengeId,
         ...(emailOtpSigning.emailHint ? { emailHint: emailOtpSigning.emailHint } : {}),
         title: 'Enter email code to sign',
-        helperText: 'Enter the 6-digit code sent to your email to sign this transaction.',
+        helperText: formatEmailOtpSentText(emailOtpSigning.emailHint),
         ...(emailOtpSigning.resend ? { onResend: emailOtpSigning.resend } : {}),
       }
     : undefined;

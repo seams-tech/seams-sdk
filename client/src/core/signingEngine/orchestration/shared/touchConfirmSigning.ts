@@ -5,6 +5,7 @@ import type {
 import type { WalletAuthPlan } from '@/core/signingEngine/auth';
 import type { KeyRef, SignRequest } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
+export { formatEmailOtpSentText } from '@/core/signingEngine/touchConfirm/shared/emailOtpPromptCopy';
 
 export function makeRequestId(prefix: string): string {
   const c = globalThis.crypto;

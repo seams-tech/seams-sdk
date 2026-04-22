@@ -1247,6 +1247,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           theme: el ? el.theme : undefined,
         };
         handle.close(false);
+        await new Promise((resolve) => setTimeout(resolve, 300));
         const gone = (document.getElementById('w3a-confirm-portal')?.childElementCount || 0) === 0;
         return { exists, stillThere, gone, afterUpdate };
       },
@@ -1303,6 +1304,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           dataError: portalChild ? portalChild.getAttribute?.('data-error-message') : undefined,
         };
         handle.close(true);
+        await new Promise((resolve) => setTimeout(resolve, 300));
         const gone = (document.getElementById('w3a-confirm-portal')?.childElementCount || 0) === 0;
         return { exists, afterUpdate, gone };
       },

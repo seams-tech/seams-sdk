@@ -427,13 +427,61 @@
   cursor: not-allowed;
 }
 
+.w3a-otp-code-field {
+  box-sizing: border-box;
+  position: relative;
+  width: 100%;
+  cursor: text;
+}
+
+.w3a-otp-code-field[data-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .w3a-otp-input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   box-sizing: border-box;
   width: 100%;
-  height: 54px;
-  border: 1px solid var(--w3a-colors-borderPrimary);
-  border-radius: 1.25rem;
-  background: var(--w3a-colors-surface);
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0.01;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-family: var(
+    --w3a-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
+  font-size: 16px;
+  outline: none;
+}
+
+.w3a-otp-slots {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(7px, 2vw, 12px);
+  width: 100%;
+  pointer-events: none;
+}
+
+.w3a-otp-slot {
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--w3a-colors-borderPrimary), var(--w3a-colors-surface) 68%);
   color: var(--w3a-colors-textPrimary);
   font-family: var(
     --w3a-font-family,
@@ -443,23 +491,22 @@
     Roboto,
     sans-serif
   );
-  font-size: 1.3rem;
+  font-size: 1.35rem;
   font-weight: 700;
-  letter-spacing: 0.28em;
-  text-align: center;
-  outline: none;
+  line-height: 1;
   transition:
     border-color 160ms ease,
-    box-shadow 160ms ease;
+    box-shadow 160ms ease,
+    background-color 160ms ease;
 }
 
-.w3a-otp-input:focus {
+.w3a-otp-slot.is-filled {
+  background: color-mix(in srgb, var(--w3a-colors-surface), var(--w3a-colors-textPrimary) 6%);
+}
+
+.w3a-otp-code-field:focus-within .w3a-otp-slot {
   border-color: var(--w3a-colors-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary), transparent 72%);
-}
-
-.w3a-otp-input::placeholder {
-  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
 }
 
 .w3a-otp-resend {

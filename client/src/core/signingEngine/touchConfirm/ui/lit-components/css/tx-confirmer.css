@@ -575,24 +575,78 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   font-weight: 600;
 }
 
-.email-otp-confirm__input {
+.email-otp-confirm__code-field {
+  position: relative;
   width: 100%;
   box-sizing: border-box;
-  border-radius: 1.25rem;
-  border: 1px solid var(--w3a-colors-borderPrimary);
-  background: var(--w3a-colors-colorBackground);
-  color: var(--w3a-colors-textPrimary);
+  cursor: text;
+}
+
+.email-otp-confirm__code-field[data-disabled='true'] {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.email-otp-confirm__input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  opacity: 0.01;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
   font-family: var(--w3a-font-family);
-  font-size: 1.35rem;
-  font-weight: 700;
-  letter-spacing: 0.35em;
-  text-align: center;
-  min-height: 3rem;
-  padding: 0.55rem 0.8rem 0.55rem 1.15rem;
+  font-size: 16px;
   outline: none;
 }
 
-.email-otp-confirm__input:focus {
+.email-otp-confirm__slots {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(0.4rem, 2vw, 0.65rem);
+  width: 100%;
+  pointer-events: none;
+}
+
+.email-otp-confirm__slot {
+  aspect-ratio: 1;
+  min-width: 0;
+  min-height: 2.55rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: color-mix(
+    in srgb,
+    var(--w3a-colors-borderPrimary),
+    var(--w3a-colors-colorBackground) 68%
+  );
+  color: var(--w3a-colors-textPrimary);
+  font-family: var(--w3a-font-family);
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.email-otp-confirm__slot.is-filled {
+  background: color-mix(
+    in srgb,
+    var(--w3a-colors-colorBackground),
+    var(--w3a-colors-textPrimary) 7%
+  );
+}
+
+.email-otp-confirm__code-field:focus-within .email-otp-confirm__slot {
   border-color: var(--w3a-colors-primary, var(--w3a-colors-textPrimary));
   box-shadow: 0 0 0 3px rgba(142, 122, 180, 0.18);
 }

@@ -3,6 +3,7 @@ export interface GoogleIdCredentialResponse {
 }
 
 export interface GoogleIdPromptMomentNotification {
+  getMomentType?: () => string;
   isDisplayMoment?: () => boolean;
   isDisplayed?: () => boolean;
   isNotDisplayed?: () => boolean;
@@ -25,7 +26,6 @@ export interface GoogleIdentityApi {
     callback: (response: GoogleIdCredentialResponse) => void;
     auto_select?: boolean;
     cancel_on_tap_outside?: boolean;
-    use_fedcm_for_prompt?: boolean;
   }): void;
   prompt(notification?: (event: GoogleIdPromptMomentNotification) => void): void;
   cancel?: () => void;
@@ -46,7 +46,6 @@ let googleIdentityScriptLoadPromise: Promise<void> | null = null;
 const GOOGLE_ID_TOKEN_TIMEOUT_MS = 60_000;
 const GOOGLE_IDENTITY_SCRIPT_TIMEOUT_MS = 15_000;
 const GOOGLE_IDENTITY_PROMPT_DISPLAY_TIMEOUT_MS = 12_000;
-const GOOGLE_IDENTITY_FEDCM_PROMPT_DISPLAY_TIMEOUT_MS = 25_000;
 const GOOGLE_IDENTITY_PROMPT_TOTAL_TIMEOUT_MS = 60_000;
 
 function normalizeRelayBaseUrl(input: unknown): string {
@@ -55,7 +54,7 @@ function normalizeRelayBaseUrl(input: unknown): string {
     .replace(/\/+$/, '');
 }
 
-async function parseOptionalJson(response: Response): Promise<any> {
+async function parseOptionalJson(response: Response): Promise<unknown> {
   return response.json().catch(() => null);
 }
 
@@ -75,13 +74,15 @@ export async function fetchGoogleAuthOptions(relayerBaseUrl: string): Promise<Go
     body: JSON.stringify({}),
   });
   const body = await parseOptionalJson(response);
-  const configured = response.ok && body?.ok === true && body?.configured === true;
-  const clientId = String(body?.clientId || '').trim();
+  const bodyRecord =
+    body && typeof body === 'object' ? (body as Record<string, unknown>) : undefined;
+  const configured = response.ok && bodyRecord?.ok === true && bodyRecord?.configured === true;
+  const clientId = String(bodyRecord?.clientId || '').trim();
   return {
     configured: configured && clientId.length > 0,
     ...(clientId ? { clientId } : {}),
-    ...(typeof body?.message === 'string' && body.message.trim()
-      ? { message: body.message.trim() }
+    ...(typeof bodyRecord?.message === 'string' && bodyRecord.message.trim()
+      ? { message: bodyRecord.message.trim() }
       : {}),
   };
 }
@@ -97,6 +98,8 @@ type GooglePromptFailureDetails = {
 type GooglePromptError = Error & {
   details?: GooglePromptFailureDetails;
 };
+
+type GooglePromptMode = 'standard';
 
 function normalizeGooglePromptReason(value: unknown, fallback: string): string {
   const normalized = String(value || '')
@@ -128,9 +131,44 @@ function makeGooglePromptError(details: GooglePromptFailureDetails): GooglePromp
   return error;
 }
 
-function isUnknownPromptFailure(error: unknown): boolean {
-  const details = (error as GooglePromptError | null)?.details;
-  return details?.reason === 'unknown_reason';
+function readGooglePromptDiagnostics(input: {
+  clientId: string;
+  mode: GooglePromptMode;
+  notification?: GoogleIdPromptMomentNotification;
+}): Record<string, unknown> {
+  const { clientId, mode, notification } = input;
+  const read = (fn?: () => unknown): unknown => {
+    try {
+      return typeof fn === 'function' ? fn() : undefined;
+    } catch (error: unknown) {
+      return error instanceof Error ? `threw:${error.message}` : 'threw';
+    }
+  };
+  return {
+    mode,
+    origin: typeof window !== 'undefined' ? window.location.origin : '',
+    protocol: typeof window !== 'undefined' ? window.location.protocol : '',
+    inIframe: typeof window !== 'undefined' ? window.self !== window.top : false,
+    clientIdSuffix: clientId.slice(-16),
+    momentType: read(notification?.getMomentType),
+    isDisplayMoment: read(notification?.isDisplayMoment),
+    isDisplayed: read(notification?.isDisplayed),
+    isNotDisplayed: read(notification?.isNotDisplayed),
+    isSkippedMoment: read(notification?.isSkippedMoment),
+    isDismissedMoment: read(notification?.isDismissedMoment),
+    notDisplayedReason: read(notification?.getNotDisplayedReason),
+    skippedReason: read(notification?.getSkippedReason),
+    dismissedReason: read(notification?.getDismissedReason),
+  };
+}
+
+function logGooglePromptDiagnostics(
+  event: string,
+  diagnostics: Record<string, unknown>,
+  level: 'debug' | 'warn' = 'debug',
+): void {
+  const logger = level === 'warn' ? console.warn : console.debug;
+  logger(`[Google SSO] ${event}`, diagnostics);
 }
 
 export function ensureGoogleIdentityScriptLoaded(): Promise<void> {
@@ -142,21 +180,20 @@ export function ensureGoogleIdentityScriptLoaded(): Promise<void> {
   googleIdentityScriptLoadPromise = new Promise<void>((resolve, reject) => {
     const script = document.createElement('script');
     let settled = false;
-    let timeout: number | undefined;
     const finishResolve = () => {
       if (settled) return;
       settled = true;
-      if (timeout !== undefined) window.clearTimeout(timeout);
+      window.clearTimeout(timeout);
       resolve();
     };
     const finishReject = (error: Error) => {
       if (settled) return;
       settled = true;
-      if (timeout !== undefined) window.clearTimeout(timeout);
+      window.clearTimeout(timeout);
       googleIdentityScriptLoadPromise = null;
       reject(error);
     };
-    timeout = window.setTimeout(() => {
+    const timeout = window.setTimeout(() => {
       script.remove();
       finishReject(
         new Error('Timed out loading Google Identity script. Check network blockers and retry.'),
@@ -181,7 +218,7 @@ export function ensureGoogleIdentityScriptLoaded(): Promise<void> {
 
 function requestGoogleIdTokenWithPromptMode(
   clientId: string,
-  useFedcmForPrompt: boolean,
+  mode: GooglePromptMode,
 ): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const googleIdApi = window.google?.accounts?.id;
@@ -226,10 +263,13 @@ function requestGoogleIdTokenWithPromptMode(
     };
     displayTimeout = window.setTimeout(() => {
       if (promptDisplayed) return;
+      logGooglePromptDiagnostics(
+        'One Tap display timeout',
+        readGooglePromptDiagnostics({ clientId, mode }),
+        'warn',
+      );
       finishReject(makeGooglePromptError({ stage: 'not_displayed', reason: 'unknown_reason' }));
-    }, useFedcmForPrompt
-      ? GOOGLE_IDENTITY_FEDCM_PROMPT_DISPLAY_TIMEOUT_MS
-      : GOOGLE_IDENTITY_PROMPT_DISPLAY_TIMEOUT_MS);
+    }, GOOGLE_IDENTITY_PROMPT_DISPLAY_TIMEOUT_MS);
     totalTimeout = window.setTimeout(() => {
       finishReject(
         new Error(
@@ -252,11 +292,16 @@ function requestGoogleIdTokenWithPromptMode(
       // The wallet unlock/signing factor remains the Email OTP flow after SSO.
       auto_select: true,
       cancel_on_tap_outside: true,
-      use_fedcm_for_prompt: useFedcmForPrompt,
     });
+    logGooglePromptDiagnostics(
+      'One Tap prompt requested',
+      readGooglePromptDiagnostics({ clientId, mode }),
+    );
 
     googleIdApi.prompt((notification) => {
       if (settled) return;
+      const diagnostics = readGooglePromptDiagnostics({ clientId, mode, notification });
+      logGooglePromptDiagnostics('One Tap prompt moment', diagnostics);
       const displayed =
         notification?.isDisplayed?.() === true || notification?.isDisplayMoment?.() === true;
       if (displayed) {
@@ -275,11 +320,13 @@ function requestGoogleIdTokenWithPromptMode(
           notification?.getNotDisplayedReason?.(),
           'not_displayed',
         );
+        logGooglePromptDiagnostics('One Tap not displayed', diagnostics, 'warn');
         finishReject(makeGooglePromptError({ stage: 'not_displayed', reason }));
         return;
       }
       if (skipped) {
         const reason = normalizeGooglePromptReason(notification?.getSkippedReason?.(), 'skipped');
+        logGooglePromptDiagnostics('One Tap skipped', diagnostics, 'warn');
         finishReject(makeGooglePromptError({ stage: 'skipped', reason }));
         return;
       }
@@ -288,6 +335,7 @@ function requestGoogleIdTokenWithPromptMode(
           notification?.getDismissedReason?.(),
           'dismissed',
         );
+        logGooglePromptDiagnostics('One Tap dismissed', diagnostics, 'warn');
         finishReject(makeGooglePromptError({ stage: 'dismissed', reason }));
       }
     });
@@ -317,15 +365,5 @@ async function withGoogleIdentityTimeout<T>(promise: Promise<T>): Promise<T> {
 }
 
 export async function requestGoogleIdToken(clientId: string): Promise<string> {
-  try {
-    // First prefer non-FedCM prompt mode.
-    return await withGoogleIdentityTimeout(requestGoogleIdTokenWithPromptMode(clientId, false));
-  } catch (error: unknown) {
-    if (!isUnknownPromptFailure(error)) {
-      throw error;
-    }
-  }
-
-  // If browser returns unknown prompt failure, retry with FedCM prompt mode.
-  return await withGoogleIdentityTimeout(requestGoogleIdTokenWithPromptMode(clientId, true));
+  return await withGoogleIdentityTimeout(requestGoogleIdTokenWithPromptMode(clientId, 'standard'));
 }

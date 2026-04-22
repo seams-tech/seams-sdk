@@ -15,6 +15,7 @@ import type {
   EmailOtpConfirmPrompt,
   SigningAuthMode,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+import { formatEmailOtpSentText } from '@/core/signingEngine/touchConfirm/shared/emailOtpPromptCopy';
 
 function formatEmailOtpResendError(error: unknown): string {
   const code =
@@ -94,6 +95,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   otpResendUntilMs = 0;
   otpResendStatus = '';
   private _otpResendTimer: number | null = null;
+  private _lastAutoOtpSubmitCode = '';
 
   // Keep essential custom elements from being tree-shaken
   private _ensureDrawerDefinition = DrawerElement;
@@ -179,8 +181,20 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
 
   private _onOtpInput = (event: Event): void => {
     const input = event.currentTarget as HTMLInputElement | null;
-    this.otpCode = String(input?.value || '').replace(/\D/g, '').slice(0, 6);
+    const code = String(input?.value || '')
+      .replace(/\D/g, '')
+      .slice(0, 6);
+    this.otpCode = code;
     this.otpError = '';
+    if (code.length < 6) {
+      this._lastAutoOtpSubmitCode = '';
+      return;
+    }
+    if (this.loading || this._lastAutoOtpSubmitCode === code) return;
+    this._lastAutoOtpSubmitCode = code;
+    requestAnimationFrame(() => {
+      if (!this.loading && this.otpCode === code) this.onContentConfirm();
+    });
   };
 
   private _startOtpResendCountdown(durationMs: number): void {
@@ -237,22 +251,33 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     if (!this._isEmailOtpMode()) return '';
     const helper =
       String(this.emailOtpPrompt?.helperText || '').trim() ||
-      'Enter the 6-digit code sent to your email to sign this transaction.';
+      formatEmailOtpSentText(this.emailOtpPrompt?.emailHint);
     return html`
       <div class="email-otp-confirm">
-        <label class="email-otp-confirm__label" for="drawer-email-otp-confirm-code">Email code</label>
-        <input
-          id="drawer-email-otp-confirm-code"
-          class="email-otp-confirm__input"
-          inputmode="numeric"
-          autocomplete="one-time-code"
-          pattern="[0-9]*"
-          maxlength="6"
-          .value=${this.otpCode}
-          ?disabled=${this.loading}
-          @input=${this._onOtpInput}
-          aria-label="6-digit Email OTP code"
-        />
+        <label class="email-otp-confirm__label" for="drawer-email-otp-confirm-code"
+          >Email code</label
+        >
+        <div class="email-otp-confirm__code-field" data-disabled=${this.loading ? 'true' : 'false'}>
+          <input
+            id="drawer-email-otp-confirm-code"
+            class="email-otp-confirm__input"
+            inputmode="numeric"
+            autocomplete="one-time-code"
+            pattern="[0-9]*"
+            maxlength="6"
+            .value=${this.otpCode}
+            ?disabled=${this.loading}
+            @input=${this._onOtpInput}
+          />
+          <div class="email-otp-confirm__slots" aria-hidden="true">
+            ${[0, 1, 2, 3, 4, 5].map((index) => {
+              const digit = this.otpCode[index] || '';
+              return html`<span class="email-otp-confirm__slot${digit ? ' is-filled' : ''}"
+                >${digit}</span
+              >`;
+            })}
+          </div>
+        </div>
         <div class="email-otp-confirm__helper">${helper}</div>
         ${this.otpError ? html`<div class="email-otp-confirm__error">${this.otpError}</div>` : ''}
         ${typeof this.emailOtpPrompt?.onResend === 'function'
@@ -386,7 +411,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   private onContentConfirm = () => {
     if (this.loading) return;
     if (this._isEmailOtpMode()) {
-      const code = String(this.otpCode || '').replace(/\D/g, '').slice(0, 6);
+      const code = String(this.otpCode || '')
+        .replace(/\D/g, '')
+        .slice(0, 6);
       if (!/^\d{6}$/.test(code)) {
         this.otpCode = code;
         this.otpError = 'Enter the 6-digit Email OTP code.';
@@ -462,9 +489,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                   ? 'Enter email code to sign'
                   : this._isWarmSessionMode()
                     ? 'Review transaction'
-                  : isRegistration
-                    ? 'Register with Passkey'
-                    : 'Confirm with Passkey';
+                    : isRegistration
+                      ? 'Register with Passkey'
+                      : 'Confirm with Passkey';
                 const titleText = (this.title || '').trim();
                 const promptTitle = String(this.emailOtpPrompt?.title || '').trim();
                 const heading = this._isEmailOtpMode()
