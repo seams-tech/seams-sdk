@@ -7,6 +7,7 @@ const RUNTIME_POLICY_SCOPE = {
   orgId: ORG_ID,
   projectId: 'project_hosted_account_privacy_tests',
   envId: 'dev',
+  signingRootVersion: 'default',
 } as const;
 
 function makeService(): AuthService {

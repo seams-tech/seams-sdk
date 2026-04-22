@@ -28,6 +28,7 @@ test.describe('runtime snapshot consumer helpers', () => {
       orgId: 'org-runtime-1',
       projectId: 'project-alpha',
       envId: 'prod',
+      signingRootVersion: 'default',
     });
     expect(latest?.snapshotId).toBe('snap_1');
     expect(latest?.version).toBe(1);
@@ -41,6 +42,7 @@ test.describe('runtime snapshot consumer helpers', () => {
         orgId: 'org-runtime-2',
         projectId: 'project-runtime-2',
         envId: 'staging',
+        signingRootVersion: 'default',
       },
       envelope: {
         snapshotId: 'snap_2',
@@ -56,6 +58,7 @@ test.describe('runtime snapshot consumer helpers', () => {
         orgId: 'org-runtime-2',
         projectId: 'project-runtime-2',
         envId: 'staging',
+        signingRootVersion: 'default',
       },
       expectationRaw: {
         snapshotId: 'snap_2',
@@ -71,6 +74,7 @@ test.describe('runtime snapshot consumer helpers', () => {
         orgId: 'org-runtime-2',
         projectId: 'project-runtime-2',
         envId: 'staging',
+        signingRootVersion: 'default',
       },
       expectationRaw: {
         version: 5,

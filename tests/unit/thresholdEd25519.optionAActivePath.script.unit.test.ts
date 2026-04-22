@@ -90,6 +90,7 @@ const RUNTIME_SCOPE = {
   orgId: ORG_ID,
   projectId: 'project_option_a',
   envId: 'env_option_a',
+  signingRootVersion: 'default',
 } as const;
 const SIGNING_ROOT_ID = `${RUNTIME_SCOPE.projectId}:${RUNTIME_SCOPE.envId}`;
 const CONTEXT = {

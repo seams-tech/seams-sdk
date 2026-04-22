@@ -7,6 +7,7 @@ const RUNTIME_POLICY_SCOPE = {
   orgId: ORG_ID,
   projectId: 'project_oidc_exchange_tests',
   envId: 'env_oidc_exchange_tests',
+  signingRootVersion: 'default',
 } as const;
 
 function b64u(input: Uint8Array | string): string {

@@ -17,7 +17,12 @@ import {
   secp256k1_private_key_32_to_public_key_33,
 } from '../../wasm/eth_signer/pkg/eth_signer.js';
 
-const TEST_RUNTIME_SCOPE = { orgId: 'org-alpha', projectId: 'project-alpha', envId: 'env-alpha' } as const;
+const TEST_RUNTIME_SCOPE = {
+  orgId: 'org-alpha',
+  projectId: 'project-alpha',
+  envId: 'env-alpha',
+  signingRootVersion: 'default',
+} as const;
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,

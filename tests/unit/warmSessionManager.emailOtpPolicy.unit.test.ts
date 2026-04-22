@@ -646,7 +646,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       sessionJwt: 'jwt:ecdsa-email-otp-session',
       walletSigningSessionId: 'wallet-email-otp-session',
     });
-    emailOtpBootstrap.thresholdEcdsaKeyRef.backendBinding.clientAdditiveShareHandle = {
+    emailOtpBootstrap.thresholdEcdsaKeyRef.backendBinding!.clientAdditiveShareHandle = {
       kind: 'email_otp_worker_session',
       sessionId: 'email-otp-worker-session',
     };
@@ -752,7 +752,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       sessionJwt: 'jwt:ecdsa-source-email-session',
       walletSigningSessionId: 'wallet-source-email-session',
     });
-    emailOtpBootstrap.thresholdEcdsaKeyRef.backendBinding.clientAdditiveShareHandle = {
+    emailOtpBootstrap.thresholdEcdsaKeyRef.backendBinding!.clientAdditiveShareHandle = {
       kind: 'email_otp_worker_session',
       sessionId: 'source-email-worker-session',
     };

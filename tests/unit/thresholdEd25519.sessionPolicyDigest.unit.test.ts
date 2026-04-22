@@ -51,7 +51,9 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
   });
 
   const scheme = svc.getSchemeModule(THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID);
-  if (!scheme) throw new Error('threshold-ed25519 scheme missing in test service');
+  if (!scheme || scheme.schemeId !== THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID) {
+    throw new Error('threshold-ed25519 scheme missing in test service');
+  }
 
   const result = await scheme.session({
     relayerKeyId,
@@ -60,11 +62,14 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
       id: 'cred-runtime-scope',
       rawId: 'cred-runtime-scope',
       type: 'public-key',
+      authenticatorAttachment: null,
       response: {
         clientDataJSON: 'client-data-json',
         authenticatorData: 'authenticator-data',
         signature: 'signature',
+        userHandle: null,
       },
+      clientExtensionResults: null,
     },
   });
 
