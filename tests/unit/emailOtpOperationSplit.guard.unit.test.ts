@@ -86,6 +86,9 @@ test.describe('Email OTP operation split guard', () => {
 
   test('ECDSA transaction signing selects an auth lane before choosing a lane record', () => {
     const source = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const store = readRepoFile(
+      'client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts',
+    );
     const authResolver = source.indexOf('async function resolveEvmFamilyTransactionAccountAuth');
     const profileLookup = source.indexOf(
       'resolveProfileAccountContextFromCandidates',
@@ -114,7 +117,7 @@ test.describe('Email OTP operation split guard', () => {
 
     expect(source).toContain('tryGetEmailOtpThresholdEcdsaSessionRecordForSigning');
     expect(source).toContain('tryGetPasskeyThresholdEcdsaSessionRecordForSigning');
-    expect(source).toContain('THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES');
+    expect(store).toContain('THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES');
     expect(source).toContain('pickUnambiguousEcdsaAuthRecord');
     expect(selectionSource).not.toContain('genericRecord');
     expect(selectionSource).not.toContain('genericKeyRef');
@@ -142,8 +145,22 @@ test.describe('Email OTP operation split guard', () => {
     expect(store).toContain('getEmailOtpThresholdEcdsaSessionRecordForSigning');
     expect(store).toContain("source: 'email_otp'");
     expect(store).toContain('getPasskeyThresholdEcdsaSessionRecordForSigning');
+    const evmSigningDeps = evmSigning.slice(
+      evmSigning.indexOf('export type EvmFamilySigningDeps'),
+      evmSigning.indexOf('type EvmFamilyLifecycleEvent'),
+    );
+    expect(evmSigningDeps).not.toContain('getThresholdEcdsaKeyRefForSigning');
+    expect(evmSigningDeps).not.toContain('getThresholdEcdsaSessionRecordForSigning');
+    expect(evmSigningDeps).toContain('getEmailOtpThresholdEcdsaKeyRefForSigning');
+    expect(evmSigningDeps).toContain('getEmailOtpThresholdEcdsaSessionRecordForSigning');
+    expect(evmSigningDeps).toContain('getPasskeyThresholdEcdsaKeyRefForSigning');
+    expect(evmSigningDeps).toContain('getPasskeyThresholdEcdsaSessionRecordForSigning');
+    expect(evmSigning).toContain('type EcdsaSigningLaneContext');
+    expect(evmSigning).toContain('ecdsaLane');
     expect(evmSigning).toContain('source: SIGNER_AUTH_METHODS.emailOtp');
-    expect(evmSigning).toContain("selectedSource: warmRecord?.source || 'manual-bootstrap'");
+    expect(evmSigning).toContain(
+      "source: (warmRecord?.source || 'manual-bootstrap') as PasskeyEcdsaSessionStoreSource",
+    );
     expect(emailOtpCoordinator).toContain(
       "chain: candidateChain,\n          source: 'email_otp'",
     );

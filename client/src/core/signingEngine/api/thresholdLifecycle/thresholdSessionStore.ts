@@ -1313,8 +1313,16 @@ export function getPasskeyThresholdEcdsaSessionRecordForSigning(
     chain: ThresholdEcdsaActivationChain;
     signingRootId?: string;
     signingRootVersion?: string;
+    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   },
 ): ThresholdEcdsaSessionRecord {
+  if (args.source) {
+    return getThresholdEcdsaSessionRecordForSigning(deps, {
+      ...args,
+      source: args.source,
+    });
+  }
+
   const accountId = toAccountId(args.nearAccountId);
   const records: ThresholdEcdsaSessionRecord[] = [];
   for (const source of THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES) {
@@ -1359,6 +1367,7 @@ export function getPasskeyThresholdEcdsaKeyRefForSigning(
     chain: ThresholdEcdsaActivationChain;
     signingRootId?: string;
     signingRootVersion?: string;
+    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   },
 ): ThresholdEcdsaSecp256k1KeyRef {
   const record = getPasskeyThresholdEcdsaSessionRecordForSigning(deps, args);

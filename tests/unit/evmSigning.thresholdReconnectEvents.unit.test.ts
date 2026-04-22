@@ -49,8 +49,10 @@ test.describe('EVM family threshold reconnect events', () => {
         tatchiPasskeyConfigs: {
           registration: { mode: 'self' },
         },
-        getThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,
-        getThresholdEcdsaSessionRecordForSigning: () => staleRecord,
+        getEmailOtpThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,
+        getEmailOtpThresholdEcdsaSessionRecordForSigning: () => staleRecord,
+        getPasskeyThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,
+        getPasskeyThresholdEcdsaSessionRecordForSigning: () => staleRecord,
         clearThresholdEcdsaSessionRecordForLane: () => undefined,
         provisionThresholdEcdsaSession: async ({
           nearAccountId,

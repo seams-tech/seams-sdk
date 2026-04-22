@@ -96,6 +96,24 @@ export type CreateOrchestrationDependencyBundleArgs = {
     chain: 'tempo' | 'evm';
     source?: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSessionRecord;
+  getEmailOtpThresholdEcdsaKeyRefForSigning: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+  }) => ThresholdEcdsaSecp256k1KeyRef;
+  getEmailOtpThresholdEcdsaSessionRecordForSigning: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+  }) => ThresholdEcdsaSessionRecord;
+  getPasskeyThresholdEcdsaKeyRefForSigning: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+  }) => ThresholdEcdsaSecp256k1KeyRef;
+  getPasskeyThresholdEcdsaSessionRecordForSigning: (args: {
+    nearAccountId: AccountId | string;
+    chain: 'tempo' | 'evm';
+    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+  }) => ThresholdEcdsaSessionRecord;
   requestEmailOtpTransactionSigningChallenge?: (args: {
     nearAccountId: AccountId | string;
     chain: 'near' | 'tempo' | 'evm';
@@ -352,14 +370,24 @@ export function createOrchestrationDependencyBundle(
       tatchiPasskeyConfigs: args.tatchiPasskeyConfigs,
       evmNonceManager: args.evmNonceManager,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
-      getThresholdEcdsaKeyRefForSigning: ({ nearAccountId, chain, source }) =>
-        args.getThresholdEcdsaKeyRefForSigning({
+      getEmailOtpThresholdEcdsaKeyRefForSigning: ({ nearAccountId, chain }) =>
+        args.getEmailOtpThresholdEcdsaKeyRefForSigning({
+          nearAccountId,
+          chain,
+        }),
+      getEmailOtpThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain }) =>
+        args.getEmailOtpThresholdEcdsaSessionRecordForSigning({
+          nearAccountId,
+          chain,
+        }),
+      getPasskeyThresholdEcdsaKeyRefForSigning: ({ nearAccountId, chain, source }) =>
+        args.getPasskeyThresholdEcdsaKeyRefForSigning({
           nearAccountId,
           chain,
           ...(source ? { source } : {}),
         }),
-      getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain, source }) =>
-        args.getThresholdEcdsaSessionRecordForSigning({
+      getPasskeyThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain, source }) =>
+        args.getPasskeyThresholdEcdsaSessionRecordForSigning({
           nearAccountId,
           chain,
           ...(source ? { source } : {}),

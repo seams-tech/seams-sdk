@@ -104,6 +104,10 @@ import {
   clearAllThresholdEcdsaSessionRecords as clearAllThresholdEcdsaSessionRecordsValue,
   clearThresholdEcdsaSessionRecordForLane as clearThresholdEcdsaSessionRecordForLaneValue,
   clearThresholdEcdsaSessionRecordForAccount as clearThresholdEcdsaSessionRecordForAccountValue,
+  getEmailOtpThresholdEcdsaKeyRefForSigning as getEmailOtpThresholdEcdsaKeyRefForSigningValue,
+  getEmailOtpThresholdEcdsaSessionRecordForSigning as getEmailOtpThresholdEcdsaSessionRecordForSigningValue,
+  getPasskeyThresholdEcdsaKeyRefForSigning as getPasskeyThresholdEcdsaKeyRefForSigningValue,
+  getPasskeyThresholdEcdsaSessionRecordForSigning as getPasskeyThresholdEcdsaSessionRecordForSigningValue,
   getThresholdEcdsaKeyRefForSigning as getThresholdEcdsaKeyRefForSigningValue,
   getThresholdEcdsaSessionRecordForSigning as getThresholdEcdsaSessionRecordForSigningValue,
   getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
@@ -442,6 +446,14 @@ export class SigningEngine {
       getThresholdEcdsaKeyRefForSigning: (args) => this.getThresholdEcdsaKeyRefForSigning(args),
       getThresholdEcdsaSessionRecordForSigning: (args) =>
         this.getThresholdEcdsaSessionRecordForSigning(args),
+      getEmailOtpThresholdEcdsaKeyRefForSigning: (args) =>
+        this.getEmailOtpThresholdEcdsaKeyRefForSigning(args),
+      getEmailOtpThresholdEcdsaSessionRecordForSigning: (args) =>
+        this.getEmailOtpThresholdEcdsaSessionRecordForSigning(args),
+      getPasskeyThresholdEcdsaKeyRefForSigning: (args) =>
+        this.getPasskeyThresholdEcdsaKeyRefForSigning(args),
+      getPasskeyThresholdEcdsaSessionRecordForSigning: (args) =>
+        this.getPasskeyThresholdEcdsaSessionRecordForSigning(args),
       requestEmailOtpTransactionSigningChallenge: (args) =>
         this.emailOtpSessions.requestTransactionSigningChallenge(args),
       isEmailOtpEd25519WarmupPending: (args) => this.emailOtpSessions.isEd25519WarmupPending(args),
@@ -2740,6 +2752,58 @@ export class SigningEngine {
     source?: ThresholdEcdsaSessionStoreSource;
   }): ThresholdEcdsaSessionRecord {
     return getThresholdEcdsaSessionRecordForSigningValue(
+      {
+        recordsByLane: this.thresholdEcdsaSessionByLane,
+      },
+      args,
+    );
+  }
+
+  getEmailOtpThresholdEcdsaKeyRefForSigning(args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  }): ThresholdEcdsaSecp256k1KeyRef {
+    return getEmailOtpThresholdEcdsaKeyRefForSigningValue(
+      {
+        recordsByLane: this.thresholdEcdsaSessionByLane,
+        exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
+      },
+      args,
+    );
+  }
+
+  getEmailOtpThresholdEcdsaSessionRecordForSigning(args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  }): ThresholdEcdsaSessionRecord {
+    return getEmailOtpThresholdEcdsaSessionRecordForSigningValue(
+      {
+        recordsByLane: this.thresholdEcdsaSessionByLane,
+      },
+      args,
+    );
+  }
+
+  getPasskeyThresholdEcdsaKeyRefForSigning(args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+  }): ThresholdEcdsaSecp256k1KeyRef {
+    return getPasskeyThresholdEcdsaKeyRefForSigningValue(
+      {
+        recordsByLane: this.thresholdEcdsaSessionByLane,
+        exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
+      },
+      args,
+    );
+  }
+
+  getPasskeyThresholdEcdsaSessionRecordForSigning(args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+  }): ThresholdEcdsaSessionRecord {
+    return getPasskeyThresholdEcdsaSessionRecordForSigningValue(
       {
         recordsByLane: this.thresholdEcdsaSessionByLane,
       },
