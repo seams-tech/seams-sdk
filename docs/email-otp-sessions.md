@@ -1,95 +1,27 @@
 # Email OTP Signing Sessions
 
-Last updated: 2026-04-18
+Last updated: 2026-04-21
 
 ## Goal
 
-Document the current Email OTP signing-session behavior and define Email OTP sealed refresh as a separate future feature.
+Document the current Email OTP signing-session behavior and its parity target with passkey signing sessions.
 
-Current default behavior:
+Current design:
 
-1. `passkey` session mode can survive same-tab reload through sealed refresh.
-2. `email_otp` session mode survives only in memory during the active page/runtime.
-3. page refresh requires Email OTP reauth unless the future sealed-refresh feature is explicitly implemented and enabled.
-4. `per_operation` sessions must never survive reload or operation completion.
-5. private-key export and link-device/add-signer still require fresh sensitive-operation authorization.
-6. Email OTP must remain lower assurance than passkey in product copy and policy.
+1. Google SSO authenticates the app/user session.
+2. Email OTP authorizes the first unseal of the Email OTP secret source for wallet unlock, transaction reauth, export, or another operation-scoped flow.
+3. The Email OTP worker owns recovered `S`, derives `signing_session_secret32`, and keeps secret-bearing material out of the JS main thread.
+4. `WarmSessionManager` owns the client-side in-memory lifecycle and policy decisions for active warm sessions.
+5. Server policy, TTL, revocation, and remaining-use counters are authoritative upper bounds.
+6. Session-mode Email OTP can use the generic sealed-refresh path to survive accidental iframe/page reload without another OTP while the same browser session and server budget remain valid.
+7. `per_operation` Email OTP never writes or consumes sealed-refresh artifacts.
+8. Private-key export and link-device/add-signer remain operation-scoped sensitive flows and require fresh auth; they must not consume, replace, or invalidate the transaction signing session.
 
-Future feature target:
+Email OTP remains a lower-assurance convenience method than passkey. The implementation should preserve UX parity where policy allows it, but product copy and defaults should still recommend passkey.
 
-1. Email OTP `session` mode may optionally survive same-tab reload through sealed refresh.
-2. the feature must be opt-in, separately reviewed, and guarded by strict TTL, revocation, and storage rules.
-3. the feature must not store plaintext `S` or the long-lived enrollment escrow client-side.
+## Auth-Method-Neutral Policy
 
-This plan uses `shamir3pass` for future signing-session persistence, not for offline Email OTP login.
-
-## Current Default
-
-Secure default to keep now:
-
-1. `email_otp_auth_policy = session`
-   - warm material survives in memory during the active page/runtime only
-   - refresh or new tab requires Email OTP reauth
-   - logout, lock, revocation, expiry, and account switch clear warm material
-2. `email_otp_auth_policy = per_operation`
-   - recover secret material on demand
-   - sign once
-   - discard immediately
-   - never persist sealed refresh material
-3. sensitive operations
-   - private-key export requires fresh same-method auth or stricter project policy
-   - link-device/add-signer requires fresh same-method auth or stricter project policy
-   - normal transaction signing inherits the active signing-session policy
-
-Do not implement Email OTP sealed refresh as part of the core default session behavior.
-
-## Master TODO
-
-1. [x] Keep Email OTP session-mode warm material memory-only by default.
-2. [x] Keep refresh/new-tab behavior requiring Email OTP reauth by default.
-3. [x] Keep `per_operation` as strict single-use discard.
-4. [x] Keep private-key export and link-device/add-signer as explicit fresh-auth sensitive operations.
-5. [x] Track Email OTP sealed refresh as a future opt-in feature.
-6. [ ] Before implementation, freeze the auth-method-neutral sealed refresh model.
-7. [ ] Before implementation, define canonical `signing_session_secret32` derivation for passkey and Email OTP.
-8. [ ] Before implementation, decide server route, storage, and revocation requirements.
-9. [ ] Before implementation, add tests proving no plaintext `S` or long-lived enrollment escrow is stored client-side.
-10. [ ] Revisit this plan only after the core Email OTP system is stable and tested.
-
-## Current State
-
-Passkey session mode already has a sealed-refresh path:
-
-1. passkey assertion yields `PRF.first`
-2. `PRF.first` warms threshold Ed25519 and ECDSA signing sessions
-3. the warm secret source can be sealed with server-assisted `shamir3pass`
-4. the sealed refresh record is stored in wallet-origin `sessionStorage`
-5. same-tab reload can rehydrate the worker cache without another Touch ID prompt
-
-Email OTP session mode currently works only while the page runtime stays alive:
-
-1. Google SSO authenticates the app session
-2. Email OTP authorizes unseal
-3. the Email OTP worker recovers `S` with server-assisted `shamir3pass`
-4. the worker derives signing material and keeps it in memory
-5. full page reload kills the worker and clears the secret-bearing cache
-6. metadata can survive reload, but secret-bearing material cannot yet rehydrate
-
-## Product Semantics
-
-Current user-facing semantics:
-
-1. `session`
-   - authenticate once for wallet unlock
-   - keep signing capability active until TTL, logout, revocation, or remaining-use exhaustion
-   - same-tab reload requires Email OTP reauth unless the future sealed-refresh feature is explicitly enabled
-2. `per_operation`
-   - authenticate for each operation
-   - use secret-derived material once
-   - discard immediately
-   - never write a sealed refresh record
-
-The semantics are auth-method neutral:
+Signing-session policy is independent of the auth method:
 
 ```ts
 type SigningSessionPolicy = 'session' | 'per_operation';
@@ -103,384 +35,254 @@ type SensitiveOperationPolicy =
   | 'deny_email_otp';
 ```
 
-## Security Boundary
-
-Do not make Email OTP offline-capable.
-
 Rules:
 
-1. the client still must not store the long-lived enrollment escrow blob `E_enrollment_ks(S)` as ordinary wallet state
-2. the client still must not store plaintext `S`
-3. the server-stored Email OTP escrow remains authoritative
-4. initial Email OTP login/unlock still requires Google SSO app-session auth and a fresh 6-digit OTP
-5. if a future sealed-refresh feature is enabled, same-tab refresh may rehydrate only a server-sealed signing-session secret that was created after successful OTP unlock
-6. future sealed refresh must be bounded by server-issued threshold-session TTL and remaining-use counters
-7. logout, lock, revocation, expiration, and exhaustion must delete both in-memory material and any future persisted sealed refresh material
+1. `session` means one wallet unlock creates a reusable signing session until TTL, revocation, logout, lock, account switch, or remaining-use exhaustion.
+2. `per_operation` means each operation receives fresh auth, signs once, and immediately discards operation material.
+3. Normal transaction signing is not a step-up flow. If a valid session-mode signing session exists, NEAR and EVM signing should not prompt again.
+4. When a session-mode signing session expires or exhausts, the next transaction should route through the registered auth method: Email OTP accounts show an OTP Tx Confirmer; passkey accounts show WebAuthn/passkey confirmation.
+5. Sensitive flows can override normal signing policy with `require_fresh_same_method`, `require_passkey`, or `deny_email_otp`.
 
-## Future Feature: Email OTP Sealed Refresh
+## Token And Session Boundaries
 
-This section is not part of the current default Email OTP behavior. It defines an optional feature to revisit after the core Email OTP login, signing, export, and recovery flows are stable.
+Email OTP flows intentionally use two authority lanes. They are not interchangeable.
 
-Feature rules:
+### App Session
 
-1. the feature must be explicitly enabled by SDK/app/project policy
-2. `email_otp_auth_policy = session` may write a short-lived sealed refresh artifact only after successful Google SSO, Email OTP verification, and threshold-session bootstrap
-3. `email_otp_auth_policy = per_operation` must never write or consume sealed refresh artifacts
-4. private-key export and link-device/add-signer must still require fresh sensitive-operation auth
-5. refresh artifacts must be session-bound, purpose-bound, signing-root-bound, TTL-bound, and revocation-aware
-6. refresh artifacts must require server participation to unseal
-7. stolen browser storage alone must not be sufficient to recover signing material
-8. implementation must keep Email OTP lower assurance than passkey in policy and copy
+`app_session_v1` proves the browser/app is authenticated as a user for an app/wallet context.
 
-The recommended sealed refresh artifact is not the long-lived enrollment escrow `E_enrollment_ks(S)`.
+Use app-session authority for:
 
-It should be modeled as:
+1. Google SSO / OIDC exchange.
+2. initial Email OTP challenge issuance and verification.
+3. app-session state, refresh, lock, revoke, and metadata routes.
+4. operation-challenge issuance when the app session is still live.
 
-```text
-sealed_signing_session_secret = E_session_seal(secret_source_for_threshold_session)
+A valid app session does not prove that threshold signing material is warm or authorized to sign.
+
+### Threshold Session
+
+Threshold-session authority proves a specific threshold signing session is active and authorized for threshold routes.
+
+Use threshold-session authority for:
+
+1. Ed25519 threshold signing and continuation routes.
+2. ECDSA threshold signing, presign, HSS, and export continuation routes.
+3. signing-session seal apply/remove routes.
+4. operation-challenge issuance after sealed refresh when the app-session JWT is no longer available but the restored wallet signing session is still valid.
+
+A valid threshold session must not be accepted as a generic app login token.
+
+### Route Auth Shape
+
+Client/server boundaries should preserve the distinction explicitly:
+
+```ts
+type RouteAuth =
+  | { kind: 'app_session'; jwt: string }
+  | { kind: 'threshold_session'; jwt: string }
+  | { kind: 'cookie' };
 ```
 
-where `secret_source_for_threshold_session` is:
+Wrong-token use must fail closed. Do not reintroduce generic `authorizationJwt` fields for active Email OTP or ECDSA HSS paths.
 
-1. passkey account: `PRF.first` or the canonical derived signing-session secret
-2. Email OTP account: recovered `S` or the canonical derived signing-session secret from `S`
+## Wallet Signing Session Budget
 
-Preferred long-term target:
+`walletSigningSessionId` is the wallet-level transaction signing budget for both Ed25519 and ECDSA.
 
-```text
-client_secret_source -> derive signing_session_secret32 -> sealed refresh
+Required behavior:
+
+1. wallet unlock creates one `walletSigningSessionId`.
+2. Ed25519 and ECDSA threshold sessions minted during that unlock reference the same `walletSigningSessionId`.
+3. NEAR Ed25519 signing and EVM/Tempo/Arc ECDSA signing decrement the same server-authoritative `remainingUses` budget.
+4. TTL expiry or remaining-use exhaustion invalidates both curve capabilities.
+5. Export, link-device, and add-signer flows use operation-scoped auth and must not mutate the transaction signing budget.
+6. The client may clear worker material earlier than the server, but it must never extend server TTL or remaining uses.
+
+```mermaid
+flowchart TD
+  A["Wallet unlock auth: passkey or Email OTP"] --> B["Mint walletSigningSessionId"]
+  B --> C["Ed25519 threshold-session"]
+  B --> D["ECDSA threshold-session"]
+  C --> E["NEAR signing"]
+  D --> F["EVM / Tempo / Arc signing"]
+  E --> G["Shared server budget: TTL + remainingUses"]
+  F --> G
+  G --> H{"Budget available?"}
+  H -->|yes| I["Authorize sign and decrement"]
+  H -->|no| J["Tx Confirmer requests fresh auth"]
+  J --> K["Email OTP account: 6-digit OTP"]
+  J --> L["Passkey account: WebAuthn"]
 ```
 
-That avoids naming the persisted material as passkey-specific `PRF.first` and makes the same code path work for passkey, password, and Email OTP accounts.
-
-### Recommendation on client-stored server-sealed Email OTP material
-
-The simplest mental model is:
-
-```text
-client stores E_ks(S)
-reload: client computes E_kc(E_ks(S))
-server removes E_ks
-client receives E_kc(S)
-client removes E_kc
-worker recovers S
-```
-
-That works cryptographically, but it should not store the same long-lived enrollment escrow blob on the client.
-
-Recommended design:
-
-```text
-server enrollment escrow: E_enrollment_ks(S)
-session refresh artifact: E_session_ks(signing_session_secret32)
-```
-
-The session refresh artifact is created only after successful Google SSO + Email OTP unlock and threshold-session bootstrap. It is short-lived, session-bound, purpose-bound, and deleted with the signing session.
-
-Security judgment:
-
-1. storing a server-sealed refresh artifact in wallet-origin `sessionStorage` is acceptable for session-mode UX parity with passkey sealed refresh
-2. storing the long-lived enrollment escrow `E_enrollment_ks(S)` client-side is not recommended
-3. storing plaintext `S` is prohibited
-4. storing any refresh artifact in `localStorage` is prohibited
-5. rehydrate must require live server participation, so stolen browser storage alone is insufficient
-6. rehydrate must be authorized by a valid threshold-session JWT, not only by possession of the sealed blob
-7. the server must be able to revoke or refuse refresh even if the client still has the sealed artifact
-
-Threat-model impact:
-
-1. if an attacker steals only browser `sessionStorage`, they should not recover `S`
-2. if an attacker steals browser `sessionStorage` plus an unexpired threshold-session JWT, they may be able to restore that active signing session until TTL or use limits; this is equivalent to active session theft and must be bounded tightly
-3. if the server seal key and server enrollment store are compromised, Email OTP secrets may be recoverable regardless of whether the client also stored a sealed refresh artifact
-4. client-side copies increase exposure to XSS and browser-extension theft, so TTL, same-tab scope, and deletion semantics matter
-
-Therefore any future sealed-refresh implementation should use a session-bound sealed refresh artifact, not a client mirror of enrollment escrow.
-
-## Future Feature Architecture
+## Email OTP Unlock And Signing Flow
 
 ```mermaid
 sequenceDiagram
   participant UI as "App / UI"
-  participant Main as "Wallet main thread"
-  participant Worker as "Secret-source worker"
-  participant Seal as "Signing-session seal route"
-  participant Store as "Wallet-origin sessionStorage"
-  participant Threshold as "Threshold signer"
+  participant Server as "Relay server"
+  participant OTP as "Email OTP delivery"
+  participant Worker as "Email OTP worker"
+  participant S3P as "shamir3pass worker"
+  participant Threshold as "Threshold signers"
 
-  UI->>Main: "Unlock wallet"
-  Main->>Worker: "Authenticate secret source"
-  alt Passkey
-    Worker-->>Worker: "Get PRF.first from WebAuthn"
-  else Email OTP
-    Worker->>Worker: "Recover S via OTP-authorized shamir3pass"
-  end
-  Worker-->>Worker: "Derive signing_session_secret32"
-  Worker->>Threshold: "Bootstrap threshold sessions"
-  Threshold-->>Worker: "threshold-session auth + policy"
-  Worker->>Seal: "Apply server seal to signing_session_secret32"
-  Seal-->>Worker: "server-sealed signing-session secret"
-  Worker->>Store: "Persist sealed refresh record"
+  UI->>Server: "Google SSO / OIDC exchange"
+  Server-->>UI: "app_session_v1 or cookie"
 
-  UI->>Main: "Same-tab reload"
-  Main->>Store: "Read sealed refresh record"
-  Main->>Worker: "Rehydrate signing session"
-  Worker->>Seal: "Remove server seal"
-  Seal-->>Worker: "client-wrapped signing_session_secret32"
-  Worker-->>Worker: "Recover signing_session_secret32"
-  Worker->>Threshold: "Reconnect or validate threshold session"
-  Threshold-->>Main: "Warm session ready"
+  UI->>Server: "Request wallet_unlock OTP challenge"
+  Server->>OTP: "Send or dev-log 6-digit code"
+  Server-->>UI: "challengeId + emailHint"
+
+  UI->>Server: "Verify OTP"
+  Server-->>UI: "OTP grant / unseal authorization"
+
+  UI->>Worker: "Bootstrap Email OTP signing session"
+  Worker->>S3P: "OTP-authorized server-assisted unseal"
+  S3P-->>Worker: "recovered S bytes"
+  Worker-->>Worker: "derive signing_session_secret32"
+  Worker->>Threshold: "Bootstrap Ed25519 + ECDSA"
+  Threshold-->>Worker: "threshold-session auth + walletSigningSessionId"
+  Worker-->>UI: "wallet unlocked; signers ready or finalizing"
 ```
 
-## Future Feature: Target Storage Model
+## Sealed Refresh
 
-Create one auth-method-neutral sealed session record.
+The sealed-refresh path is now a generic signing-session feature, not a passkey-only feature.
 
-Suggested name:
+Purpose:
 
-```ts
-type SealedSigningSessionRecord = {
-  v: 1;
-  alg: 'shamir3pass-v1';
-  authMethod: 'passkey' | 'email_otp';
-  secretKind: 'signing_session_secret32';
-  thresholdSessionId: string;
-  sealedSecretB64u: string;
-  curve?: 'ed25519' | 'ecdsa';
-  relayerUrl?: string;
-  thresholdSessionJwt?: string;
-  keyVersion?: string;
-  shamirPrimeB64u?: string;
-  expiresAtMs: number;
-  remainingUses: number;
-  updatedAtMs: number;
-};
-```
+1. restore an already-authenticated `session` signing session after accidental iframe/page reload;
+2. avoid prompting the user again while the same browser session and server signing-session budget remain valid;
+3. keep the persisted artifact session-scoped and server-revocable.
 
-Storage rules:
+The client must not persist the long-lived enrollment escrow or plaintext Email OTP secret.
 
-1. store only in wallet-origin `sessionStorage`
-2. do not store in app-origin storage
-3. do not store in `localStorage`
-4. do not store the long-lived enrollment escrow `E_enrollment_ks(S)`
-5. do not store plaintext `S`
-6. delete on logout, lock, revocation, expiry, exhaustion, or account switch
-7. do not write records for `per_operation`
-8. bind every record to `authMethod`, `secretKind`, `thresholdSessionId`, signing root, TTL, remaining uses, and seal key version
-9. reject records whose `authMethod` does not match the stored signer/session metadata
-
-## Future Feature: Route Model
-
-Rename the current passkey-specific seal surface to signing-session terminology.
-
-Target routes:
+Allowed persisted artifact:
 
 ```text
-POST /threshold/signing-session-seal/apply-server-seal
-POST /threshold/signing-session-seal/remove-server-seal
+E_session_s(signing_session_secret32)
 ```
 
-Request body:
+Disallowed artifacts:
 
-```ts
-type SigningSessionSealRequest = {
-  thresholdSessionId: string;
-  ciphertext: string;
-  keyVersion?: string;
-  authMethod: 'passkey' | 'email_otp';
-  secretKind: 'signing_session_secret32';
-};
+```text
+S
+E_enrollment_s(S)
+raw threshold-session JWTs in the sealed-refresh record
 ```
 
-Auth:
+Storage model:
 
-1. threshold-session auth is required
-2. app-session auth is not sufficient for seal apply/remove
-3. server must validate threshold-session ownership, wallet, signing root, TTL, remaining uses, and revocation state
-4. server response TTL and remaining-use limits are upper bounds; client must use the stricter value
-5. server must reject attempts to use the enrollment escrow seal namespace as a signing-session refresh namespace
-6. server must separate enrollment escrow keys and signing-session refresh keys or at least separate key usage by purpose, context, and route policy
+1. store sealed refresh records in iframe-origin IndexedDB store `signing_session_seals_v1`.
+2. primary key is `walletSigningSessionId`.
+3. record indexes include `walletId`, `userId`, `authMethod`, `signingRootId`, and `expiresAtMs`.
+4. bind records to a browser-session `runtimeSessionId` held in iframe-origin `sessionStorage`.
+5. if `runtimeSessionId` is missing or mismatched after browser restart, delete the IndexedDB records before restore.
+6. keep at most one active record per wallet/signing root/auth method; delete older records on write.
+7. do not store raw app-session JWTs or threshold-session JWTs in the sealed-refresh record.
 
-Breaking rename target:
+Rehydrate behavior:
 
-1. replace `prf-seal` route names with `signing-session-seal`
-2. replace `PrfSessionSeal*` types with `SigningSessionSeal*`
-3. replace `sealedPrfFirstB64u` with `sealedSecretB64u`
-4. replace `prfSessionSealedStore` with `signingSessionSealedStore`
+1. wallet iframe starts and loads nonsecret account/session metadata.
+2. `WarmSessionManager` sees a session-mode wallet signing session whose worker material is missing.
+3. the sealed-refresh layer validates the IndexedDB record and browser-session marker.
+4. the correct worker calls the signing-session seal route with threshold-session authority.
+5. the worker recovers `signing_session_secret32` and rebuilds only the required signing capability.
+6. normal transaction signing continues without another OTP while server TTL and remaining uses permit it.
+7. if restore fails, route through normal auth-method reauth: Email OTP for Email OTP accounts, WebAuthn for passkey accounts.
 
-Do not keep duplicate old APIs.
+```mermaid
+sequenceDiagram
+  participant Iframe as "Wallet iframe"
+  participant IDB as "iframe IndexedDB"
+  participant Worker as "Auth-method worker"
+  participant Seal as "signing-session seal route"
+  participant Threshold as "Threshold signers"
 
-## Future Feature Worker Ownership
-
-Passkey and Email OTP should use separate authentication workers but one sealed-session persistence abstraction.
-
-Target boundary:
-
-```ts
-type SecretSourceWorker =
-  | { kind: 'passkey'; owns: 'webauthn_prf' }
-  | { kind: 'email_otp'; owns: 'email_otp_secret_source' };
+  Iframe->>IDB: "Load signing_session_seals_v1 by walletSigningSessionId"
+  Iframe->>Iframe: "Validate runtimeSessionId + TTL metadata"
+  Iframe->>Worker: "Restore sealed signing session"
+  Worker->>Seal: "remove-server-seal with threshold-session auth"
+  Seal-->>Worker: "client-wrapped signing_session_secret32"
+  Worker-->>Worker: "Recover signing_session_secret32"
+  Worker->>Threshold: "Reconnect/rebuild Ed25519 or ECDSA state"
+  Threshold-->>Iframe: "Signer ready with shared budget"
 ```
 
-Worker rules:
+Detailed implementation and remaining work live in [otp-persist-session.md](./otp-persist-session.md).
 
-1. passkey worker owns PRF-derived material
-2. Email OTP worker owns recovered `S` and `S`-derived material
-3. main thread never receives plaintext `S`
-4. main thread never receives plaintext `signing_session_secret32` except where current compatibility paths still require a temporary handoff
-5. ECDSA Email OTP signing material remains behind worker-owned opaque handles
-6. Ed25519 Email OTP should move toward worker-owned opaque handles where it still uses `xClientBaseB64u` compatibility fields
+## Curve Restore Rules
 
-## Future Feature: Rehydrate Behavior
+Restore should be lazy where practical:
 
-On page reload:
+1. restore only the curve needed for the pending operation when this reduces login/reload latency;
+2. restore both curves when the UI needs a full wallet-ready state;
+3. keep both curves tied to the same `walletSigningSessionId` budget either way.
 
-1. wallet iframe starts
-2. local account/session metadata is restored
-3. `WarmSessionManager` sees a persisted threshold session record
-4. if in-memory worker material is missing, `WarmSessionManager` asks the sealed-session persistence layer to rehydrate
-5. the correct worker receives the rehydrated secret source based on `authMethod`
-6. the worker reconstructs only the required warm signing state
-7. `WarmSessionManager` reports the session as active only after worker material and threshold-session auth are both valid
+Ed25519 restore:
 
-Fail-closed cases:
+1. reconstruct the worker-held Ed25519 signing handle from `signing_session_secret32` and persisted nonsecret session metadata;
+2. reconnect or validate HSS state as required by the active Ed25519 threshold implementation;
+3. do not expose Ed25519 seed/base material to the JS main thread.
 
-1. sealed record missing
-2. sealed record expired
-3. remaining uses exhausted
-4. threshold-session JWT missing for JWT sessions
-5. threshold-session JWT expired or revoked
-6. signing-root mismatch
-7. auth-method mismatch
-8. malformed sealed payload
-9. seal route unavailable
-10. storage unavailable
+ECDSA restore:
 
-## Policy Rules
+1. reconstruct the worker-held ECDSA root/share handle from `signing_session_secret32` and persisted nonsecret metadata;
+2. reconnect or bootstrap the ECDSA HSS/presign state as required;
+3. do not persist or re-expose `clientAdditiveShare32B64u` to session storage or main-thread durable state.
 
-Current session-mode Email OTP:
+## Sensitive Operations
 
-1. keep warm material in memory only
-2. do not write sealed refresh records
-3. refresh or new tab requires Email OTP reauth
-4. use the same TTL and remaining-use model as passkey while the runtime is alive
-5. delete in-memory material when the server or client invalidates the signing session
+Sensitive operations are intentionally separate from transaction signing sessions.
 
-Per-operation Email OTP:
+Private-key export:
 
-1. never write sealed refresh record
-2. never rehydrate
-3. claim signing material once
-4. zero and delete immediately after the operation
+1. requires fresh same-method auth by default;
+2. Email OTP accounts receive an `export_key` OTP challenge and verification;
+3. passkey accounts perform fresh WebAuthn/passkey auth;
+4. export must not consume, replace, clear, or renew the transaction `walletSigningSessionId`;
+5. export material is discarded after the export viewer closes.
 
-Sensitive operations:
+Link-device/add-signer:
 
-1. private-key export requires `require_fresh_same_method` or stricter project policy
-2. link-device/add-signer requires `require_fresh_same_method` or stricter project policy
-3. normal transaction signing uses `inherit_session_policy`
-4. `require_passkey` and `deny_email_otp` must fail before rehydrate attempts for Email OTP accounts
+1. requires fresh same-method auth or stricter project policy;
+2. must not be silently authorized by a warm transaction signing session;
+3. must not mutate unrelated transaction signing session state.
 
-Future sealed-refresh policy:
+## Invalidation
 
-1. write sealed refresh record only after successful OTP unlock and threshold bootstrap
-2. rehydrate on same-tab reload without sending another OTP
-3. use the same TTL and remaining-use model as passkey
-4. delete record when the server or client invalidates the signing session
-5. never apply to `per_operation`
+Delete in-memory worker material and sealed-refresh records on:
 
-## Future Feature Implementation Plan
+1. logout;
+2. explicit wallet lock;
+3. account switch;
+4. server revocation;
+5. threshold-session expiry;
+6. `remainingUses` exhaustion;
+7. browser-session marker loss;
+8. signing-root mismatch;
+9. auth-method mismatch;
+10. malformed sealed payload;
+11. server seal route refusal.
 
-### Phase 1: Rename and Generalize Sealed Refresh
+`per_operation` flows additionally clear recovered operation material immediately after the operation, regardless of success or failure.
 
-1. [ ] Rename `prfSessionSealedStore` to `signingSessionSealedStore`.
-2. [ ] Rename storage keys from `tatchi:threshold-prf-sealed:v1` to a signing-session key.
-3. [ ] Rename `sealedPrfFirstB64u` to `sealedSecretB64u`.
-4. [ ] Rename PRF-specific route/client/server types to signing-session-seal types.
-5. [x] Rename route paths from `/threshold-ecdsa/prf-seal/*` to `/threshold/signing-session-seal/*`.
-6. [ ] Remove old route aliases after tests migrate.
-7. [ ] Update docs and env examples to use signing-session-seal terminology.
+## Current Implementation Checklist
 
-### Phase 2: Define Canonical Secret Source
+1. [x] Email OTP secret-bearing login, enrollment, unlock, bootstrap, and ECDSA export work through the dedicated Email OTP worker.
+2. [x] Recovered `S` stays worker-owned and byte-oriented.
+3. [x] `signing_session_secret32` is the sealed-refresh secret source; the client does not mirror `E_enrollment_s(S)`.
+4. [x] Sealed refresh uses iframe-origin IndexedDB plus a `sessionStorage` browser-session marker.
+5. [x] App-session and threshold-session lanes are represented by explicit route-auth variants.
+6. [x] Transaction signing shares one `walletSigningSessionId` across Ed25519 and ECDSA.
+7. [x] Export uses fresh operation auth and does not clobber transaction signing sessions.
+8. [x] Email OTP resend exists for unlock, transaction signing, export, and registration prompts.
+9. [x] Hosted Email OTP account IDs use privacy-preserving HMAC-readable slugs instead of raw email-derived names.
 
-1. [ ] Add a canonical `signing_session_secret32` derivation helper.
-2. [ ] Map passkey `PRF.first` to `signing_session_secret32`.
-3. [ ] Map Email OTP recovered `S` to `signing_session_secret32`.
-4. [ ] Freeze byte-level derivation inputs and domain separators.
-5. [ ] Zero derivation intermediates in workers.
-6. [ ] Add parity tests proving passkey and Email OTP feed the same downstream threshold derivation interface.
-7. [ ] Decide whether the refresh artifact seals raw `S` or `signing_session_secret32`; recommendation is `signing_session_secret32`.
-8. [ ] Add a domain separator such as `tatchi/email-otp/signing-session-secret/v1`.
-9. [ ] Ensure enrollment escrow and signing-session refresh use distinct purposes and cannot be confused.
+## Remaining Work
 
-### Phase 3: Persist Email OTP Session-Mode Secrets
-
-1. [ ] After successful Email OTP session-mode unlock, ask the Email OTP worker to seal `signing_session_secret32`.
-2. [ ] Persist a `SealedSigningSessionRecord` with `authMethod = email_otp`.
-3. [ ] Store record only if policy is `session`.
-4. [ ] Refuse to persist if policy is `per_operation`.
-5. [ ] Include threshold-session ID, signing root, TTL, remaining uses, curve, and key version.
-6. [ ] Ensure ECDSA worker-owned share handles can be rebuilt from the rehydrated secret.
-7. [ ] Ensure Ed25519 warm-session state can be rebuilt without exposing `S` to the main thread.
-8. [ ] Do not persist the long-lived enrollment escrow `E_enrollment_ks(S)` client-side.
-9. [ ] Persist only the short-lived signing-session refresh artifact.
-
-### Phase 4: Rehydrate Email OTP After Reload
-
-1. [ ] On warm-session status read, detect missing worker material for Email OTP session records.
-2. [ ] Load the sealed signing-session record from wallet-origin `sessionStorage`.
-3. [ ] Verify `authMethod = email_otp`.
-4. [ ] Call the signing-session seal remove route with threshold-session auth.
-5. [ ] Rehydrate inside the Email OTP worker.
-6. [ ] Rebuild ECDSA worker-owned signing-share handles.
-7. [ ] Rebuild Ed25519 HSS client-base state.
-8. [ ] Return active warm-session status only after rehydrate completes.
-9. [ ] Fail closed and prompt normal Email OTP login if rehydrate fails.
-
-### Phase 5: Invalidation and Cleanup
-
-1. [ ] Delete sealed records on logout.
-2. [ ] Delete sealed records on explicit wallet lock.
-3. [ ] Delete sealed records on account switch.
-4. [ ] Delete sealed records on revocation.
-5. [ ] Delete sealed records on threshold-session expiry.
-6. [ ] Delete sealed records when remaining uses reach zero.
-7. [ ] Delete sealed records when a sensitive operation consumes a single-use session.
-8. [ ] Clear worker-owned Email OTP material on the same invalidation paths.
-
-### Phase 6: UI Behavior
-
-1. [ ] After reload, show a small "Restoring signing session..." state while rehydrate runs.
-2. [ ] Do not show Email OTP input unless rehydrate fails or policy requires fresh auth.
-3. [ ] Do not show WebAuthn prompt for Email OTP rehydrate.
-4. [ ] Keep Tx Confirmer confirm button loading until the signer is active.
-5. [ ] Use the same warm-session readiness copy for passkey and Email OTP where possible.
-
-### Phase 7: Tests
-
-1. [ ] Unit test sealed session record validation for `authMethod = email_otp`.
-2. [ ] Unit test that `per_operation` never writes a sealed record.
-3. [ ] Unit test same-tab Email OTP reload rehydrates without OTP challenge.
-4. [ ] Unit test expired Email OTP sealed record deletes itself and requires OTP login.
-5. [ ] Unit test remaining-use exhaustion deletes sealed record.
-6. [ ] Unit test auth-method mismatch fails closed.
-7. [ ] Unit test signing-root mismatch fails closed.
-8. [ ] E2E test Google SSO + Email OTP login, reload, NEAR sign without new OTP.
-9. [ ] E2E test Google SSO + Email OTP login, reload, Tempo/EVM sign without new OTP.
-10. [ ] E2E test private-key export after reload still requires fresh Email OTP.
-11. [ ] E2E test link-device/add-signer after reload still requires fresh auth.
-12. [ ] Passkey parity E2E test still passes after route/type renames.
-13. [ ] Unit test enrollment escrow blobs are never written to client storage.
-14. [ ] Unit test signing-session refresh artifacts cannot be used without threshold-session auth.
-15. [ ] Unit test enrollment seal namespace and signing-session seal namespace are not interchangeable.
-
-## Future Feature Acceptance Criteria
-
-1. Email OTP `session` policy survives same-tab reload when sealed refresh is enabled.
-2. Email OTP `per_operation` policy never survives reload.
-3. Reloaded Email OTP sessions can sign Ed25519 and ECDSA transactions without another OTP.
-4. private-key export still asks for a fresh Email OTP.
-5. link-device/add-signer still asks for fresh same-method auth or stricter configured policy.
-6. no plaintext `S` is stored in browser storage.
-7. no long-lived enrollment escrow `E_enrollment_ks(S)` is stored in browser storage.
-8. secret-bearing Email OTP material stays worker-owned.
-9. route auth keeps app-session and threshold-session lanes separate.
-10. no duplicate PRF-only sealed-refresh APIs remain after migration.
+1. [ ] Finish the remaining Phase 11 cleanup in [otp-persist-session.md](./otp-persist-session.md): delete obsolete export-as-login/bootstrap terminology and add permanent guards for those names.
+2. [ ] Add the remaining transaction-signing resend E2E coverage in `per_operation` mode.
+3. [ ] Add broader E2E coverage for shared signing-session budget exhaustion across NEAR + Tempo + Arc for Email OTP and passkey accounts.
+4. [ ] Add E2E coverage proving Ed25519/ECDSA export does not clobber an active transaction signing session.
+5. [ ] Keep passkey and Email OTP sealed-refresh behavior covered by parity tests after any signer-slot or route-auth refactor.

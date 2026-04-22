@@ -23,6 +23,7 @@ type RuntimePolicyScope = {
   orgId: string;     // organization/account/policy/billing ownership
   projectId: string; // parent project, e.g. "proj_abc"
   envId: string;     // project environment, e.g. "dev" | "staging" | "production"
+  signingRootVersion: string; // active environment signing-root share version
 };
 
 type SigningRootScope = {
@@ -37,6 +38,7 @@ Canonical hosted mapping:
 function signingRootScopeFromRuntimePolicyScope(scope: RuntimePolicyScope): SigningRootScope {
   return {
     signingRootId: `${scope.projectId}:${scope.envId}`,
+    signingRootVersion: scope.signingRootVersion,
   };
 }
 ```
@@ -49,7 +51,8 @@ Meaning:
   searching, filtering, quotas, wallet inventory, and database queries.
 - `envId` is the concrete runtime environment within a project.
 - `signingRootId` is the crypto custody/key-derivation scope.
-- `signingRootVersion` identifies the active version of signing-root shares.
+- `signingRootVersion` identifies the active version of signing-root shares and
+  is loaded from durable project/environment metadata, not client input.
 
 The signing system must not derive signing material from `orgId`, parent
 `projectId`, or `envId` directly. It must derive only from `SigningRootScope`.
@@ -122,8 +125,9 @@ Local/self-host signing-root configuration:
   `signingRootId` from the authenticated project/environment runtime scope for
   each request and resolve signing-root shares from per-project storage.
 - Local-dev fixtures may accept the request `signingRootId` dynamically while
-  reusing development-only fixture shares. This is only for localhost harnesses
-  and must not be used for real funds.
+  reusing development-only fixture shares. They should still require
+  `signingRootVersion` from active environment metadata and reject mismatches.
+  This is only for localhost harnesses and must not be used for real funds.
 - Direct single-root self-host deployments may wire a fixed resolver in code,
   but that mode is not the hosted relay path and must not be represented as a
   hosted relay environment variable.
@@ -174,6 +178,7 @@ type RuntimePolicyScope = {
   orgId: string;
   projectId: string;
   envId: string;
+  signingRootVersion: string;
 };
 ```
 
@@ -381,7 +386,8 @@ Local reset requirements:
 
 Client SDK should:
 
-- Treat managed runtime scope as `{ orgId, projectId, envId }`.
+- Treat managed runtime scope as
+  `{ orgId, projectId, envId, signingRootVersion }`.
 - Stop using `environmentId` as a compound scope in signing code.
 - Keep dashboard/product APIs free to use parent `projectId`.
 - Convert runtime scope to signing-root scope only inside signing bootstrap
@@ -391,7 +397,8 @@ Client SDK should:
 - Clear or invalidate local dev IndexedDB records created under old
   `orgId`/signing-root context.
 - Reject stale client threshold session records carrying `runtimeSnapshotScope`,
-  `environmentId`, `signingRootVersion`, or signing-root resolver `projectId`.
+  `environmentId`, missing `signingRootVersion`, or signing-root resolver
+  `projectId`.
 - Keep parent `projectId` in dashboard, billing, wallet inventory, quota, API
   key, and console APIs unless the field is used as signing-root custody input.
 
@@ -589,8 +596,8 @@ check.
 
 ### Completed
 
-- [x] Added the canonical `RuntimePolicyScope` with `orgId`, `projectId`, and
-      `envId` in shared code.
+- [x] Added the canonical `RuntimePolicyScope` with `orgId`, `projectId`,
+      `envId`, and active `signingRootVersion` in shared code.
 - [x] Added the canonical `SigningRootScope` with `signingRootId` and optional
       `signingRootVersion`.
 - [x] Added `deriveSigningRootId({ projectId, envId })` and

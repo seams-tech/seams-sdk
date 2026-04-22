@@ -83,7 +83,7 @@ Valid context fields:
 5. app-session subject
 6. app-session id or equivalent session binding
 7. challenge purpose/action
-8. recovery or registration attempt id where applicable
+8. registration attempt id or operation attempt id where applicable
 
 Rules:
 

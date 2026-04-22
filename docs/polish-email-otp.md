@@ -568,12 +568,12 @@ Root cause:
 
 ECDSA Email OTP export uses two different authorization lanes:
 
-1. Email OTP `export_key` challenge and verification are bound to the current app-session JWT.
+1. Email OTP `export_key` challenge and verification are bound to fresh operation auth. During a live login this is normally app-session auth; after sealed refresh it may be requested through restored signing-session authority without reviving a JS-readable app-session JWT.
 2. ECDSA HSS export prepare/respond/finalize are authorized by the threshold-session JWT.
 
 See `docs/signing-sessions.md` for the canonical app-session vs threshold-session model and `docs/sso-otp-shamir3pass-signing.md` for the Email OTP flow diagram.
 
-Using one generic `authorizationJwt` field made those lanes easy to confuse. The server then correctly rejected an OTP challenge when the follow-up request presented a token whose stable app-session binding did not match the challenge.
+Using one generic `authorizationJwt` field made those lanes easy to confuse. The server then correctly rejected OTP and ECDSA export requests when a token from one lane was presented to a route that required the other lane.
 
 Todo:
 

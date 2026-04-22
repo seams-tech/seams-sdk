@@ -250,6 +250,44 @@ operational simplicity matters, but the security claim must be narrower:
 - it does not create strong independent custody domains until the shares,
   wrapping keys, and admin planes are split
 
+### Local Development Storage
+
+Local development should mirror production signing-root loading as closely as
+possible.
+
+When a local Postgres instance is configured, local dev should use the same
+sealed-share storage path as production:
+
+```text
+project/environment metadata
+  -> active signing_root_version
+  -> PostgresSigningRootSecretStore
+  -> SigningRootSecretDecryptAdapter
+  -> SigningRootShareResolver
+  -> threshold-PRF derivation
+```
+
+The local Postgres database should hold `sealed_signing_root_secret_share`
+records keyed by `signing_root_id` and `signing_root_version`. The local signer
+should not load plaintext `k_org`, plaintext root shares, or process-wide
+signing-root ids from env vars.
+
+The static local-dev fixture resolver is only a no-database fallback for quick
+SDK demos and narrow unit tests. It must be opt-in, clearly warned, and must
+still enforce the same active `signing_root_version` binding as production. It
+must not be the default path when local Postgres is available.
+
+Required local-dev behavior:
+
+- seed or provision local Postgres with sealed signing-root shares during local
+  setup
+- load the active `signing_root_version` from local project/environment metadata
+- decrypt sealed shares through the same resolver/decrypt adapter abstraction
+  used by hosted environments
+- fail closed if metadata, version, sealed shares, or KEK/decrypt config is
+  missing
+- reserve the fixture resolver for explicit no-DB development only
+
 ## Phase 1 Signing Flow
 
 The single Cloudflare signer computes both threshold-PRF partials in one
@@ -756,15 +794,19 @@ ship the first managed custody version.
 3. Seal each share under a configured share wrapping key.
 4. Store sealed shares and metadata durably in a database such as Google Cloud
    SQL for PostgreSQL.
-5. Require customer backup before production activation.
-6. Let one Cloudflare signer decrypt two shares in memory for signing.
-7. Compute and combine two threshold-PRF partials locally to derive
+5. Use local Postgres for local development when available, so local dev follows
+   the same sealed-share resolver path as production.
+6. Keep static fixture shares only as an explicit no-DB fallback for demos and
+   unit tests.
+7. Require customer backup before production activation.
+8. Let one Cloudflare signer decrypt two shares in memory for signing.
+9. Compute and combine two threshold-PRF partials locally to derive
    `y_relayer`.
-8. Feed `y_relayer` into the existing `ed25519-hss` or `ecdsa-hss` flow.
-9. Keep per-wallet server secrets out of durable storage; if server-side
+10. Feed `y_relayer` into the existing `ed25519-hss` or `ecdsa-hss` flow.
+11. Keep per-wallet server secrets out of durable storage; if server-side
    per-wallet material is cached for performance, treat it as reconstructible
    cache state and never as the recovery source of truth.
-10. Add audit logs for share reads, unwraps, reconstruction, refresh, and
+12. Add audit logs for share reads, unwraps, reconstruction, refresh, and
     export.
 
 This is Option A: single-worker threshold-PRF. It is more performant and
@@ -979,6 +1021,11 @@ intentional rekeying.
   and custom AWS/GCP Secret Manager record sources.
 - Support decrypt adapters for local AES-GCM KEK resolution, AWS KMS, and GCP
   KMS.
+- Make local development prefer `PostgresSigningRootSecretStore` when a local
+  Postgres URL is configured, so dev exercises the same sealed-share durable
+  storage path as production.
+- Keep static local-dev signing-root fixture shares only as an explicit no-DB
+  fallback, with version binding and loud warnings.
 - Keep the decrypt-adapter interface compatible with future TEE-backed
   unwrap/decrypt flows, but do not require a TEE adapter in Phase 1.
 - Compute threshold-PRF partials from two plaintext root shares in one worker.
@@ -996,16 +1043,18 @@ This distinction must be explicit at every boundary:
 
 - `runtimeSnapshotScope.orgId` identifies the organization and binds HSS policy.
 - `runtimeSnapshotScope.projectId` identifies the signing-root custody scope.
-- `SigningRootShareResolver.resolveSigningRootSharePair({ projectId, ... })` must
-  receive a project id, not `context.orgId`.
+- Runtime scope must carry `projectId`, `envId`, and active
+  `signingRootVersion`; the signing-root layer must derive `signingRootId` from
+  `projectId/envId` and use the version loaded from project/environment
+  metadata, never from `context.orgId`.
 - Bootstrap-token and session principals must preserve `projectId` whenever the
   route can reach signing-root derivation.
 - Fixed self-host resolvers may use their configured project id when the request
   does not carry one, but hosted multi-customer resolvers must reject missing
   project scope.
-- Omitted `rootVersion` means "use the fixed resolver root version" only for a
-  fixed self-host resolver; hosted resolvers should resolve the requested active
-  root version from authenticated project scope or explicit metadata.
+- Omitted `signingRootVersion` means "use the fixed resolver root version" only
+  for a fixed self-host resolver; hosted resolvers must load the active
+  `signingRootVersion` from authenticated project/environment metadata.
 
 Refactor guardrails:
 
@@ -1052,6 +1101,13 @@ decryptAdapter })`.
 - [x] Document that local AES-GCM sealed-share mode uses
       `SIGNING_ROOT_SECRET_SHARE_KEK_B64U`, while KMS/TEE modes should not expose
       a raw KEK env var.
+- [ ] Make the relay-server local dev path prefer local Postgres sealed-share
+      storage over static fixture shares when `POSTGRES_URL` is configured.
+- [ ] Add a local signing-root seed/provision command that writes sealed
+      `signing_root_secret_share` records to Postgres for the active dev
+      `signing_root_id` and `signing_root_version`.
+- [ ] Keep the fixture resolver only behind an explicit no-DB local-dev flag and
+      require it to enforce the same active `signing_root_version` as production.
 
 ### Milestone C.2. Tenant-Root Secret Naming Cleanup
 

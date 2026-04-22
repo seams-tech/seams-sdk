@@ -1,6 +1,6 @@
 # Email OTP Sealed Refresh Persistence
 
-Last updated: 2026-04-21
+Last updated: 2026-04-22
 
 ## Goal
 
@@ -131,7 +131,7 @@ The implementation target is to persist a sealed `signing_session_secret32`, not
 
 ## Security Position
 
-This feature improves UX and is reasonable for `email_otp_auth_policy = session`, but it weakens the current memory-only Email OTP posture.
+This feature improves UX and is reasonable for `email_otp_auth_policy = session`, but it is intentionally weaker than a memory-only Email OTP posture. Keep it bounded to the active browser signing session and server-authoritative session budget.
 
 Security rules:
 
@@ -782,6 +782,135 @@ Worker responsibilities:
 | Link-device/add-signer           | No                      | Fresh same-method auth or stricter policy | Must not clobber transaction session                    |
 | Account lock/logout              | Deletes record          | Next unlock requires auth                 | Applies to both auth methods                            |
 
+## Independent Key Export Flow Simplification Refactor
+
+Key export must be independent from the transaction signing-session lifecycle.
+
+The desired steady-state is:
+
+1. export always shows a fresh Email OTP or passkey prompt
+2. export challenge issuance may use restored signing-session authority only as route authority after reload
+3. export OTP/passkey verification creates a narrow operation-scoped authorization
+4. export material recovery is one-off and in-memory
+5. export must not bootstrap, hydrate, replace, clear, restore, consume, or otherwise mutate transaction signing-session state
+6. export must not decrement `remainingUses`
+7. export must not write, update, or delete `signing_session_seals_v1` records except as part of explicit wallet/session cleanup unrelated to export
+
+The previous auth-lane refactor made app-session and threshold-session route authority explicit, but it still left too many signing APIs shaped as "transaction signing or export." That old shape allowed export to enter signing-session login/bootstrap helpers and rely on guardrails or post-hoc session restoration. The simplification target is to remove that shape entirely.
+
+Target flow:
+
+```text
+Email OTP key export:
+  1. Resolve wallet and canonical active Email OTP enrollment.
+  2. Request an export OTP challenge:
+     - fresh app-session authority during active login, or
+     - restored signing-session route authority after sealed refresh.
+  3. Send OTP only to the server-owned verified enrollment email.
+  4. Verify OTP and mint a single-purpose export authorization.
+  5. Worker recovers export material in memory from the Email OTP enrollment escrow path.
+  6. Worker builds the export artifact.
+  7. Worker zeroizes transient root/export material.
+  8. No transaction signing-session record, warm-session material, sealed-refresh record, or use budget is mutated.
+
+Passkey key export:
+  1. Always prompt WebAuthn/passkey fresh auth.
+  2. Recover export material only for that operation.
+  3. Do not consume or replace the transaction signing session.
+```
+
+Code-structure target:
+
+1. transaction signing APIs speak only in transaction terms
+2. key export APIs speak only in operation-export terms
+3. no function named `*ForSigning` accepts or forwards `export_key`
+4. no function named `requestEmailOtpChallengeForSigning` can issue export/link-device/add-signer challenges
+5. export worker operations are named around export and use an export-only root-material helper
+6. warm-session lifecycle helpers remain available for transaction signing, but are unreachable from export call graphs
+
+Allowed use of signing-session route authority:
+
+1. after sealed refresh, a restored signing-session lane may request a fresh export/link-device/add-signer challenge
+2. that lane proves continuity of the wallet signing context only
+3. that lane does not authorize the sensitive operation
+4. challenge issuance through this lane is budget-neutral and separately rate-limited
+5. OTP/passkey verification remains the operation authorization gate
+
+Disallowed export behavior:
+
+1. no call to `loginWithEmailOtpEd25519CapabilityForSigning` or `loginWithEmailOtpEcdsaCapabilityForSigning`
+2. no call to signing-session provisioning/bootstrap helpers except HSS export routines that do not mint or persist a transaction session
+3. no call to `markThresholdEd25519EmailOtpSessionConsumedForAccount`
+4. no call to `markThresholdEcdsaEmailOtpSessionConsumedForAccount`
+5. no call to `clearWarmSessionMaterial`
+6. no claim of warm-session material for export
+7. no temporary replacement of stored threshold-session records followed by "restore original record"
+8. no `remainingUses` decrement
+9. no sealed-refresh apply/remove during export
+10. no app-session JWT persistence as an export continuity primitive
+
+### Code Path Review And Plan Critique
+
+Code paths affected by this refactor:
+
+1. shared Email OTP operation types and parsers:
+   - `shared/src/utils/emailOtpDomain.ts`
+   - `server/src/router/emailOtpRequestValidation.ts`
+   - `server/src/core/EmailOtpStores.ts`
+   - `server/src/core/AuthService.ts`
+2. route planning and route selection:
+   - `client/src/core/signingEngine/emailOtp/authLane.ts`
+   - `client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts`
+   - `client/src/core/TatchiPasskey/emailOtp.ts`
+3. transaction signing dependency surfaces:
+   - `client/src/core/signingEngine/api/nearSigning.ts`
+   - `client/src/core/signingEngine/api/evmSigning.ts`
+   - `client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts`
+   - `client/src/core/signingEngine/SigningEngine.ts`
+4. public SDK and iframe surfaces:
+   - `client/src/core/TatchiPasskey/index.ts`
+   - `client/src/core/TatchiPasskey/interfaces.ts`
+   - `client/src/core/WalletIframe/shared/messages.ts`
+   - `client/src/core/WalletIframe/client/router.ts`
+5. Email OTP worker operation surfaces:
+   - `client/src/core/signingEngine/workerManager/workerTypes.ts`
+   - `client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+6. server operation-auth routes:
+   - `server/src/router/emailOtpRouteHandlers.ts`
+   - `server/src/router/emailOtpSessionRouteHelpers.ts`
+   - `server/src/router/emailOtpExportPolicy.ts`
+
+Critique of the current plan:
+
+1. `export_key` must not be removed from the shared/server Email OTP operation domain. It is still the valid server operation for export challenge, verify, and unseal. The split must happen at the transaction-signing API boundary.
+2. `WalletEmailOtpLoginOperation` is too broad for client signing APIs because it contains `wallet_unlock`, `transaction_sign`, and `export_key`. The name also makes export look like a login operation. The refactor should introduce narrower operation names and leave the broad union only where a route truly accepts multiple operation classes.
+3. `requestChallengeForSigning` is the main leakage point. It currently issues both transaction challenges and export challenges. Renaming alone is not enough; export must move to a separate helper so transaction signing cannot pass an export operation by construction.
+4. Public/iframe `requestEmailOtpChallenge` still accepts `operation?: WalletEmailOtpLoginOperation`. That keeps export available on a generic login-oriented API. If we want the final codebase to read cleanly, this public surface should either become unlock-only or be split into explicit unlock, transaction, and sensitive-operation challenge entrypoints.
+5. Server routes currently allow app-session export challenge/verify through the login challenge/verify routes. That works, but the naming is confusing. The cleaner route model is to keep wallet unlock under `login/*` and move app-session-authorized export/link-device/add-signer challenges to an explicit operation-auth route family.
+6. The server and worker still use `loginGrant` naming for export verification/unseal. If the grant is operation-scoped, the name should say that. Otherwise future code will keep treating export OTP verification as a kind of login.
+7. `requestExportAuthorization` currently uses the generic wallet-auth resolver with a passkey adapter that only throws. In the current code, this helper lives inside the Email OTP coordinator and is reached only from the Email OTP export branch. Passkey export is handled separately by `SigningEngine.requestPasskeyExportAuthorization`. The cleanup target is therefore narrow: remove the dead passkey adapter from the Email OTP coordinator only, while preserving the passkey account export path and its fresh WebAuthn/passkey prompt.
+8. The worker export cases duplicate the same "recover root share, run export, zeroize" pattern. A worker-local helper would make zeroization and "no warm-session mutation" easier to audit.
+9. Static guards must be scoped. A blanket "no `export_key` in the repo" would be wrong because server export routes, export worker ops, and export tests must still reference it. The guard should forbid `export_key` only in transaction signing files and `*ForSigning` APIs.
+
+Plan improvements:
+
+1. Split operation types before deleting guards:
+   - transaction signing surfaces accept only `transaction_sign`
+   - wallet unlock surfaces accept only `wallet_unlock` or omit operation entirely
+   - sensitive-operation surfaces accept `export_key` and future link-device/add-signer operations
+   - server route parsers expose action-specific parse functions
+2. Split challenge route families by intent:
+   - wallet unlock: login challenge/verify
+   - transaction signing: transaction challenge/verify
+   - sensitive operation: operation challenge/verify
+   - restored signing-session sensitive operation: signing-session challenge/verify/unseal
+3. Keep restored signing-session route authority for export challenge issuance after reload, but do not call it a signing challenge and do not pass it through transaction signing helpers.
+4. Rename export grant and worker payload fields away from `loginGrant` where they are export-operation scoped.
+5. Add static guards first, in "warning mode" as explicit failing tests after the implementation patch, so the cleanup cannot be skipped.
+6. Delete temporary runtime rejection guards only after the type split and static guards prove export cannot reach those functions.
+7. Treat Ed25519 export HSS as an allowed export-only HSS routine. It may use threshold route authority, but it must not mint, persist, consume, or replace a transaction signing session.
+8. Preserve server-side export policy checks and audit events while moving route names or operation types. This refactor is plumbing cleanup, not a policy weakening.
+
 ## Implementation Plan
 
 ### Phase 1: Freeze The Generalized Model
@@ -930,30 +1059,263 @@ Remove login-time enrollment email repair from the normal flow. Session persiste
 13. [x] If production data ever needs migration, implement it as an explicit audited migration script that only writes a verified email from historical enrollment verification evidence, not from login challenges.
 14. [x] Add a static guard that forbids backfill/fallback/legacy/compatibility terms in scoped Email OTP and signing-session persistence source surfaces.
 
-### Post-Phase 9/10 Code Review
+### Phase 11: Independent Key Export Flow Simplification
 
-Current code review status: Phase 9 and Phase 10 are implemented in the active code paths.
+Goal: make key export structurally independent from transaction signing-session lifecycle code. Export must be fresh-auth, operation-scoped, and session-mutation-free by type and by tests.
 
-Evidence:
+Implementation order:
 
-1. [x] `emailOtpRouteHandlers.ts` includes signing-session-authorized Email OTP challenge and verify handlers.
-2. [x] Signing-session-authorized Email OTP challenges are restricted to `export_key`.
-3. [x] Signing-session-authorized Email OTP challenge delivery uses the server-owned Email OTP enrollment email, not a client-supplied email.
-4. [x] `emailOtpSessionRouteHelpers.ts` and session routes bind the signing-session challenge lane to threshold-session claims, `walletSigningSessionId`, expiry, and session policy status.
-5. [x] `EmailOtpThresholdSessionCoordinator.ts` can issue Email OTP challenge/verify requests through an explicit `signing_session` route family after sealed refresh.
-6. [x] Static and unit guards cover app-session removal, no login-time enrollment email backfill, no legacy/fallback repair terms, and worker route-plan boundaries.
+1. [x] Add or update focused failing tests/guards that describe the desired export split.
+2. [x] Split shared operation types and client signing dependency types.
+3. [x] Split transaction challenge helpers from export challenge helpers.
+4. [ ] Refactor server route parsing and operation-grant naming.
+5. [ ] Refactor worker export recovery through a single export-only helper.
+6. [x] Remove legacy guards, aliases, and dead code after all call sites compile.
+7. [x] Run type checks and focused export/signing suites.
 
-Remaining hardening tasks:
+API and type split:
 
-1. [ ] Tighten `normalizeEmailOtpRoutePlan` so `operation` is parsed through shared Email OTP operation validation instead of accepting any non-empty string and casting it.
-2. [ ] Require a non-empty `thresholdSessionId` for `signing_session` route plans before constructing worker payloads.
-3. [ ] Add focused unit tests for malformed route-plan operation rejection and missing `thresholdSessionId` rejection.
-4. [ ] Re-run the focused route/auth matrix after those hardening edits:
-   `emailOtpAuthLane.unit.test.ts`,
-   `emailOtpRouteAuthRefactor.guard.unit.test.ts`,
-   `emailOtpEnrollmentIdentity.guard.unit.test.ts`,
-   `emailOtpSigningSession.noBackfillFallback.guard.unit.test.ts`,
-   and `email-otp.routes.test.ts`.
+1. [x] Introduce a transaction-only operation type for signing-session login/bootstrap surfaces, limited to `transaction_sign`.
+2. [x] Introduce a separate sensitive-operation type for operation auth surfaces, starting with `export_key` and leaving room for link-device/add-signer.
+3. [x] Keep server-side `export_key` in the shared operation domain for export challenge, verify, and unseal routes.
+4. [x] Replace `EmailOtpSigningOperation = WalletEmailOtpLoginOperation` with a transaction-only alias or remove the alias entirely.
+5. [x] Remove `export_key` from `loginWithEmailOtpEd25519CapabilityForSigning` argument types.
+6. [x] Remove `export_key` from `loginWithEmailOtpEcdsaCapabilityForSigning` argument types.
+7. [x] Remove `export_key` from transaction challenge helper argument types.
+8. [x] Remove `export_key` from NEAR signing dependency types in `nearSigning.ts`.
+9. [x] Remove `export_key` from EVM/Tempo signing dependency types in `evmSigning.ts`.
+10. [x] Remove `export_key` from orchestration dependency bundle signing APIs in `orchestrationDependencyFactory.ts`.
+11. [ ] Narrow public/iframe Email OTP challenge types so wallet unlock APIs cannot request export challenges.
+12. [ ] Add action-specific server parse helpers for unlock, transaction signing, and sensitive-operation Email OTP requests.
+13. [x] Delete temporary runtime guards that reject export inside `*ForSigning` helpers once the type split makes those states unrepresentable.
+14. [x] Add static guards proving no `*ForSigning` API, signing dependency type, or transaction signing adapter accepts `export_key`.
+
+Naming cleanup:
+
+1. [x] Rename `requestEmailOtpChallengeForSigning` to a transaction-specific name such as `requestEmailOtpTransactionChallenge`.
+2. [ ] Rename transaction login helpers if needed so their names say transaction/session rather than generic Email OTP capability.
+3. [x] Keep export challenge helpers named around export, for example `requestExportAuthorization` or `requestEmailOtpExportChallenge`.
+4. [ ] Ensure link-device/add-signer future helpers use operation-auth names, not transaction-signing names.
+5. [ ] Remove tests and fixtures that describe export as "signing bootstrap" or "signing challenge."
+6. [ ] Rename app-session-authorized export routes away from the login route family if route churn is acceptable, for example to an explicit operation-auth route family.
+7. [ ] Rename export OTP grants from `loginGrant` to an operation-scoped grant name such as `operationGrant` or `emailOtpOperationGrant`.
+8. [ ] Rename Email OTP Ed25519 export fields that still say `PrfFirst` at generic boundaries, unless the value is truly passkey PRF material.
+
+Email OTP export simplification:
+
+1. [ ] Verify the call graph remains split before deleting the adapter: Email OTP account export enters the Email OTP coordinator; passkey account export enters `requestPasskeyExportAuthorization`.
+2. [x] Simplify `requestExportAuthorization` so the Email OTP coordinator directly requests an export challenge and renders the Email OTP prompt, without a passkey adapter that only throws.
+3. [x] Keep passkey export in the passkey export path; do not model passkey as a dead branch inside Email OTP export.
+4. [ ] Ensure Email OTP export challenge issuance supports exactly the allowed route authorities:
+   - fresh app-session or cookie authority during active login
+   - restored signing-session authority after sealed refresh
+5. [ ] Ensure Email OTP export verification returns a single-purpose export authorization, not a general app session and not a renewed signing session.
+6. [ ] Ensure export challenge and verify routes resolve the destination mailbox only from the active server-owned Email OTP enrollment.
+7. [ ] Ensure export challenge issuance remains transaction-use neutral and separately rate-limited.
+8. [ ] Preserve server export policy checks and export audit events for both app-session and restored signing-session challenge lanes.
+9. [x] Ensure export challenge resend uses the same export-only route helper and does not fall back to transaction challenge helpers.
+10. [ ] Ensure cancelled export prompts do not call verify, unseal, consume, clear, or sealed-refresh cleanup paths.
+11. [x] Add a regression test proving passkey account export still uses fresh WebAuthn/passkey auth after removing the Email OTP coordinator's dead passkey adapter.
+
+Worker export primitive:
+
+1. [ ] Add a worker-local helper such as `withRecoveredEmailOtpExportRootShare(...)`.
+2. [ ] The helper must require `routePlan.operation === 'export_key'`.
+3. [ ] The helper must call the Email OTP unseal path and recover root/export material in memory.
+4. [ ] The helper must run a callback with the recovered bytes.
+5. [ ] The helper must always zeroize recovered root/export material in `finally`.
+6. [ ] The helper must not call warm-session put, claim, hydrate, seal, clear, or consume helpers.
+7. [ ] Refactor Ed25519 export recovery to use this helper.
+8. [ ] Refactor ECDSA export to use this helper.
+9. [ ] Ensure worker payload responses contain only export artifacts or sanitized metadata, never root-share bytes.
+10. [ ] Ensure the helper cannot be called by login, transaction signing, sealed-refresh apply/remove, or restore worker operations.
+11. [ ] Add a worker unit/static guard proving export worker cases do not call warm-session lifecycle helpers.
+
+Session-mutation removal:
+
+1. [ ] Remove any export call path that calls `markThresholdEd25519EmailOtpSessionConsumedForAccount`.
+2. [ ] Remove any export call path that calls `markThresholdEcdsaEmailOtpSessionConsumedForAccount`.
+3. [ ] Remove any export call path that calls `clearWarmSessionMaterial`.
+4. [ ] Remove any export call path that claims warm-session material.
+5. [ ] Remove any export call path that temporarily overwrites a canonical threshold-session record and restores it later.
+6. [ ] Remove any export call path that writes a sealed-refresh record.
+7. [ ] Remove any export call path that updates `remainingUses`.
+8. [ ] Remove old tests that assert session restoration after export; replace them with tests that assert no mutation occurs.
+
+Legacy removal checklist after the refactor:
+
+1. [x] Delete `EmailOtpSigningOperation = WalletEmailOtpLoginOperation`.
+2. [x] Delete any `operation?: WalletEmailOtpLoginOperation` field from transaction-signing dependency types.
+3. [ ] Delete any `operation?: WalletEmailOtpLoginOperation` field from wallet unlock public APIs if unlock no longer accepts a broad operation union.
+4. [x] Delete `requestChallengeForSigning` after all callers use transaction-specific or export-specific helpers.
+5. [x] Delete `requestEmailOtpChallengeForSigning` from `NearSigningApiDeps`, `EvmFamilySigningDeps`, and `OrchestrationDependencyFactoryArgs`.
+6. [x] Delete `operation` forwarding from transaction challenge callers where the value is always `transaction_sign`.
+7. [x] Delete export rejection guards inside `loginWithEmailOtpEd25519CapabilityForSigning` and `loginWithEmailOtpEcdsaCapabilityForSigning`.
+8. [ ] Delete tests whose only purpose is to prove those runtime export rejection guards throw.
+9. [x] Delete dead passkey throwing adapters from Email OTP export authorization code only after passkey account export coverage proves the separate passkey path is still active.
+10. [ ] Delete any temporary `restoreOriginal*SessionRecord` helpers or tests if any remain.
+11. [ ] Delete any export worker operation that exports from a warm session, including `exportThresholdEcdsaHssKeyFromEmailOtpWarmSession` if it returns.
+12. [ ] Delete any `claimWarmSessionMaterial` usage from export tests and fixtures.
+13. [ ] Delete any `clearWarmSessionMaterial` fixture from export tests unless the test asserts it is not called.
+14. [ ] Delete any export fixture that mutates stored threshold-session records to simulate a refreshed export session.
+15. [ ] Delete any export path that passes `remainingUses` into worker payloads.
+16. [ ] Delete any export path that passes `sessionId` as a newly minted transaction session id.
+17. [ ] Delete `loginGrant` naming from export-specific server responses, worker payloads, and client helper types after operation-grant naming lands.
+18. [ ] Delete app-session continuity cache code or comments that imply export after reload depends on JS-readable app-session JWT persistence.
+19. [ ] Delete route aliases or helper names that call app-session export a "login" operation after operation-auth routes are introduced.
+20. [ ] Delete broad static guard exceptions that were needed only while export still crossed transaction signing files.
+21. [ ] Delete obsolete docs that describe export as signing-session login, bootstrap, consume, or restore.
+22. [x] Add permanent static guards for the deleted names above, scoped so legitimate server/export route references to `export_key` remain allowed.
+
+Tests and guards:
+
+1. [ ] Unit test Email OTP Ed25519 export shows fresh OTP and does not provision, hydrate, consume, clear, or rewrite the Ed25519 signing session.
+2. [ ] Unit test Email OTP ECDSA export shows fresh OTP and does not provision, hydrate, consume, clear, or rewrite the ECDSA signing session.
+3. [ ] Unit test export failure after OTP verification still leaves the original signing session record unchanged.
+4. [ ] Unit test export viewer failure still leaves the original signing session record unchanged.
+5. [ ] Unit test export after same-tab sealed refresh can request an OTP challenge using restored signing-session authority.
+6. [ ] Unit test restored signing-session authority cannot directly authorize export without fresh OTP verification.
+7. [ ] Unit test export challenge issuance does not decrement transaction `remainingUses`.
+8. [ ] Unit test export OTP verification does not mint or renew transaction signing sessions.
+9. [ ] Unit test passkey export always performs fresh WebAuthn/passkey auth and does not mutate warm-session state.
+10. [x] Static guard: no `export_key` string appears in `nearSigning.ts`, `evmSigning.ts`, or orchestration signing dependency type definitions except in explicit negative tests.
+11. [ ] Static guard: no export code imports or calls signing-session consume/clear helpers.
+12. [ ] Static guard: no export code calls signing-session seal apply/remove helpers.
+13. [ ] Static guard: no `loginGrant` naming appears in export-specific client or worker payloads after operation-grant rename.
+14. [x] Static guard: no `requestChallengeForSigning` symbol remains after the transaction/export helper split.
+15. [ ] Static guard: no `WalletEmailOtpLoginOperation` type appears in transaction signing adapter files.
+16. [ ] Route test: app-session-authorized export challenge still enforces export policy and enrolled-email resolution after route renaming.
+17. [ ] Route test: restored signing-session export challenge still enforces threshold-session status, export policy, and enrolled-email resolution.
+18. [ ] Route test: transaction signing challenge route rejects `export_key`.
+19. [ ] Route test: export operation route rejects `transaction_sign`.
+20. [ ] E2E: Email OTP login -> Ed25519 sign -> Ed25519 export -> Ed25519 sign still works without losing the active signing session.
+21. [ ] E2E: Email OTP login -> ECDSA sign -> ECDSA export -> ECDSA sign still works without losing the active signing session.
+22. [ ] E2E: Email OTP login -> refresh -> Ed25519 export -> Ed25519 sign still works with the restored signing session.
+23. [ ] E2E: Email OTP login -> refresh -> ECDSA export -> ECDSA sign still works with the restored signing session.
+24. [ ] E2E: failed/cancelled export prompt does not consume transaction signing budget.
+
+Cleanup and docs:
+
+1. [ ] Update the policy matrix and auth rules after implementation so transaction signing, sealed refresh, and sensitive-operation auth are separate flows.
+2. [ ] Remove any doc language implying export "logs into" or "bootstraps" a signing session.
+3. [ ] Update developer docs to say key export is operation-auth plus one-off in-memory export recovery.
+4. [ ] Update comments near worker export code explaining that export is intentionally not a warm-session lifecycle operation.
+5. [ ] Re-run type checks and focused Email OTP export/signing suites.
+
+### Phase 12: Wallet Signing-Session Budget Coordinator
+
+Goal: remove lane-specific budget accounting from transaction orchestration and dependency plumbing. Ed25519 and ECDSA may have different threshold session ids and different backing worker storage, but if they share a `walletSigningSessionId`, they must report and consume through one user-visible wallet signing-session budget.
+
+The current implementation has too much budget knowledge in call sites:
+
+1. NEAR Ed25519 signing knows when to consume TouchConfirm warm-session material.
+2. ECDSA post-sign policy knows when to consume TouchConfirm warm-session material.
+3. Email OTP Ed25519 spend code searches for matching ECDSA records to consume Email OTP worker material.
+4. `WarmSessionManager` maps Email OTP ECDSA worker status back into wallet-session status reads.
+
+That shape works, but the concept is bigger than any one curve. Name it directly.
+
+Target model:
+
+```ts
+type SigningSessionLane = {
+  curve: 'ed25519' | 'ecdsa';
+  chain?: 'near' | 'tempo' | 'evm';
+  source: 'passkey' | 'email_otp';
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  backingMaterialSessionId: string;
+};
+
+interface WalletSigningSessionCoordinator {
+  getStatus(args: {
+    nearAccountId: string;
+    walletSigningSessionId?: string;
+  }): Promise<SigningSessionStatus | null>;
+
+  consumeUse(args: {
+    nearAccountId: string;
+    walletSigningSessionId: string;
+    uses: number;
+    reason: 'transaction_sign';
+    alreadyConsumedBackingMaterialSessionIds?: string[];
+    alreadyConsumedThresholdSessionIds?: string[];
+  }): Promise<SigningSessionStatus>;
+
+  clear(args: {
+    nearAccountId: string;
+    walletSigningSessionId: string;
+  }): Promise<void>;
+}
+```
+
+Transaction signing should reduce to:
+
+```ts
+await walletSigningSessionCoordinator.consumeUse({
+  nearAccountId,
+  walletSigningSessionId,
+  uses: usesNeeded,
+  reason: 'transaction_sign',
+});
+```
+
+The transaction flow should not know whether the consumed lane is:
+
+1. Ed25519 passkey `PRF.first` cached in the TouchConfirm worker
+2. Ed25519 Email OTP restored client-base material cached in the TouchConfirm worker
+3. ECDSA passkey material cached in the TouchConfirm worker
+4. ECDSA Email OTP worker material behind `clientAdditiveShareHandle.sessionId`
+5. sealed-refresh restored material
+
+Recommended placement:
+
+1. Add `client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts`.
+2. Keep `WarmSessionManager` focused on capability resolution, status derivation, provisioning, restore, and sealed-refresh lifecycle.
+3. Keep budget consumption and clearing in the new coordinator.
+4. Add worker-specific lane adapters instead of hard-coding worker details in transaction flows:
+   - `TouchConfirmWarmSessionLane`
+   - `EmailOtpWorkerWarmSessionLane`
+
+Core invariant:
+
+```text
+If two lanes share walletSigningSessionId, they share one user-visible remaining-use budget.
+```
+
+Implementation checklist:
+
+1. [x] Add `SigningSessionLane` and `WalletSigningSessionCoordinator` types under `client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts`.
+2. [x] Add lane discovery from canonical Ed25519 and ECDSA session records for a given `nearAccountId`.
+3. [x] Normalize each lane to `{ thresholdSessionId, walletSigningSessionId, backingMaterialSessionId }`.
+4. [x] Map Ed25519 passkey lanes to TouchConfirm worker `thresholdSessionId`.
+5. [x] Map Ed25519 Email OTP lanes to TouchConfirm worker `thresholdSessionId` and stored Ed25519 threshold record metadata.
+6. [x] Map ECDSA passkey lanes to TouchConfirm worker `thresholdSessionId`.
+7. [x] Map ECDSA Email OTP lanes to Email OTP worker `clientAdditiveShareHandle.sessionId`.
+8. [x] Ensure sealed-refresh restored lanes use the same mapping after worker material is rehydrated.
+9. [x] Implement `getStatus` by grouping lanes by `walletSigningSessionId` and returning the minimum active `remainingUses` and earliest active expiry across the group.
+10. [x] Implement `consumeUse` so it records one logical wallet-session spend and mirrors that spend across backing lanes unless a lane already consumed its backing material during signing.
+11. [x] Ensure `consumeUse` never consumes export, link-device, add-signer, challenge issuance, verify, unseal, apply-server-seal, or remove-server-seal operations.
+12. [x] Implement `clear` so account lock/logout/account switch can clear all backing material and stored threshold records for the wallet signing-session group.
+13. [x] Move `recordEmailOtpWarmSessionUse` out of `orchestrationDependencyFactory.ts` into the coordinator.
+14. [x] Move Email OTP worker-status read mapping out of `WarmSessionManager` into reusable lane adapters.
+15. [x] Update NEAR transaction signing to call `walletSigningSessionCoordinator.consumeUse(...)` after successful signing.
+16. [x] Update ECDSA post-sign policy to call `walletSigningSessionCoordinator.consumeUse(...)` after successful signing.
+17. [x] Update wallet-session UI status reads to call the same coordinator status path used by post-sign consumption.
+18. [x] Remove direct transaction-flow calls to `touchConfirm.consumeWarmSessionUses`.
+19. [x] Remove direct ECDSA post-sign calls to `touchConfirm.consumeWarmSessionUses`.
+20. [x] Remove Ed25519 spend code that searches for matching ECDSA records from `orchestrationDependencyFactory.ts`.
+21. [x] Keep `WarmSessionManager` as a dependency of the coordinator only where capability/status data is needed; do not fold budget side effects back into `WarmSessionManager`.
+22. [x] Add a focused unit test: Ed25519 and ECDSA Email OTP lanes with the same `walletSigningSessionId` report one shared remaining-use budget.
+23. [x] Add a focused unit test: consuming an Ed25519 Email OTP transaction decrements the shared wallet budget exactly once.
+24. [x] Add a focused unit test: consuming an ECDSA Email OTP transaction decrements the same shared wallet budget exactly once.
+25. [x] Add a focused unit test: passkey Ed25519 and passkey ECDSA lane consumption updates the same coordinator status path used by the UI.
+26. [x] Add a guard test that transaction signing code does not import worker-specific warm-session consume helpers directly.
+27. [x] Add a guard test that export code cannot call `WalletSigningSessionCoordinator.consumeUse`.
+28. [x] Update docs to describe `remainingUses` as the wallet signing-session budget and clarify whether NEAR batches consume per threshold signature or per user-visible operation.
+29. [x] Run SDK typecheck, relay-server typecheck, SDK build, and focused warm-session/Email OTP signing tests.
+
+`remainingUses` is now treated as the wallet signing-session budget. NEAR transaction batches consume one wallet-session use per user-visible signing operation, even when that operation signs multiple NEAR transactions. This keeps Ed25519 and ECDSA behavior aligned: one confirmation modal plus one fresh auth prompt maps to one wallet-session budget spend.
 
 ## Acceptance Criteria
 
@@ -969,6 +1331,8 @@ Remaining hardening tasks:
 10. No PRF-only sealed-refresh APIs remain after the migration.
 11. Sealed refresh apply/remove does not consume transaction signing `remainingUses` and is enforced by separate rate limits.
 12. Active Email OTP enrollments always have a server-owned verified email, and login OTP verify never repairs enrollment identity as a request-path side effect.
+13. Key export OTP/passkey prompts are independent of transaction signing sessions and cannot mutate or consume signing-session state.
+14. No transaction signing API or dependency type accepts `export_key` after the independent export refactor.
 
 ## Static Guard
 

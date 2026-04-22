@@ -25,17 +25,13 @@ First-release scope:
 
 ## Product Decision
 
-We support three canonical account families:
+We support two canonical first-release account families:
 
 1. `passkey`
    - non-custodial account option
    - deterministic secret source from WebAuthn PRF
    - default and recommended signing method
-2. `password`
-   - non-custodial account option
-   - deterministic secret source derived from password material
-   - developer-enabled alternative
-3. `email_otp`
+2. `email_otp`
    - Google-SSO-backed signing option
    - client-side `shamir3pass` unseal of enrolled secret `S`
    - cross-device signing supported
@@ -45,8 +41,7 @@ Recommended product policy:
 
 1. `passkey` is the default option
 2. `email_otp` is available as a convenience option
-3. `password` is available only when explicitly enabled by the developer
-4. product copy must never present `email_otp` as equally secure with `passkey`
+3. product copy must never present `email_otp` as equally secure with `passkey`
 
 ## Canonical Model
 
@@ -150,9 +145,7 @@ The source differs by mode:
 
 1. `passkey`
    - `client_secret_source = PRF.first`
-2. `password`
-   - `client_secret_source = password-derived secret`
-3. `email_otp`
+2. `email_otp`
    - `client_secret_source = recovered Email-OTP secret S`
 
 Secret shape:
@@ -174,29 +167,29 @@ Rules:
 The canonical persisted artifact is:
 
 ```text
-E_ks(S)
+E_enrollment_s(S)
 ```
 
 where:
 
-1. `ks` is the server `shamir3pass` seal key
+1. `enrollment_s` is the server-side Email OTP enrollment seal key namespace
 2. `S` is the enrolled Email OTP client secret
 
 Rules:
 
-1. the server stores the authoritative escrow blob `E_ks(S)`
+1. the server stores the authoritative escrow blob `E_enrollment_s(S)`
 2. the client must not persist plaintext `S`
-3. the client must not cache `E_ks(S)` locally
+3. the client must not cache `E_enrollment_s(S)` locally
 4. every Email OTP flow is online and server-mediated
 5. every Email OTP unseal must pass through app-session validation, OTP verification, and server-assisted unseal
 
 ### Server-escrow implication
 
-If the server stores `E_ks(S)` and holds `ks`, then server compromise plus key compromise can recover `S`.
+If the server stores `E_enrollment_s(S)` and holds the enrollment seal key, then server compromise plus key compromise can recover `S`.
 
 Therefore:
 
-1. protect `ks` with stronger controls than ordinary application secrets
+1. protect the enrollment seal key with stronger controls than ordinary application secrets
 2. treat Email OTP as a convenience signing feature with explicit lower-security posture
 3. do not market this mode as non-custodial or equivalent to passkey
 
@@ -216,14 +209,14 @@ Production rule:
 
 1. client generates client secret `S`
 2. client computes `a = E_kc1(S)`
-3. server returns `b = E_ks(a)`
-4. client computes `sealed = D_kc1(b) = E_ks(S)`
+3. server returns `b = E_enrollment_s(a)`
+4. client computes `sealed = D_kc1(b) = E_enrollment_s(S)`
 5. client uploads `sealed` as the server-side Email OTP escrow blob
 
 Persisted artifact:
 
 ```text
-E_ks(S)
+E_enrollment_s(S)
 ```
 
 ### Login or signing unseal
@@ -231,10 +224,10 @@ E_ks(S)
 1. client requests Email OTP challenge under a valid Google-SSO-backed `app_session_v1`
 2. user completes 6-digit Email OTP verification
 3. server mints a single-use short-lived auth grant
-4. client fetches the server-stored escrow blob `E_ks(S)`
-5. client computes `d = E_kc2(E_ks(S))`
+4. client fetches the server-stored escrow blob `E_enrollment_s(S)`
+5. client computes `d = E_kc2(E_enrollment_s(S))`
 6. client sends `d` plus the auth grant
-7. server returns `e = D_ks(d) = E_kc2(S)`
+7. server returns `e = D_enrollment_s(d) = E_kc2(S)`
 8. client computes `S = D_kc2(e)`
 
 Rules:
@@ -483,12 +476,12 @@ Canonical Email OTP registration:
 4. account key material is created for the Email OTP signing path
 5. Email OTP enrollment is completed
 6. client generates strong random secret `S`
-7. client seals `S` into server escrow `E_ks(S)` via `shamir3pass`
+7. client seals `S` into server escrow `E_enrollment_s(S)` via `shamir3pass`
 8. client derives:
    - threshold ECDSA client verifying share when ECDSA threshold is enabled
    - unlock public key
 9. client uploads:
-   - server escrow blob `E_ks(S)`
+   - server escrow blob `E_enrollment_s(S)`
    - enrolled derived threshold material
    - enrolled unlock public key
    - Email OTP metadata
@@ -540,17 +533,19 @@ If an OIDC exchange is not a Google Email OTP registration flow, the server stil
 | Step | Auth lane | Why |
 | --- | --- | --- |
 | Google SSO exchange | Google OIDC assertion | proves app identity and Google subject |
-| Email OTP challenge | `app_session_v1` | binds OTP challenge to current app user, wallet, session, and operation |
-| Email OTP verify | `app_session_v1` | verifies the code against the same app-session context that requested it |
-| `shamir3pass` unseal authorization | `app_session_v1` plus OTP grant | proves the user is allowed to recover `S` for this operation |
-| threshold ECDSA bootstrap from Email OTP | `app_session_v1` | bootstrap is authorized by fresh OTP verification and app-session binding |
+| Initial Email OTP challenge | `app_session_v1` | binds OTP challenge to the current logged-in app user, wallet, session, and operation |
+| Email OTP challenge after sealed refresh | restored signing-session route authority | lets an already-restored wallet signing session request fresh operation auth without persisting a JS-readable app-session JWT |
+| Email OTP verify | same lane that requested the challenge | verifies the code against the same session context that requested it |
+| `shamir3pass` unseal authorization | OTP grant plus validated route authority | proves the user is allowed to recover `S` or operation material for this operation |
+| threshold ECDSA bootstrap from Email OTP | fresh OTP authorization plus validated route authority | bootstrap is authorized by OTP verification and the route's app-session or restored signing-session binding |
 | threshold ECDSA signing/export after bootstrap | threshold-session JWT | proves an active threshold signing capability exists |
 
 Rules:
 
-1. never substitute a threshold-session JWT where an app-session JWT is required for Email OTP challenge, verification, or bootstrap authorization
+1. never substitute a threshold-session JWT where app-session auth is required for initial Email OTP challenge, verification, or bootstrap authorization
 2. never substitute an app-session JWT where a threshold-session JWT is required for threshold signing or threshold HSS export
 3. `authorizationJwt` is not an acceptable generic field name for new Email OTP or ECDSA HSS boundaries; use explicit `RouteAuth` variants or lane-specific names
+4. after sealed refresh, restored signing-session authority may request a fresh sensitive-operation OTP challenge, but it must not directly authorize export, link-device, add-signer, or transaction signing without the correct follow-up policy check
 
 ### Why there is still a wallet unlock proof
 
@@ -651,7 +646,7 @@ Enrollment authorization:
 
 Persisted server-side data:
 
-1. escrow blob `E_ks(S)`
+1. escrow blob `E_enrollment_s(S)`
 2. `enrollmentSealKeyVersion`
 3. `unlockPublicKey`
 4. `unlockKeyVersion`
@@ -662,7 +657,7 @@ Persisted server-side data:
 9. `lastStrongAuthAtMs`
 10. OTP failure and lockout counters
 
-The client does not store `E_ks(S)`.
+The client does not store `E_enrollment_s(S)`.
 
 ## API Shape
 
@@ -688,8 +683,7 @@ Minimum route set:
 
 1. `passkey` is the strongest and recommended signing method
 2. `email_otp` is a lower-security convenience signing method
-3. `password` is a developer-enabled alternative
-4. product copy must say Email OTP is less secure than passkey
+3. product copy must say Email OTP is less secure than passkey
 
 ### Sensitive actions
 
@@ -746,14 +740,13 @@ The implementation must preserve these invariants:
 
 1. offer `passkey` as the default and strongest signing method
 2. offer `email_otp` as a convenience signing method
-3. offer `password` only when developer-enabled
-4. use 6-digit `email_otp` as the only OTP channel in first release
-5. support threshold ECDSA as the only product signing capability in first release
-6. fix `S` to 32 random bytes in first release
-7. support both `session` and `per_operation` Email OTP signing-session policies through `WarmSessionManager`
-8. do not add any `PIN + OPRF` layer to this flow
-9. do not store `E_ks(S)` on the client
-10. do not enable any offline Email OTP path
+3. use 6-digit `email_otp` as the only OTP channel in first release
+4. support threshold Ed25519 and threshold ECDSA signing capabilities
+5. fix `S` to 32 random bytes in first release
+6. support both `session` and `per_operation` Email OTP signing-session policies through `WarmSessionManager`
+7. do not add any `PIN + OPRF` layer to this flow
+8. do not store the server enrollment escrow `E_enrollment_s(S)` on the client
+9. do not enable any offline Email OTP path
 
 ## Definition of Done
 
@@ -763,19 +756,19 @@ The implementation must preserve these invariants:
 4. the Email OTP client secret is never persisted in plaintext at rest
 5. the server stores only server-sealed escrow blobs
 6. the client does not cache server escrow blobs
-7. threshold ECDSA derivation is deterministic from the recovered client secret
+7. threshold Ed25519 and threshold ECDSA derivation are deterministic from the recovered client secret
 8. `wallet/unlock/verify` accepts only public unlock proof material
 9. Email OTP signing reaches a `ready` ECDSA warm capability through the canonical warm-session runtime
 10. `WarmSessionManager` supports both `session` and `per_operation` signing-session policies for Email OTP
 11. OTP challenges and grants are rate-limited, expiring, and single-use
-12. passkey, `password`, and Email OTP coexist without duplicate legacy route or symbol pollution
+12. passkey and Email OTP coexist without duplicate legacy route or symbol pollution
 
 ## Current Implementation Status
 
 ### Completed
 
 1. canonical Email OTP route plane exists under `wallet/email-otp/*`
-2. server-authoritative escrow exists and the client does not cache `E_ks(S)`
+2. server-authoritative escrow exists and the client does not cache `E_enrollment_s(S)`
 3. client-side `shamir3pass` unseal of `S` exists
 4. threshold ECDSA derivation from recovered `S` exists
 5. wallet unlock proof from recovered `S` exists

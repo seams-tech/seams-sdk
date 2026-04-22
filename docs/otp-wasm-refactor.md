@@ -1,6 +1,6 @@
 # OTP WASM Worker Refactor Plan
 
-Date updated: April 16, 2026
+Date updated: April 21, 2026
 
 ## Objective
 
@@ -569,7 +569,7 @@ The app origin may still pass user-entered OTP values and public flow inputs to 
 10. [x] Delete the temporary app-origin metadata IndexedDB mode after no wallet-iframe Email OTP flow depends on app-origin profile/account metadata persistence.
 11. [x] Add tests proving wallet-iframe Email OTP registration, login, session-mode signing, and `per_operation` signing work with app-origin IndexedDB disabled.
 12. [x] Add a regression test proving the app origin never receives recovered `S`, `clientRootShare32`, `clientAdditiveShare32B64u`, or Email OTP-derived signing share material.
-13. [x] Add a reload test proving iframe-origin metadata can restore the nonsecret account view while requiring fresh OTP for any missing in-memory worker signing capability.
+13. [x] Add reload coverage proving iframe-origin metadata restores the nonsecret account view and sealed refresh can restore session-mode Email OTP signing capability without exposing recovered `S` to app-origin code.
 14. [x] Remove the current app-origin bridge for wallet-iframe mode; direct non-iframe SDK Email OTP worker paths remain the direct-mode runtime, not a wallet-iframe fallback.
 
 ### Done criteria
@@ -676,7 +676,8 @@ Completed:
     - app-origin iframe results strip recovered `S`, `clientRootShare32`, `clientAdditiveShare32B64u`, and other Email OTP-derived share material
 20. add wallet-iframe reload regression coverage:
     - wallet-origin metadata restores the nonsecret account view
-    - in-memory Email OTP signing capability is not restored across reload without fresh OTP
+    - session-mode Email OTP signing capability can be restored through the generic sealed-refresh path when the browser-session marker and server budget remain valid
+    - `per_operation` Email OTP signing capability is not restored across reload
 
 Remaining:
 

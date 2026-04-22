@@ -306,10 +306,10 @@ For multi-method users:
 
 ### Phase 0: Finish Core Email OTP
 
-- [ ] finish local Email OTP registration/login/signing validation
+- [x] finish local Email OTP registration/login/signing/export validation
 - [ ] keep OTP-to-passkey upgrade work paused until core Email OTP is stable
-- [ ] finish iframe-origin ownership and worker-secret-boundary cleanup
-- [ ] remove legacy OTP recovery wording from product surfaces
+- [x] finish iframe-origin ownership and worker-secret-boundary cleanup
+- [x] remove legacy OTP recovery wording from normal login/register/signing surfaces
 - [ ] resolve remaining threshold signer random-keypair/signing-root refactor items before building add-key flows
 
 ### Phase 1: Model Signing Methods As Account Keys
