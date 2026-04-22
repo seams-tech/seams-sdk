@@ -26,14 +26,14 @@ const stickyResponseScript = String.raw`
                 requestId,
                 payload: {
                   version: 2,
-                  flow: 'signing',
-                  step: 5,
-                  phase: 'signing.confirmation.displayed',
-                  status: 'waiting_for_user',
-                  message: 'Review transaction',
-                  flowId: 'signing:test:' + requestId,
+                  flow: 'key_export',
+                  step: 1,
+                  phase: 'key_export.started',
+                  status: 'running',
+                  message: 'Preparing key export',
+                  flowId: 'key_export:test:' + requestId,
                   requestId,
-                  interaction: { kind: 'transaction_confirmation', overlay: 'show' }
+                  interaction: { kind: 'none', overlay: 'none' }
                 }
               });
             } catch (err) {

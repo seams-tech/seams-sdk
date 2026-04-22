@@ -40,12 +40,12 @@ const exportFlowScript = String.raw`
                 requestId: data.requestId,
                 payload: {
                   version: 2,
-                  flow: 'account_sync',
+                  flow: 'key_export',
                   step: 2,
-                  phase: 'account_sync.auth.passkey.prompt.started',
+                  phase: 'key_export.auth.passkey.prompt.started',
                   status: 'waiting_for_user',
                   message: 'Confirm with passkey',
-                  flowId: 'account_sync:test:' + data.requestId,
+                  flowId: 'key_export:test:' + data.requestId,
                   requestId: data.requestId,
                   interaction: { kind: 'passkey_assert', overlay: 'show' },
                 },
@@ -70,19 +70,47 @@ const exportFlowScript = String.raw`
 
           setTimeout(() => {
             try {
-              window.parent?.postMessage({ type: 'WALLET_EXPORT_VIEWER_OPENED' }, '*');
+              adoptedPort.postMessage({
+                type: 'PROGRESS',
+                requestId: data.requestId,
+                payload: {
+                  version: 2,
+                  flow: 'key_export',
+                  step: 4,
+                  phase: 'key_export.viewer.opened',
+                  status: 'waiting_for_user',
+                  message: 'Review private key',
+                  flowId: 'key_export:test:' + data.requestId,
+                  requestId: data.requestId,
+                  interaction: { kind: 'key_export_viewer', overlay: 'show' },
+                },
+              });
               window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_VIEWER_OPENED' }, '*');
             } catch (err) {
-              console.error('Failed to post WALLET_EXPORT_VIEWER_OPENED', err);
+              console.error('Failed to post key export viewer opened progress', err);
             }
           }, 220);
 
           setTimeout(() => {
             try {
-              window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
+              adoptedPort.postMessage({
+                type: 'PROGRESS',
+                requestId: data.requestId,
+                payload: {
+                  version: 2,
+                  flow: 'key_export',
+                  step: 5,
+                  phase: 'key_export.viewer.closed',
+                  status: 'succeeded',
+                  message: 'Key export closed',
+                  flowId: 'key_export:test:' + data.requestId,
+                  requestId: data.requestId,
+                  interaction: { kind: 'key_export_viewer', overlay: 'hide' },
+                },
+              });
               window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_UI_CLOSED' }, '*');
             } catch (err) {
-              console.error('Failed to post WALLET_UI_CLOSED', err);
+              console.error('Failed to post key export viewer closed progress', err);
             }
           }, 260);
         };
@@ -116,12 +144,12 @@ const exportSigningIsolationScript = String.raw`
                   requestId: data.requestId,
                   payload: {
                     version: 2,
-                    flow: 'account_sync',
+                    flow: 'key_export',
                     step: 2,
-                    phase: 'account_sync.auth.passkey.prompt.started',
+                    phase: 'key_export.auth.passkey.prompt.started',
                     status: 'waiting_for_user',
                     message: 'Confirm with passkey',
-                    flowId: 'account_sync:test:' + data.requestId,
+                    flowId: 'key_export:test:' + data.requestId,
                     requestId: data.requestId,
                     interaction: { kind: 'passkey_assert', overlay: 'show' },
                   },
@@ -146,7 +174,21 @@ const exportSigningIsolationScript = String.raw`
 
             setTimeout(() => {
               try {
-                window.parent?.postMessage({ type: 'WALLET_EXPORT_VIEWER_OPENED' }, '*');
+                adoptedPort.postMessage({
+                  type: 'PROGRESS',
+                  requestId: data.requestId,
+                  payload: {
+                    version: 2,
+                    flow: 'key_export',
+                    step: 4,
+                    phase: 'key_export.viewer.opened',
+                    status: 'waiting_for_user',
+                    message: 'Review private key',
+                    flowId: 'key_export:test:' + data.requestId,
+                    requestId: data.requestId,
+                    interaction: { kind: 'key_export_viewer', overlay: 'show' },
+                  },
+                });
                 window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_VIEWER_OPENED' }, '*');
               } catch (err) {
                 console.error('Failed to post export viewer open marker', err);
@@ -155,7 +197,21 @@ const exportSigningIsolationScript = String.raw`
 
             setTimeout(() => {
               try {
-                window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
+                adoptedPort.postMessage({
+                  type: 'PROGRESS',
+                  requestId: data.requestId,
+                  payload: {
+                    version: 2,
+                    flow: 'key_export',
+                    step: 5,
+                    phase: 'key_export.viewer.closed',
+                    status: 'succeeded',
+                    message: 'Key export closed',
+                    flowId: 'key_export:test:' + data.requestId,
+                    requestId: data.requestId,
+                    interaction: { kind: 'key_export_viewer', overlay: 'hide' },
+                  },
+                });
                 window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_UI_CLOSED' }, '*');
               } catch (err) {
                 console.error('Failed to post export close marker', err);
@@ -236,12 +292,12 @@ const staleGenericCloseAfterExportViewerScript = String.raw`
                 requestId: data.requestId,
                 payload: {
                   version: 2,
-                  flow: 'account_sync',
+                  flow: 'key_export',
                   step: 2,
-                  phase: 'account_sync.auth.passkey.prompt.started',
+                  phase: 'key_export.auth.passkey.prompt.started',
                   status: 'waiting_for_user',
                   message: 'Confirm with passkey',
-                  flowId: 'account_sync:test:' + data.requestId,
+                  flowId: 'key_export:test:' + data.requestId,
                   requestId: data.requestId,
                   interaction: { kind: 'passkey_assert', overlay: 'show' },
                 },
@@ -262,11 +318,25 @@ const staleGenericCloseAfterExportViewerScript = String.raw`
             } catch (err) {
               console.error('Failed to post export PM_RESULT', err);
             }
-          }, 60);
+          }, 130);
 
           setTimeout(() => {
             try {
-              window.parent?.postMessage({ type: 'WALLET_EXPORT_VIEWER_OPENED' }, '*');
+              adoptedPort.postMessage({
+                type: 'PROGRESS',
+                requestId: data.requestId,
+                payload: {
+                  version: 2,
+                  flow: 'key_export',
+                  step: 4,
+                  phase: 'key_export.viewer.opened',
+                  status: 'waiting_for_user',
+                  message: 'Review private key',
+                  flowId: 'key_export:test:' + data.requestId,
+                  requestId: data.requestId,
+                  interaction: { kind: 'key_export_viewer', overlay: 'show' },
+                },
+              });
               window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_VIEWER_OPENED' }, '*');
             } catch (err) {
               console.error('Failed to post export viewer open marker', err);
@@ -284,7 +354,21 @@ const staleGenericCloseAfterExportViewerScript = String.raw`
 
           setTimeout(() => {
             try {
-              window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
+              adoptedPort.postMessage({
+                type: 'PROGRESS',
+                requestId: data.requestId,
+                payload: {
+                  version: 2,
+                  flow: 'key_export',
+                  step: 5,
+                  phase: 'key_export.viewer.closed',
+                  status: 'succeeded',
+                  message: 'Key export closed',
+                  flowId: 'key_export:test:' + data.requestId,
+                  requestId: data.requestId,
+                  interaction: { kind: 'key_export_viewer', overlay: 'hide' },
+                },
+              });
               window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_UI_CLOSED' }, '*');
             } catch (err) {
               console.error('Failed to post export close marker', err);
@@ -304,7 +388,7 @@ test.describe('wallet-origin export flow integration', () => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
   });
 
-  test('export flow completes and overlay closes on wallet-origin WALLET_UI_CLOSED', async ({
+  test('export flow completes and overlay closes on key export progress', async ({
     page,
   }) => {
     await registerWalletServiceRoute(

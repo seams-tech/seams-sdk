@@ -1321,31 +1321,35 @@ Implementation checklist:
 
 These TODOs address the five architectural issues that caused the Email OTP session regressions. The target state is that Ed25519 and ECDSA use the same auth-routing shape, the same session-source lane rules, and the same wallet signing-session budget model.
 
-1. [ ] Make ECDSA follow the Ed25519 transaction auth flow.
+This is lane-scoped, not account-global. Future accounts may have both Email OTP and passkey signing abilities. The transaction flow must first select the intended signing lane, then all readiness, reauth, key-ref, and budget work must stay on that lane. An exhausted Email OTP lane prompts OTP; an exhausted passkey lane prompts passkey. Neither lane silently falls back to the other.
+
+For dual-auth accounts, `primaryAuthMethod` in the signing flow means the selected auth method for this operation, not the only auth method linked to the account. ECDSA selection must read Email OTP and passkey lanes through source-scoped helpers and must not use a source-less “account/chain ECDSA session” fallback to decide between them.
+
+1. [x] Make ECDSA follow the Ed25519 transaction auth flow.
    - Ed25519 already has the right shape: the signer path owns session readiness, catches `fresh_email_otp_required`, and turns it into an OTP confirmation flow.
    - ECDSA must stop carrying a parallel auth planner that can independently choose passkey, warm session, or Email OTP.
    - Refactor ECDSA so `SigningEngine.signTempo` and raw EVM signing resolve auth through the same transaction confirmation boundary as Ed25519.
    - Acceptance check: an exhausted Email OTP ECDSA transaction opens the tx confirmer with Email OTP, succeeds, and the next ECDSA transaction repeats that same flow instead of surfacing passkey or a pre-thrown freshness error.
 
-2. [ ] Make `source: email_otp` mandatory for Email OTP ECDSA session reads.
+2. [x] Make `source: email_otp` mandatory for Email OTP ECDSA session reads.
    - ECDSA code must never ask for “the ECDSA session for this account/chain” when it is operating on an Email OTP account.
    - Add typed helpers for Email OTP ECDSA reads, writes, clears, key-ref resolution, and readiness checks that require `source: email_otp`.
    - Remove generic ECDSA fallbacks from Email OTP paths instead of preserving compatibility branches.
    - Acceptance check: an Email OTP account with an exhausted or missing Email OTP ECDSA session cannot drift into a passkey ECDSA lane.
 
-3. [ ] Remove implicit pre-sign ECDSA bootstrap/readiness prompts.
+3. [x] Remove implicit pre-sign ECDSA bootstrap/readiness prompts.
    - Transaction preparation must not touch WebAuthn or bootstrap ECDSA material before the tx confirmer owns the flow.
    - Demo hooks and SDK helper paths may read already-known public addresses, but they must not call readiness/bootstrap APIs that can prompt.
    - Signing material bootstrap must happen inside the signer flow after the confirmation modal is established and after the selected auth method is known.
    - Acceptance check: there is no standalone passkey prompt before the tx confirmer for Email OTP ECDSA, and passkey accounts still prompt only after the tx confirmer approval step.
 
-4. [ ] Keep `SigningEngine` as the single ECDSA policy owner.
+4. [x] Keep `SigningEngine` as the single ECDSA policy owner.
    - `TempoSigner.signTempo` and other public wrappers must be thin routing layers only.
    - Remove wrapper-side single-use Email OTP maps, preflight policy checks, post-sign policy checks, and freshness throws.
    - The signer flow must be the only place that turns exhausted session state into fresh auth UI.
    - Acceptance check: wrapper code cannot throw `fresh_email_otp_required` before `SigningEngine` has a chance to convert it into an OTP confirmation flow.
 
-5. [ ] Collapse session budget accounting to one wallet signing-session model.
+5. [x] Collapse session budget accounting to one wallet signing-session model.
    - Threshold session records, wallet signing-session budget, per-operation Email OTP state, source lanes, and chain lanes must stay distinct in type names and APIs.
    - `WalletSigningSessionCoordinator` should be the only transaction path that consumes user-visible `remainingUses`.
    - Ed25519 and ECDSA session records should expose lane metadata to the coordinator; transaction flows should not reach into worker-specific budget helpers.
@@ -1354,9 +1358,9 @@ These TODOs address the five architectural issues that caused the Email OTP sess
 
 Permanent guardrails:
 
-1. [ ] Add static guards that ECDSA Email OTP transaction paths always pass `source: email_otp` when resolving ECDSA session records or key refs.
-2. [ ] Add static guards that public chain signer wrappers do not import Email OTP policy helpers, session-consumption helpers, or `WarmSessionManager` policy methods.
-3. [ ] Add integration coverage for these flows:
+1. [x] Add static guards that ECDSA Email OTP transaction paths always pass `source: email_otp` when resolving ECDSA session records or key refs.
+2. [x] Add static guards that public chain signer wrappers do not import Email OTP policy helpers, session-consumption helpers, or `WarmSessionManager` policy methods.
+3. [x] Add integration coverage for these flows:
    - Email OTP ECDSA with remaining uses signs without OTP/passkey prompt.
    - exhausted Email OTP ECDSA prompts OTP and succeeds.
    - the next exhausted Email OTP ECDSA transaction prompts OTP again and succeeds.

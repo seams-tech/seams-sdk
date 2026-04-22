@@ -130,6 +130,7 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const AuthMenuMode = menuMod.AuthMenuMode;
 
         const config = {
           nearNetwork: 'testnet',
@@ -149,7 +150,7 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
             ReactRuntime.createElement(
               Provider,
               { config },
-              ReactRuntime.createElement(PasskeyAuthMenu, null),
+              ReactRuntime.createElement(PasskeyAuthMenu, { defaultMode: AuthMenuMode.Login }),
             ),
           );
         });
@@ -189,5 +190,11 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
 
     const afterQrReady = await capture();
     expect(afterQrReady.visible).toBe(false);
+
+    const backButton = mount.getByRole('button', { name: 'Back' }).first();
+    await expect(backButton).toBeVisible();
+    await backButton.click();
+    await expect(mount.locator('.w3a-signup-menu-root[data-scan-device="false"]')).toBeVisible();
+    await expect(qrButton).toBeVisible();
   });
 });

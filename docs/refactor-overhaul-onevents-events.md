@@ -19,7 +19,8 @@ type WalletFlowEventBase = {
     | 'signing'
     | 'link_device'
     | 'email_recovery'
-    | 'account_sync';
+    | 'account_sync'
+    | 'key_export';
   step: number;
   phase: string;
   status:
@@ -44,7 +45,8 @@ type WalletFlowEventBase = {
       | 'transaction_confirmation'
       | 'qr_scan'
       | 'qr_display'
-      | 'email_recovery_link';
+      | 'email_recovery_link'
+      | 'key_export_viewer';
     overlay: 'show' | 'hide' | 'none';
   };
   data?: Record<string, unknown>;
@@ -208,6 +210,7 @@ Toast guidance:
 Flow: `link_device`
 
 The same event family covers the QR-display device and the QR-scanner device. Role-specific details are carried in `data` when needed.
+For the QR-display role, `link_device.qr.displayed` emits `interaction.overlay: 'hide'` because the QR screen is rendered by the app. Scanner authorization and new-device passkey phases emit `overlay: 'show'` only when the wallet iframe must capture activation.
 
 | Step | Phase | Message |
 | ---: | --- | --- |
@@ -312,11 +315,11 @@ Current private worker progress:
 
 Recommendation: keep eth/tempo worker frames private unless a worker operation becomes user-visible latency. Public signing toasts should stay coarse: review, auth, signer/session readiness, threshold commit, transaction signed, broadcast, finalization, app-state sync, completion, failure, and cancellation.
 
-## Planned Key Export Overlay Refactor
+## Key Export
 
-Current key export iframe visibility still has one legacy-style edge: export viewer lifecycle is partly controlled by wallet-origin window messages such as `WALLET_UI_CLOSED`. That message is too broad to own iframe visibility because it can refer to transaction confirmation, registration, passkey authentication, export viewer cleanup, or stale delayed UI cleanup. The proper refactor is to make key export a typed progress flow and let `OnEventsProgressBus` remain the only owner of show/hide decisions.
+Flow: `key_export`
 
-Target flow: `key_export`
+Key export now has its own typed progress family. Export viewer lifecycle is controlled by `key_export.viewer.opened` and `key_export.viewer.closed` progress events rather than broad wallet-origin window messages.
 
 | Step | Phase | Message |
 | ---: | --- | --- |
@@ -339,19 +342,19 @@ Overlay behavior:
 - Viewer closed, completed, failed, and cancelled use `interaction.overlay: 'hide'`.
 - Generic `WALLET_UI_CLOSED` messages must not directly hide the wallet iframe.
 
-Implementation todo:
+Implementation status:
 
-- [ ] Add `key_export` to `WalletFlow` and add `KeyExportEventPhase`, `KeyExportFlowEvent`, step mapping, default messages, and runtime type guard coverage in `client/src/core/types/sdkSentEvents.ts`.
-- [ ] Add `key_export_viewer` or another explicit key-export interaction kind to `WalletFlowInteractionKind`.
-- [ ] Add key export hook types for app-facing callbacks where needed, without reusing signing/account-sync event families for export-specific UI lifecycle.
-- [ ] Emit key export progress from `PM_EXPORT_KEYPAIR_UI` and `PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI` through `postProgress(requestId, event)`.
-- [ ] Replace export viewer parent `window.postMessage` overlay-control messages with wallet-iframe-local lifecycle signals that the request handler maps into key export progress events.
-- [ ] Remove router export-specific `WALLET_EXPORT_VIEWER_OPENED`, `EXPORT_KEYPAIR_CANCELLED`, `WALLET_UI_CLOSED`, and `overlayState.exportViewerOpen` handling once the progress events own lifecycle.
-- [ ] Split sticky progress-subscription lifetime from overlay stickiness if needed. Export may need a subscriber to survive `PM_RESULT`, but overlay visibility should still be controlled by progress demand.
-- [ ] Keep `WALLET_UI_OPENED`/`WALLET_UI_CLOSED` only as non-authoritative UI telemetry or remove them from router visibility handling entirely.
-- [ ] Add regression tests proving a stale generic `WALLET_UI_CLOSED` cannot hide an open key export viewer because router visibility is driven only by `interaction.overlay`.
-- [ ] Add progress bus/router integration tests for `key_export.viewer.opened -> show` and `key_export.viewer.closed/completed/failed/cancelled -> hide`.
-- [ ] Update `client/src/core/WalletIframe/client/README-onevent-hooks.md` after implementation so the docs name key export as a progress-driven wallet iframe flow.
+- [x] Add `key_export` to `WalletFlow` and add `KeyExportEventPhase`, `KeyExportFlowEvent`, step mapping, default messages, and runtime type guard coverage in `client/src/core/types/sdkSentEvents.ts`.
+- [x] Add `key_export_viewer` as the explicit key-export interaction kind.
+- [x] Add key export hook types for app-facing callbacks without reusing signing/account-sync event families for export-specific UI lifecycle.
+- [x] Emit key export progress from `PM_EXPORT_KEYPAIR_UI` and `PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI` through `postProgress(requestId, event)`.
+- [x] Replace export viewer parent `window.postMessage` overlay-control messages with wallet-iframe-local lifecycle callbacks that the request handler maps into key export progress events.
+- [x] Remove router export-specific `WALLET_EXPORT_VIEWER_OPENED`, `EXPORT_KEYPAIR_CANCELLED`, `WALLET_UI_CLOSED`, and `overlayState.exportViewerOpen` handling.
+- [x] Separate sticky progress-subscription lifetime from overlay stickiness. Export can keep receiving progress after `PM_RESULT`, while overlay visibility is still controlled by progress demand. `PM_RESULT` clears only preflight demand, not demand created by `key_export.viewer.opened`.
+- [x] Keep `WALLET_UI_OPENED`/`WALLET_UI_CLOSED` outside router visibility handling.
+- [x] Add regression tests proving a stale generic `WALLET_UI_CLOSED` cannot hide an open key export viewer because router visibility is driven only by `interaction.overlay`.
+- [x] Add progress bus/router integration coverage for `key_export.viewer.opened -> show` and `key_export.viewer.closed -> hide`.
+- [x] Update `client/src/core/WalletIframe/client/README-onevent-hooks.md` so the docs name key export as a progress-driven wallet iframe flow.
 
 ## Completed Implementation Checklist
 
@@ -363,6 +366,7 @@ Implementation todo:
 - [x] Reworked wallet iframe progress routing to forward `WalletFlowEvent` payloads.
 - [x] Replaced phase-name overlay inference with explicit `interaction.overlay`.
 - [x] Kept worker progress private unless mapped intentionally into public flow events.
+- [x] Added typed key export progress events and moved export viewer overlay lifecycle onto progress events.
 - [x] Added focused tests for flow event ordering, iframe forwarding, progress bus overlay behavior, Email OTP iframe progress, and worker transport progress.
 
 ## Future-Only Follow-Up

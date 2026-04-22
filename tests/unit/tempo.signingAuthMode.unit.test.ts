@@ -1395,10 +1395,16 @@ test.describe('tempo signing auth-mode resolution', () => {
                   signerKind: 'threshold_ed25519',
                   status: 'active',
                 },
+                {
+                  signerSlot: 2,
+                  signerAuthMethod: 'email_otp',
+                  signerKind: 'threshold_ed25519',
+                  status: 'active',
+                },
               ],
               getLastProfileState: async () => ({
                 profileId: 'profile:otp-tempo',
-                activeSignerSlot: 1,
+                activeSignerSlot: 2,
               }),
               listChainAccountsByProfile: async () => [
                 {

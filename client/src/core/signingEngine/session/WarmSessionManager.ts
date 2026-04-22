@@ -124,6 +124,7 @@ export type WarmSessionManagerDeps = {
   clearThresholdEcdsaSigningArtifactsForLane?: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
+    source?: ThresholdEcdsaSessionStoreSource;
   }) => void | Promise<void>;
   getThresholdEcdsaSessionRecordForSigning?: (args: {
     nearAccountId: AccountId | string;
@@ -160,6 +161,7 @@ export type WarmSessionManagerDeps = {
   getThresholdEcdsaKeyRefForSigning?: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
+    source?: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSecp256k1KeyRef;
   provisionThresholdEcdsaSession?: (
     args: ProvisionWarmEcdsaCapabilityArgs,
@@ -436,12 +438,14 @@ export type WarmSessionManager = {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
     thresholdSessionId?: string;
+    source?: ThresholdEcdsaSessionStoreSource;
   }) => Promise<void>;
   assertEcdsaOperationAllowed: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
     operationLabel: string;
     thresholdSessionId?: string;
+    source?: ThresholdEcdsaSessionStoreSource;
     sensitivePolicy?: SensitiveOperationPolicy;
   }) => Promise<void>;
   resolveEcdsaSealTransportByThresholdSessionId: (
@@ -494,6 +498,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
     nearAccountId: AccountId;
     chain: ThresholdEcdsaActivationChain;
     thresholdSessionId?: string;
+    source?: ThresholdEcdsaSessionStoreSource;
   }): Promise<void> {
     const thresholdSessionId = String(args.thresholdSessionId || '').trim();
     if (typeof deps.clearThresholdEcdsaSigningArtifactsForLane === 'function') {
@@ -501,6 +506,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         deps.clearThresholdEcdsaSigningArtifactsForLane({
           nearAccountId: args.nearAccountId,
           chain: args.chain,
+          ...(args.source ? { source: args.source } : {}),
         }),
       ).catch(() => undefined);
     }
@@ -569,6 +575,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         nearAccountId: args.accountId,
         chain: args.chain,
         thresholdSessionId,
+        source: 'email_otp',
       });
       return 'unavailable';
     }
@@ -580,6 +587,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         nearAccountId: args.accountId,
         chain: args.chain,
         thresholdSessionId,
+        source: 'email_otp',
       });
       return 'unavailable';
     }
@@ -591,6 +599,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         nearAccountId: args.accountId,
         chain: args.chain,
         thresholdSessionId,
+        source: 'email_otp',
       });
     };
     if (
@@ -776,7 +785,11 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         if (record) return record;
       } catch {}
     }
-    return readWarmSessionCapabilityRecordsForAccount(args.nearAccountId).ecdsa[args.chain];
+    const fallback = readWarmSessionCapabilityRecordsForAccount(args.nearAccountId).ecdsa[
+      args.chain
+    ];
+    if (args.source && fallback?.source !== args.source) return null;
+    return fallback;
   }
 
   function resolveEcdsaRecordForSigningSession(args: {
@@ -1449,10 +1462,12 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         chain: args.chain,
         ...(args.source ? { source: args.source } : {}),
       });
-      const secondaryRecord = getPrimaryAndSecondaryEcdsaCapabilities({
-        warmSession,
-        chain: args.chain,
-      }).secondary.record;
+      const secondaryRecord = args.source
+        ? null
+        : getPrimaryAndSecondaryEcdsaCapabilities({
+            warmSession,
+            chain: args.chain,
+          }).secondary.record;
       const secondaryEmailOtpRecord =
         secondaryRecord?.source === 'email_otp' ? secondaryRecord : null;
       if (
@@ -1828,27 +1843,30 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       nearAccountId: AccountId | string;
       chain: ThresholdEcdsaActivationChain;
       thresholdSessionId?: string;
+      source?: ThresholdEcdsaSessionStoreSource;
     }): Promise<void> {
       const accountId = toAccountId(args.nearAccountId);
       const record = resolveCurrentEcdsaRecord({
         nearAccountId: accountId,
         chain: args.chain,
+        ...(args.source ? { source: args.source } : {}),
       });
-      const warmSession = await this.getWarmSession(accountId);
-      const secondaryRecord = getPrimaryAndSecondaryEcdsaCapabilities({
-        warmSession,
-        chain: args.chain,
-      }).secondary.record;
+      const secondaryRecord = args.source
+        ? null
+        : getPrimaryAndSecondaryEcdsaCapabilities({
+            warmSession: await this.getWarmSession(accountId),
+            chain: args.chain,
+          }).secondary.record;
       const effectiveEmailOtpRecord =
         record?.source === 'email_otp'
           ? record
-          : secondaryRecord?.source === 'email_otp'
+          : !args.source && secondaryRecord?.source === 'email_otp'
             ? secondaryRecord
             : null;
       const effectiveEmailOtpRecordChain: ThresholdEcdsaActivationChain | null =
         record?.source === 'email_otp'
           ? args.chain
-          : secondaryRecord?.source === 'email_otp'
+          : !args.source && secondaryRecord?.source === 'email_otp'
             ? args.chain === 'tempo'
               ? 'evm'
               : 'tempo'
@@ -1876,6 +1894,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
         thresholdSessionId: String(
           record?.thresholdSessionId || args.thresholdSessionId || '',
         ).trim(),
+        ...(effectiveEmailOtpRecord.source ? { source: effectiveEmailOtpRecord.source } : {}),
       });
       if (
         effectiveEmailOtpRecordChain !== args.chain ||
@@ -1886,6 +1905,7 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
           nearAccountId: accountId,
           chain: effectiveEmailOtpRecordChain || args.chain,
           thresholdSessionId: effectiveEmailOtpRecord.thresholdSessionId,
+          source: effectiveEmailOtpRecord.source,
         });
       }
     },
@@ -1895,21 +1915,25 @@ export function createWarmSessionManager(deps: WarmSessionManagerDeps = {}): War
       chain: ThresholdEcdsaActivationChain;
       operationLabel: string;
       thresholdSessionId?: string;
+      source?: ThresholdEcdsaSessionStoreSource;
       sensitivePolicy?: SensitiveOperationPolicy;
     }): Promise<void> {
       const accountId = toAccountId(args.nearAccountId);
       const record = resolveCurrentEcdsaRecord({
         nearAccountId: accountId,
         chain: args.chain,
+        ...(args.source ? { source: args.source } : {}),
       });
-      const secondaryRecord = getPrimaryAndSecondaryEcdsaCapabilities({
-        warmSession: await this.getWarmSession(accountId),
-        chain: args.chain,
-      }).secondary.record;
+      const secondaryRecord = args.source
+        ? null
+        : getPrimaryAndSecondaryEcdsaCapabilities({
+            warmSession: await this.getWarmSession(accountId),
+            chain: args.chain,
+          }).secondary.record;
       const effectiveRecord =
         record?.source === 'email_otp'
           ? record
-          : secondaryRecord?.source === 'email_otp'
+          : !args.source && secondaryRecord?.source === 'email_otp'
             ? secondaryRecord
             : null;
       if (!effectiveRecord) return;

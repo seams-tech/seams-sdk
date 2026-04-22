@@ -419,22 +419,18 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
         <div class="modal-container-root">
           <div class="responsive-card">
             <div class="hero">
-              ${this._isEmailOtpMode() || this._isWarmSessionMode()
-                ? html`<div class="email-otp-confirm__icon" aria-hidden="true">
-                    ${this._isEmailOtpMode() ? '6' : '✓'}
-                  </div>`
-                : html`<w3a-passkey-halo-loading
-                    .theme=${this.theme}
-                    .animated=${!this.errorMessage ? true : false}
-                    .ringGap=${4}
-                    .ringWidth=${4}
-                    .ringBorderRadius=${'1.125rem'}
-                    .ringBackground=${'var(--w3a-modal__passkey-halo-loading__ring-background)'}
-                    .innerPadding=${'0px'}
-                    .innerBackground=${'var(--w3a-modal__passkey-halo-loading__inner-background)'}
-                    .height=${36}
-                    .width=${36}
-                  ></w3a-passkey-halo-loading>`}
+              <w3a-passkey-halo-loading
+                .theme=${this.theme}
+                .animated=${!this.errorMessage ? true : false}
+                .ringGap=${4}
+                .ringWidth=${4}
+                .ringBorderRadius=${'1.125rem'}
+                .ringBackground=${'var(--w3a-modal__passkey-halo-loading__ring-background)'}
+                .innerPadding=${'0px'}
+                .innerBackground=${'var(--w3a-modal__passkey-halo-loading__inner-background)'}
+                .height=${36}
+                .width=${36}
+              ></w3a-passkey-halo-loading>
               <div class="hero-container">
                 <!-- Hero heading -->
                 ${(() => {

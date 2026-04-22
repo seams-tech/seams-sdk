@@ -25,7 +25,8 @@ export type WalletFlow =
   | 'signing'
   | 'link_device'
   | 'email_recovery'
-  | 'account_sync';
+  | 'account_sync'
+  | 'key_export';
 
 export type WalletFlowEventStatus =
   | 'started'
@@ -48,7 +49,8 @@ export type WalletFlowInteractionKind =
   | 'transaction_confirmation'
   | 'qr_scan'
   | 'qr_display'
-  | 'email_recovery_link';
+  | 'email_recovery_link'
+  | 'key_export_viewer';
 
 export interface WalletFlowEventInteraction {
   kind: WalletFlowInteractionKind;
@@ -236,13 +238,27 @@ export enum AccountSyncEventPhase {
   CANCELLED = 'account_sync.cancelled',
 }
 
+export enum KeyExportEventPhase {
+  STEP_01_STARTED = 'key_export.started',
+  STEP_02_AUTH_PASSKEY_PROMPT_STARTED = 'key_export.auth.passkey.prompt.started',
+  STEP_02_AUTH_PASSKEY_PROMPT_SUCCEEDED = 'key_export.auth.passkey.prompt.succeeded',
+  STEP_03_MATERIAL_PREPARE_STARTED = 'key_export.material.prepare.started',
+  STEP_03_MATERIAL_PREPARE_SUCCEEDED = 'key_export.material.prepare.succeeded',
+  STEP_04_VIEWER_OPENED = 'key_export.viewer.opened',
+  STEP_05_VIEWER_CLOSED = 'key_export.viewer.closed',
+  STEP_06_COMPLETED = 'key_export.completed',
+  FAILED = 'key_export.failed',
+  CANCELLED = 'key_export.cancelled',
+}
+
 export type WalletFlowEventPhase =
   | RegistrationEventPhase
   | UnlockEventPhase
   | SigningEventPhase
   | LinkDeviceEventPhase
   | EmailRecoveryFlowEventPhase
-  | AccountSyncEventPhase;
+  | AccountSyncEventPhase
+  | KeyExportEventPhase;
 
 export type RegistrationFlowEvent = WalletFlowEventBase<'registration', RegistrationEventPhase>;
 export type UnlockFlowEvent = WalletFlowEventBase<'unlock', UnlockEventPhase>;
@@ -253,6 +269,7 @@ export type EmailRecoveryFlowEvent = WalletFlowEventBase<
   EmailRecoveryFlowEventPhase
 >;
 export type AccountSyncFlowEvent = WalletFlowEventBase<'account_sync', AccountSyncEventPhase>;
+export type KeyExportFlowEvent = WalletFlowEventBase<'key_export', KeyExportEventPhase>;
 
 export type WalletFlowEvent =
   | RegistrationFlowEvent
@@ -260,7 +277,8 @@ export type WalletFlowEvent =
   | SigningFlowEvent
   | LinkDeviceFlowEvent
   | EmailRecoveryFlowEvent
-  | AccountSyncFlowEvent;
+  | AccountSyncFlowEvent
+  | KeyExportFlowEvent;
 
 export const WALLET_FLOW_EVENT_STEPS: Record<WalletFlowEventPhase, number> = {
   [RegistrationEventPhase.STEP_01_STARTED]: 1,
@@ -401,6 +419,16 @@ export const WALLET_FLOW_EVENT_STEPS: Record<WalletFlowEventPhase, number> = {
   [AccountSyncEventPhase.STEP_06_COMPLETED]: 6,
   [AccountSyncEventPhase.FAILED]: 0,
   [AccountSyncEventPhase.CANCELLED]: 0,
+  [KeyExportEventPhase.STEP_01_STARTED]: 1,
+  [KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_STARTED]: 2,
+  [KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_SUCCEEDED]: 2,
+  [KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_STARTED]: 3,
+  [KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_SUCCEEDED]: 3,
+  [KeyExportEventPhase.STEP_04_VIEWER_OPENED]: 4,
+  [KeyExportEventPhase.STEP_05_VIEWER_CLOSED]: 5,
+  [KeyExportEventPhase.STEP_06_COMPLETED]: 6,
+  [KeyExportEventPhase.FAILED]: 0,
+  [KeyExportEventPhase.CANCELLED]: 0,
 };
 
 export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = {
@@ -544,6 +572,16 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [AccountSyncEventPhase.STEP_06_COMPLETED]: 'Account synced',
   [AccountSyncEventPhase.FAILED]: 'Account sync failed',
   [AccountSyncEventPhase.CANCELLED]: 'Account sync cancelled',
+  [KeyExportEventPhase.STEP_01_STARTED]: 'Preparing key export',
+  [KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_STARTED]: 'Confirm with passkey',
+  [KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_SUCCEEDED]: 'Passkey confirmed',
+  [KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_STARTED]: 'Preparing key material',
+  [KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_SUCCEEDED]: 'Key material ready',
+  [KeyExportEventPhase.STEP_04_VIEWER_OPENED]: 'Review private key',
+  [KeyExportEventPhase.STEP_05_VIEWER_CLOSED]: 'Key export closed',
+  [KeyExportEventPhase.STEP_06_COMPLETED]: 'Key export complete',
+  [KeyExportEventPhase.FAILED]: 'Key export failed',
+  [KeyExportEventPhase.CANCELLED]: 'Key export cancelled',
 };
 
 export type CreateWalletFlowEventInput<
@@ -602,6 +640,11 @@ export type CreateAccountSyncFlowEventInput = Omit<
   'flow'
 >;
 
+export type CreateKeyExportFlowEventInput = Omit<
+  CreateWalletFlowEventInput<'key_export', KeyExportEventPhase>,
+  'flow'
+>;
+
 export function createRegistrationFlowEvent(
   input: CreateRegistrationFlowEventInput,
 ): RegistrationFlowEvent {
@@ -642,6 +685,15 @@ export function createAccountSyncFlowEvent(
   return createWalletFlowEvent({
     ...input,
     flow: 'account_sync',
+  });
+}
+
+export function createKeyExportFlowEvent(
+  input: CreateKeyExportFlowEventInput,
+): KeyExportFlowEvent {
+  return createWalletFlowEvent({
+    ...input,
+    flow: 'key_export',
   });
 }
 
@@ -735,6 +787,12 @@ export interface LoginHooksOptions {
     ttlMs?: number;
     remainingUses?: number;
   };
+}
+
+export interface KeyExportHooksOptions {
+  onEvent?: EventCallback<KeyExportFlowEvent>;
+  onError?: (error: Error) => void;
+  afterCall?: AfterCall<void>;
 }
 
 export interface ActionHooksOptions {

@@ -569,20 +569,6 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   max-width: 340px;
 }
 
-.email-otp-confirm__icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 1.125rem;
-  display: grid;
-  place-items: center;
-  color: var(--w3a-colors-textPrimary);
-  background: var(--w3a-colors-surface);
-  border: 1px solid var(--w3a-colors-borderPrimary);
-  font-size: 1rem;
-  font-weight: 700;
-  box-shadow: 0 0 0 4px var(--w3a-modal__passkey-halo-loading__ring-background, transparent);
-}
-
 .email-otp-confirm__label {
   color: var(--w3a-colors-textPrimary);
   font-size: 0.8rem;

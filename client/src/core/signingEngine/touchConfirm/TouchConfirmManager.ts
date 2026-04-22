@@ -1226,6 +1226,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       });
     }
 
+    if (
+      typeof originalPayload.onLifecycle === 'function' &&
+      typeof payload.onLifecycle !== 'function'
+    ) {
+      payload.onLifecycle = originalPayload.onLifecycle;
+    }
+
     const signingAuthPlan = payload.signingAuthPlan;
     const originalSigningAuthPlan = originalPayload.signingAuthPlan;
     if (isObjectRecord(signingAuthPlan) && isObjectRecord(originalSigningAuthPlan)) {

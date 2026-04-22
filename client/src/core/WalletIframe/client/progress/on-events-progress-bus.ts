@@ -54,6 +54,7 @@ export class OnEventsProgressBus {
   // aggregate visibility across concurrent requests. If any request's
   // latest intent is 'show', we keep the overlay visible.
   private overlayDemands = new Map<string, 'show' | 'hide' | 'none'>();
+  private overlayDemandSources = new Map<string, 'initial' | 'progress'>();
 
   constructor(
     overlay: OverlayToggler,
@@ -88,6 +89,7 @@ export class OnEventsProgressBus {
     });
     // Initialize demand tracking for this request (used to prevent racey hides).
     this.overlayDemands.set(requestId, demand);
+    this.overlayDemandSources.set(requestId, 'initial');
     this.log('register', { requestId, sticky });
   }
 
@@ -99,6 +101,7 @@ export class OnEventsProgressBus {
     if (this.subs.delete(requestId)) this.log('unregister', { requestId });
     // Remove any overlay demand for this request
     this.overlayDemands.delete(requestId);
+    this.overlayDemandSources.delete(requestId);
     // If no remaining requests demand 'show', we can safely hide
     if (!this.wantsVisible()) {
       try {
@@ -113,6 +116,7 @@ export class OnEventsProgressBus {
   clearAll(): void {
     this.subs.clear();
     this.overlayDemands.clear();
+    this.overlayDemandSources.clear();
     this.log('clearAll');
   }
 
@@ -124,7 +128,21 @@ export class OnEventsProgressBus {
   clearDemand(requestId: string): void {
     if (!requestId) return;
     this.overlayDemands.delete(requestId);
+    this.overlayDemandSources.delete(requestId);
     this.log('clearDemand', { requestId });
+  }
+
+  /**
+   * Clear only the preflight demand installed during register().
+   * Real progress events own their lifecycle and must survive PM_RESULT until
+   * the flow emits a matching hide event.
+   */
+  clearInitialDemand(requestId: string): void {
+    if (!requestId) return;
+    if (this.overlayDemandSources.get(requestId) !== 'initial') return;
+    this.overlayDemands.delete(requestId);
+    this.overlayDemandSources.delete(requestId);
+    this.log('clearInitialDemand', { requestId });
   }
 
   isSticky(requestId: string): boolean {
@@ -145,6 +163,9 @@ export class OnEventsProgressBus {
     const prevDemand = this.overlayDemands.get(requestId) || 'none';
     const nextDemand = action === 'none' ? prevDemand : action;
     this.overlayDemands.set(requestId, nextDemand);
+    if (action !== 'none') {
+      this.overlayDemandSources.set(requestId, 'progress');
+    }
 
     // Apply aggregated overlay visibility:
     // - If any request currently demands 'show', ensure overlay is visible

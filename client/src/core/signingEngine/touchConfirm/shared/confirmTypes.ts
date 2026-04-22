@@ -285,6 +285,7 @@ export interface ShowSecurePrivateKeyUiPayload {
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
   loading?: boolean;
+  onLifecycle?: (event: 'opened' | 'closed') => void;
 }
 
 export interface SignNep413Payload {

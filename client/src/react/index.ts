@@ -130,6 +130,7 @@ export type { ActionResult } from '../core/types/tatchi';
 export {
   AccountSyncEventPhase,
   EmailRecoveryFlowEventPhase,
+  KeyExportEventPhase,
   LinkDeviceEventPhase,
   RegistrationEventPhase,
   SigningEventPhase,
@@ -139,6 +140,7 @@ export {
   WALLET_FLOW_EVENT_VERSION,
   createEmailRecoveryFlowEvent,
   createAccountSyncFlowEvent,
+  createKeyExportFlowEvent,
   createLinkDeviceFlowEvent,
   createRegistrationFlowEvent,
   createSigningFlowEvent,
@@ -149,6 +151,8 @@ export {
 export type {
   AccountSyncFlowEvent,
   EmailRecoveryFlowEvent,
+  KeyExportHooksOptions,
+  KeyExportFlowEvent,
   LinkDeviceFlowEvent,
   RegistrationFlowEvent,
   SigningFlowEvent,

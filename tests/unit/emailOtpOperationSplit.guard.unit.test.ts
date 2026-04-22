@@ -83,4 +83,74 @@ test.describe('Email OTP operation split guard', () => {
     expect(evmTryIndex).toBeGreaterThan(retryIndex);
     expect(tempoTryIndex).toBeGreaterThan(retryIndex);
   });
+
+  test('ECDSA transaction signing selects an auth lane before choosing a lane record', () => {
+    const source = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const authResolver = source.indexOf('async function resolveEvmFamilyTransactionAccountAuth');
+    const profileLookup = source.indexOf(
+      'resolveProfileAccountContextFromCandidates',
+      authResolver,
+    );
+    const ed25519Fallback = source.indexOf(
+      'const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount',
+      authResolver,
+    );
+    const selectionResolver = source.indexOf(
+      'async function resolveEvmFamilyEcdsaSigningSelection',
+    );
+    const selectionEnd = source.indexOf(
+      'function createEvmFamilyWarmSessionManager',
+      selectionResolver,
+    );
+    const selectionSource = source.slice(selectionResolver, selectionEnd);
+    const accountAuthResolution = source.indexOf(
+      'const accountAuth = await resolveEvmFamilyTransactionAccountAuth',
+      selectionResolver,
+    );
+    const emailOtpBranch = source.indexOf(
+      'if (accountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp)',
+      selectionResolver,
+    );
+
+    expect(source).toContain('tryGetEmailOtpThresholdEcdsaSessionRecordForSigning');
+    expect(source).toContain('tryGetPasskeyThresholdEcdsaSessionRecordForSigning');
+    expect(source).toContain('THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES');
+    expect(source).toContain('pickUnambiguousEcdsaAuthRecord');
+    expect(selectionSource).not.toContain('genericRecord');
+    expect(selectionSource).not.toContain('genericKeyRef');
+    expect(profileLookup).toBeGreaterThan(authResolver);
+    expect(ed25519Fallback).toBeGreaterThan(profileLookup);
+    expect(accountAuthResolution).toBeGreaterThan(selectionResolver);
+    expect(emailOtpBranch).toBeGreaterThan(accountAuthResolution);
+  });
+
+  test('Email OTP ECDSA helpers require the Email OTP source lane', () => {
+    const store = readRepoFile(
+      'client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts',
+    );
+    const evmSigning = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const emailOtpCoordinator = readRepoFile(
+      'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+    );
+    const walletCoordinator = readRepoFile(
+      'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
+    );
+    const warmSessionManager = readRepoFile(
+      'client/src/core/signingEngine/session/WarmSessionManager.ts',
+    );
+
+    expect(store).toContain('getEmailOtpThresholdEcdsaSessionRecordForSigning');
+    expect(store).toContain("source: 'email_otp'");
+    expect(store).toContain('getPasskeyThresholdEcdsaSessionRecordForSigning');
+    expect(evmSigning).toContain('source: SIGNER_AUTH_METHODS.emailOtp');
+    expect(evmSigning).toContain("selectedSource: warmRecord?.source || 'manual-bootstrap'");
+    expect(emailOtpCoordinator).toContain(
+      "chain: candidateChain,\n          source: 'email_otp'",
+    );
+    expect(warmSessionManager).toContain(
+      'if (args.source && fallback?.source !== args.source) return null;',
+    );
+    expect(walletCoordinator).toContain("'email_otp'");
+    expect(walletCoordinator).toContain("'manual-bootstrap'");
+  });
 });

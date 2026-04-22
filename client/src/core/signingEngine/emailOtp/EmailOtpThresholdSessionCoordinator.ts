@@ -1559,6 +1559,7 @@ export class EmailOtpThresholdSessionCoordinator {
         const candidate = await this.deps.getThresholdEcdsaKeyRefForSigning({
           nearAccountId,
           chain: candidateChain,
+          source: 'email_otp',
         });
         const candidateWalletSigningSessionId = String(
           candidate.walletSigningSessionId || '',

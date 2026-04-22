@@ -46,7 +46,7 @@
   background: transparent;
   cursor: pointer;
   border: none;
-  z-index: 3;
+  z-index: 20;
   transition:
     transform 120ms ease,
     background-color 160ms ease,
@@ -60,6 +60,12 @@
   opacity: 1;
   pointer-events: auto;
   filter: none;
+}
+
+.w3a-signup-menu-root[data-scan-device='true'] .w3a-back-button.is-visible,
+.w3a-signup-menu-root[data-waiting='true'] .w3a-back-button.is-visible,
+.w3a-signup-menu-root[data-otp-prompt='true'] .w3a-back-button.is-visible {
+  z-index: 30;
 }
 
 .w3a-back-button:hover {

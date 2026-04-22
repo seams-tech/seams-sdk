@@ -32,6 +32,12 @@ export type ThresholdEcdsaSessionStoreSource =
   | 'manual-bootstrap'
   | 'email_otp';
 
+export const THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES = [
+  'login',
+  'registration',
+  'manual-bootstrap',
+] as const satisfies readonly ThresholdEcdsaSessionStoreSource[];
+
 export type ThresholdEcdsaEmailOtpAuthContext = {
   policy: EmailOtpAuthPolicy;
   retention: 'session' | 'single_use';
@@ -1217,17 +1223,10 @@ export function getThresholdEcdsaSessionRecordForSigning(
   );
 }
 
-export function getThresholdEcdsaKeyRefForSigning(
+function thresholdEcdsaKeyRefFromRecord(
   deps: ThresholdEcdsaSessionStoreDeps,
-  args: {
-    nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
-    signingRootId?: string;
-    signingRootVersion?: string;
-    source?: ThresholdEcdsaSessionStoreSource;
-  },
+  record: ThresholdEcdsaSessionRecord,
 ): ThresholdEcdsaSecp256k1KeyRef {
-  const record = getThresholdEcdsaSessionRecordForSigning(deps, args);
   const laneKey = getThresholdEcdsaSessionLaneKeyForRecord(record);
   const ecdsaHssExportArtifact = deps.exportArtifactsByLane?.get(laneKey);
   return {
@@ -1263,6 +1262,120 @@ export function getThresholdEcdsaKeyRefForSigning(
       ? { relayerVerifyingShareB64u: record.relayerVerifyingShareB64u }
       : {}),
   };
+}
+
+export function getThresholdEcdsaKeyRefForSigning(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    signingRootId?: string;
+    signingRootVersion?: string;
+    source?: ThresholdEcdsaSessionStoreSource;
+  },
+): ThresholdEcdsaSecp256k1KeyRef {
+  const record = getThresholdEcdsaSessionRecordForSigning(deps, args);
+  return thresholdEcdsaKeyRefFromRecord(deps, record);
+}
+
+export function getEmailOtpThresholdEcdsaSessionRecordForSigning(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    signingRootId?: string;
+    signingRootVersion?: string;
+  },
+): ThresholdEcdsaSessionRecord {
+  return getThresholdEcdsaSessionRecordForSigning(deps, {
+    ...args,
+    source: 'email_otp',
+  });
+}
+
+export function getEmailOtpThresholdEcdsaKeyRefForSigning(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    signingRootId?: string;
+    signingRootVersion?: string;
+  },
+): ThresholdEcdsaSecp256k1KeyRef {
+  const record = getEmailOtpThresholdEcdsaSessionRecordForSigning(deps, args);
+  return thresholdEcdsaKeyRefFromRecord(deps, record);
+}
+
+export function getPasskeyThresholdEcdsaSessionRecordForSigning(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    signingRootId?: string;
+    signingRootVersion?: string;
+  },
+): ThresholdEcdsaSessionRecord {
+  const accountId = toAccountId(args.nearAccountId);
+  const records: ThresholdEcdsaSessionRecord[] = [];
+  for (const source of THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES) {
+    records.push(
+      ...listInMemoryThresholdEcdsaRecordsForLane({
+        deps,
+        nearAccountId: accountId,
+        chain: args.chain,
+        ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
+        ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
+        source,
+      }),
+    );
+  }
+  const storage = getEcdsaSessionStorageSafe();
+  if (storage) {
+    for (const source of THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES) {
+      records.push(
+        ...listStoredThresholdEcdsaRecordsForLane({
+          storage,
+          deps,
+          nearAccountId: accountId,
+          chain: args.chain,
+          ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
+          ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
+          source,
+        }),
+      );
+    }
+  }
+  const selected = pickThresholdEcdsaRecordForChain(records);
+  if (selected) return selected;
+  throw new Error(
+    `[SigningEngine] missing canonical passkey threshold ECDSA session for ${String(accountId)}; reconnect threshold session via bootstrapEcdsaSession`,
+  );
+}
+
+export function getPasskeyThresholdEcdsaKeyRefForSigning(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    signingRootId?: string;
+    signingRootVersion?: string;
+  },
+): ThresholdEcdsaSecp256k1KeyRef {
+  const record = getPasskeyThresholdEcdsaSessionRecordForSigning(deps, args);
+  return thresholdEcdsaKeyRefFromRecord(deps, record);
+}
+
+export function clearEmailOtpThresholdEcdsaSessionRecordForLane(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+  },
+): void {
+  clearThresholdEcdsaSessionRecordForLane(deps, {
+    ...args,
+    source: 'email_otp',
+  });
 }
 
 export function clearThresholdEcdsaSessionRecordForAccount(

@@ -55,7 +55,7 @@ test.describe('link-device wallet flow events', () => {
     ]);
     expect(events.map((event) => event.step)).toEqual([1, 1, 0]);
     expect(events.map((event) => event.data?.role)).toEqual(['display', 'display', undefined]);
-    expect(events.map((event) => event.interaction?.overlay)).toEqual([undefined, 'show', 'hide']);
+    expect(events.map((event) => event.interaction?.overlay)).toEqual([undefined, 'hide', 'hide']);
     expect(events.at(-1)).toMatchObject({
       status: 'cancelled',
       interaction: {

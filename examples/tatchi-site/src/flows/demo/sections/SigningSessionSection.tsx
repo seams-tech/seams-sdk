@@ -27,8 +27,9 @@ export function SigningSessionSection(props: SigningSessionSectionProps) {
       <div className="demo-divider" aria-hidden="true" />
       <h2 className="demo-subtitle">Signing Session</h2>
       <div className="action-text">
-        Create a warm signing session with configurable <code>remaining_uses</code> and TTL. Touch
-        once, then sign multiple times while the session is active.
+        Create a warm signing session with configurable <code>remaining_uses</code> and TTL.
+        Authorize once with the active wallet auth method, then sign multiple times while the
+        session is active.
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>

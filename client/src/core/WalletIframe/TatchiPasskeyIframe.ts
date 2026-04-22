@@ -49,6 +49,7 @@ import type {
   ActionHooksOptions,
   DelegateActionHooksOptions,
   DelegateRelayHooksOptions,
+  KeyExportHooksOptions,
   LoginHooksOptions,
   RegistrationHooksOptions,
   SendTransactionHooksOptions,
@@ -932,6 +933,7 @@ export class TatchiPasskeyIframe {
       chain: 'near' | 'evm' | 'tempo';
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
+      onEvent?: KeyExportHooksOptions['onEvent'];
     },
   ): Promise<void> {
     await this.requireRouterReady();
@@ -946,6 +948,7 @@ export class TatchiPasskeyIframe {
     options: {
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
+      onEvent?: KeyExportHooksOptions['onEvent'];
     };
   }): Promise<void> {
     await this.requireRouterReady();

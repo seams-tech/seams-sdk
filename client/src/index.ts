@@ -36,6 +36,7 @@ export type {
 export type {
   // Hooks Options
   LoginHooksOptions,
+  KeyExportHooksOptions,
   RegistrationHooksOptions,
   ActionHooksOptions,
   SignNEP413HooksOptions,
@@ -61,6 +62,7 @@ export {
 export {
   AccountSyncEventPhase,
   EmailRecoveryFlowEventPhase,
+  KeyExportEventPhase,
   LinkDeviceEventPhase,
   RegistrationEventPhase,
   SigningEventPhase,
@@ -70,6 +72,7 @@ export {
   WALLET_FLOW_EVENT_VERSION,
   createEmailRecoveryFlowEvent,
   createAccountSyncFlowEvent,
+  createKeyExportFlowEvent,
   createLinkDeviceFlowEvent,
   createRegistrationFlowEvent,
   createSigningFlowEvent,
@@ -80,6 +83,7 @@ export {
 export type {
   AccountSyncFlowEvent,
   EmailRecoveryFlowEvent,
+  KeyExportFlowEvent,
   LinkDeviceFlowEvent,
   RegistrationFlowEvent,
   SigningFlowEvent,

@@ -28,8 +28,9 @@ await walletRouter.registerPasskey({
 - The wallet host wraps `TatchiPasskey` calls and translates `onEvent(ev)` into:
   `post({ type: 'PROGRESS', requestId, payload: ev })`.
 - Payloads use the v2 wallet flow event envelope:
-  `RegistrationFlowEvent | UnlockFlowEvent | SigningFlowEvent | LinkDeviceFlowEvent | EmailRecoveryFlowEvent | AccountSyncFlowEvent`.
+  `RegistrationFlowEvent | UnlockFlowEvent | SigningFlowEvent | LinkDeviceFlowEvent | EmailRecoveryFlowEvent | AccountSyncFlowEvent | KeyExportFlowEvent`.
 - Email OTP registration/unlock/capability calls owned by the iframe are also wrapped with this bridge, so Email OTP worker progress mapped inside the iframe reaches the parent before the final result.
+- Key export viewer lifecycle is wrapped the same way: viewer open/close callbacks become `key_export.viewer.opened` and `key_export.viewer.closed` progress events.
 
 3. Parent bridges PROGRESS -> onEvent
 
@@ -56,7 +57,7 @@ Ordering is FIFO per `requestId`.
 - Host posts PROGRESS from `onEvent`:
   - `src/core/WalletIframe/host/wallet-iframe-handlers.ts`
     - `withProgress()` wraps host-side SDK calls and posts `PROGRESS`.
-    - Covered flows include registration, unlock, Email OTP registration/unlock/capability calls, signing, link device, email recovery, and account sync.
+    - Covered flows include registration, unlock, Email OTP registration/unlock/capability calls, signing, link device, email recovery, account sync, and key export.
   - `src/core/WalletIframe/host/index.ts`
     - Owns the host `postProgress()` send path.
 - Client receives PROGRESS and invokes app `onEvent` via wrapper:
@@ -69,6 +70,24 @@ Ordering is FIFO per `requestId`.
 - Overlay behavior:
   - `src/core/WalletIframe/client/progress/on-events-progress-bus.ts`
     - reads `event.interaction.overlay` only; there are no phase-string show/hide rules.
+
+## Key Export Overlay Lifecycle
+
+Key export is a typed progress flow named `key_export`. The export viewer uses `interaction.kind: 'key_export_viewer'`.
+
+| Phase | Overlay |
+| --- | --- |
+| `key_export.auth.passkey.prompt.started` | `show` |
+| `key_export.auth.passkey.prompt.succeeded` | `hide` |
+| `key_export.viewer.opened` | `show` |
+| `key_export.viewer.closed` | `hide` |
+| `key_export.completed` | `hide` |
+| `key_export.failed` | `hide` |
+| `key_export.cancelled` | `hide` |
+
+Export requests use a sticky progress subscription because the drawer can open after the initial `PM_RESULT`. Sticky progress does not make overlay hide calls sticky; overlay visibility is still driven by active `interaction.overlay` demand. A `PM_RESULT` may clear only preflight overlay demand; it must not clear demand created by `key_export.viewer.opened`.
+
+Generic wallet window messages such as `WALLET_UI_CLOSED` are not used by the router to control key export visibility.
 
 ## Event Layers
 
@@ -87,7 +106,7 @@ Current worker behavior:
 
 - No functions ever cross the boundary; app callbacks run in the parent only.
 - Timeouts are refreshed on each `PROGRESS` received.
-- Type guards (`isRegistrationFlowEvent`, `isUnlockFlowEvent`, `isSigningFlowEvent`, etc.) ensure your `onEvent` only receives the expected v2 flow shape.
+- Type guards (`isRegistrationFlowEvent`, `isUnlockFlowEvent`, `isSigningFlowEvent`, `isKeyExportFlowEvent`, etc.) ensure your `onEvent` only receives the expected v2 flow shape.
 - `event.step` is a per-flow ordinal derived from `event.phase`.
 - `event.message` is canonical user-facing copy from `sdkSentEvents.ts` unless a flow deliberately overrides it for context.
-- Use `sticky` when a flow should keep receiving status after the main result (e.g., certain device-linking screens).
+- Use `sticky` when a flow should keep receiving status after the main result (e.g., certain device-linking screens and key export viewer lifecycle).

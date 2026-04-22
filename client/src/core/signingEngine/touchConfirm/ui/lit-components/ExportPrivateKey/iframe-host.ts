@@ -247,17 +247,12 @@ export class IframeExportHost extends LitElementWithProps {
         }
         case 'CONFIRM': {
           dispatchLitConfirm(this);
-          // Close viewer and notify parent to contract overlay
           this.remove();
-          window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
           return;
         }
         case 'CANCEL': {
           dispatchLitCancel(this);
-          // Child waits for transitionend before posting CANCEL, so it's safe to remove immediately
           this.remove();
-          // Notify parent app (outside wallet iframe) to contract overlay
-          window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
           return;
         }
         case 'COPY': {

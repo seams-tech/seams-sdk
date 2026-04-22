@@ -315,7 +315,7 @@ export class LinkDeviceFlow {
           data: { role: 'display' },
           interaction: {
             kind: 'qr_display',
-            overlay: 'show',
+            overlay: 'hide',
           },
         });
       }
@@ -884,7 +884,7 @@ export class LinkDeviceFlow {
         },
         interaction: {
           kind: 'qr_display',
-          overlay: 'show',
+          overlay: 'hide',
         },
       });
 

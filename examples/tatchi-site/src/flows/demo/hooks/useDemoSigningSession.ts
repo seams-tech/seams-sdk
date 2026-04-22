@@ -108,11 +108,47 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
     const ttlMs = typeof ttlSeconds === 'number' ? ttlSeconds * 1000 : undefined;
 
     setUnlockLoading(true);
-    toast.loading('Logging in & creating session…', { id: 'unlock-session' });
+    toast.loading('Creating signing session…', { id: 'unlock-session' });
     try {
-      await tatchi.auth.unlock(nearAccountId, {
-        signingSession: { ttlMs, remainingUses },
-      });
+      const currentSession = walletSession ?? (await tatchi.auth.getWalletSession(nearAccountId));
+      const authMethod =
+        currentSession.authMethod ||
+        currentSession.signingSession?.authMethod ||
+        currentSession.login.authMethod ||
+        '';
+
+      if (authMethod === 'email_otp') {
+        if (currentSession.retention === 'single_use') {
+          throw new Error('Email OTP per-operation policy does not support reusable sessions');
+        }
+        const challenge = await tatchi.auth.requestEmailOtpSigningSessionChallenge({
+          nearAccountId,
+          chain: 'tempo',
+        });
+        const emailHint = String(challenge.emailHint || '').trim();
+        const otpCode = String(
+          window.prompt(
+            emailHint
+              ? `Enter the 6-digit code sent to ${emailHint} to create a signing session.`
+              : 'Enter the 6-digit email code to create a signing session.',
+          ) || '',
+        ).trim();
+        if (!/^\d{6}$/.test(otpCode)) {
+          throw new Error('Email OTP signing session requires a 6-digit code');
+        }
+        await tatchi.auth.refreshEmailOtpSigningSession({
+          nearAccountId,
+          chain: 'tempo',
+          challengeId: challenge.challengeId,
+          otpCode,
+          ...(typeof ttlMs === 'number' ? { ttlMs } : {}),
+          ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
+        });
+      } else {
+        await tatchi.auth.unlock(nearAccountId, {
+          signingSession: { ttlMs, remainingUses },
+        });
+      }
       await refreshSessionStatus();
       toast.success('Session ready', { id: 'unlock-session' });
     } catch (error: unknown) {
@@ -127,6 +163,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
     sessionRemainingUsesInput,
     sessionTtlSecondsInput,
     tatchi,
+    walletSession,
   ]);
 
   const expiresInSec =

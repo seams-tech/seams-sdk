@@ -23,6 +23,7 @@ test.describe('wallet flow event invariants', () => {
           'LinkDeviceEventPhase',
           'EmailRecoveryFlowEventPhase',
           'AccountSyncEventPhase',
+          'KeyExportEventPhase',
         ] as const;
 
         const failures: string[] = [];
@@ -96,6 +97,12 @@ test.describe('wallet flow event invariants', () => {
             flowId: 'email-recovery:alice.testnet:cancelled',
             accountId: 'alice.testnet',
           }),
+          events.createKeyExportFlowEvent({
+            phase: events.KeyExportEventPhase.CANCELLED,
+            status: 'cancelled',
+            flowId: 'key-export:alice.testnet:cancelled',
+            accountId: 'alice.testnet',
+          }),
         ];
       },
       { paths: IMPORT_PATHS },
@@ -145,6 +152,15 @@ test.describe('wallet flow event invariants', () => {
         phase: 'email_recovery.cancelled',
         status: 'cancelled',
         message: 'Email recovery cancelled',
+        interaction: { kind: 'none', overlay: 'hide' },
+      }),
+      expect.objectContaining({
+        version: 2,
+        flow: 'key_export',
+        step: 0,
+        phase: 'key_export.cancelled',
+        status: 'cancelled',
+        message: 'Key export cancelled',
         interaction: { kind: 'none', overlay: 'hide' },
       }),
     ]);
@@ -232,7 +248,7 @@ test.describe('signing wallet flow events', () => {
     expect(result.readinessEvent).toMatchObject({
       step: 4,
       phase: 'signing.account.readiness.succeeded',
-      message: 'Account ready',
+      message: 'Account setup verified',
     });
     expect(result.appStateSyncEvent).toMatchObject({
       step: 14,
@@ -319,6 +335,83 @@ test.describe('account sync wallet flow events', () => {
       status: 'failed',
       message: 'Account sync failed',
       interaction: { kind: 'none', overlay: 'hide' },
+    });
+    expect(result.isWalletFlowEvent).toBe(true);
+  });
+});
+
+test.describe('key export wallet flow events', () => {
+  test.beforeEach(async ({ page }) => {
+    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+  });
+
+  test('derives key export viewer steps, messages, and overlay metadata', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const events = await import(paths.tatchiTypes);
+        const promptEvent = events.createKeyExportFlowEvent({
+          phase: events.KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_STARTED,
+          status: 'waiting_for_user',
+          flowId: 'key-export:alice.testnet:near',
+          accountId: 'alice.testnet',
+          interaction: { kind: 'passkey_assert', overlay: 'show' },
+        });
+        const materialEvent = events.createKeyExportFlowEvent({
+          phase: events.KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_STARTED,
+          status: 'running',
+          flowId: 'key-export:alice.testnet:near',
+          accountId: 'alice.testnet',
+          interaction: { kind: 'none', overlay: 'none' },
+        });
+        const viewerEvent = events.createKeyExportFlowEvent({
+          phase: events.KeyExportEventPhase.STEP_04_VIEWER_OPENED,
+          status: 'waiting_for_user',
+          flowId: 'key-export:alice.testnet:near',
+          accountId: 'alice.testnet',
+          interaction: { kind: 'key_export_viewer', overlay: 'show' },
+        });
+        const completedEvent = events.createKeyExportFlowEvent({
+          phase: events.KeyExportEventPhase.STEP_06_COMPLETED,
+          status: 'succeeded',
+          flowId: 'key-export:alice.testnet:near',
+          accountId: 'alice.testnet',
+        });
+
+        return {
+          promptEvent,
+          materialEvent,
+          viewerEvent,
+          completedEvent,
+          isWalletFlowEvent: events.isWalletFlowEvent(viewerEvent),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.promptEvent).toMatchObject({
+      version: 2,
+      flow: 'key_export',
+      step: 2,
+      phase: 'key_export.auth.passkey.prompt.started',
+      message: 'Confirm with passkey',
+      interaction: { kind: 'passkey_assert', overlay: 'show' },
+    });
+    expect(result.materialEvent).toMatchObject({
+      step: 3,
+      phase: 'key_export.material.prepare.started',
+      message: 'Preparing key material',
+      interaction: { kind: 'none', overlay: 'none' },
+    });
+    expect(result.viewerEvent).toMatchObject({
+      step: 4,
+      phase: 'key_export.viewer.opened',
+      message: 'Review private key',
+      interaction: { kind: 'key_export_viewer', overlay: 'show' },
+    });
+    expect(result.completedEvent).toMatchObject({
+      step: 6,
+      phase: 'key_export.completed',
+      message: 'Key export complete',
     });
     expect(result.isWalletFlowEvent).toBe(true);
   });

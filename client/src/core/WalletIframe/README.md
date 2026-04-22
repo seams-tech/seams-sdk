@@ -237,7 +237,7 @@ class OverlayController {
 
 - Expand to full‑screen during activation:
   - `showFrameForActivation()` in `client/src/core/WalletIframe/client/router.ts` ensures the iframe exists and delegates to `OverlayController.showFullscreen()`, which applies the fullscreen class (fixed inset, pointer-events enabled, z-index 2147483646).
-  - This is invoked explicitly for sensitive flows (e.g., `registerPasskey()`, `tatchi.auth.unlock()`, device linking) and by v2 progress events with `interaction.overlay: 'show'`.
+  - This is invoked explicitly for sensitive flows (e.g., `registerPasskey()`, `tatchi.auth.unlock()`, transaction signing, key export, and link-device authorization) and by v2 progress events with `interaction.overlay: 'show'`.
 
 - Collapse back to 0×0:
   - `hideFrameForActivation()` in the same router delegates to `OverlayController.hide()` to restore the hidden state and make it non-interactive.
@@ -252,6 +252,7 @@ class OverlayController {
     - `overlay: 'show'` for phases that require immediate user activation or an iframe-hosted confirmation prompt.
     - `overlay: 'hide'` when activation is complete, the user leaves the app for recovery, or a terminal failed/cancelled event must close a prior prompt.
     - `overlay: 'none'` for non-interactive threshold signer, nonce, broadcast, persistence, polling, and finalization work.
+    - Link-device QR display uses `overlay: 'hide'` because the QR screen is app-owned; later link authorization/passkey phases emit `overlay: 'show'` when the iframe must capture activation.
 
 ### Why the overlay may block clicks after sending
 

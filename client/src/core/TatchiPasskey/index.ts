@@ -21,6 +21,7 @@ import type {
   ActionHooksOptions,
   CreateRegistrationFlowEventInput,
   CreateUnlockFlowEventInput,
+  KeyExportHooksOptions,
   LoginHooksOptions,
   RegistrationHooksOptions,
   RegistrationFlowEvent,
@@ -188,6 +189,10 @@ export class TatchiPasskey {
       requestEmailOtpChallenge: async (args) => await this.requestEmailOtpChallenge(args),
       requestEmailOtpEnrollmentChallenge: async (args) =>
         await this.requestEmailOtpEnrollmentChallenge(args),
+      requestEmailOtpSigningSessionChallenge: async (args) =>
+        await this.requestEmailOtpSigningSessionChallenge(args),
+      refreshEmailOtpSigningSession: async (args) =>
+        await this.refreshEmailOtpSigningSession(args),
       exchangeGoogleEmailOtpSession: async (args) => await this.exchangeGoogleEmailOtpSession(args),
       enrollEmailOtp: async (args) => await this.enrollEmailOtp(args),
       loginWithEmailOtpEcdsaCapability: async (args) =>
@@ -836,6 +841,61 @@ export class TatchiPasskey {
     }
   }
 
+  async requestEmailOtpSigningSessionChallenge(args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    onEvent?: (event: UnlockFlowEvent) => void;
+  }): Promise<{ challengeId: string; emailHint?: string }> {
+    const flowId = this.emailOtpUnlockFlowId(args.nearAccountId);
+    this.emitEmailOtpUnlockEvent(args.onEvent, {
+      flowId,
+      accountId: args.nearAccountId,
+      authMethod: 'email_otp',
+      phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_STARTED,
+      status: 'running',
+    });
+    try {
+      if (this.walletIframe.shouldUseWalletIframe()) {
+        const router = await this.walletIframe.requireRouter(args.nearAccountId);
+        const result = await router.requestEmailOtpSigningSessionChallenge({
+          nearAccountId: args.nearAccountId,
+          ...(args.chain ? { chain: args.chain } : {}),
+        });
+        this.emitEmailOtpUnlockEvent(args.onEvent, {
+          flowId: this.emailOtpUnlockFlowId(args.nearAccountId, result.challengeId),
+          accountId: args.nearAccountId,
+          authMethod: 'email_otp',
+          phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
+          status: 'succeeded',
+          data: { challengeId: result.challengeId, otpChannel: 'email_otp' },
+        });
+        return result;
+      }
+      const result = await this.signingEngine.requestEmailOtpSigningSessionChallenge({
+        nearAccountId: toAccountId(args.nearAccountId),
+        ...(args.chain ? { chain: args.chain } : {}),
+      });
+      this.emitEmailOtpUnlockEvent(args.onEvent, {
+        flowId: this.emailOtpUnlockFlowId(args.nearAccountId, result.challengeId),
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        phase: UnlockEventPhase.STEP_03_EMAIL_OTP_CHALLENGE_SENT,
+        status: 'succeeded',
+        data: { challengeId: result.challengeId, otpChannel: 'email_otp' },
+      });
+      return result;
+    } catch (error: unknown) {
+      const e = toError(error);
+      this.emitEmailOtpUnlockFailure(args.onEvent, {
+        flowId,
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        error: e,
+      });
+      throw e;
+    }
+  }
+
   async exchangeGoogleEmailOtpSession(args: {
     idToken: string;
     accountMode: 'register' | 'login';
@@ -1182,6 +1242,89 @@ export class TatchiPasskey {
     }
   }
 
+  async refreshEmailOtpSigningSession(args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    challengeId: string;
+    otpCode: string;
+    ttlMs?: number;
+    remainingUses?: number;
+    onEvent?: (event: UnlockFlowEvent) => void;
+  }): Promise<Awaited<ReturnType<SigningEngine['refreshEmailOtpSigningSession']>>> {
+    const flowId = this.emailOtpUnlockFlowId(args.nearAccountId, args.challengeId);
+    this.emitEmailOtpUnlockEvent(args.onEvent, {
+      flowId,
+      accountId: args.nearAccountId,
+      authMethod: 'email_otp',
+      phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED,
+      status: 'running',
+      interaction: { kind: 'otp_input', overlay: 'none' },
+      requestId: args.challengeId,
+    });
+    try {
+      const result = this.walletIframe.shouldUseWalletIframe()
+        ? await (
+            await this.walletIframe.requireRouter(args.nearAccountId)
+          ).refreshEmailOtpSigningSession({
+            nearAccountId: args.nearAccountId,
+            ...(args.chain ? { chain: args.chain } : {}),
+            challengeId: args.challengeId,
+            otpCode: args.otpCode,
+            ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
+            ...(typeof args.remainingUses === 'number'
+              ? { remainingUses: args.remainingUses }
+              : {}),
+          })
+        : await this.signingEngine.refreshEmailOtpSigningSession({
+            nearAccountId: toAccountId(args.nearAccountId),
+            ...(args.chain ? { chain: args.chain } : {}),
+            challengeId: args.challengeId,
+            otpCode: args.otpCode,
+            ...(typeof args.ttlMs === 'number' ? { ttlMs: args.ttlMs } : {}),
+            ...(typeof args.remainingUses === 'number'
+              ? { remainingUses: args.remainingUses }
+              : {}),
+          });
+      this.emitEmailOtpUnlockEvent(args.onEvent, {
+        flowId,
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
+        status: 'succeeded',
+        interaction: { kind: 'otp_input', overlay: 'hide' },
+        requestId: args.challengeId,
+      });
+      this.emitEmailOtpUnlockEvent(args.onEvent, {
+        flowId,
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        phase: UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY,
+        status: 'succeeded',
+        requestId: args.challengeId,
+        data: { chain: args.chain || 'tempo' },
+      });
+      this.emitEmailOtpUnlockEvent(args.onEvent, {
+        flowId,
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        phase: UnlockEventPhase.STEP_07_COMPLETED,
+        status: 'succeeded',
+        requestId: args.challengeId,
+      });
+      return result;
+    } catch (error: unknown) {
+      const e = toError(error);
+      this.emitEmailOtpUnlockFailure(args.onEvent, {
+        flowId,
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        requestId: args.challengeId,
+        error: e,
+      });
+      throw e;
+    }
+  }
+
   async enrollAndLoginWithEmailOtpEcdsaCapability(args: {
     nearAccountId: string;
     chain?: ThresholdEcdsaActivationChain;
@@ -1429,6 +1572,7 @@ export class TatchiPasskey {
       chain: 'near' | 'evm' | 'tempo';
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
+      onEvent?: KeyExportHooksOptions['onEvent'];
     },
   ): Promise<void> {
     const resolvedOptions = {
@@ -1453,6 +1597,7 @@ export class TatchiPasskey {
     options: {
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
+      onEvent?: KeyExportHooksOptions['onEvent'];
     };
   }): Promise<void> {
     const resolvedOptions = {

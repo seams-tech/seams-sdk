@@ -137,9 +137,14 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
         backButton={
           <button
             aria-label="Back"
+            type="button"
             onClick={() => {
               if (controller.otpPrompt) {
                 controller.otpPrompt.onBack();
+                return;
+              }
+              if (controller.showScanDevice) {
+                controller.closeLinkDeviceView('user');
                 return;
               }
               controller.onResetToStart();

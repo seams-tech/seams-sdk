@@ -39,6 +39,13 @@ type DiscoveredSigningSessionLane = SigningSessionLane & {
   backing: 'touch_confirm' | 'email_otp_worker';
 };
 
+const THRESHOLD_ECDSA_SESSION_STORE_SOURCES: readonly ThresholdEcdsaSessionStoreSource[] = [
+  'email_otp',
+  'login',
+  'registration',
+  'manual-bootstrap',
+];
+
 export type WalletSigningSessionConsumeUseArgs = {
   nearAccountId: AccountId | string;
   walletSigningSessionId: string;
@@ -158,37 +165,50 @@ function discoverLanesForAccount(
   }
 
   for (const chain of ['evm', 'tempo'] as const) {
-    let record = records.ecdsa[chain];
+    const candidateRecords: ThresholdEcdsaSessionRecord[] = [];
+    const addCandidateRecord = (
+      record: ThresholdEcdsaSessionRecord | null | undefined,
+    ): void => {
+      if (!record) return;
+      if (record.chain !== chain) return;
+      candidateRecords.push(record);
+    };
     if (typeof deps.getThresholdEcdsaSessionRecordForSigning === 'function') {
-      const preferredSource = ed25519Record?.source === 'email_otp' ? 'email_otp' : undefined;
-      try {
-        record =
-          (preferredSource
-            ? deps.getThresholdEcdsaSessionRecordForSigning({
-                nearAccountId,
-                chain,
-                source: preferredSource,
-              })
-            : null) ||
-          deps.getThresholdEcdsaSessionRecordForSigning({ nearAccountId, chain }) ||
-          record;
-      } catch {}
+      for (const source of THRESHOLD_ECDSA_SESSION_STORE_SOURCES) {
+        try {
+          addCandidateRecord(
+            deps.getThresholdEcdsaSessionRecordForSigning({
+              nearAccountId,
+              chain,
+              source,
+            }),
+          );
+        } catch {}
+      }
     }
-    if (!record) continue;
-    const source = toLaneSource(record);
-    addLane(lanes, {
-      curve: 'ecdsa',
-      chain,
-      source,
-      thresholdSessionId: normalizeNonEmpty(record.thresholdSessionId),
-      walletSigningSessionId: resolveWalletSigningSessionId(record),
-      backingMaterialSessionId:
-        source === 'email_otp'
-          ? ecdsaWorkerSessionId(record)
-          : normalizeNonEmpty(record.thresholdSessionId),
-      backing: source === 'email_otp' ? 'email_otp_worker' : 'touch_confirm',
-      record,
-    });
+    addCandidateRecord(records.ecdsa[chain]);
+
+    const seen = new Set<string>();
+    for (const record of candidateRecords) {
+      const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
+      const key = `${chain}:${record.source}:${thresholdSessionId}`;
+      if (!thresholdSessionId || seen.has(key)) continue;
+      seen.add(key);
+      const source = toLaneSource(record);
+      addLane(lanes, {
+        curve: 'ecdsa',
+        chain,
+        source,
+        thresholdSessionId,
+        walletSigningSessionId: resolveWalletSigningSessionId(record),
+        backingMaterialSessionId:
+          source === 'email_otp'
+            ? ecdsaWorkerSessionId(record)
+            : normalizeNonEmpty(record.thresholdSessionId),
+        backing: source === 'email_otp' ? 'email_otp_worker' : 'touch_confirm',
+        record,
+      });
+    }
   }
   return lanes;
 }

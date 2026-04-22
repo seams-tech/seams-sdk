@@ -6,7 +6,7 @@ import type {
   PMExecuteActionPayload,
 } from '../shared/messages';
 import type { TatchiPasskey } from '../../TatchiPasskey';
-import { errorMessage, isTouchIdCancellationError } from '@shared/utils/errors';
+import { isTouchIdCancellationError } from '@shared/utils/errors';
 import type {
   ActionHooksOptions,
   DelegateActionHooksOptions,
@@ -44,8 +44,7 @@ export interface HandlerDeps {
 }
 
 export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
-  const { getTatchiPasskey, post, postProgress, postToParent, isCancelled, respondIfCancelled } =
-    deps;
+  const { getTatchiPasskey, post, postProgress, isCancelled, respondIfCancelled } = deps;
 
   const respondOk = (requestId: string | undefined): void => {
     post({ type: 'PM_RESULT', requestId, payload: { ok: true } });
@@ -133,6 +132,14 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       respondOkResult(req.requestId, result);
     },
 
+    PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE: async (
+      req: Req<'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const result = await pm.auth.requestEmailOtpSigningSessionChallenge(req.payload!);
+      respondOkResult(req.requestId, result);
+    },
+
     PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION: async (
       req: Req<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION'>,
     ) => {
@@ -157,6 +164,17 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const payload = withProgress(req.requestId, req.payload || {});
       const result = await pm.auth.loginWithEmailOtpEcdsaCapability(
         payload as Parameters<typeof pm.auth.loginWithEmailOtpEcdsaCapability>[0],
+      );
+      respondOkResult(req.requestId, result);
+    },
+
+    PM_REFRESH_EMAIL_OTP_SIGNING_SESSION: async (
+      req: Req<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'>,
+    ) => {
+      const pm = getTatchiPasskey();
+      const payload = withProgress(req.requestId, req.payload || {});
+      const result = await pm.auth.refreshEmailOtpSigningSession(
+        payload as Parameters<typeof pm.auth.refreshEmailOtpSigningSession>[0],
       );
       respondOkResult(req.requestId, result);
     },
@@ -421,16 +439,18 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const { nearAccountId, chain, variant, theme } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       try {
-        await pm.keys.exportKeypairWithUI(nearAccountId, { chain, variant, theme });
+        await pm.keys.exportKeypairWithUI(nearAccountId, {
+          chain,
+          variant,
+          theme,
+          onEvent: (event) => postProgress(req.requestId, event),
+        });
       } catch (err: unknown) {
         if (isTouchIdCancellationError(err)) {
-          postToParent?.({ type: 'EXPORT_KEYPAIR_CANCELLED', nearAccountId, chain });
-          postToParent?.({ type: 'WALLET_UI_CLOSED' });
           if (respondIfCancelled(req.requestId)) return;
           respondOk(req.requestId);
           return;
         }
-        postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
         throw err;
       }
       if (respondIfCancelled(req.requestId)) return;
@@ -450,17 +470,18 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
           preparedSession,
           finalizedReport,
           expectedPublicKey,
-          options: { variant, theme },
+          options: {
+            variant,
+            theme,
+            onEvent: (event) => postProgress(req.requestId, event),
+          },
         });
       } catch (err: unknown) {
         if (isTouchIdCancellationError(err)) {
-          postToParent?.({ type: 'EXPORT_KEYPAIR_CANCELLED', nearAccountId, chain: 'near' });
-          postToParent?.({ type: 'WALLET_UI_CLOSED' });
           if (respondIfCancelled(req.requestId)) return;
           respondOk(req.requestId);
           return;
         }
-        postToParent?.({ type: 'WALLET_UI_CLOSED', error: errorMessage(err) });
         throw err;
       }
       if (respondIfCancelled(req.requestId)) return;

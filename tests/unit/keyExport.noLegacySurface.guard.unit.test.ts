@@ -108,4 +108,35 @@ test.describe('key export legacy-surface guard', () => {
       true,
     );
   });
+
+  test('key export overlay lifecycle is not controlled by legacy window messages', () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+    const files = [
+      'client/src/core/WalletIframe/client/router.ts',
+      'client/src/core/WalletIframe/host/wallet-iframe-handlers.ts',
+      'client/src/core/signingEngine/touchConfirm/ui/export-viewer-host.ts',
+      'client/src/core/signingEngine/touchConfirm/ui/lit-components/ExportPrivateKey/iframe-host.ts',
+      'client/src/react/components/AccountMenuButton/index.tsx',
+    ];
+    const forbiddenNeedles = [
+      'WALLET_EXPORT_VIEWER_OPENED',
+      'EXPORT_KEYPAIR_CANCELLED',
+      'WALLET_UI_CLOSED',
+      'exportViewerOpen',
+      'attachExportUiClosedListener',
+      "source: 'export_viewer'",
+      'source: "export_viewer"',
+    ];
+
+    const violations: string[] = [];
+    for (const relativePath of files) {
+      const content = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+      for (const needle of forbiddenNeedles) {
+        if (!content.includes(needle)) continue;
+        violations.push(`${needle}: ${relativePath}`);
+      }
+    }
+
+    expect(violations, violations.join('\n')).toEqual([]);
+  });
 });

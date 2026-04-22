@@ -1,6 +1,6 @@
 import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
 import type { ExportGuidance, ExportPrivateKeyDisplayEntry } from '../shared/confirmTypes';
-import { addLitCancelListener } from './lit-events';
+import { addLitEventListener, LitComponentEvents } from './lit-events';
 import { ensureDefined, W3A_EXPORT_VIEWER_IFRAME_ID } from './registry';
 import type { ExportViewerIframeElement } from './lit-components/ExportPrivateKey/iframe-host';
 
@@ -16,18 +16,36 @@ export type UpsertExportViewerHostArgs = {
   tokens?: ThemeTokenOverridesInput;
   loading?: boolean;
   errorMessage?: string;
+  onLifecycle?: (event: 'opened' | 'closed') => void;
 };
 
 const EXPORT_VIEWER_SESSION_ATTR = 'data-w3a-export-viewer-session-id';
+const exportViewerLifecycleByHost = new WeakMap<
+  ExportViewerIframeElement,
+  (event: 'opened' | 'closed') => void
+>();
+const exportViewerClosedHosts = new WeakSet<ExportViewerIframeElement>();
 
-function postExportViewerMessage(type: 'WALLET_EXPORT_VIEWER_OPENED' | 'WALLET_UI_CLOSED'): void {
+function emitExportViewerLifecycle(
+  host: ExportViewerIframeElement | null | undefined,
+  event: 'opened' | 'closed',
+): void {
+  if (!host) return;
+  if (event === 'opened') {
+    exportViewerClosedHosts.delete(host);
+  } else if (exportViewerClosedHosts.has(host)) {
+    return;
+  }
+  if (event === 'closed') {
+    exportViewerClosedHosts.add(host);
+  }
+  const listener = exportViewerLifecycleByHost.get(host);
   try {
-    if (typeof window === 'undefined') return;
-    window.parent?.postMessage(
-      type === 'WALLET_UI_CLOSED' ? { type, source: 'export_viewer' } : { type },
-      '*',
-    );
+    listener?.(event);
   } catch {}
+  if (event === 'closed') {
+    exportViewerLifecycleByHost.delete(host);
+  }
 }
 
 function getMountedExportViewerHost(): ExportViewerIframeElement | null {
@@ -57,19 +75,31 @@ export async function upsertExportViewerHost(
   let host = getMountedExportViewerHost();
   if (!host) {
     host = document.createElement(W3A_EXPORT_VIEWER_IFRAME_ID) as ExportViewerIframeElement;
-    window.parent?.postMessage({ type: 'WALLET_UI_OPENED' }, '*');
-    postExportViewerMessage('WALLET_EXPORT_VIEWER_OPENED');
     document.body.appendChild(host);
-    addLitCancelListener(
+    if (args.onLifecycle) {
+      exportViewerLifecycleByHost.set(host, args.onLifecycle);
+    }
+    emitExportViewerLifecycle(host, 'opened');
+    const closeViewer = () => {
+      emitExportViewerLifecycle(host, 'closed');
+      host?.remove();
+    };
+    addLitEventListener(
       host,
-      () => {
-        postExportViewerMessage('WALLET_UI_CLOSED');
-        host?.remove();
-      },
+      LitComponentEvents.CONFIRM,
+      closeViewer,
+      { once: true },
+    );
+    addLitEventListener(
+      host,
+      LitComponentEvents.CANCEL,
+      closeViewer,
       { once: true },
     );
   } else {
-    postExportViewerMessage('WALLET_EXPORT_VIEWER_OPENED');
+    if (args.onLifecycle) {
+      exportViewerLifecycleByHost.set(host, args.onLifecycle);
+    }
   }
 
   const sessionId = String(args.sessionId || '').trim();
@@ -95,6 +125,6 @@ export function removeExportViewerHostIfPresent(): void {
   if (typeof document === 'undefined') return;
   const host = getMountedExportViewerHost();
   if (!host) return;
+  emitExportViewerLifecycle(host, 'closed');
   host.remove();
-  postExportViewerMessage('WALLET_UI_CLOSED');
 }

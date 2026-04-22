@@ -27,6 +27,7 @@ import type {
   ActionHooksOptions,
   DelegateActionHooksOptions,
   DelegateRelayHooksOptions,
+  KeyExportHooksOptions,
   LoginHooksOptions,
   RegistrationHooksOptions,
   RegistrationFlowEvent,
@@ -276,6 +277,20 @@ export interface AuthCapability {
     appSessionJwt?: string;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
+  requestEmailOtpSigningSessionChallenge(args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    onEvent?: (event: UnlockFlowEvent) => void;
+  }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>>;
+  refreshEmailOtpSigningSession(args: {
+    nearAccountId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    challengeId: string;
+    otpCode: string;
+    ttlMs?: number;
+    remainingUses?: number;
+    onEvent?: (event: UnlockFlowEvent) => void;
+  }): Promise<EmailOtpEcdsaCapabilityResult>;
   exchangeGoogleEmailOtpSession(args: {
     idToken: string;
     accountMode: 'register' | 'login';
@@ -438,6 +453,7 @@ export type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 export type ThresholdEd25519SeedExportUiOptions = {
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
+  onEvent?: KeyExportHooksOptions['onEvent'];
 };
 
 export interface KeyExportCapability {
@@ -447,6 +463,7 @@ export interface KeyExportCapability {
       chain: ExportKeypairChain;
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
+      onEvent?: KeyExportHooksOptions['onEvent'];
     },
   ): Promise<void>;
   exportThresholdEd25519SeedFromHssReport(args: {

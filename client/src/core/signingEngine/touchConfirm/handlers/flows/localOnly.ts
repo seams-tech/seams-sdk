@@ -66,6 +66,7 @@ async function mountExportViewer(
     guidance: payload.guidance,
     tokens: sanitizeThemeTokens(ctx.getAppearanceTokens?.()),
     loading: payload.loading === true,
+    onLifecycle: payload.onLifecycle,
   };
   await upsertExportViewerHost(hostArgs);
 }
@@ -159,7 +160,6 @@ export async function handleLocalOnlyFlow(
 
       const { confirmed, error: uiError } = await session.promptUser({ securityContext });
       if (!confirmed) {
-        window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
         return session.confirmAndCloseModal({
           requestId: request.requestId,
           intentDigest: getIntentDigest(request),
@@ -185,9 +185,6 @@ export async function handleLocalOnlyFlow(
       });
     } catch (err: unknown) {
       const cancelled = isUserCancelledUserConfirm(err);
-      if (cancelled) {
-        window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
-      }
       return session.confirmAndCloseModal({
         requestId: request.requestId,
         intentDigest: getIntentDigest(request),

@@ -271,10 +271,11 @@ async function tryRestoreEmailOtpSigningSessionForNearTransaction(args: {
   if (!touchConfirm) return;
   await createWarmSessionManager({
     touchConfirm,
-    clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) => {
+    clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain, source }) => {
       const record = args.deps.getThresholdEcdsaSessionRecordForSigning?.({
         nearAccountId: String(nearAccountId),
         chain,
+        ...(source ? { source } : {}),
       });
       if (!record) return;
       clearThresholdEcdsaClientPresignaturesForLane({

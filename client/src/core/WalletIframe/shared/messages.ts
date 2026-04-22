@@ -16,9 +16,7 @@ import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/
 import type { EmailOtpAuthPolicy, TatchiConfigsInput } from '../../types/tatchi';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
-import type {
-  WalletFlowEvent,
-} from '../../types/sdkSentEvents';
+import type { WalletFlowEvent } from '../../types/sdkSentEvents';
 
 export type WalletProtocolVersion = '1.0.0';
 
@@ -34,9 +32,11 @@ export type ParentToChildType =
   | 'PM_GET_WALLET_SESSION'
   | 'PM_REQUEST_EMAIL_OTP_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'
+  | 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE'
   | 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION'
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
+  | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
   | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
@@ -294,6 +294,11 @@ export interface PMEmailOtpChallengePayload {
   operation?: WalletEmailOtpLoginOperation;
 }
 
+export interface PMEmailOtpSigningSessionChallengePayload {
+  nearAccountId: string;
+  chain?: 'tempo' | 'evm';
+}
+
 export interface PMExchangeGoogleEmailOtpSessionPayload {
   idToken: string;
   accountMode: 'register' | 'login';
@@ -328,6 +333,15 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+}
+
+export interface PMRefreshEmailOtpSigningSessionPayload {
+  nearAccountId: string;
+  chain?: 'tempo' | 'evm';
+  challengeId: string;
+  otpCode: string;
+  ttlMs?: number;
+  remainingUses?: number;
 }
 
 export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload
@@ -421,9 +435,14 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_GET_WALLET_SESSION', PMGetWalletSessionPayload>
   | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_CHALLENGE', PMEmailOtpChallengePayload>
   | RpcEnvelope<'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE', PMEmailOtpChallengePayload>
+  | RpcEnvelope<
+      'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE',
+      PMEmailOtpSigningSessionChallengePayload
+    >
   | RpcEnvelope<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION', PMExchangeGoogleEmailOtpSessionPayload>
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
+  | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
   | RpcEnvelope<
       'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
       PMEmailOtpEcdsaEnrollmentCapabilityPayload

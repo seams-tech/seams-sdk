@@ -34,6 +34,7 @@ function makeExportKeypairReq(requestId: string): any {
 test.describe('wallet iframe host export UI handlers', () => {
   test('PM_EXPORT_KEYPAIR_UI waits for export operation before PM_RESULT', async () => {
     const posts: ChildToParentEnvelope[] = [];
+    const progress: unknown[] = [];
     const deferred = createDeferred<void>();
     let exportCalls = 0;
 
@@ -41,14 +42,25 @@ test.describe('wallet iframe host export UI handlers', () => {
       getTatchiPasskey: () =>
         ({
           keys: {
-            exportKeypairWithUI: async () => {
+            exportKeypairWithUI: async (_accountId: string, options: any) => {
               exportCalls += 1;
+              options.onEvent?.({
+                version: 2,
+                flow: 'key_export',
+                step: 1,
+                phase: 'key_export.started',
+                status: 'running',
+                message: 'Preparing key export',
+                flowId: 'key-export:test',
+                requestId: 'req-await',
+                accountId: 'alice.testnet',
+              });
               return await deferred.promise;
             },
           },
         }) as any,
       post: (msg) => posts.push(msg),
-      postProgress: () => undefined,
+      postProgress: (_requestId, payload) => progress.push(payload),
       isCancelled: () => false,
       respondIfCancelled: () => false,
     });
@@ -57,6 +69,12 @@ test.describe('wallet iframe host export UI handlers', () => {
     await Promise.resolve();
 
     expect(exportCalls).toBe(1);
+    expect(progress).toEqual([
+      expect.objectContaining({
+        flow: 'key_export',
+        phase: 'key_export.started',
+      }),
+    ]);
     expect(posts).toEqual([]);
 
     deferred.resolve(undefined);
@@ -72,7 +90,6 @@ test.describe('wallet iframe host export UI handlers', () => {
 
   test('PM_EXPORT_KEYPAIR_UI throws on non-cancellation export errors', async () => {
     const posts: ChildToParentEnvelope[] = [];
-    const parentPosts: unknown[] = [];
 
     const handlers = createWalletIframeHandlers({
       getTatchiPasskey: () =>
@@ -85,7 +102,6 @@ test.describe('wallet iframe host export UI handlers', () => {
         }) as any,
       post: (msg) => posts.push(msg),
       postProgress: () => undefined,
-      postToParent: (msg) => parentPosts.push(msg),
       isCancelled: () => false,
       respondIfCancelled: () => false,
     });
@@ -95,15 +111,10 @@ test.describe('wallet iframe host export UI handlers', () => {
     ).rejects.toThrow('No key material found for account alice.testnet device 1');
 
     expect(posts).toEqual([]);
-    expect(parentPosts).toContainEqual({
-      type: 'WALLET_UI_CLOSED',
-      error: 'No key material found for account alice.testnet device 1',
-    });
   });
 
   test('PM_EXPORT_KEYPAIR_UI treats TouchID cancellation as non-fatal', async () => {
     const posts: ChildToParentEnvelope[] = [];
-    const parentPosts: unknown[] = [];
 
     const handlers = createWalletIframeHandlers({
       getTatchiPasskey: () =>
@@ -118,7 +129,6 @@ test.describe('wallet iframe host export UI handlers', () => {
         }) as any,
       post: (msg) => posts.push(msg),
       postProgress: () => undefined,
-      postToParent: (msg) => parentPosts.push(msg),
       isCancelled: () => false,
       respondIfCancelled: () => false,
     });
@@ -131,13 +141,5 @@ test.describe('wallet iframe host export UI handlers', () => {
         requestId: 'req-cancel',
       }),
     ]);
-    expect(parentPosts).toContainEqual({
-      type: 'EXPORT_KEYPAIR_CANCELLED',
-      nearAccountId: 'alice.testnet',
-      chain: 'near',
-    });
-    expect(parentPosts).toContainEqual({
-      type: 'WALLET_UI_CLOSED',
-    });
   });
 });

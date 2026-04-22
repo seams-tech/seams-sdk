@@ -64,6 +64,7 @@ import type {
   ActionHooksOptions,
   AfterCall,
   LinkDeviceFlowEvent,
+  KeyExportFlowEvent,
   EmailRecoveryFlowEvent,
   UnlockFlowEvent,
   RegistrationFlowEvent,
@@ -77,11 +78,13 @@ import {
   AccountSyncEventPhase,
   createAccountSyncFlowEvent,
   createEmailRecoveryFlowEvent,
+  createKeyExportFlowEvent,
   createLinkDeviceFlowEvent,
   createRegistrationFlowEvent,
   createSigningFlowEvent,
   createUnlockFlowEvent,
   EmailRecoveryFlowEventPhase,
+  KeyExportEventPhase,
   isWalletFlowEvent,
   LinkDeviceEventPhase,
   RegistrationEventPhase,
@@ -315,6 +318,15 @@ function createTerminalProgressForRequest(args: {
         status === 'cancelled' ? AccountSyncEventPhase.CANCELLED : AccountSyncEventPhase.FAILED,
     });
   }
+  if (
+    requestType === 'PM_EXPORT_KEYPAIR_UI' ||
+    requestType === 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'
+  ) {
+    return createKeyExportFlowEvent({
+      ...common,
+      phase: status === 'cancelled' ? KeyExportEventPhase.CANCELLED : KeyExportEventPhase.FAILED,
+    });
+  }
   return null;
 }
 
@@ -400,7 +412,6 @@ export class WalletIframeRouter {
   private overlayState: {
     controller: OverlayController;
     forceFullscreen: boolean;
-    exportViewerOpen: boolean;
   };
   private windowMsgHandlerBound?: (ev: MessageEvent) => void;
 
@@ -478,7 +489,6 @@ export class WalletIframeRouter {
         ensureIframe: () => this.transport.ensureIframeMounted(),
       }),
       forceFullscreen: false,
-      exportViewerOpen: false,
     };
 
     // Initialize progress router with overlay control and v2 overlay intents.
@@ -546,55 +556,6 @@ export class WalletIframeRouter {
     };
     globalThis.addEventListener?.('message', this.windowMsgHandlerBound);
   }
-
-  private attachExportUiClosedListener = (walletOrigin: string): (() => void) => {
-    let exportViewerOpened = false;
-    const onUiClosed = (ev: MessageEvent) => {
-      if (ev.origin !== walletOrigin) return;
-      const data = ev.data;
-      if (!isObject(data)) return;
-      const type = (data as { type?: unknown }).type;
-      if (type === 'WALLET_EXPORT_VIEWER_OPENED') {
-        exportViewerOpened = true;
-        this.overlayState.exportViewerOpen = true;
-        this.overlayState.controller.setSticky(true);
-        this.showFrameForActivation();
-        return;
-      }
-      if (type === 'EXPORT_KEYPAIR_CANCELLED') {
-        this.overlayState.exportViewerOpen = false;
-        this.overlayState.controller.setSticky(false);
-        this.hideFrameForActivation();
-        globalThis.removeEventListener?.('message', onUiClosed);
-        return;
-      }
-      if (type !== 'WALLET_UI_CLOSED') return;
-      const uiError = (data as { error?: unknown }).error;
-      if (typeof uiError === 'string' && uiError.trim().length > 0) {
-        console.error('[WalletIframeRouter] Export UI closed with error:', uiError);
-      }
-      const source = (data as { source?: unknown }).source;
-      const isExportViewerClose = source === 'export_viewer';
-      if (!exportViewerOpened && !(typeof uiError === 'string' && uiError.trim().length > 0)) {
-        return;
-      }
-      if (
-        exportViewerOpened &&
-        !isExportViewerClose &&
-        !(typeof uiError === 'string' && uiError.trim().length > 0)
-      ) {
-        return;
-      }
-      this.overlayState.exportViewerOpen = false;
-      this.overlayState.controller.setSticky(false);
-      this.hideFrameForActivation();
-      globalThis.removeEventListener?.('message', onUiClosed);
-    };
-    globalThis.addEventListener?.('message', onUiClosed);
-    return () => {
-      globalThis.removeEventListener?.('message', onUiClosed);
-    };
-  };
 
   /**
    * Subscribe to service-ready event. Returns an unsubscribe function.
@@ -1030,6 +991,20 @@ export class WalletIframeRouter {
     return res.result;
   }
 
+  async requestEmailOtpSigningSessionChallenge(payload: {
+    nearAccountId: string;
+    chain?: 'tempo' | 'evm';
+    onEvent?: (ev: UnlockFlowEvent) => void;
+  }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>> {
+    const { onEvent, ...wirePayload } = payload;
+    const res = await this.post<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>>({
+      type: 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE',
+      payload: wirePayload,
+      options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
+    });
+    return res.result;
+  }
+
   async exchangeGoogleEmailOtpSession(payload: {
     idToken: string;
     accountMode: 'register' | 'login';
@@ -1083,6 +1058,32 @@ export class WalletIframeRouter {
     const res = await this.post<EmailOtpEcdsaCapabilityResult>(
       {
         type: 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
+        payload: wirePayload,
+        options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
+      },
+      {
+        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+        progressTimeoutExtensionFactor: 1,
+      },
+    );
+    const { login: st } = await this.getWalletSession(payload.nearAccountId);
+    this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, nearAccountId: st.nearAccountId });
+    return sanitizeEmailOtpIframeResult(res.result);
+  }
+
+  async refreshEmailOtpSigningSession(payload: {
+    nearAccountId: string;
+    chain?: 'tempo' | 'evm';
+    challengeId: string;
+    otpCode: string;
+    ttlMs?: number;
+    remainingUses?: number;
+    onEvent?: (ev: UnlockFlowEvent) => void;
+  }): Promise<EmailOtpEcdsaCapabilityResult> {
+    const { onEvent, ...wirePayload } = payload;
+    const res = await this.post<EmailOtpEcdsaCapabilityResult>(
+      {
+        type: 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION',
         payload: wirePayload,
         options: { onProgress: this.wrapOnEvent(onEvent, isUnlockFlowEvent) },
       },
@@ -1682,38 +1683,22 @@ export class WalletIframeRouter {
       chain: 'near' | 'evm' | 'tempo';
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
+      onEvent?: (ev: KeyExportFlowEvent) => void;
     },
   ): Promise<void> {
-    // Make the wallet iframe visible while the export viewer is open.
-    // Unlike request/response flows, the wallet host renders UI and manages
-    // its own lifecycle; it will notify us when to hide via window message.
-    this.showFrameForActivation();
-    const walletOrigin = this.walletOriginOrigin;
-    const detachClosed = this.attachExportUiClosedListener(walletOrigin);
-    try {
-      await this.post<void>({
-        type: 'PM_EXPORT_KEYPAIR_UI',
-        payload: {
-          nearAccountId,
-          chain: options.chain,
-          variant: options.variant,
-          theme: options.theme,
-        },
-        options: { sticky: true },
-      });
-      // Cleanup once posted (handler will remove itself on event)
-      void detachClosed;
-      return;
-    } catch (e) {
-      // Best-effort cleanup on errors to avoid a stuck sticky overlay.
-      try {
-        detachClosed();
-      } catch {}
-      this.overlayState.exportViewerOpen = false;
-      this.overlayState.controller.setSticky(false);
-      this.hideFrameForActivation();
-      throw e;
-    }
+    await this.post<void>({
+      type: 'PM_EXPORT_KEYPAIR_UI',
+      payload: {
+        nearAccountId,
+        chain: options.chain,
+        variant: options.variant,
+        theme: options.theme,
+      },
+      options: {
+        sticky: true,
+        onProgress: this.wrapOnEvent(options.onEvent, isKeyExportFlowEvent),
+      },
+    });
   }
 
   async exportThresholdEd25519SeedFromHssReport(args: {
@@ -1724,35 +1709,24 @@ export class WalletIframeRouter {
     options: {
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
+      onEvent?: (ev: KeyExportFlowEvent) => void;
     };
   }): Promise<void> {
-    this.showFrameForActivation();
-    const walletOrigin = this.walletOriginOrigin;
-    const detachClosed = this.attachExportUiClosedListener(walletOrigin);
-    try {
-      await this.post<void>({
-        type: 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI',
-        payload: {
-          nearAccountId: args.nearAccountId,
-          preparedSession: args.preparedSession,
-          finalizedReport: args.finalizedReport,
-          expectedPublicKey: args.expectedPublicKey,
-          variant: args.options.variant,
-          theme: args.options.theme,
-        },
-        options: { sticky: true },
-      });
-      void detachClosed;
-      return;
-    } catch (e) {
-      try {
-        detachClosed();
-      } catch {}
-      this.overlayState.exportViewerOpen = false;
-      this.overlayState.controller.setSticky(false);
-      this.hideFrameForActivation();
-      throw e;
-    }
+    await this.post<void>({
+      type: 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI',
+      payload: {
+        nearAccountId: args.nearAccountId,
+        preparedSession: args.preparedSession,
+        finalizedReport: args.finalizedReport,
+        expectedPublicKey: args.expectedPublicKey,
+        variant: args.options.variant,
+        theme: args.options.theme,
+      },
+      options: {
+        sticky: true,
+        onProgress: this.wrapOnEvent(args.options.onEvent, isKeyExportFlowEvent),
+      },
+    });
   }
 
   // ===== Control APIs =====
@@ -1807,16 +1781,16 @@ export class WalletIframeRouter {
       return;
     }
 
-    // Sticky subscriptions can outlive their initial PM_RESULT/ERROR (e.g., device-linking),
-    // but the preflight fullscreen demand for that request must be cleared at terminal message
-    // boundaries so it does not pin overlay visibility for unrelated future requests.
+    // Sticky subscriptions can outlive their initial PM_RESULT/ERROR.
+    // Clear only preflight fullscreen demand here; if a progress event has taken
+    // ownership, its matching progress hide event must own the close.
     if (this.progressBus.isSticky(requestId)) {
-      this.progressBus.clearDemand(requestId);
+      this.progressBus.clearInitialDemand(requestId);
     }
 
     const pending = this.state.pending.get(requestId);
-    // Hide overlay on completion only if no other requests still need it,
-    // and this request wasn't marked sticky (UI-managed lifecycle).
+    // Hide overlay on completion only if no other requests still need it.
+    // Sticky progress subscribers wait for a later lifecycle progress event.
     if (!this.progressBus.isSticky(requestId)) {
       if (!this.progressBus.wantsVisible()) {
         this.hideFrameForActivation();
@@ -1960,17 +1934,9 @@ export class WalletIframeRouter {
           ? { ...full, options: wireOptions }
           : { ...full, options: undefined };
 
-        // Align overlay stickiness with request options (phase 2 will use intents)
-        this.overlayState.controller.setSticky(
-          !!(wireOptions && (wireOptions as { sticky?: boolean }).sticky),
-        );
-
         // Step 7: Apply overlay intent (conservative) if not already visible, then post
         if (!this.overlayState.controller.getState().visible) {
           if (overlayIntent.mode === 'fullscreen') {
-            this.overlayState.controller.setSticky(
-              !!(wireOptions && (wireOptions as { sticky?: boolean }).sticky),
-            );
             this.overlayState.controller.showFullscreen();
           }
         }
@@ -2032,7 +1998,7 @@ export class WalletIframeRouter {
 
   private hideFrameForActivation(): void {
     if (!this.overlayState.controller.getState().visible) return;
-    if (this.overlayState.exportViewerOpen) return;
+    if (this.progressBus.wantsVisible()) return;
     this.overlayState.controller.hide();
   }
 
@@ -2125,6 +2091,10 @@ function isLinkDeviceFlowEvent(p: ProgressPayload): p is LinkDeviceFlowEvent {
 
 function isAccountSyncFlowEvent(p: ProgressPayload): p is AccountSyncFlowEvent {
   return isWalletFlowEvent(p) && p.flow === 'account_sync';
+}
+
+function isKeyExportFlowEvent(p: ProgressPayload): p is KeyExportFlowEvent {
+  return isWalletFlowEvent(p) && p.flow === 'key_export';
 }
 
 function isEmailRecoveryFlowEvent(p: ProgressPayload): p is EmailRecoveryFlowEvent {

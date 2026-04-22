@@ -19,6 +19,7 @@ import { ExportKeyTypeModal } from './ExportKeyTypeModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
 import { AccountId, toAccountId } from '@/core/types/accountIds';
+import { KeyExportEventPhase, type KeyExportFlowEvent } from '@/core/types/sdkSentEvents';
 
 function resolveDefaultPortalTarget(
   explicit: HTMLElement | ShadowRoot | null | undefined,
@@ -46,11 +47,6 @@ async function waitForNextPaint(): Promise<void> {
       window.requestAnimationFrame(() => resolve());
     });
   });
-}
-
-function isExportViewerOpenedMessage(event: MessageEvent): boolean {
-  const data = event.data;
-  return !!data && typeof data === 'object' && (data as { type?: unknown }).type === 'WALLET_EXPORT_VIEWER_OPENED';
 }
 
 /**
@@ -200,10 +196,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const startExportKeyFlow = useCallback(
     async (chain: 'near' | 'evm') => {
       if (!nearAccountId) return;
-      let exportViewerOpened = false;
-      const handleExportViewerOpened = (event: MessageEvent) => {
-        if (!isExportViewerOpenedMessage(event)) return;
-        exportViewerOpened = true;
+      let exportViewerDisplayed = false;
+      const handleExportEvent = (event: KeyExportFlowEvent) => {
+        if (event.phase !== KeyExportEventPhase.STEP_04_VIEWER_OPENED) return;
+        exportViewerDisplayed = true;
         setExportKeysLoading(false);
         setExportChainLoading(null);
       };
@@ -215,9 +211,12 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       });
       await waitForNextPaint();
 
-      window.addEventListener('message', handleExportViewerOpened);
       try {
-        await tatchi.keys.exportKeypairWithUI(nearAccountId, { chain, variant: 'drawer' });
+        await tatchi.keys.exportKeypairWithUI(nearAccountId, {
+          chain,
+          variant: 'drawer',
+          onEvent: handleExportEvent,
+        });
       } catch (error: any) {
         console.error(`Key export failed (${chain}):`, error);
         const msg = String(error?.message || 'Unknown error');
@@ -229,8 +228,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               : msg;
         alert(`Key export failed: ${friendly}`);
       } finally {
-        window.removeEventListener('message', handleExportViewerOpened);
-        if (!exportViewerOpened) {
+        if (!exportViewerDisplayed) {
           setExportKeysLoading(false);
           setExportChainLoading(null);
         }
