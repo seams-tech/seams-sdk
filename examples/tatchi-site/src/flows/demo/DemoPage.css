@@ -94,6 +94,10 @@
   border-radius: 999px;
 }
 
+.signing-session-status-footer {
+  margin-top: var(--fe-gap-4);
+}
+
 .greeting-controls-box {
   display: flex;
   flex-direction: column;
@@ -103,8 +107,7 @@
   border: 1px solid var(--fe-border);
   border-radius: var(--fe-radius-lg);
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent),
-    var(--fe-bg-secondary);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent), var(--fe-bg-secondary);
   color: var(--fe-text-secondary);
   padding: var(--fe-gap-4);
   line-height: 1.5;

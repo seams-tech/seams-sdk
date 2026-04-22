@@ -8,7 +8,6 @@ import { useSetGreeting } from '@/shared/hooks/useSetGreeting';
 import { NearGreetingSection } from './sections/NearGreetingSection';
 import { SigningSessionSection } from './sections/SigningSessionSection';
 import { ThresholdSignerSection } from './sections/ThresholdSignerSection';
-import { WalletSessionStatusIndicator } from './sections/WalletSessionStatusIndicator';
 import { createChainDefaultGreeting } from './demoEvmHelpers';
 import { useDemoNearActions } from './hooks/useDemoNearActions';
 import { useDemoSigningSession } from './hooks/useDemoSigningSession';
@@ -86,14 +85,6 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
       <div className="action-section">
         <div className="demo-page-header">
           <h2 className="demo-title">Welcome, {accountName}</h2>
-          <WalletSessionStatusIndicator
-            walletSession={signingSession.walletSession}
-            signingSession={signingSession.sessionStatus}
-            expiresInSec={signingSession.expiresInSec}
-            loading={signingSession.sessionStatusLoading}
-            error={signingSession.sessionStatusError}
-            onRefresh={signingSession.refreshSessionStatus}
-          />
         </div>
       </div>
 
@@ -154,6 +145,10 @@ export const DemoPage: React.FC<DemoPageProps> = (props) => {
         unlockLoading={signingSession.unlockLoading}
         sessionStatus={signingSession.sessionStatus}
         expiresInSec={signingSession.expiresInSec}
+        walletSession={signingSession.walletSession}
+        sessionStatusLoading={signingSession.sessionStatusLoading}
+        sessionStatusError={signingSession.sessionStatusError}
+        onRefreshSessionStatus={signingSession.refreshSessionStatus}
       />
     </div>
   );

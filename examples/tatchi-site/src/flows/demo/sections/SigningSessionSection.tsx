@@ -1,14 +1,11 @@
 import React from 'react';
 
 import { LoadingButton } from '@/components/LoadingButton';
-
-type DemoSigningSessionStatus = {
-  sessionId: string;
-  status: 'active' | 'exhausted' | 'expired' | 'not_found' | 'unavailable';
-  remainingUses?: number;
-  expiresAtMs?: number;
-  createdAtMs?: number;
-};
+import type {
+  DemoSigningSessionStatus,
+  DemoWalletSessionSnapshot,
+} from '../hooks/useDemoSigningSession';
+import { WalletSessionStatusIndicator } from './WalletSessionStatusIndicator';
 
 type SigningSessionSectionProps = {
   sessionRemainingUsesInput: number;
@@ -19,6 +16,10 @@ type SigningSessionSectionProps = {
   unlockLoading: boolean;
   sessionStatus: DemoSigningSessionStatus | null;
   expiresInSec: number | null;
+  walletSession: DemoWalletSessionSnapshot | null;
+  sessionStatusLoading: boolean;
+  sessionStatusError: string;
+  onRefreshSessionStatus: () => void | Promise<void>;
 };
 
 export function SigningSessionSection(props: SigningSessionSectionProps) {
@@ -125,6 +126,17 @@ export function SigningSessionSection(props: SigningSessionSectionProps) {
                 : `${props.expiresInSec}s`}
           </div>
         </div>
+      </div>
+
+      <div className="signing-session-status-footer">
+        <WalletSessionStatusIndicator
+          walletSession={props.walletSession}
+          signingSession={props.sessionStatus}
+          expiresInSec={props.expiresInSec}
+          loading={props.sessionStatusLoading}
+          error={props.sessionStatusError}
+          onRefresh={props.onRefreshSessionStatus}
+        />
       </div>
     </div>
   );
