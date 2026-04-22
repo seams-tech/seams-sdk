@@ -613,6 +613,14 @@ w3a-drawer-tx-confirmer[theme='light'] .modal-container-root {
   gap: clamp(0.4rem, 2vw, 0.65rem);
   width: 100%;
   pointer-events: none;
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+.email-otp-confirm__slots.is-submitting {
+  opacity: 0;
+  transform: scale(0.98);
 }
 
 .email-otp-confirm__slot {
