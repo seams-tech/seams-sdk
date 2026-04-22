@@ -17,6 +17,8 @@ import type {
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { formatEmailOtpSentText } from '@/core/signingEngine/touchConfirm/shared/emailOtpPromptCopy';
 
+const EMAIL_OTP_SUBMIT_FADE_MS = 150;
+
 function formatEmailOtpResendError(error: unknown): string {
   const code =
     error && typeof error === 'object' && 'code' in error
@@ -67,6 +69,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     otpResendBusy: { type: Boolean, attribute: false },
     otpResendUntilMs: { type: Number, attribute: false },
     otpResendStatus: { type: String, attribute: false },
+    otpSubmitAnimating: { type: Boolean, attribute: false },
   } as const;
 
   declare nearAccountId: string;
@@ -94,7 +97,9 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   otpResendBusy = false;
   otpResendUntilMs = 0;
   otpResendStatus = '';
+  otpSubmitAnimating = false;
   private _otpResendTimer: number | null = null;
+  private _otpSubmitTimer: number | null = null;
   private _lastAutoOtpSubmitCode = '';
 
   // Keep essential custom elements from being tree-shaken
@@ -188,14 +193,35 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     this.otpError = '';
     if (code.length < 6) {
       this._lastAutoOtpSubmitCode = '';
+      this._resetOtpSubmitAnimation();
       return;
     }
     if (this.loading || this._lastAutoOtpSubmitCode === code) return;
     this._lastAutoOtpSubmitCode = code;
-    requestAnimationFrame(() => {
-      if (!this.loading && this.otpCode === code) this.onContentConfirm();
-    });
+    this._submitEmailOtpAfterFade(code);
   };
+
+  private _clearOtpSubmitTimer(): void {
+    if (this._otpSubmitTimer != null) window.clearTimeout(this._otpSubmitTimer);
+    this._otpSubmitTimer = null;
+  }
+
+  private _resetOtpSubmitAnimation(): void {
+    this._clearOtpSubmitTimer();
+    if (!this.otpSubmitAnimating) return;
+    this.otpSubmitAnimating = false;
+    this.requestUpdate();
+  }
+
+  private _submitEmailOtpAfterFade(code: string): void {
+    this._clearOtpSubmitTimer();
+    this.otpSubmitAnimating = true;
+    this.requestUpdate();
+    this._otpSubmitTimer = window.setTimeout(() => {
+      this._otpSubmitTimer = null;
+      if (!this.loading && this.otpCode === code) this.finishContentConfirm({ otpCode: code });
+    }, EMAIL_OTP_SUBMIT_FADE_MS);
+  }
 
   private _startOtpResendCountdown(durationMs: number): void {
     if (this._otpResendTimer != null) window.clearInterval(this._otpResendTimer);
@@ -222,6 +248,8 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     if (this.otpResendUntilMs > Date.now()) return;
     this.otpError = '';
     this.otpResendStatus = '';
+    this._lastAutoOtpSubmitCode = '';
+    this._resetOtpSubmitAnimation();
     this.otpResendBusy = true;
     this._startOtpResendCountdown(Number(this.emailOtpPrompt?.resendDebounceMs) || 10_000);
     this.requestUpdate();
@@ -266,10 +294,13 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
             pattern="[0-9]*"
             maxlength="6"
             .value=${this.otpCode}
-            ?disabled=${this.loading}
+            ?disabled=${this.loading || this.otpSubmitAnimating}
             @input=${this._onOtpInput}
           />
-          <div class="email-otp-confirm__slots" aria-hidden="true">
+          <div
+            class="email-otp-confirm__slots${this.otpSubmitAnimating ? ' is-submitting' : ''}"
+            aria-hidden="true"
+          >
             ${[0, 1, 2, 3, 4, 5].map((index) => {
               const digit = this.otpCode[index] || '';
               return html`<span class="email-otp-confirm__slot${digit ? ' is-filled' : ''}"
@@ -380,11 +411,22 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
     window.removeEventListener('message', this._onWindowMessage as EventListener);
     if (this._otpResendTimer != null) window.clearInterval(this._otpResendTimer);
     this._otpResendTimer = null;
+    this._clearOtpSubmitTimer();
     super.disconnectedCallback();
   }
 
   updated(changed: PropertyValues) {
     super.updated(changed);
+    if (
+      this._isEmailOtpMode() &&
+      this.otpSubmitAnimating &&
+      !this.loading &&
+      (changed.has('loading') || changed.has('errorMessage') || changed.has('otpError')) &&
+      (this.otpError || this.errorMessage)
+    ) {
+      this._lastAutoOtpSubmitCode = '';
+      this._resetOtpSubmitAnimation();
+    }
     // Keep the iframe/root document's theme in sync so :root[data-w3a-theme] tokens apply
     if (changed.has('theme')) {
       const docEl = this.ownerDocument?.documentElement as HTMLElement | undefined;
@@ -409,7 +451,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   };
 
   private onContentConfirm = () => {
-    if (this.loading) return;
+    if (this.loading || this.otpSubmitAnimating) return;
     if (this._isEmailOtpMode()) {
       const code = String(this.otpCode || '')
         .replace(/\D/g, '')
@@ -422,6 +464,18 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
       }
       this.otpCode = code;
       this.otpError = '';
+      this._lastAutoOtpSubmitCode = code;
+      this._submitEmailOtpAfterFade(code);
+      return;
+    }
+    this.finishContentConfirm();
+  };
+
+  private finishContentConfirm(opts?: { otpCode?: string }) {
+    if (this.loading) return;
+    if (this._isEmailOtpMode() && opts?.otpCode) {
+      this.otpCode = opts.otpCode;
+      this.otpError = '';
     }
     this.loading = true;
     this.requestUpdate();
@@ -432,14 +486,14 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
         composed: true,
         detail: {
           confirmed: true,
-          ...(this._isEmailOtpMode() ? { otpCode: this.otpCode } : {}),
+          ...(this._isEmailOtpMode() ? { otpCode: opts?.otpCode || this.otpCode } : {}),
           ...(this._isEmailOtpMode() && this.emailOtpPrompt?.challengeId
             ? { emailOtpChallengeId: this.emailOtpPrompt.challengeId }
             : {}),
         },
       }),
     );
-  };
+  }
 
   private onContentCancel = () => {
     if (this.loading) return;

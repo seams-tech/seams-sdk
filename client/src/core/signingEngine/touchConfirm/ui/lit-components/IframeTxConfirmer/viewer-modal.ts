@@ -20,6 +20,8 @@ import PasskeyHaloLoadingElement from '../PasskeyHaloLoading';
 import type { ConfirmUIElement } from '../../confirm-ui-types';
 import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
 
+const EMAIL_OTP_SUBMIT_FADE_MS = 150;
+
 export interface SecureTxSummary {
   to?: string;
   totalAmount?: string;
@@ -91,6 +93,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     otpResendBusy: { type: Boolean, attribute: false },
     otpResendUntilMs: { type: Number, attribute: false },
     otpResendStatus: { type: String, attribute: false },
+    otpSubmitAnimating: { type: Boolean, attribute: false },
   };
 
   totalAmount = '';
@@ -117,7 +120,9 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   otpResendBusy = false;
   otpResendUntilMs = 0;
   otpResendStatus = '';
+  otpSubmitAnimating = false;
   private _otpResendTimer: number | null = null;
+  private _otpSubmitTimer: number | null = null;
   private _lastAutoOtpSubmitCode = '';
   intentDigest?: string;
   declare nearAccountId: string;
@@ -212,14 +217,35 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     this.otpError = '';
     if (code.length < 6) {
       this._lastAutoOtpSubmitCode = '';
+      this._resetOtpSubmitAnimation();
       return;
     }
     if (this.loading || this._lastAutoOtpSubmitCode === code) return;
     this._lastAutoOtpSubmitCode = code;
-    requestAnimationFrame(() => {
-      if (!this.loading && this.otpCode === code) this._handleConfirm();
-    });
+    this._submitEmailOtpAfterFade(code);
   };
+
+  private _clearOtpSubmitTimer(): void {
+    if (this._otpSubmitTimer != null) window.clearTimeout(this._otpSubmitTimer);
+    this._otpSubmitTimer = null;
+  }
+
+  private _resetOtpSubmitAnimation(): void {
+    this._clearOtpSubmitTimer();
+    if (!this.otpSubmitAnimating) return;
+    this.otpSubmitAnimating = false;
+    this.requestUpdate();
+  }
+
+  private _submitEmailOtpAfterFade(code: string): void {
+    this._clearOtpSubmitTimer();
+    this.otpSubmitAnimating = true;
+    this.requestUpdate();
+    this._otpSubmitTimer = window.setTimeout(() => {
+      this._otpSubmitTimer = null;
+      if (!this.loading && this.otpCode === code) this._finishConfirm({ otpCode: code });
+    }, EMAIL_OTP_SUBMIT_FADE_MS);
+  }
 
   private _startOtpResendCountdown(durationMs: number): void {
     if (this._otpResendTimer != null) window.clearInterval(this._otpResendTimer);
@@ -246,6 +272,8 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     if (this.otpResendUntilMs > Date.now()) return;
     this.otpError = '';
     this.otpResendStatus = '';
+    this._lastAutoOtpSubmitCode = '';
+    this._resetOtpSubmitAnimation();
     this.otpResendBusy = true;
     this._startOtpResendCountdown(Number(this.emailOtpPrompt?.resendDebounceMs) || 10_000);
     this.requestUpdate();
@@ -288,10 +316,13 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
             pattern="[0-9]*"
             maxlength="6"
             .value=${this.otpCode}
-            ?disabled=${this.loading}
+            ?disabled=${this.loading || this.otpSubmitAnimating}
             @input=${this._onOtpInput}
           />
-          <div class="email-otp-confirm__slots" aria-hidden="true">
+          <div
+            class="email-otp-confirm__slots${this.otpSubmitAnimating ? ' is-submitting' : ''}"
+            aria-hidden="true"
+          >
             ${[0, 1, 2, 3, 4, 5].map((index) => {
               const digit = this.otpCode[index] || '';
               return html`<span class="email-otp-confirm__slot${digit ? ' is-filled' : ''}"
@@ -340,6 +371,18 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
 
   updated(changedProperties: PropertyValues) {
     super.updated(changedProperties);
+    if (
+      this._isEmailOtpMode() &&
+      this.otpSubmitAnimating &&
+      !this.loading &&
+      (changedProperties.has('loading') ||
+        changedProperties.has('errorMessage') ||
+        changedProperties.has('otpError')) &&
+      (this.otpError || this.errorMessage)
+    ) {
+      this._lastAutoOtpSubmitCode = '';
+      this._resetOtpSubmitAnimation();
+    }
     // Keep the iframe/root document's theme in sync so :root[data-w3a-theme] tokens apply
     if (changedProperties.has('theme')) {
       try {
@@ -380,6 +423,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
     window.removeEventListener('message', this._onWindowMessage as EventListener);
     if (this._otpResendTimer != null) window.clearInterval(this._otpResendTimer);
     this._otpResendTimer = null;
+    this._clearOtpSubmitTimer();
     super.disconnectedCallback();
   }
 
@@ -575,7 +619,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   }
 
   private _handleConfirm() {
-    if (this.loading) return;
+    if (this.loading || this.otpSubmitAnimating) return;
     if (this._isEmailOtpMode()) {
       const code = String(this.otpCode || '')
         .replace(/\D/g, '')
@@ -588,6 +632,18 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
       }
       this.otpCode = code;
       this.otpError = '';
+      this._lastAutoOtpSubmitCode = code;
+      this._submitEmailOtpAfterFade(code);
+      return;
+    }
+    this._finishConfirm();
+  }
+
+  private _finishConfirm(opts?: { otpCode?: string }) {
+    if (this.loading) return;
+    if (this._isEmailOtpMode() && opts?.otpCode) {
+      this.otpCode = opts.otpCode;
+      this.otpError = '';
     }
     this.loading = true;
     this.requestUpdate();
@@ -598,7 +654,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
         composed: true,
         detail: {
           confirmed: true,
-          ...(this._isEmailOtpMode() ? { otpCode: this.otpCode } : {}),
+          ...(this._isEmailOtpMode() ? { otpCode: opts?.otpCode || this.otpCode } : {}),
           ...(this._isEmailOtpMode() && this.emailOtpPrompt?.challengeId
             ? { emailOtpChallengeId: this.emailOtpPrompt.challengeId }
             : {}),
