@@ -68,22 +68,31 @@ for required in \
     fi
 done
 
-hash_file() {
+hash_stdin() {
     if command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 "$1" | awk '{print $1}'
+        shasum -a 256 | awk '{print $1}'
     elif command -v sha256sum >/dev/null 2>&1; then
-        sha256sum "$1" | awk '{print $1}'
+        sha256sum | awk '{print $1}'
     else
         echo -e "${RED}❌ Neither 'shasum' nor 'sha256sum' is available${NC}" >&2
         exit 1
     fi
 }
 
-hash_stdin() {
+hash_files_from_list() {
+    local list_file="$1"
+    if [ ! -s "$list_file" ]; then
+        return 0
+    fi
+
     if command -v shasum >/dev/null 2>&1; then
-        shasum -a 256 | awk '{print $1}'
+        while IFS= read -r path; do
+            printf '%s\0' "$path"
+        done < "$list_file" | xargs -0 shasum -a 256 -- | awk '{print $1}'
     elif command -v sha256sum >/dev/null 2>&1; then
-        sha256sum | awk '{print $1}'
+        while IFS= read -r path; do
+            printf '%s\0' "$path"
+        done < "$list_file" | xargs -0 sha256sum -- | awk '{print $1}'
     else
         echo -e "${RED}❌ Neither 'shasum' nor 'sha256sum' is available${NC}" >&2
         exit 1
@@ -111,15 +120,30 @@ collect_build_inputs() {
 }
 
 compute_build_inputs_hash() {
+    local hash_count
     local tmp_file
+    local hashes_file
     local path
+    local path_count
+    local paths_file
     tmp_file="$(mktemp)"
+    paths_file="$(mktemp)"
+    hashes_file="$(mktemp)"
     collect_build_inputs | awk 'NF' | LC_ALL=C sort -u > "$tmp_file"
     while IFS= read -r path; do
         [ -f "$path" ] || continue
-        printf '%s\t%s\n' "$path" "$(hash_file "$path")"
-    done < "$tmp_file" | hash_stdin
-    rm -f "$tmp_file"
+        printf '%s\n' "$path"
+    done < "$tmp_file" > "$paths_file"
+    hash_files_from_list "$paths_file" > "$hashes_file"
+    path_count="$(wc -l < "$paths_file")"
+    hash_count="$(wc -l < "$hashes_file")"
+    if [ "$path_count" -ne "$hash_count" ]; then
+        echo -e "${RED}❌ Failed to hash every build input${NC}" >&2
+        rm -f "$tmp_file" "$paths_file" "$hashes_file"
+        exit 1
+    fi
+    paste "$paths_file" "$hashes_file" | hash_stdin
+    rm -f "$tmp_file" "$paths_file" "$hashes_file"
 }
 
 if [ "${1:-}" = "--print-input-hash" ]; then
