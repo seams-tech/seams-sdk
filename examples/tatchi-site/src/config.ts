@@ -10,7 +10,7 @@ const DEFAULT_TEMPO_FEE_TOKEN = '0x20c0000000000000000000000000000000000001';
 const DEFAULT_ARC_RPC_URL = 'https://rpc.testnet.arc.network';
 const DEFAULT_ARC_EXPLORER_URL = 'https://testnet.arcscan.app';
 const DEFAULT_SIGNING_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_SIGNING_SESSION_REMAINING_USES = 10_000;
+const DEFAULT_SIGNING_SESSION_REMAINING_USES = 3;
 const DEFAULT_DEMO_CONTRACT_ID = 'w3a-v1.testnet';
 
 function toTrimmedString(value: unknown): string {

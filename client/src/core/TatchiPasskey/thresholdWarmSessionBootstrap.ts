@@ -13,7 +13,10 @@ import type {
 import { toAccountId } from '../types/accountIds';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
 import { IndexedDBManager } from '../indexedDB';
-import { getNearThresholdKeyMaterial, storeNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
+import {
+  getNearThresholdKeyMaterial,
+  storeNearThresholdKeyMaterial,
+} from '../accountData/near/keyMaterial';
 import type { Ed25519SessionKind } from '../signingEngine/threshold/session/ed25519SessionTypes';
 import { persistWarmSessionEd25519Capability } from '../signingEngine/session/warmSessionPersistence';
 import { getPrfFirstB64uFromCredential } from '../signingEngine/threshold/webauthn';
@@ -22,6 +25,7 @@ import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
   generateWalletSigningSessionId,
+  normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
 } from '../signingEngine/threshold/session/sessionPolicy';
 import type { PasskeyManagerContext } from './index';
@@ -79,11 +83,12 @@ export type CompletedThresholdEd25519Registration = {
 type ThresholdWarmSessionRelayResult = {
   sessionKind?: string;
   sessionId?: string;
+  walletSigningSessionId?: string;
   expiresAtMs?: number;
   participantIds?: number[];
   remainingUses?: number;
   jwt?: string;
-  runtimePolicyScope?: { orgId: string; projectId: string; envId: string };
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
 const thresholdEd25519ClientBasePrewarmBySessionId = new Map<string, Promise<void>>();
@@ -182,19 +187,21 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
   }
 
   args.onProgress?.('Preparing threshold Ed25519 relay ceremony...');
-  const preparedRelayCeremony = await prepareThresholdEd25519HssServerCeremonyWithRelayRegistration({
-    context: args.context,
-    nearAccountId: String(args.nearAccountId),
-    rpId: args.rpId,
-    hssContext: {
-      signingRootId,
+  const preparedRelayCeremony = await prepareThresholdEd25519HssServerCeremonyWithRelayRegistration(
+    {
+      context: args.context,
       nearAccountId: String(args.nearAccountId),
-      keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-      keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
-      participantIds: prepared.participantIds,
-      derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+      rpId: args.rpId,
+      hssContext: {
+        signingRootId,
+        nearAccountId: String(args.nearAccountId),
+        keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
+        keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
+        participantIds: prepared.participantIds,
+        derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
+      },
     },
-  });
+  );
 
   const clientRequest = await args.context.signingEngine.prepareThresholdEd25519HssClientRequest({
     evaluatorDriverStateB64u: preparedRelayCeremony.preparedSession.evaluatorDriverStateB64u,
@@ -310,6 +317,13 @@ export function completeRegisteredThresholdEd25519Registration(args: {
   }
   if (sessionId !== String(args.expectedSessionPolicy.sessionId || '').trim()) {
     throw new Error('threshold-ed25519 sessionId mismatch');
+  }
+  const walletSigningSessionId = String(session?.walletSigningSessionId || '').trim();
+  const expectedWalletSigningSessionId = String(
+    args.expectedSessionPolicy.walletSigningSessionId || args.expectedSessionPolicy.sessionId || '',
+  ).trim();
+  if (walletSigningSessionId && walletSigningSessionId !== expectedWalletSigningSessionId) {
+    throw new Error('threshold-ed25519 walletSigningSessionId mismatch');
   }
 
   return {
@@ -428,6 +442,10 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     participantIds,
     sessionKind: 'jwt' as Ed25519SessionKind,
     sessionId,
+    walletSigningSessionId:
+      String(session.walletSigningSessionId || '').trim() ||
+      String(args.registrationSessionPolicy.walletSigningSessionId || '').trim() ||
+      String(args.registrationSessionPolicy.sessionId || '').trim(),
     expiresAtMs,
     remainingUses,
     jwt,
@@ -463,11 +481,14 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
   if (!thresholdSessionId || !thresholdSessionJwt) {
     throw new Error('Threshold Ed25519 warm session is missing JWT session state');
   }
-  const signingRootId = args.session.runtimePolicyScope
-    ? signingRootScopeFromRuntimePolicyScope(args.session.runtimePolicyScope).signingRootId
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(args.session.runtimePolicyScope);
+  const signingRootId = runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope).signingRootId
     : '';
   if (!signingRootId) {
-    throw new Error('Threshold Ed25519 warm session is missing canonical Option A signing-root scope');
+    throw new Error(
+      'Threshold Ed25519 warm session is missing canonical Option A signing-root scope',
+    );
   }
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.session.participantIds) ||
     normalizeThresholdEd25519ParticipantIds(args.participantIdsHint) || [
@@ -646,7 +667,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     normalizeThresholdEd25519ParticipantIds(args.participantIdsHint) || [
       ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
     ];
-  const runtimePolicyScope = args.session?.runtimePolicyScope;
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(args.session?.runtimePolicyScope);
   const prfFirstB64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
   if (!prfFirstB64u) {
     throw new Error('Missing PRF.first output from credential for threshold session hydration');
@@ -660,6 +681,10 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     participantIds,
     sessionKind: 'jwt',
     sessionId,
+    walletSigningSessionId:
+      String(args.session?.walletSigningSessionId || '').trim() ||
+      String(args.requestedPolicy.walletSigningSessionId || '').trim() ||
+      String(args.requestedPolicy.sessionId || '').trim(),
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,
     jwt: sessionJwt,

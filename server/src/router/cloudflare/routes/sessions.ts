@@ -314,8 +314,6 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
   const statusMatches =
     curveStatus &&
     walletBudgetStatus &&
-    curveStatus.remainingUses > 0 &&
-    walletBudgetStatus.remainingUses > 0 &&
     curveRecord?.userId === userId &&
     curveRecord?.rpId === claims.rpId &&
     curveRecord?.relayerKeyId === claims.relayerKeyId &&
@@ -487,6 +485,72 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
     let runtimePolicyScope: RuntimePolicyScope | undefined;
     let isGoogleEmailOtpExchange = false;
 
+    const resolveRuntimePolicyScopeForExchange = async (
+      failureUserId?: string,
+    ): Promise<{ ok: true; scope?: RuntimePolicyScope } | { ok: false; response: Response }> => {
+      const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
+        explicitScopeRaw: undefined,
+        runtimeEnvironmentIdRaw: (parsedBody as { runtimeEnvironmentId?: unknown })
+          .runtimeEnvironmentId,
+        headers: ctx.request.headers,
+        origin: ctx.request.headers.get('origin'),
+        publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+        orgProjectEnv: ctx.opts.orgProjectEnv || null,
+      });
+      if (!runtimePolicyScopeResolution.ok) {
+        await emitSessionExchangeFailed(ctx, {
+          status: runtimePolicyScopeResolution.status,
+          code: runtimePolicyScopeResolution.code,
+          message: runtimePolicyScopeResolution.message,
+          exchangeType,
+          sessionKind,
+          userId: failureUserId,
+        });
+        return {
+          ok: false,
+          response: json(
+            {
+              ok: false,
+              code: runtimePolicyScopeResolution.code,
+              message: runtimePolicyScopeResolution.message,
+            },
+            { status: runtimePolicyScopeResolution.status },
+          ),
+        };
+      }
+      return { ok: true, scope: runtimePolicyScopeResolution.scope };
+    };
+
+    const requireRuntimePolicyScopeForOidcWallet = async (): Promise<
+      { ok: true } | { ok: false; response: Response }
+    > => {
+      if (!runtimePolicyScope) {
+        const resolution = await resolveRuntimePolicyScopeForExchange(userId);
+        if (!resolution.ok) return resolution;
+        runtimePolicyScope = resolution.scope;
+      }
+      if (runtimePolicyScope) return { ok: true };
+      await emitSessionExchangeFailed(ctx, {
+        status: 400,
+        code: 'invalid_body',
+        message: 'session/exchange OIDC wallet derivation requires runtimeEnvironmentId',
+        exchangeType,
+        sessionKind,
+        userId,
+      });
+      return {
+        ok: false,
+        response: json(
+          {
+            ok: false,
+            code: 'invalid_body',
+            message: 'session/exchange OIDC wallet derivation requires runtimeEnvironmentId',
+          },
+          { status: 400 },
+        ),
+      };
+    };
+
     if (exchangeType === 'oidc_jwt') {
       oidcProvider = String(exchange.provider || '')
         .trim()
@@ -583,34 +647,8 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
       }
       try {
         if (isGoogleEmailOtpExchange) {
-          const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
-            explicitScopeRaw: undefined,
-            runtimeEnvironmentIdRaw: (parsedBody as { runtimeEnvironmentId?: unknown })
-              .runtimeEnvironmentId,
-            headers: ctx.request.headers,
-            origin: ctx.request.headers.get('origin'),
-            publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
-            orgProjectEnv: ctx.opts.orgProjectEnv || null,
-          });
-          if (!runtimePolicyScopeResolution.ok) {
-            await emitSessionExchangeFailed(ctx, {
-              status: runtimePolicyScopeResolution.status,
-              code: runtimePolicyScopeResolution.code,
-              message: runtimePolicyScopeResolution.message,
-              exchangeType,
-              sessionKind,
-              userId,
-            });
-            return json(
-              {
-                ok: false,
-                code: runtimePolicyScopeResolution.code,
-                message: runtimePolicyScopeResolution.message,
-              },
-              { status: runtimePolicyScopeResolution.status },
-            );
-          }
-          runtimePolicyScope = runtimePolicyScopeResolution.scope;
+          const scoped = await requireRuntimePolicyScopeForOidcWallet();
+          if (!scoped.ok) return scoped.response;
           const resolution = await ctx.service.resolveGoogleEmailOtpSession({
             providerSubject,
             sub: oidcSub,
@@ -642,11 +680,14 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
               : {}),
           };
         } else if (oidcProvider !== 'google') {
+          const scoped = await requireRuntimePolicyScopeForOidcWallet();
+          if (!scoped.ok) return scoped.response;
           walletId = await ctx.service.resolveOidcWalletId({
             providerSubject,
             sub: oidcSub,
             email: oidcEmail,
             accountMode: oidcAccountMode,
+            runtimePolicyScope,
           });
         }
       } catch (e: any) {
@@ -770,34 +811,9 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
     }
 
     if (!runtimePolicyScope) {
-      const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
-        explicitScopeRaw: undefined,
-        runtimeEnvironmentIdRaw: (parsedBody as { runtimeEnvironmentId?: unknown })
-          .runtimeEnvironmentId,
-        headers: ctx.request.headers,
-        origin: ctx.request.headers.get('origin'),
-        publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
-        orgProjectEnv: ctx.opts.orgProjectEnv || null,
-      });
-      if (!runtimePolicyScopeResolution.ok) {
-        await emitSessionExchangeFailed(ctx, {
-          status: runtimePolicyScopeResolution.status,
-          code: runtimePolicyScopeResolution.code,
-          message: runtimePolicyScopeResolution.message,
-          exchangeType,
-          sessionKind,
-          userId,
-        });
-        return json(
-          {
-            ok: false,
-            code: runtimePolicyScopeResolution.code,
-            message: runtimePolicyScopeResolution.message,
-          },
-          { status: runtimePolicyScopeResolution.status },
-        );
-      }
-      runtimePolicyScope = runtimePolicyScopeResolution.scope;
+      const resolution = await resolveRuntimePolicyScopeForExchange(userId);
+      if (!resolution.ok) return resolution.response;
+      runtimePolicyScope = resolution.scope;
     }
 
     const appVersion = await ctx.service.getOrCreateAppSessionVersion({ userId });

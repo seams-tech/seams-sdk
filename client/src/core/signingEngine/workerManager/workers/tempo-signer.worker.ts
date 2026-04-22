@@ -5,7 +5,7 @@ import init, {
 } from '../../../../../../wasm/tempo_signer/pkg/tempo_signer.js';
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { errorMessage } from '@shared/utils/errors';
-import { WorkerControlMessage } from '../workerTypes';
+import { WorkerControlMessage, type RpcSignerWorkerProgressEvent } from '../workerTypes';
 
 type TempoSignerWorkerRequest =
   | { id: string; type: 'computeTempoSenderHash'; payload: { tx: unknown } }
@@ -62,6 +62,48 @@ function postToMainThread(message: unknown, transfer?: Transferable[]): void {
   workerSelf.postMessage(message);
 }
 
+function tempoSignerOperationLabel(type: string): string {
+  switch (type) {
+    case 'computeTempoSenderHash':
+      return 'Tempo sender hash';
+    case 'encodeTempoSignedTx':
+      return 'signed Tempo transaction';
+    default:
+      return type || 'unknown tempoSigner operation';
+  }
+}
+
+function postWorkerOperationProgress(
+  id: string,
+  type: string,
+  status: RpcSignerWorkerProgressEvent['status'],
+  message?: string,
+): void {
+  const label = tempoSignerOperationLabel(type);
+  const payload: RpcSignerWorkerProgressEvent = {
+    phase: `tempo_signer.${type}.${status}`,
+    status,
+    message:
+      message ||
+      (status === 'running'
+        ? `Running ${label}`
+        : status === 'succeeded'
+          ? `Completed ${label}`
+          : `Failed ${label}`),
+    data: { worker: 'tempoSigner', operation: type },
+  };
+  postToMainThread({ id, progress: true, payload });
+}
+
+function postOperationSucceeded(
+  msg: TempoSignerWorkerRequest,
+  result: unknown,
+  transfer?: Transferable[],
+): void {
+  postWorkerOperationProgress(msg.id, msg.type, 'succeeded');
+  postToMainThread({ id: msg.id, ok: true, result }, transfer);
+}
+
 const wasmUrl = resolveWasmUrl('tempo_signer.wasm', 'Tempo Signer');
 let wasmInitPromise: Promise<void> | null = null;
 
@@ -87,12 +129,13 @@ self.addEventListener('message', async (event: MessageEvent) => {
   if (!msg?.id || !msg?.type) return;
 
   try {
+    postWorkerOperationProgress(msg.id, msg.type, 'running');
     await ensureWasm();
     switch (msg.type) {
       case 'computeTempoSenderHash': {
         const out = compute_tempo_sender_hash(msg.payload.tx) as Uint8Array;
         const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+        postOperationSucceeded(msg, ab, [ab]);
         return;
       }
       case 'encodeTempoSignedTx': {
@@ -101,7 +144,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           toU8(msg.payload.senderSignature),
         ) as Uint8Array;
         const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+        postOperationSucceeded(msg, ab, [ab]);
         return;
       }
       default: {
@@ -112,6 +155,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
     }
   } catch (e) {
     const err = asWorkerErrorPayload(e);
+    postWorkerOperationProgress(msg.id, msg.type, 'failed', err.message);
     postToMainThread({
       id: msg.id,
       ok: false,

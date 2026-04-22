@@ -65,4 +65,83 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(restoreCall).toBeGreaterThan(restoreStart);
     expect(authResolution).toBeGreaterThan(restoreCall);
   });
+
+  test('Email OTP NEAR warm-session planning does not treat sealed records as spendable auth', () => {
+    const nearSigning = readNearSigningSource();
+
+    expect(nearSigning).toContain('hasThresholdEd25519RouteAuth(record)');
+    expect(nearSigning).not.toContain('readSigningSessionSealedRecord');
+  });
+
+  test('Email OTP NEAR cached client-base signing records wallet-session budget spend', () => {
+    const nearSigning = readNearSigningSource();
+    const transactionsFlow = readRepoSource(
+      'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts',
+    );
+    const walletCoordinator = readRepoSource(
+      'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
+    );
+    const emailOtpCoordinator = readRepoSource(
+      'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+    );
+    const worker = readRepoSource(
+      'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+    );
+
+    expect(nearSigning).toContain('consumeWalletSigningSessionUse');
+    expect(transactionsFlow).toContain('recordSuccessfulWalletSigningSessionSpend');
+    expect(transactionsFlow).toContain('cachedXClientBaseB64u');
+    expect(walletCoordinator).toContain('createWalletSigningSessionCoordinator');
+    expect(walletCoordinator).toContain('consumeEmailOtpWarmSessionUses');
+    expect(emailOtpCoordinator).toContain('consumeWarmSessionUses');
+    expect(emailOtpCoordinator).toContain('consumeEmailOtpWarmSessionUses');
+    expect(worker).toContain('consumeEmailOtpWarmSessionUses');
+  });
+
+  test('Email OTP NEAR cached client-base signing consumes shared session budgets without PRF claim', () => {
+    const orchestrationDeps = readRepoSource(
+      'client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts',
+    );
+    const touchConfirmTypes = readRepoSource('client/src/core/signingEngine/touchConfirm/types.ts');
+    const touchConfirmManager = readRepoSource(
+      'client/src/core/signingEngine/touchConfirm/TouchConfirmManager.ts',
+    );
+    const worker = readRepoSource(
+      'client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+    );
+    const walletCoordinator = readRepoSource(
+      'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
+    );
+
+    expect(orchestrationDeps).toContain('consumeWalletSigningSessionUse');
+    expect(walletCoordinator).toContain('clientAdditiveShareHandle');
+    expect(walletCoordinator).toContain('walletSigningSessionId');
+    expect(touchConfirmTypes).toContain('WarmSessionMaterialConsumer');
+    expect(touchConfirmManager).toContain('WARM_SESSION_MATERIAL_CONSUME');
+    expect(worker).toContain('consumeWarmSessionMaterialEntry');
+    expect(worker).toContain('WARM_SESSION_MATERIAL_CONSUME');
+    expect(walletCoordinator).toContain('consumeWarmSessionUses');
+  });
+
+  test('transaction signing does not consume worker warm-session budgets directly', () => {
+    const transactionsFlow = readRepoSource(
+      'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts',
+    );
+    const evmSigning = readRepoSource('client/src/core/signingEngine/api/evmSigning.ts');
+
+    expect(transactionsFlow).toContain('consumeWalletSigningSessionUse');
+    expect(transactionsFlow).not.toContain('consumeWarmSessionUses');
+    expect(evmSigning).toContain('consumeWalletSigningSessionUse');
+    expect(evmSigning).not.toContain('.consumeWarmSessionUses');
+  });
+
+  test('export code cannot consume wallet signing-session budget', () => {
+    const recovery = readRepoSource(
+      'client/src/core/signingEngine/api/recovery/privateKeyExportRecovery.ts',
+    );
+
+    expect(recovery).not.toContain('WalletSigningSessionCoordinator');
+    expect(recovery).not.toContain('consumeWalletSigningSessionUse');
+    expect(recovery).not.toContain('consumeUse(');
+  });
 });

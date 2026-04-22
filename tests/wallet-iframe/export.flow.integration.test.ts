@@ -79,7 +79,7 @@ const exportFlowScript = String.raw`
 
           setTimeout(() => {
             try {
-              window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
+              window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
               window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_UI_CLOSED' }, '*');
             } catch (err) {
               console.error('Failed to post WALLET_UI_CLOSED', err);
@@ -155,7 +155,7 @@ const exportSigningIsolationScript = String.raw`
 
             setTimeout(() => {
               try {
-                window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
+                window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
                 window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_UI_CLOSED' }, '*');
               } catch (err) {
                 console.error('Failed to post export close marker', err);
@@ -213,6 +213,83 @@ const exportSigningIsolationScript = String.raw`
               }
             }, 180);
           }
+        };
+      };
+`;
+
+const staleGenericCloseAfterExportViewerScript = String.raw`
+      const originalAdoptPort = adoptPort;
+      adoptPort = function patchedAdoptPort(port) {
+        originalAdoptPort(port);
+        if (!adoptedPort) return;
+        const originalHandler = adoptedPort.onmessage;
+        adoptedPort.onmessage = (event) => {
+          originalHandler?.(event);
+          const data = event.data || {};
+          if (!data || typeof data !== 'object') return;
+          if (data.type !== 'PM_EXPORT_KEYPAIR_UI' || typeof data.requestId !== 'string') return;
+
+          setTimeout(() => {
+            try {
+              adoptedPort.postMessage({
+                type: 'PROGRESS',
+                requestId: data.requestId,
+                payload: {
+                  version: 2,
+                  flow: 'account_sync',
+                  step: 2,
+                  phase: 'account_sync.auth.passkey.prompt.started',
+                  status: 'waiting_for_user',
+                  message: 'Confirm with passkey',
+                  flowId: 'account_sync:test:' + data.requestId,
+                  requestId: data.requestId,
+                  interaction: { kind: 'passkey_assert', overlay: 'show' },
+                },
+              });
+            } catch (err) {
+              console.error('Failed to post export PROGRESS', err);
+            }
+          }, 20);
+
+          setTimeout(() => {
+            pendingRequests.delete(data.requestId);
+            try {
+              adoptedPort.postMessage({
+                type: 'PM_RESULT',
+                requestId: data.requestId,
+                payload: { ok: true, result: null },
+              });
+            } catch (err) {
+              console.error('Failed to post export PM_RESULT', err);
+            }
+          }, 60);
+
+          setTimeout(() => {
+            try {
+              window.parent?.postMessage({ type: 'WALLET_EXPORT_VIEWER_OPENED' }, '*');
+              window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_VIEWER_OPENED' }, '*');
+            } catch (err) {
+              console.error('Failed to post export viewer open marker', err);
+            }
+          }, 100);
+
+          setTimeout(() => {
+            try {
+              window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
+              window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'STALE_GENERIC_UI_CLOSED' }, '*');
+            } catch (err) {
+              console.error('Failed to post stale generic close marker', err);
+            }
+          }, 150);
+
+          setTimeout(() => {
+            try {
+              window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
+              window.parent?.postMessage({ type: 'TEST_MARKER', marker: 'EXPORT_UI_CLOSED' }, '*');
+            } catch (err) {
+              console.error('Failed to post export close marker', err);
+            }
+          }, 260);
         };
       };
 `;
@@ -328,6 +405,112 @@ test.describe('wallet-origin export flow integration', () => {
       variant: 'drawer',
       theme: 'light',
     });
+  });
+
+  test('export viewer ignores stale generic WALLET_UI_CLOSED from previous wallet UI', async ({
+    page,
+  }) => {
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({ extraScript: staleGenericCloseAfterExportViewerScript }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(
+      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+        const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
+        const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
+        try {
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+
+          const marks: Record<string, boolean> = {};
+          let visibleAtStaleGenericClose = false;
+          window.addEventListener('message', (ev) => {
+            const data = ev.data || {};
+            if (!data || typeof data !== 'object') return;
+            if ((data as any).type !== 'TEST_MARKER') return;
+            const marker = String((data as any).marker || '');
+            if (marker) marks[marker] = true;
+            if (marker === 'STALE_GENERIC_UI_CLOSED') {
+              const state = capture();
+              visibleAtStaleGenericClose = state.exists && state.visible;
+            }
+          });
+
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 1800,
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
+
+          const exportPromise = router.exportKeypairWithUI('export-flow.testnet', {
+            chain: 'evm',
+            variant: 'drawer',
+            theme: 'light',
+          });
+
+          const shown = await waitFor(() => {
+            const state = capture();
+            return state.exists && state.visible;
+          }, 3000);
+
+          await exportPromise;
+          const viewerOpened = await waitFor(() => !!marks.EXPORT_VIEWER_OPENED, 3000);
+          (router as any).hideFrameForActivation();
+          const visibleAfterUnrelatedHideCall = (() => {
+            const state = capture();
+            return state.exists && state.visible;
+          })();
+          const staleCloseMarker = await waitFor(() => !!marks.STALE_GENERIC_UI_CLOSED, 3000);
+
+          const closeMarker = await waitFor(() => !!marks.EXPORT_UI_CLOSED, 3000);
+          const hiddenAfterExportClose = await waitFor(() => {
+            const state = capture();
+            if (!state.exists) return true;
+            return !state.visible;
+          }, 3000);
+
+          return {
+            success: true,
+            shown,
+            viewerOpened,
+            visibleAfterUnrelatedHideCall,
+            staleCloseMarker,
+            visibleAtStaleGenericClose,
+            closeMarker,
+            hiddenAfterExportClose,
+          } as const;
+        } catch (error: any) {
+          return { success: false, error: error?.message || String(error) } as const;
+        }
+      },
+      {
+        walletOrigin: WALLET_ORIGIN,
+        waitForSource: WAIT_FOR_SOURCE,
+        captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
+        routerPath,
+      },
+    );
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) return;
+      expect(result.success).toBe(true);
+      return;
+    }
+
+    expect(result.shown).toBe(true);
+    expect(result.viewerOpened).toBe(true);
+    expect(result.visibleAfterUnrelatedHideCall).toBe(true);
+    expect(result.staleCloseMarker).toBe(true);
+    expect(result.visibleAtStaleGenericClose).toBe(true);
+    expect(result.closeMarker).toBe(true);
+    expect(result.hiddenAfterExportClose).toBe(true);
   });
 
   test('concurrent export and signing remain isolated and do not cross-talk', async ({ page }) => {

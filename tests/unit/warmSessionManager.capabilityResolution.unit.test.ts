@@ -134,6 +134,60 @@ test.describe('WarmSessionManager capability resolution', () => {
     });
   });
 
+  test('keeps exhausted Email OTP ECDSA records available for OTP reauth', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'email-otp-exhausted-reauth.testnet',
+      chain: 'evm',
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'email-otp-exhausted-reauth.testnet',
+        chain: 'evm',
+        ecdsaThresholdKeyId: 'ek-email-otp-exhausted',
+        sessionId: 'ecdsa-email-otp-exhausted-session',
+        sessionJwt: 'jwt:ecdsa-email-otp-exhausted-session',
+      }),
+    });
+    let clearCount = 0;
+    const manager = createWarmSessionManager({
+      touchConfirm: createWarmSessionStatusReader({
+        [evmRecord.thresholdSessionId]: {
+          state: 'exhausted',
+        },
+      }),
+      clearThresholdEcdsaSessionRecordForLane: () => {
+        clearCount += 1;
+      },
+    });
+
+    const warmSession = await manager.getWarmSession('email-otp-exhausted-reauth.testnet');
+    const capability = warmSession.capabilities.ecdsa.evm;
+
+    expect(clearCount).toBe(0);
+    expect(capability.record?.thresholdSessionId).toBe(evmRecord.thresholdSessionId);
+    expect(capability.emailOtpAuthContext).toEqual({
+      policy: 'session',
+      retention: 'session',
+      reason: 'login',
+      authMethod: 'email_otp',
+    });
+    expect(
+      manager.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId),
+    ).toMatchObject({
+      capability: 'ecdsa',
+      chain: 'evm',
+      thresholdSessionJwt: 'jwt:ecdsa-email-otp-exhausted-session',
+    });
+  });
+
   test('bootstrap request resolution only inherits session auth from a warm primary ECDSA capability', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -197,4 +251,5 @@ test.describe('WarmSessionManager capability resolution', () => {
       chain: 'tempo',
     });
   });
+
 });

@@ -1,4 +1,5 @@
 import { ConsoleOrgProjectEnvError } from './errors';
+import { DEFAULT_CONSOLE_SIGNING_ROOT_VERSION } from './types';
 import type {
   CreateConsoleEnvironmentRequest,
   CreateConsoleProjectRequest,
@@ -214,6 +215,17 @@ function cloneEnvironment(environment: ConsoleEnvironment): ConsoleEnvironment {
   return { ...environment };
 }
 
+function normalizeSigningRootVersion(input: unknown, fallback?: string): string {
+  const normalized = String(input || '').trim();
+  if (normalized) return normalized;
+  if (fallback) return fallback;
+  throw new ConsoleOrgProjectEnvError(
+    'invalid_signing_root_version',
+    400,
+    'signingRootVersion is required',
+  );
+}
+
 function countEnvironmentsForProject(store: OrgStore, projectId: string): number {
   let count = 0;
   for (const environment of store.environments.values()) {
@@ -412,6 +424,7 @@ export function createInMemoryConsoleOrgProjectEnvService(
           orgId: ctx.orgId,
           projectId,
           key,
+          signingRootVersion: DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
           name: environmentNameFromKey(key),
           status: defaultEnvironmentStatus(key, liveEnvironmentsEnabled),
           createdAt: ts,
@@ -538,6 +551,10 @@ export function createInMemoryConsoleOrgProjectEnvService(
         orgId: ctx.orgId,
         projectId: request.projectId,
         key: request.key,
+        signingRootVersion: normalizeSigningRootVersion(
+          request.signingRootVersion,
+          DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
+        ),
         name: request.name || environmentNameFromKey(request.key),
         status: request.status || 'ACTIVE',
         createdAt: ts,
@@ -565,6 +582,9 @@ export function createInMemoryConsoleOrgProjectEnvService(
       }
       if (request.name) {
         current.name = request.name;
+      }
+      if (request.signingRootVersion !== undefined) {
+        current.signingRootVersion = normalizeSigningRootVersion(request.signingRootVersion);
       }
       current.updatedAt = toIso(now());
       return cloneEnvironment(current);

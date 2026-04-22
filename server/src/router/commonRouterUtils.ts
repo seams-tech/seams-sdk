@@ -12,7 +12,10 @@ import type { RelayPublishableKeyAuthAdapter } from './relay';
 import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import { extractBearerCredential } from './relayApiKeyAuth';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  normalizeRuntimePolicyScope,
+  normalizeRuntimePolicyScopeFields,
+} from '@shared/threshold/signingRootScope';
 
 type PlainObject = Record<string, unknown>;
 type AuthorizeErr = { ok: false; code: 'sessions_disabled' | 'unauthorized'; message: string };
@@ -332,7 +335,10 @@ export async function resolveThresholdRuntimePolicyScope(input: {
 }): Promise<ThresholdRuntimePolicyScopeResolution> {
   if (isPlainObject(input.explicitScopeRaw)) {
     try {
-      const scope = normalizeRuntimePolicyScope(input.explicitScopeRaw);
+      const scope = await resolveActiveRuntimePolicyScopeFromFields({
+        orgProjectEnv: input.orgProjectEnv || null,
+        fields: normalizeRuntimePolicyScopeFields(input.explicitScopeRaw),
+      });
       return {
         ok: true,
         scope,
@@ -402,27 +408,93 @@ export async function resolveThresholdRuntimePolicyScope(input: {
       orgId: authResult.principal.orgId,
       projectId: projectEnvironment.projectId,
       envId: projectEnvironment.envId,
+      signingRootVersion: projectEnvironment.signingRootVersion,
     },
   };
+}
+
+export async function resolveActiveRuntimePolicyScopeFromFields(input: {
+  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  fields: Omit<ThresholdRuntimePolicyScope, 'signingRootVersion'> & {
+    readonly signingRootVersion?: string;
+  };
+}): Promise<ThresholdRuntimePolicyScope> {
+  const resolved = await resolveActiveRuntimePolicyScopeForEnvironment({
+    orgProjectEnv: input.orgProjectEnv,
+    orgId: input.fields.orgId,
+    projectId: input.fields.projectId,
+    envId: input.fields.envId,
+    fallbackSigningRootVersion: input.fields.signingRootVersion,
+  });
+  if (resolved) return resolved;
+  return normalizeRuntimePolicyScope(input.fields);
+}
+
+export async function resolveActiveRuntimePolicyScopeForEnvironment(input: {
+  orgProjectEnv: ConsoleOrgProjectEnvService | null;
+  orgId: string;
+  environmentId?: string;
+  projectId?: string;
+  envId?: string;
+  fallbackSigningRootVersion?: string;
+}): Promise<ThresholdRuntimePolicyScope | undefined> {
+  const orgId = String(input.orgId || '').trim();
+  if (!orgId) return undefined;
+  const activeEnvironment = await resolveRuntimeProjectEnvironment({
+    orgProjectEnv: input.orgProjectEnv,
+    orgId,
+    environmentId: input.environmentId,
+    projectId: input.projectId,
+    envId: input.envId,
+  });
+  if (activeEnvironment) {
+    return {
+      orgId,
+      projectId: activeEnvironment.projectId,
+      envId: activeEnvironment.envId,
+      signingRootVersion: activeEnvironment.signingRootVersion,
+    };
+  }
+  const projectId = String(input.projectId || '').trim();
+  const envId = String(input.envId || '').trim();
+  const signingRootVersion = String(input.fallbackSigningRootVersion || '').trim();
+  if (projectId && envId && signingRootVersion) {
+    return { orgId, projectId, envId, signingRootVersion };
+  }
+  return undefined;
 }
 
 async function resolveRuntimeProjectEnvironment(input: {
   orgProjectEnv: ConsoleOrgProjectEnvService | null;
   orgId: string;
-  environmentId: string;
-}): Promise<{ projectId: string; envId: string } | undefined> {
+  environmentId?: string;
+  projectId?: string;
+  envId?: string;
+}): Promise<{ projectId: string; envId: string; signingRootVersion: string } | undefined> {
   if (!input.orgProjectEnv) return undefined;
   try {
+    const environmentId = String(input.environmentId || '').trim();
+    const projectIdFilter = String(input.projectId || '').trim();
+    const envIdFilter = String(input.envId || '').trim();
     const environments = await input.orgProjectEnv.listEnvironments({
       orgId: input.orgId,
       actorUserId: 'runtime-scope-bootstrap',
       roles: ['system'],
-      environmentId: input.environmentId,
+      ...(environmentId ? { environmentId } : {}),
+      ...(projectIdFilter ? { projectId: projectIdFilter } : {}),
     });
-    const environment = environments.find((entry) => entry.id === input.environmentId);
+    const environment = environments.find((entry) => {
+      if (environmentId && entry.id !== environmentId) return false;
+      if (projectIdFilter && entry.projectId !== projectIdFilter) return false;
+      if (envIdFilter && entry.key !== envIdFilter) return false;
+      return true;
+    });
     const projectId = String(environment?.projectId || '').trim();
     const envId = String(environment?.key || '').trim();
-    return projectId && envId ? { projectId, envId } : undefined;
+    const signingRootVersion = String(environment?.signingRootVersion || '').trim();
+    return projectId && envId && signingRootVersion
+      ? { projectId, envId, signingRootVersion }
+      : undefined;
   } catch {
     return undefined;
   }

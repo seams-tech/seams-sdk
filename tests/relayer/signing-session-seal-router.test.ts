@@ -59,6 +59,10 @@ function makePolicy(
       ok: true as const,
       remainingUses: Math.max(0, remainingUses - 1),
     }),
+    consumeUseCountOnce: async () => ({
+      ok: true as const,
+      remainingUses: Math.max(0, remainingUses - 1),
+    }),
   };
 }
 
@@ -219,6 +223,185 @@ test.describe('signing-session seal routes', () => {
     expect(second.ok).toBe(true);
     expect(second).toEqual(first);
     expect(applyCalls).toBe(1);
+  });
+
+  test('service reports the shared wallet signing-session budget instead of curve-session uses', async () => {
+    const walletSigningSessionId = 'wallet-session-seal-budget';
+    const service = createSigningSessionSealService({
+      sessionPolicy: {
+        getSession: async (thresholdSessionId: string) => {
+          if (thresholdSessionId !== THRESHOLD_SESSION_ID) return null;
+          return {
+            thresholdSessionId,
+            userId: USER_ID,
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 7,
+          };
+        },
+        getSessionStatus: async (sessionId: string) => {
+          if (sessionId !== `wallet-signing:${walletSigningSessionId}`) return null;
+          return {
+            thresholdSessionId: sessionId,
+            userId: USER_ID,
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 2,
+            record: {
+              expiresAtMs: Date.now() + 60_000,
+              relayerKeyId: 'wallet-signing-budget',
+              userId: USER_ID,
+              rpId: 'localhost',
+              participantIds: [1, 2],
+            },
+          };
+        },
+      },
+      cipher: createSigningSessionSealCipherAdapter({
+        applyServerSeal: async (input) => ({
+          ok: true,
+          ciphertext: `sealed:${input.ciphertext}`,
+        }),
+        removeServerSeal: async (input) => ({
+          ok: true,
+          ciphertext: `unsealed:${input.ciphertext}`,
+        }),
+      }),
+    });
+
+    const result = await service.removeServerSeal(makeBody(), {
+      userId: USER_ID,
+      claims: { walletId: USER_ID, walletSigningSessionId },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      ciphertext: 'unsealed:ciphertext-b64u',
+      remainingUses: 2,
+    });
+  });
+
+  test('service rejects sealed refresh when the shared wallet signing-session budget is exhausted', async () => {
+    const walletSigningSessionId = 'wallet-session-seal-exhausted';
+    let cipherCalls = 0;
+    const service = createSigningSessionSealService({
+      sessionPolicy: {
+        getSession: async (thresholdSessionId: string) => {
+          if (thresholdSessionId !== THRESHOLD_SESSION_ID) return null;
+          return {
+            thresholdSessionId,
+            userId: USER_ID,
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 7,
+          };
+        },
+        getSessionStatus: async (sessionId: string) => {
+          if (sessionId !== `wallet-signing:${walletSigningSessionId}`) return null;
+          return {
+            thresholdSessionId: sessionId,
+            userId: USER_ID,
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 0,
+            record: {
+              expiresAtMs: Date.now() + 60_000,
+              relayerKeyId: 'wallet-signing-budget',
+              userId: USER_ID,
+              rpId: 'localhost',
+              participantIds: [1, 2],
+            },
+          };
+        },
+      },
+      cipher: createSigningSessionSealCipherAdapter({
+        applyServerSeal: async (input) => {
+          cipherCalls += 1;
+          return { ok: true, ciphertext: `sealed:${input.ciphertext}` };
+        },
+        removeServerSeal: async (input) => {
+          cipherCalls += 1;
+          return { ok: true, ciphertext: `unsealed:${input.ciphertext}` };
+        },
+      }),
+    });
+
+    const result = await service.removeServerSeal(makeBody(), {
+      userId: USER_ID,
+      claims: { walletId: USER_ID, walletSigningSessionId },
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      code: 'exhausted',
+      message: 'wallet signing session exhausted',
+    });
+    expect(cipherCalls).toBe(0);
+  });
+
+  test('service does not replay stale idempotent success for wallet-budget-backed seal requests', async () => {
+    const walletSigningSessionId = 'wallet-session-no-stale-replay';
+    let removeCalls = 0;
+    let walletRemainingUses = 2;
+    const service = createSigningSessionSealService({
+      sessionPolicy: {
+        getSession: async (thresholdSessionId: string) => {
+          if (thresholdSessionId !== THRESHOLD_SESSION_ID) return null;
+          return {
+            thresholdSessionId,
+            userId: USER_ID,
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 7,
+          };
+        },
+        getSessionStatus: async (sessionId: string) => {
+          if (sessionId !== `wallet-signing:${walletSigningSessionId}`) return null;
+          return {
+            thresholdSessionId: sessionId,
+            userId: USER_ID,
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: walletRemainingUses,
+            record: {
+              expiresAtMs: Date.now() + 60_000,
+              relayerKeyId: 'wallet-signing-budget',
+              userId: USER_ID,
+              rpId: 'localhost',
+              participantIds: [1, 2],
+            },
+          };
+        },
+      },
+      cipher: createSigningSessionSealCipherAdapter({
+        applyServerSeal: async (input) => ({
+          ok: true,
+          ciphertext: `sealed:${input.ciphertext}`,
+        }),
+        removeServerSeal: async (input) => {
+          removeCalls += 1;
+          return { ok: true, ciphertext: `unsealed:${input.ciphertext}:${removeCalls}` };
+        },
+      }),
+      idempotency: {
+        store: createInMemorySigningSessionSealIdempotencyStore(),
+        ttlMs: 10_000,
+      },
+    });
+    const auth = {
+      userId: USER_ID,
+      claims: { walletId: USER_ID, walletSigningSessionId },
+    };
+
+    const first = await service.removeServerSeal(makeBody(), auth);
+    walletRemainingUses = 1;
+    const second = await service.removeServerSeal(makeBody(), auth);
+
+    expect(first).toMatchObject({
+      ok: true,
+      ciphertext: 'unsealed:ciphertext-b64u:1',
+      remainingUses: 2,
+    });
+    expect(second).toMatchObject({
+      ok: true,
+      ciphertext: 'unsealed:ciphertext-b64u:2',
+      remainingUses: 1,
+    });
+    expect(removeCalls).toBe(2);
   });
 
   test('service idempotency replays across service instances sharing the same store', async () => {

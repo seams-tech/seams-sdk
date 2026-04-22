@@ -23,10 +23,6 @@ type UseDemoArcSigningActionsArgs = {
   arcEip1559FeeCaps: Eip1559FeeCaps;
   fetchArcGreeting: (opts?: { silent?: boolean }) => Promise<string | null>;
   refreshThresholdEvmFundingAddress: () => Promise<string | null>;
-  resolveThresholdSenderForEvmFamily: (opts?: {
-    chain?: 'tempo' | 'evm';
-    ensureReady?: boolean;
-  }) => Promise<`0x${string}`>;
 };
 
 export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
@@ -38,7 +34,6 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     arcEip1559FeeCaps,
     fetchArcGreeting,
     refreshThresholdEvmFundingAddress,
-    resolveThresholdSenderForEvmFamily,
   } = args;
 
   const [evmThresholdSignLoading, setEvmThresholdSignLoading] = useState(false);
@@ -52,10 +47,6 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     setEvmThresholdSignLoading(true);
     toast.loading('Signing EVM transaction…', { id: toastId, description: null });
     try {
-      await resolveThresholdSenderForEvmFamily({
-        chain: 'evm',
-        ensureReady: true,
-      });
       const requestedGreeting = arcGreetingInput.trim();
       const feeCaps = await resolveClickTimeEip1559FeeCaps({
         rpcUrl: FRONTEND_CONFIG.arcRpcUrl,
@@ -146,7 +137,6 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
     fetchArcGreeting,
     nearAccountId,
     refreshThresholdEvmFundingAddress,
-    resolveThresholdSenderForEvmFamily,
     tatchi,
   ]);
 

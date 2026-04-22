@@ -40,10 +40,13 @@ function signingToastMessage(
       const deploymentMode = String(event.data?.deploymentMode || '').trim();
       return deploymentMode === 'enforce'
         ? {
-            title: 'Preparing account',
-            description: 'The account needs setup before signing can continue.',
+            title: 'Setting up account',
+            description: `Preparing the ${chainLabel} account.`,
           }
-        : { title: 'Checking account readiness' };
+        : {
+            title: 'Checking account setup',
+            description: `Verifying the ${chainLabel} account.`,
+          };
     }
     case SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED:
       return { title: 'Review transaction' };
@@ -67,8 +70,8 @@ function signingToastMessage(
       return { title: 'Secure signer ready' };
     case SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED:
       return {
-        title: 'Reconnecting secure signing session',
-        description: 'Refreshing the signer before creating the transaction signature.',
+        title: 'Loading secure signer',
+        description: 'Preparing the threshold signer.',
       };
     case SigningEventPhase.STEP_10_COMMIT_QUEUED:
       return { title: 'Waiting to sign' };

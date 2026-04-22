@@ -37,11 +37,13 @@ export function parseRecoveryAuthoritySponsorshipScope(
   const orgId = normalizeOptionalString(row.orgId);
   const projectId = normalizeOptionalString(row.projectId);
   const envId = normalizeOptionalString(row.envId) || normalizeOptionalString(row.environmentId);
-  if (!orgId || !projectId || !envId) return null;
+  const signingRootVersion = normalizeOptionalString(row.signingRootVersion);
+  if (!orgId || !projectId || !envId || !signingRootVersion) return null;
   return {
     orgId,
     projectId,
     envId,
+    signingRootVersion,
   };
 }
 

@@ -117,6 +117,60 @@ function handleUnlockEvent(event: UnlockFlowEvent, loginTarget: string): void {
   toast.loading(event.message || 'Unlocking wallet...', { id: 'login' });
 }
 
+const GOOGLE_EMAIL_OTP_TOAST_ID = 'google-email-otp';
+
+function handleGoogleEmailOtpRegistrationEvent(event: RegistrationFlowEvent): void {
+  if (event.flow !== 'registration') return;
+  if (event.phase === RegistrationEventPhase.CANCELLED || event.status === 'cancelled') {
+    toast.info(event.message || 'Email OTP registration cancelled', {
+      id: GOOGLE_EMAIL_OTP_TOAST_ID,
+    });
+    return;
+  }
+  if (event.phase === RegistrationEventPhase.FAILED || event.status === 'failed') {
+    toast.error(walletFlowErrorMessage(event, 'Email OTP registration failed'), {
+      id: GOOGLE_EMAIL_OTP_TOAST_ID,
+    });
+    return;
+  }
+  if (event.phase === RegistrationEventPhase.STEP_11_COMPLETED && event.status === 'succeeded') {
+    toast.success(event.message || 'Email OTP registration complete', {
+      id: GOOGLE_EMAIL_OTP_TOAST_ID,
+    });
+    return;
+  }
+  toast.loading(event.message || 'Creating Email OTP wallet...', {
+    id: GOOGLE_EMAIL_OTP_TOAST_ID,
+  });
+}
+
+function handleGoogleEmailOtpUnlockEvent(event: UnlockFlowEvent): void {
+  if (event.flow !== 'unlock') return;
+  if (event.phase === UnlockEventPhase.CANCELLED || event.status === 'cancelled') {
+    toast.info(event.message || 'Email OTP unlock cancelled', { id: GOOGLE_EMAIL_OTP_TOAST_ID });
+    return;
+  }
+  if (event.phase === UnlockEventPhase.FAILED || event.status === 'failed') {
+    toast.error(walletFlowErrorMessage(event, 'Email OTP unlock failed'), {
+      id: GOOGLE_EMAIL_OTP_TOAST_ID,
+    });
+    return;
+  }
+  if (event.phase === UnlockEventPhase.STEP_07_COMPLETED && event.status === 'succeeded') {
+    toast.success(event.message || 'Wallet unlocked', { id: GOOGLE_EMAIL_OTP_TOAST_ID });
+    return;
+  }
+  toast.loading(event.message || 'Unlocking wallet...', { id: GOOGLE_EMAIL_OTP_TOAST_ID });
+}
+
+function handleGoogleEmailOtpEvent(event: RegistrationFlowEvent | UnlockFlowEvent): void {
+  if (event.flow === 'registration') {
+    handleGoogleEmailOtpRegistrationEvent(event);
+    return;
+  }
+  handleGoogleEmailOtpUnlockEvent(event);
+}
+
 function handleAccountSyncEvent(event: AccountSyncFlowEvent): void {
   if (event.flow !== 'account_sync') return;
   if (event.phase === AccountSyncEventPhase.CANCELLED || event.status === 'cancelled') {
@@ -236,6 +290,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         accountMode: isRegister ? 'register' : 'login',
         relayUrl: relayerBaseUrl,
         sessionKind: 'jwt',
+        onEvent: handleGoogleEmailOtpEvent,
       });
     } catch (error: unknown) {
       const formatted = formatGoogleSsoEmailOtpError(error);
@@ -250,20 +305,33 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     const emailHint = String(exchange.session?.email || '').trim();
     let appSessionJwt = String(exchange.jwt || '').trim();
     if (!appSessionJwt) {
-      throw new Error('Google SSO did not return an app session token for Email OTP wallet unlock');
+      throw new Error('Google SSO did not return an app session token for Email OTP wallet access');
     }
+    const emailOtpSigningSessionPolicy =
+      args.emailOtpAuthPolicy === 'per_operation'
+        ? null
+        : {
+            ttlMs: FRONTEND_CONFIG.signingSessionDefaults.ttlMs,
+            remainingUses: FRONTEND_CONFIG.signingSessionDefaults.remainingUses,
+          };
 
     let googleResolution = exchange.session.googleEmailOtpResolution;
     const otpFlow: 'enroll' | 'login' =
       googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
     if (isRegister && otpFlow === 'login') {
-      toast.info('Existing Email OTP wallet found for this Google account. Sending a login code instead.', {
-        id: 'google-sso',
-      });
+      toast.info(
+        'Existing Email OTP wallet found for this Google account. Sending a login code instead.',
+        {
+          id: 'google-sso',
+        },
+      );
     } else if (otpFlow === 'enroll') {
-      toast.info('Creating a new Email OTP wallet for this Google account. Sending the setup code now.', {
-        id: 'google-sso',
-      });
+      toast.info(
+        'Creating a new Email OTP wallet for this Google account. Sending the setup code now.',
+        {
+          id: 'google-sso',
+        },
+      );
     }
     const requestCurrentOtpChallenge = async () => {
       try {
@@ -272,6 +340,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
             nearAccountId: walletId,
             relayUrl: relayerBaseUrl,
             appSessionJwt,
+            onEvent: handleGoogleEmailOtpUnlockEvent,
           });
         }
 
@@ -279,6 +348,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           nearAccountId: walletId,
           relayUrl: relayerBaseUrl,
           appSessionJwt,
+          onEvent: handleGoogleEmailOtpRegistrationEvent,
         });
       } catch (error: unknown) {
         const message = formatGoogleSsoEmailOtpError(error);
@@ -289,17 +359,29 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     let challenge = await requestCurrentOtpChallenge();
 
     toast.success('Email code sent', { id: 'google-sso' });
+    const otpPromptTitle =
+      otpFlow === 'enroll'
+        ? 'Check your email to finish registration'
+        : 'Check your email to unlock your wallet';
+    const otpPromptDescription =
+      otpFlow === 'enroll'
+        ? `Enter the 6-digit setup code we sent${emailHint ? ` to ${emailHint}` : ''}.`
+        : `Enter the 6-digit code we sent${emailHint ? ` to ${emailHint}` : ''}.`;
+    const otpPromptSubmitLabel = otpFlow === 'enroll' ? 'Create wallet' : 'Unlock wallet';
+    const otpPromptHelperText =
+      otpFlow === 'enroll'
+        ? 'Google started your wallet registration. The email code secures wallet signing for this account.'
+        : 'Google keeps you signed in. The email code unlocks wallet signing for this session.';
 
     return {
       username: walletId,
       otpPrompt: {
-        title: 'Check your email to unlock your wallet',
-        description: `Enter the 6-digit code we sent${emailHint ? ` to ${emailHint}` : ''}.`,
+        title: otpPromptTitle,
+        description: otpPromptDescription,
         emailHint: emailHint || walletId,
         accountId: walletId,
-        submitLabel: 'Unlock wallet',
-        helperText:
-          'Google keeps you signed in. The email code unlocks wallet signing for this session.',
+        submitLabel: otpPromptSubmitLabel,
+        helperText: otpPromptHelperText,
         ...(otpFlow === 'enroll'
           ? {
               onRerollAccount: async () => {
@@ -310,6 +392,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
                   relayUrl: relayerBaseUrl,
                   sessionKind: 'jwt',
                   rerollRegistrationAttempt: true,
+                  onEvent: handleGoogleEmailOtpEvent,
                 });
                 const nextWalletId = String(
                   nextExchange.session?.walletId || nextExchange.session?.userId || '',
@@ -340,8 +423,13 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           };
         },
         onSubmit: async (otpCode: string) => {
-          const toastId = 'google-email-otp';
-          toast.loading('Unlocking wallet with email code…', { id: toastId });
+          const toastId = GOOGLE_EMAIL_OTP_TOAST_ID;
+          toast.loading(
+            otpFlow === 'enroll'
+              ? 'Creating Email OTP wallet with setup code...'
+              : 'Unlocking wallet with email code...',
+            { id: toastId },
+          );
           if (otpFlow === 'enroll') {
             await tatchi.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
               nearAccountId: walletId,
@@ -353,6 +441,8 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               appSessionJwt,
               routeAuth: { kind: 'app_session', jwt: appSessionJwt },
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
+              ...(emailOtpSigningSessionPolicy || {}),
+              onEvent: handleGoogleEmailOtpEvent,
               ...(googleResolution?.registrationAttemptId
                 ? { registrationAttemptId: googleResolution.registrationAttemptId }
                 : {}),
@@ -371,6 +461,8 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
               appSessionJwt,
               routeAuth: { kind: 'app_session', jwt: appSessionJwt },
               emailOtpAuthPolicy: args.emailOtpAuthPolicy,
+              ...(emailOtpSigningSessionPolicy || {}),
+              onEvent: handleGoogleEmailOtpUnlockEvent,
               ...(exchange.session.runtimePolicyScope
                 ? { runtimePolicyScope: exchange.session.runtimePolicyScope }
                 : {}),
@@ -381,7 +473,12 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           if (!session.login.isLoggedIn) {
             throw new Error('Wallet unlocked, but the local signing session is not ready yet.');
           }
-          toast.success(`Wallet unlocked${emailHint ? ` for ${emailHint}` : ''}`, { id: toastId });
+          toast.success(
+            otpFlow === 'enroll'
+              ? `Email OTP wallet ready${emailHint ? ` for ${emailHint}` : ''}`
+              : `Wallet unlocked${emailHint ? ` for ${emailHint}` : ''}`,
+            { id: toastId },
+          );
           props.onLoggedIn?.(walletId);
         },
       },

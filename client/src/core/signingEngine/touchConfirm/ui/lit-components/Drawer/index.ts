@@ -26,6 +26,7 @@ export class DrawerElement extends LitElementWithProps {
     errorMessage: { type: String },
     dragToClose: { type: Boolean, attribute: 'drag-to-close' },
     showCloseButton: { type: Boolean, attribute: 'show-close-button' },
+    closeOnOverlayClick: { type: Boolean, attribute: 'close-on-overlay-click' },
     // Optional height cap for the drawer (e.g., '50vh')
     height: { type: String },
     // Minimum upward overpull allowance in pixels
@@ -39,6 +40,7 @@ export class DrawerElement extends LitElementWithProps {
   declare errorMessage?: string;
   declare dragToClose: boolean;
   declare showCloseButton: boolean;
+  declare closeOnOverlayClick: boolean;
   declare height?: string;
   declare overpullPx: number;
 
@@ -104,6 +106,7 @@ export class DrawerElement extends LitElementWithProps {
     this.loading = false;
     this.dragToClose = true;
     this.showCloseButton = true;
+    this.closeOnOverlayClick = true;
     this.height = undefined;
     this.overpullPx = 120;
   }
@@ -929,7 +932,7 @@ export class DrawerElement extends LitElementWithProps {
 
   render() {
     return html`
-      <div class="overlay" @click=${this.onClose}></div>
+      <div class="overlay" @click=${this.onOverlayClick}></div>
       <section class="drawer ${this._initialMount ? 'init' : ''}" role="dialog" aria-modal="true">
         <div class="relative">
           <div class="handle" @click=${this.onHandleClick}></div>
@@ -952,6 +955,11 @@ export class DrawerElement extends LitElementWithProps {
       </section>
     `;
   }
+
+  private onOverlayClick = () => {
+    if (!this.closeOnOverlayClick) return;
+    this.onClose();
+  };
 }
 
 import { W3A_DRAWER_ID } from '../../registry';

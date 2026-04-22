@@ -29,7 +29,7 @@
  *        |                        (3) PROGRESS from iframe via onPortMessage()                |
  *        |<----------------------------------------------------|                              |
  *        |                                                     |                              |
- *        |                        (4) ProgressPayload → heuristic                             |
+ *        |                        (4) ProgressPayload -> overlay metadata                     |
  *        |                                                     |---(5) 'show'|'hide' intent-->|
  *        |                                                     |                              |
  *        |                        (6) showFrameForActivation() | hideFrameForActivation()     |
@@ -37,7 +37,7 @@
  *        |                                                     |            (6) show()|hide() |
  *        |                                                     |----------------------------->|
  *        |                                                     |                              |
- *        |                        (7) PM_RESULT/ERROR → resolve pending, maybe hide overlay   |
+ *        |                        (7) PM_RESULT/ERROR -> resolve pending, maybe hide overlay  |
  *        |<----------------------------------------------------|                              |
  *
  * Communication Flow (requests):
@@ -161,7 +161,7 @@ export interface WalletIframeRouterOptions {
   requestTimeoutMs?: number; // default 20000
   // Enable verbose client-side logging for debugging
   debug?: boolean;
-  // Test-only/diagnostic options (not part of the public API contract for apps)
+  // Test-only/diagnostic options (not part of the public app API surface)
   testOptions?: {
     // Optional identity/ownership tags for the iframe instance (useful for tests/tools)
     routerId?: string;
@@ -397,7 +397,11 @@ export class WalletIframeRouter {
   private readonly walletOriginOrigin: string;
   // Force the overlay to remain fullscreen during critical flows (e.g., registration)
   // and ignore anchored rect updates from helper hooks.
-  private overlayState: { controller: OverlayController; forceFullscreen: boolean };
+  private overlayState: {
+    controller: OverlayController;
+    forceFullscreen: boolean;
+    exportViewerOpen: boolean;
+  };
   private windowMsgHandlerBound?: (ev: MessageEvent) => void;
 
   constructor(options: WalletIframeRouterOptions) {
@@ -474,6 +478,7 @@ export class WalletIframeRouter {
         ensureIframe: () => this.transport.ensureIframeMounted(),
       }),
       forceFullscreen: false,
+      exportViewerOpen: false,
     };
 
     // Initialize progress router with overlay control and v2 overlay intents.
@@ -551,11 +556,13 @@ export class WalletIframeRouter {
       const type = (data as { type?: unknown }).type;
       if (type === 'WALLET_EXPORT_VIEWER_OPENED') {
         exportViewerOpened = true;
+        this.overlayState.exportViewerOpen = true;
         this.overlayState.controller.setSticky(true);
         this.showFrameForActivation();
         return;
       }
       if (type === 'EXPORT_KEYPAIR_CANCELLED') {
+        this.overlayState.exportViewerOpen = false;
         this.overlayState.controller.setSticky(false);
         this.hideFrameForActivation();
         globalThis.removeEventListener?.('message', onUiClosed);
@@ -566,9 +573,19 @@ export class WalletIframeRouter {
       if (typeof uiError === 'string' && uiError.trim().length > 0) {
         console.error('[WalletIframeRouter] Export UI closed with error:', uiError);
       }
+      const source = (data as { source?: unknown }).source;
+      const isExportViewerClose = source === 'export_viewer';
       if (!exportViewerOpened && !(typeof uiError === 'string' && uiError.trim().length > 0)) {
         return;
       }
+      if (
+        exportViewerOpened &&
+        !isExportViewerClose &&
+        !(typeof uiError === 'string' && uiError.trim().length > 0)
+      ) {
+        return;
+      }
+      this.overlayState.exportViewerOpen = false;
       this.overlayState.controller.setSticky(false);
       this.hideFrameForActivation();
       globalThis.removeEventListener?.('message', onUiClosed);
@@ -879,7 +896,9 @@ export class WalletIframeRouter {
           ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
         },
         // Bridge progress events from iframe back to parent callback
-        options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent) },
+        options: {
+          onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+        },
       });
 
       // Step 4: Update login status after successful registration
@@ -1534,9 +1553,7 @@ export class WalletIframeRouter {
         ...(payload?.ui ? { ui: payload.ui } : {}),
         ...(payload?.cameraId ? { cameraId: payload.cameraId } : {}),
         ...(payload?.accountId ? { accountId: String(payload.accountId) } : {}),
-        ...(typeof payload?.signerSlot === 'number'
-          ? { signerSlot: payload.signerSlot }
-          : {}),
+        ...(typeof payload?.signerSlot === 'number' ? { signerSlot: payload.signerSlot } : {}),
         ...(payload?.options
           ? {
               options: {
@@ -1692,6 +1709,7 @@ export class WalletIframeRouter {
       try {
         detachClosed();
       } catch {}
+      this.overlayState.exportViewerOpen = false;
       this.overlayState.controller.setSticky(false);
       this.hideFrameForActivation();
       throw e;
@@ -1730,6 +1748,7 @@ export class WalletIframeRouter {
       try {
         detachClosed();
       } catch {}
+      this.overlayState.exportViewerOpen = false;
       this.overlayState.controller.setSticky(false);
       this.hideFrameForActivation();
       throw e;
@@ -2013,6 +2032,7 @@ export class WalletIframeRouter {
 
   private hideFrameForActivation(): void {
     if (!this.overlayState.controller.getState().visible) return;
+    if (this.overlayState.exportViewerOpen) return;
     this.overlayState.controller.hide();
   }
 
@@ -2086,7 +2106,7 @@ export class WalletIframeRouter {
   }
 }
 
-// ===== Runtime type guards to safely bridge ProgressPayload → typed flow events =====
+// ===== Runtime type guards to safely bridge ProgressPayload -> typed flow events =====
 function isRegistrationFlowEvent(progress: ProgressPayload): progress is RegistrationFlowEvent {
   return isWalletFlowEvent(progress) && progress.flow === 'registration';
 }

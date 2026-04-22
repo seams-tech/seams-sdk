@@ -6,7 +6,11 @@ import type {
   CreateAccountAndRegisterSmartAccountTarget,
 } from '../core/types';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
-import { signThresholdSessionJwt } from './commonRouterUtils';
+import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
+import {
+  resolveActiveRuntimePolicyScopeForEnvironment,
+  signThresholdSessionJwt,
+} from './commonRouterUtils';
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
@@ -30,6 +34,7 @@ interface RelayRegistrationBootstrapServices {
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
   apiKeyUsageMeter?: RelayUsageMeterAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
+  orgProjectEnv?: ConsoleOrgProjectEnvService | null;
   session?: SessionAdapter | null;
   smartAccountDeploy?:
     | ((
@@ -391,11 +396,13 @@ export async function handleRelayRegistrationBootstrap(
     });
   }
 
-  const runtimePolicyScope = {
+  const runtimePolicyScope = await resolveActiveRuntimePolicyScopeForEnvironment({
+    orgProjectEnv: input.services.orgProjectEnv || null,
     orgId: routePrincipal.principal.orgId,
-    projectId: routePrincipal.principal.projectId || routePrincipal.principal.environmentId,
-    envId: routePrincipal.principal.envId || routePrincipal.principal.environmentId,
-  };
+    environmentId: routePrincipal.principal.environmentId,
+    projectId: routePrincipal.principal.projectId,
+    envId: routePrincipal.principal.envId,
+  });
   const thresholdEd25519Request =
     threshold_ed25519 && isPlainObject(threshold_ed25519)
       ? {
@@ -460,11 +467,7 @@ export async function handleRelayRegistrationBootstrap(
       await syncSmartAccountRecoverySubjectDeployments({
         authService: input.services.authService,
         deployments: response.smartAccountDeployments,
-        sponsorshipScope: {
-          orgId: routePrincipal.principal.orgId,
-          projectId: routePrincipal.principal.projectId || routePrincipal.principal.environmentId,
-          envId: routePrincipal.principal.envId || routePrincipal.principal.environmentId,
-        },
+        sponsorshipScope: runtimePolicyScope,
       });
     }
     return routeJson(200, response, { usage: { walletId: new_account_id } });
@@ -518,11 +521,7 @@ export async function handleRelayRegistrationBootstrap(
     await syncSmartAccountRecoverySubjectDeployments({
       authService: input.services.authService,
       deployments: response.smartAccountDeployments,
-      sponsorshipScope: {
-        orgId: routePrincipal.principal.orgId,
-        projectId: routePrincipal.principal.projectId || routePrincipal.principal.environmentId,
-        envId: routePrincipal.principal.envId || routePrincipal.principal.environmentId,
-      },
+      sponsorshipScope: runtimePolicyScope,
     });
   }
 

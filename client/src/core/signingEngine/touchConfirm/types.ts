@@ -102,6 +102,13 @@ export interface WarmSessionMaterialClaimer {
   }): Promise<WarmSessionClaimResult>;
 }
 
+export interface WarmSessionMaterialConsumer {
+  consumeWarmSessionUses(args: {
+    sessionId: string;
+    uses?: number;
+  }): Promise<WarmSessionStatusResult>;
+}
+
 export interface WarmSessionMaterialClearer {
   clearWarmSessionMaterial(args: { sessionId: string }): Promise<void>;
 }
@@ -132,6 +139,7 @@ export type WarmSessionMaterialPort = WarmSessionMaterialWriter &
   WarmSessionStatusReader &
   WarmSessionStatusBatchReader &
   WarmSessionMaterialClaimer &
+  WarmSessionMaterialConsumer &
   WarmSessionMaterialClearer &
   WarmSessionSealPersister &
   WarmSessionRehydrator &

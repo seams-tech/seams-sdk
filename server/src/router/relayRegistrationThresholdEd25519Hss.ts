@@ -16,13 +16,15 @@ import type { RouteDefinition } from './routeDefinitions';
 import type { RouteErrorBody } from './routeResponses';
 import { routeError, routeJson } from './routeResponses';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
-import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
+import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
+import { resolveActiveRuntimePolicyScopeForEnvironment } from './commonRouterUtils';
 import { ensureEd25519Prefix, isPlainObject } from '@shared/utils/validation';
 
 type RelayRegistrationThresholdEd25519HssServices = {
   authService: AuthService;
   apiKeyAuth?: RelayApiKeyAuthAdapter | null;
   bootstrapTokenStore?: ConsoleBootstrapTokenService | null;
+  orgProjectEnv?: ConsoleOrgProjectEnvService | null;
   session?: SessionAdapter | null;
 };
 
@@ -41,6 +43,7 @@ type RelayRegistrationThresholdEd25519HssPolicyResult =
       ok: true;
       orgId: string;
       signingRootId?: string;
+      signingRootVersion?: string;
     }
 	  | {
 	      ok: false;
@@ -239,19 +242,22 @@ async function enforceRegistrationHssPolicy(
     };
   }
   const principal = resolved.context.principal.principal;
-  const projectId = String(principal.projectId || '').trim();
-  const envId = String(principal.envId || '').trim();
-  const signingRootId =
-    projectId && envId
-      ? deriveSigningRootId({
-          projectId,
-          envId,
-        })
-      : undefined;
+  const runtimePolicyScope = await resolveActiveRuntimePolicyScopeForEnvironment({
+    orgProjectEnv: input.services.orgProjectEnv || null,
+    orgId: principal.orgId,
+    environmentId: principal.environmentId,
+    projectId: principal.projectId,
+    envId: principal.envId,
+  });
   return {
     ok: true,
     orgId: principal.orgId,
-    ...(signingRootId ? { signingRootId } : {}),
+    ...(runtimePolicyScope
+      ? {
+          signingRootId: `${runtimePolicyScope.projectId}:${runtimePolicyScope.envId}`,
+          signingRootVersion: runtimePolicyScope.signingRootVersion,
+        }
+      : {}),
   };
 }
 
@@ -273,6 +279,7 @@ export const handleRelayRegistrationThresholdEd25519HssPrepare: RelayRegistratio
   const result = await threshold.ed25519Hss.prepareForRegistration({
     orgId: auth.orgId,
     ...(auth.signingRootId ? { signingRootId: auth.signingRootId } : {}),
+    ...(auth.signingRootVersion ? { signingRootVersion: auth.signingRootVersion } : {}),
     request: (input.body || {}) as ThresholdEd25519HssPrepareForRegistrationRequest,
   });
   return routeJson(result.ok ? 200 : 400, result);

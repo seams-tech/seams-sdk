@@ -529,8 +529,9 @@ function parseRuntimePolicyScope(raw: unknown): ThresholdRuntimePolicyScope | un
   const orgId = toOptionalTrimmedString(obj.orgId);
   const projectId = toOptionalTrimmedString(obj.projectId);
   const envId = toOptionalTrimmedString(obj.envId);
-  if (!orgId || !projectId || !envId) return undefined;
-  return { orgId, projectId, envId };
+  const signingRootVersion = toOptionalTrimmedString(obj.signingRootVersion);
+  if (!orgId || !projectId || !envId || !signingRootVersion) return undefined;
+  return { orgId, projectId, envId, signingRootVersion };
 }
 
 function parseRegistrationAttemptRecord(

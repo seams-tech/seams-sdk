@@ -148,15 +148,22 @@ function toOptionalHeaderString(value: string | string[] | undefined): string | 
 
 function normalizeEcdsaRuntimePolicyScope(raw: unknown): EcdsaRuntimePolicyScope | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const scope = raw as { orgId?: unknown; envId?: unknown; projectId?: unknown };
+  const scope = raw as {
+    orgId?: unknown;
+    envId?: unknown;
+    projectId?: unknown;
+    signingRootVersion?: unknown;
+  };
   const orgId = String(scope.orgId || '').trim();
   const envId = String(scope.envId || '').trim();
   const projectId = String(scope.projectId || '').trim();
-  if (!orgId || !projectId || !envId) return undefined;
+  const signingRootVersion = String(scope.signingRootVersion || '').trim();
+  if (!orgId || !projectId || !envId || !signingRootVersion) return undefined;
   return {
     orgId,
     projectId,
     envId,
+    signingRootVersion,
   };
 }
 
@@ -355,8 +362,13 @@ export function registerThresholdEcdsaRoutes(
           ed25519SessionClaims,
           ecdsaSessionClaims,
         );
+        const inheritedRuntimePolicyScope = resolveEcdsaRuntimePolicyScopeFromClaims({
+          appSessionClaims,
+          ed25519SessionClaims,
+          ecdsaSessionClaims,
+        });
         const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
-          explicitScopeRaw: body.sessionPolicy?.runtimePolicyScope,
+          explicitScopeRaw: inheritedRuntimePolicyScope ?? body.sessionPolicy?.runtimePolicyScope,
           runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
             .runtimeEnvironmentId,
           headers: req.headers || {},
@@ -371,12 +383,7 @@ export function registerThresholdEcdsaRoutes(
             message: runtimePolicyScopeResolution.message,
           };
         }
-        const runtimePolicyScope =
-          resolveEcdsaRuntimePolicyScopeFromClaims({
-            appSessionClaims,
-            ed25519SessionClaims,
-            ecdsaSessionClaims,
-          }) || runtimePolicyScopeResolution.scope;
+        const runtimePolicyScope = runtimePolicyScopeResolution.scope;
         const scopedBody = applyEcdsaRuntimePolicyScope(body, runtimePolicyScope);
         const request: ThresholdEcdsaHssPrepareRequest = {
           ...scopedBody,

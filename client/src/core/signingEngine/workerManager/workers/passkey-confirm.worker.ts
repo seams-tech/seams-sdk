@@ -687,8 +687,13 @@ function claimWarmSessionMaterialEntry(sessionId: string, uses: number): OkDispe
   const statusRead = readWarmSessionClaimEntry(sessionId);
   if (!statusRead.ok) return statusRead;
   const entry = prfFirstSessionCache.get(sessionId);
-  if (!entry)
-    return { ok: false, code: 'not_found', message: 'Warm-session material is not available for threshold session' };
+  if (!entry) {
+    return {
+      ok: false,
+      code: 'not_found',
+      message: 'Warm-session material is not available for threshold session',
+    };
+  }
   const usesNeeded = Math.max(1, Math.floor(Number(uses) || 1));
   if (entry.remainingUses < usesNeeded) {
     return {
@@ -706,6 +711,38 @@ function claimWarmSessionMaterialEntry(sessionId: string, uses: number): OkDispe
   return {
     ok: true,
     prfFirstB64u: entry.prfFirstB64u,
+    remainingUses: entry.remainingUses,
+    expiresAtMs: entry.expiresAtMs,
+  };
+}
+
+function consumeWarmSessionMaterialEntry(sessionId: string, uses: number): OkResult | ErrResult {
+  const statusRead = readWarmSessionClaimEntry(sessionId);
+  if (!statusRead.ok) return statusRead;
+  const entry = prfFirstSessionCache.get(sessionId);
+  if (!entry) {
+    return {
+      ok: false,
+      code: 'not_found',
+      message: 'Warm-session material is not available for threshold session',
+    };
+  }
+  const usesNeeded = Math.max(1, Math.floor(Number(uses) || 1));
+  if (entry.remainingUses < usesNeeded) {
+    return {
+      ok: false,
+      code: 'exhausted',
+      message: 'Warm-session material exhausted for threshold session',
+    };
+  }
+  entry.remainingUses -= usesNeeded;
+  if (entry.remainingUses <= 0) {
+    prfFirstSessionCache.delete(sessionId);
+  } else {
+    prfFirstSessionCache.set(sessionId, entry);
+  }
+  return {
+    ok: true,
     remainingUses: entry.remainingUses,
     expiresAtMs: entry.expiresAtMs,
   };
@@ -1085,6 +1122,17 @@ self.onmessage = (event: MessageEvent) => {
     postUserConfirmWorkerResponse(id, {
       success: true,
       data: claimWarmSessionMaterialEntry(sessionId, uses),
+    });
+    return;
+  }
+
+  if (eventType === 'WARM_SESSION_MATERIAL_CONSUME') {
+    const payload = asRecord(incoming.payload);
+    const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
+    const uses = Math.max(1, Math.floor(Number(payload?.uses) || 1));
+    postUserConfirmWorkerResponse(id, {
+      success: true,
+      data: consumeWarmSessionMaterialEntry(sessionId, uses),
     });
     return;
   }

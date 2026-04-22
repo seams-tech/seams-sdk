@@ -277,6 +277,7 @@ export interface ExportGuidance {
 
 export interface ShowSecurePrivateKeyUiPayload {
   nearAccountId: string;
+  viewerSessionId?: string;
   publicKey?: string;
   privateKey?: string;
   keys?: ExportPrivateKeyDisplayEntry[];

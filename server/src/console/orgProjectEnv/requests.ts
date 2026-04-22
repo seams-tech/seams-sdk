@@ -73,6 +73,21 @@ function readOptionalResourceId(body: Record<string, unknown>, key: string): str
   return value;
 }
 
+function readOptionalSigningRootVersion(
+  body: Record<string, unknown>,
+): string | undefined {
+  const value = readOptionalString(body, 'signingRootVersion');
+  if (!value) return undefined;
+  if (!RESOURCE_ID_PATTERN.test(value)) {
+    throw new ConsoleOrgProjectEnvError(
+      'invalid_body',
+      400,
+      'Field signingRootVersion may only contain letters, numbers, colon, underscore, and hyphen',
+    );
+  }
+  return value;
+}
+
 export function parseCreateConsoleProjectRequest(body: unknown): CreateConsoleProjectRequest {
   const obj = requireBodyObject(body, createParseError);
   const name = readRequiredString(obj, 'name', createParseError);
@@ -113,6 +128,7 @@ export function parseCreateConsoleEnvironmentRequest(body: unknown): CreateConso
   const id = readOptionalResourceId(obj, 'id');
   const name = readOptionalString(obj, 'name');
   const projectId = readRequiredString(obj, 'projectId', createParseError);
+  const signingRootVersion = readOptionalSigningRootVersion(obj);
   if (!RESOURCE_ID_PATTERN.test(projectId)) {
     throw new ConsoleOrgProjectEnvError(
       'invalid_body',
@@ -124,6 +140,7 @@ export function parseCreateConsoleEnvironmentRequest(body: unknown): CreateConso
     ...(id ? { id } : {}),
     projectId,
     key: parseEnvironmentKey(obj),
+    ...(signingRootVersion ? { signingRootVersion } : {}),
     ...(name ? { name } : {}),
   };
 }
@@ -131,12 +148,16 @@ export function parseCreateConsoleEnvironmentRequest(body: unknown): CreateConso
 export function parseUpdateConsoleEnvironmentRequest(body: unknown): UpdateConsoleEnvironmentRequest {
   const obj = requireBodyObject(body, createParseError);
   const name = readOptionalString(obj, 'name');
-  if (!name) {
+  const signingRootVersion = readOptionalSigningRootVersion(obj);
+  if (!name && !signingRootVersion) {
     throw new ConsoleOrgProjectEnvError(
       'invalid_body',
       400,
       'At least one mutable field is required',
     );
   }
-  return { name };
+  return {
+    ...(name ? { name } : {}),
+    ...(signingRootVersion ? { signingRootVersion } : {}),
+  };
 }

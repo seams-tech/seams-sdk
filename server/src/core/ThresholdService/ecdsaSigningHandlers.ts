@@ -60,9 +60,11 @@ function signingRootMetadataFromIntegratedKey(
   };
 }
 
-function signingRootIdFromRuntimePolicyScope(scope: unknown): string | null {
+function signingRootMetadataFromRuntimePolicyScope(
+  scope: unknown,
+): Pick<ThresholdEcdsaSigningRootMetadata, 'signingRootId' | 'signingRootVersion'> | null {
   try {
-    return signingRootScopeFromRuntimePolicyScope(scope as RuntimePolicyScope).signingRootId;
+    return signingRootScopeFromRuntimePolicyScope(scope as RuntimePolicyScope);
   } catch {
     return null;
   }
@@ -386,7 +388,7 @@ export class ThresholdEcdsaSigningHandlers {
     rpId: string;
     participantIds: number[];
     tokenRelayerKeyId: string;
-    tokenSigningRootId: string;
+    tokenSigningRoot: Pick<ThresholdEcdsaSigningRootMetadata, 'signingRootId' | 'signingRootVersion'>;
   }): Promise<
     | {
         ok: true;
@@ -425,7 +427,10 @@ export class ThresholdEcdsaSigningHandlers {
       };
     }
     const signingRootMetadata = signingRootMetadataFromIntegratedKey(integratedKey);
-    if (signingRootMetadata.signingRootId !== input.tokenSigningRootId) {
+    if (
+      signingRootMetadata.signingRootId !== input.tokenSigningRoot.signingRootId ||
+      signingRootMetadata.signingRootVersion !== input.tokenSigningRoot.signingRootVersion
+    ) {
       return {
         ok: false,
         code: 'unauthorized',
@@ -595,8 +600,8 @@ export class ThresholdEcdsaSigningHandlers {
     if (!tokenRelayerKeyId || !tokenRpId) {
       return { ok: false, code: 'unauthorized', message: 'Invalid threshold session token claims' };
     }
-    const tokenSigningRootId = signingRootIdFromRuntimePolicyScope(claims.runtimePolicyScope);
-    if (!tokenSigningRootId) {
+    const tokenSigningRoot = signingRootMetadataFromRuntimePolicyScope(claims.runtimePolicyScope);
+    if (!tokenSigningRoot) {
       return {
         ok: false,
         code: 'unauthorized',
@@ -609,7 +614,7 @@ export class ThresholdEcdsaSigningHandlers {
       rpId: tokenRpId,
       participantIds: claims.participantIds,
       tokenRelayerKeyId,
-      tokenSigningRootId,
+      tokenSigningRoot,
     });
     if (!resolvedKeyMaterial.ok) return resolvedKeyMaterial;
     const { relayerKeyId, clientVerifyingShareB64u, relayerBackendInputB64u, signingRootMetadata } =

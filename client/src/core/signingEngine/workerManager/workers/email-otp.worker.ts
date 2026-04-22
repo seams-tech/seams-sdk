@@ -1,10 +1,7 @@
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { errorMessage } from '@shared/utils/errors';
-import {
-  requireTrimmedString,
-  toOptionalTrimmedNonEmptyString,
-} from '@shared/utils/validation';
+import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import {
   joinNormalizedUrl,
   normalizeNonNegativeInteger,
@@ -15,6 +12,7 @@ import {
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_EXPORT_OPERATION,
   type WalletEmailOtpChannel,
 } from '@shared/utils/emailOtpDomain';
 import {
@@ -64,7 +62,7 @@ import initEmailOtpRuntime, {
   derive_email_otp_unlock_auth_seed_from_secret32,
   init_email_otp_runtime,
 } from '../../../../../../wasm/email_otp_runtime/pkg/email_otp_runtime.js';
-import { WorkerControlMessage } from '../workerTypes';
+import { WorkerControlMessage, type EmailOtpWorkerProgressCode } from '../workerTypes';
 import { postEmailOtpJson } from './email-otp/fetch';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
 import {
@@ -141,6 +139,21 @@ type EmailOtpWorkerRequest =
     }
   | {
       id: string;
+      type: 'recoverEmailOtpEd25519ExportPrfFirst';
+      payload: {
+        relayUrl: string;
+        walletId: string;
+        userId?: string;
+        challengeId: string;
+        otpCode: string;
+        shamirPrimeB64u: string;
+        routePlan: EmailOtpRoutePlan;
+        otpChannel?: WalletEmailOtpChannel;
+        runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      };
+    }
+  | {
+      id: string;
       type: 'loginWithEmailOtpAndBootstrapEcdsaSession';
       payload: {
         relayUrl: string;
@@ -196,6 +209,14 @@ type EmailOtpWorkerRequest =
   | {
       id: string;
       type: 'claimEmailOtpWarmSessionMaterial';
+      payload: {
+        sessionId: string;
+        uses?: number;
+      };
+    }
+  | {
+      id: string;
+      type: 'consumeEmailOtpWarmSessionUses';
       payload: {
         sessionId: string;
         uses?: number;
@@ -266,16 +287,21 @@ type EmailOtpWorkerRequest =
     }
   | {
       id: string;
-      type: 'exportThresholdEcdsaHssKeyFromEmailOtpWarmSession';
+      type: 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization';
       payload: {
         relayUrl: string;
+        walletId: string;
         userId: string;
+        challengeId: string;
+        otpCode: string;
+        shamirPrimeB64u: string;
+        routePlan: EmailOtpRoutePlan;
         rpId: string;
-        sessionId: string;
         thresholdSessionJwt?: string;
         sessionKind?: 'jwt' | 'cookie';
         ecdsaThresholdKeyId: string;
         chain: 'evm' | 'tempo';
+        runtimePolicyScope?: ThresholdRuntimePolicyScope;
       };
     };
 
@@ -299,6 +325,10 @@ type EmailOtpWarmSessionStatusResult =
 
 type EmailOtpWarmSessionClaimResult =
   | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
+  | { ok: false; code: string; message: string };
+
+type EmailOtpWarmSessionConsumeResult =
+  | { ok: true; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
 
 type EmailOtpWarmSessionSealResult =
@@ -347,10 +377,7 @@ type EmailOtpThresholdEcdsaBootstrapResult = ThresholdEcdsaSessionBootstrapResul
 };
 
 const emailOtpWarmSessions = new Map<string, EmailOtpWarmSessionEntry>();
-const signingSessionSealApplyInFlight = new Map<
-  string,
-  Promise<EmailOtpWarmSessionSealResult>
->();
+const signingSessionSealApplyInFlight = new Map<string, Promise<EmailOtpWarmSessionSealResult>>();
 const signingSessionSealRemoveInFlight = new Map<
   string,
   Promise<EmailOtpEcdsaWarmSessionRehydrateResult>
@@ -417,16 +444,18 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
 function parseSigningSessionSealRouteResult(value: unknown): SigningSessionSealRouteResult {
   const result = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!result || typeof result.ok !== 'boolean') {
-    return { ok: false, code: 'invalid_response', message: 'Invalid signing-session seal response' };
+    return {
+      ok: false,
+      code: 'invalid_response',
+      message: 'Invalid signing-session seal response',
+    };
   }
   if (!result.ok) {
     return {
       ok: false,
       code: typeof result.code === 'string' ? result.code : 'request_failed',
       message:
-        typeof result.message === 'string'
-          ? result.message
-          : 'Signing-session seal request failed',
+        typeof result.message === 'string' ? result.message : 'Signing-session seal request failed',
     };
   }
   const ciphertext = normalizeOptionalTrimmedString(result.ciphertext);
@@ -512,7 +541,9 @@ async function callSigningSessionSealRoute(args: {
       ok: false,
       code: 'network_error',
       message:
-        error instanceof Error ? error.message : String(error || 'Signing-session seal request failed'),
+        error instanceof Error
+          ? error.message
+          : String(error || 'Signing-session seal request failed'),
     };
   }
 }
@@ -522,7 +553,9 @@ function resolvePolicyFromServerAndLocal(args: {
   localExpiresAtMs: number;
   serverRemainingUses?: number;
   serverExpiresAtMs?: number;
-}): { ok: true; remainingUses: number; expiresAtMs: number } | { ok: false; code: string; message: string } {
+}):
+  | { ok: true; remainingUses: number; expiresAtMs: number }
+  | { ok: false; code: string; message: string } {
   const localRemainingUses = Math.max(0, Math.floor(Number(args.localRemainingUses) || 0));
   const localExpiresAtMs = Math.max(0, Math.floor(Number(args.localExpiresAtMs) || 0));
   const serverRemainingUses =
@@ -757,6 +790,44 @@ function claimEmailOtpWarmSessionMaterial(args: {
   };
 }
 
+function consumeEmailOtpWarmSessionUses(args: {
+  sessionId: string;
+  uses?: number;
+}): EmailOtpWarmSessionConsumeResult {
+  const sessionId = String(args.sessionId || '').trim();
+  const status = readEmailOtpWarmSessionStatus(sessionId);
+  if (!status.ok) return status;
+  const entry = emailOtpWarmSessions.get(sessionId);
+  if (!entry) {
+    return {
+      ok: false,
+      code: 'not_found',
+      message: 'Email OTP warm-session material is not available',
+    };
+  }
+  const uses = Math.max(1, Math.floor(Number(args.uses) || 1));
+  if (entry.remainingUses < uses) {
+    return {
+      ok: false,
+      code: 'exhausted',
+      message: 'Email OTP warm-session material exhausted',
+    };
+  }
+  entry.remainingUses -= uses;
+  const remainingUses = entry.remainingUses;
+  const expiresAtMs = entry.expiresAtMs;
+  if (remainingUses <= 0) {
+    deleteEmailOtpWarmSession(sessionId);
+  } else {
+    emailOtpWarmSessions.set(sessionId, entry);
+  }
+  return {
+    ok: true,
+    remainingUses,
+    expiresAtMs,
+  };
+}
+
 async function sealEmailOtpWarmSessionMaterial(args: {
   sessionId: string;
   transport: SigningSessionSealTransport;
@@ -829,7 +900,9 @@ async function sealEmailOtpWarmSessionMaterial(args: {
         emailOtpWarmSessions.set(sessionId, {
           clientRootShare32: entry.clientRootShare32,
           signingSessionSecret32: entry.signingSessionSecret32,
-          ...(entry.clientAdditiveShare32 ? { clientAdditiveShare32: entry.clientAdditiveShare32 } : {}),
+          ...(entry.clientAdditiveShare32
+            ? { clientAdditiveShare32: entry.clientAdditiveShare32 }
+            : {}),
           remainingUses: policy.remainingUses,
           expiresAtMs: policy.expiresAtMs,
         });
@@ -842,9 +915,9 @@ async function sealEmailOtpWarmSessionMaterial(args: {
           expiresAtMs: policy.expiresAtMs,
         };
       } finally {
-        await runtime.destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle }).catch(
-          () => undefined,
-        );
+        await runtime
+          .destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle })
+          .catch(() => undefined);
       }
     } catch (error: unknown) {
       return {
@@ -893,8 +966,10 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
 }): Promise<EmailOtpEcdsaWarmSessionRehydrateResult> {
   const sessionId = normalizeOptionalTrimmedString(args.restore.sessionId);
   const sealedSecretB64u = normalizeOptionalTrimmedString(args.sealedSecretB64u);
-  if (!sessionId) return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
-  if (!sealedSecretB64u) return { ok: false, code: 'invalid_args', message: 'Missing sealedSecretB64u' };
+  if (!sessionId)
+    return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
+  if (!sealedSecretB64u)
+    return { ok: false, code: 'invalid_args', message: 'Missing sealedSecretB64u' };
   const localRemainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
   const localExpiresAtMs = Math.max(0, Math.floor(Number(args.expiresAtMs) || 0));
   if (localRemainingUses <= 0) {
@@ -955,9 +1030,9 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
           keyHandle: clientKeyHandle.keyHandle,
         });
       } finally {
-        await runtime.destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle }).catch(
-          () => undefined,
-        );
+        await runtime
+          .destroyClientKeyHandle({ keyHandle: clientKeyHandle.keyHandle })
+          .catch(() => undefined);
       }
 
       if (signingSessionSecret32.length !== 32) {
@@ -998,10 +1073,9 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
       });
       if (!policy.ok) return policy;
       const sessionKind = args.restore.sessionKind || 'jwt';
-      const routeAuth: AppOrThresholdSessionAuth | undefined =
-        args.transport.thresholdSessionJwt
-          ? { kind: 'threshold_session', jwt: args.transport.thresholdSessionJwt }
-          : undefined;
+      const routeAuth: AppOrThresholdSessionAuth | undefined = args.transport.thresholdSessionJwt
+        ? { kind: 'threshold_session', jwt: args.transport.thresholdSessionJwt }
+        : undefined;
       if (!routeAuth && sessionKind !== 'cookie') {
         return {
           ok: false,
@@ -1074,49 +1148,6 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
 
   signingSessionSealRemoveInFlight.set(singleFlightKey, task);
   return await task;
-}
-
-function claimEmailOtpWarmSessionClientRootShare(args: { sessionId: string; uses?: number }):
-  | { ok: true; clientRootShare32: Uint8Array; remainingUses: number; expiresAtMs: number }
-  | {
-      ok: false;
-      code: string;
-      message: string;
-    } {
-  const sessionId = String(args.sessionId || '').trim();
-  const status = readEmailOtpWarmSessionStatus(sessionId);
-  if (!status.ok) return status;
-  const entry = emailOtpWarmSessions.get(sessionId);
-  if (!entry) {
-    return {
-      ok: false,
-      code: 'not_found',
-      message: 'Email OTP warm-session material is not available',
-    };
-  }
-  const uses = Math.max(1, Math.floor(Number(args.uses) || 1));
-  if (entry.remainingUses < uses) {
-    return {
-      ok: false,
-      code: 'exhausted',
-      message: 'Email OTP warm-session material exhausted',
-    };
-  }
-  const clientRootShare32 = Uint8Array.from(entry.clientRootShare32);
-  entry.remainingUses -= uses;
-  const remainingUses = entry.remainingUses;
-  const expiresAtMs = entry.expiresAtMs;
-  if (remainingUses <= 0) {
-    deleteEmailOtpWarmSession(sessionId);
-  } else {
-    emailOtpWarmSessions.set(sessionId, entry);
-  }
-  return {
-    ok: true,
-    clientRootShare32,
-    remainingUses,
-    expiresAtMs,
-  };
 }
 
 function claimEmailOtpEcdsaSigningShare(
@@ -1371,6 +1402,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   clientSecret32?: Uint8Array;
   returnClientRootShare32?: boolean;
   returnClientSecret32?: boolean;
+  onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
   thresholdEd25519PrfFirstB64u: string;
@@ -1433,7 +1465,10 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
         wrappedCiphertext,
       },
     });
-    const enrollmentSealKeyVersion = readString(applied.enrollmentSealKeyVersion, 'enrollmentSealKeyVersion');
+    const enrollmentSealKeyVersion = readString(
+      applied.enrollmentSealKeyVersion,
+      'enrollmentSealKeyVersion',
+    );
     const clientCiphertext = readString(applied.ciphertext, 'ciphertext');
     const enrollmentEscrowCiphertextB64u = readString(
       await runtime.removeClientSealWithKeyHandle({
@@ -1482,6 +1517,9 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
         thresholdEcdsaClientVerifyingShareB64u,
       },
     });
+    args.onProgress?.('otp.verify.succeeded');
+    args.onProgress?.('signer.email_otp.enroll.started');
+    args.onProgress?.('signer.email_otp.enroll.succeeded');
 
     const returnedClientRootShare32 =
       args.returnClientRootShare32 && thresholdClientRootShare32
@@ -1528,6 +1566,7 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
   shamirPrimeB64u: string;
   routePlan: EmailOtpRoutePlan;
   returnClientSecret32?: boolean;
+  onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 }): Promise<{
   clientSecret32?: Uint8Array;
   clientRootShare32: Uint8Array;
@@ -1581,7 +1620,11 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
       },
     });
     const loginGrant = readString(verified.loginGrant, 'loginGrant');
-    const enrollmentEscrowCiphertextB64u = readString(verified.enrollmentEscrowCiphertextB64u, 'enrollmentEscrowCiphertextB64u');
+    args.onProgress?.('otp.verify.succeeded');
+    const enrollmentEscrowCiphertextB64u = readString(
+      verified.enrollmentEscrowCiphertextB64u,
+      'enrollmentEscrowCiphertextB64u',
+    );
     const wrappedCiphertext = readString(
       await runtime.addClientSealWithKeyHandle({
         ciphertextB64u: enrollmentEscrowCiphertextB64u,
@@ -1628,7 +1671,10 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
       thresholdEd25519PrfFirstB64u,
       loginGrant,
       challengeId,
-      enrollmentSealKeyVersion: readString(unsealed.enrollmentSealKeyVersion, 'enrollmentSealKeyVersion'),
+      enrollmentSealKeyVersion: readString(
+        unsealed.enrollmentSealKeyVersion,
+        'enrollmentSealKeyVersion',
+      ),
       unlockChallengeId: unlocked.unlockChallengeId,
       unlockChallengeB64u: unlocked.unlockChallengeB64u,
       clientUnlockPublicKeyB64u: unlocked.clientUnlockPublicKeyB64u,
@@ -1655,6 +1701,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
   remainingUses?: number;
+  onProgress?: (code: EmailOtpWorkerProgressCode) => void;
 }): Promise<EmailOtpThresholdEcdsaBootstrapResult> {
   await ensureHssClientSignerWasm();
   const relayerUrl = readString(args.relayUrl, 'relayUrl');
@@ -1679,6 +1726,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
   const runtimePolicyScope = args.runtimePolicyScope;
 
+  args.onProgress?.('signer.ecdsa.bootstrap.started');
   const prepare = await thresholdEcdsaHssPrepare(relayerUrl, {
     userId,
     rpId,
@@ -1705,6 +1753,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
     );
   }
   const ceremonyId = readString(prepare.ceremonyId, 'ceremonyId');
+  args.onProgress?.('signer.ecdsa.bootstrap.prepared');
   const preparedServerSessionB64u = readString(
     prepare.preparedServerSessionB64u,
     'preparedServerSessionB64u',
@@ -1745,6 +1794,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
     );
   }
   const responseMessageB64u = readString(respond.responseMessageB64u, 'responseMessageB64u');
+  args.onProgress?.('signer.ecdsa.bootstrap.responded');
   const parsedResponse = parseThresholdEcdsaHssHiddenEvalServerResponseMessage(responseMessageB64u);
   if (!parsedResponse) {
     throw new Error(
@@ -1779,6 +1829,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
         'Threshold bootstrap finalize failed',
     );
   }
+  args.onProgress?.('signer.ecdsa.bootstrap.succeeded');
 
   const resolvedEcdsaThresholdKeyId = readString(
     bootstrap.ecdsaThresholdKeyId,
@@ -1927,12 +1978,11 @@ async function runThresholdEcdsaExplicitExportFromClientRootShare(args: {
   if (!thresholdSessionJwt && sessionKind !== 'cookie') {
     throw new Error('thresholdSessionJwt is required for JWT threshold export sessions');
   }
-  const routeAuth: ThresholdEcdsaHssRouteAuth | undefined =
-    thresholdSessionJwt
-      ? { kind: 'threshold_session', jwt: thresholdSessionJwt }
-      : sessionKind === 'cookie'
-        ? { kind: 'cookie' }
-        : undefined;
+  const routeAuth: ThresholdEcdsaHssRouteAuth | undefined = thresholdSessionJwt
+    ? { kind: 'threshold_session', jwt: thresholdSessionJwt }
+    : sessionKind === 'cookie'
+      ? { kind: 'cookie' }
+      : undefined;
 
   const prepare = await thresholdEcdsaHssPrepare(relayerUrl, {
     userId,
@@ -2030,6 +2080,10 @@ function postToMainThread(message: unknown, transfer?: Transferable[]): void {
   (
     self as unknown as { postMessage: (message: unknown, transfer?: Transferable[]) => void }
   ).postMessage(message, transfer);
+}
+
+function postEmailOtpWorkerProgress(id: string, code: EmailOtpWorkerProgressCode): void {
+  postToMainThread({ id, progress: true, payload: { code } });
 }
 
 setTimeout(() => {
@@ -2142,6 +2196,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
           routePlan,
           returnClientRootShare32: true,
+          onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
           ...(msg.payload.clientSecret32 instanceof ArrayBuffer
             ? {
                 clientSecret32: requireFixed32ArrayBuffer(
@@ -2180,6 +2235,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             ttlMs: msg.payload.ttlMs,
             remainingUses: msg.payload.remainingUses,
+            onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
           });
           const { emailOtpClientAdditiveShare32: additiveShare32, ...bootstrap } = workerBootstrap;
           emailOtpClientAdditiveShare32 = additiveShare32;
@@ -2237,7 +2293,10 @@ self.addEventListener('message', async (event: MessageEvent) => {
           result: {
             loginGrant: readString(response.loginGrant, 'loginGrant'),
             otpChannel: EMAIL_OTP_CHANNEL,
-            enrollmentEscrowCiphertextB64u: readString(response.enrollmentEscrowCiphertextB64u, 'enrollmentEscrowCiphertextB64u'),
+            enrollmentEscrowCiphertextB64u: readString(
+              response.enrollmentEscrowCiphertextB64u,
+              'enrollmentEscrowCiphertextB64u',
+            ),
           },
         });
         return;
@@ -2257,6 +2316,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           otpCode: readString(msg.payload.otpCode, 'otpCode'),
           shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
           routePlan,
+          onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
         });
         try {
           postToMainThread({
@@ -2273,6 +2333,43 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 unlockSignatureB64u: result.unlockSignatureB64u,
                 thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
               },
+            },
+          });
+        } finally {
+          zeroizeBytes(result.clientRootShare32);
+        }
+        return;
+      }
+      case 'recoverEmailOtpEd25519ExportPrfFirst': {
+        const routePlan = readRoutePlan(
+          msg.payload.routePlan,
+          'recoverEmailOtpEd25519ExportPrfFirst',
+        );
+        if (routePlan.operation !== WALLET_EMAIL_OTP_EXPORT_OPERATION) {
+          throw new Error('Email OTP Ed25519 export recovery requires export_key routePlan');
+        }
+        const routeAuth = routePlanSessionAuth(routePlan);
+        const runtimePolicyScope =
+          normalizeThresholdRuntimePolicyScope(msg.payload.runtimePolicyScope) ||
+          parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt);
+        const result = await loginWithEmailOtpAndRecoverClientRootShare({
+          relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
+          walletId: readString(msg.payload.walletId, 'walletId'),
+          ...(runtimePolicyScope?.orgId ? { orgId: runtimePolicyScope.orgId } : {}),
+          userId: msg.payload.userId,
+          challengeId: readString(msg.payload.challengeId, 'challengeId'),
+          otpCode: readString(msg.payload.otpCode, 'otpCode'),
+          shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan,
+          onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
+        });
+        try {
+          postToMainThread({
+            id: msg.id,
+            ok: true,
+            result: {
+              challengeId: result.challengeId,
+              thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
             },
           });
         } finally {
@@ -2298,6 +2395,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           otpCode: readString(msg.payload.otpCode, 'otpCode'),
           shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
           routePlan,
+          onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
         });
         let emailOtpClientAdditiveShare32: Uint8Array | null = null;
         let signingSessionSecret32: Uint8Array | null = null;
@@ -2321,6 +2419,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             ttlMs: msg.payload.ttlMs,
             remainingUses: msg.payload.remainingUses,
+            onProgress: (code) => postEmailOtpWorkerProgress(msg.id, code),
           });
           const { emailOtpClientAdditiveShare32: additiveShare32, ...bootstrap } = workerBootstrap;
           emailOtpClientAdditiveShare32 = additiveShare32;
@@ -2370,6 +2469,17 @@ self.addEventListener('message', async (event: MessageEvent) => {
           id: msg.id,
           ok: true,
           result: claimEmailOtpWarmSessionMaterial({
+            sessionId: readString(msg.payload.sessionId, 'sessionId'),
+            uses: msg.payload.uses,
+          }),
+        });
+        return;
+      }
+      case 'consumeEmailOtpWarmSessionUses': {
+        postToMainThread({
+          id: msg.id,
+          ok: true,
+          result: consumeEmailOtpWarmSessionUses({
             sessionId: readString(msg.payload.sessionId, 'sessionId'),
             uses: msg.payload.uses,
           }),
@@ -2443,27 +2553,38 @@ self.addEventListener('message', async (event: MessageEvent) => {
         });
         return;
       }
-      case 'exportThresholdEcdsaHssKeyFromEmailOtpWarmSession': {
-        const claimed = claimEmailOtpWarmSessionClientRootShare({
-          sessionId: readString(msg.payload.sessionId, 'sessionId'),
-          uses: 1,
-        });
-        if (!claimed.ok) {
-          postToMainThread({
-            id: msg.id,
-            ok: true,
-            result: claimed,
-          });
-          return;
+      case 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization': {
+        const routePlan = readRoutePlan(
+          msg.payload.routePlan,
+          'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization',
+        );
+        if (routePlan.operation !== WALLET_EMAIL_OTP_EXPORT_OPERATION) {
+          throw new Error('Email OTP ECDSA export requires export_key routePlan');
         }
+        const routeAuth = routePlanSessionAuth(routePlan);
+        const runtimePolicyScope =
+          normalizeThresholdRuntimePolicyScope(msg.payload.runtimePolicyScope) ||
+          parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt);
+        const recovered = await loginWithEmailOtpAndRecoverClientRootShare({
+          relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
+          walletId: readString(msg.payload.walletId, 'walletId'),
+          ...(runtimePolicyScope?.orgId ? { orgId: runtimePolicyScope.orgId } : {}),
+          userId: msg.payload.userId,
+          challengeId: readString(msg.payload.challengeId, 'challengeId'),
+          otpCode: readString(msg.payload.otpCode, 'otpCode'),
+          shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan,
+        });
         try {
           const artifact = await runThresholdEcdsaExplicitExportFromClientRootShare({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
             userId: readString(msg.payload.userId, 'userId'),
             rpId: readString(msg.payload.rpId, 'rpId'),
-            clientRootShare32: claimed.clientRootShare32,
+            clientRootShare32: recovered.clientRootShare32,
             ecdsaThresholdKeyId: readString(msg.payload.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
-            thresholdSessionJwt: msg.payload.thresholdSessionJwt,
+            thresholdSessionJwt:
+              msg.payload.thresholdSessionJwt ||
+              (routeAuth?.kind === 'threshold_session' ? routeAuth.jwt : undefined),
             sessionKind: msg.payload.sessionKind,
           });
           postToMainThread({
@@ -2472,7 +2593,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             result: artifact,
           });
         } finally {
-          zeroizeBytes(claimed.clientRootShare32);
+          zeroizeBytes(recovered.clientRootShare32);
         }
         return;
       }

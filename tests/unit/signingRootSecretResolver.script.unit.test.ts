@@ -158,16 +158,19 @@ test('ECDSA signing-root derivation ignores org ownership and changes with signi
     orgId: 'org-alpha',
     projectId: RUNTIME_PROJECT_ID,
     envId: RUNTIME_ENV_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
   });
   const sameProjectScopeB = signingRootScopeFromRuntimePolicyScope({
     orgId: 'org-beta',
     projectId: RUNTIME_PROJECT_ID,
     envId: RUNTIME_ENV_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
   });
   const differentEnvScope = signingRootScopeFromRuntimePolicyScope({
     orgId: 'org-alpha',
     projectId: RUNTIME_PROJECT_ID,
     envId: 'staging',
+    signingRootVersion: SIGNING_ROOT_VERSION,
   });
   expect(sameProjectScopeA.signingRootId).toBe(sameProjectScopeB.signingRootId);
   expect(differentEnvScope.signingRootId).not.toBe(sameProjectScopeA.signingRootId);
@@ -236,16 +239,19 @@ test('Ed25519 signing-root derivation ignores org ownership and changes with sig
     orgId: 'org-alpha',
     projectId: RUNTIME_PROJECT_ID,
     envId: RUNTIME_ENV_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
   });
   const sameProjectScopeB = signingRootScopeFromRuntimePolicyScope({
     orgId: 'org-beta',
     projectId: RUNTIME_PROJECT_ID,
     envId: RUNTIME_ENV_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
   });
   const differentProjectScope = signingRootScopeFromRuntimePolicyScope({
     orgId: 'org-alpha',
     projectId: 'project-beta',
     envId: RUNTIME_ENV_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
   });
   expect(sameProjectScopeA.signingRootId).toBe(sameProjectScopeB.signingRootId);
   expect(differentProjectScope.signingRootId).not.toBe(sameProjectScopeA.signingRootId);

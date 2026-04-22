@@ -95,18 +95,31 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
   );
 
   const resolveThresholdSenderForEvmFamily = useCallback(
-    async (opts?: { chain?: 'tempo' | 'evm'; ensureReady?: boolean }): Promise<EvmAddress> => {
+    async (opts?: {
+      chain?: 'tempo' | 'evm';
+      bootstrapIfMissing?: boolean;
+    }): Promise<EvmAddress> => {
       const requestedChain = opts?.chain || 'tempo';
-      const thresholdSender =
-        (isEvmAddress(String(thresholdEvmFundingAddress || '').trim())
-          ? thresholdEvmFundingAddress
-          : null) ||
-        (opts?.ensureReady
+      let thresholdSender = isEvmAddress(String(thresholdEvmFundingAddress || '').trim())
+        ? thresholdEvmFundingAddress
+        : null;
+      if (!thresholdSender) {
+        const storedAddress = await readWalletSessionThresholdEvmFundingAddress();
+        thresholdSender = isEvmAddress(String(storedAddress || '').trim())
+          ? String(storedAddress).trim()
+          : null;
+        if (thresholdSender) {
+          setThresholdEvmFundingAddress(thresholdSender);
+        }
+      }
+      if (!thresholdSender) {
+        thresholdSender = opts?.bootstrapIfMissing
           ? await ensureThresholdEcdsaReadyForChain(requestedChain)
           : await refreshThresholdEvmFundingAddress({
-              bootstrap: true,
+              bootstrap: false,
               chain: requestedChain,
-            }));
+            });
+      }
       if (!thresholdSender || !isEvmAddress(thresholdSender)) {
         throw new Error('Threshold EVM sender address is unavailable');
       }
@@ -114,6 +127,7 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
     },
     [
       ensureThresholdEcdsaReadyForChain,
+      readWalletSessionThresholdEvmFundingAddress,
       refreshThresholdEvmFundingAddress,
       thresholdEvmFundingAddress,
     ],

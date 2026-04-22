@@ -121,8 +121,10 @@ export async function handleThresholdEd25519(
         sessionPolicy: b.sessionPolicy ? { version: b.sessionPolicy.version } : undefined,
       });
 
+      const inheritedRuntimePolicyScope =
+        appSessionClaims?.runtimePolicyScope || ecdsaSessionClaims?.runtimePolicyScope;
       const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
-        explicitScopeRaw: b.sessionPolicy?.runtimePolicyScope,
+        explicitScopeRaw: inheritedRuntimePolicyScope ?? b.sessionPolicy?.runtimePolicyScope,
         runtimeEnvironmentIdRaw: (b as { runtimeEnvironmentId?: unknown }).runtimeEnvironmentId,
         headers: ctx.request.headers,
         origin: ctx.request.headers.get('origin'),

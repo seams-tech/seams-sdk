@@ -109,6 +109,7 @@ const external = [
   'module',
   'crypto',
   'util',
+  /^node:.*/,
   // Express-only helpers (optional consumers)
   'express',
   'cors',

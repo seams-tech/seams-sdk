@@ -700,7 +700,7 @@ export type ThresholdEd25519SessionClaims = {
   walletId: string;
   kind: 'threshold_ed25519_session_v1';
   sessionId: string;
-  walletSigningSessionId?: string;
+  walletSigningSessionId: string;
   relayerKeyId: string;
   rpId: string;
   runtimePolicyScope?: RuntimePolicyScope;
@@ -744,7 +744,16 @@ export function parseThresholdEd25519SessionClaims(
   );
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const rpId = toOptionalString(raw.rpId);
-  if (!sub || !walletId || walletId !== sub || !sessionId || !relayerKeyId || !rpId) return null;
+  if (
+    !sub ||
+    !walletId ||
+    walletId !== sub ||
+    !sessionId ||
+    !walletSigningSessionId ||
+    !relayerKeyId ||
+    !rpId
+  )
+    return null;
   const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
   if (!isValidNumber(thresholdExpiresAtMs)) return null;
   const participantIds = normalizeThresholdEd25519ParticipantIds(
@@ -756,7 +765,7 @@ export function parseThresholdEd25519SessionClaims(
     walletId,
     kind,
     sessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    walletSigningSessionId,
     relayerKeyId,
     rpId,
     thresholdExpiresAtMs,
@@ -858,7 +867,7 @@ export type ThresholdEcdsaSessionClaims = {
   walletId: string;
   kind: 'threshold_ecdsa_session_v1';
   sessionId: string;
-  walletSigningSessionId?: string;
+  walletSigningSessionId: string;
   relayerKeyId: string;
   rpId: string;
   runtimePolicyScope?: RuntimePolicyScope;
@@ -890,7 +899,16 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
   );
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
   const rpId = toOptionalString(raw.rpId);
-  if (!sub || !walletId || walletId !== sub || !sessionId || !relayerKeyId || !rpId) return null;
+  if (
+    !sub ||
+    !walletId ||
+    walletId !== sub ||
+    !sessionId ||
+    !walletSigningSessionId ||
+    !relayerKeyId ||
+    !rpId
+  )
+    return null;
   const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
   if (!isValidNumber(thresholdExpiresAtMs)) return null;
   const participantIds = normalizeThresholdEd25519ParticipantIds(
@@ -902,7 +920,7 @@ export function parseThresholdEcdsaSessionClaims(raw: unknown): ThresholdEcdsaSe
     walletId,
     kind,
     sessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    walletSigningSessionId,
     relayerKeyId,
     rpId,
     thresholdExpiresAtMs,

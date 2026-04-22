@@ -232,6 +232,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
       getSession: async () => null,
       getSessionStatus: async () => null,
       consumeUseCount: async () => ({ ok: false, code: 'unauthorized', message: 'unused' }),
+      consumeUseCountOnce: async () => ({ ok: false, code: 'unauthorized', message: 'unused' }),
     },
     ecdsaKeyStore,
     ecdsaSessionStore,

@@ -17,7 +17,7 @@ The system consists of three layers:
 2. **WalletIframeRouter** - Handles communication between the main app and the iframe using MessagePort
 3. **Wallet Host** - The actual TatchiPasskey running inside the iframe, executing the real operations
 
-When you call methods like `registerPasskey()` or `signTransaction()`, the request flows through these layers. The iframe temporarily expands to capture user activation (TouchID) when needed, then shrinks back to invisible once authentication is complete: it is triggered by progress events emitted from TatchiPasskey calls.
+When you call methods like `registerPasskey()` or `signTransaction()`, the request flows through these layers. The iframe temporarily expands to capture user activation (TouchID/WebAuthn or iframe-hosted confirmation) when needed, then shrinks back to invisible once that interaction is complete. This is driven by v2 `WalletFlowEvent.interaction.overlay` metadata emitted from TatchiPasskey calls.
 
 ## Architecture Overview
 
@@ -69,7 +69,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
   - Parent-to-child message types (PM_REGISTER, PM_UNLOCK, etc.)
   - Child-to-parent response types (PROGRESS, PM_RESULT, ERROR)
   - Payload interfaces for all message types
-  - Progress event structure for real-time updates
+  - `ProgressPayload` (`WalletFlowEvent`) for real-time public flow updates
 
 #### 5. **Supporting Infrastructure**
 
@@ -104,7 +104,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 1. **Proxy Pattern**: `TatchiPasskeyIframe` acts as a transparent proxy to the real TatchiPasskey
 2. **Message Passing**: All communication uses typed messages over MessagePort
 3. **Event Bridging**: Progress events flow from iframe back to parent callbacks
-4. **Overlay Management**: Smart show/hide logic based on operation phases
+4. **Overlay Management**: Explicit show/hide behavior from `WalletFlowEvent.interaction.overlay`
 5. **Component Registry**: Declarative UI component definitions with automatic wiring
 
 ### Security Model
@@ -151,7 +151,7 @@ The callback chain follows this flow:
 
 - Receives messages via MessagePort in `onPortMessage()`
 - Creates and manages the actual TatchiPasskey instance
-- Executes the requested operations (like `tatchi!.registerPasskey()`)
+- Executes the requested operations (like `tatchi!.registration.registerPasskey()`)
 - Sends progress events back via `post({ type: 'PROGRESS', requestId, payload: ev })`
 - Returns results via `post({ type: 'PM_RESULT', requestId, payload: { ok: true, result } })`
 
@@ -168,11 +168,13 @@ The callback chain follows this flow:
 
 ## Progress Event Bridging:
 
-The key insight is that progress events are bridged through the MessagePort:
+The key point is that public progress events are bridged through the MessagePort:
 
 - Host sends: `{ type: 'PROGRESS', requestId, payload: ev }`
 - Client receives and calls: `pend?.onProgress?.(msg.payload)`
 - This allows the original `onEvent` callback to receive real-time progress updates
+
+`ev` is a v2 `WalletFlowEvent`. Private signer worker progress is not forwarded directly to the app; it is mapped into public flow events only when the flow intentionally exposes that state.
 
 So yes, your understanding is correct: **TatchiPasskeyIframe → WalletIframeRouter → posts to host/index.ts**, with the additional detail that progress events flow back through the same channel to provide real-time updates to the caller.
 
@@ -235,7 +237,7 @@ class OverlayController {
 
 - Expand to full‑screen during activation:
   - `showFrameForActivation()` in `client/src/core/WalletIframe/client/router.ts` ensures the iframe exists and delegates to `OverlayController.showFullscreen()`, which applies the fullscreen class (fixed inset, pointer-events enabled, z-index 2147483646).
-  - This is invoked explicitly for sensitive flows (e.g., `registerPasskey()`, `tatchi.auth.unlock()`, device linking) and implicitly by the progress-heuristic layer described below.
+  - This is invoked explicitly for sensitive flows (e.g., `registerPasskey()`, `tatchi.auth.unlock()`, device linking) and by v2 progress events with `interaction.overlay: 'show'`.
 
 - Collapse back to 0×0:
   - `hideFrameForActivation()` in the same router delegates to `OverlayController.hide()` to restore the hidden state and make it non-interactive.
@@ -253,7 +255,7 @@ class OverlayController {
 
 ### Why the overlay may block clicks after sending
 
-With explicit v2 overlay metadata, the overlay contracts immediately after the event that completes the user-interactive step, even if subsequent signing, broadcasting, or waiting events continue. This minimizes the time the overlay blocks clicks.
+With explicit v2 overlay metadata, the overlay collapses immediately after the event that completes the user-interactive step, even if subsequent signing, broadcasting, or waiting events continue. This minimizes the time the overlay blocks clicks.
 
 ### Options to adjust behavior
 
@@ -261,7 +263,7 @@ With explicit v2 overlay metadata, the overlay contracts immediately after the e
   - Set `interaction.overlay` on the flow event that owns the UI transition. The progress bus should stay a small metadata reader.
 
 - Last‑resort local control:
-  - If needed for a specific integration, you can wrap calls with your own timing to ensure the overlay hides immediately after activation by invoking flows that don’t rely on the heuristic (e.g., those already calling `showFrameForActivation()` explicitly) and ensuring the host emits the completion phase promptly.
+  - If needed for a specific integration, you can wrap calls with your own timing to ensure the overlay hides immediately after activation by ensuring the flow emits the appropriate `interaction.overlay: 'hide'` event promptly.
 
 ### Notes
 

@@ -70,7 +70,12 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         relayerUrl,
         relayerKeyId,
         participantIds: [1, 2],
-        runtimePolicyScope: { orgId: 'org-test', projectId: 'project-test', envId: 'dev' },
+        runtimePolicyScope: {
+          orgId: 'org-test',
+          projectId: 'project-test',
+          envId: 'dev',
+          signingRootVersion: 'default',
+        },
         sessionId,
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 10,
@@ -308,7 +313,12 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         relayerUrl,
         relayerKeyId,
         participantIds: [1, 2],
-        runtimePolicyScope: { orgId: 'org-test', projectId: 'project-test', envId: 'dev' },
+        runtimePolicyScope: {
+          orgId: 'org-test',
+          projectId: 'project-test',
+          envId: 'dev',
+          signingRootVersion: 'default',
+        },
         sessionId: staleSessionId,
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 1,
@@ -330,6 +340,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       let workerThresholdSessionJwt = '';
       let workerXClientBaseB64u = '';
       let workerCredentialJson = '';
+      let consumedUses = 0;
 
       const signed = await signTransactionsWithActions({
         ctx: {
@@ -420,6 +431,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 success: true,
                 signedTransactions: [
                   { transaction: {}, signature: {}, borshBytes: new Uint8Array([1]) },
+                  { transaction: {}, signature: {}, borshBytes: new Uint8Array([2]) },
                 ],
                 logs: [],
               },
@@ -430,6 +442,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           {
             receiverId: nearAccountId,
             actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+          },
+          {
+            receiverId: nearAccountId,
+            actions: [{ action_type: ActionType.Transfer, deposit: '2' }],
           },
         ],
         rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
@@ -446,7 +462,12 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               relayerUrl,
               relayerKeyId,
               participantIds: [1, 2],
-              runtimePolicyScope: { orgId: 'org-test', projectId: 'project-test', envId: 'dev' },
+              runtimePolicyScope: {
+                orgId: 'org-test',
+                projectId: 'project-test',
+                envId: 'dev',
+                signingRootVersion: 'default',
+              },
               sessionId: refreshedSessionId,
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 1,
@@ -462,16 +483,26 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             });
             return { sessionId: refreshedSessionId };
           },
-          markConsumed: (thresholdSessionId?: string) =>
-            markThresholdEd25519EmailOtpSessionConsumedForAccount({
-              nearAccountId,
-              ...(thresholdSessionId ? { thresholdSessionId } : {}),
-            }),
+        },
+        consumeWalletSigningSessionUse: async ({ uses }) => {
+          consumedUses = uses;
+          markThresholdEd25519EmailOtpSessionConsumedForAccount({
+            nearAccountId,
+            thresholdSessionId: refreshedSessionId,
+            uses,
+          });
+          return {
+            sessionId: refreshedSessionId,
+            status: 'exhausted',
+            authMethod: 'email_otp',
+            retention: 'single_use',
+          };
         },
       });
 
       expect(Array.isArray(signed)).toBe(true);
-      expect(signed).toHaveLength(1);
+      expect(signed).toHaveLength(2);
+      expect(consumedUses).toBe(1);
       expect(resolvedSigningAuthMode).toBe('');
       expect(resolvedSigningAuthPlanKind).toBe('emailOtpReauth');
       expect(capturedChallengeId).toBe('near-email-otp-challenge');
@@ -531,7 +562,12 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         relayerUrl,
         relayerKeyId,
         participantIds: [1, 2],
-        runtimePolicyScope: { orgId: 'org-test', projectId: 'project-test', envId: 'dev' },
+        runtimePolicyScope: {
+          orgId: 'org-test',
+          projectId: 'project-test',
+          envId: 'dev',
+          signingRootVersion: 'default',
+        },
         sessionId,
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 10,
@@ -670,7 +706,12 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         relayerUrl,
         relayerKeyId,
         participantIds: [1, 2],
-        runtimePolicyScope: { orgId: 'org-test', projectId: 'project-test', envId: 'dev' },
+        runtimePolicyScope: {
+          orgId: 'org-test',
+          projectId: 'project-test',
+          envId: 'dev',
+          signingRootVersion: 'default',
+        },
         sessionId,
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 10,

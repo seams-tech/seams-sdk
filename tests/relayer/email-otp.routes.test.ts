@@ -40,6 +40,7 @@ const DEFAULT_RUNTIME_POLICY_SCOPE = {
   orgId: 'org_email_otp_routes',
   projectId: 'project_email_otp_routes',
   envId: 'env_email_otp_routes',
+  signingRootVersion: 'v1',
 } as const;
 
 function encodePositiveBigIntB64u(value: bigint): string {
@@ -310,6 +311,10 @@ function makeSigningSessionStatusPolicy(args?: {
     consumeUseCount: async (thresholdSessionId: string) => {
       args?.onConsumeUseCount?.(thresholdSessionId);
       return { ok: false, code: 'test_forbidden', message: 'unexpected consumeUseCount' };
+    },
+    consumeUseCountOnce: async (thresholdSessionId: string) => {
+      args?.onConsumeUseCount?.(thresholdSessionId);
+      return { ok: false, code: 'test_forbidden', message: 'unexpected consumeUseCountOnce' };
     },
   };
 }
@@ -986,7 +991,7 @@ test.describe('Email OTP routes', () => {
     }
   });
 
-  test('Express: signing-session Email OTP challenge rejects non-export and mismatched auth', async () => {
+  test('Express: signing-session Email OTP challenge accepts transaction auth and rejects mismatched auth', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
@@ -1048,7 +1053,7 @@ test.describe('Email OTP routes', () => {
       expect(appSessionAttempt.status).toBe(401);
       expect(appSessionAttempt.json?.code).toBe('unauthorized');
 
-      const nonExport = await fetchJson(
+      const transactionSign = await fetchJson(
         `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
         {
           method: 'POST',
@@ -1063,8 +1068,37 @@ test.describe('Email OTP routes', () => {
           }),
         },
       );
-      expect(nonExport.status).toBe(403);
-      expect(nonExport.json?.code).toBe('forbidden');
+      expect(transactionSign.status).toBe(200);
+      expect(transactionSign.json?.challenge?.operation).toBe('transaction_sign');
+      const transactionSignChallengeId = String(
+        transactionSign.json?.challenge?.challengeId || '',
+      );
+      const transactionSignOutbox = await service.readEmailOtpOutboxEntry({
+        challengeId: transactionSignChallengeId,
+        userId: 'alice.testnet',
+        walletId: 'alice.testnet',
+      });
+      expect(transactionSignOutbox.ok).toBe(true);
+      const transactionSignVerified = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/signing-session/verify`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer threshold-session',
+          },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            challengeId: transactionSignChallengeId,
+            otpChannel: 'email_otp',
+            otpCode: transactionSignOutbox.ok ? transactionSignOutbox.otpCode : '',
+            operation: 'transaction_sign',
+          }),
+        },
+      );
+      expect(transactionSignVerified.status).toBe(200);
+      expect(transactionSignVerified.json?.ok).toBe(true);
+      expect(transactionSignVerified.json?.loginGrant).toEqual(expect.any(String));
 
       const crossWallet = await fetchJson(
         `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
@@ -1117,8 +1151,8 @@ test.describe('Email OTP routes', () => {
           }),
         },
       );
-      expect(exhausted.status).toBe(401);
-      expect(exhausted.json?.code).toBe('unauthorized');
+      expect(exhausted.status).toBe(200);
+      expect(exhausted.json?.challenge?.operation).toBe('export_key');
     } finally {
       await srv.close();
     }

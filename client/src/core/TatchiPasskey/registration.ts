@@ -12,6 +12,7 @@ import { createAccountAndRegisterWithRelayServer } from './faucets/createAccount
 import { PasskeyManagerContext } from './index';
 import {
   type CompletedThresholdEd25519Registration,
+  type ThresholdWarmSessionRequestEnvelope,
   completeRegisteredThresholdEd25519Registration,
   prewarmThresholdEd25519ClientBaseFromCredential,
   prepareThresholdEd25519RegistrationWithHss,
@@ -256,6 +257,7 @@ export async function registerPasskeyInternal(
       credential,
       nearAccountId,
       completedThresholdEd25519Registration,
+      registrationSessionPolicy: thresholdEd25519Registration.registrationInput.sessionPolicy,
       onEvent,
     });
 
@@ -478,6 +480,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   credential: WebAuthnRegistrationCredential;
   nearAccountId: AccountId;
   completedThresholdEd25519Registration: CompletedThresholdEd25519Registration;
+  registrationSessionPolicy: ThresholdWarmSessionRequestEnvelope['session_policy'];
   onEvent?: RegistrationHooksOptions['onEvent'];
 }): Promise<void> {
   const provisioningStartedAt = performance.now();
@@ -501,6 +504,16 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   const thresholdSessionJwt = String(
     args.completedThresholdEd25519Registration.registered.session?.jwt || '',
   ).trim();
+  const walletSigningSessionId = String(
+    args.registrationSessionPolicy.walletSigningSessionId ||
+      args.registrationSessionPolicy.sessionId ||
+      '',
+  ).trim();
+  const remainingUses = Math.max(
+    1,
+    Math.floor(Number(args.registrationSessionPolicy.remainingUses) || 1),
+  );
+  const ttlMs = Math.max(1, Math.floor(Number(args.registrationSessionPolicy.ttlMs) || 1));
   const runtimePolicyScope =
     args.completedThresholdEd25519Registration.registered.session?.runtimePolicyScope;
 
@@ -539,11 +552,14 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         source: 'registration',
         relayerUrl,
         sessionKind: 'jwt',
+        ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
         ...(canonicalEcdsaThresholdKeyId
           ? { ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId }
           : {}),
         clientRootShare32B64u,
         thresholdRouteAuth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
+        ttlMs,
+        remainingUses,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       });
       timings[`bootstrapThresholdEcdsa${chain === 'tempo' ? 'Tempo' : 'Evm'}Ms`] = Math.round(

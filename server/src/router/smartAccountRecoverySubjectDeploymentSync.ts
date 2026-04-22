@@ -94,6 +94,7 @@ export async function syncSmartAccountRecoverySubjectDeployment(input: {
             sponsorshipScope: {
               orgId: input.update.sponsorshipScope.orgId,
               envId: input.update.sponsorshipScope.envId,
+              signingRootVersion: input.update.sponsorshipScope.signingRootVersion,
               ...(normalizeOptionalString(input.update.sponsorshipScope.projectId)
                 ? { projectId: normalizeOptionalString(input.update.sponsorshipScope.projectId) }
                 : {}),

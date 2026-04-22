@@ -815,6 +815,80 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     return parsed;
   };
 
+  consumeWarmSessionUses = async (args: {
+    sessionId: string;
+    uses?: number;
+  }): Promise<WarmSessionStatusResult> => {
+    await this.ensureWorkerReady(false);
+    const res = await this.sendMessage({
+      type: 'WARM_SESSION_MATERIAL_CONSUME',
+      id: this.generateMessageId(),
+      payload: args,
+    });
+    const parsed = parseWarmSessionStatusResult(res?.data);
+    if (res?.success !== true || !parsed) {
+      return {
+        ok: false,
+        code: 'worker_error',
+        message: String(res?.error || 'Warm-session consume failed'),
+      };
+    }
+    if (!parsed.ok && parsed.code === 'not_found') {
+      const rehydrated = await this.tryRehydrateFromSealedRecord(args.sessionId);
+      if (rehydrated?.ok) {
+        const retry = await this.sendMessage({
+          type: 'WARM_SESSION_MATERIAL_CONSUME',
+          id: this.generateMessageId(),
+          payload: args,
+        });
+        const retryParsed = parseWarmSessionStatusResult(retry?.data);
+        if (retry?.success !== true || !retryParsed) {
+          return {
+            ok: false,
+            code: 'worker_error',
+            message: String(retry?.error || 'Warm-session consume failed after rehydrate'),
+          };
+        }
+        if (retryParsed.ok) {
+          if (retryParsed.remainingUses <= 0 || Date.now() >= retryParsed.expiresAtMs) {
+            await deleteSigningSessionSealedRecord(args.sessionId);
+          } else {
+            await updateSigningSessionSealedRecordPolicy({
+              thresholdSessionId: args.sessionId,
+              expiresAtMs: retryParsed.expiresAtMs,
+              remainingUses: retryParsed.remainingUses,
+              updatedAtMs: Date.now(),
+            });
+          }
+        }
+        return retryParsed;
+      }
+      if (
+        rehydrated &&
+        !rehydrated.ok &&
+        (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')
+      ) {
+        await deleteSigningSessionSealedRecord(args.sessionId);
+      }
+      return parsed;
+    }
+    if (parsed.ok) {
+      if (parsed.remainingUses <= 0 || Date.now() >= parsed.expiresAtMs) {
+        await deleteSigningSessionSealedRecord(args.sessionId);
+      } else {
+        await updateSigningSessionSealedRecordPolicy({
+          thresholdSessionId: args.sessionId,
+          expiresAtMs: parsed.expiresAtMs,
+          remainingUses: parsed.remainingUses,
+          updatedAtMs: Date.now(),
+        });
+      }
+    } else if (parsed.code === 'expired' || parsed.code === 'exhausted') {
+      await deleteSigningSessionSealedRecord(args.sessionId);
+    }
+    return parsed;
+  };
+
   clearWarmSessionMaterial = async (args: { sessionId: string }): Promise<void> => {
     await this.ensureWorkerReady(false);
     const res = await this.sendMessage({

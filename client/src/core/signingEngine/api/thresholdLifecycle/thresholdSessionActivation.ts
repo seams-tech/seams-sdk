@@ -29,6 +29,7 @@ export type BootstrapEcdsaSessionArgs = {
   participantIds?: number[];
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
+  walletSigningSessionId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   thresholdRouteAuth?: AppOrThresholdSessionAuth;
@@ -133,6 +134,7 @@ export async function bootstrapEcdsaSessionValue(
       participantIds: args.participantIds,
       sessionKind: args.sessionKind,
       sessionId: args.sessionId,
+      walletSigningSessionId: args.walletSigningSessionId,
       clientRootShare32: args.clientRootShare32,
       clientRootShare32B64u: args.clientRootShare32B64u,
       thresholdRouteAuth: args.thresholdRouteAuth,

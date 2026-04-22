@@ -14,7 +14,7 @@ import init, {
 import * as ethSignerWasmModule from '../../../../../../wasm/eth_signer/pkg/eth_signer.js';
 import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { errorMessage } from '@shared/utils/errors';
-import { WorkerControlMessage } from '../workerTypes';
+import { WorkerControlMessage, type RpcSignerWorkerProgressEvent } from '../workerTypes';
 
 type EthSignerWorkerRequest =
   | { id: string; type: 'computeEip1559TxHash'; payload: { tx: unknown } }
@@ -170,6 +170,70 @@ function postToMainThread(message: unknown, transfer?: Transferable[]): void {
   workerSelf.postMessage(message);
 }
 
+function ethSignerOperationLabel(type: string): string {
+  switch (type) {
+    case 'computeEip1559TxHash':
+      return 'EIP-1559 transaction hash';
+    case 'encodeEip1559SignedTxFromSignature65':
+      return 'signed EIP-1559 transaction';
+    case 'signSecp256k1Recoverable':
+      return 'recoverable secp256k1 signature';
+    case 'secp256k1PrivateKey32ToPublicKey33':
+      return 'secp256k1 public key';
+    case 'deriveSecp256k1KeypairFromPrfSecond':
+      return 'secp256k1 keypair';
+    case 'mapAdditiveShareToThresholdSignaturesShare2p':
+      return 'threshold ECDSA signing share';
+    case 'validateSecp256k1PublicKey33':
+      return 'secp256k1 public key validation';
+    case 'addSecp256k1PublicKeys33':
+      return 'combined secp256k1 public key';
+    case 'buildWebauthnP256Signature':
+      return 'WebAuthn P-256 signature';
+    case 'thresholdEcdsaPresignSessionInit':
+      return 'threshold ECDSA presign session';
+    case 'thresholdEcdsaPresignSessionStep':
+      return 'threshold ECDSA presign step';
+    case 'thresholdEcdsaPresignSessionAbort':
+      return 'threshold ECDSA presign session abort';
+    case 'thresholdEcdsaComputeSignatureShare':
+      return 'threshold ECDSA signature share';
+    default:
+      return type || 'unknown ethSigner operation';
+  }
+}
+
+function postWorkerOperationProgress(
+  id: string,
+  type: string,
+  status: RpcSignerWorkerProgressEvent['status'],
+  message?: string,
+): void {
+  const label = ethSignerOperationLabel(type);
+  const payload: RpcSignerWorkerProgressEvent = {
+    phase: `eth_signer.${type}.${status}`,
+    status,
+    message:
+      message ||
+      (status === 'running'
+        ? `Running ${label}`
+        : status === 'succeeded'
+          ? `Completed ${label}`
+          : `Failed ${label}`),
+    data: { worker: 'ethSigner', operation: type },
+  };
+  postToMainThread({ id, progress: true, payload });
+}
+
+function postOperationSucceeded(
+  msg: EthSignerWorkerRequest,
+  result: unknown,
+  transfer?: Transferable[],
+): void {
+  postWorkerOperationProgress(msg.id, msg.type, 'succeeded');
+  postToMainThread({ id: msg.id, ok: true, result }, transfer);
+}
+
 type PresignProgressResult = {
   stage: 'triples' | 'triples_done' | 'presign' | 'done';
   event: 'none' | 'triples_done' | 'presign_done';
@@ -280,12 +344,13 @@ self.addEventListener('message', async (event: MessageEvent) => {
   if (!msg?.id || !msg?.type) return;
 
   try {
+    postWorkerOperationProgress(msg.id, msg.type, 'running');
     await ensureWasm();
     switch (msg.type) {
       case 'computeEip1559TxHash': {
         const out = compute_eip1559_tx_hash(msg.payload.tx) as Uint8Array;
         const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+        postOperationSucceeded(msg, ab, [ab]);
         return;
       }
       case 'encodeEip1559SignedTxFromSignature65': {
@@ -294,7 +359,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           toU8(msg.payload.signature65),
         ) as Uint8Array;
         const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+        postOperationSucceeded(msg, ab, [ab]);
         return;
       }
       case 'signSecp256k1Recoverable': {
@@ -304,7 +369,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const out = sign_secp256k1_recoverable(digest32, privateKey32) as Uint8Array;
           const ab = out.slice().buffer;
           zeroizeBytes(out);
-          postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+          postOperationSucceeded(msg, ab, [ab]);
           return;
         } finally {
           zeroizeBytes(digest32);
@@ -317,7 +382,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const out = secp256k1_private_key_32_to_public_key_33(privateKey32) as Uint8Array;
           const ab = out.slice().buffer;
           zeroizeBytes(out);
-          postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+          postOperationSucceeded(msg, ab, [ab]);
           return;
         } finally {
           zeroizeBytes(privateKey32);
@@ -337,15 +402,12 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const publicKey33 = out.slice(32, 65).buffer;
           const ethereumAddress20 = out.slice(65, 85).buffer;
           zeroizeBytes(out);
-          postToMainThread(
+          postOperationSucceeded(
+            msg,
             {
-              id: msg.id,
-              ok: true,
-              result: {
-                privateKey32,
-                publicKey33,
-                ethereumAddress20,
-              },
+              privateKey32,
+              publicKey33,
+              ethereumAddress20,
             },
             [privateKey32, publicKey33, ethereumAddress20],
           );
@@ -369,7 +431,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           }
           const ab = out.slice().buffer;
           zeroizeBytes(out);
-          postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+          postOperationSucceeded(msg, ab, [ab]);
           return;
         } finally {
           zeroizeBytes(additiveShare32);
@@ -384,7 +446,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           );
         }
         const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+        postOperationSucceeded(msg, ab, [ab]);
         return;
       }
       case 'addSecp256k1PublicKeys33': {
@@ -395,7 +457,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           throw new Error(`add_secp256k1_public_keys_33 must return 33 bytes (got ${out.length})`);
         }
         const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+        postOperationSucceeded(msg, ab, [ab]);
         return;
       }
       case 'buildWebauthnP256Signature': {
@@ -411,7 +473,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           toU8(msg.payload.pubKeyY32),
         ) as Uint8Array;
         const ab = out.slice().buffer;
-        postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+        postOperationSucceeded(msg, ab, [ab]);
         return;
       }
       case 'thresholdEcdsaPresignSessionInit': {
@@ -439,7 +501,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const progress = pollPresignSession(sessionId, session);
           const transferables = [...progress.outgoingMessages];
           if (progress.presignature97) transferables.push(progress.presignature97);
-          postToMainThread({ id: msg.id, ok: true, result: progress }, transferables);
+          postOperationSucceeded(msg, progress, transferables);
           return;
         } finally {
           zeroizeBytes(clientThresholdSigningShare32);
@@ -479,14 +541,14 @@ self.addEventListener('message', async (event: MessageEvent) => {
         const progress = pollPresignSession(sessionId, session);
         const transferables = [...progress.outgoingMessages];
         if (progress.presignature97) transferables.push(progress.presignature97);
-        postToMainThread({ id: msg.id, ok: true, result: progress }, transferables);
+        postOperationSucceeded(msg, progress, transferables);
         return;
       }
       case 'thresholdEcdsaPresignSessionAbort': {
         const sessionId = String(msg.payload.sessionId || '').trim();
         if (!sessionId) throw new Error('Missing sessionId');
         freePresignSession(sessionId);
-        postToMainThread({ id: msg.id, ok: true, result: { ok: true } });
+        postOperationSucceeded(msg, { ok: true });
         return;
       }
       case 'thresholdEcdsaComputeSignatureShare': {
@@ -513,7 +575,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           ) as Uint8Array;
           const ab = out.slice().buffer;
           zeroizeBytes(out);
-          postToMainThread({ id: msg.id, ok: true, result: ab }, [ab]);
+          postOperationSucceeded(msg, ab, [ab]);
           return;
         } finally {
           zeroizeBytes(presignKShare32);
@@ -539,6 +601,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
       if (sessionId) freePresignSession(sessionId);
     }
     const err = asWorkerErrorPayload(e);
+    postWorkerOperationProgress(msg.id, msg.type, 'failed', err.message);
     postToMainThread({
       id: msg.id,
       ok: false,

@@ -28,6 +28,7 @@ export function registerCreateAccountAndRegisterUser(
           apiKeyAuth: ctx.opts.apiKeyAuth,
           apiKeyUsageMeter: ctx.opts.apiKeyUsageMeter,
           bootstrapTokenStore: ctx.opts.bootstrapTokenStore,
+          orgProjectEnv: ctx.opts.orgProjectEnv,
           session: ctx.opts.session,
           smartAccountDeploy: ctx.opts.smartAccountDeploy,
         },

@@ -143,7 +143,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_ENROLL_EMAIL_OTP: async (req: Req<'PM_ENROLL_EMAIL_OTP'>) => {
       const pm = getTatchiPasskey();
-      const result = await pm.auth.enrollEmailOtp(req.payload!);
+      const payload = withProgress(req.requestId, req.payload || {});
+      const result = await pm.auth.enrollEmailOtp(
+        payload as Parameters<typeof pm.auth.enrollEmailOtp>[0],
+      );
       respondOkResult(req.requestId, result);
     },
 
@@ -151,7 +154,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       req: Req<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'>,
     ) => {
       const pm = getTatchiPasskey();
-      const result = await pm.auth.loginWithEmailOtpEcdsaCapability(req.payload!);
+      const payload = withProgress(req.requestId, req.payload || {});
+      const result = await pm.auth.loginWithEmailOtpEcdsaCapability(
+        payload as Parameters<typeof pm.auth.loginWithEmailOtpEcdsaCapability>[0],
+      );
       respondOkResult(req.requestId, result);
     },
 
@@ -159,7 +165,10 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       req: Req<'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'>,
     ) => {
       const pm = getTatchiPasskey();
-      const result = await pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability(req.payload!);
+      const payload = withProgress(req.requestId, req.payload || {});
+      const result = await pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability(
+        payload as Parameters<typeof pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability>[0],
+      );
       respondOkResult(req.requestId, result);
     },
 

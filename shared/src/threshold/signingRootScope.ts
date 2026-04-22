@@ -4,6 +4,7 @@ export type RuntimePolicyScope = {
   readonly orgId: string;
   readonly projectId: string;
   readonly envId: string;
+  readonly signingRootVersion: string;
 };
 
 export type SigningRootScope = {
@@ -27,6 +28,18 @@ export function deriveSigningRootId(input: {
 }
 
 export function normalizeRuntimePolicyScope(input: unknown): RuntimePolicyScope {
+  const scope = normalizeRuntimePolicyScopeFields(input);
+  return {
+    ...scope,
+    signingRootVersion: requireScopeField('signingRootVersion', scope.signingRootVersion),
+  };
+}
+
+export function normalizeRuntimePolicyScopeFields(
+  input: unknown,
+): Omit<RuntimePolicyScope, 'signingRootVersion'> & {
+  readonly signingRootVersion?: string;
+} {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new Error('runtimePolicyScope must be an object');
   }
@@ -41,6 +54,9 @@ export function normalizeRuntimePolicyScope(input: unknown): RuntimePolicyScope 
     orgId: requireScopeField('orgId', scope.orgId),
     projectId: requireScopeField('projectId', scope.projectId),
     envId: requireScopeField('envId', scope.envId),
+    ...(toOptionalTrimmedString(scope.signingRootVersion)
+      ? { signingRootVersion: toOptionalTrimmedString(scope.signingRootVersion)! }
+      : {}),
   };
 }
 
@@ -49,6 +65,7 @@ export function signingRootScopeFromRuntimePolicyScope(
 ): SigningRootScope {
   return {
     signingRootId: deriveSigningRootId(scope),
+    signingRootVersion: requireScopeField('signingRootVersion', scope.signingRootVersion),
   };
 }
 

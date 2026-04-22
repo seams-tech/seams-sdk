@@ -151,6 +151,7 @@ function parsePublishedUpdateFromOutboxPayload(
   const orgId = String(snapshot.orgId || '').trim();
   const envId = String(snapshot.envId || snapshot.environmentId || '').trim();
   const projectId = String(snapshot.projectId || '').trim();
+  const signingRootVersion = String(snapshot.signingRootVersion || '').trim();
   const snapshotId = String(snapshot.snapshotId || '').trim();
   const checksum = String(snapshot.checksum || '').trim();
   const effectiveAt = String(snapshot.effectiveAt || '').trim();
@@ -159,6 +160,7 @@ function parsePublishedUpdateFromOutboxPayload(
     !orgId ||
     !projectId ||
     !envId ||
+    !signingRootVersion ||
     !snapshotId ||
     !checksum ||
     !effectiveAt ||
@@ -173,6 +175,7 @@ function parsePublishedUpdateFromOutboxPayload(
       orgId,
       projectId,
       envId,
+      signingRootVersion,
     },
     envelope: {
       snapshotId,

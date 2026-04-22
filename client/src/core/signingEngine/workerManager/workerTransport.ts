@@ -37,6 +37,7 @@ import { SignerWorkerOperationError, WorkerControlMessage } from './workerTypes'
 
 type RpcOk<T = unknown> = { id: string; ok: true; result: T };
 type RpcErr = { id: string; ok: false; error: string; code?: string; coreCode?: string };
+type RpcProgressFrame = { id: string; progress: true; payload: unknown };
 
 type NearRpcProgressFrame = {
   id: string;
@@ -61,7 +62,7 @@ type NearRpcErrorFrame = {
 type PendingEntry = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
-  onEvent?: (update: NearWorkerProgressEvent) => void;
+  onEvent?: (update: unknown) => void;
   timeoutId?: ReturnType<typeof setTimeout>;
 };
 
@@ -162,6 +163,16 @@ function isRpcErrorFrame(value: unknown): value is RpcErr {
     typeof (value as { id?: unknown }).id === 'string' &&
     (value as { ok?: unknown }).ok === false &&
     typeof (value as { error?: unknown }).error === 'string'
+  );
+}
+
+function isRpcProgressFrame(value: unknown): value is RpcProgressFrame {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof (value as { id?: unknown }).id === 'string' &&
+    (value as { progress?: unknown }).progress === true &&
+    'payload' in (value as object)
   );
 }
 
@@ -276,7 +287,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       this.getPendingMap('nearSigner').set(requestId, {
         resolve: (value) => resolve(value as NearWorkerOperationResult<T>),
         reject,
-        onEvent,
+        onEvent: onEvent ? (update) => onEvent(update as NearWorkerProgressEvent) : undefined,
         timeoutId,
       });
 
@@ -387,6 +398,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       this.getPendingMap(kind).set(requestId, {
         resolve: (value) => resolve(value as SignerWorkerOperationResult<K, T>),
         reject,
+        onEvent: (request as { onEvent?: (update: unknown) => void }).onEvent,
         timeoutId,
       });
 
@@ -479,6 +491,13 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     }
     if (kind === 'hssClient') {
       this.handleHssWorkerMessage(data);
+      return;
+    }
+
+    if (isRpcProgressFrame(data)) {
+      const pending = this.getPendingMap(kind).get(data.id);
+      if (!pending) return;
+      pending.onEvent?.(data.payload);
       return;
     }
 

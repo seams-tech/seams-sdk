@@ -76,6 +76,7 @@ import type {
   ThresholdEcdsaLoginPrefillResult,
 } from '../signingEngine/SigningEngine';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
+import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
 import { EmailRecoveryDomain } from './near/emailRecovery';
 import {
   exchangeGoogleEmailOtpSession,
@@ -187,8 +188,7 @@ export class TatchiPasskey {
       requestEmailOtpChallenge: async (args) => await this.requestEmailOtpChallenge(args),
       requestEmailOtpEnrollmentChallenge: async (args) =>
         await this.requestEmailOtpEnrollmentChallenge(args),
-      exchangeGoogleEmailOtpSession: async (args) =>
-        await this.exchangeGoogleEmailOtpSession(args),
+      exchangeGoogleEmailOtpSession: async (args) => await this.exchangeGoogleEmailOtpSession(args),
       enrollEmailOtp: async (args) => await this.enrollEmailOtp(args),
       loginWithEmailOtpEcdsaCapability: async (args) =>
         await this.loginWithEmailOtpEcdsaCapability(args),
@@ -562,6 +562,151 @@ export class TatchiPasskey {
     });
   }
 
+  private emitEmailOtpRegistrationWorkerProgress(
+    onEvent: ((event: RegistrationFlowEvent) => void) | undefined,
+    args: {
+      flowId: string;
+      accountId: string;
+      challengeId?: string;
+      chain?: ThresholdEcdsaActivationChain;
+      progress: EmailOtpWorkerProgressEvent;
+    },
+  ): RegistrationEventPhase | null {
+    const base = {
+      flowId: args.flowId,
+      accountId: args.accountId,
+      authMethod: 'email_otp' as const,
+      ...(args.challengeId ? { requestId: args.challengeId } : {}),
+    };
+    switch (args.progress.code) {
+      case 'otp.verify.succeeded':
+        this.emitEmailOtpRegistrationEvent(onEvent, {
+          ...base,
+          phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
+          status: 'succeeded',
+          interaction: { kind: 'otp_input', overlay: 'hide' },
+        });
+        return RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED;
+      case 'signer.email_otp.enroll.started':
+        this.emitEmailOtpRegistrationEvent(onEvent, {
+          ...base,
+          phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
+          status: 'running',
+        });
+        return RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED;
+      case 'signer.email_otp.enroll.succeeded':
+        this.emitEmailOtpRegistrationEvent(onEvent, {
+          ...base,
+          phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
+          status: 'succeeded',
+        });
+        return RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED;
+      case 'signer.ecdsa.bootstrap.started':
+        this.emitEmailOtpRegistrationEvent(onEvent, {
+          ...base,
+          phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
+          status: 'running',
+          data: { chain: args.chain || 'tempo' },
+        });
+        return RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED;
+      case 'signer.ecdsa.bootstrap.prepared':
+        this.emitEmailOtpRegistrationEvent(onEvent, {
+          ...base,
+          phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
+          status: 'running',
+          message: 'Coordinating EVM signing session',
+          data: { chain: args.chain || 'tempo' },
+        });
+        return RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED;
+      case 'signer.ecdsa.bootstrap.responded':
+        this.emitEmailOtpRegistrationEvent(onEvent, {
+          ...base,
+          phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
+          status: 'running',
+          message: 'Finalizing EVM signing session',
+          data: { chain: args.chain || 'tempo' },
+        });
+        return RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED;
+      case 'signer.ecdsa.bootstrap.succeeded':
+        this.emitEmailOtpRegistrationEvent(onEvent, {
+          ...base,
+          phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED,
+          status: 'succeeded',
+          data: { chain: args.chain || 'tempo' },
+        });
+        return RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED;
+      default:
+        return null;
+    }
+  }
+
+  private emitEmailOtpUnlockWorkerProgress(
+    onEvent: ((event: UnlockFlowEvent) => void) | undefined,
+    args: {
+      flowId: string;
+      accountId: string;
+      challengeId?: string;
+      chain?: ThresholdEcdsaActivationChain;
+      progress: EmailOtpWorkerProgressEvent;
+    },
+  ): UnlockEventPhase | null {
+    const chainLabel = args.chain === 'tempo' ? 'Tempo' : 'EVM';
+    const base = {
+      flowId: args.flowId,
+      accountId: args.accountId,
+      authMethod: 'email_otp' as const,
+      ...(args.challengeId ? { requestId: args.challengeId } : {}),
+    };
+    switch (args.progress.code) {
+      case 'otp.verify.succeeded':
+        this.emitEmailOtpUnlockEvent(onEvent, {
+          ...base,
+          phase: UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED,
+          status: 'succeeded',
+          interaction: { kind: 'otp_input', overlay: 'hide' },
+        });
+        return UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED;
+      case 'signer.ecdsa.bootstrap.started':
+        this.emitEmailOtpUnlockEvent(onEvent, {
+          ...base,
+          phase: UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED,
+          status: 'running',
+          message: `Preparing ${chainLabel} signing session`,
+          data: { chain: args.chain || 'tempo' },
+        });
+        return UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED;
+      case 'signer.ecdsa.bootstrap.prepared':
+        this.emitEmailOtpUnlockEvent(onEvent, {
+          ...base,
+          phase: UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED,
+          status: 'running',
+          message: `Coordinating ${chainLabel} signing session`,
+          data: { chain: args.chain || 'tempo' },
+        });
+        return UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED;
+      case 'signer.ecdsa.bootstrap.responded':
+        this.emitEmailOtpUnlockEvent(onEvent, {
+          ...base,
+          phase: UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED,
+          status: 'running',
+          message: `Finalizing ${chainLabel} signing session`,
+          data: { chain: args.chain || 'tempo' },
+        });
+        return UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED;
+      case 'signer.ecdsa.bootstrap.succeeded':
+        this.emitEmailOtpUnlockEvent(onEvent, {
+          ...base,
+          phase: UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED,
+          status: 'running',
+          message: `Saving ${chainLabel} signing session`,
+          data: { chain: args.chain || 'tempo' },
+        });
+        return UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED;
+      default:
+        return null;
+    }
+  }
+
   private emitEmailOtpUnlockFailure(
     onEvent: ((event: UnlockFlowEvent) => void) | undefined,
     input: Omit<CreateUnlockFlowEventInput, 'phase' | 'status' | 'error'> & {
@@ -838,7 +983,18 @@ export class TatchiPasskey {
           status: 'succeeded',
           interaction: { kind: 'otp_input', overlay: 'hide' },
           ...(args.challengeId ? { requestId: args.challengeId } : {}),
-          data: { otpChannel: result.otpChannel, enrollmentSealKeyVersion: result.enrollmentSealKeyVersion },
+          data: {
+            otpChannel: result.otpChannel,
+            enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
+          },
+        });
+        this.emitEmailOtpRegistrationEvent(args.onEvent, {
+          flowId,
+          accountId: args.nearAccountId,
+          authMethod: 'email_otp',
+          phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
+          status: 'running',
+          ...(args.challengeId ? { requestId: args.challengeId } : {}),
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
@@ -868,7 +1024,18 @@ export class TatchiPasskey {
         status: 'succeeded',
         interaction: { kind: 'otp_input', overlay: 'hide' },
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
-        data: { otpChannel: result.otpChannel, enrollmentSealKeyVersion: result.enrollmentSealKeyVersion },
+        data: {
+          otpChannel: result.otpChannel,
+          enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
+        },
+      });
+      this.emitEmailOtpRegistrationEvent(args.onEvent, {
+        flowId,
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
+        status: 'running',
+        ...(args.challengeId ? { requestId: args.challengeId } : {}),
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId,
@@ -956,8 +1123,26 @@ export class TatchiPasskey {
         });
         return result;
       }
-      const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal(args);
-      this.emitEmailOtpUnlockEvent(args.onEvent, {
+      const workerProgressPhases = new Set<UnlockEventPhase>();
+      const markWorkerProgress = (progress: EmailOtpWorkerProgressEvent) => {
+        const phase = this.emitEmailOtpUnlockWorkerProgress(args.onEvent, {
+          flowId,
+          accountId: args.nearAccountId,
+          challengeId: args.challengeId,
+          chain: args.chain,
+          progress,
+        });
+        if (phase) workerProgressPhases.add(phase);
+      };
+      const emitIfWorkerProgressMissing = (input: CreateUnlockFlowEventInput) => {
+        if (workerProgressPhases.has(input.phase)) return;
+        this.emitEmailOtpUnlockEvent(args.onEvent, input);
+      };
+      const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
+        ...args,
+        onProgress: markWorkerProgress,
+      });
+      emitIfWorkerProgressMissing({
         flowId,
         accountId: args.nearAccountId,
         authMethod: 'email_otp',
@@ -966,7 +1151,7 @@ export class TatchiPasskey {
         interaction: { kind: 'otp_input', overlay: 'hide' },
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
       });
-      this.emitEmailOtpUnlockEvent(args.onEvent, {
+      emitIfWorkerProgressMissing({
         flowId,
         accountId: args.nearAccountId,
         authMethod: 'email_otp',
@@ -975,7 +1160,7 @@ export class TatchiPasskey {
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
         data: { chain: args.chain || 'tempo' },
       });
-      this.emitEmailOtpUnlockEvent(args.onEvent, {
+      emitIfWorkerProgressMissing({
         flowId,
         accountId: args.nearAccountId,
         authMethod: 'email_otp',
@@ -1025,8 +1210,9 @@ export class TatchiPasskey {
       flowId,
       accountId: args.nearAccountId,
       authMethod: 'email_otp',
-      phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
+      phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED,
       status: 'running',
+      interaction: { kind: 'otp_input', overlay: 'none' },
       ...(args.challengeId ? { requestId: args.challengeId } : {}),
     });
     try {
@@ -1045,10 +1231,37 @@ export class TatchiPasskey {
           flowId,
           accountId: args.nearAccountId,
           authMethod: 'email_otp',
+          phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
+          status: 'succeeded',
+          interaction: { kind: 'otp_input', overlay: 'hide' },
+          ...(args.challengeId ? { requestId: args.challengeId } : {}),
+          data: { otpChannel: result.enrollment.otpChannel },
+        });
+        this.emitEmailOtpRegistrationEvent(args.onEvent, {
+          flowId,
+          accountId: args.nearAccountId,
+          authMethod: 'email_otp',
+          phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
+          status: 'running',
+          ...(args.challengeId ? { requestId: args.challengeId } : {}),
+        });
+        this.emitEmailOtpRegistrationEvent(args.onEvent, {
+          flowId,
+          accountId: args.nearAccountId,
+          authMethod: 'email_otp',
           phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED,
           status: 'succeeded',
           ...(args.challengeId ? { requestId: args.challengeId } : {}),
           data: { otpChannel: result.enrollment.otpChannel },
+        });
+        this.emitEmailOtpRegistrationEvent(args.onEvent, {
+          flowId,
+          accountId: args.nearAccountId,
+          authMethod: 'email_otp',
+          phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
+          status: 'running',
+          ...(args.challengeId ? { requestId: args.challengeId } : {}),
+          data: { chain: args.chain || 'tempo' },
         });
         this.emitEmailOtpRegistrationEvent(args.onEvent, {
           flowId,
@@ -1069,10 +1282,44 @@ export class TatchiPasskey {
         });
         return result;
       }
-      const result = await this.signingEngine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal(
-        args,
-      );
-      this.emitEmailOtpRegistrationEvent(args.onEvent, {
+      const workerProgressPhases = new Set<RegistrationEventPhase>();
+      const markWorkerProgress = (progress: EmailOtpWorkerProgressEvent) => {
+        const phase = this.emitEmailOtpRegistrationWorkerProgress(args.onEvent, {
+          flowId,
+          accountId: args.nearAccountId,
+          challengeId: args.challengeId,
+          chain: args.chain,
+          progress,
+        });
+        if (phase) workerProgressPhases.add(phase);
+      };
+      const emitIfWorkerProgressMissing = (input: CreateRegistrationFlowEventInput) => {
+        if (workerProgressPhases.has(input.phase)) return;
+        this.emitEmailOtpRegistrationEvent(args.onEvent, input);
+      };
+      const result = await this.signingEngine.enrollAndLoginWithEmailOtpEcdsaCapabilityInternal({
+        ...args,
+        onProgress: markWorkerProgress,
+      });
+      emitIfWorkerProgressMissing({
+        flowId,
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        phase: RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED,
+        status: 'succeeded',
+        interaction: { kind: 'otp_input', overlay: 'hide' },
+        ...(args.challengeId ? { requestId: args.challengeId } : {}),
+        data: { otpChannel: result.enrollment.otpChannel },
+      });
+      emitIfWorkerProgressMissing({
+        flowId,
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        phase: RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED,
+        status: 'running',
+        ...(args.challengeId ? { requestId: args.challengeId } : {}),
+      });
+      emitIfWorkerProgressMissing({
         flowId,
         accountId: args.nearAccountId,
         authMethod: 'email_otp',
@@ -1081,7 +1328,16 @@ export class TatchiPasskey {
         ...(args.challengeId ? { requestId: args.challengeId } : {}),
         data: { otpChannel: result.enrollment.otpChannel },
       });
-      this.emitEmailOtpRegistrationEvent(args.onEvent, {
+      emitIfWorkerProgressMissing({
+        flowId,
+        accountId: args.nearAccountId,
+        authMethod: 'email_otp',
+        phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED,
+        status: 'running',
+        ...(args.challengeId ? { requestId: args.challengeId } : {}),
+        data: { chain: args.chain || 'tempo' },
+      });
+      emitIfWorkerProgressMissing({
         flowId,
         accountId: args.nearAccountId,
         authMethod: 'email_otp',

@@ -34,6 +34,7 @@ type DoReq =
   | { op: 'del'; key: string }
   | { op: 'getdel'; key: string }
   | { op: 'authConsumeUseCount'; key: string }
+  | { op: 'authConsumeUseCountOnce'; key: string; idempotencyKey: string }
   | { op: 'ecdsaPresignPut'; listKey: string; value: unknown }
   | { op: 'ecdsaPresignReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number }
   | {
@@ -66,6 +67,7 @@ type AuthEntry = {
   };
   remainingUses: number;
   expiresAtMs: number;
+  consumedIdempotencyKeys?: Record<string, true>;
 };
 
 type PresignSessionRecord = {
@@ -447,6 +449,46 @@ export class ThresholdStoreDurableObject {
         if (entry.remainingUses <= 0) return err('unauthorized', 'threshold session exhausted');
 
         entry.remainingUses -= 1;
+        const ttlSeconds = Math.max(
+          1,
+          Math.ceil(Math.max(0, entry.expiresAtMs - Date.now()) / 1000),
+        );
+        await store.put(key, entry, { expirationTtl: ttlSeconds });
+
+        return ok({ remainingUses: entry.remainingUses });
+      });
+
+      return json(res);
+    }
+
+    if (op === 'authConsumeUseCountOnce') {
+      const key = toKey((req as { key?: unknown }).key);
+      const idempotencyKey = toKey((req as { idempotencyKey?: unknown }).idempotencyKey);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!idempotencyKey) return json(err('invalid_body', 'Missing idempotencyKey'));
+
+      const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
+        const raw = await store.get(key);
+        const entry = parseAuthEntry(raw);
+        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+
+        if (Date.now() > entry.expiresAtMs) {
+          await store.delete(key);
+          return err('unauthorized', 'threshold session expired');
+        }
+
+        const consumedIdempotencyKeys = entry.consumedIdempotencyKeys || {};
+        if (consumedIdempotencyKeys[idempotencyKey]) {
+          return ok({ remainingUses: entry.remainingUses });
+        }
+
+        if (entry.remainingUses <= 0) return err('unauthorized', 'threshold session exhausted');
+
+        entry.remainingUses -= 1;
+        entry.consumedIdempotencyKeys = {
+          ...consumedIdempotencyKeys,
+          [idempotencyKey]: true,
+        };
         const ttlSeconds = Math.max(
           1,
           Math.ceil(Math.max(0, entry.expiresAtMs - Date.now()) / 1000),

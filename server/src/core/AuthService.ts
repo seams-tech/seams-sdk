@@ -334,7 +334,19 @@ type ThresholdEcdsaBootstrapInput = {
 type ThresholdEd25519BootstrapSession = {
   sessionKind: 'jwt' | 'cookie';
   sessionId: string;
-  walletSigningSessionId?: string;
+  walletSigningSessionId: string;
+  expiresAtMs: number;
+  expiresAt?: string;
+  participantIds?: number[];
+  remainingUses?: number;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  jwt?: string;
+};
+
+type ThresholdEcdsaBootstrapSession = {
+  sessionKind: 'jwt' | 'cookie';
+  sessionId: string;
+  walletSigningSessionId: string;
   expiresAtMs: number;
   expiresAt?: string;
   participantIds?: number[];
@@ -488,15 +500,15 @@ function toThresholdEd25519BootstrapSession(session: {
   runtimePolicyScope?: unknown;
 }): ThresholdEd25519BootstrapSession | null {
   const sessionId = String(session.sessionId || '').trim();
+  const walletSigningSessionId = String(session.walletSigningSessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
-  if (!sessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
+  if (!sessionId || !walletSigningSessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
+    return null;
   return {
     sessionKind: 'jwt',
     sessionId,
-    ...(typeof session.walletSigningSessionId === 'string' && session.walletSigningSessionId.trim()
-      ? { walletSigningSessionId: session.walletSigningSessionId.trim() }
-      : {}),
+    walletSigningSessionId,
     expiresAtMs: Number(expiresAtMs),
     ...(typeof session.expiresAt === 'string' && session.expiresAt.trim()
       ? { expiresAt: session.expiresAt.trim() }
@@ -506,6 +518,39 @@ function toThresholdEd25519BootstrapSession(session: {
       ? { remainingUses: Number(session.remainingUses) }
       : {}),
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+  };
+}
+
+function toThresholdEcdsaBootstrapSession(session: {
+  sessionId?: unknown;
+  walletSigningSessionId?: unknown;
+  expiresAtMs?: unknown;
+  expiresAt?: unknown;
+  participantIds?: unknown;
+  remainingUses?: unknown;
+  runtimePolicyScope?: unknown;
+  jwt?: unknown;
+}): ThresholdEcdsaBootstrapSession | null {
+  const sessionId = String(session.sessionId || '').trim();
+  const walletSigningSessionId = String(session.walletSigningSessionId || '').trim();
+  const expiresAtMs = Number(session.expiresAtMs);
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
+  if (!sessionId || !walletSigningSessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
+    return null;
+  return {
+    sessionKind: 'jwt',
+    sessionId,
+    walletSigningSessionId,
+    expiresAtMs: Number(expiresAtMs),
+    ...(typeof session.expiresAt === 'string' && session.expiresAt.trim()
+      ? { expiresAt: session.expiresAt.trim() }
+      : {}),
+    ...(Array.isArray(session.participantIds) ? { participantIds: session.participantIds } : {}),
+    ...(Number.isFinite(Number(session.remainingUses))
+      ? { remainingUses: Number(session.remainingUses) }
+      : {}),
+    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(typeof session.jwt === 'string' && session.jwt.trim() ? { jwt: session.jwt.trim() } : {}),
   };
 }
 
@@ -775,24 +820,15 @@ export class AuthService {
     projectId: string;
     envId: string;
   } {
-    if (input?.projectId && input.envId) {
-      return { projectId: input.projectId, envId: input.envId };
+    const orgId = toOptionalTrimmedString(input?.orgId);
+    const projectId = toOptionalTrimmedString(input?.projectId);
+    const envId = toOptionalTrimmedString(input?.envId);
+    if (orgId && projectId && envId) {
+      return { projectId, envId };
     }
-    const signingRootId =
-      this.readConfigValue('THRESHOLD_SIGNING_ROOT_ID') ||
-      this.readConfigValue('VITE_TATCHI_ENVIRONMENT_ID') ||
-      '';
-    const separator = signingRootId.indexOf(':');
-    if (separator > 0 && separator < signingRootId.length - 1) {
-      return {
-        projectId: signingRootId.slice(0, separator),
-        envId: signingRootId.slice(separator + 1),
-      };
-    }
-    return {
-      projectId: 'default',
-      envId: String(this.config.networkId || '').trim() || 'default',
-    };
+    throw new Error(
+      'runtimePolicyScope.orgId, runtimePolicyScope.projectId, and runtimePolicyScope.envId are required for hosted wallet id derivation',
+    );
   }
 
   private async deriveHostedOidcWalletId(input: {
@@ -3088,23 +3124,8 @@ export class AuthService {
           relayerVerifyingShareB64u: string;
           participantIds?: number[];
         } | null = null;
-        let thresholdEd25519Session: {
-          sessionKind: 'jwt' | 'cookie';
-          sessionId: string;
-          expiresAtMs: number;
-          expiresAt?: string;
-          participantIds?: number[];
-          remainingUses?: number;
-          runtimePolicyScope?: ThresholdRuntimePolicyScope;
-        } | null = null;
-        let thresholdEcdsaSession: {
-          sessionKind: 'jwt' | 'cookie';
-          sessionId: string;
-          expiresAtMs: number;
-          expiresAt?: string;
-          participantIds?: number[];
-          remainingUses?: number;
-        } | null = null;
+        let thresholdEd25519Session: ThresholdEd25519BootstrapSession | null = null;
+        let thresholdEcdsaSession: ThresholdEcdsaBootstrapSession | null = null;
 
         const rpId = String(
           (request as unknown as { rp_id?: unknown; rpId?: unknown })?.rp_id ??
@@ -3223,17 +3244,11 @@ export class AuthService {
             'thresholdEcdsaRegistrationMaterialMs',
             thresholdEcdsaKeygenStartedAt,
           );
-          thresholdEcdsaSession = {
-            sessionKind: 'jwt',
-            sessionId: String(out.sessionId || '').trim(),
-            expiresAtMs: Number(out.expiresAtMs),
-            ...(out.expiresAt ? { expiresAt: out.expiresAt } : {}),
-            ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
-            ...(Number.isFinite(Number(out.remainingUses))
-              ? { remainingUses: Number(out.remainingUses) }
-              : {}),
-            ...(typeof out.jwt === 'string' && out.jwt.trim() ? { jwt: out.jwt.trim() } : {}),
-          };
+          const normalizedSession = toThresholdEcdsaBootstrapSession(out);
+          if (!normalizedSession) {
+            throw new Error('threshold-ecdsa registration session bootstrap failed');
+          }
+          thresholdEcdsaSession = normalizedSession;
           logDuration(
             registrationTimings,
             'thresholdEcdsaSessionMintMs',
@@ -3476,21 +3491,11 @@ export class AuthService {
                 'threshold-ed25519 registration session bootstrap failed',
             );
           }
-          thresholdEd25519Session = {
-            sessionKind: 'jwt',
-            sessionId: session.sessionId,
-            expiresAtMs: Number(session.expiresAtMs),
-            ...(session.expiresAt ? { expiresAt: session.expiresAt } : {}),
-            ...(Array.isArray(session.participantIds)
-              ? { participantIds: session.participantIds }
-              : {}),
-            ...(Number.isFinite(Number(session.remainingUses))
-              ? { remainingUses: Number(session.remainingUses) }
-              : {}),
-            ...(session.runtimePolicyScope
-              ? { runtimePolicyScope: session.runtimePolicyScope }
-              : {}),
-          };
+          const normalizedSession = toThresholdEd25519BootstrapSession(session);
+          if (!normalizedSession) {
+            throw new Error('threshold-ed25519 registration session bootstrap failed');
+          }
+          thresholdEd25519Session = normalizedSession;
           logDuration(
             registrationTimings,
             'thresholdEd25519SessionMintMs',
@@ -6530,6 +6535,7 @@ export class AuthService {
       session?: {
         sessionKind: 'jwt' | 'cookie';
         sessionId: string;
+        walletSigningSessionId: string;
         expiresAtMs: number;
         expiresAt?: string;
         participantIds?: number[];
@@ -7033,10 +7039,12 @@ export class AuthService {
           session?: {
             sessionKind: 'jwt' | 'cookie';
             sessionId: string;
+            walletSigningSessionId: string;
             expiresAtMs: number;
             expiresAt?: string;
             participantIds?: number[];
             remainingUses?: number;
+            runtimePolicyScope?: ThresholdRuntimePolicyScope;
             jwt?: string;
           };
         };
@@ -7049,10 +7057,12 @@ export class AuthService {
           session?: {
             sessionKind: 'jwt' | 'cookie';
             sessionId: string;
+            walletSigningSessionId: string;
             expiresAtMs: number;
             expiresAt?: string;
             participantIds?: number[];
             remainingUses?: number;
+            runtimePolicyScope?: ThresholdRuntimePolicyScope;
             jwt?: string;
           };
         };
@@ -7241,17 +7251,7 @@ export class AuthService {
             participantIds?: number[];
           }
         | undefined;
-      let thresholdEcdsaSession:
-        | {
-            sessionKind: 'jwt' | 'cookie';
-            sessionId: string;
-            expiresAtMs: number;
-            expiresAt?: string;
-            participantIds?: number[];
-            remainingUses?: number;
-            jwt?: string;
-          }
-        | undefined;
+      let thresholdEcdsaSession: ThresholdEcdsaBootstrapSession | undefined;
       const keygen = {
         relayerKeyId: String(existingThresholdEd25519Binding.relayerKeyId || '').trim(),
         publicKey: existingThresholdEd25519Binding.publicKey,
@@ -7371,17 +7371,15 @@ export class AuthService {
           relayerVerifyingShareB64u,
           ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
         };
-        thresholdEcdsaSession = {
-          sessionKind: 'jwt',
-          sessionId: String(out.sessionId || '').trim(),
-          expiresAtMs: Number(out.expiresAtMs),
-          ...(out.expiresAt ? { expiresAt: out.expiresAt } : {}),
-          ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
-          ...(Number.isFinite(Number(out.remainingUses))
-            ? { remainingUses: Number(out.remainingUses) }
-            : {}),
-          ...(typeof out.jwt === 'string' && out.jwt.trim() ? { jwt: out.jwt.trim() } : {}),
-        };
+        const normalizedSession = toThresholdEcdsaBootstrapSession(out);
+        if (!normalizedSession) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'threshold-ecdsa link-device bootstrap failed',
+          };
+        }
+        thresholdEcdsaSession = normalizedSession;
       }
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();
@@ -7592,10 +7590,12 @@ export class AuthService {
           session?: {
             sessionKind: 'jwt' | 'cookie';
             sessionId: string;
+            walletSigningSessionId: string;
             expiresAtMs: number;
             expiresAt?: string;
             participantIds?: number[];
             remainingUses?: number;
+            runtimePolicyScope?: ThresholdRuntimePolicyScope;
             jwt?: string;
           };
         };
@@ -7608,10 +7608,12 @@ export class AuthService {
           session?: {
             sessionKind: 'jwt' | 'cookie';
             sessionId: string;
+            walletSigningSessionId: string;
             expiresAtMs: number;
             expiresAt?: string;
             participantIds?: number[];
             remainingUses?: number;
+            runtimePolicyScope?: ThresholdRuntimePolicyScope;
             jwt?: string;
           };
         };
@@ -7819,17 +7821,7 @@ export class AuthService {
             participantIds?: number[];
           }
         | undefined;
-      let thresholdEcdsaSession:
-        | {
-            sessionKind: 'jwt' | 'cookie';
-            sessionId: string;
-            expiresAtMs: number;
-            expiresAt?: string;
-            participantIds?: number[];
-            remainingUses?: number;
-            jwt?: string;
-          }
-        | undefined;
+      let thresholdEcdsaSession: ThresholdEcdsaBootstrapSession | undefined;
       const keygen = {
         relayerKeyId: String(existingThresholdEd25519Binding.relayerKeyId || '').trim(),
         publicKey: existingThresholdEd25519Binding.publicKey,
@@ -7949,17 +7941,15 @@ export class AuthService {
           relayerVerifyingShareB64u,
           ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
         };
-        thresholdEcdsaSession = {
-          sessionKind: 'jwt',
-          sessionId: String(out.sessionId || '').trim(),
-          expiresAtMs: Number(out.expiresAtMs),
-          ...(out.expiresAt ? { expiresAt: out.expiresAt } : {}),
-          ...(Array.isArray(out.participantIds) ? { participantIds: out.participantIds } : {}),
-          ...(Number.isFinite(Number(out.remainingUses))
-            ? { remainingUses: Number(out.remainingUses) }
-            : {}),
-          ...(typeof out.jwt === 'string' && out.jwt.trim() ? { jwt: out.jwt.trim() } : {}),
-        };
+        const normalizedSession = toThresholdEcdsaBootstrapSession(out);
+        if (!normalizedSession) {
+          return {
+            ok: false,
+            code: 'internal',
+            message: 'threshold-ecdsa email-recovery bootstrap failed',
+          };
+        }
+        thresholdEcdsaSession = normalizedSession;
       }
 
       const credentialIdB64u = String(registration?.registrationInfo?.credential?.id || '').trim();

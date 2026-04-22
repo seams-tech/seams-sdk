@@ -332,6 +332,7 @@ RELAY_API_KEY_AUTH_ENABLED=1
 # Use real sealed signing-root share storage before using the signer for real funds.
 # THRESHOLD_SIGNING_ROOT_LOCAL_DEV_RESOLVER=1
 # The authenticated project/environment runtime scope supplies signingRootId per request.
+# Active environment metadata supplies signingRootVersion=default for the local fixture.
 # Do not configure a process-wide signing root on the relay for hosted multi-project flows.
 
 # Optional signing-session seal/unseal routes for refresh rehydrate.

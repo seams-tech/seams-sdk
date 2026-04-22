@@ -93,7 +93,7 @@ function installEmailOtpSessionsFixture(
   engineAny: any,
   args?: {
     requestWorkerOperation?: (input: { kind: string; request: any }) => Promise<any>;
-    requestChallengeForSigning?: (input: Record<string, unknown>) => Promise<{
+    requestTransactionSigningChallenge?: (input: Record<string, unknown>) => Promise<{
       challengeId: string;
       emailHint?: string;
       appSessionJwt?: string;
@@ -137,8 +137,8 @@ function installEmailOtpSessionsFixture(
     persistWarmSessionEd25519Capability,
     hydrateSigningSession: async () => undefined,
   }) as any;
-  if (args?.requestChallengeForSigning) {
-    coordinator.requestChallengeForSigning = args.requestChallengeForSigning;
+  if (args?.requestTransactionSigningChallenge) {
+    coordinator.requestTransactionSigningChallenge = args.requestTransactionSigningChallenge;
   }
   if (args?.loginWithEcdsaCapabilityForSigning) {
     coordinator.loginWithEcdsaCapabilityForSigning = args.loginWithEcdsaCapabilityForSigning;
@@ -525,6 +525,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       orgId: 'org_test',
       envId: 'env_test',
       projectId: 'project_test',
+      signingRootVersion: 'v1',
     };
     const workerRequests: Array<Record<string, any>> = [];
     const { engine, persistCalls, upsertCalls, readyChecks, ed25519ProvisionCalls } = makeEngine({
@@ -736,7 +737,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect(result.warmCapability.state).toBe('ready');
   });
 
-  test('operation-specific ECDSA Email OTP bootstrap forwards operation to worker verify', async () => {
+  test('transaction-specific ECDSA Email OTP bootstrap forwards operation to worker verify', async () => {
     const walletId = 'alice.testnet';
     const workerRequests: Array<Record<string, any>> = [];
     const { engine } = makeEngine({
@@ -762,9 +763,9 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     await engine.loginWithEmailOtpEcdsaCapabilityInternal({
       nearAccountId: walletId,
       chain: 'evm',
-      challengeId: 'export-challenge',
+      challengeId: 'sign-challenge',
       otpCode: '123456',
-      operation: 'export_key' as any,
+      operation: 'transaction_sign' as any,
       appSessionJwt: 'app-session-jwt',
       routeAuth: { kind: 'app_session', jwt: 'app-session-jwt' },
       ecdsaThresholdKeyId: 'ecdsa-key-worker',
@@ -774,16 +775,16 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     });
 
     expect(workerRequests[0]?.request.payload).toMatchObject({
-      challengeId: 'export-challenge',
+      challengeId: 'sign-challenge',
       routePlan: {
         routeFamily: 'login',
         authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
-        operation: 'export_key',
+        operation: 'transaction_sign',
       },
     });
   });
 
-  test('operation-specific ECDSA Email OTP bootstrap prefers app-session auth over stale threshold-session auth', async () => {
+  test('transaction ECDSA Email OTP reauth uses signing-session auth instead of app-session fallback', async () => {
     const walletId = 'alice.testnet';
     const internalLoginRequests: Array<Record<string, any>> = [];
     const engine = Object.create(SigningEngine.prototype) as SigningEngine;
@@ -798,10 +799,15 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     await emailOtpSessions.loginWithEcdsaCapabilityForSigning({
       nearAccountId: walletId,
       chain: 'evm',
-      challengeId: 'export-challenge',
+      challengeId: 'sign-challenge',
       otpCode: '123456',
-      operation: 'export_key',
-      appSessionJwt: 'app-session-jwt',
+      authLane: {
+        kind: 'signing_session',
+        jwt: 'threshold-session-jwt-stale',
+        thresholdSessionId: 'ecdsa-session-worker',
+        curve: 'ecdsa',
+        chain: 'evm',
+      },
       record: {
         nearAccountId: walletId,
         chain: 'evm',
@@ -816,21 +822,24 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
     expect(internalLoginRequests).toEqual([
       expect.objectContaining({
-        operation: 'export_key',
+        operation: 'transaction_sign',
         routePlan: {
-          routeFamily: 'login',
+          routeFamily: 'signing_session',
           authLane: {
-            kind: 'app_session',
-            jwt: 'app-session-jwt',
+            kind: 'signing_session',
+            jwt: 'threshold-session-jwt-stale',
+            thresholdSessionId: 'ecdsa-session-worker',
+            curve: 'ecdsa',
+            chain: 'evm',
           },
-          operation: 'export_key',
+          operation: 'transaction_sign',
         },
       }),
     ]);
     expect(internalLoginRequests[0]).not.toHaveProperty('sessionId');
   });
 
-  test('transaction ECDSA Email OTP reauth preserves session policy instead of forcing single use', async () => {
+  test('transaction ECDSA Email OTP reauth provisions a one-use transaction session', async () => {
     const walletId = 'alice.testnet';
     const internalLoginRequests: Array<Record<string, any>> = [];
     const engine = Object.create(SigningEngine.prototype) as SigningEngine;
@@ -855,8 +864,13 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       chain: 'tempo',
       challengeId: 'sign-challenge',
       otpCode: '123456',
-      operation: 'transaction_sign',
-      appSessionJwt: 'app-session-jwt',
+      authLane: {
+        kind: 'signing_session',
+        jwt: 'threshold-session-jwt-stale',
+        thresholdSessionId: 'ecdsa-session-worker',
+        curve: 'ecdsa',
+        chain: 'tempo',
+      },
       record: {
         nearAccountId: walletId,
         chain: 'tempo',
@@ -880,12 +894,18 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect(internalLoginRequests[0]).toMatchObject({
       chain: 'tempo',
       operation: 'transaction_sign',
-      emailOtpAuthPolicy: 'session',
+      emailOtpAuthPolicy: 'per_operation',
       emailOtpAuthReason: 'sign',
-      remainingUses: 11,
+      remainingUses: 1,
       routePlan: {
-        routeFamily: 'login',
-        authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
+        routeFamily: 'signing_session',
+        authLane: {
+          kind: 'signing_session',
+          jwt: 'threshold-session-jwt-stale',
+          thresholdSessionId: 'ecdsa-session-worker',
+          curve: 'ecdsa',
+          chain: 'tempo',
+        },
         operation: 'transaction_sign',
       },
     });
@@ -918,9 +938,9 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     await engine.loginWithEmailOtpEcdsaCapabilityInternal({
       nearAccountId: walletId,
       chain: 'evm',
-      challengeId: 'export-challenge',
+      challengeId: 'sign-challenge',
       otpCode: '123456',
-      operation: 'export_key' as any,
+      operation: 'transaction_sign' as any,
       routeAuth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
       ecdsaThresholdKeyId: 'ecdsa-key-worker',
       participantIds: [1, 2],
@@ -935,7 +955,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         jwt: thresholdSessionJwt,
         curve: 'ecdsa',
       },
-      operation: 'export_key',
+      operation: 'transaction_sign',
     });
   });
 
@@ -1137,14 +1157,12 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     const engineAny = engine as any;
     const confirmationTypes: string[] = [];
     const challengeRequests: Array<Record<string, unknown>> = [];
-    const loginRequests: Array<Record<string, unknown>> = [];
     const workerRequests: Array<Record<string, any>> = [];
     const consumedSessions: Array<Record<string, unknown>> = [];
     const restoredRecords: Array<Record<string, unknown>> = [];
     const refreshRequests: Array<{ url: string; body: unknown }> = [];
     const keyRef = makeWorkerBootstrap({ walletId }).thresholdEcdsaKeyRef;
     const originalFetch = globalThis.fetch;
-    const refreshedThresholdSessionJwt = makeThresholdSessionJwt('threshold_ecdsa_session_v1');
     const originalThresholdSessionJwt = makeThresholdSessionJwt('threshold_ecdsa_session_v1');
     let ecdsaRecord: Record<string, unknown> = {
       nearAccountId: walletId,
@@ -1171,15 +1189,16 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       });
     }) as typeof fetch;
     installEmailOtpSessionsFixture(engineAny, {
-      requestChallengeForSigning: async (input: Record<string, unknown>) => {
-        challengeRequests.push(input);
-        return { challengeId: 'export-challenge', emailHint: 'alice@example.test' };
-      },
-      loginWithEcdsaCapabilityForSigning: async (input: Record<string, unknown>) => {
-        loginRequests.push(input);
-        ecdsaRecord = {
-          ...ecdsaRecord,
-          thresholdSessionJwt: refreshedThresholdSessionJwt,
+      requestWorkerOperation: async (input: { kind: string; request: any }) => {
+        workerRequests.push(input);
+        if (input.request?.type === 'requestEmailOtpChallenge') {
+          challengeRequests.push(input.request.payload);
+          return { challengeId: 'export-challenge', emailHint: 'alice@example.test' };
+        }
+        return {
+          publicKeyHex: '02'.padEnd(66, '1'),
+          privateKeyHex: 'ab'.repeat(32),
+          ethereumAddress: '0x1111111111111111111111111111111111111111',
         };
       },
     });
@@ -1247,63 +1266,56 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect(refreshRequests).toEqual([]);
     expect(challengeRequests).toEqual([
       {
-        nearAccountId: walletId,
-        chain: 'evm',
-        operation: 'export_key',
-        routeAuth: {
-          kind: 'threshold_session',
-          jwt: originalThresholdSessionJwt,
+        relayUrl: 'https://relay.example',
+        walletId,
+        routePlan: {
+          routeFamily: 'signing_session',
+          authLane: {
+            kind: 'signing_session',
+            jwt: originalThresholdSessionJwt,
+            thresholdSessionId: 'ecdsa-session-worker',
+            curve: 'ecdsa',
+            chain: 'evm',
+          },
+          operation: 'export_key',
         },
+        otpChannel: 'email_otp',
       },
-    ]);
-    expect(loginRequests).toEqual([
-      expect.objectContaining({
-        nearAccountId: walletId,
-        chain: 'evm',
-        challengeId: 'export-challenge',
-        otpCode: '123456',
-        operation: 'export_key',
-        routeAuth: {
-          kind: 'threshold_session',
-          jwt: originalThresholdSessionJwt,
-        },
-      }),
     ]);
     expect(workerRequests).toEqual([
       expect.objectContaining({
         kind: 'emailOtp',
         request: expect.objectContaining({
-          type: 'exportThresholdEcdsaHssKeyFromEmailOtpWarmSession',
+          type: 'requestEmailOtpChallenge',
+        }),
+      }),
+      expect.objectContaining({
+        kind: 'emailOtp',
+        request: expect.objectContaining({
+          type: 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization',
           payload: expect.objectContaining({
+            walletId,
             userId: walletId,
+            challengeId: 'export-challenge',
+            otpCode: '123456',
             rpId: 'example.localhost',
-            sessionId: 'ecdsa-session-worker',
-            thresholdSessionJwt: refreshedThresholdSessionJwt,
+            thresholdSessionJwt: originalThresholdSessionJwt,
             ecdsaThresholdKeyId: 'ecdsa-key-worker',
             chain: 'evm',
+            routePlan: expect.objectContaining({
+              routeFamily: 'signing_session',
+              operation: 'export_key',
+            }),
           }),
         }),
       }),
     ]);
-    expect(consumedSessions).toEqual([
-      {
-        nearAccountId: walletId,
-        chain: 'evm',
-      },
-    ]);
-    expect(restoredRecords).toEqual([
-      expect.objectContaining({
-        nearAccountId: walletId,
-        chain: 'evm',
-        source: 'email_otp',
-        thresholdSessionId: 'ecdsa-session-worker',
-        thresholdSessionJwt: originalThresholdSessionJwt,
-      }),
-    ]);
+    expect(consumedSessions).toEqual([]);
+    expect(restoredRecords).toEqual([]);
     expect(confirmationTypes).toEqual(['signIntentDigest', 'showSecurePrivateKeyUi']);
   });
 
-  test('consumes Email OTP ECDSA export session even when export viewer fails', async () => {
+  test('does not consume Email OTP ECDSA signing session when export viewer fails', async () => {
     const walletId = 'alice.testnet';
     const engine = Object.create(SigningEngine.prototype) as SigningEngine;
     const engineAny = engine as any;
@@ -1311,11 +1323,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     const restoredRecords: Array<Record<string, unknown>> = [];
     const originalFetch = globalThis.fetch;
     const keyRef = makeWorkerBootstrap({ walletId }).thresholdEcdsaKeyRef;
-    const refreshedAppSessionJwt = makeUnsignedJwt({
-      kind: 'app_session_v1',
-      exp: Math.floor(Date.now() / 1000) + 3600,
-    });
-    const refreshedThresholdSessionJwt = makeUnsignedJwt({
+    const originalThresholdSessionJwt = makeUnsignedJwt({
       kind: 'threshold_ecdsa_session_v1',
       sub: walletId,
       walletId,
@@ -1329,31 +1337,26 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       ecdsaThresholdKeyId: 'ecdsa-key-worker',
       thresholdSessionId: 'ecdsa-session-worker',
       thresholdSessionKind: 'jwt',
-      thresholdSessionJwt: makeUnsignedJwt({
-        kind: 'threshold_ecdsa_session_v1',
-        sub: walletId,
-        walletId,
-        exp: Math.floor(Date.now() / 1000) + 3600,
-      }),
+      thresholdSessionJwt: originalThresholdSessionJwt,
     };
 
     engineAny.theme = 'dark';
     engineAny.getRpId = () => 'example.localhost';
     engineAny.getThresholdEcdsaSessionRecordForSigning = () => ecdsaRecord;
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ ok: true, jwt: refreshedAppSessionJwt }), {
+      new Response(JSON.stringify({ ok: true, jwt: 'unexpected-refresh' }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })) as typeof fetch;
     installEmailOtpSessionsFixture(engineAny, {
-      requestChallengeForSigning: async () => ({
-        challengeId: 'export-challenge',
-        emailHint: 'alice@example.test',
-      }),
-      loginWithEcdsaCapabilityForSigning: async () => {
-        ecdsaRecord = {
-          ...ecdsaRecord,
-          thresholdSessionJwt: refreshedThresholdSessionJwt,
+      requestWorkerOperation: async (input: { kind: string; request: any }) => {
+        if (input.request?.type === 'requestEmailOtpChallenge') {
+          return { challengeId: 'export-challenge', emailHint: 'alice@example.test' };
+        }
+        return {
+          publicKeyHex: '02'.padEnd(66, '1'),
+          privateKeyHex: 'ab'.repeat(32),
+          ethereumAddress: '0x1111111111111111111111111111111111111111',
         };
       },
     });
@@ -1402,23 +1405,15 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       globalThis.fetch = originalFetch;
     }
 
-    expect(consumedSessions).toEqual([
-      {
-        nearAccountId: walletId,
-        chain: 'evm',
-      },
-    ]);
-    expect(restoredRecords).toEqual([
-      expect.objectContaining({
-        nearAccountId: walletId,
-        chain: 'evm',
-        source: 'email_otp',
-        thresholdSessionId: 'ecdsa-session-worker',
-      }),
-    ]);
+    expect(consumedSessions).toEqual([]);
+    expect(restoredRecords).toEqual([]);
+    expect(ecdsaRecord).toMatchObject({
+      thresholdSessionId: 'ecdsa-session-worker',
+      thresholdSessionJwt: originalThresholdSessionJwt,
+    });
   });
 
-  test('discard cached threshold-session JWT before Email OTP ECDSA export refresh', async () => {
+  test('discard cached threshold-session JWT before Email OTP app-session refresh', async () => {
     const walletId = 'alice.testnet';
     const engine = Object.create(SigningEngine.prototype) as SigningEngine;
     const engineAny = engine as any;
@@ -1470,7 +1465,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect(emailOtpSessions.appSessionJwtByAccount.get(walletId)).toBe(refreshedAppSessionJwt);
   });
 
-  test('uses unexpired cached app-session JWT for Email OTP export challenge', async () => {
+  test('uses unexpired cached app-session JWT for Email OTP login-route challenge', async () => {
     const walletId = 'alice.testnet';
     const engine = Object.create(SigningEngine.prototype) as SigningEngine;
     const engineAny = engine as any;
@@ -1510,7 +1505,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect(emailOtpSessions.appSessionJwtByAccount.get(walletId)).toBe(cachedAppSessionJwt);
   });
 
-  test('does not restore app-session JWT from sessionStorage after reload for Email OTP export challenge', async () => {
+  test('does not restore app-session JWT from sessionStorage after reload', async () => {
     const walletId = 'alice.testnet';
     const firstEngine = Object.create(SigningEngine.prototype) as SigningEngine;
     const secondEngine = Object.create(SigningEngine.prototype) as SigningEngine;
@@ -1589,10 +1584,12 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       },
     ]);
     expect(sessionStorageMap.size).toBe(0);
-    expect(secondEmailOtpSessions.appSessionJwtByAccount.get(walletId)).toBe(refreshedAppSessionJwt);
+    expect(secondEmailOtpSessions.appSessionJwtByAccount.get(walletId)).toBe(
+      refreshedAppSessionJwt,
+    );
   });
 
-  test('refreshes expired cached app-session JWT before Email OTP export challenge', async () => {
+  test('refreshes expired cached app-session JWT before Email OTP login-route challenge', async () => {
     const walletId = 'alice.testnet';
     const engine = Object.create(SigningEngine.prototype) as SigningEngine;
     const engineAny = engine as any;
@@ -1650,7 +1647,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     const expectedPublicKey = 'ed25519:email-otp-public-key';
     const confirmationTypes: string[] = [];
     const challengeRequests: Array<Record<string, unknown>> = [];
-    const loginRequests: Array<Record<string, unknown>> = [];
+    const exportRecoveryRequests: Array<Record<string, any>> = [];
     const hssExportRequests: Array<Record<string, unknown>> = [];
     const consumedSessions: Array<Record<string, unknown>> = [];
     const refreshRequests: Array<{ url: string; body: unknown }> = [];
@@ -1704,37 +1701,16 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       });
     }) as typeof fetch;
     installEmailOtpSessionsFixture(engineAny, {
-      requestChallengeForSigning: async (input: Record<string, unknown>) => {
-        challengeRequests.push(input);
-        return { challengeId: 'export-challenge', emailHint: 'alice@example.test' };
-      },
-      loginWithEd25519CapabilityForSigning: async (input: Record<string, unknown>) => {
-        loginRequests.push(input);
-        persistWarmSessionEd25519Capability({
-          nearAccountId: walletId,
-          rpId: 'example.localhost',
-          relayerUrl: 'https://relay.example',
-          relayerKeyId: 'ed25519-relayer-key',
-          runtimePolicyScope: {
-            orgId: 'org_local',
-            projectId: 'proj_local',
-            envId: 'dev',
-          },
-          participantIds: [1, 2],
-          sessionId: 'ed25519-email-otp-export-session-refreshed',
-          expiresAtMs: Date.now() + 60_000,
-          remainingUses: 1,
-          jwt: 'ed25519-jwt-refreshed',
-          xClientBaseB64u: 'x-client-base-refreshed',
-          emailOtpAuthContext: {
-            policy: 'per_operation',
-            retention: 'single_use',
-            reason: 'sign',
-            authMethod: 'email_otp',
-          },
-          source: 'email_otp',
-        });
-        return { sessionId: 'ed25519-email-otp-export-session-refreshed' };
+      requestWorkerOperation: async (input: { kind: string; request: any }) => {
+        if (input.request?.type === 'requestEmailOtpChallenge') {
+          challengeRequests.push(input.request.payload);
+          return { challengeId: 'export-challenge', emailHint: 'alice@example.test' };
+        }
+        exportRecoveryRequests.push(input);
+        return {
+          challengeId: 'export-challenge',
+          thresholdEd25519PrfFirstB64u: 'export-prf-first',
+        };
       },
     });
     engineAny.runNearEd25519OptionAHssExport = async (input: Record<string, unknown>) => {
@@ -1758,13 +1734,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       consumedSessions.push(input);
     };
     engineAny.touchConfirm = {
-      claimWarmSessionMaterial: async (input: Record<string, unknown>) => {
-        expect(input).toEqual({
-          sessionId: 'ed25519-email-otp-export-session-refreshed',
-          uses: 1,
-        });
-        return { ok: true, prfFirstB64u: 'export-prf-first' };
-      },
       requestUserConfirmation: async (request: any) => {
         confirmationTypes.push(String(request.type));
         if (request.type === 'signIntentDigest') {
@@ -1797,6 +1766,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
           orgId: 'org_local',
           projectId: 'proj_local',
           envId: 'dev',
+          signingRootVersion: 'v1',
         },
         participantIds: [1, 2],
         sessionId: 'ed25519-email-otp-export-session',
@@ -1824,26 +1794,37 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       });
       expect(challengeRequests).toEqual([
         {
-          nearAccountId: walletId,
-          chain: 'near',
-          operation: 'export_key',
-          routeAuth: {
-            kind: 'threshold_session',
-            jwt: originalThresholdSessionJwt,
+          relayUrl: 'https://relay.example',
+          walletId,
+          routePlan: {
+            routeFamily: 'signing_session',
+            authLane: {
+              kind: 'signing_session',
+              jwt: originalThresholdSessionJwt,
+              thresholdSessionId: 'ed25519-email-otp-export-session',
+              curve: 'ed25519',
+            },
+            operation: 'export_key',
           },
+          otpChannel: 'email_otp',
         },
       ]);
       expect(refreshRequests).toEqual([]);
-      expect(loginRequests).toEqual([
+      expect(exportRecoveryRequests).toEqual([
         expect.objectContaining({
-          nearAccountId: walletId,
-          challengeId: 'export-challenge',
-          otpCode: '123456',
-          operation: 'export_key',
-          routeAuth: {
-            kind: 'threshold_session',
-            jwt: originalThresholdSessionJwt,
-          },
+          kind: 'emailOtp',
+          request: expect.objectContaining({
+            type: 'recoverEmailOtpEd25519ExportPrfFirst',
+            payload: expect.objectContaining({
+              walletId,
+              challengeId: 'export-challenge',
+              otpCode: '123456',
+              routePlan: expect.objectContaining({
+                routeFamily: 'signing_session',
+                operation: 'export_key',
+              }),
+            }),
+          }),
         }),
       ]);
       expect(hssExportRequests).toEqual([
@@ -1852,19 +1833,14 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
           nearAccountId: walletId,
           keyVersion: 'threshold-ed25519-hss-v1',
           participantIds: [1, 2],
-          thresholdSessionId: 'ed25519-email-otp-export-session-refreshed',
-          thresholdSessionJwt: 'ed25519-jwt-refreshed',
+          thresholdSessionId: 'ed25519-email-otp-export-session',
+          thresholdSessionJwt: originalThresholdSessionJwt,
           relayerUrl: 'https://relay.example',
           relayerKeyId: 'ed25519-relayer-key',
           prfFirstB64u: 'export-prf-first',
         }),
       ]);
-      expect(consumedSessions).toEqual([
-        {
-          nearAccountId: walletId,
-          thresholdSessionId: 'ed25519-email-otp-export-session-refreshed',
-        },
-      ]);
+      expect(consumedSessions).toEqual([]);
       expect(getStoredThresholdEd25519SessionRecordForAccount(walletId)).toMatchObject({
         thresholdSessionId: 'ed25519-email-otp-export-session',
         thresholdSessionJwt: originalThresholdSessionJwt,

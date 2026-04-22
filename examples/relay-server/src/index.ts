@@ -9,6 +9,7 @@ import {
   createRecoveryAuthorityIntervalRunner,
   createEvmSmartAccountDeployHandler,
   createEcdsaAuthSessionStore,
+  createHostedSigningRootShareResolver,
   createSigningSessionSealPolicyFromThresholdAuthSessionStores,
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealShamir3PassCipherAdapter,
@@ -20,10 +21,13 @@ import {
   resolveSponsoredEvmCallConfigFromEnv,
   resolveStaticSponsoredExecutionPricingFromEnv,
   requireEnvVar,
+  type SealedSigningRootSecretShare,
   type ConsoleBillingPrepaidReservationService,
   type ConsoleSponsoredCallService,
   type ConsoleSponsorshipSpendCapService,
+  type SigningRootSecretDecryptAdapter,
   type SigningRootSecretShareId,
+  type SigningRootSecretShareSource,
   type SigningRootShareResolver,
 } from '@tatchi-xyz/sdk/server';
 import {
@@ -247,33 +251,10 @@ const LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES: ReadonlyArray<{
     wireHex: '032ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707',
   },
 ];
+const LOCAL_DEV_SIGNING_ROOT_VERSION = 'default';
 
 function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'));
-}
-
-function cloneLocalDevSigningRootSharePair(
-  preferredShareIds?: readonly [SigningRootSecretShareId, SigningRootSecretShareId],
-): readonly [Uint8Array, Uint8Array] {
-  const shares = new Map<SigningRootSecretShareId, Uint8Array>(
-    LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES.map((share) => [
-      share.shareId,
-      hexToBytes(share.wireHex),
-    ]),
-  );
-  const selectedIds =
-    preferredShareIds ??
-    ([...shares.keys()].sort((a, b) => a - b).slice(0, 2) as [
-      SigningRootSecretShareId,
-      SigningRootSecretShareId,
-    ]);
-  if (selectedIds.length !== 2 || selectedIds[0] === selectedIds[1]) {
-    throw new Error('preferredShareIds must identify two distinct signing-root shares');
-  }
-  const first = shares.get(selectedIds[0]);
-  const second = shares.get(selectedIds[1]);
-  if (!first || !second) throw new Error('requested signing-root shares are not available');
-  return [new Uint8Array(first), new Uint8Array(second)] as const;
 }
 
 function shouldEnableLocalDevSigningRootResolver(input: {
@@ -295,13 +276,41 @@ function shouldEnableLocalDevSigningRootResolver(input: {
 }
 
 function createLocalDevSigningRootShareResolver(): SigningRootShareResolver {
-  return {
-    resolveSigningRootSharePair: async (request) => {
+  const storageAdapter: SigningRootSecretShareSource = {
+    adapterKind: 'local-dev-fixture',
+    listSealedSigningRootSecretShares: async (request) => {
       const signingRootId = String(request.signingRootId || '').trim();
+      const signingRootVersion = String(request.signingRootVersion || '').trim();
       if (!signingRootId) throw new Error('signingRootId is required');
-      return cloneLocalDevSigningRootSharePair(request.preferredShareIds);
+      if (signingRootVersion !== LOCAL_DEV_SIGNING_ROOT_VERSION) {
+        throw new Error(
+          `local-dev signing-root fixture only supports signingRootVersion=${LOCAL_DEV_SIGNING_ROOT_VERSION}`,
+        );
+      }
+      return LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES.map(
+        (share): SealedSigningRootSecretShare => ({
+          signingRootId,
+          signingRootVersion,
+          shareId: share.shareId,
+          sealedShare: hexToBytes(share.wireHex),
+          storageId: 'local-dev-fixture',
+          kekId: 'local-dev-plaintext',
+        }),
+      );
     },
   };
+  const decryptAdapter: SigningRootSecretDecryptAdapter = {
+    adapterKind: 'custom',
+    decryptSigningRootSecretShare: async (record) => {
+      if (record.signingRootVersion !== LOCAL_DEV_SIGNING_ROOT_VERSION) {
+        throw new Error(
+          `local-dev signing-root fixture only supports signingRootVersion=${LOCAL_DEV_SIGNING_ROOT_VERSION}`,
+        );
+      }
+      return new Uint8Array(record.sealedShare);
+    },
+  };
+  return createHostedSigningRootShareResolver({ storageAdapter, decryptAdapter });
 }
 
 async function resolveConsoleDemoOrgId(input: {

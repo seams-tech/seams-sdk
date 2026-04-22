@@ -70,10 +70,11 @@ async function resolveManagedRuntimePolicyScope(args: {
   const orgId = String(grant.orgId || '').trim();
   const projectId = String(grant.projectId || '').trim();
   const envId = String(grant.envId || '').trim();
-  if (!orgId || !projectId || !envId) {
+  const signingRootVersion = String(grant.signingRootVersion || '').trim();
+  if (!orgId || !projectId || !envId || !signingRootVersion) {
     throw new Error('Managed runtime scope lookup response missing canonical runtime scope');
   }
-  return { orgId, projectId, envId };
+  return { orgId, projectId, envId, signingRootVersion };
 }
 
 /**

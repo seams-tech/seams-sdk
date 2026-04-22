@@ -10,9 +10,7 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '../orchestration/thresholdActivation';
 import type { ThresholdRuntimePolicyScope } from '../threshold/session/sessionPolicy';
-import type {
-  WalletEmailOtpChannel,
-} from '@shared/utils/emailOtpDomain';
+import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpRoutePlan } from '../emailOtp/authLane';
 
 /**
@@ -37,6 +35,13 @@ export type ThresholdEcdsaPresignProgressResult = {
   event: ThresholdEcdsaPresignEvent;
   outgoingMessages: ArrayBuffer[];
   presignature97?: ArrayBuffer;
+};
+
+export type RpcSignerWorkerProgressEvent = {
+  phase: string;
+  status: 'running' | 'succeeded' | 'failed';
+  message: string;
+  data?: Record<string, unknown>;
 };
 
 export interface EthSignerWorkerOperationMap {
@@ -137,6 +142,19 @@ export interface TempoSignerWorkerOperationMap {
   };
 }
 
+export type EmailOtpWorkerProgressCode =
+  | 'otp.verify.succeeded'
+  | 'signer.email_otp.enroll.started'
+  | 'signer.email_otp.enroll.succeeded'
+  | 'signer.ecdsa.bootstrap.started'
+  | 'signer.ecdsa.bootstrap.prepared'
+  | 'signer.ecdsa.bootstrap.responded'
+  | 'signer.ecdsa.bootstrap.succeeded';
+
+export type EmailOtpWorkerProgressEvent = {
+  code: EmailOtpWorkerProgressCode;
+};
+
 export interface EmailOtpWorkerOperationMap {
   requestEmailOtpChallenge: {
     payload: {
@@ -228,6 +246,23 @@ export interface EmailOtpWorkerOperationMap {
       };
     };
   };
+  recoverEmailOtpEd25519ExportPrfFirst: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId?: string;
+      challengeId: string;
+      otpCode: string;
+      shamirPrimeB64u: string;
+      routePlan: EmailOtpRoutePlan;
+      otpChannel?: WalletEmailOtpChannel;
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    };
+    result: {
+      challengeId: string;
+      thresholdEd25519PrfFirstB64u: string;
+    };
+  };
   loginWithEmailOtpAndBootstrapEcdsaSession: {
     payload: {
       relayUrl: string;
@@ -314,6 +349,15 @@ export interface EmailOtpWorkerOperationMap {
       | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }
       | { ok: false; code: string; message: string };
   };
+  consumeEmailOtpWarmSessionUses: {
+    payload: {
+      sessionId: string;
+      uses?: number;
+    };
+    result:
+      | { ok: true; remainingUses: number; expiresAtMs: number }
+      | { ok: false; code: string; message: string };
+  };
   sealEmailOtpWarmSessionMaterial: {
     payload: {
       sessionId: string;
@@ -394,16 +438,21 @@ export interface EmailOtpWorkerOperationMap {
       cleared: true;
     };
   };
-  exportThresholdEcdsaHssKeyFromEmailOtpWarmSession: {
+  exportThresholdEcdsaHssKeyWithEmailOtpAuthorization: {
     payload: {
       relayUrl: string;
+      walletId: string;
       userId: string;
+      challengeId: string;
+      otpCode: string;
+      shamirPrimeB64u: string;
+      routePlan: EmailOtpRoutePlan;
       rpId: string;
-      sessionId: string;
       thresholdSessionJwt?: string;
       sessionKind?: 'jwt' | 'cookie';
       ecdsaThresholdKeyId: string;
       chain: 'evm' | 'tempo';
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
     };
     result: {
       publicKeyHex: string;
@@ -437,6 +486,7 @@ export type MultichainWorkerOperationRequest<
 > = {
   type: T;
   payload: MultichainWorkerOperationEntry<K, T>['payload'];
+  onEvent?: (update: RpcSignerWorkerProgressEvent) => void;
   timeoutMs?: number;
   transfer?: Transferable[];
 };
@@ -522,6 +572,14 @@ export type SignerWorkerKind = keyof SignerWorkerOperationMapByKind;
 export type SignerWorkerOperationType<K extends SignerWorkerKind> =
   keyof SignerWorkerOperationMapByKind[K];
 
+export type SignerWorkerProgressEvent<K extends SignerWorkerKind> = K extends 'nearSigner'
+  ? NearWorkerProgressEvent
+  : K extends 'ethSigner' | 'tempoSigner'
+    ? RpcSignerWorkerProgressEvent
+    : K extends 'emailOtp'
+      ? EmailOtpWorkerProgressEvent
+      : never;
+
 type SignerWorkerOperationEntry<
   K extends SignerWorkerKind,
   T extends SignerWorkerOperationType<K>,
@@ -536,12 +594,20 @@ export type SignerWorkerOperationRequest<
   ? NearWorkerOperationRequest<Extract<T, NearWorkerOperationType>>
   : K extends 'hssClient'
     ? HssWorkerOperationRequest<Extract<T, HssWorkerOperationType>>
-    : {
-        type: T;
-        payload: SignerWorkerOperationEntry<K, T>['payload'];
-        timeoutMs?: number;
-        transfer?: Transferable[];
-      };
+    : K extends 'emailOtp' | 'ethSigner' | 'tempoSigner'
+      ? {
+          type: T;
+          payload: SignerWorkerOperationEntry<K, T>['payload'];
+          onEvent?: (update: SignerWorkerProgressEvent<K>) => void;
+          timeoutMs?: number;
+          transfer?: Transferable[];
+        }
+      : {
+          type: T;
+          payload: SignerWorkerOperationEntry<K, T>['payload'];
+          timeoutMs?: number;
+          transfer?: Transferable[];
+        };
 
 export type SignerWorkerOperationResult<
   K extends SignerWorkerKind,

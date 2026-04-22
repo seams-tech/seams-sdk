@@ -250,6 +250,19 @@ export async function ensurePostgresSchema(input: {
       CREATE INDEX IF NOT EXISTS threshold_ed25519_sessions_expires_idx
       ON threshold_ed25519_sessions (expires_at_ms)
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS threshold_ed25519_auth_consumptions (
+        namespace TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, session_id, idempotency_key)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS threshold_ed25519_auth_consumptions_expires_idx
+      ON threshold_ed25519_auth_consumptions (expires_at_ms)
+    `);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS threshold_ecdsa_signing_sessions (

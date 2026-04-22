@@ -51,6 +51,7 @@ type ExportDrawerElement = HTMLElement & {
   showCloseButton?: boolean;
   overpullPx?: number;
   dragToClose?: boolean;
+  closeOnOverlayClick?: boolean;
   contentRoot?: Element | null;
 };
 
@@ -235,7 +236,8 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
       // Auto-fit to content: let Drawer compute visible height from content above the fold.
       drawer.height = undefined;
       drawer.showCloseButton = true;
-      drawer.dragToClose = true;
+      drawer.dragToClose = false;
+      drawer.closeOnOverlayClick = false;
       drawer.overpullPx = 160;
       // Defer open by two frames so slot content renders before initial measurement
       requestAnimationFrame(() =>
@@ -269,24 +271,10 @@ function onMessage(e: MessageEvent<{ type?: unknown; payload?: unknown }>) {
 
 // Forward decision/copy events to parent
 document.addEventListener(LitComponentEvents.CONFIRM, () => postToParent('CONFIRM'));
-// On cancel, wait for the drawer's transform transition to finish, then notify parent.
+let cancelPosted = false;
 document.addEventListener(LitComponentEvents.CANCEL, () => {
-  const drawer = getDrawer();
-  const el = drawer?.shadowRoot?.querySelector?.('.drawer') as HTMLElement | null;
-  if (el) {
-    const onEnd = (ev: TransitionEvent) => {
-      if (ev?.propertyName !== 'transform') return;
-      el.removeEventListener('transitionend', onEnd);
-      postToParent('CANCEL');
-    };
-    // Fallback in case transitionend doesn't fire
-    setTimeout(() => {
-      el.removeEventListener('transitionend', onEnd);
-      postToParent('CANCEL');
-    }, 750);
-    el.addEventListener('transitionend', onEnd);
-    return;
-  }
+  if (cancelPosted) return;
+  cancelPosted = true;
   postToParent('CANCEL');
 });
 document.addEventListener(LitComponentEvents.COPY, (e: Event) => {

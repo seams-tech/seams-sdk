@@ -95,7 +95,8 @@ async function requestManagedRegistrationBootstrapGrant(args: {
   const orgId = String(grant.orgId || '').trim();
   const projectId = String(grant.projectId || '').trim();
   const envId = String(grant.envId || '').trim();
-  if (!token || !orgId || !projectId || !envId) {
+  const signingRootVersion = String(grant.signingRootVersion || '').trim();
+  if (!token || !orgId || !projectId || !envId || !signingRootVersion) {
     throw new Error('Managed registration grant response missing token or runtime scope');
   }
   return {
@@ -104,6 +105,7 @@ async function requestManagedRegistrationBootstrapGrant(args: {
       orgId,
       projectId,
       envId,
+      signingRootVersion,
     },
   };
 }

@@ -62,6 +62,11 @@ type DoSetRequest = { op: 'set'; key: string; value: unknown; ttlMs?: number };
 type DoDelRequest = { op: 'del'; key: string };
 type DoGetDelRequest = { op: 'getdel'; key: string };
 type DoAuthConsumeUseCountRequest = { op: 'authConsumeUseCount'; key: string };
+type DoAuthConsumeUseCountOnceRequest = {
+  op: 'authConsumeUseCountOnce';
+  key: string;
+  idempotencyKey: string;
+};
 type DoEcdsaPresignPutRequest = { op: 'ecdsaPresignPut'; listKey: string; value: unknown };
 type DoEcdsaPresignReserveRequest = {
   op: 'ecdsaPresignReserve';
@@ -95,6 +100,7 @@ type DoRequest =
   | DoDelRequest
   | DoGetDelRequest
   | DoAuthConsumeUseCountRequest
+  | DoAuthConsumeUseCountOnceRequest
   | DoEcdsaPresignPutRequest
   | DoEcdsaPresignReserveRequest
   | DoEcdsaPresignReserveByIdRequest
@@ -301,6 +307,19 @@ export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519Au
     const resp = await callDo<{ remainingUses: number }>(this.stub, {
       op: 'authConsumeUseCount',
       key: this.key(id),
+    });
+    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
+    return { ok: true, remainingUses: resp.value.remainingUses };
+  }
+
+  async consumeUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+    const resp = await callDo<{ remainingUses: number }>(this.stub, {
+      op: 'authConsumeUseCountOnce',
+      key: this.key(id),
+      idempotencyKey,
     });
     if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
     return { ok: true, remainingUses: resp.value.remainingUses };

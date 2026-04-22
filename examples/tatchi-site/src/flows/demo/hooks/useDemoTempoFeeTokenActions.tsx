@@ -28,7 +28,7 @@ type UseDemoTempoFeeTokenActionsArgs = {
   tempoEip1559FeeCaps: Eip1559FeeCaps;
   resolveThresholdSenderForEvmFamily: (opts?: {
     chain?: 'tempo' | 'evm';
-    ensureReady?: boolean;
+    bootstrapIfMissing?: boolean;
   }) => Promise<EvmAddress>;
   refreshTempoUserFeeToken: (opts?: {
     silent?: boolean;
@@ -89,7 +89,6 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         };
         const thresholdSenderPromise = resolveThresholdSenderForEvmFamily({
           chain: 'tempo',
-          ensureReady: true,
         })
           .then((sender) => {
             thresholdSenderForAttempt = sender;

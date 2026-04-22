@@ -7,7 +7,13 @@ export type OidcAccountMode = 'register' | 'login';
 const EMAIL_OTP_RESEND_RETRY_AFTER_MS = 10_000;
 
 export type EmailOtpFailureAuditInput = {
-  source: 'registration_finalize' | 'login_challenge' | 'login_verify' | 'unlock_verify';
+  source:
+    | 'registration_finalize'
+    | 'login_challenge'
+    | 'login_verify'
+    | 'unlock_verify'
+    | 'signing_session_challenge'
+    | 'signing_session_verify';
   code: string;
   message: string;
   challengeId?: string;

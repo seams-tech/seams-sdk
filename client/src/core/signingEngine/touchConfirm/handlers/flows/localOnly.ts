@@ -59,6 +59,7 @@ async function mountExportViewer(
     theme: payload.theme || theme || 'dark',
     variant: payload.variant || (confirmationConfig.uiMode === 'drawer' ? 'drawer' : 'modal'),
     accountId: payload.nearAccountId,
+    sessionId: payload.viewerSessionId,
     publicKey: payload.publicKey,
     privateKey: payload.privateKey,
     keys: Array.isArray(payload.keys) ? payload.keys : undefined,

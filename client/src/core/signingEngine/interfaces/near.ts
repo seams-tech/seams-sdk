@@ -13,14 +13,21 @@ import type { SigningRuntimeDeps } from './runtime';
 import type { WalletAuthPlan } from '../auth';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
+import type {
+  WalletSigningSessionConsumeUseArgs,
+  WalletSigningSessionCoordinator,
+} from '../session/WalletSigningSessionCoordinator';
 
 export type NearEmailOtpSigningHook = {
   challengeId: string;
   emailHint?: string;
   resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
   complete: (otpCode: string, challengeId?: string) => Promise<{ sessionId: string }>;
-  markConsumed?: (thresholdSessionId?: string) => void;
 };
+
+export type NearWalletSigningSessionUseRecorder = (
+  args: WalletSigningSessionConsumeUseArgs,
+) => ReturnType<WalletSigningSessionCoordinator['consumeUse']>;
 
 export type NearEd25519WarmupHook = {
   isPending: () => boolean;
@@ -45,6 +52,7 @@ export type NearTransactionsWithActionsPayload = {
   body?: string;
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
+  consumeWalletSigningSessionUse?: NearWalletSigningSessionUseRecorder;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
   walletAuthPlan?: WalletAuthPlan;

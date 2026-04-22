@@ -10,6 +10,7 @@ import {
   withConsoleTenantContextTx,
 } from '../shared/postgresTenantContext';
 import { ConsoleOrgProjectEnvError } from './errors';
+import { DEFAULT_CONSOLE_SIGNING_ROOT_VERSION } from './types';
 import type {
   CreateConsoleEnvironmentRequest,
   CreateConsoleProjectRequest,
@@ -72,6 +73,17 @@ function defaultEnvironmentId(projectId: string, key: ConsoleEnvironment['key'])
   return `${projectId}:${key}`;
 }
 
+function normalizeSigningRootVersion(input: unknown, fallback?: string): string {
+  const normalized = String(input || '').trim();
+  if (normalized) return normalized;
+  if (fallback) return fallback;
+  throw new ConsoleOrgProjectEnvError(
+    'invalid_signing_root_version',
+    400,
+    'signingRootVersion is required',
+  );
+}
+
 function makeResourceId(prefix: string, now: Date): string {
   return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -106,6 +118,10 @@ function parseEnvironmentRow(row: PgRow): ConsoleEnvironment {
     orgId: String(row.org_id || ''),
     projectId: String(row.project_id || ''),
     key: String(row.env_key || 'prod') as ConsoleEnvironment['key'],
+    signingRootVersion: normalizeSigningRootVersion(
+      row.signing_root_version,
+      DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
+    ),
     name: String(row.name || ''),
     status: String(row.status || 'ACTIVE') as ConsoleEnvironment['status'],
     createdAt: toIso(toNumber(row.created_at_ms)) || new Date(0).toISOString(),
@@ -274,6 +290,7 @@ export async function ensureConsoleOrgProjectEnvPostgresSchema(
         org_id TEXT NOT NULL,
         project_id TEXT NOT NULL,
         env_key TEXT NOT NULL,
+        signing_root_version TEXT NOT NULL DEFAULT 'default',
         name TEXT NOT NULL,
         status TEXT NOT NULL,
         created_at_ms BIGINT NOT NULL,
@@ -286,6 +303,10 @@ export async function ensureConsoleOrgProjectEnvPostgresSchema(
           REFERENCES console_projects(namespace, id, org_id)
           ON DELETE CASCADE
       )
+    `);
+    await pool.query(`
+      ALTER TABLE console_environments
+      ADD COLUMN IF NOT EXISTS signing_root_version TEXT NOT NULL DEFAULT 'default'
     `);
     await pool.query(`
       ALTER TABLE console_environments
@@ -676,9 +697,9 @@ export async function createPostgresConsoleOrgProjectEnvService(
           const environment = await queryOne(
             q,
             `INSERT INTO console_environments
-              (namespace, id, org_id, project_id, env_key, name, status, created_at_ms, updated_at_ms)
+              (namespace, id, org_id, project_id, env_key, signing_root_version, name, status, created_at_ms, updated_at_ms)
              VALUES
-              ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
              ON CONFLICT (namespace, id) DO NOTHING
              RETURNING id`,
             [
@@ -687,6 +708,7 @@ export async function createPostgresConsoleOrgProjectEnvService(
               ctx.orgId,
               projectId,
               key,
+              DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
               environmentNameFromKey(key),
               defaultEnvironmentStatus(key, liveEnvironmentsEnabled),
               nowMs(now),
@@ -877,9 +899,9 @@ export async function createPostgresConsoleOrgProjectEnvService(
         const created = await queryOne(
           q,
           `INSERT INTO console_environments
-            (namespace, id, org_id, project_id, env_key, name, status, created_at_ms, updated_at_ms)
+            (namespace, id, org_id, project_id, env_key, signing_root_version, name, status, created_at_ms, updated_at_ms)
            VALUES
-            ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+            ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
            ON CONFLICT (namespace, id) DO NOTHING
            RETURNING *`,
           [
@@ -888,6 +910,10 @@ export async function createPostgresConsoleOrgProjectEnvService(
             ctx.orgId,
             request.projectId,
             request.key,
+            normalizeSigningRootVersion(
+              request.signingRootVersion,
+              DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
+            ),
             request.name || environmentNameFromKey(request.key),
             request.status || 'ACTIVE',
             nowMs(now),
@@ -930,7 +956,8 @@ export async function createPostgresConsoleOrgProjectEnvService(
           q,
           `UPDATE console_environments
               SET name = $4,
-                  updated_at_ms = $5
+                  signing_root_version = $5,
+                  updated_at_ms = $6
             WHERE namespace = $1 AND org_id = $2 AND id = $3
             RETURNING *`,
           [
@@ -938,6 +965,12 @@ export async function createPostgresConsoleOrgProjectEnvService(
             ctx.orgId,
             environmentId,
             request.name || String(current.name || ''),
+            request.signingRootVersion !== undefined
+              ? normalizeSigningRootVersion(request.signingRootVersion)
+              : normalizeSigningRootVersion(
+                  current.signing_root_version,
+                  DEFAULT_CONSOLE_SIGNING_ROOT_VERSION,
+                ),
             nowMs(now),
           ],
         );

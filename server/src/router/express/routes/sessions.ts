@@ -308,8 +308,6 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
     const statusMatches =
       curveStatus &&
       walletBudgetStatus &&
-      curveStatus.remainingUses > 0 &&
-      walletBudgetStatus.remainingUses > 0 &&
       curveRecord?.userId === userId &&
       curveRecord?.rpId === claims.rpId &&
       curveRecord?.relayerKeyId === claims.relayerKeyId &&
@@ -477,6 +475,60 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       let runtimePolicyScope: RuntimePolicyScope | undefined;
       let isGoogleEmailOtpExchange = false;
 
+      const resolveRuntimePolicyScopeForExchange = async (
+        failureUserId?: string,
+      ): Promise<{ ok: true; scope?: RuntimePolicyScope } | { ok: false }> => {
+        const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
+          explicitScopeRaw: undefined,
+          runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
+            .runtimeEnvironmentId,
+          headers: req.headers || {},
+          origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
+          publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
+          orgProjectEnv: ctx.opts.orgProjectEnv || null,
+        });
+        if (!runtimePolicyScopeResolution.ok) {
+          await emitSessionExchangeFailed({
+            status: runtimePolicyScopeResolution.status,
+            code: runtimePolicyScopeResolution.code,
+            message: runtimePolicyScopeResolution.message,
+            exchangeType,
+            sessionKind,
+            userId: failureUserId,
+          });
+          res.status(runtimePolicyScopeResolution.status).json({
+            ok: false,
+            code: runtimePolicyScopeResolution.code,
+            message: runtimePolicyScopeResolution.message,
+          });
+          return { ok: false };
+        }
+        return { ok: true, scope: runtimePolicyScopeResolution.scope };
+      };
+
+      const requireRuntimePolicyScopeForOidcWallet = async (): Promise<boolean> => {
+        if (!runtimePolicyScope) {
+          const resolution = await resolveRuntimePolicyScopeForExchange(userId);
+          if (!resolution.ok) return false;
+          runtimePolicyScope = resolution.scope;
+        }
+        if (runtimePolicyScope) return true;
+        await emitSessionExchangeFailed({
+          status: 400,
+          code: 'invalid_body',
+          message: 'session/exchange OIDC wallet derivation requires runtimeEnvironmentId',
+          exchangeType,
+          sessionKind,
+          userId,
+        });
+        res.status(400).json({
+          ok: false,
+          code: 'invalid_body',
+          message: 'session/exchange OIDC wallet derivation requires runtimeEnvironmentId',
+        });
+        return false;
+      };
+
       if (exchangeType === 'oidc_jwt') {
         oidcProvider = String((exchange as any).provider || '')
           .trim()
@@ -572,34 +624,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         }
         try {
           if (isGoogleEmailOtpExchange) {
-            const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
-              explicitScopeRaw: undefined,
-              runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
-                .runtimeEnvironmentId,
-              headers: req.headers || {},
-              origin: Array.isArray(req.headers?.origin)
-                ? req.headers.origin[0]
-                : req.headers?.origin,
-              publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
-              orgProjectEnv: ctx.opts.orgProjectEnv || null,
-            });
-            if (!runtimePolicyScopeResolution.ok) {
-              await emitSessionExchangeFailed({
-                status: runtimePolicyScopeResolution.status,
-                code: runtimePolicyScopeResolution.code,
-                message: runtimePolicyScopeResolution.message,
-                exchangeType,
-                sessionKind,
-                userId,
-              });
-              res.status(runtimePolicyScopeResolution.status).json({
-                ok: false,
-                code: runtimePolicyScopeResolution.code,
-                message: runtimePolicyScopeResolution.message,
-              });
-              return;
-            }
-            runtimePolicyScope = runtimePolicyScopeResolution.scope;
+            if (!(await requireRuntimePolicyScopeForOidcWallet())) return;
             const resolution = await ctx.service.resolveGoogleEmailOtpSession({
               providerSubject,
               sub: oidcSub,
@@ -632,11 +657,13 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
                 : {}),
             };
           } else if (oidcProvider !== 'google') {
+            if (!(await requireRuntimePolicyScopeForOidcWallet())) return;
             walletId = await ctx.service.resolveOidcWalletId({
               providerSubject,
               sub: oidcSub,
               email: oidcEmail,
               accountMode: oidcAccountMode,
+              runtimePolicyScope,
             });
           }
         } catch (e: any) {
@@ -762,32 +789,9 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       }
 
       if (!runtimePolicyScope) {
-        const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
-          explicitScopeRaw: undefined,
-          runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
-            .runtimeEnvironmentId,
-          headers: req.headers || {},
-          origin: Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
-          publishableKeyAuth: ctx.opts.publishableKeyAuth || null,
-          orgProjectEnv: ctx.opts.orgProjectEnv || null,
-        });
-        if (!runtimePolicyScopeResolution.ok) {
-          await emitSessionExchangeFailed({
-            status: runtimePolicyScopeResolution.status,
-            code: runtimePolicyScopeResolution.code,
-            message: runtimePolicyScopeResolution.message,
-            exchangeType,
-            sessionKind,
-            userId,
-          });
-          res.status(runtimePolicyScopeResolution.status).json({
-            ok: false,
-            code: runtimePolicyScopeResolution.code,
-            message: runtimePolicyScopeResolution.message,
-          });
-          return;
-        }
-        runtimePolicyScope = runtimePolicyScopeResolution.scope;
+        const resolution = await resolveRuntimePolicyScopeForExchange(userId);
+        if (!resolution.ok) return;
+        runtimePolicyScope = resolution.scope;
       }
 
       const appVersion = await ctx.service.getOrCreateAppSessionVersion({ userId });

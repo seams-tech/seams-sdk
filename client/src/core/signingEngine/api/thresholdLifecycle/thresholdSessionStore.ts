@@ -124,7 +124,7 @@ type VersionedRecord<TRecord> = {
   record: TRecord;
 };
 
-const ECDSA_STORAGE_KEY_PREFIX = 'tatchi:threshold-ecdsa-session:v2';
+const ECDSA_STORAGE_KEY_PREFIX = 'tatchi:threshold-ecdsa-session:v3';
 const ECDSA_STORAGE_INDEX_KEY = `${ECDSA_STORAGE_KEY_PREFIX}:index`;
 const ECDSA_STORAGE_SESSION_INDEX_KEY = `${ECDSA_STORAGE_KEY_PREFIX}:session-index`;
 
@@ -500,7 +500,9 @@ function matchesExpectedSigningRootBinding(
   const expectedSigningRootVersion = normalizeOptionalNonEmptyString(expected?.signingRootVersion);
   if (expectedSigningRootId && record.signingRootId !== expectedSigningRootId) return false;
   if (expectedSigningRootVersion) {
-    return normalizeOptionalNonEmptyString(record.signingRootVersion) === expectedSigningRootVersion;
+    return (
+      normalizeOptionalNonEmptyString(record.signingRootVersion) === expectedSigningRootVersion
+    );
   }
   return true;
 }
@@ -660,7 +662,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const walletSigningSessionId = normalizeOptionalNonEmptyString(obj.walletSigningSessionId);
   const thresholdSessionJwt = normalizeOptionalNonEmptyString(obj.thresholdSessionJwt);
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
-  const remainingUses = normalizePositiveInteger(obj.remainingUses);
+  const remainingUses = normalizeInteger(obj.remainingUses);
   const updatedAtMs = normalizeInteger(obj.updatedAtMs) || Date.now();
   const sourceRaw = String(obj.source || '').trim();
   const source: ThresholdEd25519SessionStoreSource =
@@ -685,7 +687,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   if (expiresAtMs == null || expiresAtMs <= 0) {
     throw new Error('Invalid threshold Ed25519 canonical session record: missing expiresAtMs');
   }
-  if (remainingUses == null || remainingUses <= 0) {
+  if (remainingUses == null || remainingUses < 0) {
     throw new Error('Invalid threshold Ed25519 canonical session record: missing remainingUses');
   }
 
@@ -767,6 +769,7 @@ function getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(
 export type ThresholdEcdsaSessionLane = {
   nearAccountId: AccountId;
   chain: ThresholdEcdsaActivationChain;
+  source: ThresholdEcdsaSessionStoreSource;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion?: string;
@@ -779,6 +782,21 @@ function normalizeThresholdEcdsaActivationChain(
     .trim()
     .toLowerCase();
   if (chain === 'tempo' || chain === 'evm') return chain;
+  return null;
+}
+
+function normalizeThresholdEcdsaSessionStoreSource(
+  sourceRaw: unknown,
+): ThresholdEcdsaSessionStoreSource | null {
+  const source = String(sourceRaw || '').trim();
+  if (
+    source === 'login' ||
+    source === 'registration' ||
+    source === 'manual-bootstrap' ||
+    source === 'email_otp'
+  ) {
+    return source;
+  }
   return null;
 }
 
@@ -798,21 +816,24 @@ function decodeLaneToken(value: string): string | null {
 export function serializeThresholdEcdsaSessionLaneKey(args: {
   nearAccountId: AccountId | string;
   chain: ThresholdEcdsaActivationChain;
+  source: ThresholdEcdsaSessionStoreSource;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion?: string;
 }): string {
   const nearAccountId = String(toAccountId(args.nearAccountId)).trim();
   const chain = normalizeThresholdEcdsaActivationChain(args.chain);
+  const source = normalizeThresholdEcdsaSessionStoreSource(args.source);
   const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
   const signingRootId = normalizeOptionalNonEmptyString(args.signingRootId);
   const signingRootVersion = normalizeOptionalNonEmptyString(args.signingRootVersion) || '';
-  if (!nearAccountId || !chain || !ecdsaThresholdKeyId || !signingRootId) {
+  if (!nearAccountId || !chain || !source || !ecdsaThresholdKeyId || !signingRootId) {
     throw new Error('[SigningEngine] invalid threshold ECDSA lane key input');
   }
   return [
     encodeLaneToken(nearAccountId),
     encodeLaneToken(chain),
+    encodeLaneToken(source),
     encodeLaneToken(ecdsaThresholdKeyId),
     encodeLaneToken(signingRootId),
     encodeLaneToken(signingRootVersion),
@@ -825,20 +846,30 @@ export function parseThresholdEcdsaSessionLaneKey(
   const laneKey = String(laneKeyRaw || '').trim();
   if (!laneKey) return null;
   const parts = laneKey.split('|');
-  if (parts.length !== 5) return null;
+  if (parts.length !== 6) return null;
   const nearAccountDecoded = decodeLaneToken(parts[0] || '');
   const chainDecoded = decodeLaneToken(parts[1] || '');
-  const ecdsaThresholdKeyIdDecoded = decodeLaneToken(parts[2] || '');
-  const signingRootIdDecoded = decodeLaneToken(parts[3] || '');
-  const signingRootVersionDecoded = decodeLaneToken(parts[4] || '') || '';
-  if (!nearAccountDecoded || !chainDecoded || !ecdsaThresholdKeyIdDecoded || !signingRootIdDecoded)
+  const sourceDecoded = decodeLaneToken(parts[2] || '');
+  const ecdsaThresholdKeyIdDecoded = decodeLaneToken(parts[3] || '');
+  const signingRootIdDecoded = decodeLaneToken(parts[4] || '');
+  const signingRootVersionDecoded = decodeLaneToken(parts[5] || '') || '';
+  if (
+    !nearAccountDecoded ||
+    !chainDecoded ||
+    !sourceDecoded ||
+    !ecdsaThresholdKeyIdDecoded ||
+    !signingRootIdDecoded
+  )
     return null;
   const chain = normalizeThresholdEcdsaActivationChain(chainDecoded);
+  const source = normalizeThresholdEcdsaSessionStoreSource(sourceDecoded);
   if (!chain) return null;
+  if (!source) return null;
   try {
     return {
       nearAccountId: toAccountId(nearAccountDecoded),
       chain,
+      source,
       ecdsaThresholdKeyId: ecdsaThresholdKeyIdDecoded,
       signingRootId: signingRootIdDecoded,
       ...(signingRootVersionDecoded ? { signingRootVersion: signingRootVersionDecoded } : {}),
@@ -852,6 +883,7 @@ function getThresholdEcdsaSessionLaneKeyForRecord(record: ThresholdEcdsaSessionR
   return serializeThresholdEcdsaSessionLaneKey({
     nearAccountId: record.nearAccountId,
     chain: record.chain,
+    source: record.source,
     ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
     signingRootId: record.signingRootId,
     ...(record.signingRootVersion ? { signingRootVersion: record.signingRootVersion } : {}),
@@ -1077,11 +1109,13 @@ function listInMemoryThresholdEcdsaRecordsForLane(args: {
   chain: ThresholdEcdsaActivationChain;
   signingRootId?: string;
   signingRootVersion?: string;
+  source?: ThresholdEcdsaSessionStoreSource;
 }): ThresholdEcdsaSessionRecord[] {
   const out: ThresholdEcdsaSessionRecord[] = [];
   for (const record of args.deps.recordsByLane.values()) {
     if (String(record.nearAccountId) !== String(args.nearAccountId)) continue;
     if (record.chain !== args.chain) continue;
+    if (args.source && record.source !== args.source) continue;
     if (!matchesExpectedSigningRootBinding(record, args)) continue;
     out.push(record);
   }
@@ -1095,6 +1129,7 @@ function listStoredThresholdEcdsaRecordsForLane(args: {
   chain: ThresholdEcdsaActivationChain;
   signingRootId?: string;
   signingRootVersion?: string;
+  source?: ThresholdEcdsaSessionStoreSource;
 }): ThresholdEcdsaSessionRecord[] {
   const out: ThresholdEcdsaSessionRecord[] = [];
   const laneKeys = readStorageIndex(args.storage, ECDSA_STORAGE_INDEX_KEY);
@@ -1121,6 +1156,7 @@ function listStoredThresholdEcdsaRecordsForLane(args: {
       normalize: normalizeThresholdEcdsaSessionRecord,
     });
     if (!record) continue;
+    if (args.source && record.source !== args.source) continue;
     if (parsedLane.signingRootId !== record.signingRootId) continue;
     if (
       normalizeOptionalNonEmptyString(parsedLane.signingRootVersion) !==
@@ -1142,6 +1178,7 @@ export function getThresholdEcdsaSessionRecordForSigning(
     chain: ThresholdEcdsaActivationChain;
     signingRootId?: string;
     signingRootVersion?: string;
+    source?: ThresholdEcdsaSessionStoreSource;
   },
 ): ThresholdEcdsaSessionRecord {
   const accountId = toAccountId(args.nearAccountId);
@@ -1152,6 +1189,7 @@ export function getThresholdEcdsaSessionRecordForSigning(
       chain: args.chain,
       ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
       ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
+      ...(args.source ? { source: args.source } : {}),
     }),
   );
   if (inMemory) return inMemory;
@@ -1166,6 +1204,7 @@ export function getThresholdEcdsaSessionRecordForSigning(
           chain: args.chain,
           ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
           ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
+          ...(args.source ? { source: args.source } : {}),
         }),
       )
     : null;
@@ -1185,6 +1224,7 @@ export function getThresholdEcdsaKeyRefForSigning(
     chain: ThresholdEcdsaActivationChain;
     signingRootId?: string;
     signingRootVersion?: string;
+    source?: ThresholdEcdsaSessionStoreSource;
   },
 ): ThresholdEcdsaSecp256k1KeyRef {
   const record = getThresholdEcdsaSessionRecordForSigning(deps, args);
@@ -1212,6 +1252,9 @@ export function getThresholdEcdsaKeyRefForSigning(
     thresholdSessionKind: record.thresholdSessionKind,
     thresholdSessionId: record.thresholdSessionId,
     ...(record.thresholdSessionJwt ? { thresholdSessionJwt: record.thresholdSessionJwt } : {}),
+    ...(record.walletSigningSessionId
+      ? { walletSigningSessionId: record.walletSigningSessionId }
+      : {}),
     ...(record.thresholdEcdsaPublicKeyB64u
       ? { thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u }
       : {}),
@@ -1256,6 +1299,7 @@ export function clearThresholdEcdsaSessionRecordForLane(
   args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
+    source?: ThresholdEcdsaSessionStoreSource;
   },
 ): void {
   const accountId = toAccountId(args.nearAccountId);
@@ -1263,6 +1307,7 @@ export function clearThresholdEcdsaSessionRecordForLane(
   for (const [laneKey, record] of deps.recordsByLane.entries()) {
     if (String(record.nearAccountId) !== String(accountId)) continue;
     if (record.chain !== args.chain) continue;
+    if (args.source && record.source !== args.source) continue;
     laneKeysToClear.push(laneKey);
   }
   for (const laneKey of laneKeysToClear) {
@@ -1277,6 +1322,7 @@ export function clearThresholdEcdsaSessionRecordForLane(
       if (!parsedLane) continue;
       if (String(parsedLane.nearAccountId) !== String(accountId)) continue;
       if (parsedLane.chain !== args.chain) continue;
+      if (args.source && parsedLane.source !== args.source) continue;
       clearStoredRecord({
         storage,
         storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
@@ -1302,6 +1348,7 @@ export function markThresholdEcdsaEmailOtpSessionConsumedForAccount(
 
   for (const [laneKey, record] of deps.recordsByLane.entries()) {
     if (String(record.nearAccountId) !== String(accountId)) continue;
+    if (record.chain !== args.chain) continue;
     if (record.source !== 'email_otp' || !record.emailOtpAuthContext) continue;
     const nextRecord: ThresholdEcdsaSessionRecord = {
       ...record,
@@ -1462,9 +1509,7 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
     relayerUrl: existing.relayerUrl,
     relayerKeyId: existing.relayerKeyId,
     participantIds: existing.participantIds,
-    ...(existing.runtimePolicyScope
-      ? { runtimePolicyScope: existing.runtimePolicyScope }
-      : {}),
+    ...(existing.runtimePolicyScope ? { runtimePolicyScope: existing.runtimePolicyScope } : {}),
     xClientBaseB64u,
     thresholdSessionKind: existing.thresholdSessionKind,
     thresholdSessionId: existing.thresholdSessionId,
@@ -1474,9 +1519,7 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
     thresholdSessionJwt: existing.thresholdSessionJwt,
     expiresAtMs: existing.expiresAtMs,
     remainingUses: existing.remainingUses,
-    ...(existing.emailOtpAuthContext
-      ? { emailOtpAuthContext: existing.emailOtpAuthContext }
-      : {}),
+    ...(existing.emailOtpAuthContext ? { emailOtpAuthContext: existing.emailOtpAuthContext } : {}),
     updatedAtMs: args.updatedAtMs ?? Date.now(),
     source: existing.source,
   });
@@ -1510,6 +1553,7 @@ export function getStoredThresholdEd25519SessionRecordForAccount(
 export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
   nearAccountId: AccountId | string;
   thresholdSessionId?: string;
+  uses?: number;
   nowMs?: number;
 }): ThresholdEd25519SessionRecord | null {
   const record = getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
@@ -1520,6 +1564,9 @@ export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
     return null;
   }
   const nowMs = Math.max(0, Math.floor(Number(args.nowMs ?? Date.now()) || 0));
+  const uses = Math.max(1, Math.floor(Number(args.uses) || 1));
+  const remainingUses = Math.max(0, Math.floor(Number(record.remainingUses) || 0) - uses);
+  const clearClientBase = record.emailOtpAuthContext.retention === 'single_use';
   return upsertStoredThresholdEd25519SessionRecord({
     nearAccountId: record.nearAccountId,
     rpId: record.rpId,
@@ -1527,11 +1574,17 @@ export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
     relayerKeyId: record.relayerKeyId,
     participantIds: record.participantIds,
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+    ...(record.xClientBaseB64u && !clearClientBase
+      ? { xClientBaseB64u: record.xClientBaseB64u }
+      : {}),
     thresholdSessionKind: record.thresholdSessionKind,
     thresholdSessionId: record.thresholdSessionId,
+    ...(record.walletSigningSessionId
+      ? { walletSigningSessionId: record.walletSigningSessionId }
+      : {}),
     ...(record.thresholdSessionJwt ? { thresholdSessionJwt: record.thresholdSessionJwt } : {}),
     expiresAtMs: record.expiresAtMs,
-    remainingUses: record.remainingUses,
+    remainingUses,
     emailOtpAuthContext: {
       ...record.emailOtpAuthContext,
       consumedAtMs: nowMs,

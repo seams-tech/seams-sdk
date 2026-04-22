@@ -52,13 +52,22 @@ export interface Ed25519AuthSessionStore {
    * signed JWT claims instead of a KV-stored record, reducing KV read-after-write consistency issues.
    */
   consumeUseCount(id: string): Promise<ThresholdEd25519AuthConsumeUsesResult>;
+  consumeUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumeUsesResult>;
 }
 
 class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly keyPrefix: string;
   private readonly map = new Map<
     string,
-    { record: Ed25519AuthSessionRecord; remainingUses: number; expiresAtMs: number }
+    {
+      record: Ed25519AuthSessionRecord;
+      remainingUses: number;
+      expiresAtMs: number;
+      consumedIdempotencyKeys: Set<string>;
+    }
   >();
 
   constructor(input: { keyPrefix?: string }) {
@@ -81,6 +90,7 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       record,
       remainingUses: Math.max(0, Number(opts.remainingUses) || 0),
       expiresAtMs,
+      consumedIdempotencyKeys: new Set(),
     });
   }
 
@@ -125,7 +135,81 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     entry.remainingUses -= 1;
     return { ok: true, remainingUses: entry.remainingUses };
   }
+
+  async consumeUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+    const key = this.key(id);
+    const entry = this.map.get(key);
+    if (!entry)
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+    if (Date.now() > entry.expiresAtMs) {
+      this.map.delete(key);
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+    }
+    const consumeKey = String(idempotencyKey || '').trim();
+    if (consumeKey && entry.consumedIdempotencyKeys.has(consumeKey)) {
+      return { ok: true, remainingUses: entry.remainingUses };
+    }
+    if (entry.remainingUses <= 0) {
+      return { ok: false, code: 'unauthorized', message: 'threshold session exhausted' };
+    }
+    entry.remainingUses -= 1;
+    if (consumeKey) entry.consumedIdempotencyKeys.add(consumeKey);
+    return { ok: true, remainingUses: entry.remainingUses };
+  }
 }
+
+function normalizeConsumeOnceKey(value: string): string {
+  return String(value || '')
+    .trim()
+    .replace(/[^A-Za-z0-9._:-]/g, '_')
+    .slice(0, 512);
+}
+
+function parseRedisConsumeOnceResult(raw: unknown): ThresholdEd25519AuthConsumeUsesResult {
+  const text = String(raw ?? '').trim();
+  if (text.startsWith('ok:')) {
+    const remainingUses = Number(text.slice(3));
+    if (!Number.isFinite(remainingUses)) {
+      return { ok: false, code: 'internal', message: 'Redis consume-once returned invalid uses' };
+    }
+    return { ok: true, remainingUses };
+  }
+  if (text.startsWith('err:')) {
+    const message = text.slice(4) || 'threshold session authorization failed';
+    return { ok: false, code: 'unauthorized', message };
+  }
+  return { ok: false, code: 'internal', message: 'Redis consume-once returned invalid response' };
+}
+
+const CONSUME_ONCE_LUA = `
+local uses_key = KEYS[1]
+local marker_key = KEYS[2]
+if redis.call('EXISTS', marker_key) == 1 then
+  local current = redis.call('GET', uses_key)
+  if not current then
+    return 'err:threshold session expired or invalid'
+  end
+  return 'ok:' .. tostring(current)
+end
+local current = tonumber(redis.call('GET', uses_key) or '')
+if current == nil then
+  return 'err:threshold session expired or invalid'
+end
+if current <= 0 then
+  return 'err:threshold session exhausted'
+end
+local remaining = redis.call('INCRBY', uses_key, -1)
+local ttl = redis.call('TTL', uses_key)
+if ttl and ttl > 0 then
+  redis.call('SET', marker_key, '1', 'EX', ttl)
+else
+  redis.call('SET', marker_key, '1', 'EX', 60)
+end
+return 'ok:' .. tostring(remaining)
+`;
 
 class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore {
   private readonly client: UpstashRedisRestClient;
@@ -146,6 +230,10 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
 
   private usesKey(id: string): string {
     return `${this.keyPrefix}${id}:uses`;
+  }
+
+  private consumeOnceKey(id: string, idempotencyKey: string): string {
+    return `${this.usesKey(id)}:once:${normalizeConsumeOnceKey(idempotencyKey)}`;
   }
 
   async putSession(
@@ -197,6 +285,27 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
       return { ok: false, code: 'internal', message: msg };
     }
   }
+
+  async consumeUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+    try {
+      const raw = await this.client.eval(
+        CONSUME_ONCE_LUA,
+        [this.usesKey(id), this.consumeOnceKey(id, idempotencyKey)],
+        [],
+      );
+      return parseRedisConsumeOnceResult(raw);
+    } catch (e: unknown) {
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to consume threshold session',
+      );
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
 }
 
 class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
@@ -216,6 +325,10 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
 
   private usesKey(id: string): string {
     return `${this.keyPrefix}${id}:uses`;
+  }
+
+  private consumeOnceKey(id: string, idempotencyKey: string): string {
+    return `${this.usesKey(id)}:once:${normalizeConsumeOnceKey(idempotencyKey)}`;
   }
 
   async putSession(
@@ -264,6 +377,33 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
         return { ok: false, code: 'unauthorized', message: 'threshold session exhausted' };
       }
       return { ok: true, remainingUses };
+    } catch (e: unknown) {
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to consume threshold session',
+      );
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async consumeUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+    try {
+      const resp = await this.client.send([
+        'EVAL',
+        CONSUME_ONCE_LUA,
+        '2',
+        this.usesKey(id),
+        this.consumeOnceKey(id, idempotencyKey),
+      ]);
+      if (resp.type === 'error') {
+        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
+      }
+      const raw = resp.type === 'integer' ? String(resp.value) : resp.value;
+      return parseRedisConsumeOnceResult(raw);
     } catch (e: unknown) {
       const msg = String(
         e && typeof e === 'object' && 'message' in e
@@ -406,6 +546,99 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
           : e || 'Failed to consume threshold session',
       );
       return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async consumeUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+    const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
+    if (!consumeKey) return await this.consumeUseCount(id);
+    const pool = await this.poolPromise;
+    const client =
+      typeof pool.connect === 'function'
+        ? await pool.connect()
+        : {
+            query: pool.query.bind(pool),
+            release: () => undefined,
+          };
+    const nowMs = Date.now();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        `
+          SELECT expires_at_ms, remaining_uses
+          FROM threshold_ed25519_sessions
+          WHERE namespace = $1 AND kind = $2 AND session_id = $3
+          FOR UPDATE
+        `,
+        [this.namespace, 'auth', id],
+      );
+      const row = rows[0];
+      if (!row) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+      }
+      const expiresAtMs =
+        typeof row.expires_at_ms === 'number' ? row.expires_at_ms : Number(row.expires_at_ms);
+      const remainingUses =
+        typeof row.remaining_uses === 'number' ? row.remaining_uses : Number(row.remaining_uses);
+      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      }
+      if (!Number.isFinite(remainingUses)) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
+      }
+
+      const existing = await client.query(
+        `
+          SELECT 1
+          FROM threshold_ed25519_auth_consumptions
+          WHERE namespace = $1 AND session_id = $2 AND idempotency_key = $3 AND expires_at_ms > $4
+          LIMIT 1
+        `,
+        [this.namespace, id, consumeKey, nowMs],
+      );
+      if (existing.rows[0]) {
+        await client.query('COMMIT');
+        return { ok: true, remainingUses };
+      }
+      if (remainingUses <= 0) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'unauthorized', message: 'threshold session exhausted' };
+      }
+      const updatedRemainingUses = remainingUses - 1;
+      await client.query(
+        `
+          UPDATE threshold_ed25519_sessions
+          SET remaining_uses = $5
+          WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
+        `,
+        [this.namespace, 'auth', id, nowMs, updatedRemainingUses],
+      );
+      await client.query(
+        `
+          INSERT INTO threshold_ed25519_auth_consumptions (namespace, session_id, idempotency_key, expires_at_ms)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (namespace, session_id, idempotency_key) DO NOTHING
+        `,
+        [this.namespace, id, consumeKey, expiresAtMs],
+      );
+      await client.query('COMMIT');
+      return { ok: true, remainingUses: updatedRemainingUses };
+    } catch (e: unknown) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to consume threshold session',
+      );
+      return { ok: false, code: 'internal', message: msg };
+    } finally {
+      client.release();
     }
   }
 }

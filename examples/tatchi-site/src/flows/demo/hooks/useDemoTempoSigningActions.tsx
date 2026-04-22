@@ -99,7 +99,7 @@ type UseDemoTempoSigningActionsArgs = {
   tempoUserFeeToken: EvmAddress | null;
   resolveThresholdSenderForEvmFamily: (opts?: {
     chain?: 'tempo' | 'evm';
-    ensureReady?: boolean;
+    bootstrapIfMissing?: boolean;
   }) => Promise<EvmAddress>;
   refreshTempoUserFeeTokenBalance: (opts?: {
     silent?: boolean;
@@ -160,7 +160,7 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       dripTokensForAttempt = [dripToken];
       const thresholdSender = await resolveThresholdSenderForEvmFamily({
         chain: 'tempo',
-        ensureReady: true,
+        bootstrapIfMissing: true,
       });
       if (!isEvmAddress(thresholdSender)) {
         throw new Error('Unable to resolve the Tempo threshold sender address.');
@@ -340,10 +340,6 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     setTempoThresholdSignLoading(true);
     toast.loading('Signing Tempo transaction…', { id: toastId, description: null });
     try {
-      await resolveThresholdSenderForEvmFamily({
-        chain: 'tempo',
-        ensureReady: true,
-      });
       const requestedGreeting = tempoGreetingInput.trim();
       const feeCaps = await resolveClickTimeEip1559FeeCaps({
         rpcUrl: frontendConfig.tempoRpcUrl,
@@ -441,7 +437,6 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
     frontendConfig,
     nearAccountId,
     refreshThresholdEvmFundingAddress,
-    resolveThresholdSenderForEvmFamily,
     tatchi,
     tempoEip1559FeeCaps,
     tempoGreetingInput,

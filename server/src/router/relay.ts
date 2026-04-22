@@ -311,6 +311,7 @@ export interface RelayBootstrapGrant {
   orgId: string;
   projectId: string;
   envId: string;
+  signingRootVersion: string;
   origin: string;
   mode: RelayBootstrapGrantMode;
 }

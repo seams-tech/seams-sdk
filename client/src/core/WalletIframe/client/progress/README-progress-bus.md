@@ -12,14 +12,15 @@ The wallet iframe mounts as a hidden 0×0 element in the parent document. When a
 - Overlay control lives in the wallet iframe client router and its `OnEventsProgressBus`:
   - `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts`
   - `client/src/core/WalletIframe/client/router.ts`
-- Progress events are emitted by TatchiPasskey flows and the WASM worker handshake:
+- Public progress events are emitted by TatchiPasskey flows as v2 `WalletFlowEvent` payloads:
   - `client/src/core/TatchiPasskey/near/actions.ts`
   - `client/src/core/signingEngine/touchConfirm/handlers/*`
   - `client/src/core/signingEngine/touchConfirm/handlers/flows/*`
+- Signer workers may emit private transport progress, but that is not consumed by the iframe progress bus unless the SDK maps it into a public `WalletFlowEvent`.
 
 ## Progress → Overlay behavior
 
-The `OnEventsProgressBus` class receives v2 `WalletFlowEvent` payloads and reads `event.interaction.overlay` to decide whether the wallet iframe overlay should show, hide, or remain unchanged. Overlay behavior is now event metadata, not a phase-string heuristic.
+The `OnEventsProgressBus` class receives v2 `WalletFlowEvent` payloads and reads `event.interaction.overlay` to decide whether the wallet iframe overlay should show, hide, or remain unchanged. Overlay behavior is event metadata, not phase-name inference.
 
 - `overlay: 'show'`: records a show demand for the request and calls `overlay.show()`.
 - `overlay: 'hide'`: records a hide demand and hides only when no tracked request still demands show.
@@ -34,6 +35,7 @@ Key points:
 - Signing, registration, unlock, link-device, email-recovery, and account-sync flows all use the same v2 event envelope.
 - User-interactive phases set `interaction.kind` to values such as `transaction_confirmation`, `passkey_assert`, `passkey_create`, `otp_input`, `qr_scan`, or `email_recovery_link`.
 - Non-interactive threshold signer, nonce, broadcast, persistence, polling, and finalization work uses `overlay: 'none'` unless a terminal event needs to hide a prior prompt.
+- Email OTP worker progress is mapped into public registration/unlock events before it reaches this bus. EVM/Tempo signer worker RPC progress stays private and does not affect overlay visibility.
 - This keeps the blocking fullscreen iframe visible only for the minimum activation interval.
 
 ## What `showFrameForActivation()` actually does

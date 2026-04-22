@@ -359,10 +359,11 @@ async function requestManagedRegistrationFlowGrant(args: {
   const orgId = String((grant?.orgId as string) || '').trim();
   const projectId = String((grant?.projectId as string) || '').trim();
   const envId = String((grant?.envId as string) || '').trim();
+  const signingRootVersion = String((grant?.signingRootVersion as string) || '').trim();
   if (!token) {
     throw new Error('Managed bootstrap grant response did not include a bootstrap token');
   }
-  if (!orgId || !projectId || !envId) {
+  if (!orgId || !projectId || !envId || !signingRootVersion) {
     throw new Error('Managed bootstrap grant response did not include canonical runtime scope');
   }
 
@@ -373,6 +374,7 @@ async function requestManagedRegistrationFlowGrant(args: {
       orgId,
       projectId,
       envId,
+      signingRootVersion,
     },
     ...(String((grant?.origin as string) || '').trim()
       ? { origin: String((grant?.origin as string) || '').trim() }
@@ -770,6 +772,7 @@ export type CreateAccountAndRegisterThresholdEd25519Response = {
     expiresAt?: string;
     participantIds?: number[];
     remainingUses?: number;
+    walletSigningSessionId?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     jwt?: string;
   };
@@ -826,6 +829,7 @@ function normalizeThresholdEd25519RegistrationResult(
           expiresAt: thresholdEd25519.session.expiresAt,
           participantIds: thresholdEd25519.session.participantIds,
           remainingUses: thresholdEd25519.session.remainingUses,
+          walletSigningSessionId: thresholdEd25519.session.walletSigningSessionId,
           runtimePolicyScope: thresholdEd25519.session.runtimePolicyScope,
           jwt: thresholdEd25519.session.jwt,
         }

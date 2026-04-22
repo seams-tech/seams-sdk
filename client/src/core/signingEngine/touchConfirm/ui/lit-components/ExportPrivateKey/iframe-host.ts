@@ -8,10 +8,7 @@ import type { ExportViewerVariant, ExportViewerTheme } from './viewer';
 import { isObject, isString } from '@shared/utils/validation';
 import { dispatchLitCancel, dispatchLitConfirm, dispatchLitCopy } from '../../lit-events';
 import { ensureExternalStyles } from '../css/css-loader';
-import type {
-  ExportGuidance,
-  ExportPrivateKeyDisplayEntry,
-} from '../../../shared/confirmTypes';
+import type { ExportGuidance, ExportPrivateKeyDisplayEntry } from '../../../shared/confirmTypes';
 import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
 
 type MessageType =
@@ -252,7 +249,7 @@ export class IframeExportHost extends LitElementWithProps {
           dispatchLitConfirm(this);
           // Close viewer and notify parent to contract overlay
           this.remove();
-          window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
+          window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
           return;
         }
         case 'CANCEL': {
@@ -260,7 +257,7 @@ export class IframeExportHost extends LitElementWithProps {
           // Child waits for transitionend before posting CANCEL, so it's safe to remove immediately
           this.remove();
           // Notify parent app (outside wallet iframe) to contract overlay
-          window.parent?.postMessage({ type: 'WALLET_UI_CLOSED' }, '*');
+          window.parent?.postMessage({ type: 'WALLET_UI_CLOSED', source: 'export_viewer' }, '*');
           return;
         }
         case 'COPY': {

@@ -176,4 +176,85 @@ test.describe('Email OTP wallet-session readiness', () => {
     expect(result.authMethod).toBe('email_otp');
     expect(result.login?.authMethod).toBe('email_otp');
   });
+
+  test('reports the lowest active remaining-use budget across Email OTP signing lanes', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const loginMod = await import(paths.login);
+        const indexedDbMod = await import(paths.indexedDb);
+
+        const nearAccountId = 'email-otp-budget.testnet';
+        const now = Date.now();
+        const clientDb = indexedDbMod.IndexedDBManager.clientDB as Record<string, unknown>;
+        const originalGetMostRecentNearAccountProjection =
+          clientDb.getMostRecentNearAccountProjection;
+        const originalResolveNearAccountProfileContinuity =
+          clientDb.resolveNearAccountProfileContinuity;
+
+        clientDb.getMostRecentNearAccountProjection = async () => null;
+        clientDb.resolveNearAccountProfileContinuity = async () => ({
+          chainAccounts: [
+            {
+              accountModel: 'tempo-native',
+              chainIdKey: 'tempo:testnet',
+              accountAddress: '0xtempo',
+              isPrimary: true,
+            },
+          ],
+        });
+
+        try {
+          const context = {
+            signingEngine: {
+              assertSealedRefreshStartupParity: async () => undefined,
+              getLastUser: async () => null,
+              getUserBySignerSlot: async () => null,
+              getWarmThresholdEd25519SessionStatus: async () => ({
+                sessionId: 'email-otp-ed25519-session',
+                status: 'active',
+                authMethod: 'email_otp',
+                retention: 'session',
+                remainingUses: 5,
+                expiresAtMs: now + 60_000,
+                createdAtMs: now,
+              }),
+              getWarmThresholdEcdsaSessionStatus: async (_accountId: string, chain: string) =>
+                chain === 'tempo'
+                  ? {
+                      sessionId: 'email-otp-ecdsa-session',
+                      status: 'active',
+                      authMethod: 'email_otp',
+                      retention: 'session',
+                      remainingUses: 1,
+                      expiresAtMs: now + 60_000,
+                      createdAtMs: now,
+                    }
+                  : null,
+              getThresholdEcdsaSessionRecordForSigning: () => ({
+                thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
+              }),
+            },
+            configs: {
+              signing: {
+                mode: { mode: 'threshold-signer' },
+              },
+            },
+          };
+
+          return await loginMod.getWalletSession(context, nearAccountId);
+        } finally {
+          clientDb.getMostRecentNearAccountProjection = originalGetMostRecentNearAccountProjection;
+          clientDb.resolveNearAccountProfileContinuity =
+            originalResolveNearAccountProfileContinuity;
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.signingSession?.status).toBe('active');
+    expect(result.signingSession?.sessionId).toBe('email-otp-ecdsa-session');
+    expect(result.signingSession?.remainingUses).toBe(1);
+  });
 });

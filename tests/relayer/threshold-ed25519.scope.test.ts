@@ -7,7 +7,12 @@ import { ActionType, type ActionArgsWasm } from '@/core/types/actions';
 import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
-import { createRelayRouter } from '@server/router/express-adaptor';
+import {
+  createInMemoryConsoleApiKeyService,
+  createInMemoryConsoleOrgProjectEnvService,
+  createRelayPublishableKeyAuthAdapter,
+  createRelayRouter,
+} from '@server/router/express-adaptor';
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import {
   handle_signer_message,
@@ -49,6 +54,10 @@ type ThresholdEd25519AuthConsumeResult =
 
 const DEFAULT_HSS_PRF_FIRST_B64U = Buffer.from(new Uint8Array(32).fill(13)).toString('base64url');
 const DEFAULT_HSS_SIGNING_ROOT_ID = 'org_threshold_scope_test';
+const MANAGED_RUNTIME_ORG_ID = 'org_threshold_scope_test';
+const MANAGED_RUNTIME_PROJECT_ID = 'proj_threshold_scope_test';
+const MANAGED_RUNTIME_ENVIRONMENT_ID = `${MANAGED_RUNTIME_PROJECT_ID}:dev`;
+const MANAGED_RUNTIME_ORIGIN = 'https://example.localhost';
 const DEFAULT_HSS_KEY_PURPOSE = 'near-ed25519-signing';
 const DEFAULT_HSS_DERIVATION_VERSION = 1;
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
@@ -226,6 +235,43 @@ function createTestSessionAdapter(): {
   return { session };
 }
 
+async function createManagedRuntimeFixture() {
+  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+  const apiKeys = createInMemoryConsoleApiKeyService();
+  const ctx = {
+    orgId: MANAGED_RUNTIME_ORG_ID,
+    actorUserId: 'threshold-ed25519-scope-test',
+    roles: ['admin'],
+  };
+  await orgProjectEnv.upsertOrganization(ctx, {
+    name: 'Threshold Ed25519 Scope Test',
+    slug: 'threshold-ed25519-scope-test',
+  });
+  await orgProjectEnv.createProject(ctx, {
+    id: MANAGED_RUNTIME_PROJECT_ID,
+    name: 'Threshold Ed25519 Scope Test Project',
+    liveEnvironmentsEnabled: true,
+  });
+  await orgProjectEnv.updateEnvironment(ctx, MANAGED_RUNTIME_ENVIRONMENT_ID, {
+    signingRootVersion: 'default',
+  });
+  const created = await apiKeys.createApiKey(ctx, {
+    kind: 'publishable_key',
+    name: 'threshold-ed25519-scope-test-browser',
+    environmentId: MANAGED_RUNTIME_ENVIRONMENT_ID,
+    allowedOrigins: [MANAGED_RUNTIME_ORIGIN],
+    rateLimitBucket: 'default_web_v1',
+    quotaBucket: 'free_registrations_v1',
+  });
+  return {
+    orgProjectEnv,
+    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    publishableKey: created.secret,
+    runtimeEnvironmentId: MANAGED_RUNTIME_ENVIRONMENT_ID,
+    origin: MANAGED_RUNTIME_ORIGIN,
+  };
+}
+
 function enableOidcExchangeForTest(service: AuthService, userId: string): void {
   (
     service as unknown as { verifyOidcJwtExchange: AuthService['verifyOidcJwtExchange'] }
@@ -270,6 +316,7 @@ function testWebauthnAuthenticationPayload(): Record<string, unknown> {
 class SplitAuthSessionStore implements Ed25519AuthSessionStore {
   readonly records = new Map<string, Ed25519AuthSessionRecord>();
   readonly uses = new Map<string, number>();
+  readonly consumedOnceKeys = new Map<string, Set<string>>();
   consumeUseCalls = 0;
   consumeUseCountCalls = 0;
 
@@ -280,6 +327,7 @@ class SplitAuthSessionStore implements Ed25519AuthSessionStore {
   ): Promise<void> {
     this.records.set(id, record);
     this.uses.set(id, Math.max(0, Number(opts.remainingUses) || 0));
+    this.consumedOnceKeys.set(id, new Set());
   }
 
   async getSession(id: string): Promise<Ed25519AuthSessionRecord | null> {
@@ -322,6 +370,23 @@ class SplitAuthSessionStore implements Ed25519AuthSessionStore {
     }
     return { ok: true, remainingUses };
   }
+
+  async consumeUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumeUsesResult> {
+    const consumeKey = String(idempotencyKey || '').trim();
+    const consumed = this.consumedOnceKeys.get(id) || new Set<string>();
+    if (consumeKey && consumed.has(consumeKey)) {
+      return { ok: true, remainingUses: this.uses.get(id) ?? 0 };
+    }
+    const result = await this.consumeUseCount(id);
+    if (result.ok && consumeKey) {
+      consumed.add(consumeKey);
+      this.consumedOnceKeys.set(id, consumed);
+    }
+    return result;
+  }
 }
 
 async function buildThresholdSessionBody(input: {
@@ -359,13 +424,26 @@ async function buildNearTxAuthorizeBody(input: {
   nearPublicKeyStr: string;
   receiverId: string;
   actions: ActionArgsWasm[];
-}): Promise<{ body: Record<string, unknown>; signingDigestB64u: string }> {
+  extraTxSigningRequests?: Array<{
+    receiverId: string;
+    actions: ActionArgsWasm[];
+  }>;
+}): Promise<{
+  body: Record<string, unknown>;
+  signingDigestB64u: string;
+  signingDigestBytesList: Uint8Array[];
+}> {
   const txSigningRequests = [
     {
       nearAccountId: input.nearAccountId,
       receiverId: input.receiverId,
       actions: input.actions,
     },
+    ...(input.extraTxSigningRequests || []).map((tx) => ({
+      nearAccountId: input.nearAccountId,
+      receiverId: tx.receiverId,
+      actions: tx.actions,
+    })),
   ];
   const txBlockHashBytes = randomBytes32();
   const signingPayload = {
@@ -383,14 +461,23 @@ async function buildNearTxAuthorizeBody(input: {
   if (!Array.isArray(digestsUnknown) || !digestsUnknown.length) {
     throw new Error('Failed to compute near_tx signing digest via WASM');
   }
-  const first = digestsUnknown[0];
+  const signingDigestBytesList = digestsUnknown.map((digest) =>
+    digest instanceof Uint8Array ? digest : null,
+  );
+  const first = signingDigestBytesList[0];
   const signingDigestBytes = first instanceof Uint8Array ? first : null;
   if (!signingDigestBytes || signingDigestBytes.length !== 32) {
     throw new Error('Failed to compute near_tx signing digest via WASM');
   }
+  for (const digest of signingDigestBytesList) {
+    if (!(digest instanceof Uint8Array) || digest.length !== 32) {
+      throw new Error('Failed to compute near_tx signing digest via WASM');
+    }
+  }
 
   return {
     signingDigestB64u: base64UrlEncode(signingDigestBytes),
+    signingDigestBytesList: signingDigestBytesList as Uint8Array[],
     body: {
       relayerKeyId: input.relayerKeyId,
       clientVerifyingShareB64u: input.clientVerifyingShareB64u,
@@ -548,6 +635,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
         kind: 'threshold_ecdsa_session_v1',
         walletId: 'bob.testnet',
         sessionId: 'ecdsa-session-for-ed25519-mint',
+        walletSigningSessionId: 'wallet-signing-session-for-ed25519-mint',
         relayerKeyId: 'ecdsa-relayer-key',
         rpId: 'example.localhost',
         thresholdExpiresAtMs: Date.now() + 60_000,
@@ -586,14 +674,26 @@ test.describe('threshold-ed25519 scope (express)', () => {
     enableOidcExchangeForTest(service, 'bob.testnet');
 
     const { session } = createTestSessionAdapter();
-    const router = createRelayRouter(service, { threshold, session });
+    const managedRuntime = await createManagedRuntimeFixture();
+    const router = createRelayRouter(service, {
+      threshold,
+      session,
+      corsOrigins: [managedRuntime.origin],
+      orgProjectEnv: managedRuntime.orgProjectEnv,
+      publishableKeyAuth: managedRuntime.publishableKeyAuth,
+    });
     const srv = await startExpressRouter(router);
     try {
       const exchanged = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${managedRuntime.publishableKey}`,
+          Origin: managedRuntime.origin,
+        },
         body: JSON.stringify({
           sessionKind: 'jwt',
+          runtimeEnvironmentId: managedRuntime.runtimeEnvironmentId,
           exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
         }),
       });
@@ -609,6 +709,13 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(state.status, state.text).toBe(200);
       expect(state.json?.authenticated, state.text).toBe(true);
       expect(getPath(state.json, 'claims', 'kind')).toBe('app_session_v1');
+      expect(getPath(state.json, 'claims', 'runtimePolicyScope', 'projectId')).toBe(
+        MANAGED_RUNTIME_PROJECT_ID,
+      );
+      expect(getPath(state.json, 'claims', 'runtimePolicyScope', 'envId')).toBe('dev');
+      expect(getPath(state.json, 'claims', 'runtimePolicyScope', 'signingRootVersion')).toBe(
+        'default',
+      );
 
       const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
       const { relayerKeyId, nearPublicKeyStr } =
@@ -941,13 +1048,113 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(auth1.status, auth1.text).toBe(200);
       expect(auth1.json?.ok, auth1.text).toBe(true);
 
+      const { body: secondAuthorizeBody } = await buildNearTxAuthorizeBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        nearPublicKeyStr,
+        receiverId: 'receiver-two.testnet',
+        actions: [{ action_type: ActionType.Transfer, deposit: '2' }],
+      });
+
       const auth2 = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
-        body: JSON.stringify(authorizeBody),
+        body: JSON.stringify(secondAuthorizeBody),
       });
       expect(auth2.status).toBe(401);
       expect(auth2.json?.code).toBe('unauthorized');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('threshold session: NEAR batch authorizations consume one wallet use', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const { session } = createTestSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+    try {
+      const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
+      const { relayerKeyId, nearPublicKeyStr } =
+        await provisionThresholdEd25519RegistrationMaterial({
+          service,
+          threshold,
+          nearAccountId: 'bob.testnet',
+          rpId: 'example.localhost',
+        });
+
+      const sessionId = `sess-${Date.now()}-batch`;
+      const sessionBody = await buildThresholdSessionBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        rpId: 'example.localhost',
+        sessionId,
+        ttlMs: 60_000,
+        remainingUses: 1,
+      });
+
+      const minted = await fetchJson(`${srv.baseUrl}/threshold-ed25519/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionBody),
+      });
+      expect(minted.status).toBe(200);
+      expect(minted.json?.ok).toBe(true);
+      const jwt = String(minted.json?.jwt || '');
+
+      const batchAuthorize = await buildNearTxAuthorizeBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        nearPublicKeyStr,
+        receiverId: 'receiver-one.testnet',
+        actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+        extraTxSigningRequests: [
+          {
+            receiverId: 'receiver-two.testnet',
+            actions: [{ action_type: ActionType.Transfer, deposit: '2' }],
+          },
+        ],
+      });
+      expect(batchAuthorize.signingDigestBytesList).toHaveLength(2);
+
+      const auth1 = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify(batchAuthorize.body),
+      });
+      expect(auth1.status, auth1.text).toBe(200);
+      expect(auth1.json?.ok, auth1.text).toBe(true);
+
+      const secondDigestBody = {
+        ...batchAuthorize.body,
+        signing_digest_32: Array.from(batchAuthorize.signingDigestBytesList[1]!),
+      };
+      const auth2 = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify(secondDigestBody),
+      });
+      expect(auth2.status, auth2.text).toBe(200);
+      expect(auth2.json?.ok, auth2.text).toBe(true);
+
+      const { body: nextOperationBody } = await buildNearTxAuthorizeBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        nearPublicKeyStr,
+        receiverId: 'receiver-three.testnet',
+        actions: [{ action_type: ActionType.Transfer, deposit: '3' }],
+      });
+      const auth3 = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
+        body: JSON.stringify(nextOperationBody),
+      });
+      expect(auth3.status).toBe(401);
+      expect(auth3.json?.code).toBe('unauthorized');
     } finally {
       await srv.close();
     }
@@ -1017,19 +1224,36 @@ test.describe('threshold-ed25519 scope (express)', () => {
       const jwt2 = String(minted2.json?.jwt || '');
       expect(jwt2).toContain('testjwt-');
 
+      const { body: secondAuthorizeBody } = await buildNearTxAuthorizeBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        nearPublicKeyStr,
+        receiverId: 'receiver-two.testnet',
+        actions: [{ action_type: ActionType.Transfer, deposit: '2' }],
+      });
+
       const auth2 = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt2}` },
-        body: JSON.stringify(authorizeBody),
+        body: JSON.stringify(secondAuthorizeBody),
       });
       expect(auth2.status).toBe(200);
       expect(auth2.json?.ok).toBe(true);
 
       // Third authorize should fail (2 uses total, even after replaying /session).
+      const { body: thirdAuthorizeBody } = await buildNearTxAuthorizeBody({
+        relayerKeyId,
+        clientVerifyingShareB64u,
+        nearAccountId: 'bob.testnet',
+        nearPublicKeyStr,
+        receiverId: 'receiver-three.testnet',
+        actions: [{ action_type: ActionType.Transfer, deposit: '3' }],
+      });
       const auth3 = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt2}` },
-        body: JSON.stringify(authorizeBody),
+        body: JSON.stringify(thirdAuthorizeBody),
       });
       expect(auth3.status).toBe(401);
       expect(auth3.json?.code).toBe('unauthorized');
@@ -1927,6 +2151,7 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
       kind: 'threshold_ecdsa_session_v1',
       walletId: 'bob.testnet',
       sessionId: 'ecdsa-session-for-ed25519-mint',
+      walletSigningSessionId: 'wallet-signing-session-for-ed25519-mint',
       relayerKeyId: 'ecdsa-relayer-key',
       rpId: 'example.localhost',
       thresholdExpiresAtMs: Date.now() + 60_000,
@@ -1962,19 +2187,24 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
     enableOidcExchangeForTest(service, 'bob.testnet');
 
     const { session } = createTestSessionAdapter();
+    const managedRuntime = await createManagedRuntimeFixture();
     const handler = createCloudflareRouter(service, {
-      corsOrigins: ['https://example.localhost'],
+      corsOrigins: [managedRuntime.origin],
       threshold,
       session,
+      orgProjectEnv: managedRuntime.orgProjectEnv,
+      publishableKeyAuth: managedRuntime.publishableKeyAuth,
     });
     const { ctx } = makeCfCtx();
 
     const exchanged = await callCf(handler, {
       method: 'POST',
       path: '/session/exchange',
-      origin: 'https://example.localhost',
+      origin: managedRuntime.origin,
+      headers: { Authorization: `Bearer ${managedRuntime.publishableKey}` },
       body: {
         sessionKind: 'jwt',
+        runtimeEnvironmentId: managedRuntime.runtimeEnvironmentId,
         exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
       },
       ctx,
@@ -1994,6 +2224,13 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
     expect(state.status, state.text).toBe(200);
     expect(state.json?.authenticated, state.text).toBe(true);
     expect(getPath(state.json, 'claims', 'kind')).toBe('app_session_v1');
+    expect(getPath(state.json, 'claims', 'runtimePolicyScope', 'projectId')).toBe(
+      MANAGED_RUNTIME_PROJECT_ID,
+    );
+    expect(getPath(state.json, 'claims', 'runtimePolicyScope', 'envId')).toBe('dev');
+    expect(getPath(state.json, 'claims', 'runtimePolicyScope', 'signingRootVersion')).toBe(
+      'default',
+    );
 
     const clientVerifyingShareB64u = await randomClientVerifyingShareB64u();
     const { relayerKeyId, nearPublicKeyStr } = await provisionThresholdEd25519RegistrationMaterial({
@@ -2271,12 +2508,21 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
     expect(auth1.status, auth1.text).toBe(200);
     expect(auth1.json?.ok, auth1.text).toBe(true);
 
+    const { body: secondAuthorizeBody } = await buildNearTxAuthorizeBody({
+      relayerKeyId,
+      clientVerifyingShareB64u,
+      nearAccountId: 'bob.testnet',
+      nearPublicKeyStr,
+      receiverId: 'receiver-two.testnet',
+      actions: [{ action_type: ActionType.Transfer, deposit: '2' }],
+    });
+
     const auth2 = await callCf(handler, {
       method: 'POST',
       path: '/threshold-ed25519/authorize',
       origin: 'https://example.localhost',
       headers: { Authorization: `Bearer ${jwt}` },
-      body: authorizeBody,
+      body: secondAuthorizeBody,
       ctx,
     });
     expect(auth2.status).toBe(401);

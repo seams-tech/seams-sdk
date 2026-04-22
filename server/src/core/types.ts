@@ -668,6 +668,7 @@ export interface CreateAccountAndRegisterResult {
     session?: {
       sessionKind: 'jwt' | 'cookie';
       sessionId: string;
+      walletSigningSessionId: string;
       expiresAtMs: number;
       expiresAt?: string;
       participantIds?: number[];
@@ -685,10 +686,12 @@ export interface CreateAccountAndRegisterResult {
     session?: {
       sessionKind: 'jwt' | 'cookie';
       sessionId: string;
+      walletSigningSessionId: string;
       expiresAtMs: number;
       expiresAt?: string;
       participantIds?: number[];
       remainingUses?: number;
+      runtimePolicyScope?: ThresholdRuntimePolicyScope;
       jwt?: string;
     };
   };

@@ -41,37 +41,42 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
   const [sessionStatusLoading, setSessionStatusLoading] = useState(false);
   const [sessionStatusError, setSessionStatusError] = useState('');
 
-  const refreshSessionStatus = useCallback(async () => {
-    if (!nearAccountId) {
-      setWalletSession(null);
-      setSessionStatus(null);
-      setSessionStatusError('');
-      return;
-    }
-    setSessionStatusLoading(true);
-    try {
-      const sess = await tatchi.auth.getWalletSession(nearAccountId);
-      const snapshot: DemoWalletSessionSnapshot = {
-        login: {
-          isLoggedIn: sess.login.isLoggedIn,
-          nearAccountId: sess.login.nearAccountId,
-          authMethod: sess.login.authMethod || null,
-        },
-        signingSession: sess.signingSession || null,
-        authMethod: sess.authMethod || null,
-        retention: sess.retention || null,
-      };
-      setWalletSession(snapshot);
-      setSessionStatus(snapshot.signingSession);
-      setSessionStatusError('');
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      setSessionStatusError(message);
-      toast.error(`Failed to fetch session status: ${message}`, { id: 'session-status' });
-    } finally {
-      setSessionStatusLoading(false);
-    }
-  }, [nearAccountId, tatchi]);
+  const refreshSessionStatus = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!nearAccountId) {
+        setWalletSession(null);
+        setSessionStatus(null);
+        setSessionStatusError('');
+        return;
+      }
+      if (!opts?.silent) setSessionStatusLoading(true);
+      try {
+        const sess = await tatchi.auth.getWalletSession(nearAccountId);
+        const snapshot: DemoWalletSessionSnapshot = {
+          login: {
+            isLoggedIn: sess.login.isLoggedIn,
+            nearAccountId: sess.login.nearAccountId,
+            authMethod: sess.login.authMethod || null,
+          },
+          signingSession: sess.signingSession || null,
+          authMethod: sess.authMethod || null,
+          retention: sess.retention || null,
+        };
+        setWalletSession(snapshot);
+        setSessionStatus(snapshot.signingSession);
+        setSessionStatusError('');
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        setSessionStatusError(message);
+        if (!opts?.silent) {
+          toast.error(`Failed to fetch session status: ${message}`, { id: 'session-status' });
+        }
+      } finally {
+        if (!opts?.silent) setSessionStatusLoading(false);
+      }
+    },
+    [nearAccountId, tatchi],
+  );
 
   useEffect(() => {
     if (!isLoggedIn || !nearAccountId) {
@@ -81,6 +86,14 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
       return;
     }
     void refreshSessionStatus();
+  }, [isLoggedIn, nearAccountId, refreshSessionStatus]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !nearAccountId) return undefined;
+    const id = window.setInterval(() => {
+      void refreshSessionStatus({ silent: true });
+    }, 3000);
+    return () => window.clearInterval(id);
   }, [isLoggedIn, nearAccountId, refreshSessionStatus]);
 
   const handleUnlockSession = useCallback(async () => {

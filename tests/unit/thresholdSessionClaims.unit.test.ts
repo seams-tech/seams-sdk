@@ -33,6 +33,21 @@ test.describe('threshold session JWT claims', () => {
     expect(parseThresholdEcdsaSessionClaims({ ...claims, walletId: undefined })).toBeNull();
   });
 
+  test('requires explicit walletSigningSessionId on threshold session tokens', () => {
+    expect(
+      parseThresholdEd25519SessionClaims({
+        ...baseClaims('threshold_ed25519_session_v1'),
+        walletSigningSessionId: undefined,
+      }),
+    ).toBeNull();
+    expect(
+      parseThresholdEcdsaSessionClaims({
+        ...baseClaims('threshold_ecdsa_session_v1'),
+        walletSigningSessionId: undefined,
+      }),
+    ).toBeNull();
+  });
+
   test('rejects threshold-session tokens where JWT sub and walletId disagree', () => {
     expect(
       parseThresholdEd25519SessionClaims({

@@ -41,6 +41,8 @@ test.describe('secp256k1 Email OTP signing-session policy', () => {
               userId: accountId,
               relayerUrl: 'https://relay.example',
               ecdsaThresholdKeyId: 'stale-single-use-key',
+              signingRootId: 'sr-test:dev',
+              signingRootVersion: 'v1',
               backendBinding: {
                 relayerKeyId: 'rk-stale',
                 clientVerifyingShareB64u: 'AQ',
@@ -89,6 +91,8 @@ test.describe('secp256k1 Email OTP signing-session policy', () => {
               userId: accountId,
               relayerUrl: 'https://relay.example',
               ecdsaThresholdKeyId: 'active-session-key',
+              signingRootId: 'sr-test:dev',
+              signingRootVersion: 'v1',
               backendBinding: {
                 relayerKeyId: 'rk-active',
                 clientVerifyingShareB64u: 'AQ',

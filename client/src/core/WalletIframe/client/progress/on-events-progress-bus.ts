@@ -242,12 +242,12 @@ export class OnEventsProgressBus {
 /**
  * defaultOverlayIntentResolver
  *
- * Decides when to expand or contract the invisible wallet iframe overlay
+ * Decides when to expand or collapse the invisible wallet iframe overlay
  * based on incoming progress event metadata. Returning:
- *  - 'show' → expands the iframe to a full-screen, invisible layer that captures
+ *  - 'show' -> expands the iframe to a full-screen, invisible layer that captures
  *             user activation (e.g., TouchID / WebAuthn prompts) and pointer events.
- *  - 'hide' → immediately contracts the iframe back to 0×0 so it no longer blocks clicks.
- *  - 'none' → no change.
+ *  - 'hide' -> immediately collapses the iframe back to 0x0 so it no longer blocks clicks.
+ *  - 'none' -> no change.
  *
  * Important UX constraint: the overlay covers the entire viewport and is
  * intentionally invisible. While expanded, it will intercept clicks and can

@@ -14,7 +14,7 @@ export function getWalletServiceHtml(sdkBasePath: string = '/sdk'): string {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Web3Authn Wallet Service</title>
+    <title>Seams Wallet Service</title>
   </head>
   <body>
     <script type="module" src="${escapedPath}"></script>

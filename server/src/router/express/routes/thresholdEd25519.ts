@@ -142,8 +142,10 @@ export function registerThresholdEd25519Routes(
           }
         }
 
+        const inheritedRuntimePolicyScope =
+          appSessionClaims?.runtimePolicyScope || ecdsaSessionClaims?.runtimePolicyScope;
         const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
-          explicitScopeRaw: body.sessionPolicy?.runtimePolicyScope,
+          explicitScopeRaw: inheritedRuntimePolicyScope ?? body.sessionPolicy?.runtimePolicyScope,
           runtimeEnvironmentIdRaw: (body as { runtimeEnvironmentId?: unknown })
             .runtimeEnvironmentId,
           headers: req.headers || {},

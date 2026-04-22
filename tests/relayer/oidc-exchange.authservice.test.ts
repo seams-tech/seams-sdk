@@ -571,8 +571,26 @@ test.describe('AuthService OIDC exchange verification', () => {
     const walletId = await service.resolveOidcWalletId({
       providerSubject: 'oidc:https://issuer.example.com:subject-no-registration',
       accountMode: 'login',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
+  });
+
+  test('rejects hosted OIDC wallet id derivation without runtime policy scope', async () => {
+    const service = makeService();
+    process.env.THRESHOLD_SIGNING_ROOT_ID = 'legacy-project:legacy-env';
+    try {
+      await expect(
+        service.resolveOidcWalletId({
+          providerSubject: 'oidc:https://issuer.example.com:subject-missing-scope',
+          accountMode: 'login',
+        }),
+      ).rejects.toThrow(
+        'runtimePolicyScope.orgId, runtimePolicyScope.projectId, and runtimePolicyScope.envId are required for hosted wallet id derivation',
+      );
+    } finally {
+      delete process.env.THRESHOLD_SIGNING_ROOT_ID;
+    }
   });
 
   test('Google Email OTP login requires registration before resolving a wallet id', async () => {

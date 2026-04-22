@@ -24,6 +24,7 @@ import {
   getPath,
   makeCfCtx,
   makeFakeAuthService,
+  makeSessionAdapter,
   startExpressRouter,
 } from './helpers';
 
@@ -219,6 +220,71 @@ async function createActiveSecret(
 }
 
 test.describe('relay API key auth (express)', () => {
+  test('registration bootstrap signs threshold sessions with wallet signing-session id', async () => {
+    const apiKeys = createInMemoryConsoleApiKeyService();
+    const { secret } = await createActiveSecret(apiKeys, { scopes: ['accounts.create'] });
+    const signedClaims: Array<Record<string, unknown>> = [];
+    const router = createRelayRouter(
+      makeFakeAuthService({
+        createAccountAndRegisterUser: async () => ({
+          success: true,
+          transactionHash: 'tx-123',
+          thresholdEd25519: {
+            keyVersion: 'threshold-ed25519-hss-v1',
+            recoveryExportCapable: true,
+            relayerKeyId: 'rk-registration-1',
+            publicKey: 'ed25519:registration-key',
+            participantIds: [1, 2],
+            session: {
+              sessionKind: 'jwt',
+              sessionId: 'registration-session-1',
+              walletSigningSessionId: 'wallet-signing-session-1',
+              expiresAtMs: Date.now() + 60_000,
+              participantIds: [1, 2],
+              remainingUses: 5,
+            },
+          },
+        }),
+      }),
+      {
+        apiKeyAuth: createRelayApiKeyAuthAdapter(apiKeys),
+        session: makeSessionAdapter({
+          signJwt: async (sub, claims) => {
+            signedClaims.push({ sub, ...(claims as Record<string, unknown>) });
+            return `jwt:${sub}:${String((claims as any).sessionId)}:${String(
+              (claims as any).walletSigningSessionId,
+            )}`;
+          },
+        }),
+      },
+    );
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/registration/bootstrap`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${secret}`,
+        },
+        body: JSON.stringify(makeRegistrationBody()),
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.json?.success).toBe(true);
+      expect((res.json?.thresholdEd25519 as any)?.session?.jwt).toContain(
+        'wallet-signing-session-1',
+      );
+      expect(signedClaims[0]).toMatchObject({
+        kind: 'threshold_ed25519_session_v1',
+        walletId: 'alice.testnet',
+        sessionId: 'registration-session-1',
+        walletSigningSessionId: 'wallet-signing-session-1',
+      });
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('rejects missing API key', async () => {
     const apiKeys = createInMemoryConsoleApiKeyService();
     const router = createRelayRouter(makeRelayService(), {

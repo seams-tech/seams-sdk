@@ -48,6 +48,7 @@ function makePreparedLinkDeviceService() {
         session: {
           sessionKind: 'jwt',
           sessionId: 'near-session-1',
+          walletSigningSessionId: 'wallet-signing-session-1',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           remainingUses: 5,
@@ -64,6 +65,7 @@ function makePreparedLinkDeviceService() {
         session: {
           sessionKind: 'jwt',
           sessionId: 'evm-session-1',
+          walletSigningSessionId: 'wallet-signing-session-1',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [1, 2],
           remainingUses: 5,

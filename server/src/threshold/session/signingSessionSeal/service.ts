@@ -9,6 +9,7 @@ import type {
   SigningSessionSealService,
   SigningSessionSealThresholdSessionRecord,
 } from './types';
+import { walletSigningBudgetSessionId } from '../../../core/ThresholdService/walletSigningBudget';
 
 const SIGNING_SESSION_SEAL_LOG_LABEL = '[threshold-signing-session-seal]';
 const SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS_DEFAULT = 90_000;
@@ -209,6 +210,79 @@ function shouldPersistIdempotentResult(result: SigningSessionSealRouteResult): b
   return SIGNING_SESSION_SEAL_REPLAYABLE_ERROR_CODES.has(String(result.code || '').trim());
 }
 
+function hasWalletSigningSessionBudgetClaim(auth: { claims: Record<string, unknown> }): boolean {
+  return Boolean(String(auth.claims.walletSigningSessionId || '').trim());
+}
+
+async function resolveBudgetStatusForSealOperation(input: {
+  options: CreateSigningSessionSealServiceOptions;
+  auth: { userId: string; claims: Record<string, unknown> };
+  fallbackSession: SigningSessionSealThresholdSessionRecord;
+  nowMs: number;
+}): Promise<
+  | { ok: true; remainingUses?: number; expiresAtMs: number }
+  | { ok: false; code: string; message: string }
+> {
+  const walletSigningSessionId = String(input.auth.claims.walletSigningSessionId || '').trim();
+  if (!walletSigningSessionId) {
+    return {
+      ok: true,
+      remainingUses: toNonNegativeInt(input.fallbackSession.remainingUses),
+      expiresAtMs: input.fallbackSession.expiresAtMs,
+    };
+  }
+  if (!input.options.sessionPolicy.getSessionStatus) {
+    return {
+      ok: false,
+      code: 'not_configured',
+      message: 'wallet signing-session status is not configured',
+    };
+  }
+  const walletBudgetSessionId = walletSigningBudgetSessionId(walletSigningSessionId);
+  if (!walletBudgetSessionId) {
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'Invalid wallet signing-session id',
+    };
+  }
+  const walletStatus = await input.options.sessionPolicy.getSessionStatus(walletBudgetSessionId);
+  if (!walletStatus) {
+    return {
+      ok: false,
+      code: 'not_found',
+      message: 'wallet signing session not found',
+    };
+  }
+  if (walletStatus.userId !== input.auth.userId) {
+    return {
+      ok: false,
+      code: 'forbidden',
+      message: 'wallet signing session does not belong to authenticated user',
+    };
+  }
+  if (isExpired(walletStatus, input.nowMs)) {
+    return {
+      ok: false,
+      code: 'expired',
+      message: 'wallet signing session expired',
+    };
+  }
+  const remainingUses = toNonNegativeInt(walletStatus.remainingUses) ?? 0;
+  if (remainingUses <= 0) {
+    return {
+      ok: false,
+      code: 'exhausted',
+      message: 'wallet signing session exhausted',
+    };
+  }
+  return {
+    ok: true,
+    remainingUses,
+    expiresAtMs: Math.min(input.fallbackSession.expiresAtMs, walletStatus.expiresAtMs),
+  };
+}
+
 async function runSealOperation(input: {
   options: CreateSigningSessionSealServiceOptions;
   operation: SigningSessionSealOperation;
@@ -282,7 +356,19 @@ async function runSealOperation(input: {
       }
     }
 
-    let remainingUses = toNonNegativeInt(session.remainingUses);
+    const budgetStatus = await resolveBudgetStatusForSealOperation({
+      options: input.options,
+      auth: input.auth,
+      fallbackSession: session,
+      nowMs: nowMs(),
+    });
+    if (!budgetStatus.ok) {
+      result = budgetStatus;
+      return result;
+    }
+
+    let remainingUses = budgetStatus.remainingUses;
+    let expiresAtMs = budgetStatus.expiresAtMs;
     const consumePolicy = input.options.consumePolicy || 'never';
     if (shouldConsume(consumePolicy, input.operation)) {
       if (!input.options.sessionPolicy.consumeUseCount) {
@@ -325,7 +411,7 @@ async function runSealOperation(input: {
       ok: true,
       ciphertext: sealed.ciphertext,
       keyVersion: sealed.keyVersion || input.request.keyVersion,
-      expiresAtMs: session.expiresAtMs,
+      expiresAtMs,
       ...(remainingUses !== undefined ? { remainingUses } : {}),
     };
     return result;
@@ -429,13 +515,16 @@ export function createSigningSessionSealService(
     auth: SigningSessionSealAuthInput,
   ): Promise<SigningSessionSealRouteResult> => {
     const operationKey = await makeOperationRequestKey({ operation, request, auth });
-    const idempotentReplay = await tryReplayIdempotentResult(
-      operation,
-      request.thresholdSessionId,
-      auth.userId,
-      operationKey,
-    );
-    if (idempotentReplay) return idempotentReplay;
+    const allowPersistentReplay = !hasWalletSigningSessionBudgetClaim(auth);
+    if (allowPersistentReplay) {
+      const idempotentReplay = await tryReplayIdempotentResult(
+        operation,
+        request.thresholdSessionId,
+        auth.userId,
+        operationKey,
+      );
+      if (idempotentReplay) return idempotentReplay;
+    }
 
     const runAndPersist = async (): Promise<SigningSessionSealRouteResult> => {
       const result = await runSealOperation({
@@ -444,7 +533,7 @@ export function createSigningSessionSealService(
         request,
         auth,
       });
-      if (shouldPersistIdempotentResult(result)) {
+      if (allowPersistentReplay && shouldPersistIdempotentResult(result)) {
         await tryPersistIdempotentResult(
           operation,
           request.thresholdSessionId,

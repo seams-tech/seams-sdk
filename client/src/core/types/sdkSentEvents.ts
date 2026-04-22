@@ -411,11 +411,11 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_SUCCEEDED]: 'Registration session ready',
   [RegistrationEventPhase.STEP_04_PASSKEY_CREATE_STARTED]: 'Create your passkey',
   [RegistrationEventPhase.STEP_04_PASSKEY_CREATE_SUCCEEDED]: 'Passkey created',
-  [RegistrationEventPhase.STEP_04_OTP_CHALLENGE_STARTED]: 'Sending email code',
-  [RegistrationEventPhase.STEP_04_OTP_CHALLENGE_SENT]: 'Email code sent',
-  [RegistrationEventPhase.STEP_04_OTP_INPUT_REQUIRED]: 'Enter the email code',
-  [RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED]: 'Verifying email code',
-  [RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED]: 'Email verified',
+  [RegistrationEventPhase.STEP_04_OTP_CHALLENGE_STARTED]: 'Sending registration email code',
+  [RegistrationEventPhase.STEP_04_OTP_CHALLENGE_SENT]: 'Registration email code sent',
+  [RegistrationEventPhase.STEP_04_OTP_INPUT_REQUIRED]: 'Enter the registration code',
+  [RegistrationEventPhase.STEP_04_OTP_VERIFY_STARTED]: 'Verifying registration code',
+  [RegistrationEventPhase.STEP_04_OTP_VERIFY_SUCCEEDED]: 'Registration email verified',
   [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_STARTED]: 'Preparing NEAR signer',
   [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PREPARE_SUCCEEDED]: 'NEAR signer ready',
   [RegistrationEventPhase.STEP_05_ED25519_SIGNER_PROVISION_STARTED]: 'Preparing NEAR signer',
@@ -427,10 +427,12 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [RegistrationEventPhase.STEP_07_ACCOUNT_VERIFY_SUCCEEDED]: 'Wallet account verified',
   [RegistrationEventPhase.STEP_08_STORAGE_PERSIST_STARTED]: 'Saving wallet metadata',
   [RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED]: 'Wallet metadata saved',
-  [RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED]: 'Securing Email OTP signer',
-  [RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED]: 'Email OTP signer secured',
-  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED]: 'Preparing EVM signer',
-  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED]: 'EVM signer ready',
+  [RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_STARTED]:
+    'Securing Email OTP registration',
+  [RegistrationEventPhase.STEP_09_EMAIL_OTP_SIGNER_ENROLL_SUCCEEDED]:
+    'Email OTP registration secured',
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_STARTED]: 'Preparing EVM signing session',
+  [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SUCCEEDED]: 'EVM signing session ready',
   [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SKIPPED]: 'EVM signer setup skipped',
   [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_BOOTSTRAP_STARTED]: 'Preparing EVM signer',
   [RegistrationEventPhase.STEP_10_ECDSA_SIGNER_BOOTSTRAP_SUCCEEDED]: 'EVM signer ready',
@@ -451,7 +453,7 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED]: 'Creating app session',
   [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED]: 'App session ready',
   [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED]: 'App session skipped',
-  [UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED]: 'Preparing signing session',
+  [UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED]: 'Preparing transaction signing',
   [UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY]: 'NEAR signing session ready',
   [UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY]: 'EVM signing session ready',
   [UnlockEventPhase.STEP_06_SESSION_READY]: 'Wallet session ready',
@@ -462,9 +464,9 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [SigningEventPhase.STEP_02_REQUEST_PREPARED]: 'Transaction ready for review',
   [SigningEventPhase.STEP_03_NONCE_RESERVE_STARTED]: 'Reserving nonce',
   [SigningEventPhase.STEP_03_NONCE_RESERVE_SUCCEEDED]: 'Nonce reserved',
-  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_STARTED]: 'Checking account readiness',
-  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_SUCCEEDED]: 'Account ready',
-  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_SKIPPED]: 'Account readiness check skipped',
+  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_STARTED]: 'Checking account setup',
+  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_SUCCEEDED]: 'Account setup verified',
+  [SigningEventPhase.STEP_04_ACCOUNT_READINESS_SKIPPED]: 'Account setup check skipped',
   [SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED]: 'Review transaction',
   [SigningEventPhase.STEP_05_CONFIRMATION_APPROVED]: 'Transaction approved',
   [SigningEventPhase.STEP_05_CONFIRMATION_CANCELLED]: 'Transaction rejected',
@@ -480,8 +482,8 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [SigningEventPhase.STEP_08_SIGNER_PREPARE_STARTED]: 'Preparing secure signer',
   [SigningEventPhase.STEP_08_SIGNER_PREPARE_SUCCEEDED]: 'Secure signer ready',
   [SigningEventPhase.STEP_08_PRESIGN_REFILL_SCHEDULED]: 'Preparing future signatures',
-  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED]: 'Reconnecting signing session',
-  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED]: 'Signing session reconnected',
+  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED]: 'Loading secure signer',
+  [SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED]: 'Secure signer loaded',
   [SigningEventPhase.STEP_10_COMMIT_QUEUED]: 'Waiting to sign',
   [SigningEventPhase.STEP_10_COMMIT_STARTED]: 'Signing transaction',
   [SigningEventPhase.STEP_10_COMMIT_SUCCEEDED]: 'Transaction signature ready',
@@ -679,7 +681,7 @@ export interface RegistrationHooksOptions {
   // `TatchiConfigsReadonly.signing.thresholdEcdsa.provisioningDefaults`.
   signerOptions?: EcdsaSignerProvisioningDefaults;
   /**
-  * Preferred grouping for per-call confirmer copy.
+   * Preferred grouping for per-call confirmer copy.
    */
   confirmerText?: { title?: string; body?: string };
   // Per-call confirmation configuration. When provided, overrides user preferences

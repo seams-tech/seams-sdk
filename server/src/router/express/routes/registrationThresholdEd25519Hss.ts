@@ -42,6 +42,7 @@ export function registerRegistrationThresholdEd25519HssRoutes(
           authService: ctx.service,
           apiKeyAuth: ctx.opts.apiKeyAuth,
           bootstrapTokenStore: ctx.opts.bootstrapTokenStore,
+          orgProjectEnv: ctx.opts.orgProjectEnv,
           session: ctx.opts.session,
         },
         sourceIp:
@@ -76,6 +77,7 @@ export function registerRegistrationThresholdEd25519HssRoutes(
           authService: ctx.service,
           apiKeyAuth: ctx.opts.apiKeyAuth,
           bootstrapTokenStore: ctx.opts.bootstrapTokenStore,
+          orgProjectEnv: ctx.opts.orgProjectEnv,
           session: ctx.opts.session,
         },
         sourceIp:
@@ -110,6 +112,7 @@ export function registerRegistrationThresholdEd25519HssRoutes(
           authService: ctx.service,
           apiKeyAuth: ctx.opts.apiKeyAuth,
           bootstrapTokenStore: ctx.opts.bootstrapTokenStore,
+          orgProjectEnv: ctx.opts.orgProjectEnv,
           session: ctx.opts.session,
         },
         sourceIp:
