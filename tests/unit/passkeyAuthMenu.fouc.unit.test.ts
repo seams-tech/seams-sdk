@@ -367,7 +367,6 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     await expect(mount.locator('.w3a-otp-email')).toHaveCount(0);
     await expect(mount.getByText(/alice@example\.com/)).toBeVisible();
     await mount.getByLabel('Email code').fill('123456');
-    await mount.getByRole('button', { name: 'Unlock wallet' }).click();
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__otpSubmitted))
       .toBe('123456');
@@ -468,7 +467,6 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toBe(1);
 
     await input.fill('123456');
-    await mount.getByRole('button', { name: 'Unlock wallet' }).click();
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__otpSubmitted))
       .toBe('123456');
