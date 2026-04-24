@@ -14,6 +14,7 @@ import {
   handleEmailOtpDevOtpOutboxRoute,
   handleEmailOtpDeviceRecoveryChallengeRoute,
   handleEmailOtpLoginChallengeRoute,
+  handleEmailOtpLoginVerifyAndUnsealRoute,
   handleEmailOtpRecoveryKeyConsumeRoute,
   handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
@@ -1255,6 +1256,42 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
       const response = await handleEmailOtpLoginVerifyRoute({
+        body: req?.body,
+        claims: validated.claims,
+        userId: validated.userId,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+        service: ctx.service,
+        opts: ctx.opts,
+        emitWebhook: async (event) => {
+          await emitEmailOtpWebhookDescriptor({
+            descriptor: event.descriptor,
+            claims: event.claims,
+            userId: event.userId,
+            ...(event.walletId ? { walletId: event.walletId } : {}),
+          });
+        },
+      });
+      res.status(response.status).json(response.body);
+    } catch (e: any) {
+      res.status(500).json(emailOtpInternalErrorBody(e));
+    }
+  });
+
+  router.post('/wallet/email-otp/login/verify-and-unseal', async (req: any, res: any) => {
+    try {
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.login.verify_and_unseal',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const response = await handleEmailOtpLoginVerifyAndUnsealRoute({
         body: req?.body,
         claims: validated.claims,
         userId: validated.userId,

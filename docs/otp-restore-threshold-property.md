@@ -409,7 +409,7 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 
 1. [x] Normal Email OTP login reads `enc_s(S)` from IndexedDB.
 2. [x] The worker computes `d = E_c(enc_s(S))`.
-3. [ ] The client submits OTP code, challenge id, and `d` in one action-specific `verify-and-unseal` request.
+3. [x] The client submits OTP code, challenge id, and `d` in one action-specific `verify-and-unseal` request.
 4. [x] The server verifies the OTP before applying enrollment seal removal and returns `e = E_c(S)`.
 5. [x] If `enc_s(S)` is missing, the client fails requiring explicit recovery instead of server escrow fetch.
 6. [x] Remove server code that fetches a direct enrollment escrow for normal login.
@@ -537,7 +537,7 @@ Integration tests:
 7. [x] transaction signing budget behavior is unchanged
 8. [x] export/link-device/add-signer still require operation-scoped auth
 9. [x] successful recovery consumes exactly one recovery key
-10. [ ] same-device login uses exactly the challenge request plus `verify-and-unseal` request on the hot path
+10. [x] same-device login uses exactly the challenge request plus `verify-and-unseal` request on the hot path
 
 E2E tests:
 

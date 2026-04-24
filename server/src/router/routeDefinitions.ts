@@ -1960,6 +1960,13 @@ export function createRelayRouteDefinitions(
       ['authService', 'session'],
     ),
     userSessionRoute(
+      'wallet_email_otp_login_verify_and_unseal',
+      'POST',
+      '/wallet/email-otp/login/verify-and-unseal',
+      'Verify Email OTP login challenge and remove the server seal in one request',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
       'wallet_email_otp_recovery_wrapped_escrows',
       'POST',
       '/wallet/email-otp/recovery-wrapped-escrows',

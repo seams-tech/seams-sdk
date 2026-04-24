@@ -1618,7 +1618,9 @@ test.describe('Email OTP routes', () => {
       const otpCode = String(outbox.json?.otpCode || '');
       expect(otpCode).toMatch(/^\d{6}$/);
 
-      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify`, {
+      const plaintextSecretB64u = encodePositiveBigIntB64u(7n);
+      const wrapped = makeWrappedCiphertext(plaintextSecretB64u);
+      const verified = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify-and-unseal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
@@ -1626,28 +1628,15 @@ test.describe('Email OTP routes', () => {
           challengeId,
           otpChannel: 'email_otp',
           otpCode,
+          wrappedCiphertext: wrapped.wrappedCiphertext,
         }),
       });
       expect(verified.status).toBe(200);
       expect(verified.json?.ok).toBe(true);
-      const loginGrant = String(verified.json?.loginGrant || '');
-      expect(loginGrant.length).toBeGreaterThan(10);
-      const plaintextSecretB64u = encodePositiveBigIntB64u(7n);
-      const wrapped = makeWrappedCiphertext(plaintextSecretB64u);
-
-      const unsealed = await fetchJson(`${srv.baseUrl}/wallet/email-otp/unseal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
-        body: JSON.stringify({
-          loginGrant,
-          wrappedCiphertext: wrapped.wrappedCiphertext,
-        }),
-      });
-      expect(unsealed.status).toBe(200);
-      expect(unsealed.json?.ok).toBe(true);
-      expect(unsealed.json?.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
-      expect(unsealed.json?.ciphertext).toBe(wrapped.clientCiphertext);
-      expect(removeClientSeal(String(unsealed.json?.ciphertext || ''))).toBe(plaintextSecretB64u);
+      expect(verified.json?.loginGrant).toBeUndefined();
+      expect(verified.json?.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+      expect(verified.json?.ciphertext).toBe(wrapped.clientCiphertext);
+      expect(removeClientSeal(String(verified.json?.ciphertext || ''))).toBe(plaintextSecretB64u);
 
       const unlockChallenge = await fetchJson(`${srv.baseUrl}/wallet/unlock/challenge`, {
         method: 'POST',
@@ -1693,16 +1682,19 @@ test.describe('Email OTP routes', () => {
         .get('alice.testnet');
       expect(typeof authStateAfterUnlock?.lastEmailOtpLoginAtMs === 'number').toBe(true);
 
-      const replay = await fetchJson(`${srv.baseUrl}/wallet/email-otp/unseal`, {
+      const replay = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/verify-and-unseal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
-          loginGrant,
+          walletId: 'alice.testnet',
+          challengeId,
+          otpChannel: 'email_otp',
+          otpCode,
           wrappedCiphertext: wrapped.wrappedCiphertext,
         }),
       });
       expect(replay.status).toBe(400);
-      expect(replay.json?.code).toBe('login_grant_invalid_or_expired');
+      expect(replay.json?.code).toBe('challenge_expired_or_invalid');
     } finally {
       await srv.close();
     }
@@ -2193,38 +2185,26 @@ test.describe('Email OTP routes', () => {
     const otpCode = String(outbox.json?.otpCode || '');
     expect(otpCode).toMatch(/^\d{6}$/);
 
+    const plaintextSecretB64u = encodePositiveBigIntB64u(9n);
+    const wrapped = makeWrappedCiphertext(plaintextSecretB64u);
     const verified = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/login/verify',
+      path: '/wallet/email-otp/login/verify-and-unseal',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
         challengeId,
         otpChannel: 'email_otp',
         otpCode,
-      },
-      ctx: cf.ctx,
-    });
-    expect(verified.status).toBe(200);
-    const loginGrant = String(verified.json?.loginGrant || '');
-    expect(loginGrant.length).toBeGreaterThan(10);
-    const plaintextSecretB64u = encodePositiveBigIntB64u(9n);
-    const wrapped = makeWrappedCiphertext(plaintextSecretB64u);
-
-    const unsealed = await callCf(handler, {
-      method: 'POST',
-      path: '/wallet/email-otp/unseal',
-      headers: { Authorization: 'Bearer app-session' },
-      body: {
-        loginGrant,
         wrappedCiphertext: wrapped.wrappedCiphertext,
       },
       ctx: cf.ctx,
     });
-    expect(unsealed.status).toBe(200);
-    expect(unsealed.json?.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
-    expect(unsealed.json?.ciphertext).toBe(wrapped.clientCiphertext);
-    expect(removeClientSeal(String(unsealed.json?.ciphertext || ''))).toBe(plaintextSecretB64u);
+    expect(verified.status).toBe(200);
+    expect(verified.json?.loginGrant).toBeUndefined();
+    expect(verified.json?.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
+    expect(verified.json?.ciphertext).toBe(wrapped.clientCiphertext);
+    expect(removeClientSeal(String(verified.json?.ciphertext || ''))).toBe(plaintextSecretB64u);
 
     const unlockChallenge = await callCf(handler, {
       method: 'POST',
@@ -2274,16 +2254,19 @@ test.describe('Email OTP routes', () => {
 
     const consumedReplay = await callCf(handler, {
       method: 'POST',
-      path: '/wallet/email-otp/unseal',
+      path: '/wallet/email-otp/login/verify-and-unseal',
       headers: { Authorization: 'Bearer app-session' },
       body: {
-        loginGrant,
+        walletId: 'alice.testnet',
+        challengeId,
+        otpChannel: 'email_otp',
+        otpCode,
         wrappedCiphertext: wrapped.wrappedCiphertext,
       },
       ctx: cf.ctx,
     });
     expect(consumedReplay.status).toBe(400);
-    expect(consumedReplay.json?.code).toBe('login_grant_invalid_or_expired');
+    expect(consumedReplay.json?.code).toBe('challenge_expired_or_invalid');
   });
 
   test('Cloudflare: wrong OTP attempts persist lockout across fresh Email OTP challenges', async () => {

@@ -89,6 +89,22 @@ function makeThresholdSessionJwt(
   });
 }
 
+function makeBareSigningEngine(): SigningEngine {
+  const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+  const engineAny = engine as any;
+  engineAny.tatchiPasskeyConfigs = {
+    network: {
+      relayer: { url: 'https://relay.example' },
+    },
+    signing: {
+      sessionSeal: { shamirPrimeB64u: 'prime-b64u' },
+    },
+  };
+  engineAny.thresholdEcdsaSessionByLane = new Map();
+  engineAny.thresholdEcdsaExportArtifactByLane = new Map();
+  return engine;
+}
+
 function installEmailOtpSessionsFixture(
   engineAny: any,
   args?: {
@@ -157,7 +173,7 @@ function makeEngine(args: {
   warmReady?: boolean;
   touchConfirm?: Record<string, unknown>;
 }) {
-  const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+  const engine = makeBareSigningEngine();
   const engineAny = engine as any;
   const persistCalls: Array<Record<string, unknown>> = [];
   const upsertCalls: Array<Record<string, unknown>> = [];
@@ -614,7 +630,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
         return {
           recovery: {
-            loginGrant: 'grant-worker',
             challengeId: 'challenge-worker',
             enrollmentSealKeyVersion: 'email-otp-kv-worker',
             unlockChallengeId: 'unlock-worker',
@@ -732,7 +747,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       remainingUses: 7,
     });
     expect('clientRootShare32B64u' in result.recovery).toBe(false);
-    expect(result.recovery.loginGrant).toBe('grant-worker');
     expect(result.bootstrap.thresholdEcdsaKeyRef.thresholdSessionId).toBe('ecdsa-session-worker');
     expect(result.warmCapability.state).toBe('ready');
   });
@@ -747,7 +761,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
         return {
           recovery: {
-            loginGrant: 'grant-worker',
             challengeId: 'challenge-worker',
             enrollmentSealKeyVersion: 'email-otp-kv-worker',
             unlockChallengeId: 'unlock-worker',
@@ -787,7 +800,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
   test('transaction ECDSA Email OTP reauth uses signing-session auth instead of app-session fallback', async () => {
     const walletId = 'alice.testnet';
     const internalLoginRequests: Array<Record<string, any>> = [];
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     engineAny.getThresholdEcdsaKeyRefForLookup = () =>
       makeWorkerBootstrap({ walletId }).thresholdEcdsaKeyRef;
@@ -842,7 +855,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
   test('transaction ECDSA Email OTP reauth provisions a one-use transaction session', async () => {
     const walletId = 'alice.testnet';
     const internalLoginRequests: Array<Record<string, any>> = [];
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     engineAny.tatchiPasskeyConfigs = {
       network: { relayer: { url: 'https://relay.example' } },
@@ -921,7 +934,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
         return {
           recovery: {
-            loginGrant: 'grant-worker',
             challengeId: 'challenge-worker',
             enrollmentSealKeyVersion: 'email-otp-kv-worker',
             unlockChallengeId: 'unlock-worker',
@@ -973,7 +985,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
         return {
           recovery: {
-            loginGrant: 'grant-worker',
             challengeId: 'challenge-worker',
             enrollmentSealKeyVersion: 'email-otp-kv-worker',
             unlockChallengeId: 'unlock-worker',
@@ -1087,7 +1098,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
         return {
           recovery: {
-            loginGrant: 'grant-worker',
             challengeId: 'challenge-worker',
             enrollmentSealKeyVersion: 'email-otp-kv-worker',
             unlockChallengeId: 'unlock-worker',
@@ -1123,7 +1133,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         expect(request.type).toBe('loginWithEmailOtpAndBootstrapEcdsaSession');
         return {
           recovery: {
-            loginGrant: 'grant-worker',
             challengeId: 'challenge-worker',
             enrollmentSealKeyVersion: 'email-otp-kv-worker',
             unlockChallengeId: 'unlock-worker',
@@ -1153,7 +1162,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
   test('exports ECDSA with fresh Email OTP step-up for Email OTP sessions', async () => {
     const walletId = 'alice.testnet';
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     const confirmationTypes: string[] = [];
     const challengeRequests: Array<Record<string, unknown>> = [];
@@ -1178,6 +1187,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     engineAny.theme = 'dark';
     engineAny.getRpId = () => 'example.localhost';
     engineAny.getThresholdEcdsaSessionRecordForLookup = () => ecdsaRecord;
+    engineAny.listThresholdEcdsaSessionRecordsForLookup = () => [ecdsaRecord];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       refreshRequests.push({
         url: String(input),
@@ -1317,7 +1327,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
   test('does not consume Email OTP ECDSA signing session when export viewer fails', async () => {
     const walletId = 'alice.testnet';
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     const consumedSessions: Array<Record<string, unknown>> = [];
     const restoredRecords: Array<Record<string, unknown>> = [];
@@ -1343,6 +1353,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     engineAny.theme = 'dark';
     engineAny.getRpId = () => 'example.localhost';
     engineAny.getThresholdEcdsaSessionRecordForLookup = () => ecdsaRecord;
+    engineAny.listThresholdEcdsaSessionRecordsForLookup = () => [ecdsaRecord];
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ ok: true, jwt: 'unexpected-refresh' }), {
         status: 200,
@@ -1415,7 +1426,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
   test('discard cached threshold-session JWT before Email OTP app-session refresh', async () => {
     const walletId = 'alice.testnet';
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     const refreshRequests: Array<{ url: string; body: unknown }> = [];
     const originalFetch = globalThis.fetch;
@@ -1467,7 +1478,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
   test('uses unexpired cached app-session JWT for Email OTP login-route challenge', async () => {
     const walletId = 'alice.testnet';
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     const refreshRequests: Array<{ url: string; body: unknown }> = [];
     const originalFetch = globalThis.fetch;
@@ -1507,8 +1518,8 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
   test('does not restore app-session JWT from sessionStorage after reload', async () => {
     const walletId = 'alice.testnet';
-    const firstEngine = Object.create(SigningEngine.prototype) as SigningEngine;
-    const secondEngine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const firstEngine = makeBareSigningEngine();
+    const secondEngine = makeBareSigningEngine();
     const firstEmailOtpSessions = installEmailOtpSessionsFixture(firstEngine as any);
     const secondEmailOtpSessions = installEmailOtpSessionsFixture(secondEngine as any);
     const refreshRequests: Array<{ url: string; body: unknown }> = [];
@@ -1591,7 +1602,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
   test('refreshes expired cached app-session JWT before Email OTP login-route challenge', async () => {
     const walletId = 'alice.testnet';
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     const refreshRequests: Array<{ url: string; body: unknown }> = [];
     const originalFetch = globalThis.fetch;
@@ -1642,7 +1653,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
   test('exports NEAR Ed25519 with fresh Email OTP step-up for Email OTP sessions', async () => {
     const walletId = 'alice.testnet';
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     const expectedPublicKey = 'ed25519:email-otp-public-key';
     const confirmationTypes: string[] = [];
@@ -1855,7 +1866,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       expect(confirmationTypes).toEqual([
         'signIntentDigest',
         'showSecurePrivateKeyUi',
-        'showSecurePrivateKeyUi',
       ]);
     } finally {
       globalThis.fetch = originalFetch;
@@ -1865,7 +1875,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
   test('keeps ECDSA export on WebAuthn authorization for passkey sessions', async () => {
     const walletId = 'alice.testnet';
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     const confirmationTypes: string[] = [];
     const keyRef = {
@@ -1924,7 +1934,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
   });
 
   test('prefers Email OTP warm-session status and claims over the passkey runtime', async () => {
-    const engine = Object.create(SigningEngine.prototype) as SigningEngine;
+    const engine = makeBareSigningEngine();
     const engineAny = engine as any;
     const baseStatusCalls: string[] = [];
     const emailOtpStatusCalls: string[] = [];
@@ -2043,7 +2053,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         workerRequests.push({ kind, request });
         return {
           recovery: {
-            loginGrant: 'grant-worker',
             challengeId: 'challenge-worker',
             enrollmentSealKeyVersion: 'email-otp-kv-worker',
             unlockChallengeId: 'unlock-worker',

@@ -1,8 +1,6 @@
 import type { ThresholdEcdsaActivationChain } from '@/core/signingEngine/orchestration/thresholdActivation';
 import type { WalletEmailOtpOperation } from '@shared/utils/emailOtpDomain';
-import {
-  WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-} from '@shared/utils/emailOtpDomain';
+import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 
 export type EmailOtpAuthLane =
@@ -114,7 +112,7 @@ export function routeFamilyForAuthLane(args: {
 
 export function emailOtpRoutePath(
   plan: EmailOtpRoutePlan,
-  action: 'challenge' | 'verify' | 'unseal' | 'seal' | 'finalize',
+  action: 'challenge' | 'verify' | 'verifyAndUnseal' | 'unseal' | 'seal' | 'finalize',
 ): string {
   if (plan.routeFamily === 'signing_session') {
     if (action === 'challenge') return '/wallet/email-otp/signing-session/challenge';
@@ -129,6 +127,7 @@ export function emailOtpRoutePath(
   if (plan.routeFamily === 'login') {
     if (action === 'challenge') return '/wallet/email-otp/login/challenge';
     if (action === 'verify') return '/wallet/email-otp/login/verify';
+    if (action === 'verifyAndUnseal') return '/wallet/email-otp/login/verify-and-unseal';
     if (action === 'unseal') return '/wallet/email-otp/unseal';
   }
   throw new Error(`Email OTP ${plan.routeFamily} route does not support ${action}`);

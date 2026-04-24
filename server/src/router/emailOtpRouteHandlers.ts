@@ -941,6 +941,63 @@ export async function handleEmailOtpLoginVerifyRoute(input: {
   return { status: emailOtpStatusCode(result.code), body: result };
 }
 
+export async function handleEmailOtpLoginVerifyAndUnsealRoute(input: {
+  body: unknown;
+  claims: Record<string, unknown>;
+  userId: string;
+  appSessionVersion: string;
+  clientIp?: string;
+  service: AuthService;
+  opts: RelayRouterOptions;
+  emitWebhook: EmitEmailOtpRouteWebhook;
+}): Promise<EmailOtpRouteResponse> {
+  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
+  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
+
+  const body = bodyValidation.body;
+  const wrappedCiphertextValidation = validateEmailOtpRequiredString(body, 'wrappedCiphertext');
+  if (!wrappedCiphertextValidation.ok) {
+    return {
+      status: wrappedCiphertextValidation.status,
+      body: wrappedCiphertextValidation.body,
+    };
+  }
+
+  const verified = await handleEmailOtpLoginVerifyRoute(input);
+  if (verified.status !== 200 || verified.body.ok !== true) return verified;
+
+  const loginGrant = String(verified.body.loginGrant || '').trim();
+  const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
+  const sessionWalletId = getSessionWalletId(input.claims, input.userId);
+  const grant = await input.service.consumeEmailOtpGrant({
+    loginGrant,
+    userId: input.userId,
+    walletId: sessionWalletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    otpChannel: EMAIL_OTP_CHANNEL,
+    sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    clientIp: input.clientIp,
+  });
+  if (!grant.ok) return { status: emailOtpStatusCode(grant.code), body: grant };
+
+  const unsealed = await input.service.removeEmailOtpServerSeal({
+    wrappedCiphertext: wrappedCiphertextValidation.value,
+  });
+  if (!unsealed.ok) return { status: emailOtpStatusCode(unsealed.code), body: unsealed };
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      challengeId: verified.body.challengeId,
+      ciphertext: unsealed.ciphertext,
+      otpChannel: verified.body.otpChannel,
+      enrollmentSealKeyVersion: unsealed.enrollmentSealKeyVersion,
+    },
+  };
+}
+
 export async function handleEmailOtpSigningSessionVerifyRoute(input: {
   body: unknown;
   claims: Record<string, unknown>;

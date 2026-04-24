@@ -74,6 +74,7 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
     expect(loginSlice).toContain('readEmailOtpDeviceEnrollmentEscrowRecord');
     expect(loginSlice).toContain('Email OTP device-local enc_s(S) is missing');
     expect(loginSlice).toContain('localEnrollmentEscrow.encSB64u');
+    expect(loginSlice).toContain("route: emailOtpRoutePath(args.routePlan, 'verifyAndUnseal')");
     expect(loginSlice).not.toContain('verified.enrollmentEscrowCiphertextB64u');
   });
 

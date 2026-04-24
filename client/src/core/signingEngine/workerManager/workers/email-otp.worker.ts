@@ -2044,7 +2044,6 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
   clientSecret32?: Uint8Array;
   clientRootShare32: Uint8Array;
   thresholdEd25519PrfFirstB64u: string;
-  loginGrant: string;
   challengeId: string;
   enrollmentSealKeyVersion: string;
   unlockChallengeId: string;
@@ -2080,20 +2079,6 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
         'challengeId',
       );
     }
-    const verified = await postEmailOtpJson({
-      relayUrl,
-      route: emailOtpRoutePath(args.routePlan, 'verify'),
-      ...(sessionAuth ? { sessionAuth } : {}),
-      body: {
-        walletId,
-        challengeId,
-        otpCode: readString(args.otpCode, 'otpCode'),
-        otpChannel: EMAIL_OTP_CHANNEL,
-        operation: args.routePlan.operation,
-      },
-    });
-    const loginGrant = readString(verified.loginGrant, 'loginGrant');
-    args.onProgress?.('otp.verify.succeeded');
     const userId = String(args.userId || walletId).trim() || walletId;
     const localEnrollmentEscrow = await readEmailOtpDeviceEnrollmentEscrowRecord({
       walletId,
@@ -2103,13 +2088,6 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
     if (!localEnrollmentEscrow) {
       throw new Error('Email OTP device-local enc_s(S) is missing; recovery is required');
     }
-    const verifiedEnrollmentSealKeyVersion = readOptionalString(verified.enrollmentSealKeyVersion);
-    if (
-      verifiedEnrollmentSealKeyVersion &&
-      localEnrollmentEscrow.enrollmentSealKeyVersion !== verifiedEnrollmentSealKeyVersion
-    ) {
-      throw new Error('Email OTP device-local enc_s(S) metadata mismatch; recovery is required');
-    }
     const wrappedCiphertext = readString(
       await runtime.addClientSealWithKeyHandle({
         ciphertextB64u: localEnrollmentEscrow.encSB64u,
@@ -2117,16 +2095,64 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
       }),
       'wrappedCiphertext',
     );
-    const unsealed = await postEmailOtpJson({
-      relayUrl,
-      route: emailOtpRoutePath(args.routePlan, 'unseal'),
-      ...(sessionAuth ? { sessionAuth } : {}),
-      body: {
-        ...(args.routePlan.routeFamily === 'signing_session' ? { walletId } : {}),
-        loginGrant,
-        wrappedCiphertext,
-      },
-    });
+    let unsealed: Record<string, unknown>;
+    if (args.routePlan.routeFamily === 'login') {
+      unsealed = await postEmailOtpJson({
+        relayUrl,
+        route: emailOtpRoutePath(args.routePlan, 'verifyAndUnseal'),
+        ...(sessionAuth ? { sessionAuth } : {}),
+        body: {
+          walletId,
+          challengeId,
+          otpCode: readString(args.otpCode, 'otpCode'),
+          otpChannel: EMAIL_OTP_CHANNEL,
+          operation: args.routePlan.operation,
+          wrappedCiphertext,
+        },
+      });
+      args.onProgress?.('otp.verify.succeeded');
+    } else {
+      const verified = await postEmailOtpJson({
+        relayUrl,
+        route: emailOtpRoutePath(args.routePlan, 'verify'),
+        ...(sessionAuth ? { sessionAuth } : {}),
+        body: {
+          walletId,
+          challengeId,
+          otpCode: readString(args.otpCode, 'otpCode'),
+          otpChannel: EMAIL_OTP_CHANNEL,
+          operation: args.routePlan.operation,
+        },
+      });
+      const verifiedEnrollmentSealKeyVersion = readOptionalString(
+        verified.enrollmentSealKeyVersion,
+      );
+      if (
+        verifiedEnrollmentSealKeyVersion &&
+        localEnrollmentEscrow.enrollmentSealKeyVersion !== verifiedEnrollmentSealKeyVersion
+      ) {
+        throw new Error('Email OTP device-local enc_s(S) metadata mismatch; recovery is required');
+      }
+      const loginGrant = readString(verified.loginGrant, 'loginGrant');
+      args.onProgress?.('otp.verify.succeeded');
+      unsealed = await postEmailOtpJson({
+        relayUrl,
+        route: emailOtpRoutePath(args.routePlan, 'unseal'),
+        ...(sessionAuth ? { sessionAuth } : {}),
+        body: {
+          walletId,
+          loginGrant,
+          wrappedCiphertext,
+        },
+      });
+    }
+    const enrollmentSealKeyVersion = readString(
+      unsealed.enrollmentSealKeyVersion,
+      'enrollmentSealKeyVersion',
+    );
+    if (localEnrollmentEscrow.enrollmentSealKeyVersion !== enrollmentSealKeyVersion) {
+      throw new Error('Email OTP device-local enc_s(S) metadata mismatch; recovery is required');
+    }
     const clientCiphertext = readString(unsealed.ciphertext, 'ciphertext');
     clientSecret32 = await removeClientSealToBytes({
       runtime,
@@ -2154,12 +2180,8 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
       ...(returnedClientSecret32 ? { clientSecret32: returnedClientSecret32 } : {}),
       clientRootShare32: unlocked.clientRootShare32,
       thresholdEd25519PrfFirstB64u,
-      loginGrant,
       challengeId,
-      enrollmentSealKeyVersion: readString(
-        unsealed.enrollmentSealKeyVersion,
-        'enrollmentSealKeyVersion',
-      ),
+      enrollmentSealKeyVersion,
       unlockChallengeId: unlocked.unlockChallengeId,
       unlockChallengeB64u: unlocked.unlockChallengeB64u,
       clientUnlockPublicKeyB64u: unlocked.clientUnlockPublicKeyB64u,
@@ -2845,7 +2867,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
             ok: true,
             result: {
               recovery: {
-                loginGrant: result.loginGrant,
                 challengeId: result.challengeId,
                 enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
                 unlockChallengeId: result.unlockChallengeId,
@@ -2958,7 +2979,6 @@ self.addEventListener('message', async (event: MessageEvent) => {
             ok: true,
             result: {
               recovery: {
-                loginGrant: result.loginGrant,
                 challengeId: result.challengeId,
                 enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
                 unlockChallengeId: result.unlockChallengeId,

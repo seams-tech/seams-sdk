@@ -14,6 +14,7 @@ import {
   handleEmailOtpDevOtpOutboxRoute,
   handleEmailOtpDeviceRecoveryChallengeRoute,
   handleEmailOtpLoginChallengeRoute,
+  handleEmailOtpLoginVerifyAndUnsealRoute,
   handleEmailOtpRecoveryKeyConsumeRoute,
   handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
@@ -1283,6 +1284,42 @@ export async function handleWalletEmailOtpLoginVerify(
     return validated.response;
   }
   const response = await handleEmailOtpLoginVerifyRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
+    opts: ctx.opts,
+    emitWebhook: async (event) => {
+      await emitEmailOtpWebhookDescriptor(ctx, {
+        descriptor: event.descriptor,
+        claims: event.claims,
+        userId: event.userId,
+        ...(event.walletId ? { walletId: event.walletId } : {}),
+      });
+    },
+  });
+  return json(response.body, { status: response.status });
+}
+
+export async function handleWalletEmailOtpLoginVerifyAndUnseal(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/login/verify-and-unseal') {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateAppSession(ctx);
+  if (!validated.ok) {
+    await maybeEmitWarmExpiredFromValidationFailure({
+      ctx,
+      validated,
+      source: 'wallet.email_otp.login.verify_and_unseal',
+    });
+    return validated.response;
+  }
+  const response = await handleEmailOtpLoginVerifyAndUnsealRoute({
     body,
     claims: validated.claims,
     userId: validated.userId,

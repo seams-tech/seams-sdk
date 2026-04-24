@@ -274,7 +274,6 @@ export interface EmailOtpWorkerOperationMap {
     };
     result: {
       recovery: {
-        loginGrant: string;
         challengeId: string;
         enrollmentSealKeyVersion: string;
         unlockChallengeId: string;
@@ -324,7 +323,6 @@ export interface EmailOtpWorkerOperationMap {
     };
     result: {
       recovery: {
-        loginGrant: string;
         challengeId: string;
         enrollmentSealKeyVersion: string;
         unlockChallengeId: string;

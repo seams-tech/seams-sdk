@@ -69,7 +69,6 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
   const secretSentinel = 'email-otp-secret-must-not-cross-app-origin';
 
   const loginRecovery = {
-    loginGrant: 'grant-1',
     challengeId: 'challenge-1',
     enrollmentSealKeyVersion: 'email-otp-kv-1',
     unlockChallengeId: 'unlock-challenge-1',
@@ -494,8 +493,6 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           enrollmentChallenge,
           exchangedWalletId: sessionExchange.session.walletId,
           enrollmentKeyVersion: enrollment.enrollmentSealKeyVersion,
-          loginGrant: login.recovery.loginGrant,
-          perOperationLoginGrant: perOperationLogin.recovery.loginGrant,
           enrollAndLoginKeyVersion: enrollAndLogin.enrollment.enrollmentSealKeyVersion,
           appOriginSecretRejection,
           sessionSignedKind: sessionSigned.kind,
@@ -551,8 +548,6 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
       enrollmentChallenge: { challengeId: 'enrollment-challenge-1', otpChannel: 'email_otp' },
       exchangedWalletId: 'alice.testnet',
       enrollmentKeyVersion: 'email-otp-kv-1',
-      loginGrant: 'grant-1',
-      perOperationLoginGrant: 'grant-1',
       enrollAndLoginKeyVersion: 'email-otp-kv-1',
       appOriginSecretRejection:
         '[TatchiPasskey] Wallet iframe Email OTP enrollment owns client secret generation; clientSecret32 is not accepted from the app origin.',

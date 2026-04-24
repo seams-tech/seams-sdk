@@ -92,7 +92,6 @@ const EMAIL_OTP_SIGNING_SESSION_AUTH_UNAVAILABLE =
   'Email OTP signing-session authority is unavailable; unlock wallet again';
 
 export type EmailOtpBootstrapRecovery = {
-  loginGrant: string;
   challengeId: string;
   enrollmentSealKeyVersion: string;
   unlockChallengeId: string;
