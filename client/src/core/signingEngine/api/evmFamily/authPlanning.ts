@@ -27,7 +27,10 @@ import type {
   SigningLaneContext,
   SigningSessionPlan,
 } from '../../session/signingSessionTypes';
-import { SigningOperationIntent } from '../../session/signingSessionTypes';
+import {
+  SigningOperationIntent,
+  SigningSessionPlanKind,
+} from '../../session/signingSessionTypes';
 import { signingAuthPlanFromSigningSessionPlan } from '../../orchestration/shared/touchConfirmSigning';
 import type {
   ThresholdEcdsaSessionRecord,
@@ -351,7 +354,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(
       forceFreshAuth: args.forceFreshAuth,
     });
     plannedSigningSessionPlan = signingSessionPlan;
-    if (signingSessionPlan.kind === 'warm_session') {
+    if (signingSessionPlan.kind === SigningSessionPlanKind.WarmSession) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
         plan: signingSessionPlan,
         accountId: authInput.accountId,
@@ -361,7 +364,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(
         expiresAtMs: readiness.expiresAtMs,
         remainingUses: readiness.remainingUses,
       });
-    } else if (signingSessionPlan.kind === 'email_otp_reauth') {
+    } else if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
         plan: signingSessionPlan,
         accountId: authInput.accountId,
@@ -369,7 +372,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(
         ...(authInput.curve ? { curve: authInput.curve } : {}),
       });
       emailOtpAuthBridge = await emailOtpAuthAdapter.createEmailOtpReauthPlan(authInput);
-    } else if (signingSessionPlan.kind === 'passkey_reauth') {
+    } else if (signingSessionPlan.kind === SigningSessionPlanKind.PasskeyReauth) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
         plan: signingSessionPlan,
         accountId: authInput.accountId,

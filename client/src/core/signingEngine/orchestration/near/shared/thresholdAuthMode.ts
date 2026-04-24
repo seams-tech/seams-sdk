@@ -29,6 +29,7 @@ import {
 } from '@/core/signingEngine/session/SigningSessionTrace';
 import {
   SigningOperationIntent,
+  SigningSessionPlanKind,
   SigningSessionIds,
   type SigningLaneContext,
 } from '@/core/signingEngine/session/signingSessionTypes';
@@ -157,7 +158,7 @@ export async function resolveNearThresholdSigningAuthPlan(args: {
       !String(record?.xClientBaseB64u || '').trim(),
   });
 
-  if (plan.kind === 'warm_session') {
+  if (plan.kind === SigningSessionPlanKind.WarmSession) {
     const signingAuthPlan: SigningAuthPlan = {
       kind: SigningAuthPlanKind.WarmSession,
       method: lane.authMethod,
@@ -177,7 +178,7 @@ export async function resolveNearThresholdSigningAuthPlan(args: {
       warmSessionReady: true,
     };
   }
-  if (plan.kind === 'passkey_reauth') {
+  if (plan.kind === SigningSessionPlanKind.PasskeyReauth) {
     const signingAuthPlan: SigningAuthPlan = {
       kind: SigningAuthPlanKind.PasskeyReauth,
       method: 'passkey',
@@ -190,7 +191,7 @@ export async function resolveNearThresholdSigningAuthPlan(args: {
       warmSessionReady: false,
     };
   }
-  if (plan.kind === 'not_ready') {
+  if (plan.kind === SigningSessionPlanKind.NotReady) {
     throw new Error(`[SigningEngine][near] signing session is not ready: ${plan.reason}`);
   }
   const signingAuthPlan: SigningAuthPlan = {

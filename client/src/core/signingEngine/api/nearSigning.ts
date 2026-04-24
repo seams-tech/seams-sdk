@@ -44,6 +44,7 @@ import {
 } from '../session/WalletSigningBudgetLedger';
 import {
   SigningOperationIntent,
+  SigningSessionPlanKind,
   SigningSessionIds,
   type SigningLaneContext,
   type SigningOperationId,
@@ -582,7 +583,7 @@ async function resolveNearTransactionWalletAuth(args: {
     forceFreshAuth: args.forceFreshAuth === true,
     sensitiveOperationPolicy: sensitivePolicy,
   });
-  if (plan.kind === 'not_ready') {
+  if (plan.kind === SigningSessionPlanKind.NotReady) {
     if (plan.reason === 'policy_blocked') {
       throw new Error(
         '[SigningEngine] NEAR operation requires passkey authentication after Email OTP login',

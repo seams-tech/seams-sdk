@@ -9,6 +9,8 @@ import type {
   ThresholdSessionId,
 } from './signingSessionTypes';
 import {
+  SigningKeyRefIntentKind,
+  SigningSessionPlanKind,
   summarizeSigningLane,
   summarizeSigningSessionPlan,
 } from './signingSessionTypes';
@@ -73,7 +75,7 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
   const policyBlock = getPolicyBlock(input);
   if (policyBlock) {
     return {
-      kind: 'not_ready',
+      kind: SigningSessionPlanKind.NotReady,
       lane,
       reason: policyBlock,
     };
@@ -88,17 +90,17 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
   if (readiness.status === 'ready' && !forceFreshAuth) {
     if (!thresholdSessionId) {
       return {
-        kind: 'not_ready',
+        kind: SigningSessionPlanKind.NotReady,
         lane,
         reason: 'missing_session',
       };
     }
 
     return {
-      kind: 'warm_session',
+      kind: SigningSessionPlanKind.WarmSession,
       lane,
       keyRef: {
-        kind: 'cached',
+        kind: SigningKeyRefIntentKind.Cached,
         thresholdSessionId,
       },
     };
@@ -106,7 +108,7 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
 
   if (readiness.status === 'auth_unavailable' || readiness.status === 'status_unavailable') {
     return {
-      kind: 'not_ready',
+      kind: SigningSessionPlanKind.NotReady,
       lane,
       reason: readiness.status,
     };
@@ -114,7 +116,7 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
 
   if (lane.authMethod === 'email_otp') {
     return {
-      kind: 'email_otp_reauth',
+      kind: SigningSessionPlanKind.EmailOtpReauth,
       lane,
       challenge: {
         chainFamily: lane.chainFamily,
@@ -124,7 +126,7 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
   }
 
   return {
-    kind: 'passkey_reauth',
+    kind: SigningSessionPlanKind.PasskeyReauth,
     lane,
     reconnect: {
       lane,
@@ -146,7 +148,7 @@ export function createSigningPlannerDecisionTraceEvent(
       : {}),
     plan: summarizeSigningSessionPlan(plan),
     lane: summarizeSigningLane(input.lane),
-    ...(plan.kind === 'not_ready' ? { reason: plan.reason } : {}),
+    ...(plan.kind === SigningSessionPlanKind.NotReady ? { reason: plan.reason } : {}),
   };
 }
 

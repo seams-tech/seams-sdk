@@ -2,8 +2,13 @@ import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { SigningAuthPlan } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { assertThresholdSigningSessionReady } from '../../orchestration/shared/thresholdSigningSessionReadiness';
-import type { SigningLaneContext, SigningSessionPlan } from '../../session/signingSessionTypes';
 import {
+  SigningSessionPlanKind,
+  type SigningLaneContext,
+  type SigningSessionPlan,
+} from '../../session/signingSessionTypes';
+import {
+  SigningExecutionCommandKind,
   createSigningExecutionCommandTraceEvent,
   type SigningExecutionCommand,
 } from '../../session/SigningExecutionMachine';
@@ -52,7 +57,8 @@ type EvmFamilyAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
 
 type EvmFamilyRuntimeCommandKind = Extract<
   SigningExecutionCommand['kind'],
-  'requestOtp' | 'reconnectThreshold'
+  | typeof SigningExecutionCommandKind.RequestOtp
+  | typeof SigningExecutionCommandKind.ReconnectThreshold
 >;
 
 type EvmFamilyEmailOtpSigningForFlow = {
@@ -66,7 +72,7 @@ function executionCommandTraceForPlan(args: {
   commandKind: EvmFamilyRuntimeCommandKind;
 }) {
   const plan = args.signingSessionPlan;
-  if (!plan || plan.kind === 'not_ready') return null;
+  if (!plan || plan.kind === SigningSessionPlanKind.NotReady) return null;
   return createSigningExecutionCommandTraceEvent({
     plan,
     commandKind: args.commandKind,
@@ -100,7 +106,7 @@ function wrapEmailOtpSigningWithRuntimeCommands(args: {
     prepare: async () =>
       await executeEvmFamilyRuntimeCommand({
         signingSessionPlan: args.signingSessionPlan,
-        commandKind: 'requestOtp',
+        commandKind: SigningExecutionCommandKind.RequestOtp,
         execute: emailOtpSigning.prepare,
       }),
     ...(emailOtpSigning.resend
@@ -108,7 +114,7 @@ function wrapEmailOtpSigningWithRuntimeCommands(args: {
           resend: async () =>
             await executeEvmFamilyRuntimeCommand({
               signingSessionPlan: args.signingSessionPlan,
-              commandKind: 'requestOtp',
+              commandKind: SigningExecutionCommandKind.RequestOtp,
               execute: emailOtpSigning.resend!,
             }),
         }
@@ -256,7 +262,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           ensureThresholdEcdsaKeyRefReady: async () => {
             const readyKeyRef = await executeEvmFamilyRuntimeCommand({
               signingSessionPlan: args.signingSessionPlan,
-              commandKind: 'reconnectThreshold',
+              commandKind: SigningExecutionCommandKind.ReconnectThreshold,
               execute: async () =>
                 await ensureEvmFamilyThresholdEcdsaKeyRefReady({
                   deps: args.deps,

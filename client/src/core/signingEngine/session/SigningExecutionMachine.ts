@@ -3,78 +3,102 @@ import type {
   SigningSessionPlan,
 } from './signingSessionTypes';
 import {
+  SigningSessionPlanKind,
   summarizeSigningLane,
   summarizeSigningSessionPlan,
   type SigningLaneSummary,
   type SigningPlanSummary,
 } from './signingSessionTypes';
 
+export const SigningExecutionStateKind = {
+  Planned: 'planned',
+  ConfirmationDisplayed: 'confirmation_displayed',
+  AuthReady: 'auth_ready',
+  ThresholdReconnected: 'threshold_reconnected',
+  NonceReady: 'nonce_ready',
+  BudgetReserved: 'budget_reserved',
+  Signed: 'signed',
+  BudgetSpent: 'budget_spent',
+  CleanedUp: 'cleaned_up',
+  Completed: 'completed',
+  Failed: 'failed',
+} as const;
+
 export type SigningExecutionStateKind =
-  | 'planned'
-  | 'confirmation_displayed'
-  | 'auth_ready'
-  | 'threshold_reconnected'
-  | 'nonce_ready'
-  | 'budget_reserved'
-  | 'signed'
-  | 'budget_spent'
-  | 'cleaned_up'
-  | 'completed'
-  | 'failed';
+  (typeof SigningExecutionStateKind)[keyof typeof SigningExecutionStateKind];
+
+export const SigningExecutionCommandKind = {
+  ShowConfirmation: 'showConfirmation',
+  RequestOtp: 'requestOtp',
+  RequestPasskey: 'requestPasskey',
+  ReconnectThreshold: 'reconnectThreshold',
+  PrepareNonce: 'prepareNonce',
+  Sign: 'sign',
+  ReserveBudget: 'reserveBudget',
+  SpendBudget: 'spendBudget',
+  Cleanup: 'cleanup',
+} as const;
+
+export type SigningExecutionCommandKind =
+  (typeof SigningExecutionCommandKind)[keyof typeof SigningExecutionCommandKind];
 
 export type SigningExecutionState =
-  | { kind: 'planned'; plan: SigningSessionPlan }
-  | { kind: 'confirmation_displayed'; plan: SigningSessionPlan }
-  | { kind: 'auth_ready'; plan: SigningSessionPlan }
-  | { kind: 'threshold_reconnected'; plan: SigningSessionPlan }
-  | { kind: 'nonce_ready'; plan: SigningSessionPlan }
-  | { kind: 'budget_reserved'; plan: SigningSessionPlan }
-  | { kind: 'signed'; plan: SigningSessionPlan }
-  | { kind: 'budget_spent'; plan: SigningSessionPlan }
-  | { kind: 'cleaned_up'; plan: SigningSessionPlan }
-  | { kind: 'completed'; plan: SigningSessionPlan }
-  | { kind: 'failed'; plan?: SigningSessionPlan; reason: string };
+  | { kind: typeof SigningExecutionStateKind.Planned; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.ConfirmationDisplayed; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.AuthReady; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.ThresholdReconnected; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.NonceReady; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.BudgetReserved; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.Signed; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.BudgetSpent; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.CleanedUp; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.Completed; plan: SigningSessionPlan }
+  | { kind: typeof SigningExecutionStateKind.Failed; plan?: SigningSessionPlan; reason: string };
 
 export type SigningExecutionCommand =
-  | { kind: 'showConfirmation'; plan: SigningSessionPlan; operation?: SigningOperationContext }
   | {
-      kind: 'requestOtp';
-      plan: Extract<SigningSessionPlan, { kind: 'email_otp_reauth' }>;
+      kind: typeof SigningExecutionCommandKind.ShowConfirmation;
+      plan: SigningSessionPlan;
       operation?: SigningOperationContext;
     }
   | {
-      kind: 'requestPasskey';
-      plan: Extract<SigningSessionPlan, { kind: 'passkey_reauth' }>;
+      kind: typeof SigningExecutionCommandKind.RequestOtp;
+      plan: Extract<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.EmailOtpReauth }>;
       operation?: SigningOperationContext;
     }
   | {
-      kind: 'reconnectThreshold';
-      plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>;
+      kind: typeof SigningExecutionCommandKind.RequestPasskey;
+      plan: Extract<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.PasskeyReauth }>;
       operation?: SigningOperationContext;
     }
   | {
-      kind: 'prepareNonce';
-      plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>;
+      kind: typeof SigningExecutionCommandKind.ReconnectThreshold;
+      plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
       operation?: SigningOperationContext;
     }
   | {
-      kind: 'sign';
-      plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>;
+      kind: typeof SigningExecutionCommandKind.PrepareNonce;
+      plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
       operation?: SigningOperationContext;
     }
   | {
-      kind: 'reserveBudget';
-      plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>;
+      kind: typeof SigningExecutionCommandKind.Sign;
+      plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
       operation?: SigningOperationContext;
     }
   | {
-      kind: 'spendBudget';
-      plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>;
+      kind: typeof SigningExecutionCommandKind.ReserveBudget;
+      plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
       operation?: SigningOperationContext;
     }
   | {
-      kind: 'cleanup';
-      plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>;
+      kind: typeof SigningExecutionCommandKind.SpendBudget;
+      plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
+      operation?: SigningOperationContext;
+    }
+  | {
+      kind: typeof SigningExecutionCommandKind.Cleanup;
+      plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
       operation?: SigningOperationContext;
     };
 
@@ -108,12 +132,19 @@ export type SigningExecutionCommandExecutor = {
 export type RunSigningExecutionMachineResult =
   | {
       ok: true;
-      finalState: Extract<SigningExecutionState, { kind: 'completed' | 'failed' }>;
+      finalState: Extract<
+        SigningExecutionState,
+        {
+          kind:
+            | typeof SigningExecutionStateKind.Completed
+            | typeof SigningExecutionStateKind.Failed;
+        }
+      >;
       steps: SigningExecutionStep[];
     }
   | {
       ok: false;
-      finalState: Extract<SigningExecutionState, { kind: 'failed' }>;
+      finalState: Extract<SigningExecutionState, { kind: typeof SigningExecutionStateKind.Failed }>;
       steps: SigningExecutionStep[];
       error: unknown;
     };
@@ -123,7 +154,7 @@ export function createSigningExecutionMachine(args: {
   operation?: SigningOperationContext;
 }): SigningExecutionMachine {
   const initialState: SigningExecutionState = {
-    kind: 'planned',
+    kind: SigningExecutionStateKind.Planned,
     plan: args.plan,
   };
 
@@ -162,7 +193,7 @@ export async function runSigningExecutionSteps(args: {
         const failedStep = transition({
           from: step.from,
           to: {
-            kind: 'failed',
+            kind: SigningExecutionStateKind.Failed,
             plan: step.command.plan,
             reason: getExecutionErrorReason(error),
           },
@@ -173,7 +204,10 @@ export async function runSigningExecutionSteps(args: {
         executedSteps.push(failedStep);
         return {
           ok: false,
-          finalState: failedStep.to as Extract<SigningExecutionState, { kind: 'failed' }>,
+          finalState: failedStep.to as Extract<
+            SigningExecutionState,
+            { kind: typeof SigningExecutionStateKind.Failed }
+          >,
           steps: executedSteps,
           error,
         };
@@ -183,7 +217,7 @@ export async function runSigningExecutionSteps(args: {
     await args.onTransition?.(step.traceEvent);
     executedSteps.push(step);
 
-    if (step.to.kind === 'failed') {
+    if (step.to.kind === SigningExecutionStateKind.Failed) {
       return {
         ok: true,
         finalState: step.to,
@@ -193,7 +227,7 @@ export async function runSigningExecutionSteps(args: {
   }
 
   const finalState = executedSteps.at(-1)?.to;
-  if (finalState?.kind !== 'completed') {
+  if (finalState?.kind !== SigningExecutionStateKind.Completed) {
     throw new Error('[SigningExecutionMachine] execution ended without a terminal state');
   }
 
@@ -205,32 +239,32 @@ export async function runSigningExecutionSteps(args: {
 }
 
 export function buildSigningPostSignExecutionSteps(
-  plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>,
+  plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>,
   operation?: SigningOperationContext,
 ): SigningExecutionStep[] {
   const steps: SigningExecutionStep[] = [];
   let state: SigningExecutionState = {
-    kind: 'signed',
+    kind: SigningExecutionStateKind.Signed,
     plan,
   };
 
   state = pushTransition(steps, state, {
-    to: { kind: 'budget_spent', plan },
-    command: withOperation({ kind: 'spendBudget', plan }, operation),
+    to: { kind: SigningExecutionStateKind.BudgetSpent, plan },
+    command: withOperation({ kind: SigningExecutionCommandKind.SpendBudget, plan }, operation),
   });
   state = pushTransition(steps, state, {
-    to: { kind: 'cleaned_up', plan },
-    command: withOperation({ kind: 'cleanup', plan }, operation),
+    to: { kind: SigningExecutionStateKind.CleanedUp, plan },
+    command: withOperation({ kind: SigningExecutionCommandKind.Cleanup, plan }, operation),
   });
   pushTransition(steps, state, {
-    to: { kind: 'completed', plan },
+    to: { kind: SigningExecutionStateKind.Completed, plan },
   });
 
   return steps;
 }
 
 export function createSigningExecutionCommandTraceEvent(args: {
-  plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>;
+  plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
   commandKind: SigningExecutionCommand['kind'];
   operation?: SigningOperationContext;
 }): SigningExecutionTransitionEvent | null {
@@ -249,15 +283,15 @@ export function createSigningExecutionCommandTraceEvent(args: {
 
 export function buildSigningExecutionSteps(
   plan: SigningSessionPlan,
-  initialState: SigningExecutionState = { kind: 'planned', plan },
+  initialState: SigningExecutionState = { kind: SigningExecutionStateKind.Planned, plan },
   operation?: SigningOperationContext,
 ): SigningExecutionStep[] {
-  if (plan.kind === 'not_ready') {
+  if (plan.kind === SigningSessionPlanKind.NotReady) {
     return [
       transition({
         from: initialState,
         to: {
-          kind: 'failed',
+          kind: SigningExecutionStateKind.Failed,
           plan,
           reason: plan.reason,
         },
@@ -270,90 +304,127 @@ export function buildSigningExecutionSteps(
   let state = initialState;
 
   state = pushTransition(steps, state, {
-    to: { kind: 'confirmation_displayed', plan },
-    command: withOperation({ kind: 'showConfirmation', plan }, operation),
+    to: { kind: SigningExecutionStateKind.ConfirmationDisplayed, plan },
+    command: withOperation({ kind: SigningExecutionCommandKind.ShowConfirmation, plan }, operation),
   });
 
-  if (plan.kind === 'email_otp_reauth') {
+  if (plan.kind === SigningSessionPlanKind.EmailOtpReauth) {
     state = pushTransition(steps, state, {
-      to: { kind: 'auth_ready', plan },
-      command: withOperation({ kind: 'requestOtp', plan }, operation),
+      to: { kind: SigningExecutionStateKind.AuthReady, plan },
+      command: withOperation({ kind: SigningExecutionCommandKind.RequestOtp, plan }, operation),
     });
     state = pushTransition(steps, state, {
-      to: { kind: 'threshold_reconnected', plan },
-      command: withOperation({ kind: 'reconnectThreshold', plan }, operation),
+      to: { kind: SigningExecutionStateKind.ThresholdReconnected, plan },
+      command: withOperation(
+        { kind: SigningExecutionCommandKind.ReconnectThreshold, plan },
+        operation,
+      ),
     });
-  } else if (plan.kind === 'passkey_reauth') {
+  } else if (plan.kind === SigningSessionPlanKind.PasskeyReauth) {
     state = pushTransition(steps, state, {
-      to: { kind: 'auth_ready', plan },
-      command: withOperation({ kind: 'requestPasskey', plan }, operation),
+      to: { kind: SigningExecutionStateKind.AuthReady, plan },
+      command: withOperation({ kind: SigningExecutionCommandKind.RequestPasskey, plan }, operation),
     });
     state = pushTransition(steps, state, {
-      to: { kind: 'threshold_reconnected', plan },
-      command: withOperation({ kind: 'reconnectThreshold', plan }, operation),
+      to: { kind: SigningExecutionStateKind.ThresholdReconnected, plan },
+      command: withOperation(
+        { kind: SigningExecutionCommandKind.ReconnectThreshold, plan },
+        operation,
+      ),
     });
   } else {
     state = pushTransition(steps, state, {
-      to: { kind: 'auth_ready', plan },
+      to: { kind: SigningExecutionStateKind.AuthReady, plan },
     });
   }
 
   state = pushTransition(steps, state, {
-    to: { kind: 'nonce_ready', plan },
-    command: withOperation({ kind: 'prepareNonce', plan }, operation),
+    to: { kind: SigningExecutionStateKind.NonceReady, plan },
+    command: withOperation({ kind: SigningExecutionCommandKind.PrepareNonce, plan }, operation),
   });
   state = pushTransition(steps, state, {
-    to: { kind: 'budget_reserved', plan },
-    command: withOperation({ kind: 'reserveBudget', plan }, operation),
+    to: { kind: SigningExecutionStateKind.BudgetReserved, plan },
+    command: withOperation({ kind: SigningExecutionCommandKind.ReserveBudget, plan }, operation),
   });
   state = pushTransition(steps, state, {
-    to: { kind: 'signed', plan },
-    command: withOperation({ kind: 'sign', plan }, operation),
+    to: { kind: SigningExecutionStateKind.Signed, plan },
+    command: withOperation({ kind: SigningExecutionCommandKind.Sign, plan }, operation),
   });
   state = pushTransition(steps, state, {
-    to: { kind: 'budget_spent', plan },
-    command: withOperation({ kind: 'spendBudget', plan }, operation),
+    to: { kind: SigningExecutionStateKind.BudgetSpent, plan },
+    command: withOperation({ kind: SigningExecutionCommandKind.SpendBudget, plan }, operation),
   });
   state = pushTransition(steps, state, {
-    to: { kind: 'cleaned_up', plan },
-    command: withOperation({ kind: 'cleanup', plan }, operation),
+    to: { kind: SigningExecutionStateKind.CleanedUp, plan },
+    command: withOperation({ kind: SigningExecutionCommandKind.Cleanup, plan }, operation),
   });
   pushTransition(steps, state, {
-    to: { kind: 'completed', plan },
+    to: { kind: SigningExecutionStateKind.Completed, plan },
   });
 
   return steps;
 }
 
 function signingExecutionTransitionForCommand(
-  plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>,
+  plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>,
   commandKind: SigningExecutionCommand['kind'],
 ): { from: SigningExecutionStateKind; to: SigningExecutionStateKind } | null {
   switch (commandKind) {
-    case 'showConfirmation':
-      return { from: 'planned', to: 'confirmation_displayed' };
-    case 'requestOtp':
-      return plan.kind === 'email_otp_reauth'
-        ? { from: 'confirmation_displayed', to: 'auth_ready' }
+    case SigningExecutionCommandKind.ShowConfirmation:
+      return {
+        from: SigningExecutionStateKind.Planned,
+        to: SigningExecutionStateKind.ConfirmationDisplayed,
+      };
+    case SigningExecutionCommandKind.RequestOtp:
+      return plan.kind === SigningSessionPlanKind.EmailOtpReauth
+        ? {
+            from: SigningExecutionStateKind.ConfirmationDisplayed,
+            to: SigningExecutionStateKind.AuthReady,
+          }
         : null;
-    case 'requestPasskey':
-      return plan.kind === 'passkey_reauth'
-        ? { from: 'confirmation_displayed', to: 'auth_ready' }
+    case SigningExecutionCommandKind.RequestPasskey:
+      return plan.kind === SigningSessionPlanKind.PasskeyReauth
+        ? {
+            from: SigningExecutionStateKind.ConfirmationDisplayed,
+            to: SigningExecutionStateKind.AuthReady,
+          }
         : null;
-    case 'reconnectThreshold':
-      return plan.kind === 'email_otp_reauth' || plan.kind === 'passkey_reauth'
-        ? { from: 'auth_ready', to: 'threshold_reconnected' }
+    case SigningExecutionCommandKind.ReconnectThreshold:
+      return plan.kind === SigningSessionPlanKind.EmailOtpReauth ||
+        plan.kind === SigningSessionPlanKind.PasskeyReauth
+        ? {
+            from: SigningExecutionStateKind.AuthReady,
+            to: SigningExecutionStateKind.ThresholdReconnected,
+          }
         : null;
-    case 'prepareNonce':
-      return { from: plan.kind === 'warm_session' ? 'auth_ready' : 'threshold_reconnected', to: 'nonce_ready' };
-    case 'reserveBudget':
-      return { from: 'nonce_ready', to: 'budget_reserved' };
-    case 'sign':
-      return { from: 'budget_reserved', to: 'signed' };
-    case 'spendBudget':
-      return { from: 'signed', to: 'budget_spent' };
-    case 'cleanup':
-      return { from: 'budget_spent', to: 'cleaned_up' };
+    case SigningExecutionCommandKind.PrepareNonce:
+      return {
+        from:
+          plan.kind === SigningSessionPlanKind.WarmSession
+            ? SigningExecutionStateKind.AuthReady
+            : SigningExecutionStateKind.ThresholdReconnected,
+        to: SigningExecutionStateKind.NonceReady,
+      };
+    case SigningExecutionCommandKind.ReserveBudget:
+      return {
+        from: SigningExecutionStateKind.NonceReady,
+        to: SigningExecutionStateKind.BudgetReserved,
+      };
+    case SigningExecutionCommandKind.Sign:
+      return {
+        from: SigningExecutionStateKind.BudgetReserved,
+        to: SigningExecutionStateKind.Signed,
+      };
+    case SigningExecutionCommandKind.SpendBudget:
+      return {
+        from: SigningExecutionStateKind.Signed,
+        to: SigningExecutionStateKind.BudgetSpent,
+      };
+    case SigningExecutionCommandKind.Cleanup:
+      return {
+        from: SigningExecutionStateKind.BudgetSpent,
+        to: SigningExecutionStateKind.CleanedUp,
+      };
   }
 }
 

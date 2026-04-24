@@ -18,6 +18,7 @@ import {
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
   resolveAccountAuthMetadataForSignerSource,
+  WalletAuthPlanKind,
 } from '../../auth';
 
 function joinUrlPath(baseUrl: string, path: string): string {
@@ -182,7 +183,7 @@ export async function connectEd25519Session(args: {
       intent: 'session_mint',
       curve: 'ed25519',
     });
-    if (walletAuthPlan.kind !== 'passkeyReauth') {
+    if (walletAuthPlan.kind !== WalletAuthPlanKind.PasskeyReauth) {
       return {
         ok: false,
         code: 'unsupported',

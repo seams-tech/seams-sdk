@@ -23,6 +23,7 @@ export {
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
   resolveAccountAuthMetadataForSignerSource,
+  WalletAuthPlanKind,
   WalletAuthModeResolutionError,
   WalletAuthPolicyError,
 } from './walletAuthModeResolver';

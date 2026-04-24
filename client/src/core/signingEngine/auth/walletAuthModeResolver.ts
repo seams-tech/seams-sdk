@@ -45,9 +45,18 @@ export type WalletAuthPolicy =
   | 'sensitive_operation_requires_fresh_email_otp'
   | 'email_otp_denied_by_policy';
 
+export const WalletAuthPlanKind = {
+  WarmSession: 'warmSession',
+  PasskeyReauth: 'passkeyReauth',
+  EmailOtpReauth: 'emailOtpReauth',
+} as const;
+
+export type WalletAuthPlanKind =
+  (typeof WalletAuthPlanKind)[keyof typeof WalletAuthPlanKind];
+
 export type WalletAuthPlan =
   | {
-      kind: 'warmSession';
+      kind: typeof WalletAuthPlanKind.WarmSession;
       method: WalletAuthMethod;
       accountId: string;
       intent: WalletAuthIntent;
@@ -59,13 +68,13 @@ export type WalletAuthPlan =
       remainingUses: number;
     }
   | {
-      kind: 'passkeyReauth';
+      kind: typeof WalletAuthPlanKind.PasskeyReauth;
       method: typeof WALLET_AUTH_METHODS.passkey;
       challenge: () => Promise<unknown>;
       complete: (response: unknown) => Promise<PasskeyWalletAuthProof>;
     }
   | {
-      kind: 'emailOtpReauth';
+      kind: typeof WalletAuthPlanKind.EmailOtpReauth;
       method: typeof WALLET_AUTH_METHODS.emailOtp;
       challenge: () => Promise<{ challengeId: string; email: string }>;
       complete: (input: {
@@ -85,9 +94,18 @@ export interface WalletAuthModeResolver {
   resolveWalletAuthPlan(input: ResolveWalletAuthPlanInput): Promise<WalletAuthPlan>;
 }
 
-export type PasskeyWalletAuthPlan = Extract<WalletAuthPlan, { kind: 'passkeyReauth' }>;
-export type EmailOtpWalletAuthPlan = Extract<WalletAuthPlan, { kind: 'emailOtpReauth' }>;
-export type WarmSessionWalletAuthPlan = Extract<WalletAuthPlan, { kind: 'warmSession' }>;
+export type PasskeyWalletAuthPlan = Extract<
+  WalletAuthPlan,
+  { kind: typeof WalletAuthPlanKind.PasskeyReauth }
+>;
+export type EmailOtpWalletAuthPlan = Extract<
+  WalletAuthPlan,
+  { kind: typeof WalletAuthPlanKind.EmailOtpReauth }
+>;
+export type WarmSessionWalletAuthPlan = Extract<
+  WalletAuthPlan,
+  { kind: typeof WalletAuthPlanKind.WarmSession }
+>;
 
 export interface PasskeyWalletAuthAdapter {
   createPasskeyReauthPlan(input: ResolveWalletAuthPlanInput): Promise<PasskeyWalletAuthPlan>;
@@ -222,7 +240,7 @@ export function createPasskeyWalletAuthAdapter(args: {
   return {
     async createPasskeyReauthPlan(input) {
       return {
-        kind: 'passkeyReauth',
+        kind: WalletAuthPlanKind.PasskeyReauth,
         method: WALLET_AUTH_METHODS.passkey,
         challenge: () => args.challenge(input),
         complete: (response) => args.complete({ request: input, response }),
@@ -244,7 +262,7 @@ export function createEmailOtpWalletAuthAdapter(args: {
   return {
     async createEmailOtpReauthPlan(input) {
       return {
-        kind: 'emailOtpReauth',
+        kind: WalletAuthPlanKind.EmailOtpReauth,
         method: WALLET_AUTH_METHODS.emailOtp,
         challenge: () => args.challenge(input),
         complete: ({ challengeId, code }) =>

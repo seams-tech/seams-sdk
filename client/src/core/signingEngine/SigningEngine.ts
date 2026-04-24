@@ -235,6 +235,7 @@ import {
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
   resolveAccountAuthMetadataForSignerSource,
+  WalletAuthPlanKind,
   WalletAuthPolicyError,
   type WalletAuthCurve,
   type WalletAuthIntent,
@@ -1627,7 +1628,7 @@ export class SigningEngine {
       intent: args.intent,
       curve: args.curve,
     });
-    if (plan.kind !== 'passkeyReauth') {
+    if (plan.kind !== WalletAuthPlanKind.PasskeyReauth) {
       throw new WalletAuthPolicyError({
         code: 'passkey_step_up_required',
         policy: 'export_requires_passkey',

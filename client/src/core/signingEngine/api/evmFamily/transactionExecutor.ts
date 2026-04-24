@@ -1,6 +1,10 @@
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import type { SigningSessionPlan } from '../../session/signingSessionTypes';
 import {
+  SigningSessionPlanKind,
+  type SigningSessionPlan,
+} from '../../session/signingSessionTypes';
+import {
+  SigningExecutionCommandKind,
   buildSigningPostSignExecutionSteps,
   runSigningExecutionSteps,
   type SigningExecutionCommand,
@@ -57,7 +61,7 @@ async function runSuccessfulEvmFamilyPostSignCommands(args: {
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
 }): Promise<void> {
-  if (!args.signingSessionPlan || args.signingSessionPlan.kind === 'not_ready') {
+  if (!args.signingSessionPlan || args.signingSessionPlan.kind === SigningSessionPlanKind.NotReady) {
     await args.recordSuccessfulWalletSigningSessionSpend();
     await args.applySuccessfulEcdsaPostSignPolicy(args.chain);
     return;
@@ -68,11 +72,11 @@ async function runSuccessfulEvmFamilyPostSignCommands(args: {
     onTransition: emitEvmFamilySigningExecutionTrace,
     executor: {
       async execute(command: SigningExecutionCommand) {
-        if (command.kind === 'spendBudget') {
+        if (command.kind === SigningExecutionCommandKind.SpendBudget) {
           await args.recordSuccessfulWalletSigningSessionSpend();
           return;
         }
-        if (command.kind === 'cleanup') {
+        if (command.kind === SigningExecutionCommandKind.Cleanup) {
           await args.applySuccessfulEcdsaPostSignPolicy(args.chain);
           return;
         }

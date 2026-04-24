@@ -678,7 +678,7 @@ test.describe('signing session architecture boundary guard', () => {
     expect(evmSigning).not.toContain('consumeWalletSigningSessionUse');
     expect(evmSigning).not.toContain('.consumeWalletSigningSessionUse({');
     expect(evmBudgetSpending).toContain(
-      "throw new Error('[SigningEngine][ecdsa] missing selected signing lane for budget spend')",
+      "throw new Error('[SigningEngine][ecdsa] missing selected signing lane for budget finalizer')",
     );
     expect(evmBudgetSpending).toContain('readSelectedEcdsaRecordForLane');
     expect(evmBudgetSpending).not.toContain('buildEvmFamilyEcdsaSigningLaneContext');
@@ -700,7 +700,7 @@ test.describe('signing session architecture boundary guard', () => {
 
     expect(authPlanning).toContain('signingSessionPlan?: SigningSessionPlan');
     expect(authPlanning).toContain('plannedSigningSessionPlan = signingSessionPlan');
-    expect(evmSigning).toContain('const { walletAuthPlan, signingSessionPlan, emailOtpSigning }');
+    expect(evmSigning).toContain('const { signingAuthPlan, signingSessionPlan, emailOtpSigning }');
     expect(evmSigning).toContain('...(signingSessionPlan ? { signingSessionPlan } : {})');
     expect(transactionExecutor).toContain('signingSessionPlan?: SigningSessionPlan');
     expect(signingFlowRuntime).toContain('signingSessionPlan?: SigningSessionPlan');
@@ -720,13 +720,73 @@ test.describe('signing session architecture boundary guard', () => {
     expect(transactionExecutor).toContain('buildSigningPostSignExecutionSteps');
     expect(transactionExecutor).toContain('runSigningExecutionSteps');
     expect(transactionExecutor).toContain('onTransition: emitEvmFamilySigningExecutionTrace');
-    expect(transactionExecutor).toContain("command.kind === 'spendBudget'");
-    expect(transactionExecutor).toContain("command.kind === 'cleanup'");
-    expect(signingFlowRuntime).toContain("commandKind: 'requestOtp'");
-    expect(signingFlowRuntime).toContain("commandKind: 'reconnectThreshold'");
-    expect(signingFlowRuntime).toContain('buildSigningExecutionSteps');
+    expect(transactionExecutor).toContain(
+      'command.kind === SigningExecutionCommandKind.SpendBudget',
+    );
+    expect(transactionExecutor).toContain(
+      'command.kind === SigningExecutionCommandKind.Cleanup',
+    );
+    expect(signingFlowRuntime).toContain(
+      'commandKind: SigningExecutionCommandKind.RequestOtp',
+    );
+    expect(signingFlowRuntime).toContain(
+      'commandKind: SigningExecutionCommandKind.ReconnectThreshold',
+    );
+    expect(signingFlowRuntime).toContain('createSigningExecutionCommandTraceEvent');
     expect(events).toContain('SigningExecutionTransitionEvent');
     expect(events).toContain('tatchi:debug:signing-execution');
+  });
+
+  test('production signing code uses named discriminants for high-risk auth and session plans', () => {
+    const files = [
+      'client/src/core/signingEngine/SigningEngine.ts',
+      'client/src/core/signingEngine/auth/walletAuthModeResolver.ts',
+      'client/src/core/signingEngine/session/SigningSessionPlanner.ts',
+      'client/src/core/signingEngine/session/SigningExecutionMachine.ts',
+      'client/src/core/signingEngine/orchestration/shared/touchConfirmSigning.ts',
+      'client/src/core/signingEngine/api/evmFamily/authPlanning.ts',
+      'client/src/core/signingEngine/api/evmFamily/signingFlowRuntime.ts',
+      'client/src/core/signingEngine/api/evmFamily/transactionExecutor.ts',
+      'client/src/core/signingEngine/api/nearSigning.ts',
+      'client/src/core/signingEngine/orchestration/near/shared/thresholdAuthMode.ts',
+      'client/src/core/signingEngine/threshold/workflows/connectEd25519Session.ts',
+    ];
+    const allowedDefinitionFiles = new Set([
+      'client/src/core/signingEngine/auth/walletAuthModeResolver.ts',
+      'client/src/core/signingEngine/session/signingSessionTypes.ts',
+      'client/src/core/signingEngine/session/SigningExecutionMachine.ts',
+      'client/src/core/signingEngine/touchConfirm/shared/confirmTypes.ts',
+    ]);
+    const forbiddenTokens = [
+      ".kind === 'warmSession'",
+      ".kind !== 'warmSession'",
+      ".kind === 'passkeyReauth'",
+      ".kind !== 'passkeyReauth'",
+      ".kind === 'emailOtpReauth'",
+      ".kind !== 'emailOtpReauth'",
+      ".kind === 'warm_session'",
+      ".kind !== 'warm_session'",
+      ".kind === 'email_otp_reauth'",
+      ".kind !== 'email_otp_reauth'",
+      ".kind === 'passkey_reauth'",
+      ".kind !== 'passkey_reauth'",
+      ".kind === 'not_ready'",
+      ".kind !== 'not_ready'",
+      "command.kind === 'spendBudget'",
+      "command.kind === 'cleanup'",
+      "commandKind: 'requestOtp'",
+      "commandKind: 'reconnectThreshold'",
+    ];
+
+    const violations = files.flatMap((relativePath) => {
+      if (allowedDefinitionFiles.has(relativePath)) return [];
+      return collectTokenViolations({
+        files: [relativePath],
+        forbiddenTokens,
+      });
+    });
+
+    expect(violations).toEqual([]);
   });
 
   test('EVM and Tempo signing flows share touch-confirm auth progress mapping', () => {

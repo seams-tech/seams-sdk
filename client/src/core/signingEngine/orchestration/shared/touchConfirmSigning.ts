@@ -3,12 +3,16 @@ import {
   type EmailOtpConfirmPrompt,
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
-import type { WalletAuthPlan } from '@/core/signingEngine/auth';
+import { WalletAuthPlanKind, type WalletAuthPlan } from '@/core/signingEngine/auth';
 import type { KeyRef, SignRequest } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type {
   SigningOperationIntent,
   SigningSessionPlan,
+} from '@/core/signingEngine/session/signingSessionTypes';
+import {
+  SigningKeyRefIntentKind,
+  SigningSessionPlanKind,
 } from '@/core/signingEngine/session/signingSessionTypes';
 import {
   SigningEventPhase,
@@ -41,7 +45,7 @@ export function signingAuthPlanFromWalletAuthPlan(
   plan: WalletAuthPlan,
   emailOtpPrompt?: EmailOtpConfirmPrompt,
 ): SigningAuthPlan {
-  if (plan.kind === SigningAuthPlanKind.WarmSession) {
+  if (plan.kind === WalletAuthPlanKind.WarmSession) {
     return {
       kind: SigningAuthPlanKind.WarmSession,
       method: plan.method,
@@ -55,7 +59,7 @@ export function signingAuthPlanFromWalletAuthPlan(
       remainingUses: plan.remainingUses,
     };
   }
-  if (plan.kind === SigningAuthPlanKind.EmailOtpReauth) {
+  if (plan.kind === WalletAuthPlanKind.EmailOtpReauth) {
     if (!emailOtpPrompt) {
       throw new Error('Email OTP signing auth plan requires an emailOtpPrompt');
     }
@@ -72,7 +76,7 @@ export function signingAuthPlanFromWalletAuthPlan(
 }
 
 export function signingAuthPlanFromSigningSessionPlan(args: {
-  plan: Exclude<SigningSessionPlan, { kind: 'not_ready' }>;
+  plan: Exclude<SigningSessionPlan, { kind: typeof SigningSessionPlanKind.NotReady }>;
   accountId: string;
   intent: SigningOperationIntent;
   curve?: 'ed25519' | 'ecdsa';
@@ -82,8 +86,8 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }): SigningAuthPlan {
   const plan = args.plan;
-  if (plan.kind === 'warm_session') {
-    if (plan.keyRef.kind !== 'cached') {
+  if (plan.kind === SigningSessionPlanKind.WarmSession) {
+    if (plan.keyRef.kind !== SigningKeyRefIntentKind.Cached) {
       throw new Error('[SigningEngine] warm signing-session plan requires a cached key ref');
     }
     const expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
@@ -106,7 +110,7 @@ export function signingAuthPlanFromSigningSessionPlan(args: {
       remainingUses,
     };
   }
-  if (plan.kind === 'email_otp_reauth') {
+  if (plan.kind === SigningSessionPlanKind.EmailOtpReauth) {
     return {
       kind: SigningAuthPlanKind.EmailOtpReauth,
       method: 'email_otp',

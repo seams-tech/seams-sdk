@@ -80,13 +80,21 @@ export type SigningLaneResolutionResult =
       chainFamily?: SigningChainFamily;
     };
 
+export const SigningKeyRefIntentKind = {
+  Cached: 'cached',
+  Reauth: 'reauth',
+} as const;
+
+export type SigningKeyRefIntentKind =
+  (typeof SigningKeyRefIntentKind)[keyof typeof SigningKeyRefIntentKind];
+
 export type SigningKeyRefIntent =
   | {
-      kind: 'cached';
+      kind: typeof SigningKeyRefIntentKind.Cached;
       thresholdSessionId: ThresholdSessionId;
     }
   | {
-      kind: 'reauth';
+      kind: typeof SigningKeyRefIntentKind.Reauth;
       authMethod: SigningAuthMethod;
     };
 
@@ -120,24 +128,34 @@ export type SigningSessionNotReadyReason =
   | 'status_unavailable'
   | 'policy_blocked';
 
+export const SigningSessionPlanKind = {
+  WarmSession: 'warm_session',
+  EmailOtpReauth: 'email_otp_reauth',
+  PasskeyReauth: 'passkey_reauth',
+  NotReady: 'not_ready',
+} as const;
+
+export type SigningSessionPlanKind =
+  (typeof SigningSessionPlanKind)[keyof typeof SigningSessionPlanKind];
+
 export type SigningSessionPlan =
   | {
-      kind: 'warm_session';
+      kind: typeof SigningSessionPlanKind.WarmSession;
       lane: SigningLaneContext;
       keyRef: SigningKeyRefIntent;
     }
   | {
-      kind: 'email_otp_reauth';
+      kind: typeof SigningSessionPlanKind.EmailOtpReauth;
       lane: SigningLaneContext;
       challenge: EmailOtpChallengePlan;
     }
   | {
-      kind: 'passkey_reauth';
+      kind: typeof SigningSessionPlanKind.PasskeyReauth;
       lane: SigningLaneContext;
       reconnect: PasskeyReconnectPlan;
     }
   | {
-      kind: 'not_ready';
+      kind: typeof SigningSessionPlanKind.NotReady;
       lane: SigningLaneContext;
       reason: SigningSessionNotReadyReason;
     };
