@@ -149,6 +149,8 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
     expect(restoreSlice).toContain('unwrapEmailOtpDeviceEnrollmentEscrow');
     expect(restoreSlice).toContain('writeEmailOtpDeviceEnrollmentEscrowRecord');
     expect(restoreSlice).toContain('readEmailOtpDeviceEnrollmentEscrowRecord');
+    expect(restoreSlice).toContain("route: '/wallet/email-otp/recovery-key/consume'");
+    expect(restoreSlice).toContain('recoveryConsumeGrant');
     expect(restoreSlice).toContain('Email OTP recovery did not persist device-local enc_s(S)');
     expect(restoreSlice).not.toContain('loginGrant');
   });

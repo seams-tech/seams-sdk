@@ -69,6 +69,7 @@ export type EmailOtpDeviceEnrollmentRestoreResult = {
   signingRootId: string;
   signingRootVersion: string;
   recoveryKeyId: string;
+  activeRecoveryWrappedEnrollmentEscrowCount: number;
 };
 
 export type GoogleEmailOtpSessionExchangeResult = {

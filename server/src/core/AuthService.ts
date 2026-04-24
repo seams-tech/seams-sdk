@@ -5224,6 +5224,8 @@ export class AuthService {
         ok: true;
         challengeId: string;
         otpChannel: EmailOtpChannel;
+        recoveryConsumeGrant: string;
+        recoveryConsumeGrantExpiresAtMs: number;
         recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
         enrollment: {
           walletId: string;
@@ -5271,10 +5273,37 @@ export class AuthService {
         message: 'No active Email OTP recovery-wrapped enrollment escrows are available',
       };
     }
+    if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+      return {
+        ok: false,
+        code: 'unsupported',
+        message: 'crypto.getRandomValues is unavailable in this runtime',
+      };
+    }
+    const otpConfig = this.resolveEmailOtpConfig();
+    const recoveryConsumeGrant = base64UrlEncode(crypto.getRandomValues(new Uint8Array(24)));
+    const issuedAtMs = Date.now();
+    const recoveryConsumeGrantExpiresAtMs = issuedAtMs + otpConfig.grantTtlMs;
+    await this.getEmailOtpGrantStore().put({
+      version: 'email_otp_grant_v1',
+      grantToken: recoveryConsumeGrant,
+      userId: verified.userId,
+      walletId: verified.walletId,
+      orgId: verified.orgId,
+      challengeId: verified.challengeId,
+      otpChannel: verified.otpChannel,
+      sessionHash: String(request.sessionHash || '').trim(),
+      appSessionVersion: String(request.appSessionVersion || '').trim(),
+      action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
+      issuedAtMs,
+      expiresAtMs: recoveryConsumeGrantExpiresAtMs,
+    });
     return {
       ok: true,
       challengeId: verified.challengeId,
       otpChannel: verified.otpChannel,
+      recoveryConsumeGrant,
+      recoveryConsumeGrantExpiresAtMs,
       recoveryWrappedEnrollmentEscrows: scopedRecoveryWrappedEnrollmentEscrows,
       enrollment: {
         walletId: enrollment.enrollment.walletId,
@@ -5739,6 +5768,13 @@ export class AuthService {
           message: 'Login grant is invalid or expired',
         };
       }
+      if (record.action !== WALLET_EMAIL_OTP_ACTIONS.unseal) {
+        return {
+          ok: false,
+          code: 'login_grant_invalid_or_expired',
+          message: 'Login grant is invalid or expired',
+        };
+      }
 
       const bindingMismatch =
         record.userId !== userId ||
@@ -5765,6 +5801,152 @@ export class AuthService {
         ok: false,
         code: 'internal',
         message: errorMessage(e) || 'Failed to consume Email OTP grant',
+      };
+    }
+  }
+
+  async consumeEmailOtpRecoveryKey(request: {
+    recoveryConsumeGrant?: unknown;
+    userId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    recoveryKeyId?: unknown;
+    sessionHash?: unknown;
+    appSessionVersion?: unknown;
+    clientIp?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        walletId: string;
+        recoveryKeyId: string;
+        consumedAtMs: number;
+        activeRecoveryWrappedEnrollmentEscrowCount: number;
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    try {
+      const recoveryConsumeGrant = toOptionalTrimmedString(request.recoveryConsumeGrant);
+      const userId = toOptionalTrimmedString(request.userId);
+      const walletId = toOptionalTrimmedString(request.walletId);
+      const orgId = toOptionalTrimmedString(request.orgId) || '';
+      const recoveryKeyId = toOptionalTrimmedString(request.recoveryKeyId);
+      const sessionHash = toOptionalTrimmedString(request.sessionHash);
+      const appSessionVersion = toOptionalTrimmedString(request.appSessionVersion);
+      const clientIp = toOptionalTrimmedString(request.clientIp) || undefined;
+      if (!recoveryConsumeGrant) {
+        return { ok: false, code: 'invalid_body', message: 'Missing recoveryConsumeGrant' };
+      }
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (!recoveryKeyId) {
+        return { ok: false, code: 'invalid_body', message: 'Missing recoveryKeyId' };
+      }
+      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
+      if (!appSessionVersion) {
+        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      }
+      const rateLimit = await this.consumeEmailOtpRateLimit({
+        scope: 'grant',
+        userId,
+        walletId,
+        orgId,
+        clientIp,
+      });
+      if (!rateLimit.ok) return rateLimit;
+
+      const record = await this.getEmailOtpGrantStore().consume(recoveryConsumeGrant);
+      if (!record || Date.now() > record.expiresAtMs) {
+        return {
+          ok: false,
+          code: 'recovery_consume_grant_invalid_or_expired',
+          message: 'Recovery consume grant is invalid or expired',
+        };
+      }
+      if (record.action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery) {
+        return {
+          ok: false,
+          code: 'recovery_consume_grant_invalid_or_expired',
+          message: 'Recovery consume grant is invalid or expired',
+        };
+      }
+
+      const bindingMismatch =
+        record.userId !== userId ||
+        record.walletId !== walletId ||
+        record.otpChannel !== EMAIL_OTP_CHANNEL ||
+        record.sessionHash !== sessionHash ||
+        record.appSessionVersion !== appSessionVersion ||
+        record.orgId !== orgId;
+      if (bindingMismatch) {
+        return {
+          ok: false,
+          code: 'recovery_grant_binding_mismatch',
+          message: 'Recovery grant is not valid for the current app session',
+        };
+      }
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
+      if (!enrollment.ok) return enrollment;
+
+      const recoveryWrappedEnrollmentEscrowStore =
+        this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore();
+      const recoveryRecord = await recoveryWrappedEnrollmentEscrowStore.get({
+        walletId,
+        recoveryKeyId,
+      });
+      if (!recoveryRecord || recoveryRecord.recoveryKeyStatus !== 'active') {
+        return {
+          ok: false,
+          code: 'recovery_key_not_active',
+          message: 'Recovery key is not active',
+        };
+      }
+      const metadataMismatch =
+        recoveryRecord.walletId !== enrollment.enrollment.walletId ||
+        recoveryRecord.userId !== enrollment.enrollment.providerUserId ||
+        recoveryRecord.authSubjectId !== enrollment.enrollment.providerUserId ||
+        recoveryRecord.enrollmentSealKeyVersion !== enrollment.enrollment.enrollmentSealKeyVersion;
+      if (metadataMismatch) {
+        return {
+          ok: false,
+          code: 'recovery_key_binding_mismatch',
+          message: 'Recovery key is not valid for this Email OTP enrollment',
+        };
+      }
+
+      const consumedAtMs = Date.now();
+      await recoveryWrappedEnrollmentEscrowStore.put({
+        ...recoveryRecord,
+        recoveryKeyStatus: 'consumed',
+        consumedAtMs,
+        updatedAtMs: consumedAtMs,
+      });
+      const activeRecoveryWrappedEnrollmentEscrowCount = (
+        await recoveryWrappedEnrollmentEscrowStore.listActiveByWallet(walletId)
+      ).filter(
+        (activeRecord) =>
+          activeRecord.userId === enrollment.enrollment.providerUserId &&
+          activeRecord.authSubjectId === enrollment.enrollment.providerUserId &&
+          activeRecord.enrollmentSealKeyVersion === enrollment.enrollment.enrollmentSealKeyVersion,
+      ).length;
+
+      return {
+        ok: true,
+        walletId,
+        recoveryKeyId,
+        consumedAtMs,
+        activeRecoveryWrappedEnrollmentEscrowCount,
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to consume Email OTP recovery key',
       };
     }
   }

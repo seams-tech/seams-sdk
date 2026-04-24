@@ -244,6 +244,7 @@ export interface EmailOtpWorkerOperationMap {
       signingRootId: string;
       signingRootVersion: string;
       recoveryKeyId: string;
+      activeRecoveryWrappedEnrollmentEscrowCount: number;
     };
   };
   loginWithEmailOtpWallet: {

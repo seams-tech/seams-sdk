@@ -399,7 +399,7 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 
 ### Phase 4: Change Enrollment Persistence
 
-1. Enrollment worker still generates `S` and computes `enc_s(S)` via `shamir3pass`.
+1. [x] Enrollment worker still generates `S` and computes `enc_s(S)` via `shamir3pass`.
 2. [x] Client stores `enc_s(S)` locally.
 3. [x] Client uploads only `C_i` records and recovery metadata.
 4. [x] Server rejects enrollment completion that attempts to upload a direct server-side `enc_s(S)` field.
@@ -417,12 +417,12 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 
 ### Phase 6: Add Explicit Recovery
 
-1. Add recovery challenge issuance and verification with action-specific route parsing.
-2. Add server response for recovery-wrapped `C_i` records only.
+1. [x] Add recovery challenge issuance and verification with action-specific route parsing.
+2. [x] Add server response for recovery-wrapped `C_i` records only.
 3. Add client recovery-key entry or scan UI for the 8x4 Crockford Base32 format.
-4. Decrypt `C_i` client-side to recover `enc_s(S)`.
-5. Store `enc_s(S)` locally and continue normal unseal.
-6. Consume the used recovery key.
+4. [x] Decrypt `C_i` client-side to recover `enc_s(S)`.
+5. [x] Store `enc_s(S)` locally and continue normal unseal.
+6. [x] Consume the used recovery key.
 7. Prompt replacement-key generation when the active recovery-key count drops below policy.
 
 ### Phase 7: Remove Old Server Escrow Storage
@@ -521,7 +521,7 @@ Unit tests:
 6. [x] server recovery-wrapped schema rejects direct `enc_s(S)` fields
 7. [x] normal login fails closed when local `enc_s(S)` is missing
 8. [x] recovery flow stores recovered `enc_s(S)` locally after successful unwrap
-9. [ ] recovery key consume/revoke state is enforced
+9. [x] recovery key consume/revoke state is enforced
 10. [x] static guard rejects direct enrollment escrow storage names in server persistence
 11. [x] recovery-key parser rejects short MFA-style codes and decimal-only codes
 12. [x] recovery-key parser normalizes lowercase and hyphenated input without accepting invalid characters

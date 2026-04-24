@@ -371,12 +371,14 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
             signingRootId: 'email_otp_default_signing_root',
             signingRootVersion: 'default',
             recoveryKeyId: 'recovery-key-1',
+            activeRecoveryWrappedEnrollmentEscrowCount: 9,
           };
         },
       },
     });
 
     expect(result.recoveryKeyId).toBe('recovery-key-1');
+    expect(result.activeRecoveryWrappedEnrollmentEscrowCount).toBe(9);
     expect(workerCalls).toHaveLength(1);
     expect(workerCalls[0]).toMatchObject({
       kind: 'emailOtp',

@@ -1967,6 +1967,13 @@ export function createRelayRouteDefinitions(
       ['authService', 'session'],
     ),
     userSessionRoute(
+      'wallet_email_otp_recovery_key_consume',
+      'POST',
+      '/wallet/email-otp/recovery-key/consume',
+      'Mark an Email OTP recovery key consumed after device-local enrollment escrow restore',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
       'wallet_email_otp_signing_session_verify',
       'POST',
       '/wallet/email-otp/signing-session/verify',

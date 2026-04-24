@@ -507,10 +507,60 @@ export async function handleEmailOtpRecoveryWrappedEscrowsRoute(input: {
       ok: true,
       challengeId: result.challengeId,
       otpChannel: result.otpChannel,
+      recoveryConsumeGrant: result.recoveryConsumeGrant,
+      recoveryConsumeGrantExpiresAtMs: result.recoveryConsumeGrantExpiresAtMs,
       enrollment: result.enrollment,
       recoveryWrappedEnrollmentEscrows: result.recoveryWrappedEnrollmentEscrows,
     },
   };
+}
+
+export async function handleEmailOtpRecoveryKeyConsumeRoute(input: {
+  body: unknown;
+  claims: Record<string, unknown>;
+  userId: string;
+  appSessionVersion: string;
+  clientIp?: string;
+  service: AuthService;
+}): Promise<EmailOtpRouteResponse> {
+  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
+  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
+
+  const body = bodyValidation.body;
+  const walletValidation = validateEmailOtpWalletId({
+    body,
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!walletValidation.ok) return { status: walletValidation.status, body: walletValidation.body };
+
+  const recoveryKeyIdValidation = validateEmailOtpRequiredString(body, 'recoveryKeyId');
+  if (!recoveryKeyIdValidation.ok) {
+    return { status: recoveryKeyIdValidation.status, body: recoveryKeyIdValidation.body };
+  }
+  const recoveryConsumeGrantValidation = validateEmailOtpRequiredString(
+    body,
+    'recoveryConsumeGrant',
+  );
+  if (!recoveryConsumeGrantValidation.ok) {
+    return {
+      status: recoveryConsumeGrantValidation.status,
+      body: recoveryConsumeGrantValidation.body,
+    };
+  }
+
+  const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
+  const result = await input.service.consumeEmailOtpRecoveryKey({
+    recoveryConsumeGrant: recoveryConsumeGrantValidation.value,
+    userId: input.userId,
+    walletId: walletValidation.walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    recoveryKeyId: recoveryKeyIdValidation.value,
+    sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    clientIp: input.clientIp,
+  });
+  return { status: emailOtpResultStatus(result), body: result };
 }
 
 function validateSigningSessionWalletId(input: {

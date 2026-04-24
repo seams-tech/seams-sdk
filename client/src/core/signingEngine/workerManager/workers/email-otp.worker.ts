@@ -1519,6 +1519,7 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
   signingRootId: string;
   signingRootVersion: string;
   recoveryKeyId: string;
+  activeRecoveryWrappedEnrollmentEscrowCount: number;
 }> {
   await ensureNearSignerRecoveryWasm();
   const relayUrl = readString(args.relayUrl, 'relayUrl');
@@ -1539,6 +1540,7 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
   const rawRecords = Array.isArray(response.recoveryWrappedEnrollmentEscrows)
     ? response.recoveryWrappedEnrollmentEscrows
     : [];
+  const recoveryConsumeGrant = readString(response.recoveryConsumeGrant, 'recoveryConsumeGrant');
   const records = rawRecords
     .map((record) => parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(record))
     .filter((record): record is EmailOtpRecoveryWrappedEnrollmentEscrowPayload => Boolean(record));
@@ -1609,6 +1611,19 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
       if (!persisted || persisted.encSB64u !== base64UrlEncode(encS)) {
         throw new Error('Email OTP recovery did not persist device-local enc_s(S)');
       }
+      const consumeResponse = await postEmailOtpJson({
+        relayUrl,
+        route: '/wallet/email-otp/recovery-key/consume',
+        ...(routeAuth ? { sessionAuth: routeAuth } : {}),
+        body: {
+          walletId,
+          recoveryKeyId: record.recoveryKeyId,
+          recoveryConsumeGrant,
+        },
+      });
+      const activeRecoveryWrappedEnrollmentEscrowCount = Number(
+        consumeResponse.activeRecoveryWrappedEnrollmentEscrowCount,
+      );
       return {
         walletId: record.walletId,
         userId: record.userId,
@@ -1619,6 +1634,11 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
         signingRootId: record.signingRootId,
         signingRootVersion: record.signingRootVersion,
         recoveryKeyId: record.recoveryKeyId,
+        activeRecoveryWrappedEnrollmentEscrowCount: Number.isFinite(
+          activeRecoveryWrappedEnrollmentEscrowCount,
+        )
+          ? activeRecoveryWrappedEnrollmentEscrowCount
+          : records.length - 1,
       };
     } catch {
       if (encS) throw new Error('Email OTP recovery restore failed after successful unwrap');

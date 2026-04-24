@@ -596,6 +596,7 @@ test.describe('Email OTP routes', () => {
         },
       );
       expect(recovered.status).toBe(200);
+      expect(typeof recovered.json?.recoveryConsumeGrant).toBe('string');
       const records = recovered.json?.recoveryWrappedEnrollmentEscrows;
       expect(Array.isArray(records) && records.length).toBe(10);
       expect(JSON.stringify(records)).not.toContain('encSB64u');
@@ -606,6 +607,33 @@ test.describe('Email OTP routes', () => {
       });
       expect(typeof records?.[0]?.nonceB64u).toBe('string');
       expect(typeof records?.[0]?.wrappedDeviceEnrollmentEscrowB64u).toBe('string');
+      const consume = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-key/consume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          recoveryKeyId: records?.[0]?.recoveryKeyId,
+          recoveryConsumeGrant: recovered.json?.recoveryConsumeGrant,
+        }),
+      });
+      expect(consume.status).toBe(200);
+      expect(consume.json).toMatchObject({
+        ok: true,
+        walletId: 'alice.testnet',
+        recoveryKeyId: records?.[0]?.recoveryKeyId,
+        activeRecoveryWrappedEnrollmentEscrowCount: 9,
+      });
+      const consumeAgain = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-key/consume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          recoveryKeyId: records?.[0]?.recoveryKeyId,
+          recoveryConsumeGrant: recovered.json?.recoveryConsumeGrant,
+        }),
+      });
+      expect(consumeAgain.status).toBe(400);
+      expect(consumeAgain.json?.code).toBe('recovery_consume_grant_invalid_or_expired');
     } finally {
       await srv.close();
     }
@@ -654,9 +682,23 @@ test.describe('Email OTP routes', () => {
       ctx: cf.ctx,
     });
     expect(recovered.status).toBe(200);
+    expect(typeof recovered.json?.recoveryConsumeGrant).toBe('string');
     const records = recovered.json?.recoveryWrappedEnrollmentEscrows;
     expect(Array.isArray(records) && records.length).toBe(10);
     expect(JSON.stringify(records)).not.toContain('encSB64u');
+    const consume = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/email-otp/recovery-key/consume',
+      headers: { Authorization: 'Bearer app-session' },
+      body: {
+        walletId: 'alice.testnet',
+        recoveryKeyId: records?.[0]?.recoveryKeyId,
+        recoveryConsumeGrant: recovered.json?.recoveryConsumeGrant,
+      },
+      ctx: cf.ctx,
+    });
+    expect(consume.status).toBe(200);
+    expect(consume.json?.activeRecoveryWrappedEnrollmentEscrowCount).toBe(9);
   });
 
   test('Express: export_key Email OTP challenge and verify use route policy and emit export audit events', async () => {

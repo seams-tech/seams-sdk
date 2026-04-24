@@ -22,7 +22,9 @@ import {
 } from '@shared/utils/emailOtpRecoveryKey';
 
 export type EmailOtpChannel = WalletEmailOtpChannel;
-export type EmailOtpGrantAction = typeof WALLET_EMAIL_OTP_ACTIONS.unseal;
+export type EmailOtpGrantAction =
+  | typeof WALLET_EMAIL_OTP_ACTIONS.unseal
+  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
 export type EmailOtpChallengeAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.registration
@@ -416,7 +418,12 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
   if (!grantToken || !userId || !walletId || !challengeId || !sessionHash || !appSessionVersion)
     return null;
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
-  if (action !== WALLET_EMAIL_OTP_ACTIONS.unseal) return null;
+  if (
+    action !== WALLET_EMAIL_OTP_ACTIONS.unseal &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+  ) {
+    return null;
+  }
   if (!Number.isFinite(issuedAtMs) || issuedAtMs <= 0) return null;
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
   return {
@@ -429,7 +436,7 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
     otpChannel: EMAIL_OTP_CHANNEL,
     sessionHash,
     appSessionVersion,
-    action: WALLET_EMAIL_OTP_ACTIONS.unseal,
+    action,
     issuedAtMs: Math.floor(issuedAtMs),
     expiresAtMs: Math.floor(expiresAtMs),
   };
