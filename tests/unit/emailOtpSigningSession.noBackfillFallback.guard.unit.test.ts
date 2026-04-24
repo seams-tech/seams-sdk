@@ -154,4 +154,24 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
     expect(restoreSlice).toContain('Email OTP recovery did not persist device-local enc_s(S)');
     expect(restoreSlice).not.toContain('loginGrant');
   });
+
+  test('Email OTP worker zeroizes unwrapped enc_s(S) byte buffers', () => {
+    const workerSource = readFileSync(
+      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      'utf8',
+    );
+    const wrapSlice = workerSource.slice(
+      workerSource.indexOf('async function createEmailOtpRecoveryWrappedEnrollmentEscrows'),
+      workerSource.indexOf('function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload'),
+    );
+    const restoreSlice = workerSource.slice(
+      workerSource.indexOf('async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey'),
+      workerSource.indexOf('async function deriveEmailOtpEcdsaClientRootShare32InWorker'),
+    );
+
+    expect(wrapSlice).toContain('const encS = base64UrlDecode(args.encSB64u)');
+    expect(wrapSlice).toContain('zeroizeBytes(encS)');
+    expect(restoreSlice).toContain('let encS: Uint8Array | null = null');
+    expect(restoreSlice).toContain('zeroizeBytes(encS)');
+  });
 });

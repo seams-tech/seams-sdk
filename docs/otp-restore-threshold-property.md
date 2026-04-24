@@ -395,7 +395,7 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 3. [x] Add ChaCha20-Poly1305 wrap/unwrap helpers for `enc_s(S)`.
 4. [x] Wire the helpers into the Email OTP worker so recovery keys and derived KEKs stay out of server payloads and logs.
 5. [x] Zeroize recovery key bytes, KEKs, and transient wrap plaintext buffers when practical in the shared helpers.
-6. [ ] Zeroize unwrapped `enc_s(S)` buffers at worker call sites after local persistence or unseal handoff.
+6. [x] Zeroize unwrapped `enc_s(S)` buffers at worker call sites after local persistence or unseal handoff.
 
 ### Phase 4: Change Enrollment Persistence
 
