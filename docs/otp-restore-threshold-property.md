@@ -385,7 +385,7 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 1. [x] Add `email_otp_device_enrollment_escrows_v1` IndexedDB store.
 2. [x] Add strict schema validation for `EmailOtpDeviceEnrollmentEscrowRecord`.
 3. [x] Add read/write/delete helpers scoped by `walletId`, `authSubjectId`, and `enrollmentId`.
-4. [ ] Ensure logout/account-switch cleanup can delete local `enc_s(S)` only when the user chooses to remove this device.
+4. [x] Ensure logout/account-switch cleanup can delete local `enc_s(S)` only when the user chooses to remove this device.
 5. [x] Keep browser restart semantics different from signing-session seals: `enc_s(S)` is device enrollment material and may survive restart.
 
 ### Phase 3: Add Recovery Wrapping In The Worker

@@ -78,6 +78,7 @@ import {
   type EmailOtpRoutePlan,
 } from '../../emailOtp/authLane';
 import {
+  deleteEmailOtpDeviceEnrollmentEscrowRecord,
   readEmailOtpDeviceEnrollmentEscrowRecord,
   writeEmailOtpDeviceEnrollmentEscrowRecord,
 } from '../../api/session/emailOtpDeviceEnrollmentEscrowStore';
@@ -185,6 +186,15 @@ type EmailOtpWorkerRequest =
         shamirPrimeB64u: string;
         routePlan: EmailOtpRoutePlan;
         otpChannel?: WalletEmailOtpChannel;
+      };
+    }
+  | {
+      id: string;
+      type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice';
+      payload: {
+        walletId: string;
+        userId?: string;
+        enrollmentId?: string;
       };
     }
   | {
@@ -1652,6 +1662,33 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
   throw new Error('Email OTP recovery unwrap failed');
 }
 
+async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
+  walletId: string;
+  userId?: unknown;
+  enrollmentId?: unknown;
+}): Promise<{
+  walletId: string;
+  authSubjectId: string;
+  enrollmentId: string;
+  removed: true;
+}> {
+  const walletId = readString(args.walletId, 'walletId');
+  const authSubjectId = readOptionalString(args.userId) || walletId;
+  const enrollmentId =
+    readOptionalString(args.enrollmentId) || emailOtpDeviceEnrollmentId(walletId, authSubjectId);
+  await deleteEmailOtpDeviceEnrollmentEscrowRecord({
+    walletId,
+    authSubjectId,
+    enrollmentId,
+  });
+  return {
+    walletId,
+    authSubjectId,
+    enrollmentId,
+    removed: true,
+  };
+}
+
 async function deriveEmailOtpEcdsaClientRootShare32InWorker(args: {
   clientSecret32: Uint8Array;
   walletId: string;
@@ -2764,6 +2801,19 @@ self.addEventListener('message', async (event: MessageEvent) => {
           recoveryKey: readString(msg.payload.recoveryKey, 'recoveryKey'),
           shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
           routePlan,
+        });
+        postToMainThread({
+          id: msg.id,
+          ok: true,
+          result,
+        });
+        return;
+      }
+      case 'removeEmailOtpDeviceEnrollmentEscrowFromDevice': {
+        const result = await removeEmailOtpDeviceEnrollmentEscrowFromDevice({
+          walletId: readString(msg.payload.walletId, 'walletId'),
+          userId: msg.payload.userId,
+          enrollmentId: msg.payload.enrollmentId,
         });
         postToMainThread({
           id: msg.id,

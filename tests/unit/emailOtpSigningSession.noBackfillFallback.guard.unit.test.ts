@@ -174,4 +174,25 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
     expect(restoreSlice).toContain('let encS: Uint8Array | null = null');
     expect(restoreSlice).toContain('zeroizeBytes(encS)');
   });
+
+  test('logout lock path does not delete device-local Email OTP enc_s(S)', () => {
+    const loginSource = readFileSync(
+      join(REPO_ROOT, 'client/src/core/TatchiPasskey/login.ts'),
+      'utf8',
+    );
+    const lockSlice = loginSource.slice(
+      loginSource.indexOf('export async function lock('),
+      loginSource.indexOf('\n}', loginSource.indexOf('export async function lock(')) + 2,
+    );
+    const workerSource = readFileSync(
+      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      'utf8',
+    );
+
+    expect(lockSlice).toContain('clearLastProfileSelection');
+    expect(lockSlice).not.toContain('deleteEmailOtpDeviceEnrollmentEscrowRecord');
+    expect(lockSlice).not.toContain('clearAllEmailOtpDeviceEnrollmentEscrowRecords');
+    expect(workerSource).toContain("type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice'");
+    expect(workerSource).toContain('deleteEmailOtpDeviceEnrollmentEscrowRecord');
+  });
 });

@@ -6,6 +6,7 @@ import {
   requestEmailOtpDeviceRecoveryChallenge,
   requestEmailOtpChallenge,
   requestEmailOtpEnrollmentChallenge,
+  removeEmailOtpDeviceEnrollmentEscrowFromDevice,
   restoreEmailOtpDeviceEnrollmentEscrow,
   verifyEmailOtpCode,
 } from '@/core/TatchiPasskey/emailOtp';
@@ -399,5 +400,42 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
         otpChannel: 'email_otp',
       },
     });
+  });
+
+  test('Email OTP device escrow removal dispatches only the explicit remove-device worker action', async () => {
+    const workerCalls: Array<{ kind: string; type: string; payload: Record<string, unknown> }> = [];
+    const result = await removeEmailOtpDeviceEnrollmentEscrowFromDevice({
+      walletId: 'alice.testnet',
+      userId: 'google:alice',
+      workerCtx: {
+        requestWorkerOperation: async ({ kind, request }: any) => {
+          workerCalls.push({ kind, type: request.type, payload: request.payload });
+          expect(request.type).toBe('removeEmailOtpDeviceEnrollmentEscrowFromDevice');
+          return {
+            walletId: 'alice.testnet',
+            authSubjectId: 'google:alice',
+            enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google:alice',
+            removed: true,
+          };
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      walletId: 'alice.testnet',
+      authSubjectId: 'google:alice',
+      enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google:alice',
+      removed: true,
+    });
+    expect(workerCalls).toEqual([
+      {
+        kind: 'emailOtp',
+        type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice',
+        payload: {
+          walletId: 'alice.testnet',
+          userId: 'google:alice',
+        },
+      },
+    ]);
   });
 });

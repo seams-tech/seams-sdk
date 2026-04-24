@@ -210,6 +210,13 @@ export type EmailOtpDeviceEnrollmentRestoreResult = {
   activeRecoveryWrappedEnrollmentEscrowCount: number;
 };
 
+export type EmailOtpDeviceEnrollmentRemoveResult = {
+  walletId: string;
+  authSubjectId: string;
+  enrollmentId: string;
+  removed: true;
+};
+
 export type GoogleEmailOtpSessionExchangeResult = {
   jwt?: string;
   session: {

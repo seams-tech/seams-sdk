@@ -72,6 +72,13 @@ export type EmailOtpDeviceEnrollmentRestoreResult = {
   activeRecoveryWrappedEnrollmentEscrowCount: number;
 };
 
+export type EmailOtpDeviceEnrollmentRemoveResult = {
+  walletId: string;
+  authSubjectId: string;
+  enrollmentId: string;
+  removed: true;
+};
+
 export type GoogleEmailOtpSessionExchangeResult = {
   jwt?: string;
   session: {
@@ -556,6 +563,28 @@ export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {
           appSessionJwt: args.appSessionJwt,
         }),
         otpChannel: EMAIL_OTP_CHANNEL,
+      },
+    },
+  });
+}
+
+export async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
+  walletId: string;
+  userId?: string;
+  enrollmentId?: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<EmailOtpDeviceEnrollmentRemoveResult> {
+  const workerCtx = requireWorkerCtx(args.workerCtx);
+  return await workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice',
+      payload: {
+        walletId: readString(args.walletId, 'walletId'),
+        ...(readOptionalString(args.userId) ? { userId: readOptionalString(args.userId) } : {}),
+        ...(readOptionalString(args.enrollmentId)
+          ? { enrollmentId: readOptionalString(args.enrollmentId) }
+          : {}),
       },
     },
   });

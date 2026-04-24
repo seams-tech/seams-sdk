@@ -247,6 +247,19 @@ export interface EmailOtpWorkerOperationMap {
       activeRecoveryWrappedEnrollmentEscrowCount: number;
     };
   };
+  removeEmailOtpDeviceEnrollmentEscrowFromDevice: {
+    payload: {
+      walletId: string;
+      userId?: string;
+      enrollmentId?: string;
+    };
+    result: {
+      walletId: string;
+      authSubjectId: string;
+      enrollmentId: string;
+      removed: true;
+    };
+  };
   loginWithEmailOtpWallet: {
     payload: {
       relayUrl: string;
