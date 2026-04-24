@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
+  createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   createWarmSessionStatusReader,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
-test.describe('WarmSessionManager capability resolution', () => {
+test.describe('WarmSessionStore capability resolution', () => {
   test('resolves Ed25519 auth material from the canonical Ed25519 record', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -20,8 +20,8 @@ test.describe('WarmSessionManager capability resolution', () => {
       thresholdSessionJwt: 'jwt:ed-auth-session',
     });
 
-    const manager = createWarmSessionManager();
-    const auth = manager.resolveEd25519AuthByThresholdSessionId(ed25519Record.thresholdSessionId);
+    const store = createWarmSessionTestServices();
+    const auth = store.resolveEd25519AuthByThresholdSessionId(ed25519Record.thresholdSessionId);
 
     expect(auth).toMatchObject({
       capability: 'ed25519',
@@ -40,7 +40,7 @@ test.describe('WarmSessionManager capability resolution', () => {
       thresholdSessionKind: 'cookie',
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [ed25519Record.thresholdSessionId]: {
           state: 'warm',
@@ -49,7 +49,7 @@ test.describe('WarmSessionManager capability resolution', () => {
         },
       }),
     });
-    const capability = await manager.getEd25519CapabilityByThresholdSessionId(
+    const capability = await store.getEd25519CapabilityByThresholdSessionId(
       ed25519Record.thresholdSessionId,
     );
 
@@ -81,8 +81,8 @@ test.describe('WarmSessionManager capability resolution', () => {
       }),
     });
 
-    const manager = createWarmSessionManager();
-    const auth = manager.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId);
+    const store = createWarmSessionTestServices();
+    const auth = store.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId);
 
     expect(auth).toMatchObject({
       capability: 'ecdsa',
@@ -115,7 +115,7 @@ test.describe('WarmSessionManager capability resolution', () => {
       }),
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [evmRecord.thresholdSessionId]: {
           state: 'warm',
@@ -125,7 +125,7 @@ test.describe('WarmSessionManager capability resolution', () => {
       }),
     });
 
-    const warmSession = await manager.getWarmSession('email-otp-auth-state.testnet');
+    const warmSession = await store.getWarmSession('email-otp-auth-state.testnet');
     expect(warmSession.capabilities.ecdsa.evm.emailOtpAuthContext).toEqual({
       policy: 'per_operation',
       retention: 'single_use',
@@ -157,7 +157,7 @@ test.describe('WarmSessionManager capability resolution', () => {
       }),
     });
     let clearCount = 0;
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [evmRecord.thresholdSessionId]: {
           state: 'exhausted',
@@ -168,7 +168,7 @@ test.describe('WarmSessionManager capability resolution', () => {
       },
     });
 
-    const warmSession = await manager.getWarmSession('email-otp-exhausted-reauth.testnet');
+    const warmSession = await store.getWarmSession('email-otp-exhausted-reauth.testnet');
     const capability = warmSession.capabilities.ecdsa.evm;
 
     expect(clearCount).toBe(0);
@@ -180,7 +180,7 @@ test.describe('WarmSessionManager capability resolution', () => {
       authMethod: 'email_otp',
     });
     expect(
-      manager.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId),
+      store.resolveEcdsaAuthByThresholdSessionId(evmRecord.thresholdSessionId),
     ).toMatchObject({
       capability: 'ecdsa',
       chain: 'evm',
@@ -217,7 +217,7 @@ test.describe('WarmSessionManager capability resolution', () => {
       }),
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [staleRecord.thresholdSessionId]: {
           state: 'missing',
@@ -230,11 +230,11 @@ test.describe('WarmSessionManager capability resolution', () => {
       }),
     });
 
-    const evmBootstrap = await manager.resolveEcdsaBootstrapRequest({
+    const evmBootstrap = await store.resolveEcdsaBootstrapRequest({
       nearAccountId: 'bootstrap-selection.testnet',
       chain: 'evm',
     });
-    const tempoBootstrap = await manager.resolveEcdsaBootstrapRequest({
+    const tempoBootstrap = await store.resolveEcdsaBootstrapRequest({
       nearAccountId: 'bootstrap-selection.testnet',
       chain: 'tempo',
     });

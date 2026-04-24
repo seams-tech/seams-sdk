@@ -15,7 +15,7 @@ import {
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
 test.describe('warmSessionReadModel', () => {
   test('maps warm-session status results into canonical claim states', () => {

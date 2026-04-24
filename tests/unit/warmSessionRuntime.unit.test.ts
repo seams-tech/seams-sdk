@@ -9,7 +9,7 @@ import {
   createWarmSessionTouchConfirmFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
 test.describe('warmSessionRuntime', () => {
   test('claims warm PRF material without a preparatory status read', async () => {
@@ -212,7 +212,7 @@ test.describe('warmSessionRuntime', () => {
         }),
       }),
     ).rejects.toThrow(
-      '[WarmSessionManager] threshold-ecdsa signing seal persistence failed (transport_error): relay offline',
+      '[WarmSessionStore] threshold-ecdsa signing seal persistence failed (transport_error): relay offline',
     );
   });
 });

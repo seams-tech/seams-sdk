@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
+  createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   createWarmSessionStatusReader,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
-test.describe('WarmSessionManager ECDSA bootstrap resolution', () => {
+test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
   test('uses explicit ECDSA ownership and does not borrow Ed25519 auth', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -47,7 +47,7 @@ test.describe('WarmSessionManager ECDSA bootstrap resolution', () => {
       }),
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [fallbackEcdsaRecord.thresholdSessionId]: {
           state: 'warm',
@@ -61,11 +61,11 @@ test.describe('WarmSessionManager ECDSA bootstrap resolution', () => {
         },
       }),
     });
-    const fallbackBootstrap = await manager.resolveEcdsaBootstrapRequest({
+    const fallbackBootstrap = await store.resolveEcdsaBootstrapRequest({
       nearAccountId: 'fallback.testnet',
       chain: 'evm',
     });
-    const primaryBootstrap = await manager.resolveEcdsaBootstrapRequest({
+    const primaryBootstrap = await store.resolveEcdsaBootstrapRequest({
       nearAccountId: 'primary.testnet',
       chain: 'evm',
     });

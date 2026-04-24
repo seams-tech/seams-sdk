@@ -4,14 +4,14 @@ import {
   type WarmSessionEnvelope,
 } from '@/core/signingEngine/session/warmSessionTypes';
 import {
+  createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   createWarmSessionStatusReader,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
+} from './helpers/warmSessionStore.fixtures';
 
 function createEmptyEnvelope(): WarmSessionEnvelope {
   return {
@@ -47,8 +47,8 @@ function createEmptyEnvelope(): WarmSessionEnvelope {
   };
 }
 
-test.describe('WarmSessionManager invariants', () => {
-  test('accepts a valid warm-session envelope from the manager', async () => {
+test.describe('WarmSessionStore invariants', () => {
+  test('accepts a valid warm-session envelope from the store', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -70,7 +70,7 @@ test.describe('WarmSessionManager invariants', () => {
       }),
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [edRecord.thresholdSessionId]: {
           state: 'warm',
@@ -85,7 +85,7 @@ test.describe('WarmSessionManager invariants', () => {
       }),
     });
 
-    const warmSession = await manager.getWarmSession('invariants.testnet');
+    const warmSession = await store.getWarmSession('invariants.testnet');
     expect(assertWarmSessionEnvelopeInvariant(warmSession)).toBe(warmSession);
   });
 

@@ -5,17 +5,17 @@ import {
   readThresholdSigningSessionReadiness,
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
-} from '@/core/signingEngine/orchestration/shared/thresholdSigningSessionPlanner';
+} from '@/core/signingEngine/orchestration/shared/thresholdSigningSessionReadiness';
 import { isThresholdSessionAuthUnavailableError } from '@/core/signingEngine/threshold/session/sessionPolicy';
 
-test.describe('threshold signing session planner', () => {
+test.describe('threshold signing session readiness', () => {
   test('asserts ready when warm session cache is available', async () => {
     const ready = await assertThresholdSigningSessionReady({
       nearAccountId: 'planner.testnet',
       chain: 'evm',
       sessionId: 'session-1',
       usesNeeded: 2,
-      warmSessionManager: {
+      signingSessionCoordinator: {
         assertEcdsaSigningSessionReady: async () => ({
           ok: true,
           remainingUses: 3,
@@ -34,7 +34,7 @@ test.describe('threshold signing session planner', () => {
         nearAccountId: 'planner.testnet',
         chain: 'evm',
         sessionId: '',
-        warmSessionManager: {
+        signingSessionCoordinator: {
           assertEcdsaSigningSessionReady: async () => {
             throw new Error('should not be called');
           },
@@ -50,7 +50,7 @@ test.describe('threshold signing session planner', () => {
         chain: 'evm',
         sessionId: 'session-1',
         usesNeeded: 3,
-        warmSessionManager: {
+        signingSessionCoordinator: {
           assertEcdsaSigningSessionReady: async () => {
             throw new Error(THRESHOLD_SESSION_EXHAUSTED_ERROR);
           },
@@ -92,7 +92,7 @@ test.describe('threshold signing session planner', () => {
         nearAccountId: 'planner.testnet',
         chain: 'evm',
         sessionId: 'session-1',
-        warmSessionManager: {
+        signingSessionCoordinator: {
           assertEcdsaSigningSessionReady: async () => {
             throw new Error(
               '[chains] threshold signingSession is not_found; reconnect threshold session before signing',

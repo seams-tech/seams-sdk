@@ -8,36 +8,47 @@ function repoRoot(): string {
 }
 
 test.describe('EVM family Email OTP sealed restore guard', () => {
-  test('tries sealed restore before falling back to Email OTP transaction reauth', () => {
-    const sourcePath = path.join(repoRoot(), 'client/src/core/signingEngine/api/evmSigning.ts');
+  test('checks planner readiness before preparing an Email OTP challenge', () => {
+    const sourcePath = path.join(
+      repoRoot(),
+      'client/src/core/signingEngine/api/evmFamily/authPlanning.ts',
+    );
     const source = fs.readFileSync(sourcePath, 'utf8');
+    const readinessStart = source.indexOf('async function resolveEvmFamilyEcdsaPlannerReadiness');
     const resolverStart = source.indexOf('async function resolveEvmFamilyTransactionWalletAuth');
-    const challengeStart = source.indexOf('const challenge = await walletAuthPlan.challenge()');
-    const restoreAttempt = source.indexOf(
-      'await warmSessionManager.getWarmSession(args.nearAccountId)',
+    const readinessCall = source.indexOf(
+      'const readiness = await resolveEvmFamilyEcdsaPlannerReadiness',
+      resolverStart,
+    );
+    const challengeStart = source.indexOf(
+      'activeChallenge = await walletAuthPlan.challenge()',
       resolverStart,
     );
 
+    expect(readinessStart).toBeGreaterThanOrEqual(0);
     expect(resolverStart).toBeGreaterThanOrEqual(0);
+    expect(readinessCall).toBeGreaterThan(resolverStart);
     expect(challengeStart).toBeGreaterThan(resolverStart);
-    expect(restoreAttempt).toBeGreaterThan(resolverStart);
-    expect(restoreAttempt).toBeLessThan(challengeStart);
+    expect(readinessCall).toBeLessThan(challengeStart);
   });
 
   test('surfaces sealed restore as a restoring transaction confirmation state', () => {
-    const sourcePath = path.join(repoRoot(), 'client/src/core/signingEngine/api/evmSigning.ts');
+    const sourcePath = path.join(
+      repoRoot(),
+      'client/src/core/signingEngine/api/evmFamily/signingSessionCoordinator.ts',
+    );
     const source = fs.readFileSync(sourcePath, 'utf8');
-    const warmManagerStart = source.indexOf('function createEvmFamilyWarmSessionManager');
-    const restoreMessage = source.indexOf('Restoring signing session...', warmManagerStart);
+    const coordinatorStart = source.indexOf('function createEvmFamilySigningSessionCoordinator');
+    const restoreMessage = source.indexOf('Restoring signing session...', coordinatorStart);
     const overlayIntent = source.indexOf(
       "interaction: { kind: 'transaction_confirmation', overlay: 'show' }",
-      warmManagerStart,
+      coordinatorStart,
     );
 
-    expect(warmManagerStart).toBeGreaterThanOrEqual(0);
-    expect(source).toContain('onSealedRestore: (event) =>');
+    expect(coordinatorStart).toBeGreaterThanOrEqual(0);
+    expect(source).toContain('const onSealedRestore = (event: WarmSessionSealedRestoreEvent)');
     expect(source).toContain("if (event.status === 'started')");
-    expect(restoreMessage).toBeGreaterThan(warmManagerStart);
-    expect(overlayIntent).toBeGreaterThan(warmManagerStart);
+    expect(restoreMessage).toBeGreaterThan(coordinatorStart);
+    expect(overlayIntent).toBeGreaterThan(coordinatorStart);
   });
 });

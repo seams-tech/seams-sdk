@@ -86,7 +86,7 @@ export function emitWarmSessionTransition(args: {
     const pending = args.onTransition(args.event);
     if (pending && typeof (pending as PromiseLike<unknown>).then === 'function') {
       void Promise.resolve(pending).catch((error) => {
-        console.warn('[WarmSessionManager] warm-session transition callback failed', {
+        console.warn('[WarmSessionStore] warm-session transition callback failed', {
           type: args.event.type,
           accountId: args.event.accountId,
           error,
@@ -94,7 +94,7 @@ export function emitWarmSessionTransition(args: {
       });
     }
   } catch (error) {
-    console.warn('[WarmSessionManager] warm-session transition callback failed', {
+    console.warn('[WarmSessionStore] warm-session transition callback failed', {
       type: args.event.type,
       accountId: args.event.accountId,
       error,

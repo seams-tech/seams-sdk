@@ -33,7 +33,6 @@ import {
 } from '@/core/signingEngine/workerManager/validation';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
   generateSessionId,
   requirePrfFirstFromCredential,
@@ -43,9 +42,11 @@ import {
 import { requireResolvedThresholdEd25519SessionState } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import {
+  createNearSigningSessionCoordinator,
   resolveNearThresholdSigningAuthPlan,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/thresholdAuthMode';
+import { SigningAuthPlanKind } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
 import { passkeySigningAuthPlan } from '../shared/touchConfirmSigning';
@@ -119,7 +120,7 @@ export async function signDelegateAction({
   if (!touchConfirm) {
     throw new Error('TouchConfirm bridge not available for delegate signing');
   }
-  const warmSessionManager = createWarmSessionManager({ touchConfirm });
+  const signingSessionCoordinator = createNearSigningSessionCoordinator(touchConfirm);
 
   const signingStartedAt = performance.now();
   emitNearSigningEvent(onEvent, nearAccountId, {
@@ -159,7 +160,7 @@ export async function signDelegateAction({
   const usesNeeded = 1;
   const thresholdAuthPlan = signingContext.threshold
     ? await resolveNearThresholdSigningAuthPlan({
-        warmSessionManager,
+        signingSessionCoordinator,
         usesNeeded,
         nearAccountId,
         operationLabel: 'delegate signing',
@@ -173,7 +174,7 @@ export async function signDelegateAction({
   });
   const touchConfirmAuthPayload =
     thresholdAuthPlan?.touchConfirmAuthPayload ?? { signingAuthPlan: passkeySigningAuthPlan() };
-  if (touchConfirmAuthPayload.signingAuthPlan.kind === 'warmSession') {
+  if (touchConfirmAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
       status: 'succeeded',
@@ -228,7 +229,7 @@ export async function signDelegateAction({
 
   const prfFirstB64u = signingContext.threshold
     ? thresholdAuthPlan?.warmSessionReady
-      ? await warmSessionManager.claimPrfFirstByThresholdSessionId({
+      ? await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
           thresholdSessionId: thresholdAuthPlan.sessionId,
           uses: usesNeeded,
           errorContext: 'threshold-ed25519 delegate signing',
@@ -258,7 +259,7 @@ export async function signDelegateAction({
 
   const canonicalThresholdSessionId = thresholdAuthPlan?.sessionId || sessionId;
   const thresholdSessionState = requireResolvedThresholdEd25519SessionState({
-    warmSessionManager,
+    signingSessionCoordinator,
     thresholdSessionId: canonicalThresholdSessionId,
   });
   const xClientBaseB64u = await ensureThresholdEd25519HssClientBase({
@@ -305,7 +306,7 @@ export async function signDelegateAction({
     xClientBaseOverride?: string,
   ): Omit<WasmSignDelegateActionRequest, 'sessionId'> => {
     const currentThresholdSessionState = requireResolvedThresholdEd25519SessionState({
-      warmSessionManager,
+      signingSessionCoordinator,
       thresholdSessionId: canonicalThresholdSessionId,
     });
     return {

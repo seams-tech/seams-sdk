@@ -4,8 +4,8 @@ import {
   requireThresholdSigningSessionId,
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
-  type WarmSessionManager,
-} from '@/core/signingEngine/session/WarmSessionManager';
+} from '@/core/signingEngine/session/WarmSessionStatusReader';
+import type { ThresholdWarmSessionStatusReader } from '@/core/signingEngine/session/WarmSessionServiceTypes';
 import type {
   WarmSessionStatusResult,
   WarmSessionStatusReader,
@@ -81,14 +81,14 @@ export async function isThresholdSigningSessionReady(args: {
 }
 
 export async function assertThresholdSigningSessionReady(args: {
-  warmSessionManager: Pick<WarmSessionManager, 'assertEcdsaSigningSessionReady'>;
+  signingSessionCoordinator: Pick<ThresholdWarmSessionStatusReader, 'assertEcdsaSigningSessionReady'>;
   nearAccountId: string;
   chain: 'evm' | 'tempo';
   sessionId: unknown;
   usesNeeded?: number;
 }): Promise<Extract<WarmSessionStatusResult, { ok: true }>> {
   const thresholdSessionId = requireThresholdSigningSessionId(args.sessionId);
-  return await args.warmSessionManager.assertEcdsaSigningSessionReady({
+  return await args.signingSessionCoordinator.assertEcdsaSigningSessionReady({
     nearAccountId: args.nearAccountId,
     chain: args.chain,
     thresholdSessionId,

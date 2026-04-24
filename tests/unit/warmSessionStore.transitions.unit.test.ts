@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test';
+import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmSessionTransitions';
 import {
-  createWarmSessionManager,
-  type WarmSessionTransitionEvent,
-} from '@/core/signingEngine/session/WarmSessionManager';
-import {
+  createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   createWarmSessionStatusReader,
@@ -11,9 +9,9 @@ import {
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
-test.describe('WarmSessionManager transitions and persistence assertions', () => {
+test.describe('WarmSessionStore transitions and persistence assertions', () => {
   test('emits an Ed25519 provision transition after the persisted capability appears', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -21,7 +19,7 @@ test.describe('WarmSessionManager transitions and persistence assertions', () =>
     const transitions: WarmSessionTransitionEvent[] = [];
     const sessionId = 'ed25519-transition-session';
     const expiresAtMs = Date.now() + 120_000;
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [sessionId]: {
           state: 'warm',
@@ -40,6 +38,7 @@ test.describe('WarmSessionManager transitions and persistence assertions', () =>
           remainingUses: 7,
           expiresAtMs,
           source: 'login',
+          walletSigningSessionId: 'wsess-ed25519-transition',
         });
         return {
           ok: true,
@@ -51,7 +50,7 @@ test.describe('WarmSessionManager transitions and persistence assertions', () =>
       },
     });
 
-    await manager.provisionEd25519Capability({
+    await store.provisionEd25519Capability({
       nearAccountId: 'transition-ed25519.testnet',
       relayerKeyId: 'rk-ed25519-transition',
     });
@@ -86,7 +85,7 @@ test.describe('WarmSessionManager transitions and persistence assertions', () =>
     resetWarmSessionFixtureState(ecdsaStore);
 
     const sessionId = 'ed25519-unpersisted-session';
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [sessionId]: {
           state: 'warm',
@@ -104,12 +103,12 @@ test.describe('WarmSessionManager transitions and persistence assertions', () =>
     });
 
     await expect(
-      manager.provisionEd25519Capability({
+      store.provisionEd25519Capability({
         nearAccountId: 'transition-unpersisted.testnet',
         relayerKeyId: 'rk-ed25519-unpersisted',
       }),
     ).rejects.toThrow(
-      `[WarmSessionManager] provisioned Ed25519 capability was not persisted for transition-unpersisted.testnet (expected sessionId=${sessionId}, found=missing)`,
+      `[WarmSessionStore] provisioned Ed25519 capability was not persisted for transition-unpersisted.testnet (expected sessionId=${sessionId}, found=missing)`,
     );
   });
 
@@ -123,6 +122,7 @@ test.describe('WarmSessionManager transitions and persistence assertions', () =>
       ecdsaThresholdKeyId: 'ek-transition-stale',
       sessionId: 'ecdsa-stale-session',
       sessionJwt: 'jwt:ecdsa-stale-session',
+      walletSigningSessionId: 'wsess-ecdsa-transition',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'transition-ecdsa.testnet',
@@ -139,12 +139,14 @@ test.describe('WarmSessionManager transitions and persistence assertions', () =>
     });
 
     const transitions: WarmSessionTransitionEvent[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
       onTransition: (event) => {
         transitions.push(event);
       },
-      getThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,
+      listThresholdEcdsaKeyRefsForLookup: () => [
+        { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
+      ],
       provisionThresholdEcdsaSession: async ({ nearAccountId, chain }) => {
         const refreshedBootstrap = createThresholdEcdsaBootstrapFixture({
           nearAccountId: String(nearAccountId),
@@ -152,11 +154,12 @@ test.describe('WarmSessionManager transitions and persistence assertions', () =>
           ecdsaThresholdKeyId: 'ek-transition-stale',
           sessionId: 'ecdsa-fresh-session',
           sessionJwt: 'jwt:ecdsa-fresh-session',
+          walletSigningSessionId: 'wsess-ecdsa-transition',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
           nearAccountId: String(nearAccountId),
           chain,
-          source: 'manual-bootstrap',
+          source: 'login',
           bootstrap: refreshedBootstrap,
         });
         fixture.claimsBySessionId[refreshedRecord.thresholdSessionId] = {
@@ -168,7 +171,7 @@ test.describe('WarmSessionManager transitions and persistence assertions', () =>
       },
     });
 
-    await manager.ensureEcdsaCapabilityReady({
+    await store.ensureEcdsaCapabilityReady({
       nearAccountId: 'transition-ecdsa.testnet',
       chain: 'evm',
       usesNeeded: 1,

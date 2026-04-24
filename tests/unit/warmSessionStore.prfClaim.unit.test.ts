@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
+  createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   createWarmSessionTouchConfirmFixture,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
-test.describe('WarmSessionManager PRF claim handling', () => {
+test.describe('WarmSessionStore PRF claim handling', () => {
   test('reports signing-session status for warm, missing, expired, exhausted, and unavailable claims', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -64,35 +64,35 @@ test.describe('WarmSessionManager PRF claim handling', () => {
       },
     });
 
-    const manager = createWarmSessionManager({ touchConfirm });
+    const store = createWarmSessionTestServices({ touchConfirm });
 
     await expect(
-      manager.getEd25519SigningSessionStatus(warmRecord.nearAccountId),
+      store.getEd25519SigningSessionStatus(warmRecord.nearAccountId),
     ).resolves.toMatchObject({
       sessionId: 'warm-status-session',
       status: 'active',
       remainingUses: 3,
     });
     await expect(
-      manager.getEd25519SigningSessionStatus(missingRecord.nearAccountId),
+      store.getEd25519SigningSessionStatus(missingRecord.nearAccountId),
     ).resolves.toMatchObject({
       sessionId: 'missing-status-session',
       status: 'not_found',
     });
     await expect(
-      manager.getEd25519SigningSessionStatus(expiredRecord.nearAccountId),
+      store.getEd25519SigningSessionStatus(expiredRecord.nearAccountId),
     ).resolves.toMatchObject({
       sessionId: 'expired-status-session',
       status: 'expired',
     });
     await expect(
-      manager.getEd25519SigningSessionStatus(exhaustedRecord.nearAccountId),
+      store.getEd25519SigningSessionStatus(exhaustedRecord.nearAccountId),
     ).resolves.toMatchObject({
       sessionId: 'exhausted-status-session',
       status: 'exhausted',
     });
     await expect(
-      manager.getEd25519SigningSessionStatus(unavailableRecord.nearAccountId),
+      store.getEd25519SigningSessionStatus(unavailableRecord.nearAccountId),
     ).resolves.toMatchObject({
       sessionId: 'unavailable-status-session',
       status: 'unavailable',
@@ -127,12 +127,12 @@ test.describe('WarmSessionManager PRF claim handling', () => {
         },
       },
     });
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
     });
 
     await expect(
-      manager.claimPrfFirstByThresholdSessionId({
+      store.claimPrfFirstByThresholdSessionId({
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa authorization bootstrap',
       }),
@@ -161,7 +161,7 @@ test.describe('WarmSessionManager PRF claim handling', () => {
     });
 
     let claimCalls = 0;
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         claimWarmSessionMaterial: async ({ sessionId }) => {
           claimCalls += 1;
@@ -177,7 +177,7 @@ test.describe('WarmSessionManager PRF claim handling', () => {
     });
 
     await expect(
-      manager.claimPrfFirstByThresholdSessionId({
+      store.claimPrfFirstByThresholdSessionId({
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa authorization bootstrap',
       }),
@@ -210,10 +210,10 @@ test.describe('WarmSessionManager PRF claim handling', () => {
           },
         },
       });
-      const manager = createWarmSessionManager({ touchConfirm });
+      const store = createWarmSessionTestServices({ touchConfirm });
 
       await expect(
-        manager.claimPrfFirstByThresholdSessionId({
+        store.claimPrfFirstByThresholdSessionId({
           thresholdSessionId: record.thresholdSessionId,
           errorContext: 'threshold-ecdsa explicit export',
         }),
@@ -240,7 +240,7 @@ test.describe('WarmSessionManager PRF claim handling', () => {
       }),
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         claimWarmSessionMaterial: async () =>
           ({
@@ -252,7 +252,7 @@ test.describe('WarmSessionManager PRF claim handling', () => {
     });
 
     await expect(
-      manager.claimPrfFirstByThresholdSessionId({
+      store.claimPrfFirstByThresholdSessionId({
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa explicit export',
       }),
@@ -279,7 +279,7 @@ test.describe('WarmSessionManager PRF claim handling', () => {
     });
 
     let statusReads = 0;
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         claimWarmSessionMaterial: async () =>
           ({
@@ -300,7 +300,7 @@ test.describe('WarmSessionManager PRF claim handling', () => {
     });
 
     await expect(
-      manager.claimPrfFirstByThresholdSessionId({
+      store.claimPrfFirstByThresholdSessionId({
         thresholdSessionId: record.thresholdSessionId,
         errorContext: 'threshold-ecdsa authorization bootstrap',
       }),
@@ -345,12 +345,12 @@ test.describe('WarmSessionManager PRF claim handling', () => {
         },
       },
     });
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
     });
 
     await expect(
-      manager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
+      store.ensureEcdsaPrfSealPersistedByThresholdSessionId({
         chain: 'evm',
         thresholdSessionId: record.thresholdSessionId,
         required: true,

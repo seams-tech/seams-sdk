@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
+  createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   createWarmSessionTouchConfirmFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
-test.describe('WarmSessionManager ECDSA reconnect and reuse', () => {
+test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
   test('reuses a matching ready ECDSA capability without reconnecting', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -37,16 +37,18 @@ test.describe('WarmSessionManager ECDSA reconnect and reuse', () => {
     });
 
     let provisionCalls = 0;
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      getThresholdEcdsaKeyRefForSigning: () => bootstrap.thresholdEcdsaKeyRef,
+      listThresholdEcdsaKeyRefsForLookup: () => [
+        { source: 'login', keyRef: bootstrap.thresholdEcdsaKeyRef },
+      ],
       provisionThresholdEcdsaSession: async () => {
         provisionCalls += 1;
         throw new Error('provisionThresholdEcdsaSession should not be called for ready reuse');
       },
     });
 
-    const ready = await manager.ensureEcdsaCapabilityReady({
+    const ready = await store.ensureEcdsaCapabilityReady({
       nearAccountId: 'reuse-ready.testnet',
       chain: 'evm',
       usesNeeded: 2,
@@ -94,9 +96,11 @@ test.describe('WarmSessionManager ECDSA reconnect and reuse', () => {
     });
 
     let provisionCalls = 0;
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      getThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,
+      listThresholdEcdsaKeyRefsForLookup: () => [
+        { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
+      ],
       provisionThresholdEcdsaSession: async ({ nearAccountId, chain }) => {
         provisionCalls += 1;
         const refreshedBootstrap = createThresholdEcdsaBootstrapFixture({
@@ -121,7 +125,7 @@ test.describe('WarmSessionManager ECDSA reconnect and reuse', () => {
       },
     });
 
-    const ready = await manager.ensureEcdsaCapabilityReady({
+    const ready = await store.ensureEcdsaCapabilityReady({
       nearAccountId: 'reconnect.testnet',
       chain: 'evm',
       usesNeeded: 1,

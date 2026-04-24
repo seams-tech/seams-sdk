@@ -6,17 +6,17 @@ import type {
   WarmSessionStatusReader,
   WarmSessionStatusResult,
 } from '../touchConfirm';
-import type {
-  ThresholdEcdsaSessionRecord,
-  ThresholdEcdsaSessionStoreSource,
-  ThresholdEd25519SessionRecord,
+import {
+  clearStoredThresholdEd25519SessionRecordForAccount,
+  type ThresholdEcdsaSessionRecord,
+  type ThresholdEcdsaSessionStoreSource,
+  type ThresholdEd25519SessionRecord,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
-import { clearStoredThresholdEd25519SessionRecordForAccount } from '../api/thresholdLifecycle/thresholdSessionStore';
 import {
   deleteSigningSessionSealedRecord,
   updateSigningSessionSealedRecordPolicy,
 } from '../api/session/signingSessionSealedStore';
-import { readWarmSessionCapabilityRecordsForAccount } from './warmSessionStore';
+import { readWarmSessionCapabilityRecordsForAccount } from './WarmSessionStore';
 import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
 import type { WarmSessionPrfClaim } from './warmSessionTypes';
 import {
@@ -24,6 +24,7 @@ import {
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from './warmSessionReadModel';
+import type { SigningOperationIntent } from './signingSessionTypes';
 
 export type SigningSessionLane = {
   curve: 'ed25519' | 'ecdsa';
@@ -39,18 +40,11 @@ type DiscoveredSigningSessionLane = SigningSessionLane & {
   backing: 'touch_confirm' | 'email_otp_worker';
 };
 
-const THRESHOLD_ECDSA_SESSION_STORE_SOURCES: readonly ThresholdEcdsaSessionStoreSource[] = [
-  'email_otp',
-  'login',
-  'registration',
-  'manual-bootstrap',
-];
-
 export type WalletSigningSessionConsumeUseArgs = {
   nearAccountId: AccountId | string;
   walletSigningSessionId: string;
   uses: number;
-  reason: 'transaction_sign';
+  reason: SigningOperationIntent;
   alreadyConsumedBackingMaterialSessionIds?: string[];
   alreadyConsumedThresholdSessionIds?: string[];
 };
@@ -64,10 +58,7 @@ export type WalletSigningSessionCoordinator = {
     nearAccountId: AccountId | string,
   ): Promise<Map<string, WarmSessionPrfClaim | null>>;
   consumeUse(args: WalletSigningSessionConsumeUseArgs): Promise<SigningSessionStatus>;
-  clear(args: {
-    nearAccountId: AccountId | string;
-    walletSigningSessionId: string;
-  }): Promise<void>;
+  clear(args: { nearAccountId: AccountId | string; walletSigningSessionId: string }): Promise<void>;
 };
 
 export type WalletSigningSessionCoordinatorDeps = {
@@ -84,11 +75,10 @@ export type WalletSigningSessionCoordinatorDeps = {
       | 'clearWarmSessionMaterial'
     >
   >;
-  getThresholdEcdsaSessionRecordForSigning?: (args: {
+  listThresholdEcdsaSessionRecordsForLookup?: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
-    source?: ThresholdEcdsaSessionStoreSource;
-  }) => ThresholdEcdsaSessionRecord | null;
+  }) => ThresholdEcdsaSessionRecord[];
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   consumeEmailOtpWarmSessionUses?: (args: {
     sessionId: string;
@@ -116,7 +106,7 @@ function normalizeNonEmpty(value: unknown): string {
 function resolveWalletSigningSessionId(
   record: ThresholdEd25519SessionRecord | ThresholdEcdsaSessionRecord | null | undefined,
 ): string {
-  return normalizeNonEmpty(record?.walletSigningSessionId || record?.thresholdSessionId);
+  return normalizeNonEmpty(record?.walletSigningSessionId);
 }
 
 function toLaneSource(
@@ -166,25 +156,20 @@ function discoverLanesForAccount(
 
   for (const chain of ['evm', 'tempo'] as const) {
     const candidateRecords: ThresholdEcdsaSessionRecord[] = [];
-    const addCandidateRecord = (
-      record: ThresholdEcdsaSessionRecord | null | undefined,
-    ): void => {
+    const addCandidateRecord = (record: ThresholdEcdsaSessionRecord | null | undefined): void => {
       if (!record) return;
       if (record.chain !== chain) return;
       candidateRecords.push(record);
     };
-    if (typeof deps.getThresholdEcdsaSessionRecordForSigning === 'function') {
-      for (const source of THRESHOLD_ECDSA_SESSION_STORE_SOURCES) {
-        try {
-          addCandidateRecord(
-            deps.getThresholdEcdsaSessionRecordForSigning({
-              nearAccountId,
-              chain,
-              source,
-            }),
-          );
-        } catch {}
-      }
+    if (typeof deps.listThresholdEcdsaSessionRecordsForLookup === 'function') {
+      try {
+        for (const record of deps.listThresholdEcdsaSessionRecordsForLookup({
+          nearAccountId,
+          chain,
+        })) {
+          addCandidateRecord(record);
+        }
+      } catch {}
     }
     addCandidateRecord(records.ecdsa[chain]);
 
@@ -236,9 +221,7 @@ function walletScopedClaimsForLanes(args: {
       null;
     const warmClaims = entries
       .map((entry) => entry.claim)
-      .filter(
-        (claim): claim is WarmSessionPrfClaim & { state: 'warm' } => claim?.state === 'warm',
-      );
+      .filter((claim): claim is WarmSessionPrfClaim & { state: 'warm' } => claim?.state === 'warm');
     const walletRemainingUses = warmClaims.length
       ? Math.min(...warmClaims.map((claim) => Math.floor(Number(claim.remainingUses) || 0)))
       : undefined;
@@ -415,7 +398,9 @@ export function createWalletSigningSessionCoordinator(
       }
       const uses = Math.max(1, Math.floor(Number(args.uses) || 1));
       const alreadyConsumedBacking = new Set(
-        (args.alreadyConsumedBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
+        (args.alreadyConsumedBackingMaterialSessionIds || [])
+          .map(normalizeNonEmpty)
+          .filter(Boolean),
       );
       const alreadyConsumedThreshold = new Set(
         (args.alreadyConsumedThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
@@ -424,6 +409,11 @@ export function createWalletSigningSessionCoordinator(
         nearAccountId: args.nearAccountId,
         walletSigningSessionId,
       });
+      if (!lanes.length) {
+        throw new Error(
+          '[WalletSigningSessionCoordinator] wallet signing-session has no matching signing lanes for account',
+        );
+      }
       const consumedBacking = new Set<string>();
       for (const lane of lanes) {
         const thresholdAlreadyConsumed = alreadyConsumedThreshold.has(lane.thresholdSessionId);
@@ -466,14 +456,13 @@ export function createWalletSigningSessionCoordinator(
         });
       }
 
-      const status =
-        (await coordinator.getStatus({
-          nearAccountId: args.nearAccountId,
-          walletSigningSessionId,
-        })) || {
-          sessionId: walletSigningSessionId,
-          status: 'not_found',
-        };
+      const status = (await coordinator.getStatus({
+        nearAccountId: args.nearAccountId,
+        walletSigningSessionId,
+      })) || {
+        sessionId: walletSigningSessionId,
+        status: 'not_found',
+      };
       await syncSealedRefreshPolicyForLanes({
         lanes,
         status,

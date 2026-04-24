@@ -80,22 +80,22 @@ function assertCapabilityStateInvariant(args: {
   if (!record) {
     if (capability.state !== 'missing') {
       throw new Error(
-        `[WarmSessionManager] invalid ${args.label} capability: missing record must have state=missing`,
+        `[WarmSessionStore] invalid ${args.label} capability: missing record must have state=missing`,
       );
     }
     if (auth) {
       throw new Error(
-        `[WarmSessionManager] invalid ${args.label} capability: missing record cannot have auth`,
+        `[WarmSessionStore] invalid ${args.label} capability: missing record cannot have auth`,
       );
     }
     if (prfClaim) {
       throw new Error(
-        `[WarmSessionManager] invalid ${args.label} capability: missing record cannot have warm-session status`,
+        `[WarmSessionStore] invalid ${args.label} capability: missing record cannot have warm-session status`,
       );
     }
     if (emailOtpAuthContext) {
       throw new Error(
-        `[WarmSessionManager] invalid ${args.label} capability: missing record cannot have email-otp auth context`,
+        `[WarmSessionStore] invalid ${args.label} capability: missing record cannot have email-otp auth context`,
       );
     }
     return;
@@ -103,29 +103,29 @@ function assertCapabilityStateInvariant(args: {
 
   if (String(record.nearAccountId) !== String(args.accountId)) {
     throw new Error(
-      `[WarmSessionManager] invalid ${args.label} capability: record account does not match envelope account`,
+      `[WarmSessionStore] invalid ${args.label} capability: record account does not match envelope account`,
     );
   }
   if (!sessionId) {
     throw new Error(
-      `[WarmSessionManager] invalid ${args.label} capability: record is missing thresholdSessionId`,
+      `[WarmSessionStore] invalid ${args.label} capability: record is missing thresholdSessionId`,
     );
   }
 
   if (auth) {
     if (auth.record !== record) {
       throw new Error(
-        `[WarmSessionManager] invalid ${args.label} capability: auth.record must reference the capability record`,
+        `[WarmSessionStore] invalid ${args.label} capability: auth.record must reference the capability record`,
       );
     }
     if (auth.capability !== capability.capability) {
       throw new Error(
-        `[WarmSessionManager] invalid ${args.label} capability: auth capability does not match capability state`,
+        `[WarmSessionStore] invalid ${args.label} capability: auth capability does not match capability state`,
       );
     }
     if (capability.capability === 'ecdsa' && 'chain' in auth && auth.chain !== capability.chain) {
       throw new Error(
-        `[WarmSessionManager] invalid ${args.label} capability: auth chain does not match capability chain`,
+        `[WarmSessionStore] invalid ${args.label} capability: auth chain does not match capability chain`,
       );
     }
   }
@@ -133,7 +133,7 @@ function assertCapabilityStateInvariant(args: {
   if (prfClaim) {
     if (String(prfClaim.sessionId || '').trim() !== sessionId) {
       throw new Error(
-        `[WarmSessionManager] invalid ${args.label} capability: warm-session status sessionId does not match record sessionId`,
+        `[WarmSessionStore] invalid ${args.label} capability: warm-session status sessionId does not match record sessionId`,
       );
     }
     if (
@@ -144,19 +144,19 @@ function assertCapabilityStateInvariant(args: {
         prfClaim.expiresAtMs <= 0)
     ) {
       throw new Error(
-        `[WarmSessionManager] invalid ${args.label} capability: warm warm-session status requires positive remainingUses and expiresAtMs`,
+        `[WarmSessionStore] invalid ${args.label} capability: warm warm-session status requires positive remainingUses and expiresAtMs`,
       );
     }
   }
 
   if (record.source === 'email_otp' && !emailOtpAuthContext) {
     throw new Error(
-      `[WarmSessionManager] invalid ${args.label} capability: email_otp record requires explicit email-otp auth context`,
+      `[WarmSessionStore] invalid ${args.label} capability: email_otp record requires explicit email-otp auth context`,
     );
   }
   if (record.source !== 'email_otp' && emailOtpAuthContext) {
     throw new Error(
-      `[WarmSessionManager] invalid ${args.label} capability: non-email_otp record cannot carry email-otp auth context`,
+      `[WarmSessionStore] invalid ${args.label} capability: non-email_otp record cannot carry email-otp auth context`,
     );
   }
 
@@ -186,7 +186,7 @@ function assertCapabilityStateInvariant(args: {
                 : 'ready';
   if (capability.state !== expectedState) {
     throw new Error(
-      `[WarmSessionManager] invalid ${args.label} capability: state=${capability.state} does not match derived state=${expectedState}`,
+      `[WarmSessionStore] invalid ${args.label} capability: state=${capability.state} does not match derived state=${expectedState}`,
     );
   }
 }

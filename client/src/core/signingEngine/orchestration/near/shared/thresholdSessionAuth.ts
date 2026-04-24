@@ -1,5 +1,5 @@
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
-import type { WarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
+import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/WarmSessionServiceTypes';
 import { THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR } from './thresholdAuthMode';
 
 export type ResolvedThresholdEd25519SessionState = {
@@ -11,14 +11,14 @@ export type ResolvedThresholdEd25519SessionState = {
 };
 
 export function requireResolvedThresholdEd25519SessionState(args: {
-  warmSessionManager: WarmSessionManager;
+  signingSessionCoordinator: WarmSessionCapabilityReader;
   thresholdSessionId: string;
 }): ResolvedThresholdEd25519SessionState {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) {
     throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
   }
-  const record = args.warmSessionManager.resolveEd25519RecordByThresholdSessionId(
+  const record = args.signingSessionCoordinator.resolveEd25519RecordByThresholdSessionId(
     thresholdSessionId,
   );
   if (!record) {

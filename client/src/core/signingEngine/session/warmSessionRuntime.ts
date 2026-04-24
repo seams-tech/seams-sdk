@@ -31,7 +31,7 @@ export async function claimWarmSessionPrfFirst(args: {
     throw new Error(`Missing threshold sessionId for ${errorContext}`);
   }
   if (!args.touchConfirm || typeof args.touchConfirm.claimWarmSessionMaterial !== 'function') {
-    throw new Error('[WarmSessionManager] touchConfirm warm-session claim operations are required');
+    throw new Error('[WarmSessionStore] touchConfirm warm-session claim operations are required');
   }
 
   const readDiagnosticClaimCode = async (): Promise<string | undefined> => {
@@ -127,7 +127,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
         });
         if (!persisted.ok && persisted.code !== 'not_enabled' && args.required) {
           throw new Error(
-            `[WarmSessionManager] ${errorContext} failed (${persisted.code}): ${persisted.message}`,
+            `[WarmSessionStore] ${errorContext} failed (${persisted.code}): ${persisted.message}`,
           );
         }
         if (persisted.ok) return;

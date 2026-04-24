@@ -23,15 +23,17 @@ import type {
   NearEd25519WarmupHook,
   NearEmailOtpSigningHook,
   NearPasskeyEd25519ReconnectHook,
-  NearWalletSigningSessionUseRecorder,
 } from '../../interfaces/near';
-import type { WalletAuthPlan } from '../../auth';
 import {
   emailOtpSigningAuthPlan,
   formatEmailOtpSentText,
   passkeySigningAuthPlan,
-  signingAuthPlanFromWalletAuthPlan,
 } from '../shared/touchConfirmSigning';
+import {
+  SigningAuthPlanKind,
+  type SigningAuthPlan,
+  type UserConfirmProgressEvent,
+} from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { toAccountId } from '@/core/types/accountIds';
@@ -43,7 +45,6 @@ import {
 } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
   generateSessionId,
   requirePrfFirstFromCredential,
@@ -53,11 +54,25 @@ import {
 import { requireResolvedThresholdEd25519SessionState } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import {
+  createNearSigningSessionCoordinator,
   resolveNearThresholdSigningAuthPlan,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
+import { buildNearTransactionSigningLane } from '../../session/SigningLaneBuilders';
+import {
+  SigningOperationIntent,
+  SigningSessionIds,
+  type SigningLaneContext,
+  type SigningOperationId,
+} from '../../session/signingSessionTypes';
+import {
+  createSigningBoundaryTraceEvent,
+  emitSigningBoundaryTrace,
+} from '../../session/SigningSessionTrace';
+import type { WalletSigningBudgetLedger } from '../../session/WalletSigningBudgetLedger';
+import { createTransactionSigningBudgetFinalizer } from '../../session/TransactionSigningBudgetFinalizer';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -73,6 +88,15 @@ function emitNearSigningEvent(
       }),
     );
   } catch {}
+}
+
+function createNearTransactionSigningOperationId(): SigningOperationId {
+  const cryptoObj = globalThis as { crypto?: { randomUUID?: () => string } };
+  const randomId =
+    typeof cryptoObj.crypto?.randomUUID === 'function'
+      ? cryptoObj.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return SigningSessionIds.signingOperation(`near-transaction-sign:${randomId}`);
 }
 
 function normalizeTransactionSigningRequest(args: {
@@ -116,10 +140,12 @@ export async function signTransactionsWithActions({
   body,
   signerSlot,
   emailOtpSigning,
-  consumeWalletSigningSessionUse,
+  signingOperationId: providedSigningOperationId,
+  walletSigningBudgetLedger,
   ed25519Warmup,
   passkeyEd25519Reconnect,
-  walletAuthPlan,
+  signingAuthPlan: providedSigningAuthPlan,
+  signingLane,
 }: {
   ctx: SigningRuntimeDeps;
   sessionId?: string;
@@ -132,10 +158,12 @@ export async function signTransactionsWithActions({
   body?: string;
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
-  consumeWalletSigningSessionUse?: NearWalletSigningSessionUseRecorder;
+  signingOperationId?: SigningOperationId;
+  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
-  walletAuthPlan?: WalletAuthPlan;
+  signingAuthPlan?: SigningAuthPlan;
+  signingLane?: SigningLaneContext;
 }): Promise<
   Array<{
     signedTransaction: SignedTransaction;
@@ -144,6 +172,11 @@ export async function signTransactionsWithActions({
   }>
 > {
   const sessionId = providedSessionId ?? generateSessionId();
+  let signingOperationId = providedSigningOperationId;
+  const ensureSigningOperationId = (): SigningOperationId => {
+    signingOperationId = signingOperationId || createNearTransactionSigningOperationId();
+    return signingOperationId;
+  };
   const nearAccountId = toAccountId(rpcCall.nearAccountId);
   const relayerUrl = ctx.relayerUrl;
   const ed25519WarmupPromise =
@@ -237,22 +270,44 @@ export async function signTransactionsWithActions({
     throw new Error('TouchConfirm bridge not available for signing');
   }
   const touchConfirm = ctx.touchConfirm;
-  const warmSessionManager = createWarmSessionManager({ touchConfirm });
+  const signingSessionCoordinator = createNearSigningSessionCoordinator(touchConfirm);
   const usesNeeded = 1;
-  const shouldUseEmailOtpReauth = walletAuthPlan?.kind === 'emailOtpReauth' || !!emailOtpSigning;
+  const shouldUseEmailOtpReauth =
+    providedSigningAuthPlan?.kind === SigningAuthPlanKind.EmailOtpReauth || !!emailOtpSigning;
   const thresholdAuthPlan =
     signingContext.threshold && !shouldUseEmailOtpReauth
       ? await resolveNearThresholdSigningAuthPlan({
-          warmSessionManager,
+          signingSessionCoordinator,
           usesNeeded,
           nearAccountId,
           operationLabel: 'transaction signing',
         })
       : null;
+  const activeSigningLane = signingLane || thresholdAuthPlan?.lane;
+  type NearAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
+  const authSideEffectsStarted = new Set<NearAuthSideEffect>();
+  const emitConfirmedAuthSideEffectStarted = (sideEffect: NearAuthSideEffect): void => {
+    if (authSideEffectsStarted.has(sideEffect)) return;
+    authSideEffectsStarted.add(sideEffect);
+    emitSigningBoundaryTrace(
+      'near',
+      createSigningBoundaryTraceEvent({
+        event: 'auth_side_effect_started',
+        lane: activeSigningLane,
+        sideEffect,
+        phase: 'confirmed',
+      }),
+    );
+  };
+  const emitTouchConfirmProgress = (progress: UserConfirmProgressEvent): void => {
+    if (progress.phase === 'auth.passkey.prompt.started') {
+      emitConfirmedAuthSideEffectStarted('passkey_reauth');
+    }
+  };
   if (
-    !walletAuthPlan &&
+    !providedSigningAuthPlan &&
     !emailOtpSigning &&
-    thresholdAuthPlan?.signingAuthPlan?.kind === 'emailOtpReauth'
+    thresholdAuthPlan?.signingAuthPlan?.kind === SigningAuthPlanKind.EmailOtpReauth
   ) {
     throw new Error('[email-otp] verify Email OTP again before NEAR threshold signing');
   }
@@ -262,24 +317,28 @@ export async function signTransactionsWithActions({
     message: 'Opening confirmation prompt',
     interaction: { kind: 'transaction_confirmation', overlay: 'show' },
   });
-  const emailOtpPrompt = emailOtpSigning
+  const confirmationOperationId = ensureSigningOperationId();
+  const emailOtpChallenge = emailOtpSigning ? await emailOtpSigning.prepare() : undefined;
+  const emailOtpPrompt = emailOtpSigning && emailOtpChallenge
     ? {
-        challengeId: emailOtpSigning.challengeId,
-        ...(emailOtpSigning.emailHint ? { emailHint: emailOtpSigning.emailHint } : {}),
+        challengeId: emailOtpChallenge.challengeId,
+        ...(emailOtpChallenge.emailHint ? { emailHint: emailOtpChallenge.emailHint } : {}),
         title: 'Enter email code to sign',
-        helperText: formatEmailOtpSentText(emailOtpSigning.emailHint),
+        helperText: formatEmailOtpSentText(emailOtpChallenge.emailHint),
         ...(emailOtpSigning.resend ? { onResend: emailOtpSigning.resend } : {}),
       }
     : undefined;
-  const signingAuthPlan = walletAuthPlan
-    ? signingAuthPlanFromWalletAuthPlan(walletAuthPlan, emailOtpPrompt)
+  const signingAuthPlan = providedSigningAuthPlan
+    ? providedSigningAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth && emailOtpPrompt
+      ? { ...providedSigningAuthPlan, emailOtpPrompt }
+      : providedSigningAuthPlan
     : emailOtpPrompt
       ? emailOtpSigningAuthPlan(emailOtpPrompt)
       : thresholdAuthPlan?.signingAuthPlan;
   const touchConfirmAuthPayload = signingAuthPlan
     ? { signingAuthPlan }
     : (thresholdAuthPlan?.touchConfirmAuthPayload ?? { signingAuthPlan: passkeySigningAuthPlan() });
-  if (touchConfirmAuthPayload.signingAuthPlan.kind === 'warmSession') {
+  if (touchConfirmAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
       status: 'succeeded',
@@ -314,6 +373,7 @@ export async function signTransactionsWithActions({
         }
       : {}),
     ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
+    onProgress: emitTouchConfirmProgress,
   });
   emitNearSigningEvent(onEvent, nearAccountId, {
     phase: SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
@@ -353,10 +413,20 @@ export async function signTransactionsWithActions({
       throw new Error('[SigningEngine] Email OTP signing did not return a threshold session id');
     }
     canonicalThresholdSessionId = refreshedSessionId;
-  } else if (walletAuthPlan?.kind === 'passkeyReauth' && passkeyEd25519Reconnect) {
+  } else if (
+    providedSigningAuthPlan?.kind === SigningAuthPlanKind.PasskeyReauth &&
+    passkeyEd25519Reconnect
+  ) {
     if (!credentialWithPrf) {
       throw new Error('[SigningEngine] missing WebAuthn credential for passkey session reconnect');
     }
+    emitConfirmedAuthSideEffectStarted('threshold_reconnect');
+    emitNearSigningEvent(onEvent, nearAccountId, {
+      phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
+      status: 'running',
+      message: 'Reconnecting NEAR signing session',
+      interaction: { kind: 'none', overlay: 'none' },
+    });
     const refreshed = await passkeyEd25519Reconnect.reconnect({
       credential: credentialWithPrf,
       usesNeeded,
@@ -375,12 +445,10 @@ export async function signTransactionsWithActions({
     });
   }
   const thresholdSessionState = requireResolvedThresholdEd25519SessionState({
-    warmSessionManager,
+    signingSessionCoordinator,
     thresholdSessionId: canonicalThresholdSessionId,
   });
-  const provisionedRemainingUses = Math.floor(
-    Number(thresholdSessionState.record.remainingUses) || 0,
-  );
+  const provisionedRemainingUses = thresholdSessionState.record.remainingUses;
   if (emailOtpSigning && provisionedRemainingUses < usesNeeded) {
     throw new Error(
       `[SigningEngine] Email OTP NEAR signing session has ${provisionedRemainingUses} remaining use(s), but this operation requires ${usesNeeded}. Retry the Email OTP prompt to provision a fresh signing session.`,
@@ -393,7 +461,7 @@ export async function signTransactionsWithActions({
       ? ''
       : thresholdAuthPlan?.warmSessionReady
         ? await (async () => {
-            const prfFirst = await warmSessionManager.claimPrfFirstByThresholdSessionId({
+            const prfFirst = await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
               thresholdSessionId: thresholdAuthPlan.sessionId,
               uses: usesNeeded,
               errorContext: 'threshold-ed25519 transaction signing',
@@ -425,6 +493,7 @@ export async function signTransactionsWithActions({
       ...(onEvent
         ? {
             onProgress: (message: string) => {
+              emitConfirmedAuthSideEffectStarted('threshold_reconnect');
               emitNearSigningEvent(onEvent, nearAccountId, {
                 phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
                 status: 'running',
@@ -460,36 +529,91 @@ export async function signTransactionsWithActions({
     thresholdSessionId: canonicalThresholdSessionId,
     durationMs: Math.round(performance.now() - signingStartedAt),
   });
-  const recordSuccessfulWalletSigningSessionSpend = async (): Promise<void> => {
-    if (!signingContext.threshold || !consumeWalletSigningSessionUse) return;
+  const createNearBudgetFinalizer = () => {
+    if (!signingContext.threshold || !walletSigningBudgetLedger) return;
     const walletSigningSessionId = String(
-      thresholdSessionState.record.walletSigningSessionId || canonicalThresholdSessionId,
+      thresholdSessionState.record.walletSigningSessionId || '',
     ).trim();
-    if (!walletSigningSessionId) return;
-    await Promise.resolve(
-      consumeWalletSigningSessionUse({
-        nearAccountId,
-        walletSigningSessionId,
-        uses: usesNeeded,
-        reason: 'transaction_sign',
-        ...(ed25519WarmSessionBudgetClaimed
-          ? { alreadyConsumedThresholdSessionIds: [canonicalThresholdSessionId] }
-          : {}),
-      }),
-    ).catch((error) => {
-      console.warn('[SigningEngine][near] failed to update wallet signing-session budget', {
-        nearAccountId,
-        walletSigningSessionId,
-        thresholdSessionId: canonicalThresholdSessionId,
-        error: error instanceof Error ? error.message : String(error || 'unknown error'),
-      });
+    if (!walletSigningSessionId) {
+      throw new Error(
+        '[SigningEngine][near] missing wallet signing session id for transaction budget spend',
+      );
+    }
+    const recordSource = thresholdSessionState.record.source;
+    const spendLane =
+      recordSource === 'email_otp'
+        ? buildNearTransactionSigningLane({
+            accountId: nearAccountId,
+            authMethod: 'email_otp',
+            walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+              canonicalThresholdSessionId,
+            ),
+            retention: thresholdSessionState.record.emailOtpAuthContext?.retention || 'session',
+            sessionOrigin:
+              thresholdSessionState.record.emailOtpAuthContext?.reason === 'login'
+                ? 'login'
+                : 'per_operation',
+          })
+        : buildNearTransactionSigningLane({
+            accountId: nearAccountId,
+            authMethod: 'passkey',
+            walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+              canonicalThresholdSessionId,
+            ),
+            storageSource: recordSource,
+          });
+    return createTransactionSigningBudgetFinalizer({
+      walletSigningBudgetLedger,
+      operation: {
+        operationId: confirmationOperationId,
+        intent: SigningOperationIntent.TransactionSign,
+      },
+      lane: spendLane,
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(canonicalThresholdSessionId),
+      onRecordSuccessError: (error) => {
+        console.warn('[SigningEngine][near] failed to update wallet signing-session budget', {
+          nearAccountId,
+          walletSigningSessionId,
+          thresholdSessionId: canonicalThresholdSessionId,
+          error: error instanceof Error ? error.message : String(error || 'unknown error'),
+        });
+      },
+      onRecordZeroSpendError: (ledgerError) => {
+        console.warn('[SigningEngine][near] failed to record wallet signing-session zero spend', {
+          nearAccountId,
+          thresholdSessionId: canonicalThresholdSessionId,
+          error:
+            ledgerError instanceof Error ? ledgerError.message : String(ledgerError || 'unknown error'),
+        });
+      },
     });
+  };
+  const recordSuccessfulWalletSigningSessionSpend = async (): Promise<void> => {
+    const finalizer = createNearBudgetFinalizer();
+    if (!finalizer) return;
+    await finalizer.recordSuccess({
+      ...(ed25519WarmSessionBudgetClaimed
+        ? { alreadyConsumedThresholdSessionIds: [canonicalThresholdSessionId] }
+        : {}),
+    });
+  };
+  const reserveWalletSigningSessionBudget = async (): Promise<void> => {
+    const finalizer = createNearBudgetFinalizer();
+    if (!finalizer) return;
+    await finalizer.reserve();
+  };
+  const recordFailedWalletSigningSessionSpend = (error: unknown): void => {
+    const finalizer = createNearBudgetFinalizer();
+    if (!finalizer) return;
+    finalizer.recordZeroSpend(error);
   };
   const buildRequestPayload = (
     xClientBaseOverride?: string,
   ): Omit<WasmSignTransactionsWithActionsRequest, 'sessionId'> => {
     const currentThresholdSessionState = requireResolvedThresholdEd25519SessionState({
-      warmSessionManager,
+      signingSessionCoordinator,
       thresholdSessionId: canonicalThresholdSessionId,
     });
     return {
@@ -533,6 +657,7 @@ export async function signTransactionsWithActions({
   };
 
   try {
+    await reserveWalletSigningSessionBudget();
     const okResponse = await executeSignRequest(requestPayload);
     const signedResults = toSignedTransactionResults({
       okResponse,
@@ -562,7 +687,7 @@ export async function signTransactionsWithActions({
           prfFirstB64u ||
           (thresholdAuthPlan?.warmSessionReady
             ? await (async () => {
-                const prfFirst = await warmSessionManager.claimPrfFirstByThresholdSessionId({
+                const prfFirst = await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
                   thresholdSessionId: thresholdAuthPlan.sessionId,
                   uses: usesNeeded,
                   errorContext: 'threshold-ed25519 transaction signing repair',
@@ -587,6 +712,7 @@ export async function signTransactionsWithActions({
           ...(onEvent
             ? {
                 onProgress: (message: string) => {
+                  emitConfirmedAuthSideEffectStarted('threshold_reconnect');
                   emitNearSigningEvent(onEvent, nearAccountId, {
                     phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
                     status: 'running',
@@ -626,16 +752,22 @@ export async function signTransactionsWithActions({
             '[SigningEngine] threshold-signer requested but the relayer signing share could not be repaired from the active HSS session';
           console.warn(msg);
           warnings.push(msg);
-          throw new Error(msg);
+          const finalError = new Error(msg);
+          recordFailedWalletSigningSessionSpend(finalError);
+          throw finalError;
         }
+        recordFailedWalletSigningSessionSpend(repairErr);
         throw repairErr;
       }
     }
 
     if (isThresholdSessionAuthUnavailableError(err)) {
-      throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
+      const finalError = new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
+      recordFailedWalletSigningSessionSpend(finalError);
+      throw finalError;
     }
 
+    recordFailedWalletSigningSessionSpend(err);
     throw err;
   }
 }

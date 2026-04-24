@@ -8,7 +8,7 @@ import {
   toOptionalNonEmptyString,
 } from '@/core/signingEngine/session/warmSessionEcdsaProvisioning';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmSessionTypes';
-import { createThresholdEcdsaBootstrapFixture } from './helpers/warmSessionManager.fixtures';
+import { createThresholdEcdsaBootstrapFixture } from './helpers/warmSessionStore.fixtures';
 
 function createEnvelope(): WarmSessionEnvelope {
   const evmBootstrap = createThresholdEcdsaBootstrapFixture({

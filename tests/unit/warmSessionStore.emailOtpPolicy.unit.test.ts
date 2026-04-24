@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
   clearThresholdEcdsaSessionRecordForLane,
-  getThresholdEcdsaKeyRefForSigning,
-  getThresholdEcdsaSessionRecordForSigning,
+  listThresholdEcdsaKeyRefsForLookup,
+  listThresholdEcdsaSessionRecordsForLookup,
   markThresholdEcdsaEmailOtpSessionConsumedForAccount,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import {
+  createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   createWarmSessionStatusReader,
@@ -14,9 +14,9 @@ import {
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
   type WarmClaimFixture,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
-test.describe('WarmSessionManager Email OTP policy enforcement', () => {
+test.describe('WarmSessionStore Email OTP policy enforcement', () => {
   test('restores session-retained Email OTP ECDSA capability from sealed refresh before clearing it', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -46,7 +46,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     const clears: string[] = [];
     const restoreCalls: string[] = [];
     const restoreEvents: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         ...createWarmSessionStatusReader(claimsBySessionId),
         clearWarmSessionMaterial: async ({ sessionId }) => {
@@ -119,7 +119,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       },
     });
 
-    const warmSession = await manager.getWarmSession('sealed-restore.testnet');
+    const warmSession = await store.getWarmSession('sealed-restore.testnet');
 
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
     expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
@@ -162,7 +162,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     const clears: string[] = [];
     const sealedStoreEvents: string[] = [];
     const restoreEvents: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         ...createWarmSessionStatusReader({
           [record.thresholdSessionId]: { state: 'missing' },
@@ -219,20 +219,17 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       },
     });
 
-    const warmSession = await manager.getWarmSession('sealed-fail.testnet');
+    const warmSession = await store.getWarmSession('sealed-fail.testnet');
 
     expect(warmSession.capabilities.ecdsa.tempo.state).toBe('prf_missing');
     expect(sealedStoreEvents).toEqual([
       'delete:ecdsa-sealed-fail-session',
       'release:ecdsa-sealed-fail-session',
     ]);
-    expect(clears).toEqual([
-      'presign:sealed-fail.testnet:tempo',
-      'warm:ecdsa-sealed-fail-session',
-    ]);
+    expect(clears).toEqual(['presign:sealed-fail.testnet:tempo', 'warm:ecdsa-sealed-fail-session']);
     expect(ecdsaStore.recordsByLane.size).toBe(1);
     expect(
-      manager.resolveEmailOtpSigningSessionAuthLane({
+      store.resolveEmailOtpSigningSessionAuthLane({
         thresholdSessionId: record.thresholdSessionId,
         curve: 'ecdsa',
         chain: 'tempo',
@@ -275,7 +272,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     });
     const sealedStoreEvents: string[] = [];
     const restoreCalls: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [record.thresholdSessionId]: { state: 'missing' },
       }),
@@ -312,14 +309,14 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       },
     });
 
-    const warmSession = await manager.getWarmSession('all-curves.testnet');
+    const warmSession = await store.getWarmSession('all-curves.testnet');
 
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('prf_missing');
     expect(sealedStoreEvents).toEqual(['delete:ecdsa-all-curves-session']);
     expect(restoreCalls).toEqual([]);
     expect(ecdsaStore.recordsByLane.size).toBe(1);
     expect(
-      manager.resolveEmailOtpSigningSessionAuthLane({
+      store.resolveEmailOtpSigningSessionAuthLane({
         thresholdSessionId: record.thresholdSessionId,
         curve: 'ecdsa',
         chain: 'evm',
@@ -356,7 +353,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     });
     const sealedStoreEvents: string[] = [];
     const restoreCalls: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [record.thresholdSessionId]: { state: 'missing' },
       }),
@@ -389,14 +386,14 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       },
     });
 
-    const warmSession = await manager.getWarmSession('auth-mismatch.testnet');
+    const warmSession = await store.getWarmSession('auth-mismatch.testnet');
 
     expect(warmSession.capabilities.ecdsa.tempo.state).toBe('prf_missing');
     expect(sealedStoreEvents).toEqual(['delete:ecdsa-auth-mismatch-session']);
     expect(restoreCalls).toEqual([]);
     expect(ecdsaStore.recordsByLane.size).toBe(1);
     expect(
-      manager.resolveEmailOtpSigningSessionAuthLane({
+      store.resolveEmailOtpSigningSessionAuthLane({
         thresholdSessionId: record.thresholdSessionId,
         curve: 'ecdsa',
         chain: 'tempo',
@@ -432,7 +429,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     });
     const sealedStoreEvents: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [record.thresholdSessionId]: { state: 'exhausted' },
       }),
@@ -476,7 +473,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       },
     });
 
-    const warmSession = await manager.getWarmSession('sealed-exhausted.testnet');
+    const warmSession = await store.getWarmSession('sealed-exhausted.testnet');
 
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('prf_missing');
     expect(sealedStoreEvents).toEqual([
@@ -485,7 +482,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     ]);
     expect(ecdsaStore.recordsByLane.size).toBe(1);
     expect(
-      manager.resolveEmailOtpSigningSessionAuthLane({
+      store.resolveEmailOtpSigningSessionAuthLane({
         thresholdSessionId: record.thresholdSessionId,
         curve: 'ecdsa',
         chain: 'evm',
@@ -517,11 +514,12 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         chain: 'evm',
         sessionId: 'ecdsa-expired-session',
         sessionJwt: 'jwt:ecdsa-expired-session',
+        walletSigningSessionId: 'wallet-ecdsa-expired-session',
       }),
     });
 
     const clears: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         ...createWarmSessionStatusReader({
           [record.thresholdSessionId]: { state: 'expired' },
@@ -539,13 +537,14 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       },
     });
 
-    const status = await manager.getEcdsaSigningSessionStatus({
+    const status = await store.getEcdsaSigningSessionStatus({
       nearAccountId: 'alice.testnet',
       chain: 'evm',
+      thresholdSessionId: record.thresholdSessionId,
     });
-    const warmSession = await manager.getWarmSession('alice.testnet');
+    const warmSession = await store.getWarmSession('alice.testnet');
 
-    expect(status).toEqual({
+    expect(status).toMatchObject({
       sessionId: 'ecdsa-expired-session',
       status: 'expired',
       authMethod: 'email_otp',
@@ -553,12 +552,9 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     });
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('prf_missing');
     expect(ecdsaStore.recordsByLane.size).toBe(1);
-    expect(clears).toEqual([
-      'presign:alice.testnet:evm',
-      'warm:ecdsa-expired-session',
-    ]);
+    expect(clears).toEqual(['presign:alice.testnet:evm', 'warm:ecdsa-expired-session']);
     expect(
-      manager.resolveEmailOtpSigningSessionAuthLane({
+      store.resolveEmailOtpSigningSessionAuthLane({
         thresholdSessionId: record.thresholdSessionId,
         curve: 'ecdsa',
         chain: 'evm',
@@ -593,7 +589,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [ed25519Record.thresholdSessionId]: {
           state: 'warm',
@@ -606,11 +602,12 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     });
 
-    const warmSession = await manager.getWarmSession('shared-budget.testnet');
-    const ed25519Status = await manager.getEd25519SigningSessionStatus('shared-budget.testnet');
-    const ecdsaStatus = await manager.getEcdsaSigningSessionStatus({
+    const warmSession = await store.getWarmSession('shared-budget.testnet');
+    const ed25519Status = await store.getEd25519SigningSessionStatus('shared-budget.testnet');
+    const ecdsaStatus = await store.getEcdsaSigningSessionStatus({
       nearAccountId: 'shared-budget.testnet',
       chain: 'evm',
+      thresholdSessionId: ecdsaRecord.thresholdSessionId,
     });
 
     expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
@@ -674,11 +671,12 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         ecdsaThresholdKeyId: 'ecdsa-passkey',
         sessionId: 'ecdsa-passkey-session',
         sessionJwt: 'jwt:ecdsa-passkey-session',
+        walletSigningSessionId: 'wallet-passkey-session',
       }),
     });
 
     const provisionCalls: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [passkeyRecord.thresholdSessionId]: {
           state: 'warm',
@@ -701,28 +699,34 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
           sessionJwt: 'jwt:unexpected-reconnect',
         });
       },
+      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
+        listThresholdEcdsaSessionRecordsForLookup(ecdsaStore, { nearAccountId, chain }),
     });
 
-    const genericStatus = await manager.getEcdsaSigningSessionStatus({
+    const laneStatuses = await store.listEcdsaSigningSessionStatuses({
       nearAccountId,
       chain: 'tempo',
     });
-    const explicitStatus = await manager.getEcdsaSigningSessionStatus({
+    const passkeyStatus = laneStatuses.find(
+      (status) => status.sessionId === passkeyRecord.thresholdSessionId,
+    );
+    const explicitStatus = await store.getEcdsaSigningSessionStatus({
       nearAccountId,
       chain: 'tempo',
       thresholdSessionId: emailOtpRecord.thresholdSessionId,
     });
-    const ready = await manager.ensureEcdsaCapabilityReady({
+    const ready = await store.ensureEcdsaCapabilityReady({
       nearAccountId,
       chain: 'tempo',
       keyRef: recordToKeyRef(emailOtpRecord),
     });
 
-    expect(genericStatus).toMatchObject({
+    expect(passkeyStatus).toMatchObject({
       sessionId: passkeyRecord.thresholdSessionId,
       status: 'active',
       authMethod: 'passkey',
     });
+    expect(laneStatuses).toHaveLength(2);
     expect(explicitStatus).toMatchObject({
       sessionId: emailOtpRecord.thresholdSessionId,
       status: 'active',
@@ -783,7 +787,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [passkeyRecord.thresholdSessionId]: {
           state: 'warm',
@@ -797,16 +801,16 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         }
         return { ok: true, remainingUses: 5, expiresAtMs: Date.now() + 120_000 };
       },
-      getThresholdEcdsaKeyRefForSigning: (args) =>
-        getThresholdEcdsaKeyRefForSigning(ecdsaStore, args),
-      getThresholdEcdsaSessionRecordForSigning: (args) =>
-        getThresholdEcdsaSessionRecordForSigning(ecdsaStore, args),
+      listThresholdEcdsaKeyRefsForLookup: (args) =>
+        listThresholdEcdsaKeyRefsForLookup(ecdsaStore, args),
+      listThresholdEcdsaSessionRecordsForLookup: (args) =>
+        listThresholdEcdsaSessionRecordsForLookup(ecdsaStore, args),
       provisionThresholdEcdsaSession: async () => {
         throw new Error('source-scoped ready Email OTP ECDSA should not reconnect');
       },
     });
 
-    const ready = await manager.ensureEcdsaCapabilityReady({
+    const ready = await store.ensureEcdsaCapabilityReady({
       nearAccountId,
       chain: 'tempo',
       source: 'email_otp',
@@ -845,7 +849,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     });
 
     const clears: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         clearWarmSessionMaterial: async ({ sessionId }) => {
           clears.push(`warm:${sessionId}`);
@@ -864,7 +868,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       },
     });
 
-    await manager.applyEcdsaPostSignPolicy({
+    await store.applyEcdsaPostSignPolicy({
       nearAccountId: 'bob.testnet',
       chain: 'tempo',
       thresholdSessionId: record.thresholdSessionId,
@@ -906,7 +910,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     });
 
     const provisionCalls: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         clearWarmSessionMaterial: async () => undefined,
       },
@@ -914,7 +918,9 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         markThresholdEcdsaEmailOtpSessionConsumedForAccount(ecdsaStore, args);
       },
       clearThresholdEcdsaSigningArtifactsForLane: () => undefined,
-      getThresholdEcdsaKeyRefForSigning: () => recordToKeyRef(record),
+      listThresholdEcdsaKeyRefsForLookup: () => [
+        { source: 'email_otp', keyRef: recordToKeyRef(record) },
+      ],
       provisionThresholdEcdsaSession: async () => {
         provisionCalls.push('provision');
         return createThresholdEcdsaBootstrapFixture({
@@ -926,14 +932,14 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       },
     });
 
-    await manager.applyEcdsaPostSignPolicy({
+    await store.applyEcdsaPostSignPolicy({
       nearAccountId: 'erin.testnet',
       chain: 'evm',
       thresholdSessionId: record.thresholdSessionId,
     });
 
     await expect(
-      manager.ensureEcdsaCapabilityReady({
+      store.ensureEcdsaCapabilityReady({
         nearAccountId: 'erin.testnet',
         chain: 'evm',
       }),
@@ -970,7 +976,7 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
     });
 
     const provisionCalls: string[] = [];
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         clearWarmSessionMaterial: async () => undefined,
       },
@@ -978,7 +984,9 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
         markThresholdEcdsaEmailOtpSessionConsumedForAccount(ecdsaStore, args);
       },
       clearThresholdEcdsaSigningArtifactsForLane: () => undefined,
-      getThresholdEcdsaKeyRefForSigning: () => recordToKeyRef(record),
+      listThresholdEcdsaKeyRefsForLookup: () => [
+        { source: 'email_otp', keyRef: recordToKeyRef(record) },
+      ],
       provisionThresholdEcdsaSession: async () => {
         provisionCalls.push('provision');
         return createThresholdEcdsaBootstrapFixture({
@@ -990,14 +998,14 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       },
     });
 
-    await manager.applyEcdsaPostSignPolicy({
+    await store.applyEcdsaPostSignPolicy({
       nearAccountId: 'tempo-erin.testnet',
       chain: 'tempo',
       thresholdSessionId: record.thresholdSessionId,
     });
 
     await expect(
-      manager.ensureEcdsaCapabilityReady({
+      store.ensureEcdsaCapabilityReady({
         nearAccountId: 'tempo-erin.testnet',
         chain: 'tempo',
       }),
@@ -1033,10 +1041,10 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     });
 
-    const manager = createWarmSessionManager();
+    const store = createWarmSessionTestServices();
 
     await expect(
-      manager.assertEcdsaOperationAllowed({
+      store.assertEcdsaOperationAllowed({
         nearAccountId: 'inherit-policy.testnet',
         chain: 'evm',
         operationLabel: 'ordinary threshold signing',
@@ -1067,10 +1075,10 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     });
 
-    const manager = createWarmSessionManager();
+    const store = createWarmSessionTestServices();
 
     await expect(
-      manager.assertEcdsaOperationAllowed({
+      store.assertEcdsaOperationAllowed({
         nearAccountId: 'fresh-same-method.testnet',
         chain: 'evm',
         operationLabel: 'sensitive threshold signing',
@@ -1101,10 +1109,10 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     });
 
-    const manager = createWarmSessionManager();
+    const store = createWarmSessionTestServices();
 
     await expect(
-      manager.assertEcdsaOperationAllowed({
+      store.assertEcdsaOperationAllowed({
         nearAccountId: 'carol.testnet',
         chain: 'evm',
         operationLabel: 'threshold-ecdsa key export',
@@ -1141,10 +1149,10 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     });
 
-    const manager = createWarmSessionManager();
+    const store = createWarmSessionTestServices();
 
     await expect(
-      manager.assertEcdsaOperationAllowed({
+      store.assertEcdsaOperationAllowed({
         nearAccountId: 'deny-email-otp.testnet',
         chain: 'evm',
         operationLabel: 'blocked threshold operation',
@@ -1181,10 +1189,10 @@ test.describe('WarmSessionManager Email OTP policy enforcement', () => {
       }),
     });
 
-    const manager = createWarmSessionManager();
+    const store = createWarmSessionTestServices();
 
     await expect(
-      manager.assertEcdsaOperationAllowed({
+      store.assertEcdsaOperationAllowed({
         nearAccountId: 'dana.testnet',
         chain: 'evm',
         operationLabel: 'sensitive threshold signing',

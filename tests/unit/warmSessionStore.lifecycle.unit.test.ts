@@ -1,23 +1,23 @@
 import { expect, test } from '@playwright/test';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
+  createWarmSessionTestServices,
   createThresholdEcdsaStoreFixture,
   createWarmSessionTouchConfirmFixture,
   createWarmSessionStatusReader,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
-test.describe('WarmSessionManager lifecycle', () => {
+test.describe('WarmSessionStore lifecycle', () => {
   test('returns an empty envelope when no warm-session records exist', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({}),
     });
-    const warmSession = await manager.getWarmSession('empty.testnet');
+    const warmSession = await store.getWarmSession('empty.testnet');
 
     expect(warmSession.accountId).toBe('empty.testnet');
     expect(warmSession.capabilities.ed25519.state).toBe('missing');
@@ -39,7 +39,7 @@ test.describe('WarmSessionManager lifecycle', () => {
       remainingUses: 9,
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [ed25519Record.thresholdSessionId]: {
           state: 'warm',
@@ -48,7 +48,7 @@ test.describe('WarmSessionManager lifecycle', () => {
         },
       }),
     });
-    const warmSession = await manager.getWarmSession(ed25519Record.nearAccountId);
+    const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
 
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
     expect(warmSession.capabilities.ed25519.auth?.thresholdSessionJwt).toBe(
@@ -104,7 +104,7 @@ test.describe('WarmSessionManager lifecycle', () => {
       },
     };
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         getWarmSessionStatus: async () => {
           singleReads += 1;
@@ -127,7 +127,7 @@ test.describe('WarmSessionManager lifecycle', () => {
       },
     });
 
-    const warmSession = await manager.getWarmSession('batch-status.testnet');
+    const warmSession = await store.getWarmSession('batch-status.testnet');
 
     expect(batchCalls).toBe(1);
     expect(singleReads).toBe(0);
@@ -146,7 +146,7 @@ test.describe('WarmSessionManager lifecycle', () => {
       source: 'login',
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [evmRecord.thresholdSessionId]: {
           state: 'warm',
@@ -155,7 +155,7 @@ test.describe('WarmSessionManager lifecycle', () => {
         },
       }),
     });
-    const warmSession = await manager.getWarmSession(evmRecord.nearAccountId);
+    const warmSession = await store.getWarmSession(evmRecord.nearAccountId);
 
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
     expect(warmSession.capabilities.ecdsa.evm.auth?.thresholdSessionJwt).toBe(
@@ -190,7 +190,7 @@ test.describe('WarmSessionManager lifecycle', () => {
       source: 'manual-bootstrap',
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [ed25519Record.thresholdSessionId]: {
           state: 'warm',
@@ -207,7 +207,7 @@ test.describe('WarmSessionManager lifecycle', () => {
         },
       }),
     });
-    const warmSession = await manager.getWarmSession('dual.testnet');
+    const warmSession = await store.getWarmSession('dual.testnet');
 
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
@@ -229,7 +229,7 @@ test.describe('WarmSessionManager lifecycle', () => {
       },
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: createWarmSessionStatusReader({
         [evmRecord.thresholdSessionId]: {
           state: 'warm',
@@ -240,7 +240,7 @@ test.describe('WarmSessionManager lifecycle', () => {
     });
 
     expect(
-      manager.resolveEcdsaSealTransportByThresholdSessionId(evmRecord.thresholdSessionId),
+      store.resolveEcdsaSealTransportByThresholdSessionId(evmRecord.thresholdSessionId),
     ).toMatchObject({
       curve: 'ecdsa',
       relayerUrl: evmRecord.relayerUrl,
@@ -282,11 +282,11 @@ test.describe('WarmSessionManager lifecycle', () => {
       },
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: touchConfirmFixture.touchConfirm,
     });
 
-    await manager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
+    await store.ensureEcdsaPrfSealPersistedByThresholdSessionId({
       chain: 'evm',
       thresholdSessionId: evmRecord.thresholdSessionId,
       required: true,

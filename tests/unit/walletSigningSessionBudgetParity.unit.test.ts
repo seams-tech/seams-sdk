@@ -12,7 +12,7 @@ import {
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
 const NEAR_ACCOUNT_ID = 'wallet-budget-parity.testnet';
 const USER_ID = NEAR_ACCOUNT_ID;
@@ -108,8 +108,8 @@ test.describe('wallet signing-session budget parity', () => {
           ),
         }),
       },
-      getThresholdEcdsaSessionRecordForSigning: ({ chain }) =>
-        chain === 'evm' ? (ecdsaStore.recordsByLane.values().next().value ?? null) : null,
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        chain === 'evm' ? [...ecdsaStore.recordsByLane.values()] : [],
       getEmailOtpWarmSessionStatus: async (sessionId) => {
         expect(sessionId).toBe(ECDSA_WORKER_SESSION_ID);
         return readAuthoritativeStatus();

@@ -28,7 +28,7 @@ export function reportWarmSessionAvailabilityFailure(args: {
   sessionId: string;
   code?: string;
 }): void {
-  console.warn('[WarmSessionManager] warm-session availability failure', {
+  console.warn('[WarmSessionStore] warm-session availability failure', {
     operation: args.operation,
     sessionId: args.sessionId,
     code: String(args.code || 'worker_error').trim() || 'worker_error',

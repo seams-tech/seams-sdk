@@ -4,147 +4,219 @@ title: SecureConfirm Sessions
 
 # SecureConfirm Sessions
 
-SecureConfirm sessions turn the SecureConfirm‑WebAuthn unlock into a short‑lived **session capability**: the user approves once (TouchID/WebAuthn), then the wallet can sign multiple actions for a limited window without re‑prompting.
+SecureConfirm sessions are short-lived signing capabilities. They let the wallet
+reuse previously confirmed signing state for a bounded TTL and remaining-use
+budget, without turning transaction signing into a global "unlocked wallet"
+state.
 
-Instead of keeping decrypted keys around, the wallet caches only the _minimum capability_ needed to unwrap the vault inside workers:
+The signing flow treats a session as one selected lane from readiness through
+auth, signing, budget accounting, and cleanup.
 
-- **SecureConfirm worker (WASM)** keeps `{WrapKeySeed, wrapKeySalt}` + policy (`ttl_ms`, `remaining_uses`) in memory.
-- **Signer workers (WASM)** remain **one‑shot**; each request gets key material over a fresh `MessageChannel`, signs, then terminates.
+At the worker boundary:
 
-## Why sessions exist
+- The SecureConfirm worker owns the live session capability and enforces TTL and
+  remaining uses.
+- Signer workers remain one-shot. Each signing request gets a fresh internal
+  channel, receives only the session key material it needs, signs, then exits.
+- App code never receives PRF output, SecureConfirm secret material, signer
+  private keys, or raw session keys.
 
-Running a full SecureConfirm challenge + WebAuthn assertion for every local signing request adds latency with no extra security when the PRF output never leaves the device. Sessions keep the SecureConfirm‑WebAuthn handshake as a **mint-once capability**:
+## Cold And Warm Paths
 
-- Unlock once with TouchID/WebAuthn, then sign multiple actions for a short time or usage budget.
-- Reserve per-transaction SecureConfirm checks for remote attestation or high-risk actions.
+There are two ways a signing lane becomes usable:
 
-## Security properties
+- **Cold path**: the wallet needs fresh auth. The user confirms the transaction,
+  then the command executor requests Email OTP or passkey/WebAuthn, reconnects
+  the threshold session if needed, and continues signing.
+- **Warm path**: the selected lane is already ready. The planner returns
+  `warm_session`, the execution machine skips auth side effects, and signing
+  uses the cached threshold session.
 
-- **Freshness + replay resistance**: SecureConfirm challenges are unique; proofs bind the session to a fresh challenge.
-- **Block binding**: Challenges can include recent block height/hash to prevent stale-session reuse.
-- **User presence**: WebAuthn assertion proves touch/biometric presence over the exact SecureConfirm challenge.
-- **Policy enforcement**: The worker enforces TTL and usage caps encoded in the challenge or local defaults.
-- **Auditability**: Session minting can be logged with challenge digest + block height without exposing secrets.
+Both paths still use the same lane identity, operation id, execution ordering,
+budget accounting, and cleanup model.
 
-## Two layers of “session”
+## Mental Model
 
-**1) SecureConfirm‑owned session (capability)**
+A transaction signing request is normalized into four separate concepts:
 
-- Stored in the SecureConfirm worker’s memory and keyed by `sessionId`.
-- Contains `WrapKeySeed` bytes and `wrapKeySalt` plus TTL/usage budget.
-- Enforced in the SecureConfirm worker (expire/exhaust → refuse to dispense).
+- **Signing lane**: the stable identity of what will sign. It includes the
+  account, auth method, curve, chain family, wallet signing-session id,
+  threshold session id, storage source, retention, and optional signer scope.
+- **Readiness**: the current status of that lane. A lane can be ready, expired,
+  exhausted, missing session material, unavailable, or blocked by policy.
+- **Signing plan**: the planner's pure decision for what should happen next:
+  use a warm session, request Email OTP reauth, request passkey reauth, or fail
+  as not ready.
+- **Operation identity**: the confirmed transaction signing operation. This is
+  separate from the lane and is used for budget accounting and idempotency.
 
-**2) Per‑request signing handshake**
+Keeping those concepts separate is the core design choice. The lane says "which
+capability", readiness says "can it sign now", the plan says "what auth path is
+needed", and the operation id says "which transaction attempt spent budget".
 
-- For each signing request, the wallet creates a fresh `MessageChannel`.
-- One port is transferred to the SecureConfirm worker and one port to a new signer worker.
-- SecureConfirm sends `{WrapKeySeed, wrapKeySalt}` _only over that port_; it is never put into a main‑thread JS payload.
+## Coordinator, Planner, And Store
 
-## Flow (cold vs warm)
+`SigningSessionCoordinator` is the transaction-signing facade. Chain-specific
+coordinators resolve or receive the selected lane, read warm-session readiness,
+call `SigningSessionPlanner`, drive `SigningExecutionMachine`, delegate side
+effects to executors, and finalize budget plus cleanup.
 
-### Cold path: mint/refresh a SecureConfirm session (requires WebAuthn)
+`SigningSessionPlanner` answers one question:
 
-1. Create a fresh `MessageChannel` and attach ports to SecureConfirm + signer workers for `sessionId`.
-2. Run the normal SecureConfirm‑WebAuthn confirmation flow (confirm UI + TouchID/WebAuthn → credential with PRF outputs in `clientExtensionResults`).
-3. SecureConfirm worker derives `WrapKeySeed` (from `PRF.first_auth` + in‑memory `secureconfirm_sk`) and stores `{WrapKeySeed, wrapKeySalt}` with TTL/uses in a SecureConfirm‑owned session.
-4. SecureConfirm worker sends `{WrapKeySeed, wrapKeySalt}` to the signer worker over the attached port; signer stores it.
-5. Main thread sends the signing request; if the seed hasn’t arrived yet the signer waits internally, then decrypts, signs, and terminates.
+> Given a concrete signing lane, its readiness, and the operation policy, what
+> signing plan should this operation use?
 
-### Warm path: reuse a SecureConfirm session (no WebAuthn prompt)
+It does not read storage, send Email OTP challenges, trigger passkey prompts,
+reconnect threshold sessions, spend budget, or clean up signing material.
 
-1. Create a fresh `MessageChannel` and a new signer worker for the same `sessionId`.
-2. Call `DISPENSE_SESSION_KEY(sessionId)` in the SecureConfirm worker:
-   - SecureConfirm enforces TTL/remaining‑uses
-   - If valid, SecureConfirm sends `{WrapKeySeed, wrapKeySalt}` over the attached port and closes it
-3. Main thread sends the signing request; signer waits internally for the seed if needed, then signs and terminates.
-4. If the session is missing/expired/exhausted, fall back to the cold path to re‑mint.
+`WarmSessionStore` is the warm-session storage/readiness side of the system. It
+answers different questions:
 
-## Enabling warm signing sessions
+- What warm signing material exists for this account?
+- Is the selected wallet signing session still active?
+- Does it have enough remaining uses?
+- Can sealed session material be restored?
+- Does an ECDSA lane need reconnecting before signing?
+- What cleanup should run after a successful signing operation?
 
-Warm signing sessions are **opt-in** and controlled by `signingSessionDefaults` (global) or `signingSession` (per login call).
+Implementation-wise, the store role is split into focused services: capability
+reader, status reader, provisioner/restorer, and post-sign policy. The important
+boundary is that the store reports and prepares warm-session capability, while
+the coordinator owns the operation flow.
 
-- When `ttlMs: 0` or `remainingUses: 0`, warm signing is effectively disabled (a TouchID/WebAuthn prompt is required for each signing operation).
-- Warm sessions are **in-memory only** (cleared on page refresh/close).
-- In `threshold-signer` mode, when warm policy is enabled (`ttlMs > 0` and `remainingUses > 0`), `tatchi.auth.unlock()` now treats threshold warm-up as required and fails if provisioning cannot complete.
+## Architecture
 
-### Configure defaults
+```mermaid
+flowchart TD
+  Request["Transaction signing request"] --> Coordinator["SigningSessionCoordinator"]
+  Coordinator --> Lane["Resolve or receive signing lane"]
+  Lane --> Store["WarmSessionStore readiness/services"]
+  Store --> Planner["SigningSessionPlanner"]
+  Planner --> Decision{"Plan kind"}
 
-```ts
-import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@tatchi-xyz/sdk/react';
+  Decision -->|warm_session| Warm["Use cached threshold session"]
+  Decision -->|email_otp_reauth| EmailOtp["Plan Email OTP reauth"]
+  Decision -->|passkey_reauth| Passkey["Plan passkey reauth"]
+  Decision -->|not_ready| Blocked["Fail before signing"]
 
-const config = {
-  ...PASSKEY_MANAGER_DEFAULT_CONFIGS,
-  signingSessionDefaults: {
-    ttlMs: 5 * 60 * 1000,
-    remainingUses: 3,
-  },
-};
+  Warm --> Machine["SigningExecutionMachine"]
+  EmailOtp --> Machine
+  Passkey --> Machine
+
+  Machine --> Coordinator
+  Coordinator --> Commands["Command executors"]
+  Commands --> Confirm["Show transaction confirmation"]
+  Commands --> Auth["Run auth side effects after confirmation"]
+  Commands --> Reconnect["Reconnect threshold session if needed"]
+  Commands --> Nonce["Prepare nonce"]
+  Commands --> Sign["Sign transaction"]
+  Commands --> Budget["Record budget spend"]
+  Commands --> Cleanup["Apply cleanup policy"]
 ```
 
-### Override per login
+The execution machine is intentionally an ordering machine. It emits the legal
+sequence of commands and trace events. Command executors perform side effects.
+Finalization builds the budget spend from the confirmed operation id and the
+selected lane.
 
-```ts
-await tatchi.auth.unlock('alice.testnet', {
-  signingSession: { ttlMs: 10 * 60 * 1000, remainingUses: 10 },
-});
-```
-
-### Inspect session status
-
-`tatchi.auth.unlock()` returns a `signingSession` status object when available:
-
-```ts
-const login = await tatchi.auth.unlock('alice.testnet');
-console.log(login.signingSession); // { status: 'active' | 'expired' | ... }
-```
-
-## Session handshake diagram
+## Signing Flow
 
 ```mermaid
 sequenceDiagram
-    participant App as dApp (app origin)
-    box rgb(243, 244, 246) Wallet origin (iframe)
-    participant UI as Wallet (main thread)
-    participant SecureConfirm as SecureConfirm Worker (WASM)
-    participant Signer as Signer Worker (WASM, one-shot)
+  participant Flow as "Chain flow"
+  participant Coord as "SigningSessionCoordinator"
+  participant Store as "WarmSessionStore services"
+  participant Planner as "SigningSessionPlanner"
+  participant Machine as "SigningExecutionMachine"
+  participant Exec as "Command executors"
+  participant Ledger as "Budget ledger"
+
+  Flow->>Coord: Start signing operation
+  Coord->>Coord: Resolve or receive concrete signing lane
+  Coord->>Store: Read capability and status
+  Store-->>Coord: Readiness for selected lane
+  Coord->>Planner: lane + readiness + policy
+  Planner-->>Coord: SigningSessionPlan
+
+  alt not_ready
+    Coord-->>Flow: Fail before auth side effects
+  else executable plan
+    Coord->>Machine: plan + operation context
+    Machine-->>Coord: Ordered commands
+    Coord-->>Exec: Delegate side effects
+    Exec->>Exec: Show transaction confirmation
+    opt fresh auth required
+      Exec->>Exec: Request Email OTP or passkey
+      Exec->>Store: Reconnect threshold session
     end
-    participant Chain as NEAR RPC / Web3Authn Contract
-
-    App->>UI: signTransaction / signTransactionsWithActions
-
-    Note over UI,Signer: Fresh MessageChannel per signing request
-    UI->>SecureConfirm: ATTACH_WRAP_KEY_SEED_PORT(sessionId, port1)
-    UI->>Signer: ATTACH_WRAP_KEY_SEED_PORT(sessionId, port2)
-    Signer-->>UI: ATTACH_WRAP_KEY_SEED_PORT_OK
-
-    alt Warm session available (no prompt)
-        UI->>SecureConfirm: DISPENSE_SESSION_KEY(sessionId, uses)
-        SecureConfirm-->>Signer: MessagePort: WrapKeySeed + wrapKeySalt
-    else Cold session (mint/refresh)
-        UI->>UI: Show wallet confirm UI
-        UI->>UI: WebAuthn (TouchID) → credential (PRF outputs in extensions)
-        UI->>SecureConfirm: MINT_SESSION_KEYS_AND_SEND_TO_SIGNER(sessionId, credential, ttl/uses)
-        SecureConfirm->>Chain: (optional) verify_authentication_response
-        Chain-->>SecureConfirm: verified
-        SecureConfirm->>SecureConfirm: Derive WrapKeySeed, cache TTL/uses
-        SecureConfirm-->>Signer: MessagePort: WrapKeySeed + wrapKeySalt
-    end
-
-    UI->>Signer: SIGN_* request (sessionId + vault ciphertext)
-    Signer-->>UI: signed payload(s)
-    Signer-->>Signer: zeroize + self.close()
-    UI-->>App: return signed result(s)
+    Exec->>Exec: Prepare nonce
+    Exec->>Exec: Sign transaction
+    Exec->>Ledger: Record success by operation id
+    Exec->>Store: Apply post-sign cleanup policy
+    Coord-->>Flow: Return signed result
+  end
 ```
 
-::: info Security properties
+The important boundary is "no auth side effect before confirmation". The planner
+may decide that Email OTP or passkey reauth is required, but the actual challenge
+or prompt is a command executor side effect after the transaction confirmer owns
+the flow.
 
-- `WrapKeySeed` never enters main‑thread JS; it is transferred worker‑to‑worker over a `MessagePort`.
-- The signer worker is one‑shot and holds no cross‑request state; session enforcement lives in the SecureConfirm worker.
-- Warm signing is only possible if the SecureConfirm worker has a valid (unexpired, unexhausted) session capability.
-  :::
+## Plan Kinds
 
-## Operational invariants
+| Plan | Meaning | Side effects |
+| --- | --- | --- |
+| `warm_session` | The selected lane is ready and fresh auth is not required. | No auth side effect. Use the cached threshold session. |
+| `email_otp_reauth` | The selected lane uses Email OTP and needs fresh auth. | Send/complete Email OTP after confirmation, then reconnect signing material. |
+| `passkey_reauth` | The selected lane uses passkey auth and needs fresh auth. | Run passkey/WebAuthn after confirmation, then reconnect signing material. |
+| `not_ready` | The selected lane cannot sign. | Fail before signing. |
 
-- SecureConfirm worker never handles `near_sk` or vault material; only `{WrapKeySeed, wrapKeySalt}` crosses workers.
-- PRF outputs and session secrets never touch the main thread or dApp payloads.
-- All prompts originate from the SecureConfirm worker flows; signer worker never calls SecureConfirm.
+## Budget Accounting
+
+Budget accounting is tied to the confirmed operation id, not to the planner
+output. This matters for retries and cleanup:
+
+- The lane stays stable across planning, auth, signing, and cleanup.
+- The operation id is attached when the transaction confirmation flow owns the
+  operation.
+- The spend record is built after signing from the operation id plus the selected
+  lane.
+- Successful spends are idempotent by operation id.
+- Failed or cancelled operations record zero-spend outcomes instead of consuming
+  a use.
+
+The planner does not return a budget spend plan. That keeps planning pure and
+prevents pre-confirmation artifacts from becoming accounting authority.
+
+## Security Invariants
+
+SecureConfirm sessions preserve these invariants:
+
+- One selected lane is carried from readiness through cleanup.
+- Auth method selection is centralized in the planner.
+- Warm-session services read, restore, reconnect, and clean up signing material.
+- Command executors own side effects.
+- The execution machine owns command order and transition tracing.
+- Operation identity stays separate from lane identity.
+- Budget spending happens after signing and is idempotent by operation id.
+- SecureConfirm and signer material stay inside worker boundaries; session keys
+  move only through internal worker channels.
+
+## Why This Shape
+
+This design keeps the hard parts small:
+
+- The planner is a pure function over lane, readiness, and policy.
+- Warm-session services are ordinary IO services.
+- The execution machine can be inspected as a command ordering table.
+- Chain-specific transaction code stays focused on nonce, signing, broadcast,
+  and chain-specific policy.
+- Adding another auth method or chain lane does not require duplicating
+  wrapper-side freshness checks.
+
+## Related Concepts
+
+- [SecureConfirm WebAuthn](./secureconfirm-webauthn)
+- [Threshold Signing](./threshold-signing)
+- [Security Model](./security-model)
+- [Architecture](./architecture)

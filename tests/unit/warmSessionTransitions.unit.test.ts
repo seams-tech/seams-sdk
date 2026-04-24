@@ -118,7 +118,7 @@ test.describe('warmSessionTransitions', () => {
     }
 
     expect(warnings).toHaveLength(1);
-    expect(warnings[0][0]).toBe('[WarmSessionManager] warm-session transition callback failed');
+    expect(warnings[0][0]).toBe('[WarmSessionStore] warm-session transition callback failed');
   });
 
   test('swallows asynchronous transition callback failures', async () => {
@@ -148,6 +148,6 @@ test.describe('warmSessionTransitions', () => {
     }
 
     expect(warnings).toHaveLength(1);
-    expect(warnings[0][0]).toBe('[WarmSessionManager] warm-session transition callback failed');
+    expect(warnings[0][0]).toBe('[WarmSessionStore] warm-session transition callback failed');
   });
 });

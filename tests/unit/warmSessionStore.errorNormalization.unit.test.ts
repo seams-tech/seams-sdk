@@ -1,20 +1,21 @@
 import { expect, test } from '@playwright/test';
 import {
-  createWarmSessionManager,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR,
-} from '@/core/signingEngine/session/WarmSessionManager';
+} from '@/core/signingEngine/session/WarmSessionStatusReader';
+import { resolveNearThresholdSigningAuthPlan } from '@/core/signingEngine/orchestration/near/shared/thresholdAuthMode';
 import {
+  createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   createWarmSessionTouchConfirmFixture,
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
-test.describe('WarmSessionManager caller-facing error normalization', () => {
+test.describe('WarmSessionStore caller-facing error normalization', () => {
   test('normalizes missing warm PRF material for explicit threshold-ecdsa authorization bootstrap', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -40,7 +41,7 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
         },
       },
     });
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm,
       provisionThresholdEcdsaSession: async () => {
         provisionCalls += 1;
@@ -49,7 +50,7 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
     });
 
     await expect(
-      manager.provisionEcdsaCapability({
+      store.provisionEcdsaCapability({
         nearAccountId: 'bootstrap-error.testnet',
         chain: 'evm',
         source: 'manual-bootstrap',
@@ -90,9 +91,11 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
         },
       },
     });
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
-      getThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,
+      listThresholdEcdsaKeyRefsForLookup: () => [
+        { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
+      ],
       provisionThresholdEcdsaSession: async ({ nearAccountId, chain }) => {
         return createThresholdEcdsaBootstrapFixture({
           nearAccountId: String(nearAccountId),
@@ -105,13 +108,13 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
     });
 
     await expect(
-      manager.ensureEcdsaCapabilityReady({
+      store.ensureEcdsaCapabilityReady({
         nearAccountId: 'reconnect-error.testnet',
         chain: 'evm',
         usesNeeded: 1,
       }),
     ).rejects.toThrow(
-      '[WarmSessionManager] provisioned ECDSA capability was not persisted for reconnect-error.testnet (expected sessionId=reconnect-error-fresh-session, found=reconnect-error-stale-session)',
+      '[WarmSessionStore] provisioned ECDSA capability was not persisted for reconnect-error.testnet (expected sessionId=reconnect-error-fresh-session, found=reconnect-error-stale-session)',
     );
   });
 
@@ -149,23 +152,23 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
         },
       },
     });
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: fixture.touchConfirm,
     });
 
     await expect(
-      manager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
+      store.ensureEcdsaPrfSealPersistedByThresholdSessionId({
         chain: 'evm',
         thresholdSessionId: record.thresholdSessionId,
         required: true,
         errorContext: 'threshold-ecdsa signing seal persistence',
       }),
     ).rejects.toThrow(
-      '[WarmSessionManager] threshold-ecdsa signing seal persistence failed (transport_error): relay offline',
+      '[WarmSessionStore] threshold-ecdsa signing seal persistence failed (transport_error): relay offline',
     );
   });
 
-  test('normalizes exhausted signing-session readiness through the manager boundary', async () => {
+  test('normalizes exhausted signing-session readiness through the store boundary', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
     seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -180,7 +183,7 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
       }),
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         getWarmSessionStatus: async () => ({
           ok: true,
@@ -191,7 +194,7 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
     });
 
     await expect(
-      manager.assertEcdsaSigningSessionReady({
+      store.assertEcdsaSigningSessionReady({
         nearAccountId: 'signing-exhausted.testnet',
         chain: 'evm',
         thresholdSessionId: 'signing-exhausted-session',
@@ -200,11 +203,11 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
     ).rejects.toThrow(THRESHOLD_SESSION_EXHAUSTED_ERROR);
   });
 
-  test('normalizes Ed25519 auth-unavailable signing plans through the manager boundary', async () => {
+  test('normalizes Ed25519 auth-unavailable signing plans through the planner boundary', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         getWarmSessionStatus: async () => ({
           ok: false,
@@ -215,9 +218,11 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
     });
 
     await expect(
-      manager.resolveEd25519SigningAuthPlan({
+      resolveNearThresholdSigningAuthPlan({
+        signingSessionCoordinator: store,
         nearAccountId: 'auth-unavailable.testnet',
         usesNeeded: 1,
+        operationLabel: 'unit-test',
       }),
     ).rejects.toThrow(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
   });
@@ -228,10 +233,11 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
     seedEd25519WarmSessionRecord({
       nearAccountId: 'status-unavailable.testnet',
       thresholdSessionId: 'status-unavailable-session',
+      walletSigningSessionId: 'status-unavailable-wallet-session',
       thresholdSessionJwt: 'jwt:status-unavailable-session',
     });
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         getWarmSessionStatus: async () => ({
           ok: false,
@@ -242,9 +248,11 @@ test.describe('WarmSessionManager caller-facing error normalization', () => {
     });
 
     await expect(
-      manager.resolveEd25519SigningAuthPlan({
+      resolveNearThresholdSigningAuthPlan({
+        signingSessionCoordinator: store,
         nearAccountId: 'status-unavailable.testnet',
         usesNeeded: 1,
+        operationLabel: 'unit-test',
       }),
     ).rejects.toThrow(`${THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR} (worker_error)`);
   });

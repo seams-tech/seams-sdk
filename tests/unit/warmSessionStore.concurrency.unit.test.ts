@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
+  createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,
   resetWarmSessionFixtureState,
   seedEcdsaWarmSessionRecord,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -17,7 +17,7 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
-test.describe('WarmSessionManager concurrency', () => {
+test.describe('WarmSessionStore concurrency', () => {
   test('dedupes concurrent ensureEcdsaCapabilityReady reconnects for the same capability', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
@@ -59,7 +59,7 @@ test.describe('WarmSessionManager concurrency', () => {
       },
     };
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         getWarmSessionStatus: async ({ sessionId }) => {
           const normalized = String(sessionId || '').trim();
@@ -73,7 +73,9 @@ test.describe('WarmSessionManager concurrency', () => {
           );
         },
       },
-      getThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,
+      listThresholdEcdsaKeyRefsForLookup: () => [
+        { source: 'manual-bootstrap', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
+      ],
       provisionThresholdEcdsaSession: async ({ nearAccountId, chain }) => {
         provisionCalls += 1;
         const bootstrap = await provisionDeferred.promise;
@@ -92,12 +94,12 @@ test.describe('WarmSessionManager concurrency', () => {
       },
     });
 
-    const readyPromiseA = manager.ensureEcdsaCapabilityReady({
+    const readyPromiseA = store.ensureEcdsaCapabilityReady({
       nearAccountId: 'concurrent-ready.testnet',
       chain: 'evm',
       usesNeeded: 1,
     });
-    const readyPromiseB = manager.ensureEcdsaCapabilityReady({
+    const readyPromiseB = store.ensureEcdsaCapabilityReady({
       nearAccountId: 'concurrent-ready.testnet',
       chain: 'evm',
       usesNeeded: 1,
@@ -153,7 +155,7 @@ test.describe('WarmSessionManager concurrency', () => {
       expiresAtMs: number;
     }>();
 
-    const manager = createWarmSessionManager({
+    const store = createWarmSessionTestServices({
       touchConfirm: {
         getWarmSessionStatus: async () => ({
           ok: true,
@@ -167,13 +169,13 @@ test.describe('WarmSessionManager concurrency', () => {
       },
     });
 
-    const persistPromiseA = manager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
+    const persistPromiseA = store.ensureEcdsaPrfSealPersistedByThresholdSessionId({
       chain: 'evm',
       thresholdSessionId: record.thresholdSessionId,
       required: true,
       errorContext: 'threshold-ecdsa export seal persistence',
     });
-    const persistPromiseB = manager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
+    const persistPromiseB = store.ensureEcdsaPrfSealPersistedByThresholdSessionId({
       chain: 'evm',
       thresholdSessionId: record.thresholdSessionId,
       required: true,

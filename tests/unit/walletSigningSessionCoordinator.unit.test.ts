@@ -9,7 +9,7 @@ import {
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
   type WarmClaimFixture,
-} from './helpers/warmSessionManager.fixtures';
+} from './helpers/warmSessionStore.fixtures';
 
 function createMutableTouchConfirmStatus(claimsBySessionId: Record<string, WarmClaimFixture>) {
   const reader = createWarmSessionStatusReader(claimsBySessionId);
@@ -96,8 +96,8 @@ test.describe('WalletSigningSessionCoordinator', () => {
     });
     const coordinator = createWalletSigningSessionCoordinator({
       touchConfirm,
-      getThresholdEcdsaSessionRecordForSigning: ({ chain }) =>
-        chain === 'evm' ? (ecdsaStore.recordsByLane.values().next().value ?? null) : null,
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        chain === 'evm' ? [...ecdsaStore.recordsByLane.values()] : [],
       getEmailOtpWarmSessionStatus: async (sessionId) => {
         expect(sessionId).toBe('email-worker-status');
         return { ok: true, remainingUses: 3, expiresAtMs };
@@ -125,6 +125,77 @@ test.describe('WalletSigningSessionCoordinator', () => {
       state: 'warm',
       remainingUses: 3,
     });
+  });
+
+  test('does not treat threshold session ids as wallet signing-session ids', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const expiresAtMs = Date.now() + 120_000;
+    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'missing-wallet-id.testnet',
+      chain: 'tempo',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'missing-wallet-id.testnet',
+        chain: 'tempo',
+        sessionId: 'ecdsa-missing-wallet-id-session',
+        sessionJwt: 'jwt:ecdsa-missing-wallet-id-session',
+      }),
+    });
+
+    const { touchConfirm } = createMutableTouchConfirmStatus({
+      [record.thresholdSessionId]: { state: 'warm', remainingUses: 5, expiresAtMs },
+    });
+    const coordinator = createWalletSigningSessionCoordinator({
+      touchConfirm,
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        chain === 'tempo' ? [...ecdsaStore.recordsByLane.values()] : [],
+    });
+
+    const status = await coordinator.getStatus({
+      nearAccountId: 'missing-wallet-id.testnet',
+      walletSigningSessionId: record.thresholdSessionId,
+    });
+    const claims = await coordinator.getLaneClaimsForAccount('missing-wallet-id.testnet');
+
+    expect(status).toBeNull();
+    expect(claims.size).toBe(0);
+  });
+
+  test('rejects wallet budget consumption for a wallet session id that owns no lanes', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const expiresAtMs = Date.now() + 120_000;
+    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'wrong-wallet-budget.testnet',
+      chain: 'tempo',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'wrong-wallet-budget.testnet',
+        chain: 'tempo',
+        sessionId: 'ecdsa-wrong-wallet-budget-session',
+        sessionJwt: 'jwt:ecdsa-wrong-wallet-budget-session',
+        walletSigningSessionId: 'ws-correct-wallet-budget',
+      }),
+    });
+
+    const { touchConfirm, consumeCalls } = createMutableTouchConfirmStatus({
+      [record.thresholdSessionId]: { state: 'warm', remainingUses: 5, expiresAtMs },
+    });
+    const coordinator = createWalletSigningSessionCoordinator({
+      touchConfirm,
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        chain === 'tempo' ? [...ecdsaStore.recordsByLane.values()] : [],
+    });
+
+    await expect(
+      coordinator.consumeUse({
+        nearAccountId: 'wrong-wallet-budget.testnet',
+        walletSigningSessionId: 'ws-wrong-wallet-budget',
+        uses: 1,
+        reason: 'transaction_sign',
+      }),
+    ).rejects.toThrow('wallet signing-session has no matching signing lanes');
+
+    expect(consumeCalls).toEqual([]);
   });
 
   test('does not double-consume the ECDSA Email OTP worker lane after ECDSA signing consumed it', async () => {
@@ -183,8 +254,8 @@ test.describe('WalletSigningSessionCoordinator', () => {
     const markCalls: Array<{ thresholdSessionId?: string; uses?: number }> = [];
     const coordinator = createWalletSigningSessionCoordinator({
       touchConfirm,
-      getThresholdEcdsaSessionRecordForSigning: ({ chain }) =>
-        chain === 'evm' ? (ecdsaStore.recordsByLane.values().next().value ?? null) : null,
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        chain === 'evm' ? [...ecdsaStore.recordsByLane.values()] : [],
       getEmailOtpWarmSessionStatus: async () => ({
         ok: true,
         remainingUses: 4,
@@ -276,8 +347,8 @@ test.describe('WalletSigningSessionCoordinator', () => {
     }> = [];
     const coordinator = createWalletSigningSessionCoordinator({
       touchConfirm,
-      getThresholdEcdsaSessionRecordForSigning: ({ chain }) =>
-        chain === 'evm' ? (ecdsaStore.recordsByLane.values().next().value ?? null) : null,
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        chain === 'evm' ? [...ecdsaStore.recordsByLane.values()] : [],
       getEmailOtpWarmSessionStatus: async () => ({
         ok: true,
         remainingUses: 4,
@@ -348,8 +419,8 @@ test.describe('WalletSigningSessionCoordinator', () => {
     });
     const coordinator = createWalletSigningSessionCoordinator({
       touchConfirm,
-      getThresholdEcdsaSessionRecordForSigning: ({ chain }) =>
-        chain === 'evm' ? (ecdsaStore.recordsByLane.values().next().value ?? null) : null,
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        chain === 'evm' ? [...ecdsaStore.recordsByLane.values()] : [],
     });
 
     await coordinator.consumeUse({

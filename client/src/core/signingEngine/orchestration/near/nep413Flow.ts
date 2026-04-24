@@ -17,7 +17,6 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
 import { toAccountId } from '@/core/types/accountIds';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { createWarmSessionManager } from '@/core/signingEngine/session/WarmSessionManager';
 import {
   generateSessionId,
   requirePrfFirstFromCredential,
@@ -27,6 +26,7 @@ import {
 import { requireResolvedThresholdEd25519SessionState } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import {
+  createNearSigningSessionCoordinator,
   resolveNearThresholdSigningAuthPlan,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/thresholdAuthMode';
@@ -80,7 +80,7 @@ export async function signNep413Message({
     if (!touchConfirm) {
       throw new Error('TouchConfirm bridge not available for NEP-413 signing');
     }
-    const warmSessionManager = createWarmSessionManager({ touchConfirm });
+    const signingSessionCoordinator = createNearSigningSessionCoordinator(touchConfirm);
 
     const signingContext = validateAndPrepareNep413SigningContext({
       nearAccountId,
@@ -95,7 +95,7 @@ export async function signNep413Message({
     const usesNeeded = 1;
     const thresholdAuthPlan = signingContext.threshold
       ? await resolveNearThresholdSigningAuthPlan({
-          warmSessionManager,
+          signingSessionCoordinator,
           usesNeeded,
           nearAccountId,
           operationLabel: 'NEP-413 signing',
@@ -122,7 +122,7 @@ export async function signNep413Message({
 
     const prfFirstB64u = signingContext.threshold
       ? thresholdAuthPlan?.warmSessionReady
-        ? await warmSessionManager.claimPrfFirstByThresholdSessionId({
+        ? await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
             thresholdSessionId: thresholdAuthPlan.sessionId,
             uses: usesNeeded,
             errorContext: 'threshold-ed25519 nep413 signing',
@@ -136,7 +136,7 @@ export async function signNep413Message({
 
     const canonicalThresholdSessionId = thresholdAuthPlan?.sessionId || sessionId;
     const thresholdSessionState = requireResolvedThresholdEd25519SessionState({
-      warmSessionManager,
+      signingSessionCoordinator,
       thresholdSessionId: canonicalThresholdSessionId,
     });
     const xClientBaseB64u = signingContext.threshold
@@ -159,7 +159,7 @@ export async function signNep413Message({
       xClientBaseOverride?: string,
     ): Omit<WasmSignNep413MessageRequest, 'sessionId'> => {
       const currentThresholdSessionState = requireResolvedThresholdEd25519SessionState({
-        warmSessionManager,
+        signingSessionCoordinator,
         thresholdSessionId: canonicalThresholdSessionId,
       });
       return {
