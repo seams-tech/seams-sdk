@@ -308,6 +308,91 @@ Recovery policy:
 4. recovery-key rotation replaces the full active set with a new set of 10 single-use recovery keys
 5. reusable recovery keys are not part of the target model
 
+## Recovery-Key Replacement Rotation
+
+Replacement is a full rotation, not a top-up. When the active recovery-key count drops below the policy target of 10, the client should prompt the user to create a fresh set of 10 recovery keys. The server must atomically revoke or supersede all currently active recovery-wrapped escrow records and store only the newly uploaded set.
+
+Trigger conditions:
+
+1. after successful recovery, if `activeRecoveryWrappedEnrollmentEscrowCount < 10`
+2. after account security settings load, if server status reports fewer than 10 active recovery-wrapped escrows
+3. after explicit user action to rotate recovery keys
+
+User experience:
+
+1. show a non-blocking but persistent prompt after successful recovery
+2. explain that one recovery key was consumed and the active set is below policy
+3. require the user to confirm they are ready to save a new full set of 10 keys
+4. generate and display the new 10 keys once
+5. require an acknowledgement before submitting rotation
+6. after server success, mark the old displayed set obsolete in UI state
+7. never email recovery keys automatically and never upload plaintext recovery keys
+
+Client rotation flow:
+
+```text
+1. Client verifies it has device-local enc_s(S) for the active enrollment.
+2. Client obtains fresh authorization:
+   a. same-device session: active signing session plus fresh Email OTP challenge, or
+   b. post-recovery flow: recovery completion grant scoped to recovery-key rotation.
+3. Client generates 10 new 8x4 Crockford Base32 recovery keys.
+4. Client derives K_recovery_i for each new key.
+5. Client computes C_i = ChaCha20-Poly1305_Encrypt(K_recovery_i, enc_s(S), aad) for each key.
+6. Client uploads only the new C_i records and recovery metadata.
+7. Server atomically replaces the active recovery-wrapped escrow set.
+8. Client shows success only after server confirms exactly 10 active replacement records.
+```
+
+Server rotation route:
+
+```text
+POST /wallet/email-otp/recovery-key/rotate
+  requires fresh auth for action = email_otp_recovery_key_rotation
+  accepts exactly 10 recovery-wrapped escrow records
+  rejects direct enc_s(S), plaintext S, recovery keys, and derived KEKs
+  validates all records bind to the active wallet/user/auth subject/enrollment/signing root
+  validates recoveryKeyId values are unique and not reused from active records
+  atomically marks existing active records revoked or superseded
+  atomically stores the 10 new records as active
+  returns activeRecoveryWrappedEnrollmentEscrowCount = 10
+```
+
+Fresh-auth rules:
+
+1. same-device rotation may use app-session or signing-session auth only to request the rotation OTP challenge
+2. the final rotate call must be authorized by a fresh rotation-scoped Email OTP verification
+3. a recovery completion grant may authorize one immediate rotation prompt after successful recovery
+4. the recovery completion grant must be single-use, short-lived, and scoped only to recovery-key rotation
+5. export, transaction signing, sealed refresh, and link-device grants must not authorize recovery-key rotation
+
+Server storage rules:
+
+1. do not add an incremental `recovery-key/add` top-up path
+2. do not keep mixed generations active after a successful rotation
+3. retain consumed/revoked historical records only for audit, not for recovery
+4. expose only counts, key ids, labels, status, and timestamps in status APIs
+5. never return `enc_s(S)`, plaintext recovery keys, or reusable KEKs
+
+Failure behavior:
+
+1. if client-side wrapping fails, upload nothing and keep the old active set unchanged
+2. if server validation fails, keep the old active set unchanged
+3. if the user closes the prompt before upload, keep the old active set unchanged and continue warning that replacement is needed
+4. if server commit succeeds but client UI closes, the new displayed keys are still the only valid active keys; the UI must not silently regenerate a different set
+
+Implementation tasks:
+
+1. [ ] Add a recovery-key rotation challenge action and route parser.
+2. [ ] Add `POST /wallet/email-otp/recovery-key/rotate` with atomic replace semantics.
+3. [ ] Add AuthService support to revoke/supersede active records and insert exactly 10 replacement records in one transaction where durable storage supports it.
+4. [ ] Add worker operation to read local `enc_s(S)`, generate 10 new keys, wrap `enc_s(S)`, and upload only `C_i` records.
+5. [ ] Add UI prompt after recovery when `activeRecoveryWrappedEnrollmentEscrowCount < 10`.
+6. [ ] Add account/security-settings entry point for explicit rotation.
+7. [ ] Add tests proving old active recovery keys fail after successful rotation.
+8. [ ] Add tests proving failed rotation leaves the previous active set unchanged.
+9. [ ] Add static guards that rotation payloads cannot include plaintext recovery keys, KEKs, `enc_s(S)`, or `S`.
+10. [ ] Add E2E coverage for recovery, immediate rotation, and recovery with one of the replacement keys.
+
 ## Device Link Flow
 
 Adding a device should use the same primitive but a different user experience.
@@ -364,8 +449,8 @@ POST /wallet/email-otp/recovery-key/consume
 POST /wallet/email-otp/recovery-key/revoke
   revokes a recovery key
 
-POST /wallet/email-otp/recovery-key/add
-  adds a new client-wrapped C_i after fresh auth
+POST /wallet/email-otp/recovery-key/rotate
+  replaces the active recovery-wrapped escrow set with 10 new client-wrapped C_i records after fresh auth
 ```
 
 Enrollment seal remove routes still exist because normal unseal is server-assisted, but their input ciphertext must come from client-held `enc_s(S)`, not from a server-fetched `enc_s(S)`.
