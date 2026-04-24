@@ -84,7 +84,7 @@ Cleaner model:
 ```text
 enrollment escrow:
   client stores device-local enc_s(S)
-  server stores only recovery-wrapped C_i = AEAD(K_recovery_i, enc_s(S))
+  server stores only recovery-wrapped C_i = ChaCha20-Poly1305(K_recovery_i, enc_s(S))
 
 Email OTP unlock:
   1. User authenticates with Google SSO.
@@ -125,7 +125,7 @@ enrollment escrow, device-local only:
   enc_s(S)
 
 enrollment recovery, server-owned only:
-  C_i = AEAD(K_recovery_i, enc_s(S))
+  C_i = ChaCha20-Poly1305(K_recovery_i, enc_s(S))
 
 session refresh artifact, client persisted:
   E_session_s(signing_session_secret32)

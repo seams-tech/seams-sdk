@@ -149,6 +149,27 @@ export async function ensurePostgresSchema(input: {
     `);
 
     await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_otp_recovery_wrapped_enrollment_escrows (
+        namespace TEXT NOT NULL,
+        wallet_id TEXT NOT NULL,
+        recovery_key_id TEXT NOT NULL,
+        recovery_key_status TEXT NOT NULL,
+        record_json JSONB NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, wallet_id, recovery_key_id)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS email_otp_recovery_wrapped_escrows_wallet_status_idx
+      ON email_otp_recovery_wrapped_enrollment_escrows (
+        namespace,
+        wallet_id,
+        recovery_key_status,
+        updated_at_ms
+      )
+    `);
+
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS email_otp_auth_states (
         namespace TEXT NOT NULL,
         wallet_id TEXT NOT NULL,

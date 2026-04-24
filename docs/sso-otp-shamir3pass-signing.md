@@ -174,7 +174,7 @@ enc_s(S):
 
 C_i:
   recovery-wrapped enrollment escrow
-  C_i = AEAD_Encrypt(K_recovery_i, enc_s(S), aad = enrollment metadata)
+  C_i = ChaCha20-Poly1305_Encrypt(K_recovery_i, enc_s(S), aad = enrollment metadata)
 ```
 
 Storage ownership:
@@ -234,7 +234,7 @@ Rules:
 4. client computes `enc_s(S) = D_kc1(b)`
 5. client stores `enc_s(S)` as device-local enrollment escrow in wallet iframe-origin IndexedDB
 6. client generates 10 single-use recovery keys
-7. client uploads only `C_i = AEAD_Encrypt(K_recovery_i, enc_s(S), aad)` records plus recovery metadata
+7. client uploads only `C_i = ChaCha20-Poly1305_Encrypt(K_recovery_i, enc_s(S), aad)` records plus recovery metadata
 
 Persisted artifacts:
 
@@ -243,7 +243,7 @@ client device:
   enc_s(S)
 
 server:
-  C_i = AEAD_Encrypt(K_recovery_i, enc_s(S), aad)
+  C_i = ChaCha20-Poly1305_Encrypt(K_recovery_i, enc_s(S), aad)
 ```
 
 ### Login or signing unseal
@@ -509,7 +509,7 @@ Canonical Email OTP registration:
    - threshold ECDSA client verifying share when ECDSA threshold is enabled
    - unlock public key
 9. client generates 10 single-use recovery keys and uploads:
-   - recovery-wrapped escrow records `C_i = AEAD_Encrypt(K_recovery_i, enc_s(S), aad)`
+   - recovery-wrapped escrow records `C_i = ChaCha20-Poly1305_Encrypt(K_recovery_i, enc_s(S), aad)`
    - enrolled derived threshold material
    - enrolled unlock public key
    - Email OTP metadata
@@ -681,7 +681,7 @@ Enrollment authorization:
 
 Persisted server-side data:
 
-1. recovery-wrapped escrow records `C_i = AEAD_Encrypt(K_recovery_i, enc_s(S), aad)`
+1. recovery-wrapped escrow records `C_i = ChaCha20-Poly1305_Encrypt(K_recovery_i, enc_s(S), aad)`
 2. recovery-key id, label, status, and metadata for each `C_i`
 3. `enrollmentSealKeyVersion`
 4. `unlockPublicKey`

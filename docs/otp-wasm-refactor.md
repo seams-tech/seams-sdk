@@ -24,7 +24,7 @@ client wallet iframe IndexedDB:
   enc_s(S)
 
 server:
-  C_i = AEAD_Encrypt(K_recovery_i, enc_s(S))
+  C_i = ChaCha20-Poly1305_Encrypt(K_recovery_i, enc_s(S))
 ```
 
 The server must not store direct `enc_s(S)`, plaintext `S`, recovery keys, or derived recovery KEKs. The worker refactor must preserve this boundary:

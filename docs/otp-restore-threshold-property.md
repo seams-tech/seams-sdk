@@ -29,7 +29,7 @@ enc_s(S):
 
 C_i:
   recovery-wrapped enrollment escrow
-  C_i = AEAD_Encrypt(K_recovery_i, enc_s(S), aad = enrollment metadata)
+  C_i = ChaCha20-Poly1305_Encrypt(K_recovery_i, enc_s(S), aad = enrollment metadata)
 ```
 
 Storage ownership:
@@ -94,7 +94,7 @@ XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX
 6. recovery keys are shown once during account creation or explicit recovery-key rotation
 7. the server stores only an identifier, status, metadata, and `C_i`
 8. the server must not receive the recovery key or a reusable KEK derived from it
-9. failed recovery attempts are rate-limited server-side, even though AEAD failure is client-side
+9. failed recovery attempts are rate-limited server-side, even though ChaCha20-Poly1305 failure is client-side
 
 Allowed alphabet:
 
@@ -128,9 +128,15 @@ K_recovery_i =
   )
 ```
 
-The recovery wrapper should use an AEAD such as XChaCha20-Poly1305 or AES-256-GCM. The implementation should use the repo's existing crypto primitives where possible.
+The recovery wrapper must use the repo's existing ChaCha20-Poly1305 primitive.
 
-AEAD AAD:
+Algorithm identifier:
+
+```text
+chacha20poly1305-hkdf-sha256-v1
+```
+
+ChaCha20-Poly1305 AAD:
 
 ```text
 encode_tuple([
@@ -192,23 +198,23 @@ Stored server-side.
 
 ```ts
 type EmailOtpRecoveryWrappedEnrollmentEscrow = {
-  v: 1;
-  alg: 'xchacha20poly1305-hkdf-sha256-v1' | 'aes256gcm-hkdf-sha256-v1';
+  version: 'email_otp_recovery_wrapped_enrollment_escrow_v1';
+  alg: 'chacha20poly1305-hkdf-sha256-v1';
   secretKind: 'email_otp_device_enrollment_escrow';
   escrowKind: 'recovery_wrapped_enrollment_escrow';
   walletId: string;
   userId: string;
   authSubjectId: string;
-  authMethod: 'email_otp';
+  authMethod: 'google_sso_email_otp';
   enrollmentId: string;
-  enrollmentVersion: number;
+  enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
   signingRootId: string;
-  signingRootVersion?: string;
+  signingRootVersion: string;
   recoveryKeyId: string;
   recoveryKeyLabel?: string;
   recoveryKeyStatus: 'active' | 'consumed' | 'revoked';
-  wrappedDeviceEnrollmentEscrowB64u: string; // C_i = AEAD(K_recovery_i, enc_s(S))
+  wrappedDeviceEnrollmentEscrowB64u: string; // C_i = ChaCha20-Poly1305(K_recovery_i, enc_s(S))
   aadHashB64u: string;
   issuedAtMs: number;
   updatedAtMs: number;
@@ -237,7 +243,7 @@ Target registration flow:
 5. Client persists `enc_s(S)` to iframe-origin IndexedDB.
 6. Client generates 10 single-use recovery keys.
 7. Client derives K_recovery_i for each key.
-8. Client computes C_i = AEAD_Encrypt(K_recovery_i, enc_s(S), aad) for each key.
+8. Client computes C_i = ChaCha20-Poly1305_Encrypt(K_recovery_i, enc_s(S), aad) for each key.
 9. Client uploads only the 10 C_i records plus recovery metadata to the server.
 10. Server stores active Email OTP enrollment metadata plus recovery-wrapped escrow refs.
 11. Server never stores `enc_s(S)`.
@@ -367,27 +373,28 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 
 ### Phase 1: Freeze The Invariant
 
-1. Update Email OTP specs to say server-decryptable `enc_s(S)` is incompatible with the threshold security claim.
-2. Define `enc_s(S)` as device-local enrollment escrow.
-3. Define `C_i = AEAD(K_recovery_i, enc_s(S))` as the only server-persisted enrollment recovery artifact.
-4. Add static guards against server models or API payloads named as direct enrollment escrow storage.
-5. Remove wording that says the client must not store `enc_s(S)`; replace it with "client stores device-local `enc_s(S)`, server stores only recovery-wrapped `C_i`."
+1. [x] Update Email OTP specs to say server-decryptable `enc_s(S)` is incompatible with the threshold security claim.
+2. [x] Define `enc_s(S)` as device-local enrollment escrow.
+3. [x] Define `C_i = ChaCha20-Poly1305(K_recovery_i, enc_s(S))` as the only server-persisted enrollment recovery artifact.
+4. [ ] Add static guards against server models or API payloads named as direct enrollment escrow storage.
+5. [x] Remove wording that says the client must not store `enc_s(S)`; replace it with "client stores device-local `enc_s(S)`, server stores only recovery-wrapped `C_i`."
 
 ### Phase 2: Add Device-Local Enrollment Escrow Store
 
-1. Add `email_otp_device_enrollment_escrows_v1` IndexedDB store.
-2. Add strict schema validation for `EmailOtpDeviceEnrollmentEscrowRecord`.
-3. Add read/write/delete helpers scoped by `walletId`, `authSubjectId`, and `enrollmentId`.
-4. Ensure logout/account-switch cleanup can delete local `enc_s(S)` only when the user chooses to remove this device.
-5. Keep browser restart semantics different from signing-session seals: `enc_s(S)` is device enrollment material and may survive restart.
+1. [x] Add `email_otp_device_enrollment_escrows_v1` IndexedDB store.
+2. [x] Add strict schema validation for `EmailOtpDeviceEnrollmentEscrowRecord`.
+3. [x] Add read/write/delete helpers scoped by `walletId`, `authSubjectId`, and `enrollmentId`.
+4. [ ] Ensure logout/account-switch cleanup can delete local `enc_s(S)` only when the user chooses to remove this device.
+5. [x] Keep browser restart semantics different from signing-session seals: `enc_s(S)` is device enrollment material and may survive restart.
 
 ### Phase 3: Add Recovery Wrapping In The Worker
 
-1. Add recovery-key generation helpers for 10 single-use 8x4 Crockford Base32 recovery keys.
-2. Add HKDF derivation for `K_recovery_i`.
-3. Add AEAD wrap/unwrap helpers for `enc_s(S)`.
-4. Keep recovery keys and derived KEKs out of server payloads and logs.
-5. Zeroize recovery key bytes, KEKs, and unwrapped `enc_s(S)` buffers when practical.
+1. [x] Add recovery-key generation helpers for 10 single-use 8x4 Crockford Base32 recovery keys.
+2. [x] Add HKDF derivation for `K_recovery_i`.
+3. [x] Add ChaCha20-Poly1305 wrap/unwrap helpers for `enc_s(S)`.
+4. [ ] Wire the helpers into the Email OTP worker so recovery keys and derived KEKs stay out of server payloads and logs.
+5. [x] Zeroize recovery key bytes, KEKs, and transient wrap plaintext buffers when practical in the shared helpers.
+6. [ ] Zeroize unwrapped `enc_s(S)` buffers at worker call sites after local persistence or unseal handoff.
 
 ### Phase 4: Change Enrollment Persistence
 
@@ -505,18 +512,18 @@ This refactor does not solve active malicious-server frontend compromise. It res
 
 Unit tests:
 
-1. recovery key generation creates exactly 10 valid 8x4 Crockford Base32 keys
-2. `K_recovery_i` derivation is deterministic for fixed vectors
-3. AEAD decrypt fails on wrong recovery key
-4. AEAD decrypt fails on AAD mismatch
-5. device-local escrow schema rejects plaintext `S`
-6. server recovery-wrapped schema rejects direct `enc_s(S)` fields
-7. normal login fails closed when local `enc_s(S)` is missing
-8. recovery flow stores recovered `enc_s(S)` locally after successful unwrap
-9. recovery key consume/revoke state is enforced
-10. static guard rejects direct enrollment escrow storage names in server persistence
-11. recovery-key parser rejects short MFA-style codes and decimal-only codes
-12. recovery-key parser normalizes lowercase and hyphenated input without accepting invalid characters
+1. [x] recovery key generation creates exactly 10 valid 8x4 Crockford Base32 keys
+2. [x] `K_recovery_i` derivation is deterministic for fixed vectors
+3. [x] ChaCha20-Poly1305 decrypt fails on wrong recovery key
+4. [x] ChaCha20-Poly1305 decrypt fails on AAD mismatch
+5. [x] device-local escrow schema rejects plaintext `S`
+6. [x] server recovery-wrapped schema rejects direct `enc_s(S)` fields
+7. [ ] normal login fails closed when local `enc_s(S)` is missing
+8. [ ] recovery flow stores recovered `enc_s(S)` locally after successful unwrap
+9. [ ] recovery key consume/revoke state is enforced
+10. [ ] static guard rejects direct enrollment escrow storage names in server persistence
+11. [x] recovery-key parser rejects short MFA-style codes and decimal-only codes
+12. [x] recovery-key parser normalizes lowercase and hyphenated input without accepting invalid characters
 
 Integration tests:
 

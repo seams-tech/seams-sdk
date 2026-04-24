@@ -419,6 +419,8 @@ const configs = [
       '../client/src/core/accountData/near/keyMaterial.ts',
       '../client/src/core/indexedDB/passkeyClientDB/manager.ts',
       '../client/src/core/indexedDB/accountKeyMaterialDB/manager.ts',
+      // Keep Email OTP device-local escrow store as a stable deep import for worker wiring/tests.
+      '../client/src/core/signingEngine/api/session/emailOtpDeviceEnrollmentEscrowStore.ts',
       // Keep worker-facing WASM wrapper exports stable for deep imports used by tests/tools.
       '../client/src/core/signingEngine/signers/wasm/ethSignerWasm.ts',
     ],
@@ -658,10 +660,7 @@ const configs = [
         name: 'emit-hss-client-signer-wasm',
         generateBundle(_options, bundle) {
           for (const output of Object.values(bundle)) {
-            if (
-              output.type !== 'chunk' ||
-              output.fileName !== HSS_CLIENT_SIGNER_WASM_JS_OUT
-            ) {
+            if (output.type !== 'chunk' || output.fileName !== HSS_CLIENT_SIGNER_WASM_JS_OUT) {
               continue;
             }
           }
