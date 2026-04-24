@@ -39,6 +39,10 @@ This should be fixed before real customer wallets are created.
 - This does not migrate already-created real user accounts. There should be no
   real customer accounts yet; development accounts can be recreated.
 - This does not change threshold signing cryptography.
+- This does not define Email OTP signing-secret recovery. Deterministic account
+  ID recovery from verified identity is separate from recovering device-local
+  enrollment escrow `enc_s(S)`, which requires the recovery-key
+  model in `otp-restore-threshold-property.md`.
 
 ## Threat Model
 

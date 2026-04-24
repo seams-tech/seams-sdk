@@ -1,6 +1,6 @@
 # Email OTP Sealed Refresh Persistence
 
-Last updated: 2026-04-22
+Last updated: 2026-04-24
 
 ## Goal
 
@@ -83,23 +83,24 @@ Cleaner model:
 
 ```text
 enrollment escrow:
-  server stores E_enrollment_s(S)
-  client does not store it
+  client stores device-local enc_s(S)
+  server stores only recovery-wrapped C_i = AEAD(K_recovery_i, enc_s(S))
 
 Email OTP unlock:
   1. User authenticates with Google SSO.
   2. User verifies 6-digit Email OTP.
-  3. Server authorizes one unseal of the enrollment escrow.
-  4. Email OTP worker performs shamir3pass unseal.
-  5. Worker recovers S in memory.
-  6. Worker derives signing_session_secret32 from S.
-  7. Worker bootstraps Ed25519/ECDSA signing sessions.
-  8. Worker creates a separate session-refresh artifact:
+  3. Worker reads device-local enc_s(S) from iframe-origin IndexedDB.
+  4. Server authorizes one unseal of the client-locked local enc_s(S).
+  5. Email OTP worker performs shamir3pass unseal.
+  6. Worker recovers S in memory.
+  7. Worker derives signing_session_secret32 from S.
+  8. Worker bootstraps Ed25519/ECDSA signing sessions.
+  9. Worker creates a separate session-refresh artifact:
      E_session_s(signing_session_secret32)
-  9. Client stores only E_session_s(signing_session_secret32) in iframe-origin IndexedDB.
+  10. Client stores E_session_s(signing_session_secret32) in signing_session_seals_v1.
 ```
 
-The client must not request and persist `E_enrollment_s(S)` as the refresh artifact. The enrollment escrow is involved only during the real OTP unlock ceremony. After that, the refresh artifact is derived from the already-unlocked session secret and sealed under a separate signing-session seal namespace.
+The client must not persist `enc_s(S)` as the refresh artifact. Device-local `enc_s(S)` is long-lived enrollment material stored in `email_otp_device_enrollment_escrows_v1`; `E_session_s(signing_session_secret32)` is short-lived signing-session refresh material stored in `signing_session_seals_v1`. The two stores must stay separate.
 
 The reload path is:
 
@@ -115,13 +116,16 @@ The reload path is:
 
 Where `K = signing_session_secret32`.
 
-This keeps the server enrollment escrow out of browser storage and keeps sealed refresh scoped to the active signing session only.
+This keeps long-lived device enrollment escrow out of the signing-session refresh store and keeps sealed refresh scoped to the active signing session only.
 
 Recommended tightened model:
 
 ```text
-enrollment escrow, server-owned only:
-  E_enrollment_s(S)
+enrollment escrow, device-local only:
+  enc_s(S)
+
+enrollment recovery, server-owned only:
+  C_i = AEAD(K_recovery_i, enc_s(S))
 
 session refresh artifact, client persisted:
   E_session_s(signing_session_secret32)
@@ -137,7 +141,7 @@ Security rules:
 
 1. do not persist plaintext `S`
 2. do not persist plaintext `signing_session_secret32`
-3. do not mirror the long-lived server enrollment escrow `E_enrollment_s(S)` into browser storage
+3. do not store long-lived enrollment escrow `enc_s(S)` in `signing_session_seals_v1`
 4. persist only a session-scoped sealed refresh artifact
 5. require live server participation to remove the server seal
 6. require a valid threshold-session authority for sealed refresh removal
@@ -148,11 +152,12 @@ Security rules:
 
 Threat-model impact:
 
-1. stolen IndexedDB alone must not recover `S` or signing material
-2. stolen IndexedDB plus a still-valid threshold session may restore the active signing session until TTL or use limits expire
-3. XSS or malicious browser extensions can still attack an active session, so TTL and remaining-use limits must stay tight
-4. server compromise remains in the Email OTP custody path because the server controls the seal key and enrollment escrow
-5. passkey remains the recommended stronger default because it does not escrow the passkey PRF output through Email OTP infrastructure
+1. stolen signing-session sealed-refresh records alone must not recover `S` or signing material
+2. stolen device-local enrollment escrow `enc_s(S)` alone must not recover `S`; it still requires server-assisted unseal and policy checks
+3. stolen signing-session sealed-refresh records plus a still-valid threshold session may restore the active signing session until TTL or use limits expire
+4. XSS or malicious browser extensions can still attack an active session, so TTL and remaining-use limits must stay tight
+5. server storage compromise no longer exposes direct `enc_s(S)`; the server stores only recovery-wrapped `C_i` records
+6. passkey remains the recommended stronger default because it does not use Email OTP recovery keys
 
 ## Storage Decision
 
@@ -387,7 +392,7 @@ This keeps passkey and Email OTP behavior parallel while preserving domain separ
 
 ## Restore Material Reconstruction
 
-Reload restore reconstructs worker state from `K = signing_session_secret32`. It must not recover `S`, fetch `E_enrollment_s(S)`, or call Email OTP challenge/verify routes.
+Reload restore reconstructs worker state from `K = signing_session_secret32`. It must not recover `S`, read device-local `enc_s(S)`, fetch recovery-wrapped `C_i`, or call Email OTP challenge/verify routes.
 
 Inputs available to the worker during restore:
 
@@ -475,7 +480,7 @@ Rules:
 
 ## Server Validation Specs
 
-The signing-session seal routes are separate from the Email OTP enrollment escrow routes. They operate only on `E_session_s(signing_session_secret32)` artifacts and must never accept, fetch, or return `E_enrollment_s(S)`.
+The signing-session seal routes are separate from the Email OTP enrollment escrow routes. They operate only on `E_session_s(signing_session_secret32)` artifacts and must never accept, fetch, or return device-local `enc_s(S)` or server-side recovery-wrapped `C_i`.
 
 Both `apply-server-seal` and `remove-server-seal` must validate:
 
@@ -600,11 +605,10 @@ sequenceDiagram
   Server-->>UI: "app_session_v1"
   UI->>Server: "Request Email OTP challenge"
   Server-->>UI: "challengeId"
-  UI->>Server: "Verify 6-digit OTP"
-  Server-->>UI: "OTP grant"
-  Main->>Email: "Unlock with OTP grant"
-  Email->>S3P: "Recover S via server-assisted unseal"
-  S3P->>Server: "OTP-authorized shamir3pass round trip"
+  Main->>Email: "Unlock with OTP code"
+  Email->>Store: "Read device-local enc_s(S)"
+  Email->>S3P: "Compute E_c(enc_s(S))"
+  S3P->>Server: "Verify OTP + remove enrollment seal"
   Server-->>S3P: "Unseal response"
   S3P-->>Email: "S bytes"
   Email->>Email: "Derive K = signing_session_secret32"
@@ -1011,7 +1015,7 @@ Plan improvements:
 15. [x] E2E: Email OTP session exhaustion after reload prompts OTP in Tx Confirmer.
 16. [x] E2E: passkey session exhaustion after reload prompts WebAuthn.
 17. [x] E2E: Email OTP export after reload requires fresh OTP and does not clobber transaction signing session.
-18. [x] Storage test: no plaintext `S`, plaintext `signing_session_secret32`, or enrollment escrow mirror appears in IndexedDB.
+18. [x] Storage test: no plaintext `S` or plaintext `signing_session_secret32` appears in IndexedDB; long-lived device-local `enc_s(S)` appears only in `email_otp_device_enrollment_escrows_v1`, never in `signing_session_seals_v1`.
 19. [x] Unit test browser restart marker loss deletes IndexedDB sealed records.
 20. [x] Unit test multi-tab lease single-flights restore.
 21. [x] Unit test route metadata mismatches fail closed against server-derived threshold-session state.
@@ -1376,7 +1380,7 @@ Permanent guardrails:
 5. Export and link-device/add-signer still require fresh auth and do not clobber the transaction signing session.
 6. No plaintext `S` is persisted.
 7. No plaintext `signing_session_secret32` is persisted.
-8. No long-lived enrollment escrow mirror is persisted client-side.
+8. Long-lived device-local `enc_s(S)` is persisted only in the dedicated enrollment escrow store, never as a signing-session sealed-refresh record.
 9. Server-side TTL, remaining uses, revocation, and signing-root checks are authoritative.
 10. No PRF-only sealed-refresh APIs remain after the migration.
 11. Sealed refresh apply/remove does not consume transaction signing `remainingUses` and is enforced by separate rate limits.

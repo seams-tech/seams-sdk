@@ -1,6 +1,6 @@
 # OTP WASM Worker Refactor Plan
 
-Date updated: April 21, 2026
+Date updated: April 24, 2026
 
 ## Objective
 
@@ -13,6 +13,27 @@ After this refactor:
 3. recovered secret `S` is unsealed and consumed inside worker-owned runtime state
 4. `WarmSessionManager` remains on the JS main thread for policy decisions and warm-session lifecycle
 5. legacy main-thread OTP secret plumbing is removed rather than retained behind compatibility layers
+6. device-local enrollment escrow `enc_s(S)` and recovery wrapping are handled as secret-bearing worker-owned flows, not as app-origin IndexedDB or main-thread secret plumbing
+
+## Enrollment Escrow Invariant
+
+Email OTP now restores the threshold security property by splitting enrollment escrow storage:
+
+```text
+client wallet iframe IndexedDB:
+  enc_s(S)
+
+server:
+  C_i = AEAD_Encrypt(K_recovery_i, enc_s(S))
+```
+
+The server must not store direct `enc_s(S)`, plaintext `S`, recovery keys, or derived recovery KEKs. The worker refactor must preserve this boundary:
+
+1. same-device login reads local `enc_s(S)` and sends only the client-locked shamir3pass value to the server
+2. enrollment creates 10 single-use recovery-wrapped `C_i` records for server storage
+3. new-device or storage-loss recovery unwraps `C_i` client-side, stores recovered `enc_s(S)` locally, then continues the normal unseal path
+4. app-origin code never owns `enc_s(S)`, `S`, recovery keys, or recovery KEKs in wallet-iframe mode
+5. signing-session sealed refresh remains separate and still stores only `E_session_s(signing_session_secret32)`
 
 ## Current Status
 

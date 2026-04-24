@@ -133,11 +133,11 @@ sequenceDiagram
   Server->>OTP: "Send or dev-log 6-digit code"
   Server-->>UI: "challengeId + emailHint"
 
-  UI->>Server: "Verify OTP"
-  Server-->>UI: "OTP grant / unseal authorization"
-
-  UI->>Worker: "Bootstrap Email OTP signing session"
-  Worker->>S3P: "OTP-authorized server-assisted unseal"
+  UI->>Worker: "Bootstrap Email OTP signing session with OTP code"
+  Worker->>Worker: "Read device-local enc_s(S) and compute E_c(enc_s(S))"
+  Worker->>Server: "Verify OTP + remove enrollment seal"
+  Server-->>Worker: "E_c(S)"
+  Worker->>S3P: "Remove client lock"
   S3P-->>Worker: "recovered S bytes"
   Worker-->>Worker: "derive signing_session_secret32"
   Worker->>Threshold: "Bootstrap Ed25519 + ECDSA"
@@ -155,7 +155,7 @@ Purpose:
 2. avoid prompting the user again while the same browser session and server signing-session budget remain valid;
 3. keep the persisted artifact session-scoped and server-revocable.
 
-The client must not persist the long-lived enrollment escrow or plaintext Email OTP secret.
+The sealed-refresh path must not persist the long-lived device-local enrollment escrow or plaintext Email OTP secret.
 
 Allowed persisted artifact:
 
@@ -167,7 +167,7 @@ Disallowed artifacts:
 
 ```text
 S
-E_enrollment_s(S)
+enc_s(S)
 raw threshold-session JWTs in the sealed-refresh record
 ```
 
@@ -271,7 +271,7 @@ Delete in-memory worker material and sealed-refresh records on:
 
 1. [x] Email OTP secret-bearing login, enrollment, unlock, bootstrap, and ECDSA export work through the dedicated Email OTP worker.
 2. [x] Recovered `S` stays worker-owned and byte-oriented.
-3. [x] `signing_session_secret32` is the sealed-refresh secret source; the client does not mirror `E_enrollment_s(S)`.
+3. [x] `signing_session_secret32` is the sealed-refresh secret source; device-local `enc_s(S)` belongs only in the dedicated enrollment escrow store, not in sealed-refresh records.
 4. [x] Sealed refresh uses iframe-origin IndexedDB plus a `sessionStorage` browser-session marker.
 5. [x] App-session and threshold-session lanes are represented by explicit route-auth variants.
 6. [x] Transaction signing shares one `walletSigningSessionId` across Ed25519 and ECDSA.

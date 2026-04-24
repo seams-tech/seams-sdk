@@ -25,12 +25,12 @@ The persisted artifact is:
 E_session_s(signing_session_secret32)
 ```
 
-Do not persist:
+Do not persist in sealed-refresh records:
 
 ```text
 plaintext signing_session_secret32
 plaintext Email OTP S
-Email OTP enrollment escrow E_enrollment_s(S)
+device-local Email OTP enrollment escrow enc_s(S)
 raw app-session JWTs in sealed-refresh records
 raw threshold-session JWTs in sealed-refresh records
 ```
@@ -144,7 +144,7 @@ After sealed refresh, restored signing-session route authority may request a fre
 ## Acceptance Criteria
 
 1. Session-mode passkey and Email OTP accounts can survive accidental iframe/page reload while server TTL and remaining uses remain valid.
-2. Email OTP sealed refresh does not store plaintext `S`, plaintext `signing_session_secret32`, or `E_enrollment_s(S)`.
+2. Email OTP sealed refresh does not store plaintext `S`, plaintext `signing_session_secret32`, or device-local `enc_s(S)`.
 3. Ed25519 and ECDSA restored capabilities remain tied to the same `walletSigningSessionId` budget.
 4. Remaining-use exhaustion prompts with the registered auth method: Email OTP for Email OTP-only accounts and WebAuthn for passkey accounts.
 5. Export and link-device/add-signer require fresh operation auth and do not clobber transaction signing sessions.

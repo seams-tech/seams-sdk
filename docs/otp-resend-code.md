@@ -1,6 +1,6 @@
 # OTP Resend Code
 
-Last updated: 2026-04-18
+Last updated: 2026-04-24
 
 ## Goal
 
@@ -79,7 +79,7 @@ Valid context fields:
 1. `walletId`
 2. `userId`
 3. `otpChannel = email_otp`
-4. operation, for example `wallet_unlock`, `transaction_sign`, `export_key`, or `registration`
+4. operation, for example `wallet_unlock`, `transaction_sign`, `export_key`, `registration`, or `email_otp_device_recovery`
 5. app-session subject
 6. app-session id or equivalent session binding
 7. challenge purpose/action
@@ -88,12 +88,14 @@ Valid context fields:
 Rules:
 
 1. a code is single-use
-2. successful verification consumes only the matching challenge/code
-3. unexpired sibling challenges may remain valid until TTL unless policy says to revoke them after success
-4. expired challenges must be ignored and cleaned up opportunistically
-5. malformed or wrong codes should increment failure counters for the relevant context
-6. resend must not silently change operation scope
-7. resend must not create a challenge for a different wallet id
+2. a recovery resend only resends the recovery-scoped OTP challenge; it must not return recovery-wrapped escrow records until the user verifies a valid recovery challenge
+3. resend routes must not return device-local `enc_s(S)`, plaintext `S`, recovery keys, or derived recovery KEKs
+4. successful verification consumes only the matching challenge/code
+5. unexpired sibling challenges may remain valid until TTL unless policy says to revoke them after success
+6. expired challenges must be ignored and cleaned up opportunistically
+7. malformed or wrong codes should increment failure counters for the relevant context
+8. resend must not silently change operation scope
+9. resend must not create a challenge for a different wallet id
 
 Recommended server behavior:
 
