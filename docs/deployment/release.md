@@ -1,68 +1,127 @@
-# Releasing @tatchi-xyz/sdk
+# Release Runbook
 
-There are two separate “publishes” in this repo:
+Use this for versioned SDK releases. For infra setup, see
+[infra.md](infra.md). For runtime asset publishing, see [sdk.md](sdk.md).
 
-- npm: the `@tatchi-xyz/sdk` package (currently manual)
-- Cloudflare R2: signed `sdk/dist` runtime bundles (via `.github/workflows/publish-sdk-r2.yml`)
+## Preflight
 
-The Cloudflare Pages deploy workflows serve the SDK runtime assets from Pages under `/sdk/*`, so R2 publishing is optional unless you explicitly serve/proxy SDK assets from R2.
+Run the release candidate through CI before tagging:
 
-## Current release note draft
-
-### 2026-03-01: Lock/Unlock Naming Finalization + Cookie Name Guard
-
-- Breaking: React `AccountMenuButton` now uses `onLock`; `onLogout` was removed (no compatibility alias).
-- Wallet state naming in public docs/examples is now lock/unlock-first.
-- Passive stale-session expiry signaling now requires matching the configured session cookie name (`SESSION_COOKIE_NAME`), default `tatchi-jwt`.
-
-### 2026-02-21: Export Flow Security Hardening (worker-owned confirmation)
-
-- Export flow now fail-closes when legacy JS-main-thread shortcut paths are encountered.
-- Error is explicit and typed: `SIGNER_EXPORT_TEMP_DISABLED_LEGACY_SHORTCUT`.
-- Blocked legacy-path attempts emit telemetry event `signer.export.legacy_shortcut_blocked`.
-- This behavior is intentional during worker-owned export hardening and prevents silent fallback.
-
-## Manually tag releases
-
-1. Tag the release
-
+```bash
+pnpm install --frozen-lockfile
+pnpm check
+pnpm build:sdk-prod
+pnpm test:lite
+pnpm test:signers:gates
+pnpm -C sdk test:relayer
 ```
-# Edit sdk/package.json → "version": "0.1.1"
+
+For changes touching threshold signing or Postgres-backed relay behavior, also
+run:
+
+```bash
+pnpm test:threshold-core
+pnpm test:threshold-ed25519:active-path
+pnpm -C examples/relay-server run postgres:setup:split
+```
+
+## Version And Tag
+
+```bash
+# Edit sdk/package.json version first.
 git add sdk/package.json
-git commit -m "release: v0.1.1"
-git tag v0.1.1 -m "release: v0.1.1"
+git commit -m "release: vX.Y.Z"
+git tag vX.Y.Z -m "release: vX.Y.Z"
 ```
 
-2. Push commits and the tag
+Push the release commit and tag:
 
-```
+```bash
 git push origin main
-git push origin v0.1.1
+git push origin vX.Y.Z
 ```
 
-3. (Optional) Publish bundles to Cloudflare R2
+## Publish SDK Runtime Bundles
 
-`publish-sdk-r2` runs on `workflow_run` after `ci` succeeds on `main`/`dev` and on `v*` tag pushes, and can also be triggered manually.
+`publish-sdk-r2.yml` publishes automatically after successful `ci` runs for
+deploy refs. To publish manually:
 
-- `main`/tags publish to `releases/<sha>` (and `releases/<tag>` for `v*` tags)
-- `dev` publishes to `releases-dev/<sha>`
-
-4. Publish to npm (manual)
-
+```bash
+gh workflow run publish-sdk-r2.yml --ref main -f prefix=auto
 ```
+
+Expected R2 outputs:
+
+- `releases/<commit-sha>`
+- `releases/<tag>` when `vX.Y.Z` points at the published commit
+- `manifest.sha256`, `manifest.json`, and `manifest.sig` in each published
+  prefix
+
+## Publish npm
+
+npm publish remains manual:
+
+```bash
 npm login --scope=@tatchi-xyz --registry=https://registry.npmjs.org
-pnpm install
+pnpm install --frozen-lockfile
 pnpm build:sdk-prod
 cd sdk
 npm publish --access public
 ```
 
-## Reverting a bad publish
+Verify:
 
-If you need to yank a version soon after release:
-
-```
-npm unpublish @tatchi-xyz/sdk@X.Y.Z --force
+```bash
+npm view @tatchi-xyz/sdk version
 ```
 
-Use with caution — unpublishing can break consumers.
+## Deploy Hosted Surfaces
+
+Production Pages:
+
+```bash
+gh workflow run deploy-pages.yml --ref main -f target=all -f deploy_environment=production
+```
+
+Production relay:
+
+```bash
+gh workflow run deploy-relay.yml --ref main -f target=production
+```
+
+For staging validation, use `--ref dev` and `staging`.
+
+## Release Verification
+
+Check:
+
+- `ci` passed on the release commit.
+- R2 prefix exists for the release SHA.
+- npm shows the intended version.
+- App Pages and wallet Pages are on the same commit.
+- `/sdk/wallet-iframe-host-runtime.js` and `/sdk/workers/near-signer.worker.js`
+  load from the wallet origin.
+- Relay health and registration/signing flows work against the deployed relay.
+
+## Rollback
+
+SDK runtime:
+
+1. Repoint consumers to a known-good immutable R2 SHA prefix, or promote the
+   previous Cloudflare Pages deployment.
+2. Keep the bad prefix available until clients stop requesting it.
+
+npm:
+
+```bash
+npm deprecate @tatchi-xyz/sdk@X.Y.Z "Use X.Y.Z+1"
+```
+
+Use `npm unpublish` only inside npm's allowed unpublish window and only when
+deprecation is insufficient.
+
+Relay and Pages:
+
+1. Promote the previous successful Cloudflare deployment.
+2. Re-run smoke checks.
+3. Run forward fixes through `ci` before redeploying.

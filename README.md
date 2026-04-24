@@ -23,7 +23,6 @@ pnpm run server
 - Docs default origin: `https://docs.localhost`.
 - Internal dev ports: Vite on `http://localhost:3600`, relay on `http://127.0.0.1:8444`.
 - Browser-managed registration in the example site uses `VITE_TATCHI_ENVIRONMENT_ID` + `VITE_TATCHI_PUBLISHABLE_KEY` from `examples/tatchi-site/.env`.
-- `VITE_TATCHI_BROKER_URL` can be the same origin as `VITE_RELAYER_URL`; the site normalizes it to `/v1/registration/bootstrap-grants`.
 
 ## Repo development
 
@@ -37,7 +36,7 @@ pnpm run server
 - Tests: `pnpm -C sdk test`
 - Signer runtime regression gate: `pnpm test:signers:gates`
 - Type check: `pnpm -C sdk run type-check`
-- Signer runtime contracts: `docs/signer-runtime-contracts.md`
+- Signer runtime specs: `docs/signer-runtime-contracts.md`
 
 ## Architecture
 
@@ -46,9 +45,9 @@ pnpm run server
 - SecureConfirm + WebAuthn: `examples/tatchi-site/src/docs/concepts/secureconfirm-webauthn.md`
 - Relay deployment: `examples/relay-server/README.md`
 
-## Release
+## Deployment
 
-See `docs/deployment/release.md`.
+See `docs/deployment/README.md`.
 
 ## License
 

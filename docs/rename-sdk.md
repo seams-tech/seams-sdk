@@ -64,6 +64,10 @@ The initial scan shows Tatchi references in these major areas:
 - Root package metadata and workspace config:
   `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, and
   `eslint.config.mjs`.
+- GitHub workflow config:
+  CI service names can be renamed independently, while deploy workflow paths
+  that point at `examples/tatchi-site` must move with the example directory
+  rename.
 - SDK package metadata and build scripts:
   `sdk/package.json`, `sdk/tsconfig.json`, `sdk/build-paths.*`, and
   `sdk/scripts/build/*`.
@@ -151,6 +155,8 @@ Tasks:
    - package names to `seams-site` and `seams-docs`.
 4. Update `pnpm-workspace.yaml`, `pnpm-lock.yaml`, and root scripts.
 5. Update lint ignores and any generated-output allowlists.
+6. Update `.github` workflow paths in the same commit that renames the
+   referenced directories.
 
 Acceptance checks:
 
