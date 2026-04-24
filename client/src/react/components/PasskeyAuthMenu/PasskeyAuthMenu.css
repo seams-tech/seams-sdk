@@ -509,6 +509,73 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary), transparent 72%);
 }
 
+.w3a-recovery-key-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.w3a-recovery-key-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.w3a-recovery-key-label-row .w3a-field-label {
+  margin-bottom: 0;
+}
+
+.w3a-recovery-key-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--w3a-colors-surface), transparent 6%);
+  color: var(--w3a-colors-textPrimary);
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  outline: none;
+  text-transform: uppercase;
+}
+
+.w3a-recovery-key-input::placeholder {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
+}
+
+.w3a-recovery-key-input:focus {
+  border-color: var(--w3a-colors-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary), transparent 72%);
+}
+
+.w3a-recovery-key-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.w3a-recovery-key-scan {
+  border: 0;
+  background: transparent;
+  color: var(--w3a-colors-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.w3a-recovery-key-scan:disabled {
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 20%);
+  cursor: not-allowed;
+}
+
 .w3a-otp-resend {
   align-self: center;
   border: 0;

@@ -2,6 +2,12 @@ import React from 'react';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
 import type { StoredAccountOption } from '@/react/types';
+import {
+  EMAIL_OTP_RECOVERY_KEY_CHAR_LENGTH,
+  EMAIL_OTP_RECOVERY_KEY_GROUP_LENGTH,
+  formatEmailOtpRecoveryKey,
+  normalizeEmailOtpRecoveryKey,
+} from '@shared/utils/emailOtpRecoveryKey';
 import type { PasskeyAuthMenuRuntime } from '../adapters/tatchi';
 import { AuthMenuMode, type PasskeyAuthMenuOtpPrompt, type PasskeyAuthMenuProps } from '../types';
 import type { SocialLoginHandlers } from '../ui/SocialProviders';
@@ -24,6 +30,14 @@ export interface PasskeyAuthMenuOtpPromptController {
   submitLabel: string;
   helperText: string;
   code: string;
+  recoveryKey: string;
+  recoveryKeyRequired: boolean;
+  recoveryKeyLabel: string;
+  recoveryKeyPlaceholder: string;
+  recoveryKeyHelperText: string;
+  recoveryKeyScanLabel?: string;
+  recoveryKeyScanBusy: boolean;
+  recoveryKeyReady: boolean;
   submitting: boolean;
   error?: string;
   rerollAccountLabel?: string;
@@ -33,6 +47,8 @@ export interface PasskeyAuthMenuOtpPromptController {
   resendDisabled: boolean;
   onResend?: () => void;
   onCodeChange: (value: string) => void;
+  onRecoveryKeyChange: (value: string) => void;
+  onRecoveryKeyScan?: () => void;
   onSubmit: () => void;
   onBack: () => void;
 }
@@ -71,6 +87,14 @@ type ActiveOtpPromptState = {
   accountId?: string;
   submitLabel: string;
   helperText: string;
+  recoveryKey?: {
+    required: boolean;
+    label: string;
+    placeholder: string;
+    helperText: string;
+    scanLabel?: string;
+    onScan?: () => string | void | Promise<string | void>;
+  };
   onSubmit: PasskeyAuthMenuOtpPrompt['onSubmit'];
   onRerollAccount?: PasskeyAuthMenuOtpPrompt['onRerollAccount'];
   onResend?: PasskeyAuthMenuOtpPrompt['onResend'];
@@ -90,6 +114,8 @@ function resolveOtpPrompt(
   const helperText =
     String(prompt.helperText || '').trim() ||
     'Google keeps you signed in. This code unlocks wallet signing.';
+  const recoveryKeyPrompt = prompt.recoveryKey;
+  const scanLabel = String(recoveryKeyPrompt?.scanLabel || '').trim();
   return {
     ...(username ? { username } : {}),
     title,
@@ -98,11 +124,48 @@ function resolveOtpPrompt(
     ...(accountId ? { accountId } : {}),
     submitLabel,
     helperText,
+    ...(recoveryKeyPrompt
+      ? {
+          recoveryKey: {
+            required: recoveryKeyPrompt.required !== false,
+            label: String(recoveryKeyPrompt.label || '').trim() || 'Recovery key',
+            placeholder:
+              String(recoveryKeyPrompt.placeholder || '').trim() ||
+              'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX',
+            helperText:
+              String(recoveryKeyPrompt.helperText || '').trim() ||
+              'Enter one unused 8-group recovery key from account setup.',
+            ...(scanLabel ? { scanLabel } : {}),
+            ...(recoveryKeyPrompt.onScan ? { onScan: recoveryKeyPrompt.onScan } : {}),
+          },
+        }
+      : {}),
     onSubmit: prompt.onSubmit,
     ...(prompt.onRerollAccount ? { onRerollAccount: prompt.onRerollAccount } : {}),
     ...(prompt.onResend ? { onResend: prompt.onResend } : {}),
     resendDebounceMs: Math.max(1000, Math.floor(Number(prompt.resendDebounceMs) || 10_000)),
   };
+}
+
+function formatPartialRecoveryKeyInput(input: string): string {
+  const normalized = String(input || '')
+    .replace(/[\s-]/g, '')
+    .toUpperCase()
+    .slice(0, EMAIL_OTP_RECOVERY_KEY_CHAR_LENGTH);
+  const groups: string[] = [];
+  for (let index = 0; index < normalized.length; index += EMAIL_OTP_RECOVERY_KEY_GROUP_LENGTH) {
+    groups.push(normalized.slice(index, index + EMAIL_OTP_RECOVERY_KEY_GROUP_LENGTH));
+  }
+  return groups.join('-');
+}
+
+function isRecoveryKeyReady(input: string): boolean {
+  try {
+    normalizeEmailOtpRecoveryKey(input);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -181,9 +244,11 @@ export function usePasskeyAuthMenuController(
   const [showScanDevice, setShowScanDevice] = React.useState(false);
   const [otpPromptState, setOtpPromptState] = React.useState<ActiveOtpPromptState | null>(null);
   const [otpCode, setOtpCode] = React.useState('');
+  const [otpRecoveryKey, setOtpRecoveryKey] = React.useState('');
   const [otpSubmitting, setOtpSubmitting] = React.useState(false);
   const [otpError, setOtpError] = React.useState<string>('');
   const [otpRerollBusy, setOtpRerollBusy] = React.useState(false);
+  const [otpRecoveryKeyScanBusy, setOtpRecoveryKeyScanBusy] = React.useState(false);
   const [otpResendBusy, setOtpResendBusy] = React.useState(false);
   const [otpResendUntilMs, setOtpResendUntilMs] = React.useState(0);
   const [otpResendStatus, setOtpResendStatus] = React.useState('');
@@ -329,10 +394,12 @@ export function usePasskeyAuthMenuController(
     setWaitingReason(null);
     setOtpPromptState(null);
     setOtpCode('');
+    setOtpRecoveryKey('');
     setOtpError('');
     setMethodError('');
     setOtpSubmitting(false);
     setOtpRerollBusy(false);
+    setOtpRecoveryKeyScanBusy(false);
     setOtpResendBusy(false);
     setOtpResendUntilMs(0);
     setOtpResendStatus('');
@@ -418,8 +485,10 @@ export function usePasskeyAuthMenuController(
           }
           if (flowResult?.otpPrompt) {
             setOtpCode('');
+            setOtpRecoveryKey('');
             setOtpError('');
             setOtpRerollBusy(false);
+            setOtpRecoveryKeyScanBusy(false);
             setOtpResendBusy(false);
             setOtpResendUntilMs(0);
             setOtpResendStatus('');
@@ -450,12 +519,22 @@ export function usePasskeyAuthMenuController(
     [otpError],
   );
 
+  const onOtpRecoveryKeyChange = React.useCallback(
+    (value: string) => {
+      setOtpRecoveryKey(formatPartialRecoveryKeyInput(value));
+      if (otpError) setOtpError('');
+    },
+    [otpError],
+  );
+
   const onOtpPromptBack = React.useCallback(() => {
     setOtpPromptState(null);
     setOtpCode('');
+    setOtpRecoveryKey('');
     setOtpError('');
     setOtpSubmitting(false);
     setOtpRerollBusy(false);
+    setOtpRecoveryKeyScanBusy(false);
     setOtpResendBusy(false);
     setOtpResendUntilMs(0);
     setOtpResendStatus('');
@@ -487,11 +566,30 @@ export function usePasskeyAuthMenuController(
     })();
   }, [otpPromptState, otpSubmitting, otpRerollBusy, otpResendBusy, otpResendUntilMs]);
 
+  const onOtpRecoveryKeyScan = React.useCallback(() => {
+    const activePrompt = otpPromptState;
+    if (!activePrompt?.recoveryKey?.onScan || otpSubmitting || otpRecoveryKeyScanBusy) return;
+    setOtpRecoveryKeyScanBusy(true);
+    setOtpError('');
+    void (async () => {
+      try {
+        const result = await activePrompt.recoveryKey?.onScan?.();
+        const value = String(result || '').trim();
+        if (value) setOtpRecoveryKey(formatPartialRecoveryKeyInput(value));
+      } catch (error: unknown) {
+        setOtpError(getErrorMessage(error, 'Could not scan recovery key. Enter it manually.'));
+      } finally {
+        setOtpRecoveryKeyScanBusy(false);
+      }
+    })();
+  }, [otpPromptState, otpSubmitting, otpRecoveryKeyScanBusy]);
+
   const onOtpRerollAccount = React.useCallback(() => {
     const activePrompt = otpPromptState;
     if (!activePrompt?.onRerollAccount || otpSubmitting || otpRerollBusy || otpResendBusy) return;
     setOtpRerollBusy(true);
     setOtpCode('');
+    setOtpRecoveryKey('');
     setOtpError('');
     setOtpResendStatus('');
     void (async () => {
@@ -527,17 +625,27 @@ export function usePasskeyAuthMenuController(
       setOtpError('Enter the 6-digit code from your email.');
       return;
     }
+    let recoveryKey: string | undefined;
+    if (activePrompt.recoveryKey?.required) {
+      try {
+        recoveryKey = formatEmailOtpRecoveryKey(normalizeEmailOtpRecoveryKey(otpRecoveryKey));
+      } catch (error: unknown) {
+        setOtpError(getErrorMessage(error, 'Enter a valid 8-group recovery key.'));
+        return;
+      }
+    }
     setOtpSubmitting(true);
     setOtpError('');
     void (async () => {
       try {
-        await activePrompt.onSubmit(otpCode);
+        await activePrompt.onSubmit(otpCode, recoveryKey ? { recoveryKey } : undefined);
         const username = String(activePrompt.username || '').trim();
         if (username) {
           await runtime.refreshLoginState(username).catch(() => {});
         }
         setOtpPromptState(null);
         setOtpCode('');
+        setOtpRecoveryKey('');
       } catch (error: unknown) {
         const message =
           error instanceof Error && error.message
@@ -548,7 +656,7 @@ export function usePasskeyAuthMenuController(
         setOtpSubmitting(false);
       }
     })();
-  }, [otpCode, otpPromptState, otpSubmitting, runtime]);
+  }, [otpCode, otpPromptState, otpRecoveryKey, otpSubmitting, runtime]);
 
   const otpPrompt: PasskeyAuthMenuOtpPromptController | null = React.useMemo(() => {
     if (!otpPromptState) return null;
@@ -558,6 +666,9 @@ export function usePasskeyAuthMenuController(
         : 0;
     const canResend = typeof otpPromptState.onResend === 'function';
     const canRerollAccount = typeof otpPromptState.onRerollAccount === 'function';
+    const recoveryKeyRequired = otpPromptState.recoveryKey?.required === true;
+    const recoveryKeyReady = recoveryKeyRequired ? isRecoveryKeyReady(otpRecoveryKey) : true;
+    const canScanRecoveryKey = typeof otpPromptState.recoveryKey?.onScan === 'function';
     return {
       title: otpPromptState.title,
       description: otpPromptState.description,
@@ -566,6 +677,24 @@ export function usePasskeyAuthMenuController(
       submitLabel: otpPromptState.submitLabel,
       helperText: otpPromptState.helperText,
       code: otpCode,
+      recoveryKey: otpRecoveryKey,
+      recoveryKeyRequired,
+      recoveryKeyLabel: otpPromptState.recoveryKey?.label || 'Recovery key',
+      recoveryKeyPlaceholder:
+        otpPromptState.recoveryKey?.placeholder || 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX',
+      recoveryKeyHelperText:
+        otpPromptState.recoveryKey?.helperText ||
+        'Enter one unused 8-group recovery key from account setup.',
+      recoveryKeyScanBusy: otpRecoveryKeyScanBusy,
+      recoveryKeyReady,
+      ...(canScanRecoveryKey
+        ? {
+            recoveryKeyScanLabel: otpRecoveryKeyScanBusy
+              ? 'Scanning…'
+              : otpPromptState.recoveryKey?.scanLabel || 'Scan recovery key',
+            onRecoveryKeyScan: onOtpRecoveryKeyScan,
+          }
+        : {}),
       submitting: otpSubmitting,
       ...(otpError ? { error: otpError } : {}),
       rerollAccountDisabled: !canRerollAccount || otpSubmitting || otpRerollBusy || otpResendBusy,
@@ -590,20 +719,25 @@ export function usePasskeyAuthMenuController(
           }
         : {}),
       onCodeChange: onOtpCodeChange,
+      onRecoveryKeyChange: onOtpRecoveryKeyChange,
       onSubmit: onOtpSubmit,
       onBack: onOtpPromptBack,
     };
   }, [
     otpPromptState,
     otpCode,
+    otpRecoveryKey,
     otpSubmitting,
     otpError,
     otpRerollBusy,
+    otpRecoveryKeyScanBusy,
     otpResendBusy,
     otpResendUntilMs,
     otpResendNowMs,
     otpResendStatus,
     onOtpCodeChange,
+    onOtpRecoveryKeyChange,
+    onOtpRecoveryKeyScan,
     onOtpRerollAccount,
     onOtpResend,
     onOtpSubmit,

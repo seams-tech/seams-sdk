@@ -372,6 +372,104 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toBe('123456');
   });
 
+  test('Google SSO can hand off to an Email OTP device recovery prompt', async ({ page }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        await new Promise<void>((resolve, reject) => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = paths.reactStyles;
+          link.addEventListener('load', () => resolve());
+          link.addEventListener('error', () =>
+            reject(new Error(`Failed to load: ${paths.reactStyles}`)),
+          );
+          document.head.appendChild(link);
+        });
+
+        const mount = document.createElement('div');
+        mount.id = 'pam2-google-otp-recovery-key-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://relay-server.localhost' },
+          iframeWallet: { walletOrigin: '' },
+        };
+
+        (window as any).__otpRecoverySubmit = null;
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(
+            React.createElement(
+              Provider,
+              { config },
+              React.createElement(PasskeyAuthMenu, {
+                defaultMode: AuthMenuMode.Login,
+                socialLogin: {
+                  google: () => ({
+                    username: 'alice',
+                    otpPrompt: {
+                      title: 'Recover this device',
+                      description: 'Enter the email code and one recovery key.',
+                      submitLabel: 'Recover device',
+                      recoveryKey: {
+                        required: true,
+                        scanLabel: 'Scan key',
+                        onScan: async () => '008j4ct4ank7f24snaxwsqfezw834n3p',
+                      },
+                      onSubmit: async (
+                        otpCode: string,
+                        context?: { recoveryKey?: string },
+                      ) => {
+                        (window as any).__otpRecoverySubmit = {
+                          otpCode,
+                          recoveryKey: context?.recoveryKey,
+                        };
+                      },
+                    },
+                  }),
+                },
+              }),
+            ),
+          );
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-google-otp-recovery-key-mount');
+    await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
+    await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
+    await expect(mount.getByText('Recover this device')).toBeVisible();
+
+    await mount.getByLabel('Email code').fill('123456');
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__otpRecoverySubmit))
+      .toBeNull();
+
+    const recoveryKeyInput = mount.getByLabel('Recovery key');
+    await recoveryKeyInput.fill('008j4ct4ank7f24snaxwsqfezw834n3p');
+    await expect(recoveryKeyInput).toHaveValue('008J-4CT4-ANK7-F24S-NAXW-SQFE-ZW83-4N3P');
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__otpRecoverySubmit))
+      .toEqual({
+        otpCode: '123456',
+        recoveryKey: '008J-4CT4-ANK7-F24S-NAXW-SQFE-ZW83-4N3P',
+      });
+  });
+
   test('Email OTP resend preserves input, debounces clicks, and restores resend label', async ({
     page,
   }) => {

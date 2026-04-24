@@ -419,7 +419,7 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 
 1. [x] Add recovery challenge issuance and verification with action-specific route parsing.
 2. [x] Add server response for recovery-wrapped `C_i` records only.
-3. [ ] Add client recovery-key entry or scan UI for the 8x4 Crockford Base32 format.
+3. [x] Add client recovery-key entry or scan UI for the 8x4 Crockford Base32 format.
 4. [x] Decrypt `C_i` client-side to recover `enc_s(S)`.
 5. [x] Store `enc_s(S)` locally and continue normal unseal.
 6. [x] Consume the used recovery key.

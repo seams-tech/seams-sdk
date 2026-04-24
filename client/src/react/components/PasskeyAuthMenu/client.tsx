@@ -124,6 +124,10 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       return;
     }
     const code = prompt.code;
+    if (prompt.recoveryKeyRequired && !prompt.recoveryKeyReady) {
+      lastAutoOtpSubmitRef.current = '';
+      return;
+    }
     if (!/^\d{6}$/.test(code) || prompt.submitting) {
       if (code.length < OTP_CODE_LENGTH) lastAutoOtpSubmitRef.current = '';
       return;
@@ -259,6 +263,47 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
                 ))}
               </div>
             </div>
+            {controller.otpPrompt.recoveryKeyRequired ? (
+              <div className="w3a-recovery-key-section">
+                <div className="w3a-recovery-key-label-row">
+                  <label className="w3a-field-label" htmlFor="w3a-email-otp-recovery-key">
+                    {controller.otpPrompt.recoveryKeyLabel}
+                  </label>
+                  {controller.otpPrompt.onRecoveryKeyScan ? (
+                    <button
+                      type="button"
+                      className="w3a-recovery-key-scan"
+                      onClick={controller.otpPrompt.onRecoveryKeyScan}
+                      disabled={
+                        controller.otpPrompt.submitting ||
+                        controller.otpPrompt.recoveryKeyScanBusy
+                      }
+                    >
+                      {controller.otpPrompt.recoveryKeyScanLabel || 'Scan recovery key'}
+                    </button>
+                  ) : null}
+                </div>
+                <input
+                  id="w3a-email-otp-recovery-key"
+                  className="w3a-recovery-key-input"
+                  value={controller.otpPrompt.recoveryKey}
+                  onChange={(event) =>
+                    controller.otpPrompt?.onRecoveryKeyChange(event.currentTarget.value)
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') controller.otpPrompt?.onSubmit();
+                  }}
+                  inputMode="text"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  placeholder={controller.otpPrompt.recoveryKeyPlaceholder}
+                  maxLength={39}
+                  disabled={controller.otpPrompt.submitting}
+                />
+                <p className="w3a-otp-helper">{controller.otpPrompt.recoveryKeyHelperText}</p>
+              </div>
+            ) : null}
             {controller.otpPrompt.error ? (
               <p className="w3a-otp-error" role="alert">
                 {controller.otpPrompt.error}
@@ -270,7 +315,12 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               type="button"
               className="w3a-auth-method-btn w3a-auth-method-btn-primary"
               onClick={controller.otpPrompt.onSubmit}
-              disabled={controller.otpPrompt.submitting || controller.otpPrompt.code.length !== 6}
+              disabled={
+                controller.otpPrompt.submitting ||
+                controller.otpPrompt.code.length !== 6 ||
+                (controller.otpPrompt.recoveryKeyRequired &&
+                  !controller.otpPrompt.recoveryKeyReady)
+              }
             >
               {controller.otpPrompt.submitting ? 'Unlocking…' : controller.otpPrompt.submitLabel}
             </button>

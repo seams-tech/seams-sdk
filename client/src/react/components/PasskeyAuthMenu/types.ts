@@ -18,7 +18,18 @@ export type PasskeyAuthMenuOtpPrompt = {
   accountId?: string;
   submitLabel?: string;
   helperText?: string;
-  onSubmit: (otpCode: string) => void | Promise<unknown>;
+  recoveryKey?: {
+    required?: boolean;
+    label?: string;
+    placeholder?: string;
+    helperText?: string;
+    scanLabel?: string;
+    onScan?: () => string | void | Promise<string | void>;
+  };
+  onSubmit: (
+    otpCode: string,
+    context?: { recoveryKey?: string },
+  ) => void | Promise<unknown>;
   onRerollAccount?: () =>
     | Promise<{ username?: string; accountId?: string; emailHint?: string } | void>
     | { username?: string; accountId?: string; emailHint?: string }
