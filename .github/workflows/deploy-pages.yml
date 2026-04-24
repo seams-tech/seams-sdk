@@ -1,0 +1,140 @@
+name: deploy-pages
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Pages target to deploy
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - app
+          - wallet
+      deploy_environment:
+        description: Deployment target
+        required: true
+        type: choice
+        default: staging
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-pages-${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment) || (github.ref_name == 'main' && 'production') || 'staging' }}-${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.target) || 'all' }}
+  cancel-in-progress: true
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  PAGES_BRANCH: ${{ ((github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'production') || (github.event_name != 'workflow_dispatch' && github.ref_name == 'main')) && 'main' || 'dev' }}
+  DEPLOY_APP: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.target == 'all' || github.event.inputs.target == 'app' }}
+  DEPLOY_WALLET: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.target == 'all' || github.event.inputs.target == 'wallet' }}
+
+jobs:
+  deploy-pages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment) || (github.ref_name == 'main' && 'production') || 'staging' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+        with:
+          version: 10.28.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: |
+          curl -sSf https://rustwasm.github.io/wasm-pack/installer/init.sh | sh
+
+      - name: Setup Bun (for worker bundling step in build scripts)
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install deps (workspace)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SDK (production)
+        run: pnpm build:sdk-prod
+
+      - name: Build Pages output
+        env:
+          VITE_RELAYER_URL: ${{ vars.VITE_RELAYER_URL }}
+          VITE_CONSOLE_BASE_URL: ${{ vars.VITE_CONSOLE_BASE_URL }}
+          VITE_RELAYER_ACCOUNT_ID: ${{ vars.VITE_RELAYER_ACCOUNT_ID }}
+          VITE_TATCHI_ENVIRONMENT_ID: ${{ vars.VITE_TATCHI_ENVIRONMENT_ID }}
+          VITE_TATCHI_PUBLISHABLE_KEY: ${{ vars.VITE_TATCHI_PUBLISHABLE_KEY }}
+          VITE_EMAIL_RECOVERER_GLOBAL_CONTRACT: ${{ vars.VITE_EMAIL_RECOVERER_GLOBAL_CONTRACT }}
+          VITE_EMAIL_DKIM_VERIFIER_CONTRACT: ${{ vars.VITE_EMAIL_DKIM_VERIFIER_CONTRACT }}
+          VITE_NEAR_NETWORK: ${{ vars.VITE_NEAR_NETWORK }}
+          VITE_NEAR_RPC_URL: ${{ vars.VITE_NEAR_RPC_URL }}
+          VITE_NEAR_EXPLORER: ${{ vars.VITE_NEAR_EXPLORER }}
+          VITE_TEMPO_RPC_URL: ${{ vars.VITE_TEMPO_RPC_URL }}
+          VITE_TEMPO_EXPLORER: ${{ vars.VITE_TEMPO_EXPLORER }}
+          VITE_TEMPO_FEE_TOKEN: ${{ vars.VITE_TEMPO_FEE_TOKEN }}
+          VITE_ARC_RPC_URL: ${{ vars.VITE_ARC_RPC_URL }}
+          VITE_ARC_EXPLORER: ${{ vars.VITE_ARC_EXPLORER }}
+          VITE_WALLET_ORIGIN: ${{ vars.VITE_WALLET_ORIGIN }}
+          VITE_WALLET_SERVICE_PATH: ${{ vars.VITE_WALLET_SERVICE_PATH }}
+          VITE_RP_ID_BASE: ${{ vars.VITE_RP_ID_BASE }}
+          VITE_SDK_BASE_PATH: ${{ vars.VITE_SDK_BASE_PATH }}
+          VITE_DOCS_ORIGIN: ${{ vars.VITE_DOCS_ORIGIN }}
+          VITE_SIGNING_SESSION_PERSISTENCE_MODE: ${{ vars.VITE_SIGNING_SESSION_PERSISTENCE_MODE }}
+          VITE_SIGNING_SESSION_SEAL_KEY_VERSION: ${{ vars.VITE_SIGNING_SESSION_SEAL_KEY_VERSION }}
+          VITE_SIGNING_SESSION_SHAMIR_P_B64U: ${{ vars.VITE_SIGNING_SESSION_SHAMIR_P_B64U }}
+          VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: ${{ vars.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED }}
+        run: pnpm -C examples/tatchi-site build
+
+      - name: Copy SDK runtime assets into Pages output
+        run: |
+          set -euo pipefail
+          test -d sdk/dist/esm/sdk
+          mkdir -p examples/tatchi-site/dist/sdk examples/tatchi-site/dist/sdk/workers
+          rsync -av --delete sdk/dist/esm/sdk/ examples/tatchi-site/dist/sdk/
+          if [ -d sdk/dist/workers ]; then
+            rsync -av --delete sdk/dist/workers/ examples/tatchi-site/dist/sdk/workers/
+          fi
+
+      - name: Deploy app to Cloudflare Pages
+        if: env.DEPLOY_APP == 'true'
+        env:
+          CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_VITE }}
+        run: |
+          set -euo pipefail
+          test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_VITE is not set" >&2; exit 1)
+          pnpm -C examples/relay-cloudflare-worker exec wrangler pages deploy examples/tatchi-site/dist \
+            --project-name "$CF_PAGES_PROJECT" \
+            --branch "$PAGES_BRANCH"
+
+      - name: Deploy wallet to Cloudflare Pages
+        if: env.DEPLOY_WALLET == 'true'
+        env:
+          CF_PAGES_PROJECT: ${{ secrets.CF_PAGES_PROJECT_WALLET }}
+        run: |
+          set -euo pipefail
+          test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_WALLET is not set" >&2; exit 1)
+          pnpm -C examples/relay-cloudflare-worker exec wrangler pages deploy examples/tatchi-site/dist \
+            --project-name "$CF_PAGES_PROJECT" \
+            --branch "$PAGES_BRANCH"
