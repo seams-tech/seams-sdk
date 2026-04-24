@@ -183,9 +183,10 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
   }
 
   const nearAccountId = toAccountId(args.nearAccountId);
-  const keyRef = deps.signingEngine.getThresholdEcdsaKeyRefForSigning({
+  const keyRef = deps.signingEngine.getThresholdEcdsaKeyRefForLookup({
     nearAccountId,
     chain,
+    source: 'login',
   });
   return await deps.signingEngine.scheduleThresholdEcdsaLoginPresignPrefill({
     nearAccountId,

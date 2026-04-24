@@ -52,18 +52,16 @@ function getSessionStorageSafe(): SessionStoragePort | null {
 
 function createRuntimeSessionId(): string {
   const cryptoObj = (globalThis as { crypto?: Crypto }).crypto;
-  const randomUuid = cryptoObj && typeof cryptoObj.randomUUID === 'function'
-    ? cryptoObj.randomUUID()
-    : '';
+  const randomUuid =
+    cryptoObj && typeof cryptoObj.randomUUID === 'function' ? cryptoObj.randomUUID() : '';
   if (randomUuid) return randomUuid;
   return `runtime-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 function createRandomId(prefix: string): string {
   const cryptoObj = (globalThis as { crypto?: Crypto }).crypto;
-  const randomUuid = cryptoObj && typeof cryptoObj.randomUUID === 'function'
-    ? cryptoObj.randomUUID()
-    : '';
+  const randomUuid =
+    cryptoObj && typeof cryptoObj.randomUUID === 'function' ? cryptoObj.randomUUID() : '';
   if (randomUuid) return `${prefix}-${randomUuid}`;
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
@@ -160,9 +158,10 @@ function normalizeThresholdSessionIds(value: unknown): {
   ed25519?: string;
   ecdsa?: string;
 } {
-  const obj = value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+  const obj =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
   const ed25519 = normalizeOptionalNonEmptyString(obj.ed25519);
   const ecdsa = normalizeOptionalNonEmptyString(obj.ecdsa);
   return {
@@ -294,9 +293,7 @@ function thresholdSessionIdsForWrite(args: {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return {};
   const curve = normalizeCurve(args.curve) || 'ecdsa';
-  return curve === 'ed25519'
-    ? { ed25519: thresholdSessionId }
-    : { ecdsa: thresholdSessionId };
+  return curve === 'ed25519' ? { ed25519: thresholdSessionId } : { ecdsa: thresholdSessionId };
 }
 
 async function readRecordByThresholdSessionId(
@@ -409,7 +406,7 @@ export async function writeSigningSessionSealedRecord(args: {
     curve: args.curve,
     thresholdSessionIds: args.thresholdSessionIds,
   });
-  const walletSigningSessionId = normalizeOptionalNonEmptyString(args.walletSigningSessionId) || thresholdSessionId;
+  const walletSigningSessionId = normalizeOptionalNonEmptyString(args.walletSigningSessionId);
   const sealedSecretB64u = normalizeOptionalNonEmptyString(args.sealedSecretB64u);
   const expiresAtMs = normalizeInteger(args.expiresAtMs);
   const remainingUses = normalizeInteger(args.remainingUses);
@@ -514,7 +511,9 @@ export async function updateSigningSessionSealedRecordPolicy(args: {
   });
 }
 
-export async function deleteSigningSessionSealedRecord(thresholdSessionIdRaw: string): Promise<void> {
+export async function deleteSigningSessionSealedRecord(
+  thresholdSessionIdRaw: string,
+): Promise<void> {
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
   if (!thresholdSessionId) return;
   const db = await openSigningSessionSealsDb();
@@ -543,7 +542,10 @@ export async function acquireSigningSessionRestoreLease(args: {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return null;
   const nowMs = normalizeInteger(args.nowMs ?? Date.now()) ?? Date.now();
-  const ttlMs = Math.max(1, normalizeInteger(args.ttlMs ?? DEFAULT_RESTORE_LEASE_TTL_MS) ?? DEFAULT_RESTORE_LEASE_TTL_MS);
+  const ttlMs = Math.max(
+    1,
+    normalizeInteger(args.ttlMs ?? DEFAULT_RESTORE_LEASE_TTL_MS) ?? DEFAULT_RESTORE_LEASE_TTL_MS,
+  );
   const ownerId = normalizeOptionalNonEmptyString(args.ownerId) || createRandomId('restore-owner');
   const runtimeSessionId = readRuntimeSessionId();
   if (!runtimeSessionId) return null;

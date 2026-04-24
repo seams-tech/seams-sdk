@@ -125,6 +125,15 @@ export enum UserConfirmationType {
 // secure-confirm request payloads.
 export type SigningAuthMode = 'webauthn' | 'warmSession' | 'emailOtp';
 
+export const SigningAuthPlanKind = {
+  WarmSession: 'warmSession',
+  PasskeyReauth: 'passkeyReauth',
+  EmailOtpReauth: 'emailOtpReauth',
+} as const;
+
+export type SigningAuthPlanKind =
+  (typeof SigningAuthPlanKind)[keyof typeof SigningAuthPlanKind];
+
 export interface EmailOtpConfirmPrompt {
   challengeId: string;
   emailHint?: string;
@@ -140,7 +149,7 @@ export interface EmailOtpConfirmPrompt {
 
 export type SigningAuthPlan =
   | {
-      kind: 'warmSession';
+      kind: typeof SigningAuthPlanKind.WarmSession;
       method: WalletAuthMethod;
       accountId: string;
       intent: WalletAuthIntent;
@@ -152,18 +161,18 @@ export type SigningAuthPlan =
       remainingUses: number;
     }
   | {
-      kind: 'passkeyReauth';
+      kind: typeof SigningAuthPlanKind.PasskeyReauth;
       method: 'passkey';
     }
   | {
-      kind: 'emailOtpReauth';
+      kind: typeof SigningAuthPlanKind.EmailOtpReauth;
       method: 'email_otp';
       emailOtpPrompt?: EmailOtpConfirmPrompt;
     };
 
 export function signingAuthModeFromSigningAuthPlan(plan: SigningAuthPlan): SigningAuthMode {
-  if (plan.kind === 'warmSession') return 'warmSession';
-  if (plan.kind === 'emailOtpReauth') return 'emailOtp';
+  if (plan.kind === SigningAuthPlanKind.WarmSession) return 'warmSession';
+  if (plan.kind === SigningAuthPlanKind.EmailOtpReauth) return 'emailOtp';
   return 'webauthn';
 }
 

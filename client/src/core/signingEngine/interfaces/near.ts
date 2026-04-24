@@ -10,24 +10,17 @@ import type {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { SigningRuntimeDeps } from './runtime';
-import type { WalletAuthPlan } from '../auth';
+import type { SigningAuthPlan } from '../touchConfirm/shared/confirmTypes';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import type {
-  WalletSigningSessionConsumeUseArgs,
-  WalletSigningSessionCoordinator,
-} from '../session/WalletSigningSessionCoordinator';
+import type { WalletSigningBudgetLedger } from '../session/WalletSigningBudgetLedger';
+import type { SigningLaneContext, SigningOperationId } from '../session/signingSessionTypes';
 
 export type NearEmailOtpSigningHook = {
-  challengeId: string;
-  emailHint?: string;
+  prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
   resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
   complete: (otpCode: string, challengeId?: string) => Promise<{ sessionId: string }>;
 };
-
-export type NearWalletSigningSessionUseRecorder = (
-  args: WalletSigningSessionConsumeUseArgs,
-) => ReturnType<WalletSigningSessionCoordinator['consumeUse']>;
 
 export type NearEd25519WarmupHook = {
   isPending: () => boolean;
@@ -52,10 +45,12 @@ export type NearTransactionsWithActionsPayload = {
   body?: string;
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
-  consumeWalletSigningSessionUse?: NearWalletSigningSessionUseRecorder;
+  signingOperationId?: SigningOperationId;
+  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
-  walletAuthPlan?: WalletAuthPlan;
+  signingAuthPlan?: SigningAuthPlan;
+  signingLane?: SigningLaneContext;
   sensitivePolicy?: SensitiveOperationPolicy;
 };
 

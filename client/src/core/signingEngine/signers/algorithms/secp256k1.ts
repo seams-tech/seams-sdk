@@ -15,7 +15,7 @@ import {
 } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId } from '../../session/WarmSessionManager';
+import { createWarmSessionCapabilityReader } from '../../session/WarmSessionCapabilityReader';
 import {
   deleteSigningSessionSealedRecord,
   updateSigningSessionSealedRecordPolicy,
@@ -226,7 +226,9 @@ export class Secp256k1Engine implements Signer {
       }
 
       const resolvedAuthMaterial =
-        resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(keyRefThresholdSessionId);
+        createWarmSessionCapabilityReader().resolveEcdsaAuthByThresholdSessionId(
+          keyRefThresholdSessionId,
+        );
       const canonicalRecord = resolvedAuthMaterial?.record || null;
       const requestChain = inferThresholdEcdsaSessionChainFromLabel(req.label);
       const canonicalRecordMatchesKeyRefLane =

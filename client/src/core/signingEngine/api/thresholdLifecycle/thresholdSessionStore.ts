@@ -38,6 +38,11 @@ export const THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES = [
   'manual-bootstrap',
 ] as const satisfies readonly ThresholdEcdsaSessionStoreSource[];
 
+export const THRESHOLD_ECDSA_SESSION_STORE_SOURCES = [
+  'email_otp',
+  ...THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES,
+] as const satisfies readonly ThresholdEcdsaSessionStoreSource[];
+
 export type ThresholdEcdsaEmailOtpAuthContext = {
   policy: EmailOtpAuthPolicy;
   retention: 'session' | 'single_use';
@@ -65,8 +70,8 @@ export type ThresholdEcdsaSessionRecord = {
   thresholdSessionJwt?: string;
   signingSessionSealKeyVersion?: string;
   signingSessionSealShamirPrimeB64u?: string;
-  expiresAtMs?: number;
-  remainingUses?: number;
+  expiresAtMs: number;
+  remainingUses: number;
   thresholdEcdsaPublicKeyB64u?: string;
   ethereumAddress?: string;
   relayerVerifyingShareB64u?: string;
@@ -123,12 +128,48 @@ export type ThresholdEcdsaSessionStoreDeps = {
   now?: () => number;
 };
 
+export type ThresholdEcdsaKeyRefLookupResult = {
+  source: ThresholdEcdsaSessionStoreSource;
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+};
+
 type SessionStoragePort = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 type VersionedRecord<TRecord> = {
   v: 1;
   record: TRecord;
 };
+
+export type ThresholdSessionStoreInvalidRecordReason =
+  | 'invalid_json'
+  | 'invalid_version'
+  | 'invalid_shape';
+
+export class ThresholdSessionStoreInvalidRecordError extends Error {
+  readonly code = 'invalid_threshold_session_record';
+  readonly curve: ThresholdSessionCurve;
+  readonly recordKey: string;
+  readonly reason: ThresholdSessionStoreInvalidRecordReason;
+  readonly cause?: unknown;
+
+  constructor(args: {
+    curve: ThresholdSessionCurve;
+    recordKey: string;
+    reason: ThresholdSessionStoreInvalidRecordReason;
+    cause?: unknown;
+  }) {
+    super(
+      `[threshold-session-store] invalid ${args.curve} session record ${args.recordKey}: ${args.reason}`,
+    );
+    this.name = 'ThresholdSessionStoreInvalidRecordError';
+    this.curve = args.curve;
+    this.recordKey = args.recordKey;
+    this.reason = args.reason;
+    if ('cause' in args) {
+      this.cause = args.cause;
+    }
+  }
+}
 
 const ECDSA_STORAGE_KEY_PREFIX = 'tatchi:threshold-ecdsa-session:v3';
 const ECDSA_STORAGE_INDEX_KEY = `${ECDSA_STORAGE_KEY_PREFIX}:index`;
@@ -361,18 +402,41 @@ function readStoredRecord<TRecord>(args: {
   storage: SessionStoragePort;
   storageKeyPrefix: string;
   recordKey: string;
+  curve: ThresholdSessionCurve;
   normalize: (value: unknown) => TRecord;
 }): TRecord | null {
   const recordKey = String(args.recordKey || '').trim();
   if (!recordKey) return null;
+  const storageKey = storageKeyForRecord(args.storageKeyPrefix, recordKey);
+  const raw = args.storage.getItem(storageKey);
+  if (!raw) return null;
+  let parsed: VersionedRecord<TRecord>;
   try {
-    const raw = args.storage.getItem(storageKeyForRecord(args.storageKeyPrefix, recordKey));
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as VersionedRecord<TRecord>;
-    if (!parsed || parsed.v !== 1 || typeof parsed !== 'object') return null;
+    parsed = JSON.parse(raw) as VersionedRecord<TRecord>;
+  } catch (error) {
+    throw new ThresholdSessionStoreInvalidRecordError({
+      curve: args.curve,
+      recordKey,
+      reason: 'invalid_json',
+      cause: error,
+    });
+  }
+  if (!parsed || parsed.v !== 1 || typeof parsed !== 'object') {
+    throw new ThresholdSessionStoreInvalidRecordError({
+      curve: args.curve,
+      recordKey,
+      reason: 'invalid_version',
+    });
+  }
+  try {
     return args.normalize(parsed.record);
-  } catch {
-    return null;
+  } catch (error) {
+    throw new ThresholdSessionStoreInvalidRecordError({
+      curve: args.curve,
+      recordKey,
+      reason: 'invalid_shape',
+      cause: error,
+    });
   }
 }
 
@@ -573,6 +637,12 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   if (thresholdSessionKind === 'jwt' && !thresholdSessionJwt) {
     throw new Error('Invalid threshold ECDSA canonical session record: missing JWT');
   }
+  if (expiresAtMs == null || expiresAtMs <= 0) {
+    throw new Error('Invalid threshold ECDSA canonical session record: missing expiresAtMs');
+  }
+  if (remainingUses == null || remainingUses < 0) {
+    throw new Error('Invalid threshold ECDSA canonical session record: missing remainingUses');
+  }
 
   return {
     nearAccountId,
@@ -595,8 +665,8 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
     ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
-    ...(expiresAtMs != null ? { expiresAtMs } : {}),
-    ...(remainingUses != null ? { remainingUses } : {}),
+    expiresAtMs,
+    remainingUses,
     ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
     ...(ethereumAddress ? { ethereumAddress } : {}),
     ...(relayerVerifyingShareB64u ? { relayerVerifyingShareB64u } : {}),
@@ -622,24 +692,40 @@ function normalizeThresholdEcdsaClientAdditiveShareHandle(
 function normalizeThresholdEcdsaEmailOtpAuthContext(
   value: unknown,
 ): ThresholdEcdsaEmailOtpAuthContext {
-  const obj = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid Email OTP auth context: missing context');
+  }
+  const obj = value as Record<string, unknown>;
   const policyRaw = String(obj.policy || '')
     .trim()
     .toLowerCase();
-  const policy: EmailOtpAuthPolicy = policyRaw === 'per_operation' ? 'per_operation' : 'session';
+  if (policyRaw !== 'session' && policyRaw !== 'per_operation') {
+    throw new Error('Invalid Email OTP auth context: invalid policy');
+  }
+  const policy: EmailOtpAuthPolicy = policyRaw;
   const retentionRaw = String(obj.retention || '')
     .trim()
     .toLowerCase();
-  const retention: 'session' | 'single_use' =
-    retentionRaw === 'single_use'
-      ? 'single_use'
-      : policy === 'per_operation'
-        ? 'single_use'
-        : 'session';
+  if (retentionRaw !== 'session' && retentionRaw !== 'single_use') {
+    throw new Error('Invalid Email OTP auth context: invalid retention');
+  }
+  const retention: 'session' | 'single_use' = retentionRaw;
+  if (policy === 'per_operation' && retention !== 'single_use') {
+    throw new Error('Invalid Email OTP auth context: per-operation sessions must be single-use');
+  }
   const reasonRaw = String(obj.reason || '')
     .trim()
     .toLowerCase();
-  const reason: 'login' | 'sign' = reasonRaw === 'sign' ? 'sign' : 'login';
+  if (reasonRaw !== 'login' && reasonRaw !== 'sign') {
+    throw new Error('Invalid Email OTP auth context: invalid reason');
+  }
+  const authMethodRaw = String(obj.authMethod || '')
+    .trim()
+    .toLowerCase();
+  if (authMethodRaw !== 'email_otp') {
+    throw new Error('Invalid Email OTP auth context: invalid authMethod');
+  }
+  const reason: 'login' | 'sign' = reasonRaw;
   const consumedAtMs = normalizePositiveInteger(obj.consumedAtMs);
   return {
     policy,
@@ -896,6 +982,21 @@ function getThresholdEcdsaSessionLaneKeyForRecord(record: ThresholdEcdsaSessionR
   });
 }
 
+function thresholdEcdsaRecordMatchesLane(
+  record: ThresholdEcdsaSessionRecord,
+  lane: ThresholdEcdsaSessionLane,
+): boolean {
+  return (
+    String(record.nearAccountId) === String(lane.nearAccountId) &&
+    record.chain === lane.chain &&
+    record.source === lane.source &&
+    record.ecdsaThresholdKeyId === lane.ecdsaThresholdKeyId &&
+    record.signingRootId === lane.signingRootId &&
+    normalizeOptionalNonEmptyString(record.signingRootVersion) ===
+      normalizeOptionalNonEmptyString(lane.signingRootVersion)
+  );
+}
+
 function pickPreferredThresholdEcdsaSessionRecord(
   a: ThresholdEcdsaSessionRecord | null,
   b: ThresholdEcdsaSessionRecord,
@@ -1144,6 +1245,7 @@ function listStoredThresholdEcdsaRecordsForLane(args: {
     if (!parsedLane) continue;
     if (String(parsedLane.nearAccountId) !== String(args.nearAccountId)) continue;
     if (parsedLane.chain !== args.chain) continue;
+    if (args.source && parsedLane.source !== args.source) continue;
     if (
       args.signingRootId &&
       parsedLane.signingRootId !== normalizeOptionalNonEmptyString(args.signingRootId)
@@ -1159,9 +1261,11 @@ function listStoredThresholdEcdsaRecordsForLane(args: {
       storage: args.storage,
       storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
       recordKey: laneKey,
+      curve: 'ecdsa',
       normalize: normalizeThresholdEcdsaSessionRecord,
     });
     if (!record) continue;
+    if (!thresholdEcdsaRecordMatchesLane(record, parsedLane)) continue;
     if (args.source && record.source !== args.source) continue;
     if (parsedLane.signingRootId !== record.signingRootId) continue;
     if (
@@ -1177,7 +1281,7 @@ function listStoredThresholdEcdsaRecordsForLane(args: {
   return out;
 }
 
-export function getThresholdEcdsaSessionRecordForSigning(
+export function listThresholdEcdsaSessionRecordsForLookup(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
     nearAccountId: AccountId | string;
@@ -1186,9 +1290,16 @@ export function getThresholdEcdsaSessionRecordForSigning(
     signingRootVersion?: string;
     source?: ThresholdEcdsaSessionStoreSource;
   },
-): ThresholdEcdsaSessionRecord {
+): ThresholdEcdsaSessionRecord[] {
   const accountId = toAccountId(args.nearAccountId);
-  const inMemory = pickThresholdEcdsaRecordForChain(
+  const recordsByLane = new Map<string, ThresholdEcdsaSessionRecord>();
+  const addRecords = (records: ThresholdEcdsaSessionRecord[]): void => {
+    for (const record of records) {
+      recordsByLane.set(getThresholdEcdsaSessionLaneKeyForRecord(record), record);
+    }
+  };
+
+  addRecords(
     listInMemoryThresholdEcdsaRecordsForLane({
       deps,
       nearAccountId: accountId,
@@ -1198,28 +1309,48 @@ export function getThresholdEcdsaSessionRecordForSigning(
       ...(args.source ? { source: args.source } : {}),
     }),
   );
-  if (inMemory) return inMemory;
 
   const storage = getEcdsaSessionStorageSafe();
-  const stored = storage
-    ? pickThresholdEcdsaRecordForChain(
-        listStoredThresholdEcdsaRecordsForLane({
-          storage,
-          deps,
-          nearAccountId: accountId,
-          chain: args.chain,
-          ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
-          ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
-          ...(args.source ? { source: args.source } : {}),
-        }),
-      )
-    : null;
-  if (stored) {
-    return stored;
+  if (storage) {
+    addRecords(
+      listStoredThresholdEcdsaRecordsForLane({
+        storage,
+        deps,
+        nearAccountId: accountId,
+        chain: args.chain,
+        ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
+        ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
+        ...(args.source ? { source: args.source } : {}),
+      }),
+    );
   }
 
+  return [...recordsByLane.values()];
+}
+
+export function getThresholdEcdsaSessionRecordForLookup(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    signingRootId?: string;
+    signingRootVersion?: string;
+    source: ThresholdEcdsaSessionStoreSource;
+  },
+): ThresholdEcdsaSessionRecord {
+  const selected = pickThresholdEcdsaRecordForChain(
+    listThresholdEcdsaSessionRecordsForLookup(deps, {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
+      ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
+      ...(args.source ? { source: args.source } : {}),
+    }),
+  );
+  if (selected) return selected;
+
   throw new Error(
-    `[SigningEngine] missing canonical threshold ECDSA session for ${String(accountId)}; reconnect threshold session via bootstrapEcdsaSession`,
+    `[SigningEngine] missing canonical threshold ECDSA session for ${String(toAccountId(args.nearAccountId))}; reconnect threshold session via bootstrapEcdsaSession`,
   );
 }
 
@@ -1264,7 +1395,21 @@ function thresholdEcdsaKeyRefFromRecord(
   };
 }
 
-export function getThresholdEcdsaKeyRefForSigning(
+export function getThresholdEcdsaKeyRefForLookup(
+  deps: ThresholdEcdsaSessionStoreDeps,
+  args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    signingRootId?: string;
+    signingRootVersion?: string;
+    source: ThresholdEcdsaSessionStoreSource;
+  },
+): ThresholdEcdsaSecp256k1KeyRef {
+  const record = getThresholdEcdsaSessionRecordForLookup(deps, args);
+  return thresholdEcdsaKeyRefFromRecord(deps, record);
+}
+
+export function listThresholdEcdsaKeyRefsForLookup(
   deps: ThresholdEcdsaSessionStoreDeps,
   args: {
     nearAccountId: AccountId | string;
@@ -1273,9 +1418,11 @@ export function getThresholdEcdsaKeyRefForSigning(
     signingRootVersion?: string;
     source?: ThresholdEcdsaSessionStoreSource;
   },
-): ThresholdEcdsaSecp256k1KeyRef {
-  const record = getThresholdEcdsaSessionRecordForSigning(deps, args);
-  return thresholdEcdsaKeyRefFromRecord(deps, record);
+): ThresholdEcdsaKeyRefLookupResult[] {
+  return listThresholdEcdsaSessionRecordsForLookup(deps, args).map((record) => ({
+    source: record.source,
+    keyRef: thresholdEcdsaKeyRefFromRecord(deps, record),
+  }));
 }
 
 export function getEmailOtpThresholdEcdsaSessionRecordForSigning(
@@ -1287,7 +1434,7 @@ export function getEmailOtpThresholdEcdsaSessionRecordForSigning(
     signingRootVersion?: string;
   },
 ): ThresholdEcdsaSessionRecord {
-  return getThresholdEcdsaSessionRecordForSigning(deps, {
+  return getThresholdEcdsaSessionRecordForLookup(deps, {
     ...args,
     source: 'email_otp',
   });
@@ -1313,51 +1460,13 @@ export function getPasskeyThresholdEcdsaSessionRecordForSigning(
     chain: ThresholdEcdsaActivationChain;
     signingRootId?: string;
     signingRootVersion?: string;
-    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   },
 ): ThresholdEcdsaSessionRecord {
-  if (args.source) {
-    return getThresholdEcdsaSessionRecordForSigning(deps, {
-      ...args,
-      source: args.source,
-    });
-  }
-
-  const accountId = toAccountId(args.nearAccountId);
-  const records: ThresholdEcdsaSessionRecord[] = [];
-  for (const source of THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES) {
-    records.push(
-      ...listInMemoryThresholdEcdsaRecordsForLane({
-        deps,
-        nearAccountId: accountId,
-        chain: args.chain,
-        ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
-        ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
-        source,
-      }),
-    );
-  }
-  const storage = getEcdsaSessionStorageSafe();
-  if (storage) {
-    for (const source of THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES) {
-      records.push(
-        ...listStoredThresholdEcdsaRecordsForLane({
-          storage,
-          deps,
-          nearAccountId: accountId,
-          chain: args.chain,
-          ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
-          ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
-          source,
-        }),
-      );
-    }
-  }
-  const selected = pickThresholdEcdsaRecordForChain(records);
-  if (selected) return selected;
-  throw new Error(
-    `[SigningEngine] missing canonical passkey threshold ECDSA session for ${String(accountId)}; reconnect threshold session via bootstrapEcdsaSession`,
-  );
+  return getThresholdEcdsaSessionRecordForLookup(deps, {
+    ...args,
+    source: args.source,
+  });
 }
 
 export function getPasskeyThresholdEcdsaKeyRefForSigning(
@@ -1367,7 +1476,7 @@ export function getPasskeyThresholdEcdsaKeyRefForSigning(
     chain: ThresholdEcdsaActivationChain;
     signingRootId?: string;
     signingRootVersion?: string;
-    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   },
 ): ThresholdEcdsaSecp256k1KeyRef {
   const record = getPasskeyThresholdEcdsaSessionRecordForSigning(deps, args);
@@ -1531,23 +1640,20 @@ export function getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
     });
     return null;
   }
-  try {
-    const indexedRecord = readStoredRecord({
-      storage,
-      storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
-      recordKey: indexedLaneKey,
-      normalize: normalizeThresholdEcdsaSessionRecord,
-    });
-    if (
-      indexedRecord &&
-      String(indexedRecord.thresholdSessionId || '').trim() === thresholdSessionId &&
-      parsedLane.signingRootId === indexedRecord.signingRootId &&
-      normalizeOptionalNonEmptyString(parsedLane.signingRootVersion) ===
-        normalizeOptionalNonEmptyString(indexedRecord.signingRootVersion)
-    ) {
-      return indexedRecord;
-    }
-  } catch {}
+  const indexedRecord = readStoredRecord({
+    storage,
+    storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
+    recordKey: indexedLaneKey,
+    curve: 'ecdsa',
+    normalize: normalizeThresholdEcdsaSessionRecord,
+  });
+  if (
+    indexedRecord &&
+    String(indexedRecord.thresholdSessionId || '').trim() === thresholdSessionId &&
+    thresholdEcdsaRecordMatchesLane(indexedRecord, parsedLane)
+  ) {
+    return indexedRecord;
+  }
   removeStorageSessionIndexEntry({
     storage,
     storageSessionIndexKey: ECDSA_STORAGE_SESSION_INDEX_KEY,
@@ -1654,22 +1760,19 @@ export function getStoredThresholdEd25519SessionRecordForAccount(
   if (inMemory) return inMemory;
   const storage = getEd25519SessionStorageSafe();
   if (!storage) return null;
-  try {
-    const nearAccountId = toAccountId(nearAccountIdRaw);
-    const stored = readStoredRecord({
-      storage,
-      storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
-      recordKey: String(nearAccountId),
-      normalize: normalizeThresholdEd25519SessionRecord,
-    });
-    if (stored) {
-      rememberInMemoryThresholdEd25519Record(stored);
-      return stored;
-    }
-    return null;
-  } catch {
-    return null;
+  const nearAccountId = toAccountId(nearAccountIdRaw);
+  const stored = readStoredRecord({
+    storage,
+    storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
+    recordKey: String(nearAccountId),
+    curve: 'ed25519',
+    normalize: normalizeThresholdEd25519SessionRecord,
+  });
+  if (stored) {
+    rememberInMemoryThresholdEd25519Record(stored);
+    return stored;
   }
+  return null;
 }
 
 export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
@@ -1728,22 +1831,21 @@ export function getStoredThresholdEd25519SessionRecordByThresholdSessionId(
   const sessionIndex = readStorageSessionIndex(storage, ED25519_STORAGE_SESSION_INDEX_KEY);
   const indexedAccountIdRaw = String(sessionIndex[thresholdSessionId] || '').trim();
   if (!indexedAccountIdRaw) return null;
-  try {
-    const indexedAccountId = toAccountId(indexedAccountIdRaw);
-    const indexedRecord = readStoredRecord({
-      storage,
-      storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
-      recordKey: String(indexedAccountId),
-      normalize: normalizeThresholdEd25519SessionRecord,
-    });
-    if (
-      indexedRecord &&
-      String(indexedRecord.thresholdSessionId || '').trim() === thresholdSessionId
-    ) {
-      rememberInMemoryThresholdEd25519Record(indexedRecord);
-      return indexedRecord;
-    }
-  } catch {}
+  const indexedAccountId = toAccountId(indexedAccountIdRaw);
+  const indexedRecord = readStoredRecord({
+    storage,
+    storageKeyPrefix: ED25519_STORAGE_KEY_PREFIX,
+    recordKey: String(indexedAccountId),
+    curve: 'ed25519',
+    normalize: normalizeThresholdEd25519SessionRecord,
+  });
+  if (
+    indexedRecord &&
+    String(indexedRecord.thresholdSessionId || '').trim() === thresholdSessionId
+  ) {
+    rememberInMemoryThresholdEd25519Record(indexedRecord);
+    return indexedRecord;
+  }
   removeStorageSessionIndexEntry({
     storage,
     storageSessionIndexKey: ED25519_STORAGE_SESSION_INDEX_KEY,
@@ -1826,9 +1928,11 @@ export function getStoredThresholdSessionRecordForAccount<
         storage,
         storageKeyPrefix: ECDSA_STORAGE_KEY_PREFIX,
         recordKey: laneKey,
+        curve: 'ecdsa',
         normalize: normalizeThresholdEcdsaSessionRecord,
       });
       if (!record) continue;
+      if (!thresholdEcdsaRecordMatchesLane(record, parsedLane)) continue;
       if (parsedLane.signingRootId !== record.signingRootId) continue;
       if (
         normalizeOptionalNonEmptyString(parsedLane.signingRootVersion) !==

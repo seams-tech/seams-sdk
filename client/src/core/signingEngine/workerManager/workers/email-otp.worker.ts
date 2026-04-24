@@ -37,6 +37,7 @@ import {
   clampThresholdSessionPolicy,
   DEFAULT_THRESHOLD_SESSION_POLICY,
   generateThresholdSessionId,
+  generateWalletSigningSessionId,
   normalizeThresholdRuntimePolicyScope,
   parseThresholdRuntimePolicyScopeFromJwt,
   THRESHOLD_SESSION_POLICY_VERSION,
@@ -1718,7 +1719,8 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   const keygenSessionId = generateKeygenSessionId();
   const requestedSessionId = String(args.sessionId || '').trim();
   const sessionId = requestedSessionId || generateThresholdSessionId();
-  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim() || sessionId;
+  const walletSigningSessionId =
+    String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: args.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: args.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,

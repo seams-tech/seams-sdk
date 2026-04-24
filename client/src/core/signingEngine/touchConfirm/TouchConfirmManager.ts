@@ -147,9 +147,7 @@ function parseWarmSessionSealAndPersistResult(
       ok: false,
       code: typeof data.code === 'string' ? data.code : 'worker_error',
       message:
-        typeof data.message === 'string'
-          ? data.message
-          : 'Signing-session seal and persist failed',
+        typeof data.message === 'string' ? data.message : 'Signing-session seal and persist failed',
     };
   }
   if (
@@ -317,6 +315,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     explicitTransport?: {
       curve?: 'ed25519' | 'ecdsa';
       relayerUrl?: string;
+      walletSigningSessionId?: string;
       thresholdSessionJwt?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
@@ -343,6 +342,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         ecdsaRecord?.thresholdSessionJwt ||
         '',
     ).trim();
+    const walletSigningSessionId = String(
+      explicitTransport?.walletSigningSessionId ||
+        sealedRecord?.walletSigningSessionId ||
+        ed25519Record?.walletSigningSessionId ||
+        ecdsaRecord?.walletSigningSessionId ||
+        '',
+    ).trim();
     const keyVersion = String(
       explicitTransport?.keyVersion ||
         sealedRecord?.keyVersion ||
@@ -365,6 +371,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     return {
       ...(curve ? { curve } : {}),
       relayerUrl,
+      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
       ...(keyVersion ? { keyVersion } : {}),
       ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
@@ -376,6 +383,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     transport?: {
       curve?: 'ed25519' | 'ecdsa';
       relayerUrl?: string;
+      walletSigningSessionId?: string;
       thresholdSessionJwt?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
@@ -484,6 +492,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     transport?: {
       curve?: 'ed25519' | 'ecdsa';
       relayerUrl?: string;
+      walletSigningSessionId?: string;
       thresholdSessionJwt?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
@@ -642,6 +651,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     sessionId: string;
     transport?: {
       relayerUrl?: string;
+      walletSigningSessionId?: string;
       thresholdSessionJwt?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
@@ -678,6 +688,9 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       const relayerUrl = String(
         args?.transport?.relayerUrl || inferredTransport?.relayerUrl || '',
       ).trim();
+      const walletSigningSessionId = String(
+        args?.transport?.walletSigningSessionId || inferredTransport?.walletSigningSessionId || '',
+      ).trim();
       const thresholdSessionJwt = String(
         args?.transport?.thresholdSessionJwt || inferredTransport?.thresholdSessionJwt || '',
       ).trim();
@@ -701,6 +714,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
           message: 'Missing relayerUrl for signing-session seal persistence',
         };
       }
+      if (!walletSigningSessionId) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Missing walletSigningSessionId for signing-session seal persistence',
+        };
+      }
       if (!shamirPrimeB64u) {
         return {
           ok: false,
@@ -713,6 +733,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         sessionId: thresholdSessionId,
         transport: {
           relayerUrl,
+          walletSigningSessionId,
           ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
           ...(keyVersion ? { keyVersion } : {}),
           shamirPrimeB64u,
@@ -724,6 +745,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         thresholdSessionId,
         sealedSecretB64u: sealed.sealedSecretB64u,
         curve: inferredTransport?.curve,
+        walletSigningSessionId,
         thresholdSessionIds: {
           ...(inferredTransport?.curve === 'ed25519'
             ? { ed25519: thresholdSessionId }

@@ -1,4 +1,5 @@
 import {
+  SigningAuthPlanKind,
   signingAuthModeFromSigningAuthPlan,
   type EmailOtpConfirmPrompt,
   type RegisterAccountPayload,
@@ -65,11 +66,11 @@ function assertSigningRequestUsesAuthPlanOnly(request: UserConfirmRequest): void
 function isSigningAuthPlan(value: unknown): value is SigningAuthPlan {
   if (!isObject(value)) return false;
   const plan = value as { kind?: unknown; method?: unknown };
-  if (plan.kind === 'warmSession') {
+  if (plan.kind === SigningAuthPlanKind.WarmSession) {
     return plan.method === 'passkey' || plan.method === 'email_otp';
   }
-  if (plan.kind === 'passkeyReauth') return plan.method === 'passkey';
-  if (plan.kind === 'emailOtpReauth') return plan.method === 'email_otp';
+  if (plan.kind === SigningAuthPlanKind.PasskeyReauth) return plan.method === 'passkey';
+  if (plan.kind === SigningAuthPlanKind.EmailOtpReauth) return plan.method === 'email_otp';
   return false;
 }
 
@@ -170,19 +171,19 @@ export function getSigningAuthMode(request: UserConfirmRequest): SigningAuthMode
 export function getEmailOtpPrompt(request: UserConfirmRequest): EmailOtpConfirmPrompt | undefined {
   if (request.type === UserConfirmationType.SIGN_TRANSACTION) {
     const payload = getSignTransactionPayload(request);
-    return payload.signingAuthPlan?.kind === 'emailOtpReauth'
+    return payload.signingAuthPlan?.kind === SigningAuthPlanKind.EmailOtpReauth
       ? payload.signingAuthPlan.emailOtpPrompt
       : payload.emailOtpPrompt;
   }
   if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) {
     const payload = request.payload as SignNep413Payload;
-    return payload.signingAuthPlan?.kind === 'emailOtpReauth'
+    return payload.signingAuthPlan?.kind === SigningAuthPlanKind.EmailOtpReauth
       ? payload.signingAuthPlan.emailOtpPrompt
       : payload.emailOtpPrompt;
   }
   if (request.type === UserConfirmationType.SIGN_INTENT_DIGEST) {
     const payload = request.payload as SignIntentDigestPayload;
-    return payload.signingAuthPlan?.kind === 'emailOtpReauth'
+    return payload.signingAuthPlan?.kind === SigningAuthPlanKind.EmailOtpReauth
       ? payload.signingAuthPlan.emailOtpPrompt
       : payload.emailOtpPrompt;
   }

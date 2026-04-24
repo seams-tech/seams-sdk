@@ -34,6 +34,7 @@ export type UserConfirmWorkerMessageType =
 export interface WarmSessionSealTransportInput {
   curve?: 'ed25519' | 'ecdsa';
   relayerUrl: string;
+  walletSigningSessionId?: string;
   thresholdSessionJwt?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;

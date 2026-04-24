@@ -12,7 +12,10 @@ import type {
   SignatureBytes,
 } from '@/core/signingEngine/interfaces/signing';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
-import type { WalletAuthPlan } from '@/core/signingEngine/auth';
+import {
+  SigningAuthPlanKind,
+  type SigningAuthPlan,
+} from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
@@ -30,8 +33,6 @@ import {
   SigningEventPhase,
   type CreateSigningFlowEventInput,
   type SigningFlowEvent,
-  type WalletFlowAuthMethod,
-  type WalletFlowInteractionKind,
 } from '@/core/types/sdkSentEvents';
 import {
   PENDING_CHALLENGE_B64U,
@@ -43,11 +44,14 @@ import {
   formatEmailOtpSentText,
   inferDigest32FromSignRequest,
   makeRequestId,
+  mapTouchConfirmSigningProgress,
   resolveKeyRefForSignRequest,
   resolveTouchConfirmSigningAuth,
+  resolveTouchConfirmSigningAuthMethod,
 } from '../shared/touchConfirmSigning';
 
 type ManagedNonceReservation = ReserveNonceInput & { nonce: bigint };
+type EvmSigningAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
 
 export async function signEvmWithTouchConfirm(args: {
   ctx: TouchConfirmContext;
@@ -67,17 +71,22 @@ export async function signEvmWithTouchConfirm(args: {
     reservation: ManagedNonceReservation;
   }>;
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void;
+  onConfirmationDisplayed?: () => void;
+  reserveWalletSigningSessionBudget?: () => Promise<void>;
   emailOtpSigning?: {
-    challengeId: string;
-    emailHint?: string;
+    prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
     complete: (otpCode: string, challengeId?: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   };
-  walletAuthPlan?: WalletAuthPlan;
+  signingAuthPlan?: SigningAuthPlan;
+  onAuthSideEffectStarted?: (sideEffect: EvmSigningAuthSideEffect) => void;
 }): Promise<EvmSignedResult> {
   const sessionId = makeRequestId('intent');
   const flowId = `signing:evm:${args.nearAccountId}:${sessionId}`;
-  const authMethod = resolveSigningAuthMethod(args.walletAuthPlan, !!args.emailOtpSigning);
+  const authMethod = resolveTouchConfirmSigningAuthMethod(
+    args.signingAuthPlan,
+    !!args.emailOtpSigning,
+  );
   const emitProgress = (
     event: Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId' | 'authMethod'>,
   ) => {
@@ -98,8 +107,19 @@ export async function signEvmWithTouchConfirm(args: {
     message?: string;
     data?: unknown;
   }) => {
+    if (progress.phase === 'auth.passkey.prompt.started') {
+      notifyAuthSideEffectStarted('passkey_reauth');
+    }
     const mapped = mapTouchConfirmSigningProgress(progress, authMethod);
     if (mapped) emitProgress(mapped);
+  };
+  const authSideEffectsStarted = new Set<EvmSigningAuthSideEffect>();
+  const notifyAuthSideEffectStarted = (sideEffect: EvmSigningAuthSideEffect): void => {
+    if (authSideEffectsStarted.has(sideEffect)) return;
+    authSideEffectsStarted.add(sideEffect);
+    try {
+      args.onAuthSideEffectStarted?.(sideEffect);
+    } catch {}
   };
 
   const title = 'Sign EVM Transaction';
@@ -114,20 +134,6 @@ export async function signEvmWithTouchConfirm(args: {
     });
   } catch {}
   let thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(args.keyRefsByAlgorithm?.secp256k1);
-  const emailOtpPrompt = args.emailOtpSigning
-    ? {
-        challengeId: args.emailOtpSigning.challengeId,
-        ...(args.emailOtpSigning.emailHint ? { emailHint: args.emailOtpSigning.emailHint } : {}),
-        title: 'Enter email code to sign',
-        helperText: formatEmailOtpSentText(args.emailOtpSigning.emailHint),
-        ...(args.emailOtpSigning.resend ? { onResend: args.emailOtpSigning.resend } : {}),
-      }
-    : undefined;
-  const signingAuthPromise = resolveTouchConfirmSigningAuth({
-    needsWebAuthn: !args.walletAuthPlan && !emailOtpPrompt,
-    ...(args.walletAuthPlan ? { walletAuthPlan: args.walletAuthPlan } : {}),
-    ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
-  });
   let preparedRequest = args.request;
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
@@ -185,8 +191,27 @@ export async function signEvmWithTouchConfirm(args: {
       status: 'waiting_for_user',
       interaction: { kind: 'transaction_confirmation', overlay: 'show' },
     });
-    const { touchConfirmAuthPayload } = await signingAuthPromise;
-    if (touchConfirmAuthPayload.signingAuthPlan.kind === 'warmSession') {
+    args.onConfirmationDisplayed?.();
+    const initialEmailOtpChallenge = args.emailOtpSigning
+      ? await args.emailOtpSigning.prepare()
+      : undefined;
+    const emailOtpPrompt = initialEmailOtpChallenge
+      ? {
+          challengeId: initialEmailOtpChallenge.challengeId,
+          ...(initialEmailOtpChallenge.emailHint
+            ? { emailHint: initialEmailOtpChallenge.emailHint }
+            : {}),
+          title: 'Enter email code to sign',
+          helperText: formatEmailOtpSentText(initialEmailOtpChallenge.emailHint),
+          ...(args.emailOtpSigning?.resend ? { onResend: args.emailOtpSigning.resend } : {}),
+        }
+      : undefined;
+    const { touchConfirmAuthPayload } = await resolveTouchConfirmSigningAuth({
+      needsWebAuthn: !args.signingAuthPlan && !emailOtpPrompt,
+      ...(args.signingAuthPlan ? { signingAuthPlan: args.signingAuthPlan } : {}),
+      ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
+    });
+    if (touchConfirmAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
       emitProgress({
         phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
         status: 'succeeded',
@@ -219,6 +244,7 @@ export async function signEvmWithTouchConfirm(args: {
       status: 'succeeded',
       interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
     });
+    await args.reserveWalletSigningSessionBudget?.();
     const intentPrepared = await intentPreparationTask;
     const intent = intentPrepared.intent;
 
@@ -228,6 +254,7 @@ export async function signEvmWithTouchConfirm(args: {
       if (ensuredThresholdKeyRef) return ensuredThresholdKeyRef;
       if (ensureThresholdKeyRefTask) return await ensureThresholdKeyRefTask;
       if (args.ensureThresholdEcdsaKeyRefReady) {
+        notifyAuthSideEffectStarted('threshold_reconnect');
         ensureThresholdKeyRefTask = (async () => {
           const ensured = await args.ensureThresholdEcdsaKeyRefReady!();
           thresholdEcdsaKeyRef = ensured;
@@ -314,90 +341,4 @@ export async function signEvmWithTouchConfirm(args: {
     }
     throw error;
   }
-}
-
-function resolveSigningAuthMethod(
-  walletAuthPlan: WalletAuthPlan | undefined,
-  hasEmailOtpPrompt: boolean,
-): WalletFlowAuthMethod {
-  if (hasEmailOtpPrompt || walletAuthPlan?.kind === 'emailOtpReauth') return 'email_otp';
-  if (walletAuthPlan?.kind === 'warmSession') return 'warm_session';
-  return 'passkey';
-}
-
-function mapTouchConfirmSigningProgress(
-  progress: {
-    phase: string;
-    status: 'running' | 'succeeded' | 'failed';
-    message?: string;
-    data?: unknown;
-  },
-  authMethod: WalletFlowAuthMethod,
-): Omit<CreateSigningFlowEventInput, 'flowId' | 'accountId' | 'authMethod'> | null {
-  const phase = String(progress.phase || '');
-  const failed = progress.status === 'failed';
-  if (phase === 'intent-confirmation-required') {
-    return {
-      phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
-      status: 'waiting_for_user',
-      interaction: { kind: 'transaction_confirmation', overlay: 'show' },
-      data: toEventData(progress.data),
-    };
-  }
-  if (phase === 'confirmation.complete') {
-    if (failed) {
-      return {
-        phase: SigningEventPhase.STEP_05_CONFIRMATION_CANCELLED,
-        status: 'cancelled',
-        interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
-        error: { message: progress.message || 'Transaction rejected' },
-        data: toEventData(progress.data),
-      };
-    }
-    return {
-      phase:
-        authMethod === 'email_otp'
-          ? SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED
-          : SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
-      status: 'succeeded',
-      interaction: {
-        kind: authMethod === 'email_otp' ? 'otp_input' : 'transaction_confirmation',
-        overlay: 'hide',
-      },
-      data: toEventData(progress.data),
-    };
-  }
-  if (phase === 'auth.passkey.prompt.started') {
-    return {
-      phase: SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_STARTED,
-      status: 'waiting_for_user',
-      interaction: { kind: 'passkey_assert', overlay: 'show' },
-      data: toEventData(progress.data),
-    };
-  }
-  if (phase === 'auth.passkey.prompt.succeeded') {
-    const interactionKind: WalletFlowInteractionKind = 'passkey_assert';
-    if (failed) {
-      return {
-        phase: SigningEventPhase.FAILED,
-        status: 'failed',
-        interaction: { kind: interactionKind, overlay: 'hide' },
-        error: { message: progress.message || 'Transaction signing failed' },
-        data: toEventData(progress.data),
-      };
-    }
-    return {
-      phase: SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_SUCCEEDED,
-      status: 'succeeded',
-      interaction: { kind: interactionKind, overlay: 'hide' },
-      data: toEventData(progress.data),
-    };
-  }
-  return null;
-}
-
-function toEventData(value: unknown): Record<string, unknown> | undefined {
-  if (value == null) return undefined;
-  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
-  return { value };
 }

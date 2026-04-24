@@ -168,7 +168,7 @@ export async function buildEd25519SessionPolicy(params: {
 }> {
   const sessionId = params.sessionId || generateThresholdSessionId();
   const walletSigningSessionId =
-    String(params.walletSigningSessionId || '').trim() || sessionId;
+    String(params.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,
@@ -208,7 +208,7 @@ export async function buildEcdsaSessionPolicy(params: {
 }> {
   const sessionId = params.sessionId || generateThresholdSessionId();
   const walletSigningSessionId =
-    String(params.walletSigningSessionId || '').trim() || sessionId;
+    String(params.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
   const { ttlMs, remainingUses } = clampThresholdSessionPolicy({
     ttlMs: params.ttlMs ?? DEFAULT_THRESHOLD_SESSION_POLICY.ttlMs,
     remainingUses: params.remainingUses ?? DEFAULT_THRESHOLD_SESSION_POLICY.remainingUses,

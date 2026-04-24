@@ -108,15 +108,19 @@ import {
   getEmailOtpThresholdEcdsaSessionRecordForSigning as getEmailOtpThresholdEcdsaSessionRecordForSigningValue,
   getPasskeyThresholdEcdsaKeyRefForSigning as getPasskeyThresholdEcdsaKeyRefForSigningValue,
   getPasskeyThresholdEcdsaSessionRecordForSigning as getPasskeyThresholdEcdsaSessionRecordForSigningValue,
-  getThresholdEcdsaKeyRefForSigning as getThresholdEcdsaKeyRefForSigningValue,
-  getThresholdEcdsaSessionRecordForSigning as getThresholdEcdsaSessionRecordForSigningValue,
+  getThresholdEcdsaKeyRefForLookup as getThresholdEcdsaKeyRefForLookupValue,
+  getThresholdEcdsaSessionRecordForLookup as getThresholdEcdsaSessionRecordForLookupValue,
   getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
+  listThresholdEcdsaKeyRefsForLookup as listThresholdEcdsaKeyRefsForLookupValue,
+  listThresholdEcdsaSessionRecordsForLookup as listThresholdEcdsaSessionRecordsForLookupValue,
   markThresholdEd25519EmailOtpSessionConsumedForAccount as markThresholdEd25519EmailOtpSessionConsumedForAccountValue,
   markThresholdEcdsaEmailOtpSessionConsumedForAccount as markThresholdEcdsaEmailOtpSessionConsumedForAccountValue,
+  THRESHOLD_ECDSA_SESSION_STORE_SOURCES,
   upsertStoredThresholdEcdsaSessionRecord as upsertStoredThresholdEcdsaSessionRecordValue,
   upsertThresholdEcdsaSessionFromBootstrap as upsertThresholdEcdsaSessionFromBootstrapValue,
   type ThresholdEd25519SessionRecord,
   type ThresholdEcdsaEmailOtpAuthContext,
+  type ThresholdEcdsaKeyRefLookupResult,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreSource,
 } from './api/thresholdLifecycle/thresholdSessionStore';
@@ -190,12 +194,18 @@ import {
 import { initializeRuntimeBootstrap } from './bootstrap/runtimeBootstrap';
 import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
-import { createWarmSessionManager } from './session/WarmSessionManager';
+import { createWarmSessionCapabilityReader } from './session/WarmSessionCapabilityReader';
+import { createWarmSessionStatusReader } from './session/WarmSessionStatusReader';
+import { provisionWarmEd25519Capability } from './session/WarmSessionEd25519Provisioner';
+import { provisionWarmEcdsaCapability } from './session/WarmSessionEcdsaProvisioner';
+import { assertWarmSessionEcdsaOperationAllowed } from './session/WarmSessionPostSignPolicyAdapter';
+import { claimWarmSessionPrfFirst, ensureEcdsaPrfSealPersisted } from './session/warmSessionRuntime';
 import type { WarmSessionEcdsaCapabilityState } from './session/warmSessionTypes';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
-} from './session/WarmSessionManager';
+  WarmEcdsaSigningSessionStatus,
+} from './session/WarmSessionServiceTypes';
 import {
   deriveThresholdEd25519HssClientInputsWasm,
   finalizeThresholdEcdsaHssClientRequestWasm,
@@ -412,7 +422,7 @@ export class SigningEngine {
         this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
       commitWorkerProvisionedThresholdEcdsaSessions: (args) =>
         this.commitWorkerProvisionedThresholdEcdsaSessions(args),
-      getThresholdEcdsaKeyRefForSigning: (args) => this.getThresholdEcdsaKeyRefForSigning(args),
+      getThresholdEcdsaKeyRefForLookup: (args) => this.getThresholdEcdsaKeyRefForLookup(args),
       persistEmailOtpThresholdEd25519LocalMetadata: (args) =>
         this.persistEmailOtpThresholdEd25519LocalMetadata(args),
       persistWarmSessionEd25519Capability: (args) => persistWarmSessionEd25519Capability(args),
@@ -443,9 +453,13 @@ export class SigningEngine {
         this.persistThresholdEcdsaBootstrapChainAccount(args),
       upsertThresholdEcdsaSessionFromBootstrap: (args) =>
         this.upsertThresholdEcdsaSessionFromBootstrap(args),
-      getThresholdEcdsaKeyRefForSigning: (args) => this.getThresholdEcdsaKeyRefForSigning(args),
-      getThresholdEcdsaSessionRecordForSigning: (args) =>
-        this.getThresholdEcdsaSessionRecordForSigning(args),
+      getThresholdEcdsaKeyRefForLookup: (args) => this.getThresholdEcdsaKeyRefForLookup(args),
+      listThresholdEcdsaKeyRefsForLookup: (args) =>
+        this.listThresholdEcdsaKeyRefsForLookup(args),
+      getThresholdEcdsaSessionRecordForLookup: (args) =>
+        this.getThresholdEcdsaSessionRecordForLookup(args),
+      listThresholdEcdsaSessionRecordsForLookup: (args) =>
+        this.listThresholdEcdsaSessionRecordsForLookup(args),
       getEmailOtpThresholdEcdsaKeyRefForSigning: (args) =>
         this.getEmailOtpThresholdEcdsaKeyRefForSigning(args),
       getEmailOtpThresholdEcdsaSessionRecordForSigning: (args) =>
@@ -621,6 +635,58 @@ export class SigningEngine {
       }
       throw error;
     }
+  }
+
+  private createWarmSessionCapabilityReader() {
+    return createWarmSessionCapabilityReader({
+      touchConfirm: this.touchConfirm,
+      signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
+      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
+        this.listThresholdEcdsaSessionRecordsForLookup({
+          nearAccountId,
+          chain,
+        }),
+      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
+        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
+      clearEcdsaEphemeralMaterial: (clearArgs) =>
+        this.clearEcdsaEphemeralMaterialForWarmSession(clearArgs),
+    });
+  }
+
+  private createWarmSessionStatusReader() {
+    return createWarmSessionStatusReader({
+      touchConfirm: this.touchConfirm,
+      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
+        this.listThresholdEcdsaSessionRecordsForLookup({
+          nearAccountId,
+          chain,
+        }),
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
+    });
+  }
+
+  private async clearEcdsaEphemeralMaterialForWarmSession(args: {
+    nearAccountId: AccountId;
+    chain: ThresholdEcdsaActivationChain;
+    thresholdSessionId?: string;
+    source?: ThresholdEcdsaSessionStoreSource;
+  }): Promise<void> {
+    if (!args.source) return;
+    await Promise.resolve(
+      this.clearThresholdEcdsaSigningArtifactsForLane({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+        source: args.source,
+      }),
+    );
+    this.clearThresholdEcdsaSessionRecordForLane({
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      source: args.source,
+    });
   }
 
   private async withThresholdEcdsaBootstrapQueue<T>(
@@ -944,12 +1010,17 @@ export class SigningEngine {
 
     const exportChain = args.options.chain === 'tempo' ? 'tempo' : 'evm';
     let thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
-    try {
-      thresholdEcdsaKeyRef = this.getThresholdEcdsaKeyRefForSigning({
-        nearAccountId: args.nearAccountId,
-        chain: exportChain,
-      });
-    } catch {
+    const keyRefCandidates = this.listThresholdEcdsaKeyRefsForLookup({
+      nearAccountId: args.nearAccountId,
+      chain: exportChain,
+    });
+    if (keyRefCandidates.length === 1) {
+      thresholdEcdsaKeyRef = keyRefCandidates[0].keyRef;
+    } else if (keyRefCandidates.length > 1) {
+      throw new Error(
+        `[SigningEngine] multiple threshold ECDSA ${exportChain} lanes are available; select a signing source before export`,
+      );
+    } else {
       thresholdEcdsaKeyRef = (
         await this.bootstrapEcdsaSession({
           nearAccountId: args.nearAccountId,
@@ -982,16 +1053,14 @@ export class SigningEngine {
     flowId: string;
     onEvent?: KeyExportEventCallback;
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    const currentRecord = (() => {
-      try {
-        return this.getThresholdEcdsaSessionRecordForSigning({
-          nearAccountId: args.nearAccountId,
-          chain: args.chain,
-        });
-      } catch {
-        return null;
-      }
-    })();
+    const keyRefThresholdSessionId = String(args.keyRef.thresholdSessionId || '').trim();
+    const currentRecord =
+      this.listThresholdEcdsaSessionRecordsForLookup({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+      }).find(
+        (record) => String(record.thresholdSessionId || '').trim() === keyRefThresholdSessionId,
+      ) || null;
     const exportPublicKey =
       String(args.keyRef.ecdsaHssExportArtifact?.publicKeyHex || '').trim() ||
       String(args.keyRef.ecdsaThresholdKeyId || '').trim() ||
@@ -1066,33 +1135,22 @@ export class SigningEngine {
     }
 
     try {
-      await createWarmSessionManager({
-        touchConfirm: this.touchConfirm,
-        clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain, source }) =>
-          this.clearThresholdEcdsaSigningArtifactsForLane({
-            nearAccountId,
-            chain,
-            ...(source ? { source } : {}),
-          }),
-        clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain, source }) =>
-          this.clearThresholdEcdsaSessionRecordForLane({
-            nearAccountId,
-            chain,
-            ...(source ? { source } : {}),
-          }),
-        getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain, source }) =>
-          this.getThresholdEcdsaSessionRecordForSigning({
-            nearAccountId,
-            chain,
-            ...(source ? { source } : {}),
-          }),
-      }).assertEcdsaOperationAllowed({
+      const capabilityReader = this.createWarmSessionCapabilityReader();
+      const statusReader = this.createWarmSessionStatusReader();
+      await assertWarmSessionEcdsaOperationAllowed(
+        {
+          getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
+          resolveCurrentEcdsaRecord: (recordArgs) =>
+            statusReader.resolveCurrentEcdsaRecord(recordArgs),
+        },
+        {
         nearAccountId: args.nearAccountId,
         chain: args.chain,
         thresholdSessionId: args.keyRef.thresholdSessionId,
         operationLabel: 'threshold-ecdsa key export',
         sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requirePasskey,
-      });
+        },
+      );
     } catch (error: unknown) {
       if (isEmailOtpPasskeyStepUpError(error)) {
         throw createEmailOtpKeyExportRequiresPasskeyError();
@@ -2108,13 +2166,15 @@ export class SigningEngine {
   async connectEd25519Session(
     args: Omit<ProvisionWarmEd25519CapabilityArgs, 'beforeProvision' | 'assertNotCancelled'>,
   ): Promise<ProvisionWarmEd25519CapabilityResult> {
-    const warmSessionManager = createWarmSessionManager({
-      touchConfirm: this.touchConfirm,
-      signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
-      provisionThresholdEd25519Session: async (provisionArgs) =>
-        await this.provisionThresholdEd25519Session(provisionArgs),
-    });
-    return await warmSessionManager.provisionEd25519Capability(args);
+    const capabilityReader = this.createWarmSessionCapabilityReader();
+    return await provisionWarmEd25519Capability(
+      {
+        getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
+        provisionThresholdEd25519Session: async (provisionArgs) =>
+          await this.provisionThresholdEd25519Session(provisionArgs),
+      },
+      args,
+    );
   }
 
   async bootstrapEcdsaSession(
@@ -2123,90 +2183,79 @@ export class SigningEngine {
     await this.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(args);
     const nearAccountId = toAccountId(args.nearAccountId);
     const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
-    const warmSessionManager = createWarmSessionManager({
-      touchConfirm: this.touchConfirm,
-      clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain, source }) =>
-        this.clearThresholdEcdsaSigningArtifactsForLane({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain, source }) =>
-        this.clearThresholdEcdsaSessionRecordForLane({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain, source }) =>
-        this.getThresholdEcdsaSessionRecordForSigning({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
-      getThresholdEcdsaKeyRefForSigning: (readyArgs) =>
-        this.getThresholdEcdsaKeyRefForSigning(readyArgs),
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
-        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
-      getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.getWarmSessionStatus(sessionId),
-      provisionThresholdEcdsaSession: async (provisionArgs) =>
-        await this.provisionThresholdEcdsaSession({
-          ...args,
-          nearAccountId,
-          chain,
-          ...(provisionArgs.relayerUrl ? { relayerUrl: provisionArgs.relayerUrl } : {}),
-          ...(provisionArgs.clientRootShare32
-            ? { clientRootShare32: provisionArgs.clientRootShare32 }
-            : {}),
-          ...(provisionArgs.clientRootShare32B64u
-            ? { clientRootShare32B64u: provisionArgs.clientRootShare32B64u }
-            : {}),
-          ...(provisionArgs.ecdsaThresholdKeyId
-            ? { ecdsaThresholdKeyId: provisionArgs.ecdsaThresholdKeyId }
-            : {}),
-          ...(provisionArgs.thresholdRouteAuth
-            ? { thresholdRouteAuth: provisionArgs.thresholdRouteAuth }
-            : {}),
-          ...(provisionArgs.runtimePolicyScope
-            ? { runtimePolicyScope: provisionArgs.runtimePolicyScope }
-            : {}),
-          ...(provisionArgs.runtimeScopeBootstrap
-            ? { runtimeScopeBootstrap: provisionArgs.runtimeScopeBootstrap }
-            : {}),
-          ...(provisionArgs.sessionId ? { sessionId: provisionArgs.sessionId } : {}),
-          ...(provisionArgs.walletSigningSessionId
-            ? { walletSigningSessionId: provisionArgs.walletSigningSessionId }
-            : {}),
-          ...(Array.isArray(provisionArgs.participantIds) && provisionArgs.participantIds.length > 0
-            ? { participantIds: provisionArgs.participantIds }
-            : {}),
-          ...(provisionArgs.sessionKind ? { sessionKind: provisionArgs.sessionKind } : {}),
-          ...(typeof provisionArgs.ttlMs === 'number' ? { ttlMs: provisionArgs.ttlMs } : {}),
-          ...(typeof provisionArgs.remainingUses === 'number'
-            ? { remainingUses: provisionArgs.remainingUses }
-            : {}),
-          ...(provisionArgs.smartAccount ? { smartAccount: provisionArgs.smartAccount } : {}),
-        }),
-    });
-    return await warmSessionManager.provisionEcdsaCapability({
-      nearAccountId,
-      chain,
-      source: args.source,
-      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-      participantIds: args.participantIds,
-      sessionKind: args.sessionKind,
-      sessionId: args.sessionId,
-      walletSigningSessionId: args.walletSigningSessionId,
-      thresholdRouteAuth: args.thresholdRouteAuth,
-      runtimePolicyScope: args.runtimePolicyScope,
-      runtimeScopeBootstrap: args.runtimeScopeBootstrap,
-      clientRootShare32: args.clientRootShare32,
-      clientRootShare32B64u: args.clientRootShare32B64u,
-      ttlMs: args.ttlMs,
-      remainingUses: args.remainingUses,
-      smartAccount: args.smartAccount,
-    });
+    const capabilityReader = this.createWarmSessionCapabilityReader();
+    return await provisionWarmEcdsaCapability(
+      {
+        getWarmSession: (warmSessionAccountId) =>
+          capabilityReader.getWarmSession(warmSessionAccountId),
+        listThresholdEcdsaKeyRefsForLookup: (readyArgs) =>
+          this.listThresholdEcdsaKeyRefsForLookup(readyArgs),
+        claimPrfFirstByThresholdSessionId: (claimArgs) =>
+          claimWarmSessionPrfFirst({
+            touchConfirm: this.touchConfirm,
+            thresholdSessionId: claimArgs.thresholdSessionId,
+            errorContext: claimArgs.errorContext,
+            uses: claimArgs.uses,
+          }),
+        provisionThresholdEcdsaSession: async (provisionArgs) =>
+          await this.provisionThresholdEcdsaSession({
+            ...args,
+            nearAccountId,
+            chain,
+            ...(provisionArgs.relayerUrl ? { relayerUrl: provisionArgs.relayerUrl } : {}),
+            ...(provisionArgs.clientRootShare32
+              ? { clientRootShare32: provisionArgs.clientRootShare32 }
+              : {}),
+            ...(provisionArgs.clientRootShare32B64u
+              ? { clientRootShare32B64u: provisionArgs.clientRootShare32B64u }
+              : {}),
+            ...(provisionArgs.ecdsaThresholdKeyId
+              ? { ecdsaThresholdKeyId: provisionArgs.ecdsaThresholdKeyId }
+              : {}),
+            ...(provisionArgs.thresholdRouteAuth
+              ? { thresholdRouteAuth: provisionArgs.thresholdRouteAuth }
+              : {}),
+            ...(provisionArgs.runtimePolicyScope
+              ? { runtimePolicyScope: provisionArgs.runtimePolicyScope }
+              : {}),
+            ...(provisionArgs.runtimeScopeBootstrap
+              ? { runtimeScopeBootstrap: provisionArgs.runtimeScopeBootstrap }
+              : {}),
+            ...(provisionArgs.sessionId ? { sessionId: provisionArgs.sessionId } : {}),
+            ...(provisionArgs.walletSigningSessionId
+              ? { walletSigningSessionId: provisionArgs.walletSigningSessionId }
+              : {}),
+            ...(Array.isArray(provisionArgs.participantIds) &&
+            provisionArgs.participantIds.length > 0
+              ? { participantIds: provisionArgs.participantIds }
+              : {}),
+            ...(provisionArgs.sessionKind ? { sessionKind: provisionArgs.sessionKind } : {}),
+            ...(typeof provisionArgs.ttlMs === 'number' ? { ttlMs: provisionArgs.ttlMs } : {}),
+            ...(typeof provisionArgs.remainingUses === 'number'
+              ? { remainingUses: provisionArgs.remainingUses }
+              : {}),
+            ...(provisionArgs.smartAccount ? { smartAccount: provisionArgs.smartAccount } : {}),
+          }),
+      },
+      {
+        nearAccountId,
+        chain,
+        source: args.source,
+        ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+        participantIds: args.participantIds,
+        sessionKind: args.sessionKind,
+        sessionId: args.sessionId,
+        walletSigningSessionId: args.walletSigningSessionId,
+        thresholdRouteAuth: args.thresholdRouteAuth,
+        runtimePolicyScope: args.runtimePolicyScope,
+        runtimeScopeBootstrap: args.runtimeScopeBootstrap,
+        clientRootShare32: args.clientRootShare32,
+        clientRootShare32B64u: args.clientRootShare32B64u,
+        ttlMs: args.ttlMs,
+        remainingUses: args.remainingUses,
+        smartAccount: args.smartAccount,
+      },
+    );
   }
 
   async loginWithEmailOtpEcdsaCapabilityInternal(args: {
@@ -2245,7 +2294,7 @@ export class SigningEngine {
     record: ThresholdEcdsaSessionRecord;
     authLane: EmailOtpAuthLane;
   } {
-    const record = this.getThresholdEcdsaSessionRecordForSigning({
+    const record = this.getThresholdEcdsaSessionRecordForLookup({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
       source: 'email_otp',
@@ -2490,30 +2539,9 @@ export class SigningEngine {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
   }): Promise<WarmSessionEcdsaCapabilityState> {
-    const warmSession = await createWarmSessionManager({
-      touchConfirm: this.touchConfirm,
-      clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain, source }) =>
-        this.clearThresholdEcdsaSigningArtifactsForLane({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain, source }) =>
-        this.clearThresholdEcdsaSessionRecordForLane({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain, source }) =>
-        this.getThresholdEcdsaSessionRecordForSigning({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
-      getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.getWarmSessionStatus(sessionId),
-    }).getWarmSession(args.nearAccountId);
+    const warmSession = await this.createWarmSessionCapabilityReader().getWarmSession(
+      args.nearAccountId,
+    );
     const capability = warmSession.capabilities.ecdsa[args.chain];
     if (capability.state !== 'ready') {
       throw new Error(
@@ -2543,37 +2571,15 @@ export class SigningEngine {
         bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '',
       ).trim();
       if (thresholdSessionId) {
-        const warmSessionManager = createWarmSessionManager({
+        const capabilityReader = this.createWarmSessionCapabilityReader();
+        await ensureEcdsaPrfSealPersisted({
           touchConfirm: this.touchConfirm,
-          clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain, source }) =>
-            this.clearThresholdEcdsaSigningArtifactsForLane({
-              nearAccountId,
-              chain,
-              ...(source ? { source } : {}),
-            }),
-          clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain, source }) =>
-            this.clearThresholdEcdsaSessionRecordForLane({
-              nearAccountId,
-              chain,
-              ...(source ? { source } : {}),
-            }),
-          getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain, source }) =>
-            this.getThresholdEcdsaSessionRecordForSigning({
-              nearAccountId,
-              chain,
-              ...(source ? { source } : {}),
-            }),
-          rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
-            this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
-          getEmailOtpWarmSessionStatus: (sessionId) =>
-            this.emailOtpSessions.getWarmSessionStatus(sessionId),
-          signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
-        });
-        await warmSessionManager.ensureEcdsaPrfSealPersistedByThresholdSessionId({
-          chain,
           thresholdSessionId,
           required: Boolean(args.thresholdRouteAuth),
           errorContext: 'threshold-ecdsa bootstrap seal persistence',
+          sealPersistInFlightBySessionId: new Map(),
+          resolveSealTransport: (sessionId) =>
+            capabilityReader.resolveEcdsaSealTransportByThresholdSessionId(sessionId),
         });
       }
       return bootstrap;
@@ -2732,12 +2738,12 @@ export class SigningEngine {
     );
   }
 
-  getThresholdEcdsaKeyRefForSigning(args: {
+  getThresholdEcdsaKeyRefForLookup(args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
-    source?: ThresholdEcdsaSessionStoreSource;
+    source: ThresholdEcdsaSessionStoreSource;
   }): ThresholdEcdsaSecp256k1KeyRef {
-    return getThresholdEcdsaKeyRefForSigningValue(
+    return getThresholdEcdsaKeyRefForLookupValue(
       {
         recordsByLane: this.thresholdEcdsaSessionByLane,
         exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
@@ -2746,14 +2752,42 @@ export class SigningEngine {
     );
   }
 
-  getThresholdEcdsaSessionRecordForSigning(args: {
+  getThresholdEcdsaSessionRecordForLookup(args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    source: ThresholdEcdsaSessionStoreSource;
+  }): ThresholdEcdsaSessionRecord {
+    return getThresholdEcdsaSessionRecordForLookupValue(
+      {
+        recordsByLane: this.thresholdEcdsaSessionByLane,
+      },
+      args,
+    );
+  }
+
+  listThresholdEcdsaSessionRecordsForLookup(args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
     source?: ThresholdEcdsaSessionStoreSource;
-  }): ThresholdEcdsaSessionRecord {
-    return getThresholdEcdsaSessionRecordForSigningValue(
+  }): ThresholdEcdsaSessionRecord[] {
+    return listThresholdEcdsaSessionRecordsForLookupValue(
       {
         recordsByLane: this.thresholdEcdsaSessionByLane,
+        exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
+      },
+      args,
+    );
+  }
+
+  listThresholdEcdsaKeyRefsForLookup(args: {
+    nearAccountId: AccountId | string;
+    chain: ThresholdEcdsaActivationChain;
+    source?: ThresholdEcdsaSessionStoreSource;
+  }): ThresholdEcdsaKeyRefLookupResult[] {
+    return listThresholdEcdsaKeyRefsForLookupValue(
+      {
+        recordsByLane: this.thresholdEcdsaSessionByLane,
+        exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
       },
       args,
     );
@@ -2787,7 +2821,7 @@ export class SigningEngine {
   getPasskeyThresholdEcdsaKeyRefForSigning(args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
-    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   }): ThresholdEcdsaSecp256k1KeyRef {
     return getPasskeyThresholdEcdsaKeyRefForSigningValue(
       {
@@ -2801,7 +2835,7 @@ export class SigningEngine {
   getPasskeyThresholdEcdsaSessionRecordForSigning(args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
-    source?: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
+    source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   }): ThresholdEcdsaSessionRecord {
     return getPasskeyThresholdEcdsaSessionRecordForSigningValue(
       {
@@ -2871,9 +2905,9 @@ export class SigningEngine {
   clearThresholdEcdsaSigningArtifactsForLane(args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
-    source?: ThresholdEcdsaSessionStoreSource;
+    source: ThresholdEcdsaSessionStoreSource;
   }): void {
-    const record = this.getThresholdEcdsaSessionRecordForSigning(args);
+    const record = this.getThresholdEcdsaSessionRecordForLookup(args);
     clearThresholdEcdsaClientPresignaturesForLane({
       relayerUrl: record.relayerUrl,
       ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId || '').trim(),
@@ -2913,50 +2947,49 @@ export class SigningEngine {
   getWarmThresholdEd25519SessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
-    return createWarmSessionManager({
+    return createWarmSessionStatusReader({
       touchConfirm: this.touchConfirm,
-      getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain, source }) =>
-        this.getThresholdEcdsaSessionRecordForSigning({
+      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
+        this.listThresholdEcdsaSessionRecordsForLookup({
           nearAccountId,
           chain,
-          ...(source ? { source } : {}),
         }),
       getEmailOtpWarmSessionStatus: (sessionId) =>
         this.emailOtpSessions.getWarmSessionStatus(sessionId),
-      signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
     }).getEd25519SigningSessionStatus(nearAccountId);
   }
 
   getWarmThresholdEcdsaSessionStatus(
     nearAccountId: AccountId | string,
     chain: 'tempo' | 'evm',
-  ): Promise<SigningSessionStatus | null> {
-    return createWarmSessionManager({
+    thresholdSessionId: string,
+  ): Promise<WarmEcdsaSigningSessionStatus | null> {
+    return createWarmSessionStatusReader({
       touchConfirm: this.touchConfirm,
-      clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain, source }) =>
-        this.clearThresholdEcdsaSigningArtifactsForLane({
+      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
+        this.listThresholdEcdsaSessionRecordsForLookup({
           nearAccountId,
           chain,
-          ...(source ? { source } : {}),
         }),
-      clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain, source }) =>
-        this.clearThresholdEcdsaSessionRecordForLane({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain, source }) =>
-        this.getThresholdEcdsaSessionRecordForSigning({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
-        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
       getEmailOtpWarmSessionStatus: (sessionId) =>
         this.emailOtpSessions.getWarmSessionStatus(sessionId),
-      signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
-    }).getEcdsaSigningSessionStatus({ nearAccountId, chain });
+    }).getEcdsaSigningSessionStatus({ nearAccountId, chain, thresholdSessionId });
+  }
+
+  listWarmThresholdEcdsaSessionStatuses(
+    nearAccountId: AccountId | string,
+    chain: 'tempo' | 'evm',
+  ): Promise<WarmEcdsaSigningSessionStatus[]> {
+    return createWarmSessionStatusReader({
+      touchConfirm: this.touchConfirm,
+      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
+        this.listThresholdEcdsaSessionRecordsForLookup({
+          nearAccountId,
+          chain,
+        }),
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.getWarmSessionStatus(sessionId),
+    }).listEcdsaSigningSessionStatuses({ nearAccountId, chain });
   }
 
   async scheduleThresholdEcdsaLoginPresignPrefill(args: {
@@ -2966,32 +2999,7 @@ export class SigningEngine {
     minRemainingUsesBeforePrefill?: number;
   }): Promise<ThresholdEcdsaLoginPrefillResult> {
     const chain: 'tempo' | 'evm' = args.chain === 'evm' ? 'evm' : 'tempo';
-    const warmSessionManager = createWarmSessionManager({
-      touchConfirm: this.touchConfirm,
-      clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain, source }) =>
-        this.clearThresholdEcdsaSigningArtifactsForLane({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      clearThresholdEcdsaSessionRecordForLane: ({ nearAccountId, chain, source }) =>
-        this.clearThresholdEcdsaSessionRecordForLane({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      getThresholdEcdsaSessionRecordForSigning: ({ nearAccountId, chain, source }) =>
-        this.getThresholdEcdsaSessionRecordForSigning({
-          nearAccountId,
-          chain,
-          ...(source ? { source } : {}),
-        }),
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
-        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
-      getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.getWarmSessionStatus(sessionId),
-      signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
-    });
+    const statusReader = this.createWarmSessionStatusReader();
     return await scheduleThresholdEcdsaLoginPresignPrefillValue(
       {
         getWarmThresholdEcdsaSessionStatus: async (
@@ -3013,7 +3021,7 @@ export class SigningEngine {
               status: 'not_found',
             };
           }
-          return await warmSessionManager.getEcdsaSigningSessionStatus({
+          return await statusReader.getEcdsaSigningSessionStatus({
             nearAccountId,
             chain,
             thresholdSessionId,
@@ -3202,20 +3210,22 @@ export class SigningEngine {
       sessionIds.add(ed25519SessionId);
     }
     for (const chain of ['tempo', 'evm'] as const) {
-      try {
-        const ecdsaSessionId = String(
-          getThresholdEcdsaSessionRecordForSigningValue(
-            {
-              recordsByLane: this.thresholdEcdsaSessionByLane,
-              exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
-            },
-            { nearAccountId, chain },
-          )?.thresholdSessionId || '',
-        ).trim();
-        if (ecdsaSessionId) {
-          sessionIds.add(ecdsaSessionId);
-        }
-      } catch {}
+      for (const source of THRESHOLD_ECDSA_SESSION_STORE_SOURCES) {
+        try {
+          const ecdsaSessionId = String(
+            getThresholdEcdsaSessionRecordForLookupValue(
+              {
+                recordsByLane: this.thresholdEcdsaSessionByLane,
+                exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
+              },
+              { nearAccountId, chain, source },
+            )?.thresholdSessionId || '',
+          ).trim();
+          if (ecdsaSessionId) {
+            sessionIds.add(ecdsaSessionId);
+          }
+        } catch {}
+      }
     }
     return [...sessionIds];
   }
@@ -3264,13 +3274,16 @@ export type SigningEnginePublic = Pick<
   | 'connectEd25519Session'
   | 'bootstrapEcdsaSession'
   | 'upsertThresholdEcdsaSessionFromBootstrap'
-  | 'getThresholdEcdsaKeyRefForSigning'
-  | 'getThresholdEcdsaSessionRecordForSigning'
+  | 'getThresholdEcdsaKeyRefForLookup'
+  | 'listThresholdEcdsaKeyRefsForLookup'
+  | 'getThresholdEcdsaSessionRecordForLookup'
+  | 'listThresholdEcdsaSessionRecordsForLookup'
   | 'clearThresholdEcdsaSessionRecordForAccount'
   | 'clearAllThresholdEcdsaSessionRecords'
   | 'persistThresholdEcdsaBootstrapChainAccount'
   | 'getWarmThresholdEd25519SessionStatus'
   | 'getWarmThresholdEcdsaSessionStatus'
+  | 'listWarmThresholdEcdsaSessionStatuses'
   | 'scheduleThresholdEcdsaLoginPresignPrefill'
   | 'hydrateSigningSession'
   | 'clearWarmSigningSessions'

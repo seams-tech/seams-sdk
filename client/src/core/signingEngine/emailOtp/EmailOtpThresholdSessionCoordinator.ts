@@ -33,6 +33,7 @@ import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
 import { type WalletAuthCurve } from '@/core/signingEngine/auth';
 import {
+  SigningAuthPlanKind,
   UserConfirmationType,
   type UserConfirmDecision,
   type UserConfirmRequest,
@@ -238,10 +239,10 @@ export type EmailOtpThresholdSessionCoordinatorDeps = {
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     warmCapability: WarmSessionEcdsaCapabilityState;
   }>;
-  getThresholdEcdsaKeyRefForSigning: (args: {
+  getThresholdEcdsaKeyRefForLookup: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
-    source?: ThresholdEcdsaSessionStoreSource;
+    source: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSecp256k1KeyRef | Promise<ThresholdEcdsaSecp256k1KeyRef>;
   persistEmailOtpThresholdEd25519LocalMetadata: (args: {
     nearAccountId: AccountId;
@@ -577,12 +578,12 @@ export class EmailOtpThresholdSessionCoordinator {
 
   private walletSigningSessionIdFromEcdsaBootstrap(
     bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
-    fallback?: string,
+    defaultWalletSigningSessionId?: string,
   ): string {
     return (
       String(bootstrap?.session?.walletSigningSessionId || '').trim() ||
       String(bootstrap?.thresholdEcdsaKeyRef?.walletSigningSessionId || '').trim() ||
-      String(fallback || '').trim()
+      String(defaultWalletSigningSessionId || '').trim()
     );
   }
 
@@ -763,7 +764,7 @@ export class EmailOtpThresholdSessionCoordinator {
         publicKey: args.publicKey,
         challengeB64u: challenge.challengeId,
         signingAuthPlan: {
-          kind: 'emailOtpReauth',
+          kind: SigningAuthPlanKind.EmailOtpReauth,
           method: 'email_otp',
           emailOtpPrompt: {
             challengeId: challenge.challengeId,
@@ -969,7 +970,7 @@ export class EmailOtpThresholdSessionCoordinator {
       remainingUses,
       ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
     });
-    return this.deps.getThresholdEcdsaKeyRefForSigning({
+    return this.deps.getThresholdEcdsaKeyRefForLookup({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
       source: 'email_otp',
@@ -1259,7 +1260,7 @@ export class EmailOtpThresholdSessionCoordinator {
     const session = args.bootstrap.session;
     const thresholdSessionId = String(session?.sessionId || keyRef.thresholdSessionId || '').trim();
     const walletSigningSessionId = String(
-      session?.walletSigningSessionId || keyRef.walletSigningSessionId || thresholdSessionId,
+      session?.walletSigningSessionId || keyRef.walletSigningSessionId || '',
     ).trim();
     const relayerUrl = String(args.relayerUrl || keyRef.relayerUrl || '').trim();
     const shamirPrimeB64u = String(
@@ -1552,7 +1553,7 @@ export class EmailOtpThresholdSessionCoordinator {
     let ecdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | null = null;
     for (const candidateChain of ['tempo', 'evm'] as const) {
       try {
-        const candidate = await this.deps.getThresholdEcdsaKeyRefForSigning({
+        const candidate = await this.deps.getThresholdEcdsaKeyRefForLookup({
           nearAccountId,
           chain: candidateChain,
           source: 'email_otp',
