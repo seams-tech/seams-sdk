@@ -520,7 +520,7 @@ Unit tests:
 5. [x] device-local escrow schema rejects plaintext `S`
 6. [x] server recovery-wrapped schema rejects direct `enc_s(S)` fields
 7. [x] normal login fails closed when local `enc_s(S)` is missing
-8. [ ] recovery flow stores recovered `enc_s(S)` locally after successful unwrap
+8. [x] recovery flow stores recovered `enc_s(S)` locally after successful unwrap
 9. [ ] recovery key consume/revoke state is enforced
 10. [x] static guard rejects direct enrollment escrow storage names in server persistence
 11. [x] recovery-key parser rejects short MFA-style codes and decimal-only codes

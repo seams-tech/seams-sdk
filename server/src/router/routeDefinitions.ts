@@ -1946,10 +1946,24 @@ export function createRelayRouteDefinitions(
       ['authService', 'session'],
     ),
     userSessionRoute(
+      'wallet_email_otp_recovery_challenge',
+      'POST',
+      '/wallet/email-otp/recovery-challenge',
+      'Create Email OTP recovery challenge for restoring device-local enrollment escrow',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
       'wallet_email_otp_login_verify',
       'POST',
       '/wallet/email-otp/login/verify',
       'Verify Email OTP login challenge for the current app session',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
+      'wallet_email_otp_recovery_wrapped_escrows',
+      'POST',
+      '/wallet/email-otp/recovery-wrapped-escrows',
+      'Verify recovery challenge and return recovery-wrapped Email OTP enrollment escrows',
       ['authService', 'session'],
     ),
     userSessionRoute(

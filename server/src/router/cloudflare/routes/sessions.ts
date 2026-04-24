@@ -12,7 +12,9 @@ import {
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
+  handleEmailOtpDeviceRecoveryChallengeRoute,
   handleEmailOtpLoginChallengeRoute,
+  handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpLoginVerifyRoute,
   handleEmailOtpSigningSessionVerifyRoute,
@@ -1211,10 +1213,7 @@ export async function handleWalletEmailOtpLoginChallenge(
 export async function handleWalletEmailOtpSigningSessionChallenge(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
-  if (
-    ctx.method !== 'POST' ||
-    ctx.pathname !== '/wallet/email-otp/signing-session/challenge'
-  ) {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/challenge') {
     return null;
   }
   const body = await readJson(ctx.request);
@@ -1237,6 +1236,33 @@ export async function handleWalletEmailOtpSigningSessionChallenge(
         ...(event.walletId ? { walletId: event.walletId } : {}),
       });
     },
+  });
+  return json(response.body, { status: response.status });
+}
+
+export async function handleWalletEmailOtpDeviceRecoveryChallenge(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-challenge') {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateAppSession(ctx);
+  if (!validated.ok) {
+    await maybeEmitWarmExpiredFromValidationFailure({
+      ctx,
+      validated,
+      source: 'wallet.email_otp.recovery_challenge',
+    });
+    return validated.response;
+  }
+  const response = await handleEmailOtpDeviceRecoveryChallengeRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
   });
   return json(response.body, { status: response.status });
 }
@@ -1278,10 +1304,7 @@ export async function handleWalletEmailOtpLoginVerify(
 export async function handleWalletEmailOtpSigningSessionVerify(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
-  if (
-    ctx.method !== 'POST' ||
-    ctx.pathname !== '/wallet/email-otp/signing-session/verify'
-  ) {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/verify') {
     return null;
   }
   const body = await readJson(ctx.request);
@@ -1304,6 +1327,33 @@ export async function handleWalletEmailOtpSigningSessionVerify(
         ...(event.walletId ? { walletId: event.walletId } : {}),
       });
     },
+  });
+  return json(response.body, { status: response.status });
+}
+
+export async function handleWalletEmailOtpRecoveryWrappedEscrows(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-wrapped-escrows') {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateAppSession(ctx);
+  if (!validated.ok) {
+    await maybeEmitWarmExpiredFromValidationFailure({
+      ctx,
+      validated,
+      source: 'wallet.email_otp.recovery_wrapped_escrows',
+    });
+    return validated.response;
+  }
+  const response = await handleEmailOtpRecoveryWrappedEscrowsRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
   });
   return json(response.body, { status: response.status });
 }
@@ -1344,10 +1394,7 @@ export async function handleWalletEmailOtpUnseal(
 export async function handleWalletEmailOtpSigningSessionUnseal(
   ctx: CloudflareRelayContext,
 ): Promise<Response | null> {
-  if (
-    ctx.method !== 'POST' ||
-    ctx.pathname !== '/wallet/email-otp/signing-session/unseal'
-  ) {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/unseal') {
     return null;
   }
   const body = await readJson(ctx.request);

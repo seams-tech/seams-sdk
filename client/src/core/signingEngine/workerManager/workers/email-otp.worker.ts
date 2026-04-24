@@ -64,6 +64,7 @@ import initEmailOtpRuntime, {
   init_email_otp_runtime,
 } from '../../../../../../wasm/email_otp_runtime/pkg/email_otp_runtime.js';
 import initNearSignerRecoveryWasm, {
+  email_recovery_chacha20poly1305_decrypt,
   email_recovery_chacha20poly1305_encrypt,
   init_worker as init_near_signer_recovery_worker,
 } from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
@@ -86,6 +87,7 @@ import {
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
   generateEmailOtpRecoveryKeySet,
+  unwrapEmailOtpDeviceEnrollmentEscrow,
   wrapEmailOtpDeviceEnrollmentEscrow,
   type EmailOtpRecoveryWrapMetadata,
 } from '@shared/utils/emailOtpRecoveryKey';
@@ -166,6 +168,21 @@ type EmailOtpWorkerRequest =
         walletId: string;
         challengeId: string;
         otpCode: string;
+        routePlan: EmailOtpRoutePlan;
+        otpChannel?: WalletEmailOtpChannel;
+      };
+    }
+  | {
+      id: string;
+      type: 'restoreEmailOtpDeviceEnrollmentEscrow';
+      payload: {
+        relayUrl: string;
+        walletId: string;
+        userId?: string;
+        challengeId: string;
+        otpCode: string;
+        recoveryKey: string;
+        shamirPrimeB64u: string;
         routePlan: EmailOtpRoutePlan;
         otpChannel?: WalletEmailOtpChannel;
       };
@@ -1412,6 +1429,209 @@ async function createEmailOtpRecoveryWrappedEnrollmentEscrows(args: {
   }
 }
 
+function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(
+  value: unknown,
+): EmailOtpRecoveryWrappedEnrollmentEscrowPayload | null {
+  const obj =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  if (!obj) return null;
+  const record: EmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
+    version: readString(
+      obj.version,
+      'recoveryWrappedEnrollmentEscrow.version',
+    ) as 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+    alg: readString(
+      obj.alg,
+      'recoveryWrappedEnrollmentEscrow.alg',
+    ) as typeof EMAIL_OTP_RECOVERY_WRAP_ALG,
+    secretKind: readString(
+      obj.secretKind,
+      'recoveryWrappedEnrollmentEscrow.secretKind',
+    ) as typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+    escrowKind: readString(
+      obj.escrowKind,
+      'recoveryWrappedEnrollmentEscrow.escrowKind',
+    ) as typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+    walletId: readString(obj.walletId, 'recoveryWrappedEnrollmentEscrow.walletId'),
+    userId: readString(obj.userId, 'recoveryWrappedEnrollmentEscrow.userId'),
+    authSubjectId: readString(obj.authSubjectId, 'recoveryWrappedEnrollmentEscrow.authSubjectId'),
+    authMethod: readString(
+      obj.authMethod,
+      'recoveryWrappedEnrollmentEscrow.authMethod',
+    ) as 'google_sso_email_otp',
+    enrollmentId: readString(obj.enrollmentId, 'recoveryWrappedEnrollmentEscrow.enrollmentId'),
+    enrollmentVersion: readString(
+      obj.enrollmentVersion,
+      'recoveryWrappedEnrollmentEscrow.enrollmentVersion',
+    ),
+    enrollmentSealKeyVersion: readString(
+      obj.enrollmentSealKeyVersion,
+      'recoveryWrappedEnrollmentEscrow.enrollmentSealKeyVersion',
+    ),
+    signingRootId: readString(obj.signingRootId, 'recoveryWrappedEnrollmentEscrow.signingRootId'),
+    signingRootVersion: readString(
+      obj.signingRootVersion,
+      'recoveryWrappedEnrollmentEscrow.signingRootVersion',
+    ),
+    recoveryKeyId: readString(obj.recoveryKeyId, 'recoveryWrappedEnrollmentEscrow.recoveryKeyId'),
+    recoveryKeyStatus: readString(
+      obj.recoveryKeyStatus,
+      'recoveryWrappedEnrollmentEscrow.recoveryKeyStatus',
+    ) as 'active',
+    nonceB64u: readString(obj.nonceB64u, 'recoveryWrappedEnrollmentEscrow.nonceB64u'),
+    wrappedDeviceEnrollmentEscrowB64u: readString(
+      obj.wrappedDeviceEnrollmentEscrowB64u,
+      'recoveryWrappedEnrollmentEscrow.wrappedDeviceEnrollmentEscrowB64u',
+    ),
+    aadHashB64u: readString(obj.aadHashB64u, 'recoveryWrappedEnrollmentEscrow.aadHashB64u'),
+    issuedAtMs: Math.floor(Number(obj.issuedAtMs)),
+    updatedAtMs: Math.floor(Number(obj.updatedAtMs)),
+  };
+  if (record.version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1') return null;
+  if (record.alg !== EMAIL_OTP_RECOVERY_WRAP_ALG) return null;
+  if (record.secretKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND) return null;
+  if (record.escrowKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND) return null;
+  if (record.authMethod !== 'google_sso_email_otp') return null;
+  if (record.recoveryKeyStatus !== 'active') return null;
+  if (!Number.isFinite(record.issuedAtMs) || record.issuedAtMs <= 0) return null;
+  if (!Number.isFinite(record.updatedAtMs) || record.updatedAtMs <= 0) return null;
+  return record;
+}
+
+async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
+  relayUrl: string;
+  walletId: string;
+  userId?: unknown;
+  challengeId: string;
+  otpCode: string;
+  recoveryKey: string;
+  shamirPrimeB64u: string;
+  routePlan: EmailOtpRoutePlan;
+}): Promise<{
+  walletId: string;
+  userId: string;
+  authSubjectId: string;
+  enrollmentId: string;
+  enrollmentVersion: string;
+  enrollmentSealKeyVersion: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  recoveryKeyId: string;
+}> {
+  await ensureNearSignerRecoveryWasm();
+  const relayUrl = readString(args.relayUrl, 'relayUrl');
+  const walletId = readString(args.walletId, 'walletId');
+  const requestedUserId = readOptionalString(args.userId);
+  const routeAuth = routePlanSessionAuth(args.routePlan);
+  const response = await postEmailOtpJson({
+    relayUrl,
+    route: '/wallet/email-otp/recovery-wrapped-escrows',
+    ...(routeAuth ? { sessionAuth: routeAuth } : {}),
+    body: {
+      walletId,
+      challengeId: readString(args.challengeId, 'challengeId'),
+      otpCode: readString(args.otpCode, 'otpCode'),
+      otpChannel: EMAIL_OTP_CHANNEL,
+    },
+  });
+  const rawRecords = Array.isArray(response.recoveryWrappedEnrollmentEscrows)
+    ? response.recoveryWrappedEnrollmentEscrows
+    : [];
+  const records = rawRecords
+    .map((record) => parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(record))
+    .filter((record): record is EmailOtpRecoveryWrappedEnrollmentEscrowPayload => Boolean(record));
+  if (records.length <= 0) {
+    throw new Error('No active Email OTP recovery-wrapped enrollment escrows are available');
+  }
+
+  for (const record of records) {
+    if (record.walletId !== walletId) continue;
+    if (requestedUserId && record.userId !== requestedUserId) continue;
+    const metadata: EmailOtpRecoveryWrapMetadata = {
+      walletId: record.walletId,
+      userId: record.userId,
+      authSubjectId: record.authSubjectId,
+      authMethod: record.authMethod,
+      enrollmentId: record.enrollmentId,
+      enrollmentVersion: record.enrollmentVersion,
+      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+      signingRootId: record.signingRootId,
+      signingRootVersion: record.signingRootVersion,
+      recoveryKeyId: record.recoveryKeyId,
+    };
+    const aad = encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata);
+    let encS: Uint8Array | null = null;
+    try {
+      const aadHashB64u = base64UrlEncode(await sha256Bytes(aad));
+      if (aadHashB64u !== record.aadHashB64u) continue;
+      encS = await unwrapEmailOtpDeviceEnrollmentEscrow({
+        recoveryKey: readString(args.recoveryKey, 'recoveryKey'),
+        metadata,
+        wrapped: {
+          alg: record.alg,
+          nonce12: base64UrlDecode(record.nonceB64u),
+          ciphertext: base64UrlDecode(record.wrappedDeviceEnrollmentEscrowB64u),
+        },
+        chacha20poly1305: {
+          encrypt: async () => {
+            throw new Error('Email OTP enrollment recovery restore does not encrypt');
+          },
+          decrypt: async (input) =>
+            email_recovery_chacha20poly1305_decrypt(
+              input.key32,
+              input.nonce12,
+              input.aad,
+              input.ciphertext,
+            ),
+        },
+      });
+      await writeEmailOtpDeviceEnrollmentEscrowRecord({
+        walletId: record.walletId,
+        userId: record.userId,
+        authSubjectId: record.authSubjectId,
+        enrollmentId: record.enrollmentId,
+        enrollmentVersion: record.enrollmentVersion,
+        enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+        signingRootId: record.signingRootId,
+        signingRootVersion: record.signingRootVersion,
+        shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+        encSB64u: base64UrlEncode(encS),
+        issuedAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+      });
+      const persisted = await readEmailOtpDeviceEnrollmentEscrowRecord({
+        walletId: record.walletId,
+        authSubjectId: record.authSubjectId,
+        enrollmentId: record.enrollmentId,
+      });
+      if (!persisted || persisted.encSB64u !== base64UrlEncode(encS)) {
+        throw new Error('Email OTP recovery did not persist device-local enc_s(S)');
+      }
+      return {
+        walletId: record.walletId,
+        userId: record.userId,
+        authSubjectId: record.authSubjectId,
+        enrollmentId: record.enrollmentId,
+        enrollmentVersion: record.enrollmentVersion,
+        enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+        signingRootId: record.signingRootId,
+        signingRootVersion: record.signingRootVersion,
+        recoveryKeyId: record.recoveryKeyId,
+      };
+    } catch {
+      if (encS) throw new Error('Email OTP recovery restore failed after successful unwrap');
+      continue;
+    } finally {
+      zeroizeBytes(aad);
+      zeroizeBytes(encS);
+    }
+  }
+
+  throw new Error('Email OTP recovery unwrap failed');
+}
+
 async function deriveEmailOtpEcdsaClientRootShare32InWorker(args: {
   clientSecret32: Uint8Array;
   walletId: string;
@@ -2507,6 +2727,28 @@ self.addEventListener('message', async (event: MessageEvent) => {
               ? { enrollmentSealKeyVersion: readOptionalString(response.enrollmentSealKeyVersion) }
               : {}),
           },
+        });
+        return;
+      }
+      case 'restoreEmailOtpDeviceEnrollmentEscrow': {
+        const routePlan = readRoutePlan(
+          msg.payload.routePlan,
+          'restoreEmailOtpDeviceEnrollmentEscrow',
+        );
+        const result = await restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey({
+          relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
+          walletId: readString(msg.payload.walletId, 'walletId'),
+          userId: msg.payload.userId,
+          challengeId: readString(msg.payload.challengeId, 'challengeId'),
+          otpCode: readString(msg.payload.otpCode, 'otpCode'),
+          recoveryKey: readString(msg.payload.recoveryKey, 'recoveryKey'),
+          shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan,
+        });
+        postToMainThread({
+          id: msg.id,
+          ok: true,
+          result,
         });
         return;
       }

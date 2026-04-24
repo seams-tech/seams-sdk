@@ -1779,7 +1779,7 @@ export class AuthService {
 
   private async consumeEmailOtpRateLimit(args: {
     scope: 'challenge' | 'verify' | 'grant';
-    action?: 'wallet_email_otp_login' | 'wallet_email_otp_registration';
+    action?: EmailOtpChallengeAction | typeof WALLET_EMAIL_OTP_ACTIONS.unseal;
     userId?: string;
     walletId?: string;
     orgId?: string;
@@ -4598,7 +4598,7 @@ export class AuthService {
         return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
       }
       const activeEnrollment =
-        action === WALLET_EMAIL_OTP_ACTIONS.login
+        action !== WALLET_EMAIL_OTP_ACTIONS.registration
           ? await this.readActiveEmailOtpEnrollment({ walletId, orgId })
           : null;
       if (activeEnrollment && !activeEnrollment.ok) return activeEnrollment;
@@ -4609,7 +4609,9 @@ export class AuthService {
       if (!existingAuthStateResult.ok) return existingAuthStateResult;
       const existingAuthState = existingAuthStateResult.state;
       const challengeEmail =
-        action === WALLET_EMAIL_OTP_ACTIONS.login ? existingEnrollment?.verifiedEmail || '' : email;
+        action === WALLET_EMAIL_OTP_ACTIONS.registration
+          ? email
+          : existingEnrollment?.verifiedEmail || '';
       if (!challengeEmail) {
         return {
           ok: false,
@@ -4834,6 +4836,55 @@ export class AuthService {
     };
   }
 
+  async createEmailOtpDeviceRecoveryChallenge(request: {
+    userId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    email?: unknown;
+    otpChannel?: unknown;
+    sessionHash?: unknown;
+    appSessionVersion?: unknown;
+    clientIp?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        challenge: {
+          challengeId: string;
+          issuedAtMs: number;
+          expiresAtMs: number;
+          userId: string;
+          walletId: string;
+          orgId: string;
+          otpChannel: EmailOtpChannel;
+          sessionHash: string;
+          appSessionVersion: string;
+          action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
+          operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
+        };
+        delivery: {
+          mode: 'email_provider' | 'log' | 'memory';
+          emailHint: string;
+        };
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    const result = await this.createEmailOtpChallengeWithAction({
+      ...request,
+      action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    if (!result.ok) return result;
+    return {
+      ok: true,
+      challenge: {
+        ...result.challenge,
+        action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
+        operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+      },
+      delivery: result.delivery,
+    };
+  }
+
   private async verifyEmailOtpChallengeCode(request: {
     userId?: unknown;
     walletId?: unknown;
@@ -4903,7 +4954,7 @@ export class AuthService {
       if (!rateLimit.ok) return rateLimit;
 
       const activeEnrollment =
-        expectedAction === WALLET_EMAIL_OTP_ACTIONS.login
+        expectedAction !== WALLET_EMAIL_OTP_ACTIONS.registration
           ? await this.readActiveEmailOtpEnrollment({ walletId, orgId })
           : null;
       if (activeEnrollment && !activeEnrollment.ok) return activeEnrollment;
@@ -5155,6 +5206,84 @@ export class AuthService {
       loginGrant: grantToken,
       grantExpiresAtMs,
       otpChannel: verified.otpChannel,
+    };
+  }
+
+  async verifyEmailOtpDeviceRecoveryChallenge(request: {
+    userId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    challengeId?: unknown;
+    otpCode?: unknown;
+    otpChannel?: unknown;
+    sessionHash?: unknown;
+    appSessionVersion?: unknown;
+    clientIp?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        challengeId: string;
+        otpChannel: EmailOtpChannel;
+        recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
+        enrollment: {
+          walletId: string;
+          providerUserId: string;
+          orgId: string;
+          enrollmentSealKeyVersion: string;
+          recoveryWrappedEnrollmentEscrowCount: number;
+        };
+      }
+    | {
+        ok: false;
+        code: string;
+        message: string;
+        attemptsRemaining?: number;
+        lockedUntilMs?: number;
+      }
+  > {
+    const verified = await this.verifyEmailOtpChallengeCode({
+      ...request,
+      expectedAction: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
+      expectedOperation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    if (!verified.ok) return verified;
+    const enrollment = await this.readActiveEmailOtpEnrollment({
+      walletId: verified.walletId,
+      orgId: verified.orgId,
+      providerUserId: verified.userId,
+    });
+    if (!enrollment.ok) return enrollment;
+    const recoveryWrappedEnrollmentEscrows =
+      await this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore().listActiveByWallet(
+        verified.walletId,
+      );
+    const scopedRecoveryWrappedEnrollmentEscrows = recoveryWrappedEnrollmentEscrows.filter(
+      (record) =>
+        record.walletId === enrollment.enrollment.walletId &&
+        record.userId === enrollment.enrollment.providerUserId &&
+        record.authSubjectId === enrollment.enrollment.providerUserId &&
+        record.enrollmentSealKeyVersion === enrollment.enrollment.enrollmentSealKeyVersion,
+    );
+    if (scopedRecoveryWrappedEnrollmentEscrows.length <= 0) {
+      return {
+        ok: false,
+        code: 'recovery_wrapped_escrows_missing',
+        message: 'No active Email OTP recovery-wrapped enrollment escrows are available',
+      };
+    }
+    return {
+      ok: true,
+      challengeId: verified.challengeId,
+      otpChannel: verified.otpChannel,
+      recoveryWrappedEnrollmentEscrows: scopedRecoveryWrappedEnrollmentEscrows,
+      enrollment: {
+        walletId: enrollment.enrollment.walletId,
+        providerUserId: enrollment.enrollment.providerUserId,
+        orgId: enrollment.enrollment.orgId,
+        enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+        recoveryWrappedEnrollmentEscrowCount:
+          enrollment.enrollment.recoveryWrappedEnrollmentEscrowCount,
+      },
     };
   }
 

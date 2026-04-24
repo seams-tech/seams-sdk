@@ -197,6 +197,18 @@ export type EmailOtpEnrollmentResult = {
   unlockKeyVersion: string;
 };
 
+export type EmailOtpDeviceEnrollmentRestoreResult = {
+  walletId: string;
+  userId: string;
+  authSubjectId: string;
+  enrollmentId: string;
+  enrollmentVersion: string;
+  enrollmentSealKeyVersion: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  recoveryKeyId: string;
+};
+
 export type GoogleEmailOtpSessionExchangeResult = {
   jwt?: string;
   session: {

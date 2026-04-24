@@ -59,6 +59,18 @@ export type EmailOtpEnrollmentResult = {
   unlockKeyVersion: string;
 };
 
+export type EmailOtpDeviceEnrollmentRestoreResult = {
+  walletId: string;
+  userId: string;
+  authSubjectId: string;
+  enrollmentId: string;
+  enrollmentVersion: string;
+  enrollmentSealKeyVersion: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  recoveryKeyId: string;
+};
+
 export type GoogleEmailOtpSessionExchangeResult = {
   jwt?: string;
   session: {
@@ -301,6 +313,45 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
   };
 }
 
+export async function requestEmailOtpDeviceRecoveryChallenge(args: {
+  relayUrl: string;
+  walletId: string;
+  appSessionJwt?: string;
+  otpChannel?: WalletEmailOtpChannel;
+  fetchImpl?: FetchLike;
+}): Promise<{
+  challengeId: string;
+  otpChannel: WalletEmailOtpChannel;
+  emailHint?: string;
+  expiresAtMs?: number;
+}> {
+  const response = await postJson({
+    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/recovery-challenge'),
+    appSessionJwt: args.appSessionJwt,
+    fetchImpl: args.fetchImpl,
+    body: {
+      walletId: readString(args.walletId, 'walletId'),
+      otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
+    },
+  });
+  const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/recovery-challenge');
+  const delivery =
+    response.delivery == null
+      ? {}
+      : requireObjectJson(response.delivery, 'wallet/email-otp/recovery-challenge delivery');
+  const expiresAtMs = Number(challenge.expiresAtMs);
+  const emailHint = readOptionalString(delivery.emailHint);
+  return {
+    challengeId: readString(
+      challenge.challengeId,
+      'wallet/email-otp/recovery-challenge challengeId',
+    ),
+    otpChannel: EMAIL_OTP_CHANNEL,
+    ...(emailHint ? { emailHint } : {}),
+    ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
+  };
+}
+
 export async function verifyEmailOtpCode(args: {
   relayUrl: string;
   walletId: string;
@@ -472,4 +523,39 @@ export async function enrollEmailOtpWallet(args: {
   } finally {
     zeroizeBytes(workerClientSecret32);
   }
+}
+
+export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {
+  relayUrl: string;
+  walletId: string;
+  userId?: string;
+  challengeId: string;
+  otpCode: string;
+  recoveryKey: string;
+  shamirPrimeB64u: string;
+  workerCtx: WorkerOperationContext;
+  appSessionJwt?: string;
+  otpChannel?: WalletEmailOtpChannel;
+}): Promise<EmailOtpDeviceEnrollmentRestoreResult> {
+  const workerCtx = requireWorkerCtx(args.workerCtx);
+  return await workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'restoreEmailOtpDeviceEnrollmentEscrow',
+      payload: {
+        relayUrl: readString(args.relayUrl, 'relayUrl'),
+        walletId: readString(args.walletId, 'walletId'),
+        ...(readOptionalString(args.userId) ? { userId: readOptionalString(args.userId) } : {}),
+        challengeId: readString(args.challengeId, 'challengeId'),
+        otpCode: readString(args.otpCode, 'otpCode'),
+        recoveryKey: readString(args.recoveryKey, 'recoveryKey'),
+        shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+        routePlan: buildWorkerEmailOtpRoutePlan({
+          routeFamily: 'login',
+          appSessionJwt: args.appSessionJwt,
+        }),
+        otpChannel: EMAIL_OTP_CHANNEL,
+      },
+    },
+  });
 }

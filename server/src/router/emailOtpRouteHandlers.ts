@@ -397,6 +397,122 @@ export async function handleEmailOtpLoginChallengeRoute(input: {
   };
 }
 
+export async function handleEmailOtpDeviceRecoveryChallengeRoute(input: {
+  body: unknown;
+  claims: Record<string, unknown>;
+  userId: string;
+  appSessionVersion: string;
+  clientIp?: string;
+  service: AuthService;
+}): Promise<EmailOtpRouteResponse> {
+  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
+  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
+
+  const body = bodyValidation.body;
+  const walletValidation = validateEmailOtpWalletId({
+    body,
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!walletValidation.ok) return { status: walletValidation.status, body: walletValidation.body };
+  const walletId = walletValidation.walletId;
+
+  const channelValidation = validateEmailOtpChannel(body);
+  if (!channelValidation.ok)
+    return { status: channelValidation.status, body: channelValidation.body };
+
+  const email = await readServerKnownEmailOtpAddress({
+    service: input.service,
+    walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    providerUserId: input.userId,
+  });
+  if (!email.ok) return { status: email.status, body: email.body };
+
+  const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
+  const result = await input.service.createEmailOtpDeviceRecoveryChallenge({
+    userId: input.userId,
+    walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    email: email.email,
+    otpChannel: EMAIL_OTP_CHANNEL,
+    sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    clientIp: input.clientIp,
+  });
+
+  return {
+    status: emailOtpResultStatus(result),
+    body: emailOtpChallengeResponseBody(result),
+  };
+}
+
+export async function handleEmailOtpRecoveryWrappedEscrowsRoute(input: {
+  body: unknown;
+  claims: Record<string, unknown>;
+  userId: string;
+  appSessionVersion: string;
+  clientIp?: string;
+  service: AuthService;
+}): Promise<EmailOtpRouteResponse> {
+  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
+  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
+
+  const body = bodyValidation.body;
+  const walletValidation = validateEmailOtpWalletId({
+    body,
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!walletValidation.ok) return { status: walletValidation.status, body: walletValidation.body };
+  const walletId = walletValidation.walletId;
+
+  const challengeIdValidation = validateEmailOtpRequiredString(body, 'challengeId');
+  if (!challengeIdValidation.ok) {
+    return { status: challengeIdValidation.status, body: challengeIdValidation.body };
+  }
+  const challengeId = challengeIdValidation.value;
+
+  const otpCodeValidation = validateEmailOtpRequiredString(body, 'otpCode');
+  if (!otpCodeValidation.ok) {
+    return { status: otpCodeValidation.status, body: otpCodeValidation.body };
+  }
+  const otpCode = otpCodeValidation.value;
+
+  const channelValidation = validateEmailOtpChannel(body);
+  if (!channelValidation.ok)
+    return { status: channelValidation.status, body: channelValidation.body };
+  const otpChannel = channelValidation.otpChannel;
+
+  const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
+  const result = await input.service.verifyEmailOtpDeviceRecoveryChallenge({
+    userId: input.userId,
+    walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    challengeId,
+    otpCode,
+    otpChannel,
+    sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    clientIp: input.clientIp,
+  });
+
+  if (!result.ok) {
+    return { status: emailOtpStatusCode(result.code), body: result };
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      challengeId: result.challengeId,
+      otpChannel: result.otpChannel,
+      enrollment: result.enrollment,
+      recoveryWrappedEnrollmentEscrows: result.recoveryWrappedEnrollmentEscrows,
+    },
+  };
+}
+
 function validateSigningSessionWalletId(input: {
   body: Record<string, unknown>;
   userId: string;

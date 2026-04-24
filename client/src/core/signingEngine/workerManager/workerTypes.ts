@@ -222,6 +222,30 @@ export interface EmailOtpWorkerOperationMap {
       enrollmentSealKeyVersion?: string;
     };
   };
+  restoreEmailOtpDeviceEnrollmentEscrow: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId?: string;
+      challengeId: string;
+      otpCode: string;
+      recoveryKey: string;
+      shamirPrimeB64u: string;
+      routePlan: EmailOtpRoutePlan;
+      otpChannel?: WalletEmailOtpChannel;
+    };
+    result: {
+      walletId: string;
+      userId: string;
+      authSubjectId: string;
+      enrollmentId: string;
+      enrollmentVersion: string;
+      enrollmentSealKeyVersion: string;
+      signingRootId: string;
+      signingRootVersion: string;
+      recoveryKeyId: string;
+    };
+  };
   loginWithEmailOtpWallet: {
     payload: {
       relayUrl: string;

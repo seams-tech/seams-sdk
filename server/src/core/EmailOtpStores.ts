@@ -25,7 +25,8 @@ export type EmailOtpChannel = WalletEmailOtpChannel;
 export type EmailOtpGrantAction = typeof WALLET_EMAIL_OTP_ACTIONS.unseal;
 export type EmailOtpChallengeAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
-  | typeof WALLET_EMAIL_OTP_ACTIONS.registration;
+  | typeof WALLET_EMAIL_OTP_ACTIONS.registration
+  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
 export type EmailOtpChallengeOperation = WalletEmailOtpOperation;
 export type EmailOtpLoginChallengeOperation = WalletEmailOtpLoginOperation;
 
@@ -331,7 +332,11 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   if (version !== 'email_otp_challenge_v1') return null;
   if (!challengeId || !userId || !walletId || !email || !otpCode || !sessionHash) return null;
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
-  if (action !== WALLET_EMAIL_OTP_ACTIONS.login && action !== WALLET_EMAIL_OTP_ACTIONS.registration)
+  if (
+    action !== WALLET_EMAIL_OTP_ACTIONS.login &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.registration &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+  )
     return null;
   const operation: EmailOtpChallengeOperation =
     operationRaw && isWalletEmailOtpLoginOperation(operationRaw)

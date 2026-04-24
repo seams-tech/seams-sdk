@@ -12,7 +12,9 @@ import {
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
+  handleEmailOtpDeviceRecoveryChallengeRoute,
   handleEmailOtpLoginChallengeRoute,
+  handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpLoginVerifyRoute,
   handleEmailOtpSigningSessionVerifyRoute,
@@ -533,8 +535,7 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         oidcProvider = String((exchange as any).provider || '')
           .trim()
           .toLowerCase();
-        const oidcAccountModeRaw =
-          (exchange as any).account_mode ?? (exchange as any).accountMode;
+        const oidcAccountModeRaw = (exchange as any).account_mode ?? (exchange as any).accountMode;
         const hasOidcAccountMode =
           Object.prototype.hasOwnProperty.call(exchange as any, 'account_mode') ||
           Object.prototype.hasOwnProperty.call(exchange as any, 'accountMode');
@@ -1179,6 +1180,33 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
     }
   });
 
+  router.post('/wallet/email-otp/recovery-challenge', async (req: any, res: any) => {
+    try {
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.recovery_challenge',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const response = await handleEmailOtpDeviceRecoveryChallengeRoute({
+        body: req?.body,
+        claims: validated.claims,
+        userId: validated.userId,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+        service: ctx.service,
+      });
+      res.status(response.status).json(response.body);
+    } catch (e: any) {
+      res.status(500).json(emailOtpInternalErrorBody(e));
+    }
+  });
+
   router.post('/wallet/email-otp/signing-session/challenge', async (req: any, res: any) => {
     try {
       const validated = await readAndValidateEmailOtpSigningSession(req.headers || {});
@@ -1241,6 +1269,33 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
             ...(event.walletId ? { walletId: event.walletId } : {}),
           });
         },
+      });
+      res.status(response.status).json(response.body);
+    } catch (e: any) {
+      res.status(500).json(emailOtpInternalErrorBody(e));
+    }
+  });
+
+  router.post('/wallet/email-otp/recovery-wrapped-escrows', async (req: any, res: any) => {
+    try {
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.recovery_wrapped_escrows',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const response = await handleEmailOtpRecoveryWrappedEscrowsRoute({
+        body: req?.body,
+        claims: validated.claims,
+        userId: validated.userId,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+        service: ctx.service,
       });
       res.status(response.status).json(response.body);
     } catch (e: any) {

@@ -550,6 +550,115 @@ test.describe('Email OTP routes', () => {
     expect(challenge.json?.code).toBe('not_found');
   });
 
+  test('Express: recovery challenge returns only recovery-wrapped enrollment escrows after OTP', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const router = createRelayRouter(service, {
+      session: makeAppSessionAdapter(
+        (appVersion as { appSessionVersion: string }).appSessionVersion,
+      ),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          otpChannel: 'email_otp',
+        }),
+      });
+      expect(challenge.status).toBe(200);
+      expect(challenge.json?.challenge?.action).toBe('wallet_email_otp_device_recovery');
+      const challengeId = String(challenge.json?.challenge?.challengeId || '');
+      const outbox = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/dev/otp-outbox?challengeId=${encodeURIComponent(challengeId)}&walletId=alice.testnet`,
+        {
+          method: 'GET',
+          headers: { Authorization: 'Bearer app-session' },
+        },
+      );
+      expect(outbox.status).toBe(200);
+
+      const recovered = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/recovery-wrapped-escrows`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            challengeId,
+            otpChannel: 'email_otp',
+            otpCode: outbox.json?.otpCode,
+          }),
+        },
+      );
+      expect(recovered.status).toBe(200);
+      const records = recovered.json?.recoveryWrappedEnrollmentEscrows;
+      expect(Array.isArray(records) && records.length).toBe(10);
+      expect(JSON.stringify(records)).not.toContain('encSB64u');
+      expect(records?.[0]).toMatchObject({
+        version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+        walletId: 'alice.testnet',
+        recoveryKeyStatus: 'active',
+      });
+      expect(typeof records?.[0]?.nonceB64u).toBe('string');
+      expect(typeof records?.[0]?.wrappedDeviceEnrollmentEscrowB64u).toBe('string');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('Cloudflare: recovery challenge returns only recovery-wrapped enrollment escrows after OTP', async () => {
+    const service = makeService();
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const handler = createCloudflareRouter(service, {
+      session: makeAppSessionAdapter(
+        (appVersion as { appSessionVersion: string }).appSessionVersion,
+      ),
+    });
+    const cf = makeCfCtx();
+    await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
+    const challenge = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/email-otp/recovery-challenge',
+      headers: { Authorization: 'Bearer app-session' },
+      body: {
+        walletId: 'alice.testnet',
+        otpChannel: 'email_otp',
+      },
+      ctx: cf.ctx,
+    });
+    expect(challenge.status).toBe(200);
+    const challengeId = String(challenge.json?.challenge?.challengeId || '');
+    const outbox = await callCf(handler, {
+      method: 'GET',
+      path: `/wallet/email-otp/dev/otp-outbox?challengeId=${encodeURIComponent(challengeId)}&walletId=alice.testnet`,
+      headers: { Authorization: 'Bearer app-session' },
+      ctx: cf.ctx,
+    });
+    expect(outbox.status).toBe(200);
+    const recovered = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/email-otp/recovery-wrapped-escrows',
+      headers: { Authorization: 'Bearer app-session' },
+      body: {
+        walletId: 'alice.testnet',
+        challengeId,
+        otpChannel: 'email_otp',
+        otpCode: outbox.json?.otpCode,
+      },
+      ctx: cf.ctx,
+    });
+    expect(recovered.status).toBe(200);
+    const records = recovered.json?.recoveryWrappedEnrollmentEscrows;
+    expect(Array.isArray(records) && records.length).toBe(10);
+    expect(JSON.stringify(records)).not.toContain('encSB64u');
+  });
+
   test('Express: export_key Email OTP challenge and verify use route policy and emit export audit events', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });

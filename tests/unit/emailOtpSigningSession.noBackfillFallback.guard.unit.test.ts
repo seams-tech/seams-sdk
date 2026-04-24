@@ -134,4 +134,22 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
     expect(loginVerifyResponse).not.toContain('enrollmentEscrowCiphertextB64u');
     expect(loginVerifyResponse).toContain('enrollmentSealKeyVersion');
   });
+
+  test('Email OTP recovery restore unwraps C_i and persists device-local enc_s(S)', () => {
+    const workerSource = readFileSync(
+      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      'utf8',
+    );
+    const restoreSlice = workerSource.slice(
+      workerSource.indexOf('async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey'),
+      workerSource.indexOf('async function deriveEmailOtpEcdsaClientRootShare32InWorker'),
+    );
+
+    expect(restoreSlice).toContain("route: '/wallet/email-otp/recovery-wrapped-escrows'");
+    expect(restoreSlice).toContain('unwrapEmailOtpDeviceEnrollmentEscrow');
+    expect(restoreSlice).toContain('writeEmailOtpDeviceEnrollmentEscrowRecord');
+    expect(restoreSlice).toContain('readEmailOtpDeviceEnrollmentEscrowRecord');
+    expect(restoreSlice).toContain('Email OTP recovery did not persist device-local enc_s(S)');
+    expect(restoreSlice).not.toContain('loginGrant');
+  });
 });
