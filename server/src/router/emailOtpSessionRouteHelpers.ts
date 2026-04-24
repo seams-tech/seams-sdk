@@ -375,6 +375,7 @@ export function emailOtpLoginVerifyResponseBody(args: {
   enrollment: {
     enrollment: {
       enrollmentEscrowCiphertextB64u: unknown;
+      enrollmentSealKeyVersion?: unknown;
     };
   };
 }): Record<string, unknown> {
@@ -385,5 +386,6 @@ export function emailOtpLoginVerifyResponseBody(args: {
     grantExpiresAt: new Date(args.result.grantExpiresAtMs).toISOString(),
     otpChannel: args.result.otpChannel,
     enrollmentEscrowCiphertextB64u: args.enrollment.enrollment.enrollmentEscrowCiphertextB64u,
+    enrollmentSealKeyVersion: args.enrollment.enrollment.enrollmentSealKeyVersion,
   };
 }

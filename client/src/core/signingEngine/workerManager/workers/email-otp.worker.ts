@@ -72,8 +72,19 @@ import {
   normalizeEmailOtpRoutePlan,
   type EmailOtpRoutePlan,
 } from '../../emailOtp/authLane';
+import {
+  readEmailOtpDeviceEnrollmentEscrowRecord,
+  writeEmailOtpDeviceEnrollmentEscrowRecord,
+} from '../../api/session/emailOtpDeviceEnrollmentEscrowStore';
 
 const EMAIL_OTP_UNLOCK_KEY_VERSION = 'email-otp-unlock-v1';
+const EMAIL_OTP_DEVICE_ENROLLMENT_VERSION = '1';
+const EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_ID = 'email_otp_default_signing_root';
+const EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION = 'default';
+
+function emailOtpDeviceEnrollmentId(walletId: string, authSubjectId: string): string {
+  return `email-otp-device-enrollment-v1:${walletId}:${authSubjectId}`;
+}
 
 type EmailOtpWorkerRequest =
   | {
@@ -1518,6 +1529,18 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
         thresholdEcdsaClientVerifyingShareB64u,
       },
     });
+    await writeEmailOtpDeviceEnrollmentEscrowRecord({
+      walletId,
+      userId,
+      authSubjectId: userId,
+      enrollmentId: emailOtpDeviceEnrollmentId(walletId, userId),
+      enrollmentVersion: EMAIL_OTP_DEVICE_ENROLLMENT_VERSION,
+      enrollmentSealKeyVersion,
+      signingRootId: EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_ID,
+      signingRootVersion: EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION,
+      encSB64u: enrollmentEscrowCiphertextB64u,
+      shamirPrimeB64u,
+    });
     args.onProgress?.('otp.verify.succeeded');
     args.onProgress?.('signer.email_otp.enroll.started');
     args.onProgress?.('signer.email_otp.enroll.succeeded');
@@ -1622,13 +1645,25 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
     });
     const loginGrant = readString(verified.loginGrant, 'loginGrant');
     args.onProgress?.('otp.verify.succeeded');
-    const enrollmentEscrowCiphertextB64u = readString(
-      verified.enrollmentEscrowCiphertextB64u,
-      'enrollmentEscrowCiphertextB64u',
-    );
+    const userId = String(args.userId || walletId).trim() || walletId;
+    const localEnrollmentEscrow = await readEmailOtpDeviceEnrollmentEscrowRecord({
+      walletId,
+      authSubjectId: userId,
+      enrollmentId: emailOtpDeviceEnrollmentId(walletId, userId),
+    });
+    if (!localEnrollmentEscrow) {
+      throw new Error('Email OTP device-local enc_s(S) is missing; recovery is required');
+    }
+    const verifiedEnrollmentSealKeyVersion = readOptionalString(verified.enrollmentSealKeyVersion);
+    if (
+      verifiedEnrollmentSealKeyVersion &&
+      localEnrollmentEscrow.enrollmentSealKeyVersion !== verifiedEnrollmentSealKeyVersion
+    ) {
+      throw new Error('Email OTP device-local enc_s(S) metadata mismatch; recovery is required');
+    }
     const wrappedCiphertext = readString(
       await runtime.addClientSealWithKeyHandle({
-        ciphertextB64u: enrollmentEscrowCiphertextB64u,
+        ciphertextB64u: localEnrollmentEscrow.encSB64u,
         keyHandle,
       }),
       'wrappedCiphertext',
@@ -1659,7 +1694,7 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
     const thresholdEd25519PrfFirstB64u = await deriveEmailOtpEd25519PrfFirstB64u({
       clientSecret32,
       walletId,
-      userId: String(args.userId || walletId).trim() || walletId,
+      userId,
     });
     const returnedClientSecret32 =
       args.returnClientSecret32 && clientSecret32 ? clientSecret32 : null;

@@ -60,4 +60,20 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
     );
     expect(FORBIDDEN_COMPAT_TERMS.test(emailOtpConfigAndSealSlice)).toBe(false);
   });
+
+  test('normal Email OTP login requires device-local enc_s(S)', () => {
+    const workerSource = readFileSync(
+      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      'utf8',
+    );
+    const loginSlice = workerSource.slice(
+      workerSource.indexOf('async function loginWithEmailOtpAndRecoverClientRootShare'),
+      workerSource.indexOf('async function loginWithEmailOtpAndBootstrapEcdsaSession'),
+    );
+
+    expect(loginSlice).toContain('readEmailOtpDeviceEnrollmentEscrowRecord');
+    expect(loginSlice).toContain('Email OTP device-local enc_s(S) is missing');
+    expect(loginSlice).toContain('localEnrollmentEscrow.encSB64u');
+    expect(loginSlice).not.toContain('verified.enrollmentEscrowCiphertextB64u');
+  });
 });
