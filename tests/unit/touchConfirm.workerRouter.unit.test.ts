@@ -5,8 +5,7 @@ const IMPORT_PATHS = {
   touchConfirmManager: '/sdk/esm/core/signingEngine/touchConfirm/TouchConfirmManager.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
-  signingSessionSealedStore:
-    '/sdk/esm/core/signingEngine/api/session/signingSessionSealedStore.js',
+  signingSessionSealedStore: '/sdk/esm/core/signingEngine/api/session/signingSessionSealedStore.js',
 } as const;
 
 test.describe('UserConfirm worker router', () => {
@@ -542,10 +541,7 @@ test.describe('UserConfirm worker router', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.postedTypes).toEqual([
-      'WARM_SESSION_SEAL_AND_PERSIST',
-      'WARM_SESSION_REHYDRATE',
-    ]);
+    expect(result.postedTypes).toEqual(['WARM_SESSION_SEAL_AND_PERSIST', 'WARM_SESSION_REHYDRATE']);
     expect(result.sealResult).toEqual({
       ok: true,
       sealedSecretB64u: 'sealed-b64u',
@@ -615,6 +611,7 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.clearAllSigningSessionSealedRecords();
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-rehydrate',
+          walletSigningSessionId: 'wallet-session-rehydrate',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v2',
           expiresAtMs: Date.now() + 60_000,
@@ -626,6 +623,7 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).attachWorkerRouter(fakeWorker);
         (manager as any).resolveSealTransportInput = () => ({
           relayerUrl: 'https://relay.example',
+          walletSigningSessionId: 'wallet-session-rehydrate',
           thresholdSessionJwt: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
         });
@@ -722,6 +720,7 @@ test.describe('UserConfirm worker router', () => {
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'session-from-record',
+          walletSigningSessionId: 'wallet-session-from-record',
           thresholdSessionJwt: 'jwt:session-from-record',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 5,
@@ -803,7 +802,8 @@ test.describe('UserConfirm worker router', () => {
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
           sealPayload: postedMessages[1]?.payload || null,
-          persistedRecord: await sealedStoreMod.readSigningSessionSealedRecord('session-from-record'),
+          persistedRecord:
+            await sealedStoreMod.readSigningSessionSealedRecord('session-from-record'),
         };
       },
       { paths: IMPORT_PATHS },
@@ -817,6 +817,7 @@ test.describe('UserConfirm worker router', () => {
       sessionId: 'session-from-record',
       transport: {
         relayerUrl: 'https://relay.example',
+        walletSigningSessionId: 'wallet-session-from-record',
         thresholdSessionJwt: 'jwt:session-from-record',
         keyVersion: 'kek-v-ed25519',
         shamirPrimeB64u: 'AQAB',
@@ -863,6 +864,7 @@ test.describe('UserConfirm worker router', () => {
               participantIds: [3, 7],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-ecdsa-record',
+              walletSigningSessionId: 'wallet-session-ecdsa-record',
               thresholdSessionJwt: 'jwt:session-ecdsa-record',
               ethereumAddress: '0x1111111111111111111111111111111111111111',
               thresholdEcdsaPublicKeyB64u: 'pub-ecdsa-b64u',
@@ -881,6 +883,7 @@ test.describe('UserConfirm worker router', () => {
             session: {
               ok: true,
               sessionId: 'session-ecdsa-record',
+              walletSigningSessionId: 'wallet-session-ecdsa-record',
               jwt: 'jwt:session-ecdsa-record',
               expiresAtMs: Date.now() + 60_000,
               remainingUses: 4,
@@ -975,7 +978,8 @@ test.describe('UserConfirm worker router', () => {
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
           sealPayload: postedMessages[1]?.payload || null,
-          persistedRecord: await sealedStoreMod.readSigningSessionSealedRecord('session-ecdsa-record'),
+          persistedRecord:
+            await sealedStoreMod.readSigningSessionSealedRecord('session-ecdsa-record'),
         };
       },
       { paths: IMPORT_PATHS },
@@ -989,6 +993,7 @@ test.describe('UserConfirm worker router', () => {
       sessionId: 'session-ecdsa-record',
       transport: {
         relayerUrl: 'https://relay-ecdsa.example',
+        walletSigningSessionId: 'wallet-session-ecdsa-record',
         thresholdSessionJwt: 'jwt:session-ecdsa-record',
         keyVersion: 'kek-v-ecdsa',
         shamirPrimeB64u: 'AQID',
@@ -1060,6 +1065,7 @@ test.describe('UserConfirm worker router', () => {
           sessionId: 'session-single-flight-apply',
           transport: {
             relayerUrl: 'https://relay.example',
+            walletSigningSessionId: 'wallet-single-flight-apply',
             thresholdSessionJwt: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
@@ -1069,6 +1075,7 @@ test.describe('UserConfirm worker router', () => {
           sessionId: 'session-single-flight-apply',
           transport: {
             relayerUrl: 'https://relay.example',
+            walletSigningSessionId: 'wallet-single-flight-apply',
             thresholdSessionJwt: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
@@ -1184,6 +1191,7 @@ test.describe('UserConfirm worker router', () => {
           sessionId: 'session-cross-manager-apply',
           transport: {
             relayerUrl: 'https://relay.example',
+            walletSigningSessionId: 'wallet-cross-manager-apply',
             thresholdSessionJwt: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
@@ -1193,6 +1201,7 @@ test.describe('UserConfirm worker router', () => {
           sessionId: 'session-cross-manager-apply',
           transport: {
             relayerUrl: 'https://relay.example',
+            walletSigningSessionId: 'wallet-cross-manager-apply',
             thresholdSessionJwt: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
@@ -1286,6 +1295,7 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.clearAllSigningSessionSealedRecords();
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-single-flight-remove',
+          walletSigningSessionId: 'wallet-session-single-flight-remove',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v1',
           expiresAtMs: Date.now() + 60_000,
@@ -1297,6 +1307,7 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).attachWorkerRouter(fakeWorker);
         (manager as any).resolveSealTransportInput = () => ({
           relayerUrl: 'https://relay.example',
+          walletSigningSessionId: 'wallet-session-single-flight-remove',
           thresholdSessionJwt: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
           keyVersion: 'kek-v1',
@@ -1449,6 +1460,7 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.clearAllSigningSessionSealedRecords();
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-cross-manager-remove',
+          walletSigningSessionId: 'wallet-session-cross-manager-remove',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v1',
           expiresAtMs: Date.now() + 60_000,
@@ -1460,6 +1472,7 @@ test.describe('UserConfirm worker router', () => {
         (managerA as any).attachWorkerRouter(workerA);
         (managerA as any).resolveSealTransportInput = () => ({
           relayerUrl: 'https://relay.example',
+          walletSigningSessionId: 'wallet-session-cross-manager-remove',
           thresholdSessionJwt: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
           keyVersion: 'kek-v1',
@@ -1468,6 +1481,7 @@ test.describe('UserConfirm worker router', () => {
         (managerB as any).attachWorkerRouter(workerB);
         (managerB as any).resolveSealTransportInput = () => ({
           relayerUrl: 'https://relay.example',
+          walletSigningSessionId: 'wallet-session-cross-manager-remove',
           thresholdSessionJwt: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
           keyVersion: 'kek-v1',
@@ -1528,10 +1542,8 @@ test.describe('UserConfirm worker router', () => {
           postedTypesA: postedA.map((entry) => entry?.type),
           postedTypesB: postedB.map((entry) => entry?.type),
           totalRehydrateCount:
-            postedA.filter((entry) => entry?.type === 'WARM_SESSION_REHYDRATE')
-              .length +
-            postedB.filter((entry) => entry?.type === 'WARM_SESSION_REHYDRATE')
-              .length,
+            postedA.filter((entry) => entry?.type === 'WARM_SESSION_REHYDRATE').length +
+            postedB.filter((entry) => entry?.type === 'WARM_SESSION_REHYDRATE').length,
           r1,
           r2,
         };
@@ -1607,6 +1619,7 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.clearAllSigningSessionSealedRecords();
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-no-rehydrate',
+          walletSigningSessionId: 'wallet-session-no-rehydrate',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v2',
           expiresAtMs: Date.now() + 60_000,
@@ -1786,6 +1799,7 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.clearAllSigningSessionSealedRecords();
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-expired',
+          walletSigningSessionId: 'wallet-session-expired',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v2',
           expiresAtMs: Date.now() - 1_000,
@@ -1797,6 +1811,7 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).attachWorkerRouter(fakeWorker);
         (manager as any).resolveSealTransportInput = () => ({
           relayerUrl: 'https://relay.example',
+          walletSigningSessionId: 'wallet-session-expired',
           thresholdSessionJwt: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
         });
@@ -1814,7 +1829,8 @@ test.describe('UserConfirm worker router', () => {
         });
         const statusResult = await statusPromise;
         await new Promise((resolve) => setTimeout(resolve, 5));
-        const persistedAfter = await sealedStoreMod.readSigningSessionSealedRecord('session-expired');
+        const persistedAfter =
+          await sealedStoreMod.readSigningSessionSealedRecord('session-expired');
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),

@@ -124,9 +124,10 @@ test.describe('secp256k1 Email OTP signing-session policy', () => {
           },
         });
 
-        const keyRef = storeMod.getThresholdEcdsaKeyRefForSigning(deps, {
+        const keyRef = storeMod.getThresholdEcdsaKeyRefForLookup(deps, {
           nearAccountId: accountId,
           chain: 'evm',
+          source: 'email_otp',
         });
         const originalFetch = globalThis.fetch;
         let authorizeCalls = 0;

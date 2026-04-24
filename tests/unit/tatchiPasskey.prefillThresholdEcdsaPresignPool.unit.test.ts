@@ -4,7 +4,7 @@ import { prefillThresholdEcdsaPresignPoolDomain } from '@/core/TatchiPasskey/aut
 
 test.describe('prefillThresholdEcdsaPresignPoolDomain', () => {
   test('local mode resolves canonical keyRef and schedules prefill', async () => {
-    const calls: Array<{ nearAccountId: string; chain?: 'tempo' | 'evm' }> = [];
+    const calls: Array<{ nearAccountId: string; chain?: 'tempo' | 'evm'; source?: 'login' }> = [];
     const scheduleCalls: any[] = [];
     const result = { status: 'scheduled', reason: 'scheduled' } as const;
 
@@ -18,9 +18,10 @@ test.describe('prefillThresholdEcdsaPresignPoolDomain', () => {
           },
         } as any,
         signingEngine: {
-          getThresholdEcdsaKeyRefForSigning: (args: {
+          getThresholdEcdsaKeyRefForLookup: (args: {
             nearAccountId: string;
             chain?: 'tempo' | 'evm';
+            source?: 'login';
           }) => {
             calls.push(args);
             return {
@@ -48,7 +49,9 @@ test.describe('prefillThresholdEcdsaPresignPoolDomain', () => {
     );
 
     expect(out).toEqual(result);
-    expect(calls).toEqual([{ nearAccountId: toAccountId('alice.testnet'), chain: 'tempo' }]);
+    expect(calls).toEqual([
+      { nearAccountId: toAccountId('alice.testnet'), chain: 'tempo', source: 'login' },
+    ]);
     expect(scheduleCalls).toHaveLength(1);
     expect(scheduleCalls[0]?.nearAccountId).toBe(toAccountId('alice.testnet'));
     expect(scheduleCalls[0]?.thresholdEcdsaKeyRef?.thresholdSessionId).toBe('session-1');

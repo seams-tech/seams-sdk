@@ -5,19 +5,27 @@ const IMPORT_PATHS = {
   tempoSigningApi: '/sdk/esm/core/signingEngine/api/tempoSigning.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
+  walletSigningBudgetLedger: '/sdk/esm/core/signingEngine/session/WalletSigningBudgetLedger.js',
   signEvmWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/evm/evmSigningFlow.js',
   signTempoWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/tempo/tempoSigningFlow.js',
+  evmFamilyAuthPlanning: '/sdk/esm/core/signingEngine/api/evmFamily/authPlanning.js',
 } as const;
 
 async function routeEvmFamilySigningFlowStubs(page: Page): Promise<void> {
   const evmFlowStub = `
     export async function signEvmWithTouchConfirm(args) {
+      globalThis.__tatchiStubConfirmationDisplayedCalls =
+        (globalThis.__tatchiStubConfirmationDisplayedCalls || 0) + 1;
+      args.onConfirmationDisplayed?.();
+      const emailOtpChallenge = args.emailOtpSigning
+        ? await args.emailOtpSigning.prepare()
+        : undefined;
       const confirmation = await args.touchConfirm.orchestrateSigningConfirmation({
         signingAuthPlan: args.walletAuthPlan,
-        emailOtpPrompt: args.emailOtpSigning
+        emailOtpPrompt: emailOtpChallenge
           ? {
-              challengeId: args.emailOtpSigning.challengeId,
-              emailHint: args.emailOtpSigning.emailHint,
+              challengeId: emailOtpChallenge.challengeId,
+              emailHint: emailOtpChallenge.emailHint,
               onResend: args.emailOtpSigning.resend,
             }
           : undefined,
@@ -45,12 +53,18 @@ async function routeEvmFamilySigningFlowStubs(page: Page): Promise<void> {
   `;
   const tempoFlowStub = `
     export async function signTempoWithTouchConfirm(args) {
+      globalThis.__tatchiStubConfirmationDisplayedCalls =
+        (globalThis.__tatchiStubConfirmationDisplayedCalls || 0) + 1;
+      args.onConfirmationDisplayed?.();
+      const emailOtpChallenge = args.emailOtpSigning
+        ? await args.emailOtpSigning.prepare()
+        : undefined;
       const confirmation = await args.touchConfirm.orchestrateSigningConfirmation({
         signingAuthPlan: args.walletAuthPlan,
-        emailOtpPrompt: args.emailOtpSigning
+        emailOtpPrompt: emailOtpChallenge
           ? {
-              challengeId: args.emailOtpSigning.challengeId,
-              emailHint: args.emailOtpSigning.emailHint,
+              challengeId: emailOtpChallenge.challengeId,
+              emailHint: emailOtpChallenge.emailHint,
               onResend: args.emailOtpSigning.resend,
             }
           : undefined,
@@ -117,6 +131,88 @@ test.describe('tempo signing auth-mode resolution', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
+  test('EVM-family auth planning does not execute Email OTP side effects before confirmation', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { resolveEvmFamilyTransactionWalletAuth } = await import(paths.evmFamilyAuthPlanning);
+        let challengeCalls = 0;
+        let completeCalls = 0;
+        let preConfirmSideEffectCalls = 0;
+        const failPreConfirmSideEffect = () => {
+          preConfirmSideEffectCalls += 1;
+          throw new Error('pre-confirm deps must not expose or execute auth side effects');
+        };
+
+        const plan = await resolveEvmFamilyTransactionWalletAuth({
+          deps: {
+            touchConfirm: {
+              getWarmSessionStatus: async () => {
+                throw new Error('pre-confirm readiness should not need warm status for missing lane record');
+              },
+            },
+            requestEmailOtpTransactionSigningChallenge: failPreConfirmSideEffect,
+            loginWithEmailOtpEcdsaCapabilityForSigning: failPreConfirmSideEffect,
+            provisionThresholdEcdsaSession: failPreConfirmSideEffect,
+            rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: failPreConfirmSideEffect,
+          } as any,
+          confirmedDeps: {
+            requestEmailOtpTransactionSigningChallenge: async () => {
+              challengeCalls += 1;
+              return { challengeId: 'otp-challenge-1', emailHint: 'o***p@example.com' };
+            },
+            loginWithEmailOtpEcdsaCapabilityForSigning: async () => {
+              completeCalls += 1;
+              throw new Error('OTP completion should not run during planning or challenge prepare');
+            },
+          },
+          nearAccountId: 'otp-planning-boundary.testnet',
+          chain: 'tempo',
+          accountAuth: {
+            primaryAuthMethod: 'email_otp',
+            linkedAuthMethods: ['email_otp'],
+          },
+          senderSignatureAlgorithm: 'secp256k1',
+          ecdsaAuthMethod: 'email_otp',
+          ecdsaSigningLane: {
+            operationId: 'op-otp-planning-boundary',
+            accountId: 'otp-planning-boundary.testnet',
+            authMethod: 'email_otp',
+            curve: 'ecdsa',
+            keyKind: 'threshold_ecdsa_secp256k1',
+            chainFamily: 'tempo',
+            walletSigningSessionId: 'wallet-otp-planning-boundary',
+            thresholdSessionId: 'threshold-otp-planning-boundary',
+            sessionOrigin: 'per_operation',
+            storageSource: 'email_otp',
+            retention: 'single_use',
+          },
+        });
+
+        const afterPlanning = { challengeCalls, completeCalls };
+        const prepared = await plan.emailOtpSigning?.prepare();
+
+        return {
+          walletAuthPlanKind: plan.walletAuthPlan.kind,
+          signingSessionPlanKind: plan.signingSessionPlan?.kind || '',
+          afterPlanning,
+          afterPrepare: { challengeCalls, completeCalls },
+          preConfirmSideEffectCalls,
+          preparedChallengeId: prepared?.challengeId || '',
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.walletAuthPlanKind).toBe('emailOtpReauth');
+    expect(result.signingSessionPlanKind).toBe('email_otp_reauth');
+    expect(result.afterPlanning).toEqual({ challengeCalls: 0, completeCalls: 0 });
+    expect(result.afterPrepare).toEqual({ challengeCalls: 1, completeCalls: 0 });
+    expect(result.preConfirmSideEffectCalls).toBe(0);
+    expect(result.preparedChallengeId).toBe('otp-challenge-1');
+  });
+
   test('does not fail before confirmer when threshold warm session cache is unavailable (EVM)', async ({
     page,
   }) => {
@@ -127,6 +223,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         let capturedAuthMode: string | null = null;
         let capturedAuthPlanKind: string | null = null;
         const events: any[] = [];
+        const authSideEffects: string[] = [];
 
         const workerCtx = {
           requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -204,12 +301,14 @@ test.describe('tempo signing auth-mode resolution', () => {
               },
             } as any,
             onEvent: (event: any) => events.push(event),
+            onAuthSideEffectStarted: (sideEffect: string) => authSideEffects.push(sideEffect),
           });
           return {
             ok: true,
             confirmCalls,
             capturedAuthMode,
             capturedAuthPlanKind,
+            authSideEffects,
             eventPhases: events.map((event) => event.phase),
             passkeyInteractions: events
               .filter((event) => String(event.phase || '').includes('passkey.prompt'))
@@ -221,6 +320,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             confirmCalls,
             capturedAuthMode,
             capturedAuthPlanKind,
+            authSideEffects,
             message: String(error?.message || error),
           };
         }
@@ -232,6 +332,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.confirmCalls).toBe(1);
     expect(result.capturedAuthMode).toBe('');
     expect(result.capturedAuthPlanKind).toBe('passkeyReauth');
+    expect(result.authSideEffects).toEqual(['passkey_reauth']);
     expect(result.eventPhases).toEqual([
       'signing.confirmation.displayed',
       'signing.auth.passkey.prompt.started',
@@ -314,8 +415,10 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           } as any,
           emailOtpSigning: {
-            challengeId: 'evm-email-otp-challenge',
-            emailHint: 'a***e@example.com',
+            prepare: async () => ({
+              challengeId: 'evm-email-otp-challenge',
+              emailHint: 'a***e@example.com',
+            }),
             complete: async (otpCode: string) => {
               completedOtpCode = otpCode;
               return {
@@ -441,8 +544,10 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           } as any,
           emailOtpSigning: {
-            challengeId: 'evm-email-otp-challenge-1',
-            emailHint: 'a***e@example.com',
+            prepare: async () => ({
+              challengeId: 'evm-email-otp-challenge-1',
+              emailHint: 'a***e@example.com',
+            }),
             resend: async () => ({
               challengeId: 'evm-email-otp-challenge-2',
               emailHint: 'a***e@example.com',
@@ -547,7 +652,9 @@ test.describe('tempo signing auth-mode resolution', () => {
               },
             } as any,
             emailOtpSigning: {
-              challengeId: 'evm-email-otp-challenge',
+              prepare: async () => ({
+                challengeId: 'evm-email-otp-challenge',
+              }),
               complete: async () => {
                 completeCalls += 1;
                 throw new Error('complete should not be called after cancellation');
@@ -635,7 +742,9 @@ test.describe('tempo signing auth-mode resolution', () => {
               },
             } as any,
             emailOtpSigning: {
-              challengeId: 'evm-email-otp-challenge',
+              prepare: async () => ({
+                challengeId: 'evm-email-otp-challenge',
+              }),
               complete: async () => {
                 completeCalls += 1;
                 throw new Error('Email OTP challenge expired or invalid');
@@ -726,7 +835,9 @@ test.describe('tempo signing auth-mode resolution', () => {
             nearAccountId: 'alice.testnet',
             request,
             emailOtpSigning: {
-              challengeId,
+              prepare: async () => ({
+                challengeId,
+              }),
               complete: async (otpCode: string) => {
                 completedOtpCodes.push(otpCode);
                 if (shouldExpire) {
@@ -994,6 +1105,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       async ({ paths }) => {
         const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
         const order: string[] = [];
+        const authSideEffects: string[] = [];
 
         const workerCtx = {
           requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -1061,12 +1173,17 @@ test.describe('tempo signing auth-mode resolution', () => {
               },
             },
           } as any,
+          onAuthSideEffectStarted: (sideEffect: string) => {
+            order.push(`trace:${sideEffect}`);
+            authSideEffects.push(sideEffect);
+          },
         });
 
         return {
           chain: signed.chain,
           kind: signed.kind,
           order,
+          authSideEffects,
         };
       },
       { paths: IMPORT_PATHS },
@@ -1074,7 +1191,8 @@ test.describe('tempo signing auth-mode resolution', () => {
 
     expect(result.chain).toBe('evm');
     expect(result.kind).toBe('eip1559');
-    expect(result.order).toEqual(['confirm', 'reconnect', 'sign']);
+    expect(result.order).toEqual(['confirm', 'trace:threshold_reconnect', 'reconnect', 'sign']);
+    expect(result.authSideEffects).toEqual(['threshold_reconnect']);
   });
 
   test('ignores confirmation behavior for auth-mode and still uses warmSession when cache is available (EVM)', async ({
@@ -1330,8 +1448,10 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           } as any,
           emailOtpSigning: {
-            challengeId: 'tempo-email-otp-challenge',
-            emailHint: 'a***e@example.com',
+            prepare: async () => ({
+              challengeId: 'tempo-email-otp-challenge',
+              emailHint: 'a***e@example.com',
+            }),
             complete: async (otpCode: string) => {
               completedOtpCode = otpCode;
               return {
@@ -1636,7 +1756,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.requestedChallengeAuthLane?.thresholdSessionId).toBe('email-threshold-session');
   });
 
-  test('core Tempo signing keeps warm Email OTP lane when local record counter is stale', async ({
+  test('core Tempo signing keeps selected warm passkey lane when Email OTP local record counter is stale', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -1676,6 +1796,7 @@ test.describe('tempo signing auth-mode resolution', () => {
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'passkey-session',
+          walletSigningSessionId: 'wallet-passkey-stale-counter',
           thresholdSessionJwt: 'jwt:passkey-session',
           expiresAtMs: now + 120_000,
           remainingUses: 5,
@@ -1890,6 +2011,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         async ({ paths, chain }) => {
           const { signTempo } = await import(paths.tempoSigningApi);
           const store = await import(paths.thresholdSessionStore);
+          const { createWalletSigningBudgetLedger } = await import(paths.walletSigningBudgetLedger);
           const accountId = `otp-${chain}-two-tx.testnet`;
           const now = Date.now();
           const chainId = 11155111;
@@ -2077,8 +2199,10 @@ test.describe('tempo signing auth-mode resolution', () => {
                   activeSignerSlot: 1,
                 }),
                 listChainAccountsByProfile: async () => [chainAccount],
-                listChainAccountsByProfileAndChain: async (_profileId: string, requested: string) =>
-                  requested === chainIdKey ? [chainAccount] : [],
+                listChainAccountsByProfileAndChain: async (
+                  _profileId: string,
+                  requested: string,
+                ) => (requested === chainIdKey ? [chainAccount] : []),
                 upsertChainAccount: async (input: any) => ({ ...chainAccount, ...input }),
               },
             },
@@ -2140,16 +2264,17 @@ test.describe('tempo signing auth-mode resolution', () => {
             markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args: any) => {
               markConsumedCalls.push(args);
             },
-            consumeWalletSigningSessionUse: async (args: any) => {
-              spendCalls.push({
-                nearAccountId: String(args.nearAccountId || ''),
-                walletSigningSessionId: String(args.walletSigningSessionId || ''),
-                uses: args.uses,
-                reason: args.reason,
-                alreadyConsumedThresholdSessionIds:
-                  args.alreadyConsumedThresholdSessionIds || [],
-              });
-            },
+            walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+              consumeUse: async (args: any) => {
+                spendCalls.push({
+                  nearAccountId: String(args.nearAccountId || ''),
+                  walletSigningSessionId: String(args.walletSigningSessionId || ''),
+                  uses: args.uses,
+                  reason: args.reason,
+                  alreadyConsumedThresholdSessionIds: args.alreadyConsumedThresholdSessionIds || [],
+                });
+              },
+            }),
             clearThresholdEcdsaSessionRecordForLane: () => undefined,
             provisionThresholdEcdsaSession: async () => {
               throw new Error('exhausted Email OTP ECDSA should not use passkey reconnect');
@@ -2175,6 +2300,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           };
 
+          (globalThis as any).__tatchiStubConfirmationDisplayedCalls = 0;
           try {
             signedResults.push(
               await signTempo(deps as any, {
@@ -2257,6 +2383,600 @@ test.describe('tempo signing auth-mode resolution', () => {
     });
   }
 
+  for (const chain of ['tempo', 'evm'] as const) {
+    test(`core ${chain.toUpperCase()} signing spends once when the same ECDSA operation completes twice`, async ({
+      page,
+    }) => {
+      await routeEvmFamilySigningFlowStubs(page);
+      const result = await page.evaluate(
+        async ({ paths, chain }) => {
+          const { signTempo } = await import(paths.tempoSigningApi);
+          const store = await import(paths.thresholdSessionStore);
+          const { createWalletSigningBudgetLedger } = await import(paths.walletSigningBudgetLedger);
+          const accountId = `otp-${chain}-duplicate-budget.testnet`;
+          const now = Date.now();
+          const chainId = 11155111;
+          const walletSigningSessionId = `wallet-email-otp-${chain}-duplicate-budget`;
+          const thresholdSessionId = `email-${chain}-duplicate-budget-session`;
+          const senderAddress = '0x' + '78'.repeat(20);
+          const authPlanKinds: string[] = [];
+          const spendCalls: any[] = [];
+          const ledgerTrace: any[] = [];
+          const signedResults: any[] = [];
+
+          store.clearAllStoredThresholdEd25519SessionRecords();
+          store.upsertStoredThresholdEd25519SessionRecord({
+            nearAccountId: accountId,
+            rpId: 'localhost',
+            relayerUrl: 'https://relayer.example',
+            relayerKeyId: 'rk-ed25519',
+            participantIds: [1, 2],
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId: `ed25519-email-${chain}-duplicate-budget`,
+            walletSigningSessionId,
+            thresholdSessionJwt: `jwt:ed25519-email-${chain}-duplicate-budget`,
+            expiresAtMs: now + 120_000,
+            remainingUses: 5,
+            updatedAtMs: now,
+            source: 'email_otp',
+          });
+
+          const emailOtpRecord = {
+            nearAccountId: accountId,
+            chain,
+            relayerUrl: 'https://relayer.example',
+            ecdsaThresholdKeyId: `ecdsa-email-${chain}-duplicate-budget`,
+            signingRootId: 'proj_test:dev',
+            relayerKeyId: `rk-email-${chain}-duplicate-budget`,
+            clientVerifyingShareB64u: 'AQ',
+            clientAdditiveShareHandle: {
+              kind: 'email_otp_worker_session',
+              sessionId: `worker-${thresholdSessionId}`,
+            },
+            participantIds: [1, 2],
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId,
+            walletSigningSessionId,
+            thresholdSessionJwt: `jwt:${thresholdSessionId}`,
+            expiresAtMs: now + 120_000,
+            remainingUses: 5,
+            ethereumAddress: senderAddress,
+            emailOtpAuthContext: {
+              policy: 'session',
+              retention: 'session',
+              reason: 'login',
+              authMethod: 'email_otp',
+            },
+            updatedAtMs: now,
+            source: 'email_otp',
+          };
+          const toKeyRef = (record: any) => ({
+            type: 'threshold-ecdsa-secp256k1',
+            userId: accountId,
+            relayerUrl: record.relayerUrl,
+            ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+            signingRootId: record.signingRootId,
+            backendBinding: {
+              relayerKeyId: record.relayerKeyId,
+              clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+              ...(record.clientAdditiveShareHandle
+                ? { clientAdditiveShareHandle: record.clientAdditiveShareHandle }
+                : {}),
+            },
+            participantIds: record.participantIds,
+            thresholdSessionKind: record.thresholdSessionKind,
+            thresholdSessionId: record.thresholdSessionId,
+            thresholdSessionJwt: record.thresholdSessionJwt,
+            walletSigningSessionId: record.walletSigningSessionId,
+            ethereumAddress: record.ethereumAddress,
+          });
+          const chainIdKey = `${chain}:${chainId}`;
+          const chainAccount = {
+            profileId: `profile:${chain}:duplicate-budget`,
+            chainIdKey,
+            accountAddress: senderAddress,
+            accountModel: chain === 'tempo' ? 'tempo-native' : 'erc4337',
+            isPrimary: true,
+            deployed: true,
+            deploymentTxHash: null,
+            lastDeploymentCheckAt: now,
+          };
+          const request =
+            chain === 'tempo'
+              ? ({
+                  chain: 'tempo',
+                  kind: 'tempoTransaction',
+                  senderSignatureAlgorithm: 'secp256k1',
+                  tx: {
+                    chainId,
+                    maxPriorityFeePerGas: 1n,
+                    maxFeePerGas: 2n,
+                    gasLimit: 21_000n,
+                    calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                    accessList: [],
+                    nonceKey: 1n,
+                    nonce: 1n,
+                    validBefore: null,
+                    validAfter: null,
+                    feePayerSignature: { kind: 'none' },
+                  },
+                } as any)
+              : ({
+                  chain: 'evm',
+                  kind: 'eip1559',
+                  senderSignatureAlgorithm: 'secp256k1',
+                  tx: {
+                    chainId,
+                    nonce: 1n,
+                    maxPriorityFeePerGas: 1_500_000_000n,
+                    maxFeePerGas: 3_000_000_000n,
+                    gasLimit: 21_000n,
+                    to: '0x' + '22'.repeat(20),
+                    value: 0n,
+                    data: '0x',
+                    accessList: [],
+                  },
+                } as any);
+          const walletSigningBudgetLedger = createWalletSigningBudgetLedger({
+            onTrace: (event: any) => ledgerTrace.push(event),
+            consumeUse: async (args: any) => {
+              spendCalls.push({
+                nearAccountId: String(args.nearAccountId || ''),
+                walletSigningSessionId: String(args.walletSigningSessionId || ''),
+                uses: args.uses,
+                reason: args.reason,
+                alreadyConsumedThresholdSessionIds: args.alreadyConsumedThresholdSessionIds || [],
+              });
+            },
+          });
+          const deps = {
+            indexedDB: {
+              clientDB: {
+                resolveProfileAccountContext: async () => ({
+                  profileId: chainAccount.profileId,
+                  accountRef: { chainIdKey: 'near:testnet', accountAddress: accountId },
+                }),
+                getProfile: async () => ({
+                  profileId: chainAccount.profileId,
+                  defaultSignerSlot: 1,
+                }),
+                listAccountSigners: async () => [
+                  {
+                    signerSlot: 1,
+                    signerAuthMethod: 'email_otp',
+                    signerKind: 'threshold_ed25519',
+                    status: 'active',
+                  },
+                ],
+                getLastProfileState: async () => ({
+                  profileId: chainAccount.profileId,
+                  activeSignerSlot: 1,
+                }),
+                listChainAccountsByProfile: async () => [chainAccount],
+                listChainAccountsByProfileAndChain: async (
+                  _profileId: string,
+                  requested: string,
+                ) => (requested === chainIdKey ? [chainAccount] : []),
+                upsertChainAccount: async (input: any) => ({ ...chainAccount, ...input }),
+              },
+            },
+            tatchiPasskeyConfigs: {
+              registration: { mode: 'manual' },
+              network: {
+                chains: [
+                  { network: 'tempo-testnet', chainId, rpcUrl: '' },
+                  { network: 'ethereum-sepolia', chainId, rpcUrl: '' },
+                ],
+              },
+              signing: {
+                thresholdEcdsa: { presignPool: { enabled: false } },
+                smartAccountDeployment: { mode: 'off' },
+              },
+            },
+            evmNonceManager: {
+              reserveNextNonce: async () => 1n,
+              reconcileLane: async () => ({
+                blocked: false,
+                chainNextNonce: 1n,
+                unresolvedInFlightNonces: [],
+              }),
+              markBroadcastRejected: () => undefined,
+            },
+            getSignerWorkerContext: () => ({
+              requestWorkerOperation: async () => new Uint8Array([0x76, 0xaa]).buffer,
+            }),
+            withThresholdEcdsaCommitQueue: async ({ task }: any) => await task(),
+            getEmailOtpThresholdEcdsaSessionRecordForSigning: () => emailOtpRecord,
+            getEmailOtpThresholdEcdsaKeyRefForSigning: () => toKeyRef(emailOtpRecord),
+            getPasskeyThresholdEcdsaSessionRecordForSigning: () => {
+              throw new Error('duplicate Email OTP operation should not read passkey lane');
+            },
+            getPasskeyThresholdEcdsaKeyRefForSigning: () => {
+              throw new Error('duplicate Email OTP operation should not read passkey keyRef');
+            },
+            requestEmailOtpTransactionSigningChallenge: async () => {
+              throw new Error('warm Email OTP lane should not request a challenge');
+            },
+            loginWithEmailOtpEcdsaCapabilityForSigning: async () => {
+              throw new Error('warm Email OTP lane should not complete OTP');
+            },
+            getEmailOtpWarmSessionStatus: async () => ({
+              ok: true,
+              remainingUses: 5,
+              expiresAtMs: now + 120_000,
+            }),
+            resolveEmailOtpSigningSessionAuthLane: () => null,
+            markThresholdEcdsaEmailOtpSessionConsumedForAccount: () => undefined,
+            walletSigningBudgetLedger,
+            clearThresholdEcdsaSessionRecordForLane: () => undefined,
+            provisionThresholdEcdsaSession: async () => {
+              throw new Error('warm Email OTP lane should not use passkey reconnect');
+            },
+            touchConfirm: {
+              getContext: () => ({ touchIdPrompt: { getRpId: () => 'localhost' } }),
+              getWarmSessionStatus: async () => ({
+                ok: true,
+                remainingUses: 5,
+                expiresAtMs: now + 120_000,
+              }),
+              orchestrateSigningConfirmation: async (params: any) => {
+                authPlanKinds.push(String(params?.signingAuthPlan?.kind || ''));
+                return {
+                  sessionId: 'intent',
+                  intentDigest: '0x' + '11'.repeat(32),
+                };
+              },
+            },
+          };
+
+          try {
+            signedResults.push(
+              await signTempo(deps as any, {
+                nearAccountId: accountId,
+                request,
+                signingOperationId: `${chain}-duplicate-budget-operation`,
+              }),
+            );
+            signedResults.push(
+              await signTempo(deps as any, {
+                nearAccountId: accountId,
+                request,
+                signingOperationId: `${chain}-duplicate-budget-operation`,
+              }),
+            );
+          } catch (error: any) {
+            return {
+              ok: false,
+              message: String(error?.message || error),
+              authPlanKinds,
+              spendCalls,
+              ledgerTrace,
+              confirmationDisplayedCalls:
+                (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+            };
+          } finally {
+            store.clearAllStoredThresholdEd25519SessionRecords();
+          }
+
+          return {
+            ok: true,
+            resultKinds: signedResults.map((signed) => signed.kind),
+            authPlanKinds,
+            spendCalls,
+            ledgerTrace,
+            confirmationDisplayedCalls:
+              (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+          };
+        },
+        { paths: IMPORT_PATHS, chain },
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.resultKinds).toEqual([
+        chain === 'tempo' ? 'tempoTransaction' : 'eip1559',
+        chain === 'tempo' ? 'tempoTransaction' : 'eip1559',
+      ]);
+      expect(result.authPlanKinds).toEqual(['warmSession', 'warmSession']);
+      expect(result.confirmationDisplayedCalls).toBe(2);
+      expect(result.ledgerTrace.map((event: any) => event.event)).toEqual([
+        'wallet_signing_budget_spend_started',
+        'wallet_signing_budget_spend_succeeded',
+        'wallet_signing_budget_spend_deduped',
+      ]);
+      expect(result.spendCalls).toEqual([
+        {
+          nearAccountId: `otp-${chain}-duplicate-budget.testnet`,
+          walletSigningSessionId: `wallet-email-otp-${chain}-duplicate-budget`,
+          uses: 1,
+          reason: 'transaction_sign',
+          alreadyConsumedThresholdSessionIds: [`email-${chain}-duplicate-budget-session`],
+        },
+      ]);
+    });
+  }
+
+  for (const chain of ['tempo', 'evm'] as const) {
+    test(`core ${chain.toUpperCase()} signing cancellation after Email OTP planning does not spend budget`, async ({
+      page,
+    }) => {
+      await routeEvmFamilySigningFlowStubs(page);
+      const result = await page.evaluate(
+        async ({ paths, chain }) => {
+          const { signTempo } = await import(paths.tempoSigningApi);
+          const store = await import(paths.thresholdSessionStore);
+          const { createWalletSigningBudgetLedger } = await import(paths.walletSigningBudgetLedger);
+          const accountId = `otp-${chain}-cancelled.testnet`;
+          const now = Date.now();
+          const chainId = 11155111;
+          const walletSigningSessionId = `wallet-email-otp-${chain}-cancelled`;
+          const senderAddress = '0x' + '56'.repeat(20);
+          const authPlanKinds: string[] = [];
+          const challengeChains: string[] = [];
+          const challengeDisplayCounts: number[] = [];
+          const completedOtpCodes: string[] = [];
+          const spendCalls: any[] = [];
+          const markConsumedCalls: any[] = [];
+
+          store.clearAllStoredThresholdEd25519SessionRecords();
+          store.upsertStoredThresholdEd25519SessionRecord({
+            nearAccountId: accountId,
+            rpId: 'localhost',
+            relayerUrl: 'https://relayer.example',
+            relayerKeyId: 'rk-ed25519',
+            participantIds: [1, 2],
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId: `ed25519-email-${chain}-cancelled`,
+            walletSigningSessionId,
+            thresholdSessionJwt: `jwt:ed25519-email-${chain}-cancelled`,
+            expiresAtMs: now + 120_000,
+            remainingUses: 0,
+            updatedAtMs: now,
+            source: 'email_otp',
+          });
+
+          const emailOtpRecord = {
+            nearAccountId: accountId,
+            chain,
+            relayerUrl: 'https://relayer.example',
+            ecdsaThresholdKeyId: `ecdsa-email-${chain}-cancelled`,
+            signingRootId: 'proj_test:dev',
+            relayerKeyId: `rk-email-${chain}-cancelled`,
+            clientVerifyingShareB64u: 'AQ',
+            clientAdditiveShareHandle: {
+              kind: 'email_otp_worker_session',
+              sessionId: `worker-email-${chain}-cancelled`,
+            },
+            participantIds: [1, 2],
+            thresholdSessionKind: 'jwt',
+            thresholdSessionId: `email-${chain}-cancelled-session`,
+            walletSigningSessionId,
+            thresholdSessionJwt: `jwt:email-${chain}-cancelled-session`,
+            expiresAtMs: now + 120_000,
+            remainingUses: 0,
+            ethereumAddress: senderAddress,
+            emailOtpAuthContext: {
+              policy: 'per_operation',
+              retention: 'single_use',
+              reason: 'sign',
+              authMethod: 'email_otp',
+              consumedAtMs: now - 1_000,
+            },
+            updatedAtMs: now,
+            source: 'email_otp',
+          };
+          const chainIdKey = `${chain}:${chainId}`;
+          const chainAccount = {
+            profileId: `profile:${chain}:otp-cancelled`,
+            chainIdKey,
+            accountAddress: senderAddress,
+            accountModel: chain === 'tempo' ? 'tempo-native' : 'erc4337',
+            isPrimary: true,
+            deployed: true,
+            deploymentTxHash: null,
+            lastDeploymentCheckAt: now,
+          };
+          const request =
+            chain === 'tempo'
+              ? ({
+                  chain: 'tempo',
+                  kind: 'tempoTransaction',
+                  senderSignatureAlgorithm: 'secp256k1',
+                  tx: {
+                    chainId,
+                    maxPriorityFeePerGas: 1n,
+                    maxFeePerGas: 2n,
+                    gasLimit: 21_000n,
+                    calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                    accessList: [],
+                    nonceKey: 1n,
+                    nonce: 1n,
+                    validBefore: null,
+                    validAfter: null,
+                    feePayerSignature: { kind: 'none' },
+                  },
+                } as any)
+              : ({
+                  chain: 'evm',
+                  kind: 'eip1559',
+                  senderSignatureAlgorithm: 'secp256k1',
+                  tx: {
+                    chainId,
+                    nonce: 1n,
+                    maxPriorityFeePerGas: 1_500_000_000n,
+                    maxFeePerGas: 3_000_000_000n,
+                    gasLimit: 21_000n,
+                    to: '0x' + '22'.repeat(20),
+                    value: 0n,
+                    data: '0x',
+                    accessList: [],
+                  },
+                } as any);
+
+          const deps = {
+            indexedDB: {
+              clientDB: {
+                resolveProfileAccountContext: async () => ({
+                  profileId: chainAccount.profileId,
+                  accountRef: { chainIdKey: 'near:testnet', accountAddress: accountId },
+                }),
+                getProfile: async () => ({
+                  profileId: chainAccount.profileId,
+                  defaultSignerSlot: 1,
+                }),
+                listAccountSigners: async () => [
+                  {
+                    signerSlot: 1,
+                    signerAuthMethod: 'email_otp',
+                    signerKind: 'threshold_ed25519',
+                    status: 'active',
+                  },
+                ],
+                getLastProfileState: async () => ({
+                  profileId: chainAccount.profileId,
+                  activeSignerSlot: 1,
+                }),
+                listChainAccountsByProfile: async () => [chainAccount],
+                listChainAccountsByProfileAndChain: async (
+                  _profileId: string,
+                  requested: string,
+                ) => (requested === chainIdKey ? [chainAccount] : []),
+                upsertChainAccount: async (input: any) => ({ ...chainAccount, ...input }),
+              },
+            },
+            tatchiPasskeyConfigs: {
+              registration: { mode: 'manual' },
+              network: {
+                chains: [
+                  { network: 'tempo-testnet', chainId, rpcUrl: '' },
+                  { network: 'ethereum-sepolia', chainId, rpcUrl: '' },
+                ],
+              },
+              signing: {
+                thresholdEcdsa: { presignPool: { enabled: false } },
+                smartAccountDeployment: { mode: 'off' },
+              },
+            },
+            evmNonceManager: {
+              reserveNextNonce: async () => 1n,
+              reconcileLane: async () => ({
+                blocked: false,
+                chainNextNonce: 1n,
+                unresolvedInFlightNonces: [],
+              }),
+              markBroadcastRejected: () => undefined,
+            },
+            getSignerWorkerContext: () => ({
+              requestWorkerOperation: async () => {
+                throw new Error('signing worker should not run after cancellation');
+              },
+            }),
+            withThresholdEcdsaCommitQueue: async ({ task }: any) => await task(),
+            getEmailOtpThresholdEcdsaSessionRecordForSigning: () => emailOtpRecord,
+            getEmailOtpThresholdEcdsaKeyRefForSigning: () => {
+              throw new Error('cancelled exhausted Email OTP lane should not use stale keyRef');
+            },
+            getPasskeyThresholdEcdsaSessionRecordForSigning: () => {
+              throw new Error('cancelled Email OTP signing should not read passkey lane');
+            },
+            getPasskeyThresholdEcdsaKeyRefForSigning: () => {
+              throw new Error('cancelled Email OTP signing should not read passkey keyRef');
+            },
+            requestEmailOtpTransactionSigningChallenge: async ({ chain }: any) => {
+              challengeChains.push(String(chain || ''));
+              challengeDisplayCounts.push(
+                (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+              );
+              return {
+                challengeId: `${chain}-cancelled-challenge`,
+                emailHint: 'o***p@example.com',
+              };
+            },
+            loginWithEmailOtpEcdsaCapabilityForSigning: async ({ otpCode }: any) => {
+              completedOtpCodes.push(String(otpCode || ''));
+              throw new Error('cancelled Email OTP signing should not complete OTP');
+            },
+            getEmailOtpWarmSessionStatus: async () => ({
+              ok: false,
+              code: 'exhausted',
+              message: 'exhausted',
+            }),
+            resolveEmailOtpSigningSessionAuthLane: () => null,
+            markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args: any) => {
+              markConsumedCalls.push(args);
+            },
+            walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+              consumeUse: async (args: any) => {
+                spendCalls.push(args);
+              },
+            }),
+            clearThresholdEcdsaSessionRecordForLane: () => undefined,
+            provisionThresholdEcdsaSession: async () => {
+              throw new Error('cancelled Email OTP signing should not use passkey reconnect');
+            },
+            touchConfirm: {
+              getContext: () => ({ touchIdPrompt: { getRpId: () => 'localhost' } }),
+              getWarmSessionStatus: async () => ({
+                ok: false,
+                code: 'exhausted',
+                message: 'exhausted',
+              }),
+              orchestrateSigningConfirmation: async (params: any) => {
+                authPlanKinds.push(String(params?.signingAuthPlan?.kind || ''));
+                throw new Error('User rejected signing request');
+              },
+            },
+          };
+
+          (globalThis as any).__tatchiStubConfirmationDisplayedCalls = 0;
+          try {
+            await signTempo(deps as any, {
+              nearAccountId: accountId,
+              request,
+            });
+          } catch (error: any) {
+            return {
+              ok: String(error?.message || error).includes('User rejected signing request'),
+              message: String(error?.message || error),
+              authPlanKinds,
+              challengeChains,
+              challengeDisplayCounts,
+              completedOtpCodes,
+              spendCalls,
+              markConsumedCalls,
+              confirmationDisplayedCalls:
+                (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+            };
+          } finally {
+            store.clearAllStoredThresholdEd25519SessionRecords();
+          }
+
+          return {
+            ok: false,
+            message: 'signing unexpectedly succeeded',
+            authPlanKinds,
+            challengeChains,
+            challengeDisplayCounts,
+            completedOtpCodes,
+            spendCalls,
+            markConsumedCalls,
+            confirmationDisplayedCalls:
+              (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+          };
+        },
+        { paths: IMPORT_PATHS, chain },
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.authPlanKinds).toEqual(['emailOtpReauth']);
+      expect(result.challengeChains).toEqual([chain]);
+      expect(result.challengeDisplayCounts).toEqual([1]);
+      expect(result.confirmationDisplayedCalls).toBe(1);
+      expect(result.completedOtpCodes).toEqual([]);
+      expect(result.spendCalls).toEqual([]);
+      expect(result.markConsumedCalls).toEqual([]);
+    });
+  }
+
   test('active passkey signer ignores stale Email OTP lane and spends passkey budget after ECDSA exhaustion', async ({
     page,
   }) => {
@@ -2265,6 +2985,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       async ({ paths }) => {
         const { signTempo } = await import(paths.tempoSigningApi);
         const store = await import(paths.thresholdSessionStore);
+        const { createWalletSigningBudgetLedger } = await import(paths.walletSigningBudgetLedger);
         const chains = ['tempo', 'evm'] as const;
         const now = Date.now();
         const accountId = 'dual-auth-passkey.testnet';
@@ -2493,16 +3214,17 @@ test.describe('tempo signing auth-mode resolution', () => {
             message: 'exhausted',
           }),
           resolveEmailOtpSigningSessionAuthLane: () => null,
-          consumeWalletSigningSessionUse: async (args: any) => {
-            spendCalls.push({
-              nearAccountId: String(args.nearAccountId || ''),
-              walletSigningSessionId: String(args.walletSigningSessionId || ''),
-              uses: args.uses,
-              reason: args.reason,
-              alreadyConsumedThresholdSessionIds:
-                args.alreadyConsumedThresholdSessionIds || [],
-            });
-          },
+          walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+            consumeUse: async (args: any) => {
+              spendCalls.push({
+                nearAccountId: String(args.nearAccountId || ''),
+                walletSigningSessionId: String(args.walletSigningSessionId || ''),
+                uses: args.uses,
+                reason: args.reason,
+                alreadyConsumedThresholdSessionIds: args.alreadyConsumedThresholdSessionIds || [],
+              });
+            },
+          }),
           clearThresholdEcdsaSessionRecordForLane: () => undefined,
           provisionThresholdEcdsaSession: async ({ chain }: any) => ({
             ok: true,
@@ -2640,8 +3362,10 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           } as any,
           emailOtpSigning: {
-            challengeId: 'tempo-email-otp-challenge-1',
-            emailHint: 'a***e@example.com',
+            prepare: async () => ({
+              challengeId: 'tempo-email-otp-challenge-1',
+              emailHint: 'a***e@example.com',
+            }),
             resend: async () => ({
               challengeId: 'tempo-email-otp-challenge-2',
               emailHint: 'a***e@example.com',

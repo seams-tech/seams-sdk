@@ -131,8 +131,8 @@ function installEmailOtpSessionsFixture(
         engineAny,
         callArgs,
       ),
-    getThresholdEcdsaKeyRefForSigning: (callArgs: any) =>
-      engineAny.getThresholdEcdsaKeyRefForSigning(callArgs),
+    getThresholdEcdsaKeyRefForLookup: (callArgs: any) =>
+      engineAny.getThresholdEcdsaKeyRefForLookup(callArgs),
     persistEmailOtpThresholdEd25519LocalMetadata: async () => undefined,
     persistWarmSessionEd25519Capability,
     hydrateSigningSession: async () => undefined,
@@ -789,7 +789,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     const internalLoginRequests: Array<Record<string, any>> = [];
     const engine = Object.create(SigningEngine.prototype) as SigningEngine;
     const engineAny = engine as any;
-    engineAny.getThresholdEcdsaKeyRefForSigning = () =>
+    engineAny.getThresholdEcdsaKeyRefForLookup = () =>
       makeWorkerBootstrap({ walletId }).thresholdEcdsaKeyRef;
     const emailOtpSessions = installEmailOtpSessionsFixture(engineAny);
     emailOtpSessions.loginWithEcdsaCapabilityInternal = async (input: Record<string, any>) => {
@@ -852,7 +852,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         sessionSeal: { shamirPrimeB64u: 'prime-b64u' },
       },
     };
-    engineAny.getThresholdEcdsaKeyRefForSigning = () =>
+    engineAny.getThresholdEcdsaKeyRefForLookup = () =>
       makeWorkerBootstrap({ walletId }).thresholdEcdsaKeyRef;
     const emailOtpSessions = installEmailOtpSessionsFixture(engineAny);
     emailOtpSessions.loginWithEcdsaCapabilityInternal = async (input: Record<string, any>) => {
@@ -1177,7 +1177,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
     engineAny.theme = 'dark';
     engineAny.getRpId = () => 'example.localhost';
-    engineAny.getThresholdEcdsaSessionRecordForSigning = () => ecdsaRecord;
+    engineAny.getThresholdEcdsaSessionRecordForLookup = () => ecdsaRecord;
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       refreshRequests.push({
         url: String(input),
@@ -1342,7 +1342,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
     engineAny.theme = 'dark';
     engineAny.getRpId = () => 'example.localhost';
-    engineAny.getThresholdEcdsaSessionRecordForSigning = () => ecdsaRecord;
+    engineAny.getThresholdEcdsaSessionRecordForLookup = () => ecdsaRecord;
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({ ok: true, jwt: 'unexpected-refresh' }), {
         status: 200,
@@ -1879,7 +1879,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
 
     engineAny.theme = 'dark';
     engineAny.getRpId = () => 'example.localhost';
-    engineAny.getThresholdEcdsaSessionRecordForSigning = () => ({
+    engineAny.getThresholdEcdsaSessionRecordForLookup = () => ({
       nearAccountId: walletId,
       chain: 'evm',
       thresholdSessionId: keyRef.thresholdSessionId,

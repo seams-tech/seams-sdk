@@ -2,8 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  signingSessionSealedStore:
-    '/sdk/esm/core/signingEngine/api/session/signingSessionSealedStore.js',
+  signingSessionSealedStore: '/sdk/esm/core/signingEngine/api/session/signingSessionSealedStore.js',
 } as const;
 
 test.describe('signing session sealed store', () => {
@@ -18,9 +17,11 @@ test.describe('signing session sealed store', () => {
       async ({ paths }) => {
         const mod = await import(paths.signingSessionSealedStore);
         const thresholdSessionId = 'sess-sealed-1';
+        const walletSigningSessionId = 'wallet-sess-sealed-1';
         await mod.clearAllSigningSessionSealedRecords();
         await mod.writeSigningSessionSealedRecord({
           thresholdSessionId,
+          walletSigningSessionId,
           sealedSecretB64u: 'sealed-secret-b64u',
           thresholdSessionJwt: 'jwt-must-not-persist',
           signingSessionSecretB64u: 'plaintext-k-must-not-persist',
@@ -38,7 +39,7 @@ test.describe('signing session sealed store', () => {
           openReq.onsuccess = () => {
             const db = openReq.result;
             const tx = db.transaction('signing_session_seals_v1', 'readonly');
-            const getReq = tx.objectStore('signing_session_seals_v1').get(thresholdSessionId);
+            const getReq = tx.objectStore('signing_session_seals_v1').get(walletSigningSessionId);
             getReq.onsuccess = () => {
               const value = getReq.result;
               db.close();
@@ -238,6 +239,7 @@ test.describe('signing session sealed store', () => {
         await mod.clearAllSigningSessionSealedRecords();
         await mod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'sess-a',
+          walletSigningSessionId: 'wallet-sess-a',
           sealedSecretB64u: 'a',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
@@ -245,6 +247,7 @@ test.describe('signing session sealed store', () => {
         });
         await mod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'sess-b',
+          walletSigningSessionId: 'wallet-sess-b',
           sealedSecretB64u: 'b',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,
@@ -275,14 +278,16 @@ test.describe('signing session sealed store', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        (globalThis as { __W3A_TEST_WALLET_IFRAME_HOST_MODE__?: boolean }).__W3A_TEST_WALLET_IFRAME_HOST_MODE__ =
-          true;
+        (
+          globalThis as { __W3A_TEST_WALLET_IFRAME_HOST_MODE__?: boolean }
+        ).__W3A_TEST_WALLET_IFRAME_HOST_MODE__ = true;
         try {
           const mod = await import(paths.signingSessionSealedStore);
           const thresholdSessionId = 'sess-host-mode';
           await mod.clearAllSigningSessionSealedRecords();
           await mod.writeSigningSessionSealedRecord({
             thresholdSessionId,
+            walletSigningSessionId: 'wallet-sess-host-mode',
             sealedSecretB64u: 'sealed-host',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 2,
@@ -327,6 +332,7 @@ test.describe('signing session sealed store', () => {
         await mod.clearAllSigningSessionSealedRecords();
         await mod.writeSigningSessionSealedRecord({
           thresholdSessionId,
+          walletSigningSessionId: 'wallet-sess-browser-restart',
           sealedSecretB64u: 'sealed-restart',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 2,

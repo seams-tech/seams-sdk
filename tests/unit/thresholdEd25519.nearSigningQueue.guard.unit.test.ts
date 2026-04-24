@@ -53,7 +53,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'await tryRestoreEmailOtpSigningSessionForNearTransaction',
     );
     const authResolution = nearSigning.indexOf(
-      'const { walletAuthPlan, emailOtpSigning } = await resolveNearTransactionWalletAuth',
+      'const { walletAuthPlan, signingLane, emailOtpSigning } = await resolveNearTransactionWalletAuth',
     );
 
     expect(restoreStart).toBeGreaterThanOrEqual(0);
@@ -61,7 +61,9 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(nearSigning).toContain(
       "interaction: { kind: 'transaction_confirmation', overlay: 'show' }",
     );
-    expect(nearSigning).toContain('rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord');
+    expect(nearSigning).toContain('restoreEmailOtpEcdsaSigningSessionForNearTransaction');
+    expect(nearSigning).not.toContain('listThresholdEcdsaSessionRecordsForLookup');
+    expect(nearSigning).not.toContain('rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord');
     expect(restoreCall).toBeGreaterThan(restoreStart);
     expect(authResolution).toBeGreaterThan(restoreCall);
   });
@@ -69,7 +71,9 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
   test('Email OTP NEAR warm-session planning does not treat sealed records as spendable auth', () => {
     const nearSigning = readNearSigningSource();
 
-    expect(nearSigning).toContain('hasThresholdEd25519RouteAuth(record)');
+    expect(nearSigning).toContain('hasThresholdEd25519RouteAuth(args.record)');
+    expect(nearSigning).toContain('createSigningSessionPlanner({');
+    expect(nearSigning).toContain("emitSigningPlannerDecisionTrace('near', event)");
     expect(nearSigning).not.toContain('readSigningSessionSealedRecord');
   });
 
@@ -88,8 +92,10 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
     );
 
-    expect(nearSigning).toContain('consumeWalletSigningSessionUse');
+    expect(nearSigning).toContain('walletSigningBudgetLedger');
+    expect(nearSigning).not.toContain('consumeWalletSigningSessionUse');
     expect(transactionsFlow).toContain('recordSuccessfulWalletSigningSessionSpend');
+    expect(transactionsFlow).toContain('walletSigningBudgetLedger');
     expect(transactionsFlow).toContain('cachedXClientBaseB64u');
     expect(walletCoordinator).toContain('createWalletSigningSessionCoordinator');
     expect(walletCoordinator).toContain('consumeEmailOtpWarmSessionUses');
@@ -113,7 +119,9 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
     );
 
-    expect(orchestrationDeps).toContain('consumeWalletSigningSessionUse');
+    expect(orchestrationDeps).toContain('createWalletSigningBudgetLedger');
+    expect(orchestrationDeps).toContain('walletSigningBudgetLedger');
+    expect(orchestrationDeps).not.toContain('consumeWalletSigningSessionUse');
     expect(walletCoordinator).toContain('clientAdditiveShareHandle');
     expect(walletCoordinator).toContain('walletSigningSessionId');
     expect(touchConfirmTypes).toContain('WarmSessionMaterialConsumer');
@@ -129,9 +137,11 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     );
     const evmSigning = readRepoSource('client/src/core/signingEngine/api/evmSigning.ts');
 
-    expect(transactionsFlow).toContain('consumeWalletSigningSessionUse');
+    expect(transactionsFlow).toContain('walletSigningBudgetLedger');
+    expect(transactionsFlow).not.toContain('consumeWalletSigningSessionUse');
     expect(transactionsFlow).not.toContain('consumeWarmSessionUses');
-    expect(evmSigning).toContain('consumeWalletSigningSessionUse');
+    expect(evmSigning).toContain('walletSigningBudgetLedger');
+    expect(evmSigning).not.toContain('consumeWalletSigningSessionUse');
     expect(evmSigning).not.toContain('.consumeWarmSessionUses');
   });
 

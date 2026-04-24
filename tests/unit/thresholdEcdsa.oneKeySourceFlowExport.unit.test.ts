@@ -16,6 +16,22 @@ const CANONICAL_PUBLIC_KEY_HEX = `0x02${'11'.repeat(32)}`;
 const PRIVATE_KEY_HEX = `0x${'22'.repeat(32)}`;
 const PRF_FIRST_B64U = Buffer.alloc(32, 7).toString('base64url');
 
+function makeUnsignedJwt(payload: Record<string, unknown>): string {
+  const encode = (value: Record<string, unknown>) =>
+    Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.signature`;
+}
+
+function makeThresholdEcdsaSessionJwt(sessionId: string): string {
+  return makeUnsignedJwt({
+    kind: 'threshold_ecdsa_session_v1',
+    sub: ACCOUNT_ID,
+    walletId: ACCOUNT_ID,
+    sessionId,
+    exp: 4_102_444_800,
+  });
+}
+
 type CapturedRelayRequest = {
   url: string;
   headers: Record<string, string>;
@@ -57,7 +73,7 @@ function createBootstrapResult(args?: {
 }): ThresholdEcdsaSessionBootstrapResult {
   const ecdsaThresholdKeyId = String(args?.ecdsaThresholdKeyId || 'ehss-key-1').trim();
   const sessionId = String(args?.sessionId || 'ecdsa-session-1').trim();
-  const sessionJwt = String(args?.sessionJwt || 'jwt:ecdsa-session-1').trim();
+  const sessionJwt = String(args?.sessionJwt || makeThresholdEcdsaSessionJwt(sessionId)).trim();
 
   return {
     thresholdEcdsaKeyRef: {
@@ -401,7 +417,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
     const bootstrap = createBootstrapResult({
       ecdsaThresholdKeyId: 'ehss-registration-1',
       sessionId: 'ecdsa-registration-session-1',
-      sessionJwt: 'jwt:ecdsa-registration-1',
+      sessionJwt: makeThresholdEcdsaSessionJwt('ecdsa-registration-session-1'),
     });
 
     engine.upsertThresholdEcdsaSessionFromBootstrap({
@@ -411,9 +427,10 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       source: 'registration',
     });
 
-    const record = engine.getThresholdEcdsaSessionRecordForSigning({
+    const record = engine.getThresholdEcdsaSessionRecordForLookup({
       nearAccountId: ACCOUNT_ID,
       chain: 'evm',
+      source: 'registration',
     });
     expect(record.source).toBe('registration');
     expect(record.ecdsaThresholdKeyId).toBe('ehss-registration-1');
@@ -421,7 +438,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
     await expectOneKeyEcdsaExportFromEngine({
       engine,
       expectedEcdsaThresholdKeyId: 'ehss-registration-1',
-      expectedJwt: 'jwt:ecdsa-registration-1',
+      expectedJwt: makeThresholdEcdsaSessionJwt('ecdsa-registration-session-1'),
       exportWorkerCalls,
       userConfirmationCalls,
     });
@@ -432,7 +449,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
     const bootstrap = createBootstrapResult({
       ecdsaThresholdKeyId: 'ehss-login-1',
       sessionId: 'ecdsa-login-session-1',
-      sessionJwt: 'jwt:ecdsa-login-1',
+      sessionJwt: makeThresholdEcdsaSessionJwt('ecdsa-login-session-1'),
     });
 
     engine.upsertThresholdEcdsaSessionFromBootstrap({
@@ -442,9 +459,10 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       source: 'login',
     });
 
-    const record = engine.getThresholdEcdsaSessionRecordForSigning({
+    const record = engine.getThresholdEcdsaSessionRecordForLookup({
       nearAccountId: ACCOUNT_ID,
       chain: 'evm',
+      source: 'login',
     });
     expect(record.source).toBe('login');
     expect(record.ecdsaThresholdKeyId).toBe('ehss-login-1');
@@ -452,7 +470,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
     await expectOneKeyEcdsaExportFromEngine({
       engine,
       expectedEcdsaThresholdKeyId: 'ehss-login-1',
-      expectedJwt: 'jwt:ecdsa-login-1',
+      expectedJwt: makeThresholdEcdsaSessionJwt('ecdsa-login-session-1'),
       exportWorkerCalls,
       userConfirmationCalls,
     });
@@ -498,7 +516,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
           expiresAtMs: Date.now() + 60_000,
           participantIds: [...PARTICIPANT_IDS],
           remainingUses: 5,
-          jwt: 'jwt:ecdsa-link-device-1',
+          jwt: makeThresholdEcdsaSessionJwt('ecdsa-link-device-session-1'),
         },
       },
       linkedAccounts: [
@@ -513,9 +531,10 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       ],
     });
 
-    const record = engine.getThresholdEcdsaSessionRecordForSigning({
+    const record = engine.getThresholdEcdsaSessionRecordForLookup({
       nearAccountId: ACCOUNT_ID,
       chain: 'evm',
+      source: 'manual-bootstrap',
     });
     expect(record.source).toBe('manual-bootstrap');
     expect(record.ecdsaThresholdKeyId).toBe('ehss-link-device-1');
@@ -523,7 +542,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
     await expectOneKeyEcdsaExportFromEngine({
       engine,
       expectedEcdsaThresholdKeyId: 'ehss-link-device-1',
-      expectedJwt: 'jwt:ecdsa-link-device-1',
+      expectedJwt: makeThresholdEcdsaSessionJwt('ecdsa-link-device-session-1'),
       exportWorkerCalls,
       userConfirmationCalls,
     });
@@ -534,7 +553,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
     const bootstrap = createBootstrapResult({
       ecdsaThresholdKeyId: 'ehss-stable-1',
       sessionId: 'ecdsa-stable-session-1',
-      sessionJwt: 'jwt:ecdsa-stable-1',
+      sessionJwt: makeThresholdEcdsaSessionJwt('ecdsa-stable-session-1'),
     });
 
     engine.upsertThresholdEcdsaSessionFromBootstrap({
@@ -550,7 +569,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
     await expectOneKeyEcdsaExportFromEngine({
       engine,
       expectedEcdsaThresholdKeyId: 'ehss-stable-1',
-      expectedJwt: 'jwt:ecdsa-stable-1',
+      expectedJwt: makeThresholdEcdsaSessionJwt('ecdsa-stable-session-1'),
       exportWorkerCalls,
       userConfirmationCalls,
     });

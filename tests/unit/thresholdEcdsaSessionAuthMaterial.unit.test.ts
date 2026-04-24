@@ -4,7 +4,8 @@ import { setupBasicPasskeyTest } from '../setup';
 const IMPORT_PATHS = {
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
-  warmSessionManager: '/sdk/esm/core/signingEngine/session/WarmSessionManager.js',
+  warmSessionCapabilityReader:
+    '/sdk/esm/core/signingEngine/session/WarmSessionCapabilityReader.js',
 } as const;
 
 test.describe('threshold ECDSA warm-session auth material', () => {
@@ -18,8 +19,11 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
     const result = await page.evaluate(
       async ({ paths }) => {
         const storeMod = await import(paths.thresholdSessionStore);
-        const warmSessionManagerMod = await import(paths.warmSessionManager);
-        const deps = { recordsByLane: new Map<string, unknown>() };
+        const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
+        const deps = {
+          recordsByLane: new Map<string, unknown>(),
+          exportArtifactsByLane: new Map<string, unknown>(),
+        };
         const now = Date.now();
 
         const upsertEcdsaRecord = (args: {
@@ -38,6 +42,8 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
                 userId: args.nearAccountId,
                 relayerUrl: 'https://relay.example',
                 ecdsaThresholdKeyId: `ek-${args.thresholdSessionId}`,
+                signingRootId: 'proj-a:env-a',
+                signingRootVersion: 'default',
                 participantIds: [1, 2],
                 backendBinding: {
                   relayerKeyId: `rk-${args.thresholdSessionId}`,
@@ -102,25 +108,19 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
           thresholdSessionKind: 'cookie',
         });
 
-        const manager = warmSessionManagerMod.createWarmSessionManager();
+        const capabilityReader = capabilityReaderMod.createWarmSessionCapabilityReader();
         const resolvedPrimary =
-          warmSessionManagerMod.resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(
-            'sess-ecdsa-jwt',
-          );
+          capabilityReader.resolveEcdsaAuthByThresholdSessionId('sess-ecdsa-jwt');
         const resolvedFallback =
-          warmSessionManagerMod.resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(
-            'sess-ecdsa-cookie',
-          );
+          capabilityReader.resolveEcdsaAuthByThresholdSessionId('sess-ecdsa-cookie');
         const resolvedNoFallback =
-          warmSessionManagerMod.resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(
+          capabilityReader.resolveEcdsaAuthByThresholdSessionId(
             'sess-ecdsa-cookie-no-fallback',
           );
         const resolvedMissing =
-          warmSessionManagerMod.resolveExplicitEcdsaWarmSessionAuthByThresholdSessionId(
-            'sess-missing',
-          );
+          capabilityReader.resolveEcdsaAuthByThresholdSessionId('sess-missing');
         const transportFromEcdsa =
-          manager.resolveEcdsaSealTransportByThresholdSessionId('sess-ecdsa-jwt');
+          capabilityReader.resolveEcdsaSealTransportByThresholdSessionId('sess-ecdsa-jwt');
 
         return {
           primary: resolvedPrimary

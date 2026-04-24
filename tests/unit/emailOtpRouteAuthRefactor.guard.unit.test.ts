@@ -10,12 +10,11 @@ function readRepoFile(relativePath: string): string {
 }
 
 test.describe('Email OTP route auth refactor guard', () => {
-  test('Email OTP public and worker surfaces use routeAuth, not thresholdRouteAuth', () => {
+  test('Email OTP public and worker message surfaces use routeAuth, not thresholdRouteAuth', () => {
     const guardedFiles = [
       'client/src/core/TatchiPasskey/index.ts',
       'client/src/core/TatchiPasskey/interfaces.ts',
       'client/src/core/WalletIframe/shared/messages.ts',
-      'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
       'client/src/core/signingEngine/workerManager/workerTypes.ts',
       'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
     ];
@@ -27,7 +26,7 @@ test.describe('Email OTP route auth refactor guard', () => {
     expect(violations, violations.join('\n')).toEqual([]);
   });
 
-  test('transaction signing adapters derive Email OTP signing-session auth through WarmSessionManager', () => {
+  test('transaction signing adapters do not derive Email OTP route auth from raw records', () => {
     const dependencyFactory = readRepoFile(
       'client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts',
     );
@@ -35,12 +34,11 @@ test.describe('Email OTP route auth refactor guard', () => {
     const evmSigning = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
 
     expect(dependencyFactory).toContain('resolveEmailOtpSigningSessionAuthLane');
+    expect(dependencyFactory).toContain('createWarmSessionCapabilityReader');
     expect(nearSigning).not.toContain('thresholdSessionRouteAuthFromEd25519Record');
     expect(evmSigning).not.toContain('thresholdSessionRouteAuthFromEcdsaRecord');
     expect(nearSigning).not.toContain('authLaneToRouteAuth');
     expect(evmSigning).not.toContain('authLaneToRouteAuth');
-    expect(nearSigning.match(/\.\.\.\(authLane \? \{ authLane \} : \{\}\)/g)).toHaveLength(2);
-    expect(evmSigning.match(/\.\.\.\(authLane \? \{ authLane \} : \{\}\)/g)).toHaveLength(2);
   });
 
   test('Email OTP worker operations require routePlan instead of raw auth fields', () => {

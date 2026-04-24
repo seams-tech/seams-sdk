@@ -23,6 +23,12 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
           nearAccountId: 'budget-lane.testnet',
           chain: 'evm',
           source: 'email_otp',
+          emailOtpAuthContext: {
+            policy: 'session',
+            retention: 'session',
+            reason: 'login',
+            authMethod: 'email_otp',
+          },
           bootstrap: {
             thresholdEcdsaKeyRef: {
               type: 'threshold-ecdsa-secp256k1',
@@ -58,9 +64,10 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
           },
         });
 
-        return storeMod.getThresholdEcdsaKeyRefForSigning(deps, {
+        return storeMod.getThresholdEcdsaKeyRefForLookup(deps, {
           nearAccountId: 'budget-lane.testnet',
           chain: 'evm',
+          source: 'email_otp',
         });
       },
       { paths: IMPORT_PATHS },
@@ -157,11 +164,12 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
         });
 
         return {
-          defaultSessionId: storeMod.getThresholdEcdsaKeyRefForSigning(deps, {
+          passkeySessionId: storeMod.getThresholdEcdsaKeyRefForLookup(deps, {
             nearAccountId: accountId,
             chain: 'evm',
+            source: 'login',
           }).thresholdSessionId,
-          emailOtpSessionId: storeMod.getThresholdEcdsaKeyRefForSigning(deps, {
+          emailOtpSessionId: storeMod.getThresholdEcdsaKeyRefForLookup(deps, {
             nearAccountId: accountId,
             chain: 'evm',
             source: 'email_otp',
@@ -171,7 +179,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.defaultSessionId).toBe('passkey-session');
+    expect(result.passkeySessionId).toBe('passkey-session');
     expect(result.emailOtpSessionId).toBe('email-otp-session');
   });
 
@@ -270,14 +278,15 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
           source: 'login',
         });
 
-        const emailAfterPasskeyClear = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+        const emailAfterPasskeyClear = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
           nearAccountId: accountId,
           chain: 'evm',
           source: 'email_otp',
         });
-        const defaultAfterPasskeyClear = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+        const defaultAfterPasskeyClear = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
           nearAccountId: accountId,
           chain: 'evm',
+          source: 'email_otp',
         });
 
         deps.now = () => 3_000;
@@ -300,7 +309,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
 
         let emailLookupAfterEmailClear = '';
         try {
-          storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
             nearAccountId: accountId,
             chain: 'evm',
             source: 'email_otp',
@@ -308,9 +317,10 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
         } catch (error) {
           emailLookupAfterEmailClear = error instanceof Error ? error.message : String(error || '');
         }
-        const defaultAfterEmailClear = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+        const defaultAfterEmailClear = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
           nearAccountId: accountId,
           chain: 'evm',
+          source: 'login',
         });
 
         return {
@@ -413,9 +423,10 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
 
         let malformedLaneKeyError = '';
         try {
-          storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
             nearAccountId: 'alice.testnet',
             chain: 'tempo',
+            source: 'login',
           });
         } catch (error) {
           malformedLaneKeyError = error instanceof Error ? error.message : String(error || '');
@@ -440,6 +451,224 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
       'v1',
     ]);
     expect(result.malformedLaneKeyError).toContain('missing canonical threshold ECDSA session');
+  });
+
+  test('rejects malformed and lane-mismatched persisted ECDSA records at the store boundary', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const storeMod = await import(paths.thresholdSessionStore);
+        const deps = { recordsByLane: new Map<string, unknown>() };
+        const prefix = 'tatchi:threshold-ecdsa-session:v3';
+        const now = Date.now();
+
+        const lane = {
+          nearAccountId: 'alice.testnet',
+          chain: 'evm',
+          source: 'login',
+          ecdsaThresholdKeyId: 'ek-boundary',
+          signingRootId: 'proj_test:dev',
+          signingRootVersion: 'v1',
+        };
+        const laneKey = [
+          lane.nearAccountId,
+          lane.chain,
+          lane.source,
+          lane.ecdsaThresholdKeyId,
+          lane.signingRootId,
+          lane.signingRootVersion,
+        ]
+          .map((part) => encodeURIComponent(part))
+          .join('|');
+        const makeBaseRecord = (sessionId: string): Record<string, unknown> => ({
+          nearAccountId: lane.nearAccountId,
+          chain: lane.chain,
+          relayerUrl: 'https://relay.example',
+          ecdsaThresholdKeyId: lane.ecdsaThresholdKeyId,
+          signingRootId: lane.signingRootId,
+          signingRootVersion: lane.signingRootVersion,
+          relayerKeyId: 'rk-boundary',
+          clientVerifyingShareB64u: 'AQ',
+          participantIds: [1, 2],
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: sessionId,
+          thresholdSessionJwt: `jwt-${sessionId}`,
+          expiresAtMs: now + 120_000,
+          remainingUses: 3,
+          updatedAtMs: now,
+          source: lane.source,
+        });
+        const writeRawRecord = (record: Record<string, unknown>) => {
+          sessionStorage.setItem(`${prefix}:index`, JSON.stringify([laneKey]));
+          sessionStorage.setItem(`${prefix}:${laneKey}`, JSON.stringify({ v: 1, record }));
+          sessionStorage.setItem(
+            `${prefix}:session-index`,
+            JSON.stringify({ [String(record.thresholdSessionId || '')]: laneKey }),
+          );
+        };
+
+        const cases: Array<{ name: string; record: Record<string, unknown> }> = [
+          {
+            name: 'missing-remainingUses',
+            record: ((record) => {
+              delete record.remainingUses;
+              return record;
+            })(makeBaseRecord('missing-remaining-uses')),
+          },
+          {
+            name: 'negative-remainingUses',
+            record: {
+              ...makeBaseRecord('negative-remaining-uses'),
+              remainingUses: -1,
+            },
+          },
+          {
+            name: 'missing-expiresAtMs',
+            record: ((record) => {
+              delete record.expiresAtMs;
+              return record;
+            })(makeBaseRecord('missing-expires-at-ms')),
+          },
+          {
+            name: 'missing-jwt-for-jwt-session',
+            record: ((record) => {
+              delete record.thresholdSessionJwt;
+              return record;
+            })(makeBaseRecord('missing-jwt')),
+          },
+          {
+            name: 'wrong-record-account',
+            record: {
+              ...makeBaseRecord('wrong-account'),
+              nearAccountId: 'bob.testnet',
+            },
+          },
+          {
+            name: 'wrong-record-chain',
+            record: {
+              ...makeBaseRecord('wrong-chain'),
+              chain: 'tempo',
+            },
+          },
+          {
+            name: 'wrong-record-source',
+            record: {
+              ...makeBaseRecord('wrong-source'),
+              source: 'email_otp',
+              emailOtpAuthContext: {
+                policy: 'session',
+                retention: 'session',
+                reason: 'login',
+                authMethod: 'email_otp',
+              },
+            },
+          },
+          {
+            name: 'missing-email-otp-context',
+            record: {
+              ...makeBaseRecord('missing-email-otp-context'),
+              source: 'email_otp',
+            },
+          },
+          {
+            name: 'invalid-email-otp-retention',
+            record: {
+              ...makeBaseRecord('invalid-email-otp-retention'),
+              source: 'email_otp',
+              emailOtpAuthContext: {
+                policy: 'per_operation',
+                retention: 'session',
+                reason: 'sign',
+                authMethod: 'email_otp',
+              },
+            },
+          },
+          {
+            name: 'wrong-record-threshold-key',
+            record: {
+              ...makeBaseRecord('wrong-threshold-key'),
+              ecdsaThresholdKeyId: 'ek-other',
+            },
+          },
+        ];
+
+        const readErrorCode = (error: unknown) => {
+          const err = error as { name?: string; reason?: string; code?: string };
+          if (err?.name === 'ThresholdSessionStoreInvalidRecordError') {
+            return `invalid:${String(err.reason || err.code || '')}`;
+          }
+          return 'missing';
+        };
+
+        const attempts: string[] = [];
+        try {
+          for (const attempt of cases) {
+            storeMod.clearAllThresholdEcdsaSessionRecords(deps);
+            deps.recordsByLane.clear();
+            writeRawRecord(attempt.record);
+            let lookupAccepted = false;
+            try {
+              storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
+                nearAccountId: lane.nearAccountId,
+                chain: lane.chain,
+                source: lane.source,
+                signingRootId: lane.signingRootId,
+                signingRootVersion: lane.signingRootVersion,
+              });
+              lookupAccepted = true;
+            } catch {}
+            let reverseAccepted = false;
+            let reverseError = '';
+            try {
+              reverseAccepted = !!storeMod.getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
+                String(attempt.record.thresholdSessionId || ''),
+              );
+            } catch (error) {
+              reverseError = readErrorCode(error);
+            }
+            attempts.push(
+              `${attempt.name}:${lookupAccepted ? 'lookup-accepted' : 'lookup-rejected'}:${reverseAccepted ? 'reverse-accepted' : reverseError ? `reverse-error-${reverseError}` : 'reverse-rejected'}`,
+            );
+          }
+
+          storeMod.clearAllThresholdEcdsaSessionRecords(deps);
+          deps.recordsByLane.clear();
+          const cookieRecord = {
+            ...makeBaseRecord('cookie-without-jwt'),
+            thresholdSessionKind: 'cookie',
+            thresholdSessionJwt: undefined,
+          };
+          writeRawRecord(cookieRecord);
+          const validCookie = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
+            nearAccountId: lane.nearAccountId,
+            chain: lane.chain,
+            source: lane.source,
+            signingRootId: lane.signingRootId,
+            signingRootVersion: lane.signingRootVersion,
+          });
+          attempts.push(`cookie-without-jwt:${validCookie.thresholdSessionId}`);
+          return attempts;
+        } finally {
+          storeMod.clearAllThresholdEcdsaSessionRecords(deps);
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual([
+      'missing-remainingUses:lookup-rejected:reverse-error-invalid:invalid_shape',
+      'negative-remainingUses:lookup-rejected:reverse-error-invalid:invalid_shape',
+      'missing-expiresAtMs:lookup-rejected:reverse-error-invalid:invalid_shape',
+      'missing-jwt-for-jwt-session:lookup-rejected:reverse-error-invalid:invalid_shape',
+      'wrong-record-account:lookup-rejected:reverse-rejected',
+      'wrong-record-chain:lookup-rejected:reverse-rejected',
+      'wrong-record-source:lookup-rejected:reverse-rejected',
+      'missing-email-otp-context:lookup-rejected:reverse-error-invalid:invalid_shape',
+      'invalid-email-otp-retention:lookup-rejected:reverse-error-invalid:invalid_shape',
+      'wrong-record-threshold-key:lookup-rejected:reverse-rejected',
+      'cookie-without-jwt:cookie-without-jwt',
+    ]);
   });
 
   test('persists deterministic lane keys in canonical storage index', async ({ page }) => {
@@ -572,13 +801,15 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
         upsert('tempo', 'session-tempo-1', 'rk-tempo', 'ek-tempo');
         upsert('evm', 'session-evm-1', 'rk-evm', 'ek-evm');
 
-        const tempoRecord = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+        const tempoRecord = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'tempo',
+          source: 'login',
         });
-        const evmRecord = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+        const evmRecord = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'evm',
+          source: 'login',
         });
         return {
           tempo: {
@@ -666,13 +897,15 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
           },
         });
 
-        const explicitRecord = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+        const explicitRecord = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'evm',
+          source: 'registration',
         });
-        const explicitKeyRef = storeMod.getThresholdEcdsaKeyRefForSigning(deps, {
+        const explicitKeyRef = storeMod.getThresholdEcdsaKeyRefForLookup(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'evm',
+          source: 'registration',
         });
         const explicitStoragePrefix = 'tatchi:threshold-ecdsa-session:v3';
         const explicitLaneIndex = JSON.parse(
@@ -763,13 +996,15 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
           },
         });
 
-        const record = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+        const record = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'evm',
+          source: 'email_otp',
         });
-        const keyRef = storeMod.getThresholdEcdsaKeyRefForSigning(deps, {
+        const keyRef = storeMod.getThresholdEcdsaKeyRefForLookup(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'evm',
+          source: 'email_otp',
         });
         const prefix = 'tatchi:threshold-ecdsa-session:v3';
         const index = JSON.parse(sessionStorage.getItem(`${prefix}:index`) || '[]');
@@ -862,24 +1097,27 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
         upsert('proj_a:dev', 'v1', 'session-root-a', 'ek-root-a');
         upsert('proj_b:dev', 'v2', 'session-root-b', 'ek-root-b');
 
-        const rootARecord = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+        const rootARecord = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'evm',
+          source: 'login',
           signingRootId: 'proj_a:dev',
           signingRootVersion: 'v1',
         });
-        const rootBRecord = storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+        const rootBRecord = storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'evm',
+          source: 'login',
           signingRootId: 'proj_b:dev',
           signingRootVersion: 'v2',
         });
 
         let wrongRootIdError = '';
         try {
-          storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
             nearAccountId: 'alice.testnet',
             chain: 'evm',
+            source: 'login',
             signingRootId: 'proj_missing:dev',
             signingRootVersion: 'v1',
           });
@@ -889,9 +1127,10 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
 
         let wrongRootVersionError = '';
         try {
-          storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
             nearAccountId: 'alice.testnet',
             chain: 'evm',
+            source: 'login',
             signingRootId: 'proj_a:dev',
             signingRootVersion: 'v2',
           });
@@ -956,9 +1195,10 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
 
         let mismatchedLaneRootError = '';
         try {
-          storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
             nearAccountId: 'alice.testnet',
             chain: 'evm',
+            source: 'login',
             signingRootId: 'proj_a:dev',
             signingRootVersion: 'v1',
           });
@@ -968,9 +1208,10 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
 
         let wrongAccountError = '';
         try {
-          storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
             nearAccountId: 'bob.testnet',
             chain: 'evm',
+            source: 'login',
             signingRootId: 'proj_a:dev',
             signingRootVersion: 'v1',
           });
@@ -1036,9 +1277,10 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
 
         let errorMessage = '';
         try {
-          storeMod.getThresholdEcdsaSessionRecordForSigning(deps, {
+          storeMod.getThresholdEcdsaSessionRecordForLookup(deps, {
             nearAccountId: 'alice.testnet',
             chain: 'evm',
+            source: 'login',
           });
         } catch (error) {
           errorMessage = error instanceof Error ? error.message : String(error || '');

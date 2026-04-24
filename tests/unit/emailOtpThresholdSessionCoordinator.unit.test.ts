@@ -223,7 +223,7 @@ function createCoordinator(overrides?: {
         warmCapability: { capability: 'ecdsa', state: 'ready' } as any,
       };
     },
-    getThresholdEcdsaKeyRefForSigning: (args) =>
+    getThresholdEcdsaKeyRefForLookup: (args) =>
       ({
         type: 'threshold-ecdsa-secp256k1',
         userId: String(args.nearAccountId),

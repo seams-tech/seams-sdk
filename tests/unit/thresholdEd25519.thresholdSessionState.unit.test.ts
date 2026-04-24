@@ -4,7 +4,8 @@ import { setupBasicPasskeyTest } from '../setup';
 const IMPORT_PATHS = {
   thresholdSessionAuth:
     '/sdk/esm/core/signingEngine/orchestration/near/shared/thresholdSessionAuth.js',
-  warmSessionManager: '/sdk/esm/core/signingEngine/session/WarmSessionManager.js',
+  warmSessionCapabilityReader:
+    '/sdk/esm/core/signingEngine/session/WarmSessionCapabilityReader.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
 } as const;
@@ -18,7 +19,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const helperMod = await import(paths.thresholdSessionAuth);
-        const managerMod = await import(paths.warmSessionManager);
+        const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
         const storeMod = await import(paths.thresholdSessionStore);
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -32,6 +33,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
             orgId: 'org-a',
             projectId: 'proj-a',
             envId: 'env-a',
+            signingRootVersion: 'default',
           },
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
@@ -43,9 +45,9 @@ test.describe('threshold Ed25519 threshold-session state', () => {
         });
 
         try {
-          const warmSessionManager = managerMod.createWarmSessionManager();
+          const signingSessionCoordinator = capabilityReaderMod.createWarmSessionCapabilityReader();
           const resolved = helperMod.requireResolvedThresholdEd25519SessionState({
-            warmSessionManager,
+            signingSessionCoordinator,
             thresholdSessionId: 'canonical-threshold-session',
           });
           return {
@@ -77,7 +79,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const helperMod = await import(paths.thresholdSessionAuth);
-        const managerMod = await import(paths.warmSessionManager);
+        const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
         const storeMod = await import(paths.thresholdSessionStore);
         const ecdsaStoreDeps = {
           recordsByLane: new Map(),
@@ -111,6 +113,8 @@ test.describe('threshold Ed25519 threshold-session state', () => {
               userId: 'alice.testnet',
               relayerUrl: 'https://relay.example',
               ecdsaThresholdKeyId: 'ecdsa-key-id',
+              signingRootId: 'proj-a:env-a',
+              signingRootVersion: 'default',
               backendBinding: {
                 relayerKeyId: 'rk-ecdsa',
                 clientVerifyingShareB64u: 'client-verifying-share',
@@ -140,14 +144,14 @@ test.describe('threshold Ed25519 threshold-session state', () => {
         });
 
         try {
-          const warmSessionManager = managerMod.createWarmSessionManager();
+          const signingSessionCoordinator = capabilityReaderMod.createWarmSessionCapabilityReader();
           const directEd25519 = storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
             'shared-session-id',
           );
           const directScoped =
-            warmSessionManager.resolveEd25519RecordByThresholdSessionId('shared-session-id');
+            signingSessionCoordinator.resolveEd25519RecordByThresholdSessionId('shared-session-id');
           const resolved = helperMod.requireResolvedThresholdEd25519SessionState({
-            warmSessionManager,
+            signingSessionCoordinator,
             thresholdSessionId: 'shared-session-id',
           });
           return {
@@ -228,13 +232,22 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           'tatchi:threshold-ed25519-session:v1:session-index',
           JSON.stringify({ 'stale-threshold-session': 'alice.testnet' }),
         );
-        attempts.push(
-          storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
-            'stale-threshold-session',
-          ) === null
-            ? 'stale-record-dropped'
-            : 'accepted',
-        );
+        try {
+          attempts.push(
+            storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+              'stale-threshold-session',
+            ) === null
+              ? 'stale-record-dropped'
+              : 'accepted',
+          );
+        } catch (error) {
+          const err = error as { name?: string; reason?: string };
+          attempts.push(
+            err?.name === 'ThresholdSessionStoreInvalidRecordError'
+              ? `stale-record-invalid:${String(err.reason || '')}`
+              : String(error || ''),
+          );
+        }
 
         storeMod.clearAllStoredThresholdEd25519SessionRecords();
         return attempts;
@@ -244,7 +257,161 @@ test.describe('threshold Ed25519 threshold-session state', () => {
 
     expect(result).toEqual([
       'Invalid threshold session record: stale runtimePolicyScope',
-      'stale-record-dropped',
+      'stale-record-invalid:invalid_shape',
+    ]);
+  });
+
+  test('rejects malformed canonical Ed25519 session records at the store boundary', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const storeMod = await import(paths.thresholdSessionStore);
+
+        const makeBaseRecord = (thresholdSessionId: string): Record<string, unknown> => ({
+          nearAccountId: `${thresholdSessionId}.testnet`,
+          rpId: 'example.localhost',
+          relayerUrl: 'https://relay.example',
+          relayerKeyId: 'rk-1',
+          participantIds: [1, 2],
+          xClientBaseB64u: 'x-client-base',
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId,
+          thresholdSessionJwt: `jwt-${thresholdSessionId}`,
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+          source: 'email_otp',
+          emailOtpAuthContext: {
+            policy: 'session',
+            retention: 'session',
+            reason: 'login',
+            authMethod: 'email_otp',
+          },
+        });
+
+        const writeRawRecord = (record: Record<string, unknown>) => {
+          const nearAccountId = String(record.nearAccountId || '');
+          const thresholdSessionId = String(record.thresholdSessionId || '');
+          sessionStorage.setItem(
+            `tatchi:threshold-ed25519-session:v1:${nearAccountId}`,
+            JSON.stringify({ v: 1, record }),
+          );
+          sessionStorage.setItem(
+            'tatchi:threshold-ed25519-session:v1:session-index',
+            JSON.stringify({ [thresholdSessionId]: nearAccountId }),
+          );
+        };
+
+        const malformedCases: Array<{
+          name: string;
+          record: Record<string, unknown>;
+        }> = [
+          {
+            name: 'missing-remainingUses',
+            record: ((record) => {
+              delete record.remainingUses;
+              return record;
+            })(makeBaseRecord('missing-remaining-uses')),
+          },
+          {
+            name: 'negative-remainingUses',
+            record: {
+              ...makeBaseRecord('negative-remaining-uses'),
+              remainingUses: -1,
+            },
+          },
+          {
+            name: 'missing-expiresAtMs',
+            record: ((record) => {
+              delete record.expiresAtMs;
+              return record;
+            })(makeBaseRecord('missing-expires-at-ms')),
+          },
+          {
+            name: 'invalid-expiresAtMs',
+            record: {
+              ...makeBaseRecord('invalid-expires-at-ms'),
+              expiresAtMs: 0,
+            },
+          },
+          {
+            name: 'missing-jwt-for-jwt-session',
+            record: ((record) => {
+              delete record.thresholdSessionJwt;
+              return record;
+            })(makeBaseRecord('missing-jwt')),
+          },
+          {
+            name: 'missing-email-otp-context',
+            record: ((record) => {
+              delete record.emailOtpAuthContext;
+              return record;
+            })(makeBaseRecord('missing-email-otp-context')),
+          },
+          {
+            name: 'invalid-email-otp-retention',
+            record: {
+              ...makeBaseRecord('invalid-email-otp-retention'),
+              emailOtpAuthContext: {
+                policy: 'per_operation',
+                retention: 'session',
+                reason: 'sign',
+                authMethod: 'email_otp',
+              },
+            },
+          },
+        ];
+
+        const readErrorCode = (error: unknown) => {
+          const err = error as { name?: string; reason?: string; code?: string };
+          if (err?.name === 'ThresholdSessionStoreInvalidRecordError') {
+            return `invalid:${String(err.reason || err.code || '')}`;
+          }
+          return 'missing';
+        };
+
+        const attempts: string[] = [];
+        try {
+          for (const attempt of malformedCases) {
+            storeMod.clearAllStoredThresholdEd25519SessionRecords();
+            writeRawRecord(attempt.record);
+            try {
+              const stored = storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+                String(attempt.record.thresholdSessionId || ''),
+              );
+              attempts.push(`${attempt.name}:${stored === null ? 'rejected' : 'accepted'}`);
+            } catch (error) {
+              attempts.push(`${attempt.name}:${readErrorCode(error)}`);
+            }
+          }
+
+          storeMod.clearAllStoredThresholdEd25519SessionRecords();
+          storeMod.upsertStoredThresholdEd25519SessionRecord({
+            ...makeBaseRecord('cookie-without-jwt'),
+            thresholdSessionKind: 'cookie',
+            thresholdSessionJwt: undefined,
+          });
+          const cookieRecord = storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+            'cookie-without-jwt',
+          );
+          attempts.push(`cookie-without-jwt:${cookieRecord ? 'accepted' : 'rejected'}`);
+          return attempts;
+        } finally {
+          storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual([
+      'missing-remainingUses:invalid:invalid_shape',
+      'negative-remainingUses:invalid:invalid_shape',
+      'missing-expiresAtMs:invalid:invalid_shape',
+      'invalid-expiresAtMs:invalid:invalid_shape',
+      'missing-jwt-for-jwt-session:invalid:invalid_shape',
+      'missing-email-otp-context:invalid:invalid_shape',
+      'invalid-email-otp-retention:invalid:invalid_shape',
+      'cookie-without-jwt:accepted',
     ]);
   });
 });

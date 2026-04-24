@@ -362,7 +362,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     let capturedConnectArgs: Record<string, unknown> | null = null;
     const context = createBaseContext({
       signingEngine: {
-        getThresholdEcdsaSessionRecordForSigning: (_args: { chain: 'tempo' | 'evm' }) => ({
+        getThresholdEcdsaSessionRecordForLookup: (_args: { chain: 'tempo' | 'evm' }) => ({
           ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
           thresholdSessionId: 'canonical-ecdsa-session-1',
         }),
@@ -722,7 +722,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
       const context = createBaseContext({
         signingEngine: {
-          getThresholdEcdsaSessionRecordForSigning: (_args: { chain: 'tempo' | 'evm' }) => ({
+          getThresholdEcdsaSessionRecordForLookup: (_args: { chain: 'tempo' | 'evm' }) => ({
             ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
             thresholdSessionId: 'canonical-ecdsa-session-1',
           }),

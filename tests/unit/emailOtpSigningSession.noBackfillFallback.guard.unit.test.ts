@@ -23,7 +23,7 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
       'server/src/threshold/session/signingSessionSeal',
       'client/src/core/signingEngine/emailOtp',
       'client/src/core/signingEngine/api/session/signingSessionSealedStore.ts',
-      'client/src/core/signingEngine/session/WarmSessionManager.ts',
+      'client/src/core/signingEngine/session/WarmSessionStore.ts',
       'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
       'client/src/core/signingEngine/workerManager/workers/email-otp',
     ].flatMap((path) => listFiles(join(REPO_ROOT, path)));

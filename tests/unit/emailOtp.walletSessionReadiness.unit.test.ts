@@ -44,19 +44,21 @@ test.describe('Email OTP wallet-session readiness', () => {
               getLastUser: async () => null,
               getUserBySignerSlot: async () => null,
               getWarmThresholdEd25519SessionStatus: async () => null,
-              getWarmThresholdEcdsaSessionStatus: async (_accountId: string, chain: string) =>
+              listWarmThresholdEcdsaSessionStatuses: async (_accountId: string, chain: string) =>
                 chain === 'tempo'
-                  ? {
-                      sessionId: 'email-otp-ecdsa-session',
-                      status: 'active',
-                      authMethod: 'email_otp',
-                      retention: 'session',
-                      remainingUses: 3,
-                      expiresAtMs: now + 60_000,
-                      createdAtMs: now,
-                    }
-                  : null,
-              getThresholdEcdsaSessionRecordForSigning: () => ({
+                  ? [
+                      {
+                        sessionId: 'email-otp-ecdsa-session',
+                        status: 'active',
+                        authMethod: 'email_otp',
+                        retention: 'session',
+                        remainingUses: 3,
+                        expiresAtMs: now + 60_000,
+                        createdAtMs: now,
+                      },
+                    ]
+                  : [],
+              getThresholdEcdsaSessionRecordForLookup: () => ({
                 thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
               }),
             },
@@ -133,19 +135,21 @@ test.describe('Email OTP wallet-session readiness', () => {
                 operationalPublicKey: 'ed25519:stale-near-key',
               }),
               getWarmThresholdEd25519SessionStatus: async () => null,
-              getWarmThresholdEcdsaSessionStatus: async (_accountId: string, chain: string) =>
+              listWarmThresholdEcdsaSessionStatuses: async (_accountId: string, chain: string) =>
                 chain === 'tempo'
-                  ? {
-                      sessionId: 'email-otp-ecdsa-session',
-                      status: 'active',
-                      authMethod: 'email_otp',
-                      retention: 'session',
-                      remainingUses: 3,
-                      expiresAtMs: now + 60_000,
-                      createdAtMs: now,
-                    }
-                  : null,
-              getThresholdEcdsaSessionRecordForSigning: () => ({
+                  ? [
+                      {
+                        sessionId: 'email-otp-ecdsa-session',
+                        status: 'active',
+                        authMethod: 'email_otp',
+                        retention: 'session',
+                        remainingUses: 3,
+                        expiresAtMs: now + 60_000,
+                        createdAtMs: now,
+                      },
+                    ]
+                  : [],
+              getThresholdEcdsaSessionRecordForLookup: () => ({
                 thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
               }),
             },
@@ -220,19 +224,21 @@ test.describe('Email OTP wallet-session readiness', () => {
                 expiresAtMs: now + 60_000,
                 createdAtMs: now,
               }),
-              getWarmThresholdEcdsaSessionStatus: async (_accountId: string, chain: string) =>
+              listWarmThresholdEcdsaSessionStatuses: async (_accountId: string, chain: string) =>
                 chain === 'tempo'
-                  ? {
-                      sessionId: 'email-otp-ecdsa-session',
-                      status: 'active',
-                      authMethod: 'email_otp',
-                      retention: 'session',
-                      remainingUses: 1,
-                      expiresAtMs: now + 60_000,
-                      createdAtMs: now,
-                    }
-                  : null,
-              getThresholdEcdsaSessionRecordForSigning: () => ({
+                  ? [
+                      {
+                        sessionId: 'email-otp-ecdsa-session',
+                        status: 'active',
+                        authMethod: 'email_otp',
+                        retention: 'session',
+                        remainingUses: 1,
+                        expiresAtMs: now + 60_000,
+                        createdAtMs: now,
+                      },
+                    ]
+                  : [],
+              getThresholdEcdsaSessionRecordForLookup: () => ({
                 thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
               }),
             },
