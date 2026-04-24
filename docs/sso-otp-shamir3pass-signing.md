@@ -68,9 +68,7 @@ Session-token boundaries:
 4. the client may use one discriminated route-auth type, but each route must require the correct variant:
 
 ```ts
-type RouteAuth =
-  | { kind: 'app_session'; jwt: string }
-  | { kind: 'threshold_session'; jwt: string };
+type RouteAuth = { kind: 'app_session'; jwt: string } | { kind: 'threshold_session'; jwt: string };
 ```
 
 Email OTP flow:
@@ -563,15 +561,15 @@ If local `enc_s(S)` is missing because this is a new device or IndexedDB was wip
 
 ### Authorization lanes
 
-| Step | Auth lane | Why |
-| --- | --- | --- |
-| Google SSO exchange | Google OIDC assertion | proves app identity and Google subject |
-| Initial Email OTP challenge | `app_session_v1` | binds OTP challenge to the current logged-in app user, wallet, session, and operation |
-| Email OTP challenge after sealed refresh | restored signing-session route authority | lets an already-restored wallet signing session request fresh operation auth without persisting a JS-readable app-session JWT |
-| Email OTP verify-and-unseal | same lane that requested the challenge plus local `E_c(enc_s(S))` | verifies the code and removes the enrollment seal in one action-specific request |
-| `shamir3pass` unseal authorization | successful OTP verification plus validated route authority | proves the user is allowed to recover `S` or operation material for this operation |
-| threshold ECDSA bootstrap from Email OTP | fresh OTP authorization plus validated route authority | bootstrap is authorized by OTP verification and the route's app-session or restored signing-session binding |
-| threshold ECDSA signing/export after bootstrap | threshold-session JWT | proves an active threshold signing capability exists |
+| Step                                           | Auth lane                                                         | Why                                                                                                                           |
+| ---------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Google SSO exchange                            | Google OIDC assertion                                             | proves app identity and Google subject                                                                                        |
+| Initial Email OTP challenge                    | `app_session_v1`                                                  | binds OTP challenge to the current logged-in app user, wallet, session, and operation                                         |
+| Email OTP challenge after sealed refresh       | restored signing-session route authority                          | lets an already-restored wallet signing session request fresh operation auth without persisting a JS-readable app-session JWT |
+| Email OTP verify-and-unseal                    | same lane that requested the challenge plus local `E_c(enc_s(S))` | verifies the code and removes the enrollment seal in one action-specific request                                              |
+| `shamir3pass` unseal authorization             | successful OTP verification plus validated route authority        | proves the user is allowed to recover `S` or operation material for this operation                                            |
+| threshold ECDSA bootstrap from Email OTP       | fresh OTP authorization plus validated route authority            | bootstrap is authorized by OTP verification and the route's app-session or restored signing-session binding                   |
+| threshold ECDSA signing/export after bootstrap | threshold-session JWT                                             | proves an active threshold signing capability exists                                                                          |
 
 Rules:
 
@@ -827,139 +825,202 @@ The implementation must preserve these invariants:
 9. Express and Cloudflare parity already exist
 10. the SDK now has a canonical Email OTP policy surface via `emailOtpAuthPolicy = session | per_operation`
 11. Email OTP bootstrap now persists explicit warm-session auth context:
-   - `policy`
-   - `retention`
-   - `reason`
-   - `authMethod`
+
+- `policy`
+- `retention`
+- `reason`
+- `authMethod`
+
 12. Email OTP bootstrap now threads explicit policy metadata through the client runtime and ECDSA session store
 13. the current Email OTP login bridge defaults `per_operation` to a one-use ECDSA session budget when the caller does not override `remainingUses`
 14. the shared EVM and Tempo signing path now delegates single-use Email OTP post-sign discard to `WarmSessionManager`
 15. `WarmSessionManager` now actively enforces Email OTP signing-session semantics instead of only surfacing metadata:
-   - `single_use` Email OTP capabilities are discarded after successful ECDSA signing
-   - Email OTP capabilities are invalidated when warm-session status becomes `missing`, `expired`, or `exhausted`
+
+- `single_use` Email OTP capabilities are discarded after successful ECDSA signing
+- Email OTP capabilities are invalidated when warm-session status becomes `missing`, `expired`, or `exhausted`
+
 16. Email OTP session TTL and invalidation semantics now clear stale local lane state and worker warm material when the client-side warm session is no longer valid
 17. sensitive-operation overrides are now generalized through `WarmSessionManager` policy checks:
-   - stronger operations can require fresh passkey authentication
-   - stronger operations can require fresh Email OTP with `per_operation` policy
+
+- stronger operations can require fresh passkey authentication
+- stronger operations can require fresh Email OTP with `per_operation` policy
+
 18. `PasskeyAuthMenu` now exposes `emailOtpAuthPolicy` and treats Google SSO as the Email OTP entrypoint instead of showing a separate OTP CTA
 19. the former Email OTP bootstrap wrapper stopped returning `clientRootShare32B64u` before that wrapper was deleted
 20. best-effort local cleanup now zeroizes secret-derived byte buffers in the Email OTP unlock, enrollment, and threshold bootstrap paths when those buffers are materialized client-side
 21. transient Email OTP secret-source references were shortened before the dedicated-worker cutover:
-   - the unsealed client secret was blanked locally after the unlock handoff completed
-   - the former bootstrap wrapper decoded its transient `clientRootShare32B64u` once, cleared the string immediately, and zeroized the byte buffer after bootstrap completed
-   - decoded unlock challenge bytes are zeroized after unlock proof signing completes
+
+- the unsealed client secret was blanked locally after the unlock handoff completed
+- the former bootstrap wrapper decoded its transient `clientRootShare32B64u` once, cleared the string immediately, and zeroized the byte buffer after bootstrap completed
+- decoded unlock challenge bytes are zeroized after unlock proof signing completes
+
 22. Email OTP discard/invalidation now clears lane-scoped threshold-ECDSA presignature pools so single-use or expired sessions do not retain reusable presign material after warm-session teardown
 23. background threshold-ECDSA presign refill now respects lane invalidation generation guards, preventing stale refill work from repopulating a cleared Email OTP lane after discard
 24. `ethSigner` worker handlers now zeroize owned secret-derived byte buffers after use where the worker owns them:
-   - unlock/signing private keys and PRF-derived inputs
-   - threshold additive shares and signature-share inputs
-   - presignature buffers after cloning them for transfer back to the runtime
+
+- unlock/signing private keys and PRF-derived inputs
+- threshold additive shares and signature-share inputs
+- presignature buffers after cloning them for transfer back to the runtime
+
 25. `wasm/eth_signer` now zeroizes owned secret-bearing `Vec<u8>` inputs after cryptographic operations return:
-   - secp256k1 sign inputs
-   - PRF-derived key derivation input
-   - threshold share and signature computation inputs
-   - threshold presign constructor private share input
+
+- secp256k1 sign inputs
+- PRF-derived key derivation input
+- threshold share and signature computation inputs
+- threshold presign constructor private share input
+
 26. threshold-ECDSA coordinator cleanup now zeroizes decoded presign and signature-share buffers after they are serialized or handed off to the relayer finalize step
 27. threshold-ECDSA client presignature pool state no longer stores `kShare` and `sigmaShare` as long-lived base64url strings:
-   - private presign material now uses owned byte buffers
-   - pooled entries are zeroized on pop, lane invalidation, and global teardown
+
+- private presign material now uses owned byte buffers
+- pooled entries are zeroized on pop, lane invalidation, and global teardown
+
 28. sign and login-prefill paths now enforce explicit ownership for decoded `clientSigningShare32` buffers:
-   - callers clone before handing secret bytes to async refill or sign work
-   - caller-owned buffers are zeroized in `finally` after the final consumer returns
+
+- callers clone before handing secret bytes to async refill or sign work
+- caller-owned buffers are zeroized in `finally` after the final consumer returns
+
 29. the temporary JS Email OTP derivation helpers were hardened before being moved to test-only parity support:
-   - recovered `S` is decoded once and reused as bytes
-   - HKDF intermediates such as `prk`, `thresholdRoot`, and tuple-encoding buffers are zeroized after final use
+
+- recovered `S` is decoded once and reused as bytes
+- HKDF intermediates such as `prk`, `thresholdRoot`, and tuple-encoding buffers are zeroized after final use
+
 30. focused lifecycle validation now covers stale-buffer rejection and post-discard cleanup:
-   - direct refill, scheduled refill, and foreground sign all zeroize their owned signing-share buffers
-   - stale zeroized signing-share buffers are rejected on attempted reuse
+
+- direct refill, scheduled refill, and foreground sign all zeroize their owned signing-share buffers
+- stale zeroized signing-share buffers are rejected on attempted reuse
+
 31. the deleted main-thread Email OTP compatibility runtime was hardened to keep recovered secret `S` byte-owned before removal:
-   - unseal decoded the recovered secret once into `Uint8Array`
-   - unlock and bootstrap handoff consumed byte-owned secret input instead of re-passing base64url secret strings
-   - enrollment kept caller-owned secret bytes live only until verifier derivation and escrow upload completed
+
+- unseal decoded the recovered secret once into `Uint8Array`
+- unlock and bootstrap handoff consumed byte-owned secret input instead of re-passing base64url secret strings
+- enrollment kept caller-owned secret bytes live only until verifier derivation and escrow upload completed
+
 32. the `shamir3pass` worker/runtime boundary now exposes byte-oriented entrypoints for the Email OTP flow:
-   - enrollment can send caller-owned secret bytes into the worker without first base64url-encoding them
-   - unseal can return recovered secret bytes from the worker without requiring an extra base64url decode step
-   - Email OTP worker code requires the byte-oriented entrypoints
+
+- enrollment can send caller-owned secret bytes into the worker without first base64url-encoding them
+- unseal can return recovered secret bytes from the worker without requiring an extra base64url decode step
+- Email OTP worker code requires the byte-oriented entrypoints
+
 33. the `shamir3pass` WASM export surface now has matching byte-oriented lock helpers for the Email OTP worker path:
-   - the worker no longer has to re-encode caller-owned secret bytes into base64url before invoking the WASM add-lock path
-   - the worker can receive recovered secret bytes directly from the WASM remove-lock path before handing them back to the runtime
-   - older string-based WASM exports are not used by the Email OTP worker path
+
+- the worker no longer has to re-encode caller-owned secret bytes into base64url before invoking the WASM add-lock path
+- the worker can receive recovered secret bytes directly from the WASM remove-lock path before handing them back to the runtime
+- older string-based WASM exports are not used by the Email OTP worker path
+
 34. `shamir3pass` client lock exponents no longer need to cross into the main thread for the Email OTP flow:
-   - the runtime can create opaque worker-held key handles
-   - the app-facing runtime surface is now handle-based instead of exposing explicit client lock keypairs
-   - Email OTP seal/unseal paths use those handles and destroy them in `finally`
-   - focused unit coverage asserts the handle path and byte-returning unseal path are used
+
+- the runtime can create opaque worker-held key handles
+- the app-facing runtime surface is now handle-based instead of exposing explicit client lock keypairs
+- Email OTP seal/unseal paths use those handles and destroy them in `finally`
+- focused unit coverage asserts the handle path and byte-returning unseal path are used
+
 35. Signing-session seal apply/remove in the passkey confirm worker now also uses opaque worker-held `shamir3pass` key handles only:
-   - sealed refresh no longer materializes client encrypt/decrypt exponents in the worker flow
-   - focused single-flight sealed-mode worker tests still pass after the handle migration
+
+- sealed refresh no longer materializes client encrypt/decrypt exponents in the worker flow
+- focused single-flight sealed-mode worker tests still pass after the handle migration
+
 36. wallet-iframe EVM `per_operation` parity is now closed:
-   - the first EVM sign consumes the originating single-use Email OTP auth
-   - the second EVM sign is rejected until the user completes a fresh Email OTP verification
-   - the focused EVM `per_operation` replay case now passes against the rebuilt prepared SDK bundle
+
+- the first EVM sign consumes the originating single-use Email OTP auth
+- the second EVM sign is rejected until the user completes a fresh Email OTP verification
+- the focused EVM `per_operation` replay case now passes against the rebuilt prepared SDK bundle
+
 37. the dedicated `emailOtp` worker now owns the default login-plus-unlock path end to end:
-   - challenge and verify already dispatch through the worker
-   - the worker now performs `shamir3pass` unseal for the standard login path
-   - the worker now derives the unlock auth seed and threshold-ECDSA client root share for that path
-   - the worker now fetches and signs `/wallet/unlock/challenge` and submits `/wallet/unlock/verify`
-   - the default runtime path no longer returns recovered `S` to the main thread during Email OTP login
+
+- challenge and verify already dispatch through the worker
+- the worker now performs `shamir3pass` unseal for the standard login path
+- the worker now derives the unlock auth seed and threshold-ECDSA client root share for that path
+- the worker now fetches and signs `/wallet/unlock/challenge` and submits `/wallet/unlock/verify`
+- the default runtime path no longer returns recovered `S` to the main thread during Email OTP login
+
 38. the dedicated `emailOtp` worker now also owns the default enrollment path end to end:
-   - the worker now requests the enrollment challenge and submits the seal and verify routes for the standard enrollment path
-   - the worker now performs the `shamir3pass` enrollment seal flow for that path
-   - the worker now derives the unlock public key and threshold-ECDSA client verifying share for that path
-   - the default runtime path no longer walks the enrollment secret through main-thread JS
+
+- the worker now requests the enrollment challenge and submits the seal and verify routes for the standard enrollment path
+- the worker now performs the `shamir3pass` enrollment seal flow for that path
+- the worker now derives the unlock public key and threshold-ECDSA client verifying share for that path
+- the default runtime path no longer walks the enrollment secret through main-thread JS
+
 39. the former residual Email OTP bootstrap handoff was made byte-owned before the full worker-owned bootstrap cutover:
-   - the login-plus-bootstrap wrapper stopped passing `clientRootShare32B64u` onward into ECDSA bootstrap
-   - the wrapper decoded the client root share once, cleared the transient base64url string, and zeroized the byte buffer after bootstrap
-   - the threshold-ECDSA HSS bootstrap worker/WASM path now accepts raw `clientRootShare32` bytes instead of requiring a base64url-only handoff
+
+- the login-plus-bootstrap wrapper stopped passing `clientRootShare32B64u` onward into ECDSA bootstrap
+- the wrapper decoded the client root share once, cleared the transient base64url string, and zeroized the byte buffer after bootstrap
+- the threshold-ECDSA HSS bootstrap worker/WASM path now accepts raw `clientRootShare32` bytes instead of requiring a base64url-only handoff
+
 40. the former Email OTP login-plus-bootstrap preparation path was moved through the dedicated `emailOtp` worker before being removed from the public runtime surface:
-   - the worker returned transferred `clientRootShare32` bytes rather than a base64url bootstrap-share string
-   - the default runtime no longer reuses the older string-result unlock bridge as the bootstrap-prep path
-   - focused unit coverage asserted the dedicated worker operation and caller-owned bootstrap-share zeroization before the final worker-owned bootstrap surface replaced it
+
+- the worker returned transferred `clientRootShare32` bytes rather than a base64url bootstrap-share string
+- the default runtime no longer reuses the older string-result unlock bridge as the bootstrap-prep path
+- focused unit coverage asserted the dedicated worker operation and caller-owned bootstrap-share zeroization before the final worker-owned bootstrap surface replaced it
+
 41. the public Email OTP runtime surface no longer exposes caller-facing string-secret compatibility entrypoints:
-   - `completeEmailOtpUnlock(...)` has been deleted
-   - deterministic enrollment override now accepts byte-owned `clientSecret32` instead of `clientSecretB64u`
-   - focused unit, relayer integration, and first-class E2E coverage still pass after the cleanup
+
+- `completeEmailOtpUnlock(...)` has been deleted
+- deterministic enrollment override now accepts byte-owned `clientSecret32` instead of `clientSecretB64u`
+- focused unit, relayer integration, and first-class E2E coverage still pass after the cleanup
+
 42. the default internal Email OTP login path now completes ECDSA authorization bootstrap inside the dedicated `emailOtp` worker:
-   - the worker performs login, verify, `shamir3pass` unseal, unlock proof generation, ECDSA HSS prepare/respond/finalize, and bootstrap finalization for the default path
-   - the main thread receives only sanitized recovery metadata and the final `ThresholdEcdsaSessionBootstrapResult`
-   - the main thread remains authoritative for persistence, session-store upsert, Email OTP policy metadata, and `WarmSessionManager` lifecycle checks
+
+- the worker performs login, verify, `shamir3pass` unseal, unlock proof generation, ECDSA HSS prepare/respond/finalize, and bootstrap finalization for the default path
+- the main thread receives only sanitized recovery metadata and the final `ThresholdEcdsaSessionBootstrapResult`
+- the main thread remains authoritative for persistence, session-store upsert, Email OTP policy metadata, and `WarmSessionManager` lifecycle checks
+
 43. the dedicated `emailOtp` worker now uses `wasm/email_otp_runtime` for Email OTP derivation:
-   - threshold root, ECDSA client root share, and unlock auth seed derivation moved out of shared JS helper code for the default worker path
-   - the new WASM runtime zeroizes owned secret inputs, PRK, threshold root, tuple buffers, and HKDF block buffers
-   - SDK build scripts now generate, bundle, and copy `email_otp_runtime_bg.wasm` beside the worker bundle
+
+- threshold root, ECDSA client root share, and unlock auth seed derivation moved out of shared JS helper code for the default worker path
+- the new WASM runtime zeroizes owned secret inputs, PRK, threshold root, tuple buffers, and HKDF block buffers
+- SDK build scripts now generate, bundle, and copy `email_otp_runtime_bg.wasm` beside the worker bundle
+
 44. direct `email_otp_runtime` regression coverage now exists:
-   - WASM threshold-root, ECDSA-share, and unlock-seed outputs are checked against the canonical byte-oriented JS derivation helpers
-   - malformed non-32-byte secrets fail closed at the WASM boundary
-   - returned WASM buffers are treated as caller-owned and can be zeroized without corrupting later derivations
+
+- WASM threshold-root, ECDSA-share, and unlock-seed outputs are checked against the canonical byte-oriented JS derivation helpers
+- malformed non-32-byte secrets fail closed at the WASM boundary
+- returned WASM buffers are treated as caller-owned and can be zeroized without corrupting later derivations
+
 45. the client and worker Email OTP login/enrollment/bootstrap APIs now support preissued OTP challenges:
-   - callers can pass the `challengeId` from the explicit challenge request into the later OTP submit/unseal/bootstrap call
-   - the default worker path forwards `challengeId` instead of forcing a new challenge after the user has entered the OTP
-   - focused unit coverage asserts a preissued login challenge is consumed without requesting another challenge
+
+- callers can pass the `challengeId` from the explicit challenge request into the later OTP submit/unseal/bootstrap call
+- the default worker path forwards `challengeId` instead of forcing a new challenge after the user has entered the OTP
+- focused unit coverage asserts a preissued login challenge is consumed without requesting another challenge
+
 46. the production main-thread Email OTP secret-bearing compatibility paths have been deleted:
-   - `emailOtp.ts` no longer exports main-thread login/unlock/bootstrap helpers
-   - Email OTP login plus ECDSA bootstrap now requires the dedicated `emailOtp` worker
-   - `SigningEngine` no longer falls back to a main-thread bootstrap-prep path
+
+- `emailOtp.ts` no longer exports main-thread login/unlock/bootstrap helpers
+- Email OTP login plus ECDSA bootstrap now requires the dedicated `emailOtp` worker
+- `SigningEngine` no longer falls back to a main-thread bootstrap-prep path
+
 47. Email OTP enrollment and worker result surfaces no longer return `clientRootShare32B64u`:
-   - enrollment returns only public verifier and unlock public-key material
-   - login bootstrap returns sanitized recovery metadata plus final threshold bootstrap state
+
+- enrollment returns only public verifier and unlock public-key material
+- login bootstrap returns sanitized recovery metadata plus final threshold bootstrap state
+
 48. the Email OTP worker now requires byte-oriented `shamir3pass` seal/unseal entrypoints:
-   - worker-owned Email OTP seal/unseal no longer falls back to string-backed `shamir3pass` methods
-   - recovered secret bytes stay in worker-owned byte buffers until final zeroization
+
+- worker-owned Email OTP seal/unseal no longer falls back to string-backed `shamir3pass` methods
+- recovered secret bytes stay in worker-owned byte buffers until final zeroization
+
 49. the duplicate JS Email OTP derivation implementation has been removed from production shared code:
-   - production Email OTP derivation uses `wasm/email_otp_runtime`
-   - the JS derivation helper now lives under `tests/helpers` for WASM parity tests and harness setup only
+
+- production Email OTP derivation uses `wasm/email_otp_runtime`
+- the JS derivation helper now lives under `tests/helpers` for WASM parity tests and harness setup only
+
 50. focused tests have been updated to assert the new public surface:
-   - `TatchiPasskey/emailOtp.ts` covers public challenge/verify helpers and worker-dispatched enrollment
-   - `SigningEngine` covers worker-only login plus bootstrap
-   - relayer integration covers the worker-owned bootstrap route shape without production main-thread helper exports
+
+- `TatchiPasskey/emailOtp.ts` covers public challenge/verify helpers and worker-dispatched enrollment
+- `SigningEngine` covers worker-only login plus bootstrap
+- relayer integration covers the worker-owned bootstrap route shape without production main-thread helper exports
+
 51. React wallet-session readiness now treats active threshold-ECDSA Email OTP warm sessions as wallet-unlocked state:
-   - UI readiness is no longer Ed25519/passkey-session-only
-   - active Tempo or EVM threshold-ECDSA warm sessions can drive `loginState.isLoggedIn`
-   - focused coverage asserts an Email OTP ECDSA session can unlock UI without an Ed25519 operational public key
+
+- UI readiness is no longer Ed25519/passkey-session-only
+- active Tempo or EVM threshold-ECDSA warm sessions can drive `loginState.isLoggedIn`
+- focused coverage asserts an Email OTP ECDSA session can unlock UI without an Ed25519 operational public key
+
 52. `PasskeyAuthMenu` and the demo carousel now avoid the post-OTP blank protected page:
-   - prompt-backed Google SSO flows refresh SDK login state after successful OTP submit, not before OTP unlock completes
-   - the demo carousel advances to Transactions only from SDK `loginState.isLoggedIn`, not from an optimistic `onLoggedIn` shortcut
-   - the demo Email OTP submit path refreshes and verifies local wallet-session readiness before completing the unlock handoff
+
+- prompt-backed Google SSO flows refresh SDK login state after successful OTP submit, not before OTP unlock completes
+- the demo carousel advances to Transactions only from SDK `loginState.isLoggedIn`, not from an optimistic `onLoggedIn` shortcut
+- the demo Email OTP submit path refreshes and verifies local wallet-session readiness before completing the unlock handoff
 
 ### Remaining Alignment Work
 
@@ -1149,13 +1210,14 @@ The local/dev Email OTP signing flow is wired, but the following issues must be 
    - remaining `clientRootShare32` or `prfFirstB64u` handoffs for Ed25519 paths must either move behind worker-owned opaque signing handles or be documented as temporary compatibility exceptions
    - remaining transferred `clientSigningShare32` ECDSA handoffs to main thread must either move behind worker-owned signing or remain tightly scoped with transfer-list ownership, single-use policy enforcement, and immediate zeroization tests
 8. narrow the public Email OTP helper surface:
-   - avoid exposing `enrollmentEscrowCiphertextB64u` to app/main-thread callers except through the worker-owned combined flow
-   - keep direct challenge and verify helpers limited to non-secret test or internal route usage where possible
+   - avoid exposing device-local `enc_s(S)`, recovery keys, recovery KEKs, or recovered `S` to app/main-thread callers
+   - keep direct challenge helpers limited to non-secret test or internal route usage where possible
    - add tests proving the default SDK login/register flow does not expose recovered `S`, client-root-share material, or ECDSA additive share bytes to app-origin code
 9. validate enrollment material more strictly:
-   - enforce expected shape and size for `enrollmentEscrowCiphertextB64u`
+   - enforce exactly 10 recovery-wrapped enrollment escrow records
+   - validate recovery wrapper metadata, nonce size, AAD hash size, and wrapped ciphertext encoding before persistence
    - validate `enrollmentSealKeyVersion`, `unlockPublicKey`, and optional ECDSA verifying share formats before persistence
-   - reject malformed escrow material before it reaches the enrollment store
+   - reject malformed `C_i` material before it reaches recovery-wrapped escrow storage
 10. add lifecycle cleanup for persisted Email OTP artifacts:
     - add periodic or request-path cleanup for expired challenges, expired grants, and expired unlock challenges
     - add store tests proving expired artifacts cannot accumulate into reusable authorization state

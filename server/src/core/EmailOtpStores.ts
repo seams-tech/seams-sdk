@@ -116,8 +116,8 @@ export type EmailOtpWalletEnrollmentRecord = {
   providerUserId: string;
   orgId: string;
   verifiedEmail: string;
-  enrollmentEscrowCiphertextB64u: string;
   enrollmentSealKeyVersion: string;
+  recoveryWrappedEnrollmentEscrowCount: number;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
   thresholdEcdsaClientVerifyingShareB64u: string;
@@ -150,6 +150,7 @@ export type EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
   recoveryKeyId: string;
   recoveryKeyLabel?: string;
   recoveryKeyStatus: EmailOtpRecoveryWrappedEnrollmentEscrowStatus;
+  nonceB64u: string;
   wrappedDeviceEnrollmentEscrowB64u: string;
   aadHashB64u: string;
   issuedAtMs: number;
@@ -438,10 +439,9 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   const providerUserId = toOptionalTrimmedString(obj.providerUserId);
   const orgId = toOptionalTrimmedString(obj.orgId);
   const verifiedEmail = toOptionalTrimmedString(obj.verifiedEmail)?.toLowerCase() || '';
-  const enrollmentEscrowCiphertextB64u = toOptionalTrimmedString(
-    obj.enrollmentEscrowCiphertextB64u,
-  );
+  if (Object.prototype.hasOwnProperty.call(obj, 'enrollmentEscrowCiphertextB64u')) return null;
   const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
+  const recoveryWrappedEnrollmentEscrowCount = Number(obj.recoveryWrappedEnrollmentEscrowCount);
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
   const thresholdEcdsaClientVerifyingShareB64u =
@@ -449,13 +449,12 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   const createdAtMs = Number(obj.createdAtMs);
   const updatedAtMs = Number(obj.updatedAtMs);
   if (version !== 'email_otp_wallet_enrollment_v1') return null;
+  if (!walletId || !providerUserId || !orgId || !verifiedEmail || !enrollmentSealKeyVersion) {
+    return null;
+  }
   if (
-    !walletId ||
-    !providerUserId ||
-    !orgId ||
-    !verifiedEmail ||
-    !enrollmentEscrowCiphertextB64u ||
-    !enrollmentSealKeyVersion
+    !Number.isFinite(recoveryWrappedEnrollmentEscrowCount) ||
+    recoveryWrappedEnrollmentEscrowCount <= 0
   ) {
     return null;
   }
@@ -470,8 +469,8 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
     providerUserId,
     orgId,
     verifiedEmail,
-    enrollmentEscrowCiphertextB64u,
     enrollmentSealKeyVersion,
+    recoveryWrappedEnrollmentEscrowCount: Math.floor(recoveryWrappedEnrollmentEscrowCount),
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
     thresholdEcdsaClientVerifyingShareB64u,
@@ -535,6 +534,7 @@ export function normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
   const recoveryKeyId = toOptionalTrimmedString(obj.recoveryKeyId);
   const recoveryKeyLabel = toOptionalTrimmedString(obj.recoveryKeyLabel) || undefined;
   const recoveryKeyStatus = toOptionalTrimmedString(obj.recoveryKeyStatus);
+  const nonceB64u = toOptionalTrimmedString(obj.nonceB64u);
   const wrappedDeviceEnrollmentEscrowB64u = toOptionalTrimmedString(
     obj.wrappedDeviceEnrollmentEscrowB64u,
   );
@@ -559,12 +559,17 @@ export function normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
     !signingRootId ||
     !signingRootVersion ||
     !recoveryKeyId ||
+    !nonceB64u ||
     !wrappedDeviceEnrollmentEscrowB64u ||
     !aadHashB64u
   ) {
     return null;
   }
-  if (!isB64uString(wrappedDeviceEnrollmentEscrowB64u) || !isB64uString(aadHashB64u)) {
+  if (
+    !isB64uString(nonceB64u) ||
+    !isB64uString(wrappedDeviceEnrollmentEscrowB64u) ||
+    !isB64uString(aadHashB64u)
+  ) {
     return null;
   }
   if (
@@ -605,6 +610,7 @@ export function normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
     recoveryKeyId,
     ...(recoveryKeyLabel ? { recoveryKeyLabel } : {}),
     recoveryKeyStatus,
+    nonceB64u,
     wrappedDeviceEnrollmentEscrowB64u,
     aadHashB64u,
     issuedAtMs: Math.floor(issuedAtMs),

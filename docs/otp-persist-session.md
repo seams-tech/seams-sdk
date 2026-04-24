@@ -1026,9 +1026,9 @@ Plan improvements:
 Long-term target: after sealed refresh restores an Email OTP signing session, use restored signing-session authority to request a fresh sensitive-operation OTP challenge. Do not rely on a JS-readable `app_session_v1` JWT as the same-tab reload continuity primitive.
 
 1. [x] Add server routes for requesting and verifying sensitive-operation OTP challenges with threshold-session auth:
-   `/wallet/email-otp/signing-session/challenge`,
-   `/wallet/email-otp/signing-session/verify`, and
-   `/wallet/email-otp/signing-session/unseal`.
+       `/wallet/email-otp/signing-session/challenge`,
+       `/wallet/email-otp/signing-session/verify`, and
+       `/wallet/email-otp/signing-session/unseal`.
 2. [x] Validate restored threshold-session claims and server auth-session status are complete, unexpired, not exhausted, and bound to the same user and `walletSigningSessionId` before challenge issuance. Keep this check budget-neutral; do not consume transaction signing use count while only requesting a fresh OTP challenge.
 3. [x] Restrict the signing-session challenge lane to Email OTP enrollment state and `export_key`.
 4. [x] Derive the challenge destination email only from server-side enrollment state.
@@ -1246,10 +1246,7 @@ interface WalletSigningSessionCoordinator {
     alreadyConsumedThresholdSessionIds?: string[];
   }): Promise<SigningSessionStatus>;
 
-  clear(args: {
-    nearAccountId: string;
-    walletSigningSessionId: string;
-  }): Promise<void>;
+  clear(args: { nearAccountId: string; walletSigningSessionId: string }): Promise<void>;
 }
 ```
 

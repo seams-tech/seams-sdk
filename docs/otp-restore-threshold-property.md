@@ -214,6 +214,7 @@ type EmailOtpRecoveryWrappedEnrollmentEscrow = {
   recoveryKeyId: string;
   recoveryKeyLabel?: string;
   recoveryKeyStatus: 'active' | 'consumed' | 'revoked';
+  nonceB64u: string;
   wrappedDeviceEnrollmentEscrowB64u: string; // C_i = ChaCha20-Poly1305(K_recovery_i, enc_s(S))
   aadHashB64u: string;
   issuedAtMs: number;
@@ -376,7 +377,7 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 1. [x] Update Email OTP specs to say server-decryptable `enc_s(S)` is incompatible with the threshold security claim.
 2. [x] Define `enc_s(S)` as device-local enrollment escrow.
 3. [x] Define `C_i = ChaCha20-Poly1305(K_recovery_i, enc_s(S))` as the only server-persisted enrollment recovery artifact.
-4. [ ] Add static guards against server models or API payloads named as direct enrollment escrow storage.
+4. [x] Add static guards against server models or API payloads named as direct enrollment escrow storage.
 5. [x] Remove wording that says the client must not store `enc_s(S)`; replace it with "client stores device-local `enc_s(S)`, server stores only recovery-wrapped `C_i`."
 
 ### Phase 2: Add Device-Local Enrollment Escrow Store
@@ -392,7 +393,7 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 1. [x] Add recovery-key generation helpers for 10 single-use 8x4 Crockford Base32 recovery keys.
 2. [x] Add HKDF derivation for `K_recovery_i`.
 3. [x] Add ChaCha20-Poly1305 wrap/unwrap helpers for `enc_s(S)`.
-4. [ ] Wire the helpers into the Email OTP worker so recovery keys and derived KEKs stay out of server payloads and logs.
+4. [x] Wire the helpers into the Email OTP worker so recovery keys and derived KEKs stay out of server payloads and logs.
 5. [x] Zeroize recovery key bytes, KEKs, and transient wrap plaintext buffers when practical in the shared helpers.
 6. [ ] Zeroize unwrapped `enc_s(S)` buffers at worker call sites after local persistence or unseal handoff.
 
@@ -400,9 +401,9 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 
 1. Enrollment worker still generates `S` and computes `enc_s(S)` via `shamir3pass`.
 2. [x] Client stores `enc_s(S)` locally.
-3. Client uploads only `C_i` records and recovery metadata.
-4. Server rejects enrollment completion that attempts to upload a direct server-side `enc_s(S)` field.
-5. Server enrollment state references recovery-wrapped escrow ids, not direct escrow blobs.
+3. [x] Client uploads only `C_i` records and recovery metadata.
+4. [x] Server rejects enrollment completion that attempts to upload a direct server-side `enc_s(S)` field.
+5. [x] Server enrollment state references recovery-wrapped escrow refs, not direct escrow blobs.
 
 ### Phase 5: Change Normal Login
 
@@ -521,7 +522,7 @@ Unit tests:
 7. [x] normal login fails closed when local `enc_s(S)` is missing
 8. [ ] recovery flow stores recovered `enc_s(S)` locally after successful unwrap
 9. [ ] recovery key consume/revoke state is enforced
-10. [ ] static guard rejects direct enrollment escrow storage names in server persistence
+10. [x] static guard rejects direct enrollment escrow storage names in server persistence
 11. [x] recovery-key parser rejects short MFA-style codes and decimal-only codes
 12. [x] recovery-key parser normalizes lowercase and hyphenated input without accepting invalid characters
 

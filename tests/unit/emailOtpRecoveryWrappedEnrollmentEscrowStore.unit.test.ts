@@ -26,6 +26,7 @@ const baseRecord: EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
   signingRootVersion: 'root-v1',
   recoveryKeyId: 'recovery-key-1',
   recoveryKeyStatus: 'active',
+  nonceB64u: 'AQIDBAUGBwgJCgsM',
   wrappedDeviceEnrollmentEscrowB64u: 'AQIDBAUGBwg',
   aadHashB64u: 'CQoLDA0ODxA',
   issuedAtMs: 1000,

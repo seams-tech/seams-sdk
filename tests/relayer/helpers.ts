@@ -4,6 +4,13 @@ import expressImport from 'express';
 import type { AuthService } from '@server/core/AuthService';
 import type { SessionAdapter } from '@server/router/express-adaptor';
 import type { CfEnv, CfExecutionContext } from '@server/router/cloudflare-adaptor';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import {
+  EMAIL_OTP_RECOVERY_KEY_COUNT,
+  EMAIL_OTP_RECOVERY_WRAP_ALG,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+} from '@shared/utils/emailOtpRecoveryKey';
 
 type ExpressMiddleware = (req: unknown, res: unknown, next: (err?: unknown) => void) => unknown;
 type ExpressAppLike = ((req: unknown, res: unknown) => unknown) & {
@@ -138,10 +145,7 @@ export async function callCf(
   return { status: res.status, headers: res.headers, json, text };
 }
 
-export function getPath(
-  json: unknown,
-  ...path: Array<string | number>
-): unknown {
+export function getPath(json: unknown, ...path: Array<string | number>): unknown {
   let cursor: unknown = json;
   for (const key of path) {
     if (typeof key === 'number') {
@@ -153,6 +157,43 @@ export function getPath(
     cursor = (cursor as Record<string, unknown>)[key];
   }
   return cursor;
+}
+
+export function makeEmailOtpRecoveryWrappedEnrollmentEscrows(input: {
+  walletId: string;
+  userId: string;
+  authSubjectId?: string;
+  enrollmentSealKeyVersion: string;
+  nowMs?: number;
+}) {
+  const nowMs = input.nowMs ?? Date.now();
+  const authSubjectId = input.authSubjectId || input.userId;
+  return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => ({
+    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
+    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+    walletId: input.walletId,
+    userId: input.userId,
+    authSubjectId,
+    authMethod: 'google_sso_email_otp',
+    enrollmentId: `email-otp-device-enrollment-v1:${input.walletId}:${authSubjectId}`,
+    enrollmentVersion: '1',
+    enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
+    signingRootId: 'email_otp_default_signing_root',
+    signingRootVersion: 'default',
+    recoveryKeyId: `recovery-key-${index + 1}`,
+    recoveryKeyStatus: 'active',
+    nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
+    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
+      Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
+    ),
+    aadHashB64u: base64UrlEncode(
+      Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + index + 2)),
+    ),
+    issuedAtMs: nowMs,
+    updatedAtMs: nowMs,
+  }));
 }
 
 export function makeSessionAdapter(overrides: Partial<SessionAdapter> = {}): SessionAdapter {
@@ -297,8 +338,8 @@ export function makeFakeAuthService(
           ),
           userId: 'user.testnet',
           otpChannel: 'email_otp',
-          enrollmentEscrowCiphertextB64u: 'test-escrow',
           enrollmentSealKeyVersion: 'test-email-otp-key-v1',
+          recoveryWrappedEnrollmentEscrowCount: 10,
           clientUnlockPublicKeyB64u: 'test-unlock-public-key',
           unlockKeyVersion: 'test-unlock-key-v1',
           createdAtMs: 0,
@@ -354,8 +395,7 @@ export function makeFakeAuthService(
       overrides.markEmailOtpStrongAuthSatisfied || (async () => ({ ok: true })),
     checkAccountExists: overrides.checkAccountExists || (async () => false),
     createAccount:
-      overrides.createAccount ||
-      (async () => ({ success: false, error: 'not implemented' })),
+      overrides.createAccount || (async () => ({ success: false, error: 'not implemented' })),
     viewAccessKeyList: overrides.viewAccessKeyList || (async () => ({ keys: [] })),
     prepareEmailRecovery:
       overrides.prepareEmailRecovery ||
@@ -363,36 +403,27 @@ export function makeFakeAuthService(
     prepareLinkDevice:
       overrides.prepareLinkDevice ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
-    getRecoverySession:
-      overrides.getRecoverySession ||
-      (async () => ({ ok: true, record: null })),
+    getRecoverySession: overrides.getRecoverySession || (async () => ({ ok: true, record: null })),
     updateRecoverySessionStatus:
       overrides.updateRecoverySessionStatus ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     listSmartAccountRecoverySubjects:
-      overrides.listSmartAccountRecoverySubjects ||
-      (async () => ({ ok: true, records: [] })),
+      overrides.listSmartAccountRecoverySubjects || (async () => ({ ok: true, records: [] })),
     getSmartAccountRecoverySubjectByAccount:
       overrides.getSmartAccountRecoverySubjectByAccount ||
       (async () => ({ ok: true, record: null })),
     putSmartAccountRecoverySubject:
-      overrides.putSmartAccountRecoverySubject ||
-      (async (record) => ({ ok: true, record })),
+      overrides.putSmartAccountRecoverySubject || (async (record) => ({ ok: true, record })),
     recordRecoveryExecution:
       overrides.recordRecoveryExecution ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
     listRecoveryExecutions:
-      overrides.listRecoveryExecutions ||
-      (async () => ({ ok: true, records: [] })),
+      overrides.listRecoveryExecutions || (async () => ({ ok: true, records: [] })),
     listRecoveryExecutionsByStatus:
-      overrides.listRecoveryExecutionsByStatus ||
-      (async () => ({ ok: true, records: [] })),
+      overrides.listRecoveryExecutionsByStatus || (async () => ({ ok: true, records: [] })),
     listAccountSignersByAccount:
-      overrides.listAccountSignersByAccount ||
-      (async () => ({ ok: true, records: [] })),
-    putAccountSigner:
-      overrides.putAccountSigner ||
-      (async (record) => ({ ok: true, record })),
+      overrides.listAccountSignersByAccount || (async () => ({ ok: true, records: [] })),
+    putAccountSigner: overrides.putAccountSigner || (async (record) => ({ ok: true, record })),
     recordNearPublicKeyMetadata:
       overrides.recordNearPublicKeyMetadata || (async () => ({ ok: true })),
     listIdentities: overrides.listIdentities || (async () => ({ ok: true, subjects: [] })),

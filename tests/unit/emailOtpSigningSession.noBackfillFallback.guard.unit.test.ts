@@ -76,4 +76,62 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
     expect(loginSlice).toContain('localEnrollmentEscrow.encSB64u');
     expect(loginSlice).not.toContain('verified.enrollmentEscrowCiphertextB64u');
   });
+
+  test('server enrollment APIs and records do not expose direct enrollment escrow storage', () => {
+    const storesSource = readFileSync(join(REPO_ROOT, 'server/src/core/EmailOtpStores.ts'), 'utf8');
+    const authServiceSource = readFileSync(
+      join(REPO_ROOT, 'server/src/core/AuthService.ts'),
+      'utf8',
+    );
+    const routeHandlersSource = readFileSync(
+      join(REPO_ROOT, 'server/src/router/emailOtpRouteHandlers.ts'),
+      'utf8',
+    );
+    const routeHelpersSource = readFileSync(
+      join(REPO_ROOT, 'server/src/router/emailOtpSessionRouteHelpers.ts'),
+      'utf8',
+    );
+
+    const walletEnrollmentType = storesSource.slice(
+      storesSource.indexOf('export type EmailOtpWalletEnrollmentRecord'),
+      storesSource.indexOf('export interface EmailOtpWalletEnrollmentStore'),
+    );
+    const recoveryWrappedType = storesSource.slice(
+      storesSource.indexOf('export type EmailOtpRecoveryWrappedEnrollmentEscrowRecord'),
+      storesSource.indexOf('export interface EmailOtpRecoveryWrappedEnrollmentEscrowStore'),
+    );
+    const verifyEnrollmentRequest = authServiceSource.slice(
+      authServiceSource.indexOf('async verifyEmailOtpEnrollment(request:'),
+      authServiceSource.indexOf(
+        '>): Promise<',
+        authServiceSource.indexOf('async verifyEmailOtpEnrollment(request:'),
+      ),
+    );
+    const finalizeRoute = routeHandlersSource.slice(
+      routeHandlersSource.indexOf('export async function handleEmailOtpRegistrationFinalizeRoute'),
+      routeHandlersSource.indexOf(
+        'if (result.ok)',
+        routeHandlersSource.indexOf(
+          'export async function handleEmailOtpRegistrationFinalizeRoute',
+        ),
+      ),
+    );
+    const loginVerifyResponse = routeHelpersSource.slice(
+      routeHelpersSource.indexOf('export function emailOtpLoginVerifyResponseBody'),
+      routeHelpersSource.indexOf(
+        '\n}',
+        routeHelpersSource.indexOf('export function emailOtpLoginVerifyResponseBody'),
+      ) + 2,
+    );
+
+    expect(walletEnrollmentType).not.toContain('enrollmentEscrowCiphertextB64u');
+    expect(walletEnrollmentType).toContain('recoveryWrappedEnrollmentEscrowCount');
+    expect(recoveryWrappedType).toContain('wrappedDeviceEnrollmentEscrowB64u');
+    expect(verifyEnrollmentRequest).not.toContain('enrollmentEscrowCiphertextB64u');
+    expect(verifyEnrollmentRequest).toContain('recoveryWrappedEnrollmentEscrows');
+    expect(finalizeRoute).not.toContain('enrollmentEscrowCiphertextB64u');
+    expect(finalizeRoute).toContain('recoveryWrappedEnrollmentEscrows');
+    expect(loginVerifyResponse).not.toContain('enrollmentEscrowCiphertextB64u');
+    expect(loginVerifyResponse).toContain('enrollmentSealKeyVersion');
+  });
 });

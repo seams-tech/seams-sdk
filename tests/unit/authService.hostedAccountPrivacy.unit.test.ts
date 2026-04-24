@@ -23,10 +23,13 @@ function makeService(): AuthService {
   });
 }
 
-async function seedNonHostedEmailOtpMapping(service: AuthService, input: {
-  providerSubject: string;
-  walletId: string;
-}): Promise<void> {
+async function seedNonHostedEmailOtpMapping(
+  service: AuthService,
+  input: {
+    providerSubject: string;
+    walletId: string;
+  },
+): Promise<void> {
   const identity = (service as any).getIdentityStore();
   const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
   await identity.linkSubjectToUserId({
@@ -40,8 +43,8 @@ async function seedNonHostedEmailOtpMapping(service: AuthService, input: {
     providerUserId: input.providerSubject,
     orgId: ORG_ID,
     verifiedEmail: 'active@example.com',
-    enrollmentEscrowCiphertextB64u: 'escrow',
     enrollmentSealKeyVersion: 'email-key-v1',
+    recoveryWrappedEnrollmentEscrowCount: 10,
     clientUnlockPublicKeyB64u: 'unlock-public',
     unlockKeyVersion: 'unlock-key-v1',
     thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',

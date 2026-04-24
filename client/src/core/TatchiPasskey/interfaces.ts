@@ -189,6 +189,7 @@ export type EmailOtpChallengeResult = {
 
 export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
+  recoveryKeys: string[];
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
   enrollmentSealKeyVersion: string;

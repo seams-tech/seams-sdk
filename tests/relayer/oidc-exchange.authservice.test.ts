@@ -12,11 +12,7 @@ const RUNTIME_POLICY_SCOPE = {
 
 function b64u(input: Uint8Array | string): string {
   const bytes = typeof input === 'string' ? Buffer.from(input, 'utf8') : Buffer.from(input);
-  return bytes
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
+  return bytes.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
 async function makeSignedJwt(input: {
@@ -313,8 +309,8 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerUserId: 'google:subject-existing-active',
       orgId: ORG_ID,
       verifiedEmail: 'existing-active@example.com',
-      enrollmentEscrowCiphertextB64u: 'escrow',
-      enrollmentSealKeyVersion: 'email-key-v1',
+
+      recoveryWrappedEnrollmentEscrowCount: 10,
       clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
       thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
@@ -394,8 +390,8 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerUserId: 'google:subject-finalized-helper',
       orgId: ORG_ID,
       verifiedEmail: 'finalized-helper@example.com',
-      enrollmentEscrowCiphertextB64u: 'escrow',
-      enrollmentSealKeyVersion: 'email-key-v1',
+
+      recoveryWrappedEnrollmentEscrowCount: 10,
       clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
       thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
@@ -470,8 +466,8 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerUserId: 'google:subject-active-stable',
       orgId: ORG_ID,
       verifiedEmail: 'active-stable@example.com',
-      enrollmentEscrowCiphertextB64u: 'escrow',
-      enrollmentSealKeyVersion: 'email-key-v1',
+
+      recoveryWrappedEnrollmentEscrowCount: 10,
       clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
       thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
@@ -543,8 +539,8 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerUserId: 'google:subject-active-cleanup',
       orgId: ORG_ID,
       verifiedEmail: 'active-cleanup@example.com',
-      enrollmentEscrowCiphertextB64u: 'escrow',
-      enrollmentSealKeyVersion: 'email-key-v1',
+
+      recoveryWrappedEnrollmentEscrowCount: 10,
       clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
       thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',

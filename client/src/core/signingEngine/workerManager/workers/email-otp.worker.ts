@@ -63,6 +63,10 @@ import initEmailOtpRuntime, {
   derive_email_otp_unlock_auth_seed_from_secret32,
   init_email_otp_runtime,
 } from '../../../../../../wasm/email_otp_runtime/pkg/email_otp_runtime.js';
+import initNearSignerRecoveryWasm, {
+  email_recovery_chacha20poly1305_encrypt,
+  init_worker as init_near_signer_recovery_worker,
+} from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { WorkerControlMessage, type EmailOtpWorkerProgressCode } from '../workerTypes';
 import { postEmailOtpJson } from './email-otp/fetch';
 import { getShamir3PassRuntime } from './shamir3pass/runtime';
@@ -76,6 +80,15 @@ import {
   readEmailOtpDeviceEnrollmentEscrowRecord,
   writeEmailOtpDeviceEnrollmentEscrowRecord,
 } from '../../api/session/emailOtpDeviceEnrollmentEscrowStore';
+import {
+  EMAIL_OTP_RECOVERY_WRAP_ALG,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+  encodeEmailOtpRecoveryWrappedEnrollmentAad,
+  generateEmailOtpRecoveryKeySet,
+  wrapEmailOtpDeviceEnrollmentEscrow,
+  type EmailOtpRecoveryWrapMetadata,
+} from '@shared/utils/emailOtpRecoveryKey';
 
 const EMAIL_OTP_UNLOCK_KEY_VERSION = 'email-otp-unlock-v1';
 const EMAIL_OTP_DEVICE_ENROLLMENT_VERSION = '1';
@@ -85,6 +98,29 @@ const EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION = 'default';
 function emailOtpDeviceEnrollmentId(walletId: string, authSubjectId: string): string {
   return `email-otp-device-enrollment-v1:${walletId}:${authSubjectId}`;
 }
+
+type EmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
+  version: 'email_otp_recovery_wrapped_enrollment_escrow_v1';
+  alg: typeof EMAIL_OTP_RECOVERY_WRAP_ALG;
+  secretKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND;
+  escrowKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND;
+  walletId: string;
+  userId: string;
+  authSubjectId: string;
+  authMethod: 'google_sso_email_otp';
+  enrollmentId: string;
+  enrollmentVersion: string;
+  enrollmentSealKeyVersion: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  recoveryKeyId: string;
+  recoveryKeyStatus: 'active';
+  nonceB64u: string;
+  wrappedDeviceEnrollmentEscrowB64u: string;
+  aadHashB64u: string;
+  issuedAtMs: number;
+  updatedAtMs: number;
+};
 
 type EmailOtpWorkerRequest =
   | {
@@ -1212,12 +1248,32 @@ function generateRandomSecret32(): Uint8Array {
   return cryptoApi.getRandomValues(new Uint8Array(32));
 }
 
+function generateEmailOtpRecoveryKeyId(index: number): string {
+  const cryptoApi = globalThis.crypto;
+  const random = new Uint8Array(16);
+  if (!cryptoApi || typeof cryptoApi.getRandomValues !== 'function') {
+    throw new Error('crypto.getRandomValues is unavailable in this runtime');
+  }
+  cryptoApi.getRandomValues(random);
+  return `email-otp-recovery-key-v1-${index + 1}-${base64UrlEncode(random)}`;
+}
+
+async function sha256Bytes(input: Uint8Array): Promise<Uint8Array> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', input);
+  return new Uint8Array(digest);
+}
+
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Email OTP');
 const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'Email OTP HSS');
 const emailOtpRuntimeWasmUrl = resolveWasmUrl('email_otp_runtime_bg.wasm', 'Email OTP Runtime');
+const nearSignerRecoveryWasmUrl = resolveWasmUrl(
+  'wasm_signer_worker_bg.wasm',
+  'Email OTP Recovery Wrap',
+);
 let ethSignerInitPromise: Promise<void> | null = null;
 let hssClientSignerInitPromise: Promise<void> | null = null;
 let emailOtpRuntimeInitPromise: Promise<void> | null = null;
+let nearSignerRecoveryInitPromise: Promise<void> | null = null;
 
 async function ensureEthSignerWasm(): Promise<void> {
   if (ethSignerInitPromise) return ethSignerInitPromise;
@@ -1255,6 +1311,105 @@ async function ensureEmailOtpRuntimeWasm(): Promise<void> {
     });
   })();
   return emailOtpRuntimeInitPromise;
+}
+
+async function ensureNearSignerRecoveryWasm(): Promise<void> {
+  if (nearSignerRecoveryInitPromise) return nearSignerRecoveryInitPromise;
+  nearSignerRecoveryInitPromise = (async () => {
+    await initializeWasm({
+      workerName: 'Email OTP Recovery Wrap',
+      wasmUrl: nearSignerRecoveryWasmUrl,
+      initFunction: initNearSignerRecoveryWasm as unknown as (
+        wasmModule?: unknown,
+      ) => Promise<void>,
+      validateFunction: () => init_near_signer_recovery_worker(),
+    });
+  })();
+  return nearSignerRecoveryInitPromise;
+}
+
+async function createEmailOtpRecoveryWrappedEnrollmentEscrows(args: {
+  walletId: string;
+  userId: string;
+  enrollmentId: string;
+  enrollmentVersion: string;
+  enrollmentSealKeyVersion: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  encSB64u: string;
+}): Promise<{
+  recoveryKeys: string[];
+  recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowPayload[];
+}> {
+  await ensureNearSignerRecoveryWasm();
+  const recoveryKeys = generateEmailOtpRecoveryKeySet();
+  const encS = base64UrlDecode(args.encSB64u);
+  const issuedAtMs = Date.now();
+  const recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowPayload[] = [];
+  try {
+    for (let index = 0; index < recoveryKeys.length; index += 1) {
+      const recoveryKeyId = generateEmailOtpRecoveryKeyId(index);
+      const metadata: EmailOtpRecoveryWrapMetadata = {
+        walletId: args.walletId,
+        userId: args.userId,
+        authSubjectId: args.userId,
+        authMethod: 'google_sso_email_otp',
+        enrollmentId: args.enrollmentId,
+        enrollmentVersion: args.enrollmentVersion,
+        enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+        signingRootId: args.signingRootId,
+        signingRootVersion: args.signingRootVersion,
+        recoveryKeyId,
+      };
+      const wrapped = await wrapEmailOtpDeviceEnrollmentEscrow({
+        recoveryKey: recoveryKeys[index],
+        metadata,
+        encS,
+        chacha20poly1305: {
+          encrypt: async (input) =>
+            email_recovery_chacha20poly1305_encrypt(
+              input.key32,
+              input.nonce12,
+              input.aad,
+              input.plaintext,
+            ),
+          decrypt: async () => {
+            throw new Error('Email OTP enrollment recovery wrapping does not decrypt');
+          },
+        },
+      });
+      const aad = encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata);
+      try {
+        recoveryWrappedEnrollmentEscrows.push({
+          version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+          alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
+          secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+          escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+          walletId: args.walletId,
+          userId: args.userId,
+          authSubjectId: args.userId,
+          authMethod: 'google_sso_email_otp',
+          enrollmentId: args.enrollmentId,
+          enrollmentVersion: args.enrollmentVersion,
+          enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+          signingRootId: args.signingRootId,
+          signingRootVersion: args.signingRootVersion,
+          recoveryKeyId,
+          recoveryKeyStatus: 'active',
+          nonceB64u: base64UrlEncode(wrapped.nonce12),
+          wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(wrapped.ciphertext),
+          aadHashB64u: base64UrlEncode(await sha256Bytes(aad)),
+          issuedAtMs,
+          updatedAtMs: issuedAtMs,
+        });
+      } finally {
+        zeroizeBytes(aad);
+      }
+    }
+    return { recoveryKeys, recoveryWrappedEnrollmentEscrows };
+  } finally {
+    zeroizeBytes(encS);
+  }
 }
 
 async function deriveEmailOtpEcdsaClientRootShare32InWorker(args: {
@@ -1418,6 +1573,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
   thresholdEd25519PrfFirstB64u: string;
+  recoveryKeys: string[];
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
   enrollmentSealKeyVersion: string;
@@ -1512,6 +1668,21 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
     const thresholdEcdsaClientVerifyingShareB64u = base64UrlEncode(
       thresholdEcdsaClientVerifyingShare33,
     );
+    const enrollmentId = emailOtpDeviceEnrollmentId(walletId, userId);
+    const enrollmentVersion = EMAIL_OTP_DEVICE_ENROLLMENT_VERSION;
+    const signingRootId = EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_ID;
+    const signingRootVersion = EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION;
+    const { recoveryKeys, recoveryWrappedEnrollmentEscrows } =
+      await createEmailOtpRecoveryWrappedEnrollmentEscrows({
+        walletId,
+        userId,
+        enrollmentId,
+        enrollmentVersion,
+        enrollmentSealKeyVersion,
+        signingRootId,
+        signingRootVersion,
+        encSB64u: enrollmentEscrowCiphertextB64u,
+      });
 
     await postEmailOtpJson({
       relayUrl,
@@ -1522,7 +1693,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
         challengeId,
         otpCode,
         otpChannel: EMAIL_OTP_CHANNEL,
-        enrollmentEscrowCiphertextB64u,
+        recoveryWrappedEnrollmentEscrows,
         enrollmentSealKeyVersion,
         clientUnlockPublicKeyB64u,
         unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
@@ -1533,11 +1704,11 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       walletId,
       userId,
       authSubjectId: userId,
-      enrollmentId: emailOtpDeviceEnrollmentId(walletId, userId),
-      enrollmentVersion: EMAIL_OTP_DEVICE_ENROLLMENT_VERSION,
+      enrollmentId,
+      enrollmentVersion,
       enrollmentSealKeyVersion,
-      signingRootId: EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_ID,
-      signingRootVersion: EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION,
+      signingRootId,
+      signingRootVersion,
       encSB64u: enrollmentEscrowCiphertextB64u,
       shamirPrimeB64u,
     });
@@ -1561,6 +1732,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
     return {
       thresholdEcdsaClientVerifyingShareB64u,
       thresholdEd25519PrfFirstB64u,
+      recoveryKeys,
       challengeId,
       otpChannel: EMAIL_OTP_CHANNEL,
       enrollmentSealKeyVersion,
@@ -2293,6 +2465,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 thresholdEcdsaClientVerifyingShareB64u:
                   enrolled.thresholdEcdsaClientVerifyingShareB64u,
                 thresholdEd25519PrfFirstB64u: enrolled.thresholdEd25519PrfFirstB64u,
+                recoveryKeys: enrolled.recoveryKeys,
                 challengeId: enrolled.challengeId,
                 otpChannel: enrolled.otpChannel,
                 enrollmentSealKeyVersion: enrolled.enrollmentSealKeyVersion,
@@ -2330,10 +2503,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
           result: {
             loginGrant: readString(response.loginGrant, 'loginGrant'),
             otpChannel: EMAIL_OTP_CHANNEL,
-            enrollmentEscrowCiphertextB64u: readString(
-              response.enrollmentEscrowCiphertextB64u,
-              'enrollmentEscrowCiphertextB64u',
-            ),
+            ...(readOptionalString(response.enrollmentSealKeyVersion)
+              ? { enrollmentSealKeyVersion: readOptionalString(response.enrollmentSealKeyVersion) }
+              : {}),
           },
         });
         return;

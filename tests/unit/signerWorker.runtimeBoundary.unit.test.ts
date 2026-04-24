@@ -50,14 +50,13 @@ test.describe('signer worker runtime boundary', () => {
         authorization: request.headers().authorization || '',
         body: request.postDataJSON(),
       });
-      const response =
-        path.endsWith('/challenge')
-          ? { ok: true, challenge: { challengeId: `challenge-${routes.length}` } }
-          : {
-              ok: true,
-              loginGrant: `grant-${routes.length}`,
-              enrollmentEscrowCiphertextB64u: `escrow-${routes.length}`,
-            };
+      const response = path.endsWith('/challenge')
+        ? { ok: true, challenge: { challengeId: `challenge-${routes.length}` } }
+        : {
+            ok: true,
+            loginGrant: `grant-${routes.length}`,
+            enrollmentSealKeyVersion: `seal-${routes.length}`,
+          };
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

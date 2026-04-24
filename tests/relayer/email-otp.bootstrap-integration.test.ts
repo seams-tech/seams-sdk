@@ -12,10 +12,15 @@ import {
   deriveEmailOtpEcdsaClientRootShare32B64u,
   deriveEmailOtpUnlockAuthSeed,
 } from '../helpers/emailOtpDerivation';
+import { enrollEmailOtpWallet } from '@/core/TatchiPasskey/emailOtp';
 import {
-  enrollEmailOtpWallet,
-} from '@/core/TatchiPasskey/emailOtp';
-import { callCf, makeCfCtx, makeSessionAdapter, startExpressRouter, fetchJson } from './helpers';
+  callCf,
+  fetchJson,
+  makeCfCtx,
+  makeEmailOtpRecoveryWrappedEnrollmentEscrows,
+  makeSessionAdapter,
+  startExpressRouter,
+} from './helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const EMAIL_OTP_KEY_VERSION = 'kek-s-email-otp-test';
@@ -112,7 +117,9 @@ function makeTokenBoundAppSessionAdapter(
   return makeSessionAdapter({
     parse: async (headers) => {
       const rawHeader = headers.authorization ?? headers.Authorization;
-      const header = Array.isArray(rawHeader) ? String(rawHeader[0] || '') : String(rawHeader || '');
+      const header = Array.isArray(rawHeader)
+        ? String(rawHeader[0] || '')
+        : String(rawHeader || '');
       const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';
       const entry = claimsByToken[token];
       const claims = typeof entry === 'function' ? entry() : entry;
@@ -264,10 +271,10 @@ async function postWorkerJson(args: {
   return text ? JSON.parse(text) : {};
 }
 
-function createEmailOtpRouteWorkerCtx(args: {
-  fetchImpl: typeof fetch;
-  relayUrl: string;
-}) {
+const deviceEnrollmentEscrows = new Map<string, string>();
+const deviceEnrollmentKey = (walletId: string, userId: string) => `${walletId}:${userId}`;
+
+function createEmailOtpRouteWorkerCtx(args: { fetchImpl: typeof fetch; relayUrl: string }) {
   const readPayloadAppSessionJwt = (payload: Record<string, any>): string => {
     const directJwt = String(payload.appSessionJwt || '').trim();
     if (directJwt) return directJwt;
@@ -292,7 +299,13 @@ function createEmailOtpRouteWorkerCtx(args: {
         otpChannel: 'email_otp',
       },
     });
-    const wrappedCiphertext = addClientSeal(String(verified.enrollmentEscrowCiphertextB64u || ''));
+    const enrollmentEscrowCiphertextB64u = deviceEnrollmentEscrows.get(
+      deviceEnrollmentKey(walletId, userId),
+    );
+    if (!enrollmentEscrowCiphertextB64u) {
+      throw new Error('Missing device-local Email OTP enrollment escrow');
+    }
+    const wrappedCiphertext = addClientSeal(enrollmentEscrowCiphertextB64u);
     const unsealed = await postWorkerJson({
       fetchImpl: args.fetchImpl,
       relayUrl: args.relayUrl,
@@ -308,7 +321,9 @@ function createEmailOtpRouteWorkerCtx(args: {
       clientSecretB64u,
       walletId,
     });
-    const clientUnlockPublicKeyB64u = base64UrlEncode(await secp256k1PrivateKey32ToPublicKey33(unlockSeed));
+    const clientUnlockPublicKeyB64u = base64UrlEncode(
+      await secp256k1PrivateKey32ToPublicKey33(unlockSeed),
+    );
     const unlockChallenge = await postWorkerJson({
       fetchImpl: args.fetchImpl,
       relayUrl: args.relayUrl,
@@ -377,7 +392,13 @@ function createEmailOtpRouteWorkerCtx(args: {
             wrappedCiphertext: addClientSeal(clientSecretB64u),
           },
         });
-        const enrollmentEscrowCiphertextB64u = removeClientSeal(String(enrollSeal.ciphertext || ''));
+        const enrollmentEscrowCiphertextB64u = removeClientSeal(
+          String(enrollSeal.ciphertext || ''),
+        );
+        deviceEnrollmentEscrows.set(
+          deviceEnrollmentKey(walletId, userId),
+          enrollmentEscrowCiphertextB64u,
+        );
         const clientRootShare32B64u = await deriveEmailOtpEcdsaClientRootShare32B64u({
           clientSecretB64u,
           walletId,
@@ -401,7 +422,11 @@ function createEmailOtpRouteWorkerCtx(args: {
             challengeId: String(payload.challengeId || ''),
             otpCode: String(payload.otpCode || ''),
             otpChannel: 'email_otp',
-            enrollmentEscrowCiphertextB64u,
+            recoveryWrappedEnrollmentEscrows: makeEmailOtpRecoveryWrappedEnrollmentEscrows({
+              walletId,
+              userId,
+              enrollmentSealKeyVersion: String(enrollSeal.enrollmentSealKeyVersion || ''),
+            }),
             enrollmentSealKeyVersion: String(enrollSeal.enrollmentSealKeyVersion || ''),
             clientUnlockPublicKeyB64u: clientUnlockPublicKeyB64u,
             unlockKeyVersion: 'email-otp-unlock-v1',
@@ -722,7 +747,8 @@ test.describe('Email OTP bootstrap integration', () => {
 
       const rotatedVersion = await service.rotateAppSessionVersion({ userId: 'alice.testnet' });
       expect(rotatedVersion.ok).toBe(true);
-      recoveryAppSessionVersion = (rotatedVersion as { appSessionVersion: string }).appSessionVersion;
+      recoveryAppSessionVersion = (rotatedVersion as { appSessionVersion: string })
+        .appSessionVersion;
 
       const recoveryOtp = await requestEmailOtpWithOutbox({
         fetchImpl: fetch,
@@ -878,7 +904,7 @@ test.describe('Email OTP bootstrap integration', () => {
       if (!enrolled.ok) return;
       expect(enrolled.enrollment.walletId).toBe('alice.testnet');
       expect(enrolled.enrollment.providerUserId).toBe('alice.testnet');
-      expect(enrolled.enrollment.enrollmentEscrowCiphertextB64u).toBe(addServerSeal(plaintextSecretB64u));
+      expect(enrolled.enrollment.recoveryWrappedEnrollmentEscrowCount).toBe(10);
       expect(enrolled.enrollment.enrollmentSealKeyVersion).toBe(EMAIL_OTP_KEY_VERSION);
       expect(enrolled.enrollment.clientUnlockPublicKeyB64u).toBe(expectedUnlockPublicKeyB64u);
       expect(enrolled.enrollment.unlockKeyVersion).toBe('email-otp-unlock-v1');
@@ -905,14 +931,17 @@ test.describe('Email OTP bootstrap integration', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      const enrollChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/registration/challenge`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
-        body: JSON.stringify({
-          walletId: 'alice.testnet',
-          otpChannel: 'email_otp',
-        }),
-      });
+      const enrollChallenge = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/registration/challenge`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            otpChannel: 'email_otp',
+          }),
+        },
+      );
       expect(enrollChallenge.status).toBe(200);
       const enrollChallengeId = String(enrollChallenge.json?.challenge?.challengeId || '');
       const enrollOutbox = await service.readEmailOtpOutboxEntry({
@@ -934,7 +963,14 @@ test.describe('Email OTP bootstrap integration', () => {
         }),
       });
       expect(enrollSeal.status).toBe(200);
-      const enrollmentEscrowCiphertextB64u = removeClientSeal(String(enrollSeal.json?.ciphertext || ''));
+      const enrollmentEscrowCiphertextB64u = removeClientSeal(
+        String(enrollSeal.json?.ciphertext || ''),
+      );
+      expect(enrollmentEscrowCiphertextB64u).toBe(addServerSeal(plaintextSecretB64u));
+      deviceEnrollmentEscrows.set(
+        deviceEnrollmentKey('alice.testnet', 'alice.testnet'),
+        enrollmentEscrowCiphertextB64u,
+      );
       const expectedClientRootShare32B64u = await deriveEmailOtpEcdsaClientRootShare32B64u({
         clientSecretB64u: plaintextSecretB64u,
         walletId: 'alice.testnet',
@@ -951,21 +987,28 @@ test.describe('Email OTP bootstrap integration', () => {
       const thresholdEcdsaClientVerifyingShareB64u = base64UrlEncode(
         await secp256k1PrivateKey32ToPublicKey33(base64UrlDecode(expectedClientRootShare32B64u)),
       );
-      const enrollVerify = await fetchJson(`${srv.baseUrl}/wallet/email-otp/registration/finalize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
-        body: JSON.stringify({
-          walletId: 'alice.testnet',
-          challengeId: enrollChallengeId,
-          otpChannel: 'email_otp',
-          otpCode: enrollOutbox.otpCode,
-          enrollmentEscrowCiphertextB64u,
-          enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
-          clientUnlockPublicKeyB64u: unlockPublicKey,
-          unlockKeyVersion: 'email-otp-unlock-v1',
-          thresholdEcdsaClientVerifyingShareB64u,
-        }),
-      });
+      const enrollVerify = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/registration/finalize`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            challengeId: enrollChallengeId,
+            otpChannel: 'email_otp',
+            otpCode: enrollOutbox.otpCode,
+            recoveryWrappedEnrollmentEscrows: makeEmailOtpRecoveryWrappedEnrollmentEscrows({
+              walletId: 'alice.testnet',
+              userId: 'alice.testnet',
+              enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+            }),
+            enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+            clientUnlockPublicKeyB64u: unlockPublicKey,
+            unlockKeyVersion: 'email-otp-unlock-v1',
+            thresholdEcdsaClientVerifyingShareB64u,
+          }),
+        },
+      );
       expect(enrollVerify.status).toBe(200);
 
       const bootstrapCalls: Array<Record<string, unknown>> = [];

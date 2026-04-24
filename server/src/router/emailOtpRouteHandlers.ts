@@ -219,7 +219,7 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
     sessionHash,
     appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,
-    enrollmentEscrowCiphertextB64u: body.enrollmentEscrowCiphertextB64u,
+    recoveryWrappedEnrollmentEscrows: body.recoveryWrappedEnrollmentEscrows,
     enrollmentSealKeyVersion: body.enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u: body.clientUnlockPublicKeyB64u,
     unlockKeyVersion: body.unlockKeyVersion,
@@ -462,10 +462,7 @@ async function readServerKnownEmailOtpAddress(input: {
   if (!enrollment.ok) {
     return { ok: false, status: emailOtpStatusCode(enrollment.code), body: enrollment };
   }
-  if (
-    enrollment.enrollment.walletId !== input.walletId ||
-    enrollment.enrollment.orgId !== orgId
-  ) {
+  if (enrollment.enrollment.walletId !== input.walletId || enrollment.enrollment.orgId !== orgId) {
     return {
       ok: false,
       status: 403,

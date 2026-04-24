@@ -199,6 +199,7 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
       thresholdEd25519PrfFirstB64u: string;
+      recoveryKeys: string[];
       challengeId: string;
       otpChannel: WalletEmailOtpChannel;
       enrollmentSealKeyVersion: string;
@@ -218,7 +219,7 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       loginGrant: string;
       otpChannel: WalletEmailOtpChannel;
-      enrollmentEscrowCiphertextB64u: string;
+      enrollmentSealKeyVersion?: string;
     };
   };
   loginWithEmailOtpWallet: {
@@ -323,6 +324,7 @@ export interface EmailOtpWorkerOperationMap {
       enrollment: {
         thresholdEcdsaClientVerifyingShareB64u: string;
         thresholdEd25519PrfFirstB64u: string;
+        recoveryKeys: string[];
         challengeId: string;
         otpChannel: WalletEmailOtpChannel;
         enrollmentSealKeyVersion: string;

@@ -169,7 +169,7 @@ test.describe('Email OTP route helpers', () => {
           grantExpiresAtMs: 1_700_000_060_000,
           otpChannel: 'email_otp',
         },
-        enrollment: { enrollment: { enrollmentEscrowCiphertextB64u: { v: 1 } } },
+        enrollment: { enrollment: { enrollmentSealKeyVersion: 'k1' } },
       }),
     ).toEqual({
       ok: true,
@@ -177,7 +177,7 @@ test.describe('Email OTP route helpers', () => {
       loginGrant: 'grant',
       grantExpiresAt: '2023-11-14T22:14:20.000Z',
       otpChannel: 'email_otp',
-      enrollmentEscrowCiphertextB64u: { v: 1 },
+      enrollmentSealKeyVersion: 'k1',
     });
   });
 

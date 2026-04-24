@@ -4,10 +4,7 @@ import {
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
-import {
-  requireTrimmedString,
-  toOptionalTrimmedNonEmptyString,
-} from '@shared/utils/validation';
+import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '../signingEngine/workerManager/executeWorkerOperation';
 import {
   normalizeThresholdRuntimePolicyScope,
@@ -54,6 +51,7 @@ export class EmailOtpRouteError extends Error {
 
 export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
+  recoveryKeys: string[];
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
   enrollmentSealKeyVersion: string;
@@ -282,7 +280,10 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
       otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
     },
   });
-  const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/registration/challenge');
+  const challenge = requireObjectJson(
+    response.challenge,
+    'wallet/email-otp/registration/challenge',
+  );
   const delivery =
     response.delivery == null
       ? {}
@@ -312,7 +313,7 @@ export async function verifyEmailOtpCode(args: {
 }): Promise<{
   loginGrant: string;
   otpChannel: WalletEmailOtpChannel;
-  enrollmentEscrowCiphertextB64u: string;
+  enrollmentSealKeyVersion?: string;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -347,10 +348,9 @@ export async function verifyEmailOtpCode(args: {
   return {
     loginGrant: readString(response.loginGrant, 'wallet/email-otp/login/verify loginGrant'),
     otpChannel: EMAIL_OTP_CHANNEL,
-    enrollmentEscrowCiphertextB64u: readString(
-      response.enrollmentEscrowCiphertextB64u,
-      'wallet/email-otp/login/verify enrollmentEscrowCiphertextB64u',
-    ),
+    ...(readOptionalString(response.enrollmentSealKeyVersion)
+      ? { enrollmentSealKeyVersion: readOptionalString(response.enrollmentSealKeyVersion) }
+      : {}),
   };
 }
 
@@ -465,9 +465,7 @@ export async function enrollEmailOtpWallet(args: {
             appSessionJwt: args.appSessionJwt,
           }),
           otpChannel: EMAIL_OTP_CHANNEL,
-          ...(workerClientSecret32
-            ? { clientSecret32: workerClientSecret32.buffer.slice(0) }
-            : {}),
+          ...(workerClientSecret32 ? { clientSecret32: workerClientSecret32.buffer.slice(0) } : {}),
         },
       },
     });

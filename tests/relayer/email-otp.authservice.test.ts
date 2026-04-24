@@ -7,16 +7,19 @@ import {
   createEmailOtpUnlockChallengeStore,
 } from '@server/core/EmailOtpStores';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import {
+  EMAIL_OTP_RECOVERY_KEY_COUNT,
+  EMAIL_OTP_RECOVERY_WRAP_ALG,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+} from '@shared/utils/emailOtpRecoveryKey';
 import { ensurePostgresSchema, getPostgresPool } from '../../server/src/storage/postgres';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const EMAIL_OTP_KEY_VERSION = 'kek-s-email-otp-test';
 const VALID_SECP256K1_PUBLIC_KEY_33_B64U = base64UrlEncode(
   Uint8Array.from(
-    Buffer.from(
-      '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
-      'hex',
-    ),
+    Buffer.from('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798', 'hex'),
   ),
 );
 const USER_ID = 'alice.testnet';
@@ -25,6 +28,10 @@ const ORG_ID = 'org_email_otp_authservice';
 const EMAIL = 'alice@example.com';
 const SESSION_HASH = 'session-hash-v1';
 const APP_SESSION_VERSION = 'app-session-v1';
+const RECOVERY_ENROLLMENT_ID = 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet';
+const RECOVERY_ENROLLMENT_VERSION = '1';
+const RECOVERY_SIGNING_ROOT_ID = 'email_otp_default_signing_root';
+const RECOVERY_SIGNING_ROOT_VERSION = 'default';
 const EMAIL_OTP_RATE_LIMIT_ENV_UNSET: Record<string, string | undefined> = {
   EMAIL_OTP_RATE_LIMITER_KIND: undefined,
   EMAIL_OTP_RATE_LIMIT_REDIS_URL: undefined,
@@ -162,14 +169,43 @@ async function seedEmailOtpEnrollment(service: AuthService): Promise<void> {
     providerUserId: USER_ID,
     orgId: ORG_ID,
     verifiedEmail: EMAIL,
-    enrollmentEscrowCiphertextB64u: 'recovery-escrow-blob',
     enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+    recoveryWrappedEnrollmentEscrowCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
     clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     unlockKeyVersion: 'email-otp-unlock-v1',
     thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   });
+}
+
+function makeRecoveryWrappedEnrollmentEscrows(nowMs = Date.now()) {
+  return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => ({
+    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
+    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+    walletId: WALLET_ID,
+    userId: USER_ID,
+    authSubjectId: USER_ID,
+    authMethod: 'google_sso_email_otp',
+    enrollmentId: RECOVERY_ENROLLMENT_ID,
+    enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
+    enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+    signingRootId: RECOVERY_SIGNING_ROOT_ID,
+    signingRootVersion: RECOVERY_SIGNING_ROOT_VERSION,
+    recoveryKeyId: `recovery-key-${index + 1}`,
+    recoveryKeyStatus: 'active',
+    nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
+    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
+      Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
+    ),
+    aadHashB64u: base64UrlEncode(
+      Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + index + 2)),
+    ),
+    issuedAtMs: nowMs,
+    updatedAtMs: nowMs,
+  }));
 }
 
 async function consumeEmailOtpChallengeRateLimit(service: AuthService, clientIp: string) {
@@ -209,7 +245,7 @@ async function enrollRecoveryWallet(service: AuthService): Promise<void> {
     otpChannel: 'email_otp',
     sessionHash: SESSION_HASH,
     appSessionVersion: APP_SESSION_VERSION,
-    enrollmentEscrowCiphertextB64u: 'recovery-escrow-blob',
+    recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows(),
     enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
     clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     unlockKeyVersion: 'email-otp-unlock-v1',
@@ -218,7 +254,10 @@ async function enrollRecoveryWallet(service: AuthService): Promise<void> {
   expect(verified.ok).toBe(true);
 }
 
-async function withMockedNow<T>(startMs: number, fn: (setNowMs: (nextMs: number) => void) => Promise<T>): Promise<T> {
+async function withMockedNow<T>(
+  startMs: number,
+  fn: (setNowMs: (nextMs: number) => void) => Promise<T>,
+): Promise<T> {
   const originalDateNow = Date.now;
   let nowMs = startMs;
   Date.now = () => nowMs;
@@ -361,20 +400,22 @@ test.describe('AuthService Email OTP policy', () => {
   test('Email OTP enrollment rejects missing verified email and login never repairs it', async () => {
     const service = makeService();
     const nowMs = Date.now();
-    await expect((service as any).getEmailOtpWalletEnrollmentStore().put({
-      version: 'email_otp_wallet_enrollment_v1',
-      walletId: WALLET_ID,
-      providerUserId: USER_ID,
-      orgId: ORG_ID,
-      verifiedEmail: '',
-      enrollmentEscrowCiphertextB64u: 'invalid-recovery-escrow-blob',
-      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
-      clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
-      unlockKeyVersion: 'email-otp-unlock-v1',
-      thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
-      createdAtMs: nowMs,
-      updatedAtMs: nowMs,
-    })).rejects.toThrow('Invalid Email OTP wallet enrollment record');
+    await expect(
+      (service as any).getEmailOtpWalletEnrollmentStore().put({
+        version: 'email_otp_wallet_enrollment_v1',
+        walletId: WALLET_ID,
+        providerUserId: USER_ID,
+        orgId: ORG_ID,
+        verifiedEmail: '',
+        enrollmentEscrowCiphertextB64u: 'invalid-recovery-escrow-blob',
+        enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+        clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+        unlockKeyVersion: 'email-otp-unlock-v1',
+        thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+      }),
+    ).rejects.toThrow('Invalid Email OTP wallet enrollment record');
 
     const challenge = await service.createEmailOtpChallenge({
       userId: USER_ID,
@@ -692,15 +733,17 @@ test.describe('AuthService Email OTP policy', () => {
         providerUserId: USER_ID,
         orgId: ORG_ID,
         verifiedEmail: EMAIL,
-        enrollmentEscrowCiphertextB64u: 'escrow-blob',
         enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+        recoveryWrappedEnrollmentEscrowCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
         clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
         unlockKeyVersion: 'unlock-v1',
         thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
         createdAtMs: nowMs,
         updatedAtMs: nowMs,
       });
-      expect((await enrollmentReader.get(WALLET_ID))?.enrollmentEscrowCiphertextB64u).toBe('escrow-blob');
+      expect((await enrollmentReader.get(WALLET_ID))?.recoveryWrappedEnrollmentEscrowCount).toBe(
+        EMAIL_OTP_RECOVERY_KEY_COUNT,
+      );
       await enrollmentReader.del(WALLET_ID);
       expect(await enrollmentWriter.get(WALLET_ID)).toBeNull();
 
@@ -773,7 +816,12 @@ test.describe('AuthService Email OTP policy', () => {
             otpChannel: 'email_otp',
             sessionHash: SESSION_HASH,
             appSessionVersion: APP_SESSION_VERSION,
-            enrollmentEscrowCiphertextB64u: sensitiveEmailOtpEscrowBlob,
+            recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows().map(
+              (record, index) =>
+                index === 0
+                  ? { ...record, wrappedDeviceEnrollmentEscrowB64u: sensitiveEmailOtpEscrowBlob }
+                  : record,
+            ),
             enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
             clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
             unlockKeyVersion: 'email-otp-unlock-v1',
@@ -1215,10 +1263,7 @@ test.describe('AuthService Email OTP policy', () => {
         const firstConsume = await consumeEmailOtpChallengeRateLimit(firstService, '203.0.113.22');
         expect(firstConsume.ok).toBe(true);
 
-        const firstLimited = await consumeEmailOtpChallengeRateLimit(
-          firstService,
-          '203.0.113.22',
-        );
+        const firstLimited = await consumeEmailOtpChallengeRateLimit(firstService, '203.0.113.22');
         expect(firstLimited.ok).toBe(false);
         if (firstLimited.ok) return;
         expect(firstLimited.code).toBe('rate_limited');

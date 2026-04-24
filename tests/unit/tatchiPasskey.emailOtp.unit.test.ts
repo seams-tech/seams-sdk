@@ -24,7 +24,7 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
           return {
             loginGrant: 'grant-1',
             otpChannel: 'email_otp',
-            enrollmentEscrowCiphertextB64u: 'escrow-1',
+            enrollmentSealKeyVersion: 'seal-v1',
           };
         }
         throw new Error(`Unexpected worker operation: ${request.type}`);
@@ -67,7 +67,7 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
     ).resolves.toEqual({
       loginGrant: 'grant-1',
       otpChannel: 'email_otp',
-      enrollmentEscrowCiphertextB64u: 'escrow-1',
+      enrollmentSealKeyVersion: 'seal-v1',
     });
 
     expect(workerCalls).toEqual([
@@ -125,10 +125,13 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
       const body = JSON.parse(String(init?.body || '{}'));
       fetchCalls.push({ url, body });
       if (url.endsWith('/wallet/email-otp/login/challenge')) {
-        return new Response(JSON.stringify({ ok: true, challenge: { challengeId: 'challenge-1' } }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({ ok: true, challenge: { challengeId: 'challenge-1' } }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
       }
       if (url.endsWith('/wallet/email-otp/registration/challenge')) {
         return new Response(JSON.stringify({ ok: true, challenge: { challengeId: 'enroll-1' } }), {
@@ -138,7 +141,11 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
       }
       if (url.endsWith('/wallet/email-otp/login/verify')) {
         return new Response(
-          JSON.stringify({ ok: true, loginGrant: 'grant-1', enrollmentEscrowCiphertextB64u: 'escrow-1' }),
+          JSON.stringify({
+            ok: true,
+            loginGrant: 'grant-1',
+            enrollmentSealKeyVersion: 'seal-v1',
+          }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
       }
@@ -154,6 +161,7 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
                 orgId: 'org_test',
                 projectId: 'project_test',
                 envId: 'env_test',
+                signingRootVersion: 'root-v1',
               },
             },
           }),
@@ -188,7 +196,7 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
     ).resolves.toEqual({
       loginGrant: 'grant-1',
       otpChannel: 'email_otp',
-      enrollmentEscrowCiphertextB64u: 'escrow-1',
+      enrollmentSealKeyVersion: 'seal-v1',
     });
     await expect(
       exchangeGoogleEmailOtpSession({
@@ -208,6 +216,7 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
           orgId: 'org_test',
           projectId: 'project_test',
           envId: 'env_test',
+          signingRootVersion: 'root-v1',
         },
       },
     });
@@ -284,6 +293,7 @@ test.describe('TatchiPasskey Email OTP runtime', () => {
           );
           return {
             thresholdEcdsaClientVerifyingShareB64u: 'threshold-verifier-b64u',
+            recoveryKeys: [],
             challengeId: 'enroll-1',
             otpChannel: 'email_otp',
             enrollmentSealKeyVersion: 'email-otp-kv-1',

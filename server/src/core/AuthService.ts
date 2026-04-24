@@ -24,6 +24,7 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   isWalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
+import { EMAIL_OTP_RECOVERY_KEY_COUNT } from '@shared/utils/emailOtpRecoveryKey';
 import {
   buildRecoveryEmailBody,
   buildRecoveryEmailPayload,
@@ -130,13 +131,17 @@ import {
 } from './WebAuthnSyncChallengeStore';
 import {
   createEmailOtpWalletEnrollmentStore,
+  createEmailOtpRecoveryWrappedEnrollmentEscrowStore,
   createEmailOtpAuthStateStore,
   createEmailOtpChallengeStore,
   createEmailOtpGrantStore,
   createEmailOtpRegistrationAttemptStore,
   createEmailOtpUnlockChallengeStore,
+  normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   type EmailOtpWalletEnrollmentRecord,
   type EmailOtpWalletEnrollmentStore,
+  type EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+  type EmailOtpRecoveryWrappedEnrollmentEscrowStore,
   type EmailOtpAuthStateRecord,
   type EmailOtpAuthStateStore,
   type EmailOtpChannel,
@@ -651,6 +656,9 @@ export class AuthService {
   private emailOtpGrantStore: EmailOtpGrantStore | null = null;
   private emailOtpWalletEnrollmentStoreInitialized = false;
   private emailOtpWalletEnrollmentStore: EmailOtpWalletEnrollmentStore | null = null;
+  private emailOtpRecoveryWrappedEnrollmentEscrowStoreInitialized = false;
+  private emailOtpRecoveryWrappedEnrollmentEscrowStore: EmailOtpRecoveryWrappedEnrollmentEscrowStore | null =
+    null;
   private emailOtpAuthStateStoreInitialized = false;
   private emailOtpAuthStateStore: EmailOtpAuthStateStore | null = null;
   private emailOtpUnlockChallengeStoreInitialized = false;
@@ -1014,7 +1022,9 @@ export class AuthService {
 
     const rerollRegistrationAttempt =
       input.rerollRegistrationAttempt === true ||
-      String(input.rerollRegistrationAttempt || '').trim().toLowerCase() === 'true';
+      String(input.rerollRegistrationAttempt || '')
+        .trim()
+        .toLowerCase() === 'true';
     let minCollisionCounter = 0;
     const resumableAttempt = await this.findResumableGoogleEmailOtpRegistrationAttempt({
       providerSubject,
@@ -1550,6 +1560,32 @@ export class AuthService {
     return this.emailOtpWalletEnrollmentStore;
   }
 
+  private getEmailOtpRecoveryWrappedEnrollmentEscrowStore(): EmailOtpRecoveryWrappedEnrollmentEscrowStore {
+    if (
+      this.emailOtpRecoveryWrappedEnrollmentEscrowStoreInitialized &&
+      this.emailOtpRecoveryWrappedEnrollmentEscrowStore
+    ) {
+      return this.emailOtpRecoveryWrappedEnrollmentEscrowStore;
+    }
+    if (this.emailOtpRecoveryWrappedEnrollmentEscrowStoreInitialized) {
+      this.emailOtpRecoveryWrappedEnrollmentEscrowStore =
+        createEmailOtpRecoveryWrappedEnrollmentEscrowStore({
+          config: this.config.thresholdStore || null,
+          logger: this.logger,
+          isNode: this.isNodeEnvironment(),
+        });
+      return this.emailOtpRecoveryWrappedEnrollmentEscrowStore;
+    }
+    this.emailOtpRecoveryWrappedEnrollmentEscrowStoreInitialized = true;
+    this.emailOtpRecoveryWrappedEnrollmentEscrowStore =
+      createEmailOtpRecoveryWrappedEnrollmentEscrowStore({
+        config: this.config.thresholdStore || null,
+        logger: this.logger,
+        isNode: this.isNodeEnvironment(),
+      });
+    return this.emailOtpRecoveryWrappedEnrollmentEscrowStore;
+  }
+
   private getEmailOtpAuthStateStore(): EmailOtpAuthStateStore {
     if (this.emailOtpAuthStateStoreInitialized && this.emailOtpAuthStateStore) {
       return this.emailOtpAuthStateStore;
@@ -1906,11 +1942,17 @@ export class AuthService {
     const shamirPrimeB64u = this.readConfigValue('SIGNING_SESSION_SHAMIR_P_B64U');
     const serverEncryptExponentB64u = this.readConfigValue('SIGNING_SESSION_SEAL_E_S_B64U');
     const serverDecryptExponentB64u = this.readConfigValue('SIGNING_SESSION_SEAL_D_S_B64U');
-    if (!keyVersion || !shamirPrimeB64u || !serverEncryptExponentB64u || !serverDecryptExponentB64u) {
+    if (
+      !keyVersion ||
+      !shamirPrimeB64u ||
+      !serverEncryptExponentB64u ||
+      !serverDecryptExponentB64u
+    ) {
       return {
         ok: false as const,
         code: 'not_configured',
-        message: 'Email OTP unseal requires SIGNING_SESSION_SEAL_KEY_VERSION, SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
+        message:
+          'Email OTP unseal requires SIGNING_SESSION_SEAL_KEY_VERSION, SIGNING_SESSION_SHAMIR_P_B64U, SIGNING_SESSION_SEAL_E_S_B64U, and SIGNING_SESSION_SEAL_D_S_B64U',
       };
     }
     try {
@@ -4423,7 +4465,10 @@ export class AuthService {
   > {
     const state = await this.getEmailOtpAuthStateStore().get(enrollmentRecord.walletId);
     if (!state) return { ok: true, state: null };
-    if (state.orgId !== enrollmentRecord.orgId || state.providerUserId !== enrollmentRecord.providerUserId) {
+    if (
+      state.orgId !== enrollmentRecord.orgId ||
+      state.providerUserId !== enrollmentRecord.providerUserId
+    ) {
       return {
         ok: false,
         code: 'auth_state_enrollment_mismatch',
@@ -4450,7 +4495,8 @@ export class AuthService {
     const existing = await this.getEmailOtpAuthStateStore().get(enrollmentRecord.walletId);
     if (
       existing &&
-      (existing.orgId !== enrollmentRecord.orgId || existing.providerUserId !== enrollmentRecord.providerUserId)
+      (existing.orgId !== enrollmentRecord.orgId ||
+        existing.providerUserId !== enrollmentRecord.providerUserId)
     ) {
       throw new Error('Email OTP auth state does not match the active enrollment');
     }
@@ -4461,9 +4507,7 @@ export class AuthService {
       orgId: enrollmentRecord.orgId,
       createdAtMs: existing?.createdAtMs ?? nowMs,
       updatedAtMs: nowMs,
-      ...(existing?.otpFailureCount != null
-        ? { otpFailureCount: existing.otpFailureCount }
-        : {}),
+      ...(existing?.otpFailureCount != null ? { otpFailureCount: existing.otpFailureCount } : {}),
       ...(existing?.lastOtpFailureAtMs ? { lastOtpFailureAtMs: existing.lastOtpFailureAtMs } : {}),
       ...(existing?.otpLockedUntilMs ? { otpLockedUntilMs: existing.otpLockedUntilMs } : {}),
       ...(existing?.lastEmailOtpLoginAtMs
@@ -4565,9 +4609,7 @@ export class AuthService {
       if (!existingAuthStateResult.ok) return existingAuthStateResult;
       const existingAuthState = existingAuthStateResult.state;
       const challengeEmail =
-        action === WALLET_EMAIL_OTP_ACTIONS.login
-          ? existingEnrollment?.verifiedEmail || ''
-          : email;
+        action === WALLET_EMAIL_OTP_ACTIONS.login ? existingEnrollment?.verifiedEmail || '' : email;
       if (!challengeEmail) {
         return {
           ok: false,
@@ -4575,10 +4617,7 @@ export class AuthService {
           message: 'Current app session does not include a recovery email',
         };
       }
-      if (
-        existingAuthState?.otpLockedUntilMs &&
-        existingAuthState.otpLockedUntilMs > Date.now()
-      ) {
+      if (existingAuthState?.otpLockedUntilMs && existingAuthState.otpLockedUntilMs > Date.now()) {
         return {
           ok: false,
           code: 'otp_locked_out',
@@ -4868,10 +4907,9 @@ export class AuthService {
           ? await this.readActiveEmailOtpEnrollment({ walletId, orgId })
           : null;
       if (activeEnrollment && !activeEnrollment.ok) return activeEnrollment;
-      const enrollment =
-        activeEnrollment?.ok
-          ? activeEnrollment.enrollment
-          : await this.getEmailOtpWalletEnrollmentStore().get(walletId);
+      const enrollment = activeEnrollment?.ok
+        ? activeEnrollment.enrollment
+        : await this.getEmailOtpWalletEnrollmentStore().get(walletId);
       if (enrollment && enrollment.orgId !== orgId) {
         return {
           ok: false,
@@ -5121,7 +5159,7 @@ export class AuthService {
   }
 
   private async validateEmailOtpEnrollmentMaterial(request: {
-    enrollmentEscrowCiphertextB64u?: unknown;
+    recoveryWrappedEnrollmentEscrows?: unknown;
     enrollmentSealKeyVersion?: unknown;
     clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
@@ -5129,7 +5167,7 @@ export class AuthService {
   }): Promise<
     | {
         ok: true;
-        enrollmentEscrowCiphertextB64u: string;
+        recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
         enrollmentSealKeyVersion: string;
         clientUnlockPublicKeyB64u: string;
         unlockKeyVersion: string;
@@ -5137,20 +5175,28 @@ export class AuthService {
       }
     | { ok: false; code: string; message: string }
   > {
-    const enrollmentEscrowCiphertextB64u = toOptionalTrimmedString(
-      request.enrollmentEscrowCiphertextB64u,
-    );
     const enrollmentSealKeyVersion = toOptionalTrimmedString(request.enrollmentSealKeyVersion);
+    const rawRecoveryWrappedEnrollmentEscrows = Array.isArray(
+      request.recoveryWrappedEnrollmentEscrows,
+    )
+      ? request.recoveryWrappedEnrollmentEscrows
+      : [];
+    const recoveryWrappedEnrollmentEscrows = rawRecoveryWrappedEnrollmentEscrows
+      .map((record) => normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record))
+      .filter((record): record is EmailOtpRecoveryWrappedEnrollmentEscrowRecord => Boolean(record));
     const clientUnlockPublicKeyB64u = toOptionalTrimmedString(request.clientUnlockPublicKeyB64u);
     const unlockKeyVersion = toOptionalTrimmedString(request.unlockKeyVersion);
     const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
       request.thresholdEcdsaClientVerifyingShareB64u,
     );
-    if (!enrollmentEscrowCiphertextB64u) {
+    if (
+      rawRecoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT ||
+      recoveryWrappedEnrollmentEscrows.length !== EMAIL_OTP_RECOVERY_KEY_COUNT
+    ) {
       return {
         ok: false,
         code: 'invalid_body',
-        message: 'enrollmentEscrowCiphertextB64u is required',
+        message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} recovery-wrapped enrollment escrows are required`,
       };
     }
     if (!enrollmentSealKeyVersion) {
@@ -5188,8 +5234,7 @@ export class AuthService {
       return {
         ok: false,
         code: 'invalid_body',
-        message:
-          'clientUnlockPublicKeyB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
+        message: 'clientUnlockPublicKeyB64u must decode to 33 bytes (compressed secp256k1 pubkey)',
       };
     }
     try {
@@ -5232,7 +5277,7 @@ export class AuthService {
 
     return {
       ok: true,
-      enrollmentEscrowCiphertextB64u,
+      recoveryWrappedEnrollmentEscrows,
       enrollmentSealKeyVersion,
       clientUnlockPublicKeyB64u,
       unlockKeyVersion,
@@ -5250,7 +5295,7 @@ export class AuthService {
     sessionHash?: unknown;
     appSessionVersion?: unknown;
     clientIp?: unknown;
-    enrollmentEscrowCiphertextB64u?: unknown;
+    recoveryWrappedEnrollmentEscrows?: unknown;
     enrollmentSealKeyVersion?: unknown;
     clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
@@ -5301,14 +5346,30 @@ export class AuthService {
     const existing = await this.getEmailOtpWalletEnrollmentStore().get(verified.walletId);
     const existingState = await this.getEmailOtpAuthStateStore().get(verified.walletId);
     const nowMs = Date.now();
+    for (const record of enrollmentMaterial.recoveryWrappedEnrollmentEscrows) {
+      if (
+        record.walletId !== verified.walletId ||
+        record.userId !== verified.userId ||
+        record.authSubjectId !== verified.userId ||
+        record.enrollmentSealKeyVersion !== enrollmentMaterial.enrollmentSealKeyVersion ||
+        record.recoveryKeyStatus !== 'active'
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow metadata does not match enrollment',
+        };
+      }
+    }
     const enrollmentRecord: EmailOtpWalletEnrollmentRecord = {
       version: 'email_otp_wallet_enrollment_v1',
       walletId: verified.walletId,
       providerUserId: verified.userId,
       orgId,
       verifiedEmail,
-      enrollmentEscrowCiphertextB64u: enrollmentMaterial.enrollmentEscrowCiphertextB64u,
       enrollmentSealKeyVersion: enrollmentMaterial.enrollmentSealKeyVersion,
+      recoveryWrappedEnrollmentEscrowCount:
+        enrollmentMaterial.recoveryWrappedEnrollmentEscrows.length,
       clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
       unlockKeyVersion: enrollmentMaterial.unlockKeyVersion,
       thresholdEcdsaClientVerifyingShareB64u:
@@ -5317,6 +5378,14 @@ export class AuthService {
       updatedAtMs: nowMs,
     };
     await this.getEmailOtpWalletEnrollmentStore().put(enrollmentRecord);
+    const recoveryWrappedEnrollmentEscrowStore =
+      this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore();
+    for (const record of enrollmentMaterial.recoveryWrappedEnrollmentEscrows) {
+      await recoveryWrappedEnrollmentEscrowStore.put({
+        ...record,
+        updatedAtMs: nowMs,
+      });
+    }
     await this.getEmailOtpAuthStateStore().put({
       version: 'email_otp_auth_state_v1',
       walletId: enrollmentRecord.walletId,
@@ -5441,9 +5510,7 @@ export class AuthService {
       return { ok: true, required: false, walletId };
     }
     const lastEmailOtpLoginAtMs =
-      typeof state.lastEmailOtpLoginAtMs === 'number'
-        ? state.lastEmailOtpLoginAtMs
-        : undefined;
+      typeof state.lastEmailOtpLoginAtMs === 'number' ? state.lastEmailOtpLoginAtMs : undefined;
     const lastStrongAuthAtMs =
       typeof state.lastStrongAuthAtMs === 'number' ? state.lastStrongAuthAtMs : undefined;
     return {
