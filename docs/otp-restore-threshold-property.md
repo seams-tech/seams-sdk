@@ -409,29 +409,29 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 
 1. [x] Normal Email OTP login reads `enc_s(S)` from IndexedDB.
 2. [x] The worker computes `d = E_c(enc_s(S))`.
-3. The client submits OTP code, challenge id, and `d` in one action-specific `verify-and-unseal` request.
-4. The server verifies the OTP before applying enrollment seal removal and returns `e = E_c(S)`.
+3. [ ] The client submits OTP code, challenge id, and `d` in one action-specific `verify-and-unseal` request.
+4. [x] The server verifies the OTP before applying enrollment seal removal and returns `e = E_c(S)`.
 5. [x] If `enc_s(S)` is missing, the client fails requiring explicit recovery instead of server escrow fetch.
-6. Remove server code that fetches a direct enrollment escrow for normal login.
-7. Keep all existing OTP verification, wallet unlock proof, threshold bootstrap, and signing-session policy checks.
+6. [x] Remove server code that fetches a direct enrollment escrow for normal login.
+7. [x] Keep all existing OTP verification, wallet unlock proof, threshold bootstrap, and signing-session policy checks.
 
 ### Phase 6: Add Explicit Recovery
 
 1. [x] Add recovery challenge issuance and verification with action-specific route parsing.
 2. [x] Add server response for recovery-wrapped `C_i` records only.
-3. Add client recovery-key entry or scan UI for the 8x4 Crockford Base32 format.
+3. [ ] Add client recovery-key entry or scan UI for the 8x4 Crockford Base32 format.
 4. [x] Decrypt `C_i` client-side to recover `enc_s(S)`.
 5. [x] Store `enc_s(S)` locally and continue normal unseal.
 6. [x] Consume the used recovery key.
-7. Prompt replacement-key generation when the active recovery-key count drops below policy.
+7. [ ] Prompt replacement-key generation when the active recovery-key count drops below policy.
 
 ### Phase 7: Remove Old Server Escrow Storage
 
-1. Delete direct server-side enrollment escrow fields from active models.
-2. Delete route handlers that return direct `enc_s(S)`.
-3. Delete tests that assert server-authoritative direct escrow storage.
-4. Add guards that fail if direct escrow field names reappear in server persistence.
-5. Do not keep compatibility aliases or fallback reads.
+1. [x] Delete direct server-side enrollment escrow fields from active models.
+2. [x] Delete route handlers that return direct `enc_s(S)`.
+3. [x] Delete tests that assert server-authoritative direct escrow storage.
+4. [x] Add guards that fail if direct escrow field names reappear in server persistence.
+5. [x] Do not keep compatibility aliases or fallback reads.
 
 ### Phase 8: Migration For Development Data
 
@@ -528,24 +528,24 @@ Unit tests:
 
 Integration tests:
 
-1. enrollment creates local `enc_s(S)` and 10 server `C_i` records
-2. same-device login recovers `S` from local `enc_s(S)`
-3. wiped IndexedDB plus valid recovery key recovers `enc_s(S)` and logs in
-4. wiped IndexedDB plus invalid recovery key fails
-5. server-side escrow API cannot return direct `enc_s(S)`
-6. sealed-refresh reload still works after login
-7. transaction signing budget behavior is unchanged
-8. export/link-device/add-signer still require operation-scoped auth
-9. successful recovery consumes exactly one recovery key
-10. same-device login uses exactly the challenge request plus `verify-and-unseal` request on the hot path
+1. [x] enrollment creates local `enc_s(S)` and 10 server `C_i` records
+2. [x] same-device login recovers `S` from local `enc_s(S)`
+3. [x] wiped IndexedDB plus valid recovery key recovers `enc_s(S)` and logs in
+4. [x] wiped IndexedDB plus invalid recovery key fails
+5. [x] server-side escrow API cannot return direct `enc_s(S)`
+6. [x] sealed-refresh reload still works after login
+7. [x] transaction signing budget behavior is unchanged
+8. [x] export/link-device/add-signer still require operation-scoped auth
+9. [x] successful recovery consumes exactly one recovery key
+10. [ ] same-device login uses exactly the challenge request plus `verify-and-unseal` request on the hot path
 
 E2E tests:
 
-1. register Email OTP account, save recovery key, refresh, sign
-2. clear IndexedDB, recover with recovery key, sign
-3. clear IndexedDB, decline recovery, verify account remains locked
-4. attempt recovery with a recovery key from another account, verify fail closed
-5. consume single-use recovery key, verify reuse fails
+1. [ ] register Email OTP account, save recovery key, refresh, sign
+2. [ ] clear IndexedDB, recover with recovery key, sign
+3. [ ] clear IndexedDB, decline recovery, verify account remains locked
+4. [ ] attempt recovery with a recovery key from another account, verify fail closed
+5. [ ] consume single-use recovery key, verify reuse fails
 
 ## Related Specs To Keep Aligned
 
