@@ -54,4 +54,21 @@ test.describe('Email OTP route auth refactor guard', () => {
     expect(emailOtpWorker).not.toContain('msg.payload.appSessionJwt');
     expect(emailOtpWorker).not.toContain('msg.payload.routeAuth');
   });
+
+  test('Email OTP ECDSA export uses auth subject for OTP recovery and wallet id for HSS export', () => {
+    const emailOtpWorker = readRepoFile(
+      'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+    );
+    const exportSlice = emailOtpWorker.slice(
+      emailOtpWorker.indexOf("case 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'"),
+      emailOtpWorker.indexOf(
+        'default:',
+        emailOtpWorker.indexOf("case 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'"),
+      ),
+    );
+
+    expect(exportSlice).toContain('userId: msg.payload.userId');
+    expect(exportSlice).toContain("const walletId = readString(msg.payload.walletId, 'walletId');");
+    expect(exportSlice).toContain('userId: walletId');
+  });
 });

@@ -342,7 +342,7 @@ export async function signDelegateAction({
       ctx,
       kind: 'nearSigner',
       request: {
-        sessionId,
+        sessionId: canonicalThresholdSessionId,
         type: WorkerRequestType.SignDelegateAction,
         payload,
       },

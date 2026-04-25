@@ -1523,6 +1523,12 @@ test.describe('tempo signing auth-mode resolution', () => {
           thresholdSessionJwt: 'jwt:ed25519-email-session',
           expiresAtMs: now + 120_000,
           remainingUses: 1,
+          emailOtpAuthContext: {
+            policy: 'per_operation',
+            retention: 'single_use',
+            reason: 'sign',
+            authMethod: 'email_otp',
+          },
           updatedAtMs: now,
           source: 'email_otp',
         });

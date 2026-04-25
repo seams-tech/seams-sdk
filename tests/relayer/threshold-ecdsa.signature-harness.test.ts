@@ -1166,6 +1166,51 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     }
   });
 
+  test('explicit_key_export rejects request userId outside threshold-session wallet scope', async () => {
+    const { service, threshold } = makeAuthServiceForThreshold();
+    const session = makeJwtSessionAdapter();
+    const router = createRelayRouter(service, { threshold, session });
+    const srv = await startExpressRouter(router);
+
+    try {
+      const userId = 'explicit-export-wallet-scope.testnet';
+      const rpId = 'example.localhost';
+      const participantIds = [1, 2];
+      const jwt = await session.signJwt(userId, {
+        kind: 'threshold_ecdsa_session_v1',
+        walletId: userId,
+        sessionId: `sess-${Date.now()}`,
+        walletSigningSessionId: `wallet-sess-${Date.now()}`,
+        relayerKeyId: 'ehss-relayer-test',
+        rpId,
+        thresholdExpiresAtMs: Date.now() + 60_000,
+        participantIds,
+      });
+
+      const prepare = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/hss/prepare`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          userId: 'google:117142622123955425762',
+          rpId,
+          operation: 'explicit_key_export',
+          ecdsaThresholdKeyId: 'ecdsa-key-not-used',
+          sessionKind: 'jwt',
+        }),
+      });
+      expect(prepare.status, prepare.text).toBe(401);
+      expect(prepare.json?.code).toBe('unauthorized');
+      expect(prepare.json?.message).toBe(
+        'explicit_key_export userId does not match threshold session wallet scope',
+      );
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('deferred first-time session_bootstrap provisions ECDSA once, then later bootstrap/export reuse persisted key material', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();

@@ -648,7 +648,7 @@ export async function signTransactionsWithActions({
       ctx,
       kind: 'nearSigner',
       request: {
-        sessionId,
+        sessionId: canonicalThresholdSessionId,
         type: WorkerRequestType.SignTransactionsWithActions,
         payload,
       },

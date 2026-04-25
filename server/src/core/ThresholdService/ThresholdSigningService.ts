@@ -3335,6 +3335,13 @@ export class ThresholdSigningService {
             message: 'Invalid threshold-ecdsa session claims',
           };
         }
+        if (userId !== ecdsaClaims.walletId) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'explicit_key_export userId does not match threshold session wallet scope',
+          };
+        }
         const ecdsaThresholdKeyId = toOptionalTrimmedString(request.ecdsaThresholdKeyId);
         if (!ecdsaThresholdKeyId) {
           return {

@@ -1182,6 +1182,9 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       thresholdSessionId: 'ecdsa-session-worker',
       thresholdSessionKind: 'jwt',
       thresholdSessionJwt: originalThresholdSessionJwt,
+      emailOtpAuthContext: {
+        authSubjectId: 'google:117142622123955425762',
+      },
     };
 
     engineAny.theme = 'dark';
@@ -1305,7 +1308,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
           type: 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization',
           payload: expect.objectContaining({
             walletId,
-            userId: walletId,
+            userId: 'google:117142622123955425762',
             challengeId: 'export-challenge',
             otpCode: '123456',
             rpId: 'example.localhost',
@@ -1323,6 +1326,71 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect(consumedSessions).toEqual([]);
     expect(restoredRecords).toEqual([]);
     expect(confirmationTypes).toEqual(['signIntentDigest', 'showSecurePrivateKeyUi']);
+  });
+
+  test('exports ECDSA with Email OTP app-session fallback bound to existing key metadata', async () => {
+    const walletId = 'alice.testnet';
+    const engine = makeBareSigningEngine();
+    const engineAny = engine as any;
+    const exportCalls: Array<Record<string, unknown>> = [];
+    const ecdsaRecord = {
+      nearAccountId: walletId,
+      chain: 'evm',
+      source: 'email_otp',
+      relayerUrl: 'https://relay.example',
+      ecdsaThresholdKeyId: 'ecdsa-existing-email-key',
+      participantIds: [1, 2],
+      thresholdSessionId: 'stale-session',
+      thresholdSessionKind: 'jwt',
+    };
+
+    engineAny.getRpId = () => 'example.localhost';
+    engineAny.listThresholdEcdsaSessionRecordsForLookup = () => [ecdsaRecord];
+    engineAny.showThresholdEcdsaExportViewer = async () => undefined;
+    engineAny.emailOtpSessions = {
+      requestExportAuthorization: async (args: Record<string, unknown>) => {
+        expect(args).toMatchObject({
+          nearAccountId: walletId,
+          chain: 'evm',
+          curve: 'ecdsa',
+        });
+        expect(args).not.toHaveProperty('authLane');
+        return {
+          challengeId: 'export-challenge',
+          otpCode: '123456',
+        };
+      },
+      bootstrapAndExportEcdsaKeyWithAuthorization: async (args: Record<string, unknown>) => {
+        exportCalls.push(args);
+        return {
+          publicKeyHex: '02'.padEnd(66, '1'),
+          privateKeyHex: 'ab'.repeat(32),
+          ethereumAddress: '0x1111111111111111111111111111111111111111',
+        };
+      },
+    };
+
+    await expect(
+      engineAny.exportThresholdEcdsaKeyWithAuthorization({
+        nearAccountId: walletId,
+        chain: 'evm',
+        options: {},
+      }),
+    ).resolves.toEqual({
+      accountId: walletId,
+      exportedSchemes: ['secp256k1'],
+    });
+
+    expect(exportCalls).toEqual([
+      {
+        nearAccountId: walletId,
+        chain: 'evm',
+        challengeId: 'export-challenge',
+        otpCode: '123456',
+        ecdsaThresholdKeyId: 'ecdsa-existing-email-key',
+        participantIds: [1, 2],
+      },
+    ]);
   });
 
   test('does not consume Email OTP ECDSA signing session when export viewer fails', async () => {

@@ -419,7 +419,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
                         type="button"
                         onClick={controller.onProceed}
                         className="w3a-auth-method-btn w3a-auth-method-btn-primary"
-                        disabled={!controller.canSubmit || controller.waiting}
+                        disabled={controller.waiting}
                       >
                         Create with Passkey
                       </button>

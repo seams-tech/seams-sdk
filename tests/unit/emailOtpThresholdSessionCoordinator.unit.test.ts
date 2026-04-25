@@ -22,6 +22,7 @@ function createCoordinator(overrides?: {
   configs?: Record<string, any>;
   writeSigningSessionSealedRecord?: (args: any) => Promise<void>;
   readSigningSessionSealedRecord?: (thresholdSessionId: string) => Promise<any>;
+  getThresholdEcdsaKeyRefForLookup?: (args: any) => any;
 }) {
   const workerCalls: any[] = [];
   let refreshCount = 0;
@@ -223,14 +224,16 @@ function createCoordinator(overrides?: {
         warmCapability: { capability: 'ecdsa', state: 'ready' } as any,
       };
     },
-    getThresholdEcdsaKeyRefForLookup: (args) =>
-      ({
-        type: 'threshold-ecdsa-secp256k1',
-        userId: String(args.nearAccountId),
-        relayerUrl: 'https://relay.example',
-        ecdsaThresholdKeyId: 'ecdsa-key',
-        ethereumAddress: '0xabc',
-      }) as any,
+    getThresholdEcdsaKeyRefForLookup:
+      overrides?.getThresholdEcdsaKeyRefForLookup ||
+      ((args) =>
+        ({
+          type: 'threshold-ecdsa-secp256k1',
+          userId: String(args.nearAccountId),
+          relayerUrl: 'https://relay.example',
+          ecdsaThresholdKeyId: 'ecdsa-key',
+          ethereumAddress: '0xabc',
+        }) as any),
     persistEmailOtpThresholdEd25519LocalMetadata: async (args) => {
       ed25519MetadataWrites.push(args);
     },
@@ -528,6 +531,86 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         authMethod: 'email_otp',
       },
     });
+  });
+
+  test('Ed25519 Email OTP refresh mints a fresh wallet signing-session budget', async () => {
+    const staleWalletSigningSessionId = 'wallet-signing-session-exhausted';
+    const mismatchedEcdsaWalletSigningSessionId = 'wallet-signing-session-other-curve';
+    const { coordinator, workerCalls, ed25519ProvisionCalls } = createCoordinator({
+      getThresholdEcdsaKeyRefForLookup: (args) =>
+        ({
+          type: 'threshold-ecdsa-secp256k1',
+          userId: String(args.nearAccountId),
+          relayerUrl: 'https://relay.example',
+          ecdsaThresholdKeyId: 'ecdsa-key-from-other-wallet-session',
+          ethereumAddress: '0xabc',
+          walletSigningSessionId: mismatchedEcdsaWalletSigningSessionId,
+          participantIds: [7, 8],
+        }) as any,
+    });
+    const thresholdSessionJwt = 'threshold-jwt';
+    coordinator.provisionEd25519Capability = async (args) => {
+      ed25519ProvisionCalls.push(args);
+      return {
+        publicKey: 'ed25519-public',
+        relayerKeyId: 'relayer-key',
+        keyVersion: 'v1',
+        sessionId: 'ed-session-refreshed',
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: 1,
+        participantIds: [1, 2],
+        jwt: 'threshold-jwt-refreshed',
+      };
+    };
+
+    const result = await coordinator.loginWithEd25519CapabilityForSigning({
+      nearAccountId: 'alice.testnet',
+      challengeId: 'challenge-1',
+      otpCode: '123456',
+      routeAuth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
+      record: {
+        thresholdSessionId: 'old-ed25519-session',
+        walletSigningSessionId: staleWalletSigningSessionId,
+        relayerUrl: '',
+        rpId: '',
+        relayerKeyId: 'relayer-key',
+        keyVersion: 'v1',
+        participantIds: [1, 2],
+        thresholdSessionKind: 'jwt',
+        thresholdSessionJwt,
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: 0,
+        source: 'email_otp',
+      } as any,
+    });
+
+    const ecdsaLoginCall = workerCalls.find(
+      (call) => call.request?.type === 'loginWithEmailOtpAndBootstrapEcdsaSession',
+    );
+    expect(result.sessionId).toBe('ed-session-refreshed');
+    expect(ecdsaLoginCall?.request.payload.ecdsaThresholdKeyId).toBe(
+      'ecdsa-key-from-other-wallet-session',
+    );
+    expect(ecdsaLoginCall?.request.payload.walletSigningSessionId).toBeTruthy();
+    expect(ecdsaLoginCall?.request.payload.walletSigningSessionId).not.toBe(
+      staleWalletSigningSessionId,
+    );
+    expect(ecdsaLoginCall?.request.payload.walletSigningSessionId).not.toBe(
+      mismatchedEcdsaWalletSigningSessionId,
+    );
+    expect(ecdsaLoginCall?.request.payload.routePlan.authLane).toMatchObject({
+      kind: 'signing_session',
+      thresholdSessionId: 'old-ed25519-session',
+      walletSigningSessionId: staleWalletSigningSessionId,
+      curve: 'ed25519',
+    });
+    expect(ed25519ProvisionCalls[0]).toMatchObject({
+      participantIds: [1, 2],
+      ecdsaThresholdSessionId: 'ecdsa-session',
+    });
+    expect(ed25519ProvisionCalls[0].walletSigningSessionId).toBe(
+      ecdsaLoginCall?.request.payload.walletSigningSessionId,
+    );
   });
 
   test('recovers Ed25519 export material without provisioning or hydrating a signing session', async () => {

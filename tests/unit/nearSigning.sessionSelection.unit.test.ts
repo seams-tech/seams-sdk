@@ -237,6 +237,7 @@ test.describe('near signing session selection', () => {
       const relayerKeyId = 'ed25519:relayer-key-id';
       const rpId = 'example.localhost';
       const order: string[] = [];
+      let workerSessionId = '';
 
       persistWarmSessionEd25519Capability({
         nearAccountId,
@@ -386,6 +387,7 @@ test.describe('near signing session selection', () => {
                 },
               },
               requestWorkerOperation: async ({ request }: any) => {
+                workerSessionId = String(request?.sessionId || '').trim();
                 expect(String(request?.payload?.threshold?.thresholdSessionJwt || '')).toBe(
                   'otp-confirmation-order-refreshed-jwt',
                 );
@@ -421,6 +423,7 @@ test.describe('near signing session selection', () => {
       );
 
       expect(result).toHaveLength(1);
+      expect(workerSessionId).toBe(refreshedSessionId);
       expect(order).toEqual(['display', 'challenge', 'confirm', 'complete:246810']);
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();

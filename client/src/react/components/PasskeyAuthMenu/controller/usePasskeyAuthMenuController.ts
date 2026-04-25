@@ -415,7 +415,18 @@ export function usePasskeyAuthMenuController(
   }, [showScanDevice, closeLinkDeviceView, resetToDefault, setCurrentValue, clearPrefillMarkers]);
 
   const onProceed = React.useCallback(() => {
-    if (!canSubmit) return;
+    if (!canSubmit) {
+      if (mode === AuthMenuMode.Register) {
+        if (!secure) {
+          setMethodError('Passkey registration requires HTTPS or localhost.');
+        } else if (runtime.accountExists) {
+          setMethodError('This account already exists. Log in instead.');
+        } else if (currentValue.trim().length === 0) {
+          setMethodError('Pick a username to create a passkey account.');
+        }
+      }
+      return;
+    }
 
     setWaiting(true);
     setWaitingReason(mode === AuthMenuMode.Sync ? 'sync' : 'passkey');
@@ -453,6 +464,9 @@ export function usePasskeyAuthMenuController(
   }, [
     canSubmit,
     mode,
+    secure,
+    runtime.accountExists,
+    currentValue,
     props.onSyncAccount,
     props.onLogin,
     props.onRegister,

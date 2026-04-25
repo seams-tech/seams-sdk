@@ -248,7 +248,9 @@ export async function signTempoWithTouchConfirm(args: {
       status: 'succeeded',
       interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
     });
-    await args.reserveWalletSigningSessionBudget?.();
+    if (!args.emailOtpSigning) {
+      await args.reserveWalletSigningSessionBudget?.();
+    }
     const intentPrepared = await intentPreparationTask;
     const intent = intentPrepared.intent;
 
@@ -288,6 +290,7 @@ export async function signTempoWithTouchConfirm(args: {
       );
       thresholdEcdsaKeyRef = refreshed;
       ensuredThresholdKeyRef = refreshed;
+      await args.reserveWalletSigningSessionBudget?.();
     }
     const hasSecp256k1Request = intent.signRequests.some(
       (signReq) => signReq.algorithm === 'secp256k1',

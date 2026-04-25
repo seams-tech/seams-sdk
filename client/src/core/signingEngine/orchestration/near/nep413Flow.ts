@@ -191,7 +191,7 @@ export async function signNep413Message({
         ctx,
         kind: 'nearSigner',
         request: {
-          sessionId,
+          sessionId: canonicalThresholdSessionId,
           type: WorkerRequestType.SignNep413Message,
           payload: payloadForWorker,
         },

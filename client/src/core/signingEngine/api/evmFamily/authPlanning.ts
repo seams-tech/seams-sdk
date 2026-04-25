@@ -69,7 +69,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     chain: EvmFamilyChain;
     challengeId: string;
     otpCode: string;
-    record: ThresholdEcdsaSessionRecord;
+    record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
 };
@@ -91,7 +91,7 @@ type ResolveEvmFamilyTransactionWalletAuthBaseArgs = {
 export type ResolveEvmFamilyTransactionWalletAuthArgs =
   | (ResolveEvmFamilyTransactionWalletAuthBaseArgs & {
       senderSignatureAlgorithm: 'secp256k1';
-      ecdsaSigningLane: SigningLaneContext;
+      ecdsaSigningLane?: SigningLaneContext;
       ecdsaAuthMethod: EvmFamilyEcdsaAuthMethod;
       ecdsaWarmRecord?: ThresholdEcdsaSessionRecord;
       ecdsaWarmKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
@@ -288,23 +288,23 @@ export async function resolveEvmFamilyTransactionWalletAuth(
           ? laneWarmRecord
           : undefined);
       if (
-        typeof confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning !== 'function' ||
-        !emailOtpRecord
+        typeof confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning !== 'function'
       ) {
         throw new Error('[SigningEngine] Email OTP per-operation signing is not configured');
       }
-      const authLane =
-        confirmedEmailOtpDeps.resolveEmailOtpSigningSessionAuthLane?.({
-          thresholdSessionId: emailOtpRecord.thresholdSessionId,
-          curve: 'ecdsa',
-          chain: args.chain,
-        }) || emailOtpEcdsaAuthLaneFromRecord(emailOtpRecord, args.chain);
+      const authLane = emailOtpRecord
+        ? confirmedEmailOtpDeps.resolveEmailOtpSigningSessionAuthLane?.({
+            thresholdSessionId: emailOtpRecord.thresholdSessionId,
+            curve: 'ecdsa',
+            chain: args.chain,
+          }) || emailOtpEcdsaAuthLaneFromRecord(emailOtpRecord, args.chain)
+        : undefined;
       const refreshed = await confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning({
         nearAccountId: args.nearAccountId,
         chain: args.chain,
         challengeId,
         otpCode: code,
-        record: emailOtpRecord,
+        ...(emailOtpRecord ? { record: emailOtpRecord } : {}),
         ...(authLane ? { authLane } : {}),
       });
       return {
@@ -327,63 +327,66 @@ export async function resolveEvmFamilyTransactionWalletAuth(
   if (args.senderSignatureAlgorithm === 'secp256k1') {
     const ecdsaSigningLane = args.ecdsaSigningLane;
     if (!ecdsaSigningLane) {
-      throw new Error(
-        '[SigningEngine] ECDSA signing lane is required for transaction auth planning',
-      );
-    }
-    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
-      deps: args.deps,
-      lane: ecdsaSigningLane,
-      ...(laneWarmRecord ? { record: laneWarmRecord } : {}),
-      ...(laneWarmKeyRef ? { keyRef: laneWarmKeyRef } : {}),
-    });
-    emitSigningBoundaryTrace(
-      'evm-family',
-      createSigningBoundaryTraceEvent({
-        event: 'pre_confirm_readiness_checked',
-        lane: ecdsaSigningLane,
-        readinessStatus: readiness.readiness.status,
-        phase: 'pre_confirm',
-      }),
-    );
-    const signingSessionPlan = createSigningSessionPlanner({
-      onTrace: (event) => emitSigningPlannerDecisionTrace('evm-family', event),
-    }).plan({
-      lane: ecdsaSigningLane,
-      readiness: readiness.readiness,
-      forceFreshAuth: args.forceFreshAuth,
-    });
-    plannedSigningSessionPlan = signingSessionPlan;
-    if (signingSessionPlan.kind === SigningSessionPlanKind.WarmSession) {
-      plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
-        plan: signingSessionPlan,
-        accountId: authInput.accountId,
-        intent: SigningOperationIntent.TransactionSign,
-        ...(authInput.curve ? { curve: authInput.curve } : {}),
-        ...(readiness.signingRootId ? { signingRootId: readiness.signingRootId } : {}),
-        expiresAtMs: readiness.expiresAtMs,
-        remainingUses: readiness.remainingUses,
-      });
-    } else if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
-      plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
-        plan: signingSessionPlan,
-        accountId: authInput.accountId,
-        intent: SigningOperationIntent.TransactionSign,
-        ...(authInput.curve ? { curve: authInput.curve } : {}),
-      });
-      emailOtpAuthBridge = await emailOtpAuthAdapter.createEmailOtpReauthPlan(authInput);
-    } else if (signingSessionPlan.kind === SigningSessionPlanKind.PasskeyReauth) {
-      plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
-        plan: signingSessionPlan,
-        accountId: authInput.accountId,
-        intent: SigningOperationIntent.TransactionSign,
-        ...(authInput.curve ? { curve: authInput.curve } : {}),
-      });
-      await passkeyAuthAdapter.createPasskeyReauthPlan(authInput);
+      if (args.ecdsaAuthMethod !== SIGNER_AUTH_METHODS.emailOtp) {
+        throw new Error(
+          '[SigningEngine] ECDSA signing lane is required for transaction auth planning',
+        );
+      }
     } else {
-      throw new Error(
-        `[SigningEngine] ECDSA signing session is not ready: ${signingSessionPlan.reason}`,
+      const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
+        deps: args.deps,
+        lane: ecdsaSigningLane,
+        ...(laneWarmRecord ? { record: laneWarmRecord } : {}),
+        ...(laneWarmKeyRef ? { keyRef: laneWarmKeyRef } : {}),
+      });
+      emitSigningBoundaryTrace(
+        'evm-family',
+        createSigningBoundaryTraceEvent({
+          event: 'pre_confirm_readiness_checked',
+          lane: ecdsaSigningLane,
+          readinessStatus: readiness.readiness.status,
+          phase: 'pre_confirm',
+        }),
       );
+      const signingSessionPlan = createSigningSessionPlanner({
+        onTrace: (event) => emitSigningPlannerDecisionTrace('evm-family', event),
+      }).plan({
+        lane: ecdsaSigningLane,
+        readiness: readiness.readiness,
+        forceFreshAuth: args.forceFreshAuth,
+      });
+      plannedSigningSessionPlan = signingSessionPlan;
+      if (signingSessionPlan.kind === SigningSessionPlanKind.WarmSession) {
+        plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
+          plan: signingSessionPlan,
+          accountId: authInput.accountId,
+          intent: SigningOperationIntent.TransactionSign,
+          ...(authInput.curve ? { curve: authInput.curve } : {}),
+          ...(readiness.signingRootId ? { signingRootId: readiness.signingRootId } : {}),
+          expiresAtMs: readiness.expiresAtMs,
+          remainingUses: readiness.remainingUses,
+        });
+      } else if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
+        plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
+          plan: signingSessionPlan,
+          accountId: authInput.accountId,
+          intent: SigningOperationIntent.TransactionSign,
+          ...(authInput.curve ? { curve: authInput.curve } : {}),
+        });
+        emailOtpAuthBridge = await emailOtpAuthAdapter.createEmailOtpReauthPlan(authInput);
+      } else if (signingSessionPlan.kind === SigningSessionPlanKind.PasskeyReauth) {
+        plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
+          plan: signingSessionPlan,
+          accountId: authInput.accountId,
+          intent: SigningOperationIntent.TransactionSign,
+          ...(authInput.curve ? { curve: authInput.curve } : {}),
+        });
+        await passkeyAuthAdapter.createPasskeyReauthPlan(authInput);
+      } else {
+        throw new Error(
+          `[SigningEngine] ECDSA signing session is not ready: ${signingSessionPlan.reason}`,
+        );
+      }
     }
   }
   const directAuthPlan = plannedEcdsaSigningAuthPlan ? null : await resolveDirectSigningAuthPlan();

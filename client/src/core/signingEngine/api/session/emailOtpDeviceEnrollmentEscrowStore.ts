@@ -221,6 +221,26 @@ export async function readEmailOtpDeviceEnrollmentEscrowRecord(args: {
   }
 }
 
+export async function readSingleEmailOtpDeviceEnrollmentEscrowRecordForWallet(args: {
+  walletId: string;
+}): Promise<EmailOtpDeviceEnrollmentEscrowRecord | null> {
+  const walletId = normalizeOptionalNonEmptyString(args.walletId);
+  if (!walletId) return null;
+  const db = await openEmailOtpDeviceEnrollmentEscrowDb();
+  if (!db) return null;
+  try {
+    const tx = db.transaction(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME, 'readonly');
+    const index = tx.objectStore(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME).index('walletId');
+    const values = await requestToPromise(index.getAll(walletId));
+    const records = values
+      .map((value) => normalizeEmailOtpDeviceEnrollmentEscrowRecord(value))
+      .filter((record): record is EmailOtpDeviceEnrollmentEscrowRecord => !!record);
+    return records.length === 1 ? records[0] : null;
+  } finally {
+    db.close();
+  }
+}
+
 export async function writeEmailOtpDeviceEnrollmentEscrowRecord(
   args: Omit<
     EmailOtpDeviceEnrollmentEscrowRecord,

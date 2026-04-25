@@ -306,10 +306,10 @@ client/src/core/signingEngine/api/
     postSignPolicy.ts
     signerLoader.ts
     signingFlowRuntime.ts
+    signingSessionCoordinator.ts
     smartAccount.ts
     transactionExecutor.ts
     types.ts
-    warmSessionAdapter.ts
     evmNonceLifecycle.ts
     tempoNonceLifecycle.ts
 ```
@@ -424,7 +424,7 @@ Completed in the current checkpoint:
 33. [x] Extracted EVM-family active account auth resolution to `evmFamily/accountAuth.ts`.
 34. [x] Moved EVM-family ECDSA lane-context construction and lane require helpers to `evmFamily/ecdsaLanes.ts`.
 35. [x] Extracted EVM-family ECDSA signing-selection policy to `evmFamily/ecdsaSelection.ts`.
-36. [x] Extracted the EVM-family `WarmSessionManager` adapter to `evmFamily/warmSessionAdapter.ts`.
+36. [x] Extracted the EVM-family signing-session composition layer to `evmFamily/signingSessionCoordinator.ts`.
 37. [x] Extracted EVM-family transaction auth planning and ECDSA planner-readiness to `evmFamily/authPlanning.ts`.
 38. [x] Extracted EVM-family wallet signing-session budget-spend assembly to `evmFamily/budgetSpending.ts`.
 39. [x] Extracted EVM-family ECDSA post-sign cleanup dispatch to `evmFamily/postSignPolicy.ts`.

@@ -311,6 +311,7 @@ export interface EmailOtpWorkerOperationMap {
       shamirPrimeB64u: string;
       otpChannel?: WalletEmailOtpChannel;
       rpId: string;
+      chain?: ThresholdEcdsaActivationChain;
       ecdsaThresholdKeyId?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
@@ -320,6 +321,7 @@ export interface EmailOtpWorkerOperationMap {
       ttlMs?: number;
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      includeEcdsaExportArtifact?: boolean;
     };
     result: {
       recovery: {
@@ -332,6 +334,15 @@ export interface EmailOtpWorkerOperationMap {
         thresholdEd25519PrfFirstB64u: string;
       };
       bootstrap: ThresholdEcdsaSessionBootstrapResult;
+      ecdsaHssExportArtifact?: {
+        artifactKind: 'ecdsa-hss-secp256k1-key-v1';
+        chain: ThresholdEcdsaActivationChain;
+        signingRootId: string;
+        signingRootVersion?: string;
+        publicKeyHex: string;
+        privateKeyHex: string;
+        ethereumAddress: string;
+      };
     };
   };
   enrollEmailOtpWalletAndBootstrapEcdsaSession: {

@@ -1,6 +1,7 @@
 # Tatchi to Seams SDK Rename Plan
 
 Date created: 2026-04-22
+Last rescanned: 2026-04-24
 
 ## Objective
 
@@ -59,15 +60,17 @@ Package scope decision: the target package name is `@seams/sdk`.
 
 ## Current Hotspots
 
-The initial scan shows Tatchi references in these major areas:
+The current scan shows Tatchi references in these major areas:
 
 - Root package metadata and workspace config:
   `package.json`, `pnpm-workspace.yaml`, `pnpm-lock.yaml`, and
   `eslint.config.mjs`.
 - GitHub workflow config:
-  CI service names can be renamed independently, while deploy workflow paths
-  that point at `examples/tatchi-site` must move with the example directory
-  rename.
+  `.github/workflows/ci.yml` and `.github/workflows/deploy-pages.yml`.
+  CI Postgres service credentials already use `seams`, but Pages deploy paths
+  and Pages build env names still point at `examples/tatchi-site` and
+  `VITE_TATCHI_*`, so those workflow edits must land with the corresponding
+  directory/env rename.
 - SDK package metadata and build scripts:
   `sdk/package.json`, `sdk/tsconfig.json`, `sdk/build-paths.*`, and
   `sdk/scripts/build/*`.
@@ -77,6 +80,17 @@ The initial scan shows Tatchi references in these major areas:
 - Wallet iframe runtime:
   `client/src/core/WalletIframe/TatchiPasskeyIframe.ts`,
   `client/src/core/WalletIframe/host`, and shared wallet iframe message types.
+- Current signing-session architecture docs:
+  `docs/signing-session-architecture.md`,
+  `docs/signing-session-coordinator.md`, and
+  `docs/signing-session-coordinator-tests.md`.
+  The old `docs/signing-session-planner.md` path no longer exists.
+- Current signing-session implementation:
+  `client/src/core/signingEngine/session/SigningSessionPlanner.ts`,
+  `SigningExecutionMachine.ts`, `SigningCapabilityReader.ts`,
+  `SigningLaneBuilders.ts`, `SigningPostSignPolicy.ts`,
+  `WalletSigningBudgetLedger.ts`, and
+  `client/src/core/signingEngine/api/evmFamily/signingSessionCoordinator.ts`.
 - Server package and relayer examples:
   `server/src`, `examples/relay-server`, `examples/relay-cloudflare-worker`,
   and `examples/self-host-cloudflare-worker`.
@@ -155,13 +169,14 @@ Tasks:
    - package names to `seams-site` and `seams-docs`.
 4. Update `pnpm-workspace.yaml`, `pnpm-lock.yaml`, and root scripts.
 5. Update lint ignores and any generated-output allowlists.
-6. Update `.github` workflow paths in the same commit that renames the
-   referenced directories.
+6. Update `.github/workflows/deploy-pages.yml` paths and env names in the same
+   commit that renames the referenced directories and `VITE_TATCHI_*` vars.
 
 Acceptance checks:
 
 - `pnpm install --lockfile-only` updates the lockfile without old package names.
 - `rg -n "@tatchi-xyz/sdk|tatchi-site|tatchi-docs|tatchi-xyz" package.json pnpm-workspace.yaml sdk examples` returns no active references.
+- `rg -n "examples/tatchi-site|examples/tatchi-docs|VITE_TATCHI_" .github package.json pnpm-workspace.yaml` returns no active references.
 
 ## Phase 3: Rename Client Core
 

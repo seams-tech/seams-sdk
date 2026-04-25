@@ -80,6 +80,7 @@ import {
 import {
   deleteEmailOtpDeviceEnrollmentEscrowRecord,
   readEmailOtpDeviceEnrollmentEscrowRecord,
+  readSingleEmailOtpDeviceEnrollmentEscrowRecordForWallet,
   writeEmailOtpDeviceEnrollmentEscrowRecord,
 } from '../../api/session/emailOtpDeviceEnrollmentEscrowStore';
 import {
@@ -100,6 +101,38 @@ const EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION = 'default';
 
 function emailOtpDeviceEnrollmentId(walletId: string, authSubjectId: string): string {
   return `email-otp-device-enrollment-v1:${walletId}:${authSubjectId}`;
+}
+
+function readJwtPayloadObject(jwtRaw: unknown): Record<string, unknown> | null {
+  const jwt = String(jwtRaw || '').trim();
+  if (!jwt) return null;
+  const parts = jwt.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[1] || '')));
+    return payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readAppSessionUserIdFromRoutePlan(routePlan: EmailOtpRoutePlan): string {
+  const lane = routePlan.authLane;
+  if (lane.kind !== 'app_session') return '';
+  const payload = readJwtPayloadObject(lane.jwt);
+  return readOptionalString(payload?.sub) || '';
+}
+
+function resolveEmailOtpAuthSubjectId(args: {
+  walletId: string;
+  userId?: unknown;
+  routePlan: EmailOtpRoutePlan;
+}): string {
+  const sessionUserId = readAppSessionUserIdFromRoutePlan(args.routePlan);
+  if (sessionUserId) return sessionUserId;
+  return readOptionalString(args.userId) || args.walletId;
 }
 
 type EmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
@@ -239,6 +272,7 @@ type EmailOtpWorkerRequest =
         shamirPrimeB64u: string;
         otpChannel?: WalletEmailOtpChannel;
         rpId: string;
+        chain?: ThresholdEcdsaActivationChain;
         ecdsaThresholdKeyId?: string;
         participantIds?: number[];
         sessionKind?: 'jwt' | 'cookie';
@@ -248,6 +282,7 @@ type EmailOtpWorkerRequest =
         ttlMs?: number;
         remainingUses?: number;
         runtimePolicyScope?: ThresholdRuntimePolicyScope;
+        includeEcdsaExportArtifact?: boolean;
       };
     }
   | {
@@ -1534,7 +1569,11 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
   await ensureNearSignerRecoveryWasm();
   const relayUrl = readString(args.relayUrl, 'relayUrl');
   const walletId = readString(args.walletId, 'walletId');
-  const requestedUserId = readOptionalString(args.userId);
+  const requestedUserId = resolveEmailOtpAuthSubjectId({
+    walletId,
+    userId: args.userId,
+    routePlan: args.routePlan,
+  });
   const routeAuth = routePlanSessionAuth(args.routePlan);
   const response = await postEmailOtpJson({
     relayUrl,
@@ -1863,7 +1902,11 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
   const runtime = await getShamir3PassRuntime();
   const relayUrl = readString(args.relayUrl, 'relayUrl');
   const walletId = readString(args.walletId, 'walletId');
-  const userId = String(args.userId || walletId).trim() || walletId;
+  const userId = resolveEmailOtpAuthSubjectId({
+    walletId,
+    userId: args.userId,
+    routePlan: args.routePlan,
+  });
   const shamirPrimeB64u = readString(args.shamirPrimeB64u, 'shamirPrimeB64u');
   const otpCode = readString(args.otpCode, 'otpCode');
   const keyHandle = readString(
@@ -2079,12 +2122,24 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
         'challengeId',
       );
     }
-    const userId = String(args.userId || walletId).trim() || walletId;
-    const localEnrollmentEscrow = await readEmailOtpDeviceEnrollmentEscrowRecord({
+    let userId = resolveEmailOtpAuthSubjectId({
+      walletId,
+      userId: args.userId,
+      routePlan: args.routePlan,
+    });
+    let localEnrollmentEscrow = await readEmailOtpDeviceEnrollmentEscrowRecord({
       walletId,
       authSubjectId: userId,
       enrollmentId: emailOtpDeviceEnrollmentId(walletId, userId),
     });
+    if (!localEnrollmentEscrow) {
+      localEnrollmentEscrow = await readSingleEmailOtpDeviceEnrollmentEscrowRecordForWallet({
+        walletId,
+      });
+      if (localEnrollmentEscrow) {
+        userId = localEnrollmentEscrow.authSubjectId;
+      }
+    }
     if (!localEnrollmentEscrow) {
       throw new Error('Email OTP device-local enc_s(S) is missing; recovery is required');
     }
@@ -2163,7 +2218,7 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
       relayUrl,
       walletId,
       ...(readOptionalString(args.orgId) ? { orgId: readOptionalString(args.orgId) } : {}),
-      userId: args.userId,
+      userId,
       clientSecret32,
     });
     const thresholdEd25519PrfFirstB64u = await deriveEmailOtpEd25519PrfFirstB64u({
@@ -2725,12 +2780,10 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const runtimePolicyScope =
             normalizeThresholdRuntimePolicyScope(msg.payload.runtimePolicyScope) ||
             parseThresholdRuntimePolicyScopeFromJwt(routeAuth?.jwt);
-          const userId =
-            String(msg.payload.userId || msg.payload.walletId || '').trim() ||
-            readString(msg.payload.walletId, 'walletId');
+          const walletId = readString(msg.payload.walletId, 'walletId');
           const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
-            userId,
+            userId: walletId,
             rpId: readString(msg.payload.rpId, 'rpId'),
             clientRootShare32,
             operation: 'email_otp_bootstrap',
@@ -2943,13 +2996,20 @@ self.addEventListener('message', async (event: MessageEvent) => {
         let signingSessionSecret32: Uint8Array | null = null;
         try {
           const runtimePolicyScope = loginRuntimePolicyScope;
-          const userId =
-            String(msg.payload.userId || msg.payload.walletId || '').trim() ||
-            readString(msg.payload.walletId, 'walletId');
+          const walletId = readString(msg.payload.walletId, 'walletId');
+          const relayerUrl = readString(msg.payload.relayUrl, 'relayUrl');
+          const rpId = readString(msg.payload.rpId, 'rpId');
+          const chain =
+            msg.payload.chain === 'evm' || msg.payload.chain === 'tempo'
+              ? msg.payload.chain
+              : routePlan.authLane.kind === 'signing_session' &&
+                  (routePlan.authLane.chain === 'evm' || routePlan.authLane.chain === 'tempo')
+                ? routePlan.authLane.chain
+                : 'tempo';
           const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
-            relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
-            userId,
-            rpId: readString(msg.payload.rpId, 'rpId'),
+            relayUrl: relayerUrl,
+            userId: walletId,
+            rpId,
             clientRootShare32: result.clientRootShare32,
             operation: 'email_otp_bootstrap',
             ecdsaThresholdKeyId: msg.payload.ecdsaThresholdKeyId,
@@ -2974,6 +3034,34 @@ self.addEventListener('message', async (event: MessageEvent) => {
             expiresAtMs: Math.floor(Number(bootstrap.session?.expiresAtMs) || 0),
             remainingUses: Math.floor(Number(bootstrap.session?.remainingUses) || 0),
           });
+          const ecdsaHssExportArtifact = msg.payload.includeEcdsaExportArtifact
+            ? {
+                artifactKind: 'ecdsa-hss-secp256k1-key-v1' as const,
+                chain,
+                signingRootId: readString(
+                  bootstrap.thresholdEcdsaKeyRef.signingRootId,
+                  'signingRootId',
+                ),
+                ...(bootstrap.thresholdEcdsaKeyRef.signingRootVersion
+                  ? { signingRootVersion: bootstrap.thresholdEcdsaKeyRef.signingRootVersion }
+                  : {}),
+                ...(await runThresholdEcdsaExplicitExportFromClientRootShare({
+                  relayUrl: relayerUrl,
+                  userId: walletId,
+                  rpId,
+                  clientRootShare32: result.clientRootShare32,
+                  ecdsaThresholdKeyId: readString(
+                    bootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
+                    'ecdsaThresholdKeyId',
+                  ),
+                  thresholdSessionJwt: bootstrap.session.jwt,
+                  sessionKind: msg.payload.sessionKind,
+                })),
+              }
+            : undefined;
+          if (ecdsaHssExportArtifact) {
+            bootstrap.thresholdEcdsaKeyRef.ecdsaHssExportArtifact = ecdsaHssExportArtifact;
+          }
           postToMainThread({
             id: msg.id,
             ok: true,
@@ -2988,6 +3076,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
               },
               bootstrap,
+              ...(ecdsaHssExportArtifact ? { ecdsaHssExportArtifact } : {}),
             },
           });
         } finally {
@@ -3117,9 +3206,10 @@ self.addEventListener('message', async (event: MessageEvent) => {
           routePlan,
         });
         try {
+          const walletId = readString(msg.payload.walletId, 'walletId');
           const artifact = await runThresholdEcdsaExplicitExportFromClientRootShare({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
-            userId: readString(msg.payload.userId, 'userId'),
+            userId: walletId,
             rpId: readString(msg.payload.rpId, 'rpId'),
             clientRootShare32: recovered.clientRootShare32,
             ecdsaThresholdKeyId: readString(msg.payload.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),

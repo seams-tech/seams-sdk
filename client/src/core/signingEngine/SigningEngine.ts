@@ -39,6 +39,8 @@ import type {
 } from '../types/tatchi';
 import type { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '../types';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
@@ -240,6 +242,7 @@ import {
   type WalletAuthCurve,
   type WalletAuthIntent,
 } from './auth';
+import { resolveEvmFamilyTransactionAccountAuth } from './api/evmFamily/accountAuth';
 import {
   EmailOtpThresholdSessionCoordinator,
   type EmailOtpBootstrapRecovery,
@@ -252,6 +255,8 @@ export type {
 export type { EmailOtpBootstrapRecovery } from './emailOtp/EmailOtpThresholdSessionCoordinator';
 export type { NearSignIntentRequest, NearSignIntentResult } from './api/nearSigning';
 export type { ThresholdEcdsaLoginPrefillResult } from './api/thresholdLifecycle/thresholdEcdsaLoginPrefill';
+
+const THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID = 'threshold-secp256k1-ecdsa-2p-v1';
 
 function buildEmailOtpThresholdEd25519SignerMaterialFingerprint(args: {
   publicKey: string;
@@ -269,6 +274,23 @@ function buildEmailOtpThresholdEd25519SignerMaterialFingerprint(args: {
     rpId: args.rpId,
     participantIds: args.participantIds,
   });
+}
+
+async function computeThresholdEcdsaHssKeyId(args: {
+  userId: string;
+  rpId: string;
+  thresholdEcdsaPublicKeyB64u: string;
+}): Promise<string> {
+  const digest32 = await sha256BytesUtf8(
+    alphabetizeStringify({
+      version: 'threshold_ecdsa_hss_key_id_v1',
+      schemeId: THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
+      userId: args.userId,
+      rpId: args.rpId,
+      thresholdEcdsaPublicKeyB64u: args.thresholdEcdsaPublicKeyB64u,
+    }),
+  );
+  return `ehss-${base64UrlEncode(digest32)}`;
 }
 
 function createEmailOtpKeyExportRequiresPasskeyError(): WalletAuthPolicyError {
@@ -1022,18 +1044,25 @@ export class SigningEngine {
         `[SigningEngine] multiple threshold ECDSA ${exportChain} lanes are available; select a signing source before export`,
       );
     } else {
-      thresholdEcdsaKeyRef = (
-        await this.bootstrapEcdsaSession({
-          nearAccountId: args.nearAccountId,
-          chain: exportChain,
-          source: 'manual-bootstrap',
-        })
-      ).thresholdEcdsaKeyRef;
+      const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
+        deps: { indexedDB: this.orchestrationDeps.indexedDB },
+        nearAccountId: String(args.nearAccountId),
+        senderSignatureAlgorithm: 'secp256k1',
+      });
+      if (accountAuth.primaryAuthMethod !== SIGNER_AUTH_METHODS.emailOtp) {
+        thresholdEcdsaKeyRef = (
+          await this.bootstrapEcdsaSession({
+            nearAccountId: args.nearAccountId,
+            chain: exportChain,
+            source: 'manual-bootstrap',
+          })
+        ).thresholdEcdsaKeyRef;
+      }
     }
     return await this.exportThresholdEcdsaKeyWithAuthorization({
       nearAccountId: args.nearAccountId,
       chain: exportChain,
-      keyRef: thresholdEcdsaKeyRef,
+      ...(thresholdEcdsaKeyRef ? { keyRef: thresholdEcdsaKeyRef } : {}),
       options: {
         variant: args.options.variant,
         theme: args.options.theme,
@@ -1043,10 +1072,75 @@ export class SigningEngine {
     });
   }
 
+  private async resolveEmailOtpEcdsaExportTargetFromLocalMetadata(args: {
+    nearAccountId: AccountId;
+    chain: 'evm' | 'tempo';
+  }): Promise<{ ecdsaThresholdKeyId?: string; participantIds?: number[] }> {
+    const emailOtpRecords = this.listThresholdEcdsaSessionRecordsForLookup({
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      source: SIGNER_AUTH_METHODS.emailOtp,
+    });
+    const record = emailOtpRecords.find((candidate) =>
+      String(candidate.ecdsaThresholdKeyId || '').trim(),
+    );
+    if (record) {
+      return {
+        ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId || '').trim(),
+        ...(Array.isArray(record.participantIds) && record.participantIds.length > 0
+          ? { participantIds: record.participantIds }
+          : {}),
+      };
+    }
+
+    const clientDB = this.orchestrationDeps.indexedDB.clientDB;
+    const context = await resolveProfileAccountContextFromCandidates(
+      clientDB,
+      buildNearAccountRefs(args.nearAccountId),
+    ).catch(() => null);
+    if (!context?.profileId) return {};
+    const chainAccounts = await clientDB
+      .listChainAccountsByProfile(context.profileId)
+      .catch(() => []);
+    const chainPrefix = args.chain === 'evm' ? 'evm:' : 'tempo:';
+    const orderedAccounts = [...chainAccounts]
+      .filter((account) => String(account.chainIdKey || '').startsWith(chainPrefix))
+      .sort((left, right) => {
+        const primaryDelta = Number(right.isPrimary === true) - Number(left.isPrimary === true);
+        if (primaryDelta !== 0) return primaryDelta;
+        return Number(right.updatedAt || 0) - Number(left.updatedAt || 0);
+      });
+    for (const account of orderedAccounts) {
+      const owners = Array.isArray(account.undeployedSignerSet?.owners)
+        ? account.undeployedSignerSet.owners
+        : [];
+      for (const owner of owners) {
+        if (owner.status && owner.status !== 'active') continue;
+        const thresholdEcdsaPublicKeyB64u = String(
+          owner.thresholdEcdsaPublicKeyB64u || '',
+        ).trim();
+        if (!thresholdEcdsaPublicKeyB64u) continue;
+        const rpId = String(owner.rpId || this.getRpId() || '').trim();
+        if (!rpId) continue;
+        return {
+          ecdsaThresholdKeyId: await computeThresholdEcdsaHssKeyId({
+            userId: String(args.nearAccountId),
+            rpId,
+            thresholdEcdsaPublicKeyB64u,
+          }),
+          ...(Array.isArray(owner.participantIds) && owner.participantIds.length > 0
+            ? { participantIds: owner.participantIds }
+            : {}),
+        };
+      }
+    }
+    return {};
+  }
+
   private async exportThresholdEcdsaKeyWithAuthorization(args: {
     nearAccountId: AccountId;
     chain: 'evm' | 'tempo';
-    keyRef: ThresholdEcdsaSecp256k1KeyRef;
+    keyRef?: ThresholdEcdsaSecp256k1KeyRef;
     options: {
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
@@ -1054,44 +1148,48 @@ export class SigningEngine {
     flowId: string;
     onEvent?: KeyExportEventCallback;
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
-    const keyRefThresholdSessionId = String(args.keyRef.thresholdSessionId || '').trim();
+    const keyRefThresholdSessionId = String(args.keyRef?.thresholdSessionId || '').trim();
     const currentRecord =
-      this.listThresholdEcdsaSessionRecordsForLookup({
-        nearAccountId: args.nearAccountId,
-        chain: args.chain,
-      }).find(
-        (record) => String(record.thresholdSessionId || '').trim() === keyRefThresholdSessionId,
-      ) || null;
+      keyRefThresholdSessionId
+        ? this.listThresholdEcdsaSessionRecordsForLookup({
+            nearAccountId: args.nearAccountId,
+            chain: args.chain,
+          }).find(
+            (record) => String(record.thresholdSessionId || '').trim() === keyRefThresholdSessionId,
+          ) || null
+        : null;
     const exportPublicKey =
-      String(args.keyRef.ecdsaHssExportArtifact?.publicKeyHex || '').trim() ||
-      String(args.keyRef.ecdsaThresholdKeyId || '').trim() ||
-      String(args.keyRef.ethereumAddress || '').trim() ||
+      String(args.keyRef?.ecdsaHssExportArtifact?.publicKeyHex || '').trim() ||
+      String(args.keyRef?.ecdsaThresholdKeyId || '').trim() ||
+      String(args.keyRef?.ethereumAddress || '').trim() ||
       '(threshold export key)';
 
-    if (currentRecord?.source === SIGNER_AUTH_METHODS.emailOtp) {
+    if (currentRecord?.source === SIGNER_AUTH_METHODS.emailOtp || !args.keyRef) {
       const rpId = String(this.getRpId() || '').trim();
       if (!rpId) {
         throw new Error('Missing rpId for threshold-ecdsa Email OTP export');
       }
-      const exportSigningSessionAuthLane = {
-        kind: 'signing_session' as const,
-        jwt: requireThresholdSessionJwt(
-          String(currentRecord.thresholdSessionJwt || '').trim(),
-          'exportThresholdSessionJwt',
-        ),
-        thresholdSessionId: currentRecord.thresholdSessionId,
-        ...(currentRecord.walletSigningSessionId
-          ? { walletSigningSessionId: currentRecord.walletSigningSessionId }
-          : {}),
-        curve: 'ecdsa' as const,
-        chain: args.chain,
-      };
+      const exportSigningSessionAuthLane = currentRecord
+        ? {
+            kind: 'signing_session' as const,
+            jwt: requireThresholdSessionJwt(
+              String(currentRecord.thresholdSessionJwt || '').trim(),
+              'exportThresholdSessionJwt',
+            ),
+            thresholdSessionId: currentRecord.thresholdSessionId,
+            ...(currentRecord.walletSigningSessionId
+              ? { walletSigningSessionId: currentRecord.walletSigningSessionId }
+              : {}),
+            curve: 'ecdsa' as const,
+            chain: args.chain,
+          }
+        : undefined;
       const authorization = await this.emailOtpSessions.requestExportAuthorization({
         nearAccountId: args.nearAccountId,
         chain: args.chain,
         publicKey: exportPublicKey,
         curve: 'ecdsa',
-        authLane: exportSigningSessionAuthLane,
+        ...(exportSigningSessionAuthLane ? { authLane: exportSigningSessionAuthLane } : {}),
       });
       emitKeyExportEvent(args.onEvent, {
         phase: KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_STARTED,
@@ -1101,15 +1199,35 @@ export class SigningEngine {
         interaction: { kind: 'none', overlay: 'none' },
         data: { chain: args.chain, curve: 'ecdsa' },
       });
-      const artifact = await this.emailOtpSessions.exportEcdsaKeyWithAuthorization({
-        nearAccountId: args.nearAccountId,
-        chain: args.chain,
-        challengeId: authorization.challengeId,
-        otpCode: authorization.otpCode,
-        record: currentRecord,
-        rpId,
-        authLane: exportSigningSessionAuthLane,
-      });
+      const artifact = currentRecord
+        ? await this.emailOtpSessions.exportEcdsaKeyWithAuthorization({
+            nearAccountId: args.nearAccountId,
+            chain: args.chain,
+            challengeId: authorization.challengeId,
+            otpCode: authorization.otpCode,
+            record: currentRecord,
+            rpId,
+            ...(exportSigningSessionAuthLane ? { authLane: exportSigningSessionAuthLane } : {}),
+          })
+        : await (async () => {
+            const exportTarget = await this.resolveEmailOtpEcdsaExportTargetFromLocalMetadata({
+              nearAccountId: args.nearAccountId,
+              chain: args.chain,
+            });
+            if (!exportTarget.ecdsaThresholdKeyId) {
+              throw new Error('Email OTP ECDSA export requires existing ECDSA key metadata');
+            }
+            return await this.emailOtpSessions.bootstrapAndExportEcdsaKeyWithAuthorization({
+              nearAccountId: args.nearAccountId,
+              chain: args.chain,
+              challengeId: authorization.challengeId,
+              otpCode: authorization.otpCode,
+              ecdsaThresholdKeyId: exportTarget.ecdsaThresholdKeyId,
+              ...(exportTarget.participantIds?.length
+                ? { participantIds: exportTarget.participantIds }
+                : {}),
+            });
+          })();
       emitKeyExportEvent(args.onEvent, {
         phase: KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_SUCCEEDED,
         status: 'succeeded',

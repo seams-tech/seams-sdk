@@ -153,7 +153,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
     chain: 'tempo' | 'evm';
     challengeId: string;
     otpCode: string;
-    record: ThresholdEcdsaSessionRecord;
+    record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord?: (args: {

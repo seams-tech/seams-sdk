@@ -510,6 +510,19 @@ Enrollment seal remove routes still exist because normal unseal is server-assist
 6. [x] Consume the used recovery key.
 7. [ ] Prompt replacement-key generation when the active recovery-key count drops below policy.
 
+Regression note:
+
+After the recovery-wrapped enrollment refactor, Email OTP Ed25519 signing after wallet-session exhaustion initially failed even though the OTP prompt and verification succeeded. The old Ed25519 threshold session was correctly used as route authority for requesting and verifying the OTP, but the replacement Ed25519 capability was still coupled to the exhausted `walletSigningSessionId`. The Near signing worker could also receive the stale pre-refresh Ed25519 `thresholdSessionId` instead of the canonical refreshed session id.
+
+The fix preserves the intended split:
+
+1. the exhausted Ed25519 session may authorize the OTP route only
+2. the replacement ECDSA bootstrap must mint a fresh wallet signing-session budget
+3. the newly provisioned Ed25519 capability must inherit that fresh `walletSigningSessionId`
+4. Near Ed25519 worker requests must use the refreshed canonical threshold session id
+
+Regression coverage now asserts that Ed25519 Email OTP refresh mints a fresh wallet signing-session budget, preserves the old session only inside the route plan, and sends the refreshed session id to transaction, NEP-413, and delegate signing workers.
+
 ### Phase 7: Remove Old Server Escrow Storage
 
 1. [x] Delete direct server-side enrollment escrow fields from active models.

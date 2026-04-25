@@ -48,6 +48,7 @@ export type ThresholdEcdsaEmailOtpAuthContext = {
   retention: 'session' | 'single_use';
   reason: 'login' | 'sign';
   authMethod: 'email_otp';
+  authSubjectId?: string;
   consumedAtMs?: number;
 };
 
@@ -726,12 +727,14 @@ function normalizeThresholdEcdsaEmailOtpAuthContext(
     throw new Error('Invalid Email OTP auth context: invalid authMethod');
   }
   const reason: 'login' | 'sign' = reasonRaw;
+  const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
   const consumedAtMs = normalizePositiveInteger(obj.consumedAtMs);
   return {
     policy,
     retention,
     reason,
     authMethod: 'email_otp',
+    ...(authSubjectId ? { authSubjectId } : {}),
     ...(consumedAtMs ? { consumedAtMs } : {}),
   };
 }

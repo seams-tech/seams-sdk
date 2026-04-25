@@ -127,7 +127,7 @@ export type EvmFamilySigningDeps = {
     chain: EvmFamilyChain;
     challengeId: string;
     otpCode: string;
-    record: ThresholdEcdsaSessionRecord;
+    record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord?: (args: {
@@ -270,7 +270,7 @@ async function signEvmFamilyAttempt(
       ? await resolveEvmFamilyTransactionWalletAuth({
           ...walletAuthArgsBase,
           senderSignatureAlgorithm: 'secp256k1',
-          ecdsaSigningLane: requireEvmFamilyEcdsaSigningLane(ecdsaSigningLane),
+          ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
           ecdsaAuthMethod: requireEvmFamilyEcdsaAuthMethod(selectedEcdsaAuthMethod),
           ...(thresholdEcdsaRecord ? { ecdsaWarmRecord: thresholdEcdsaRecord } : {}),
           ...(thresholdEcdsaKeyRef ? { ecdsaWarmKeyRef: thresholdEcdsaKeyRef } : {}),
