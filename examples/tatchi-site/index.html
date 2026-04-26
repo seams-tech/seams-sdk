@@ -17,17 +17,12 @@
     <script>
       (function () {
         try {
-          var ls = (
-            localStorage.getItem('tatchi-site-theme') ||
-            localStorage.getItem('vitepress-theme-appearance') ||
-            ''
-          ).replace(/\"/g, '');
+          var ls = (localStorage.getItem('tatchi-site-theme') || '').replace(/\"/g, '');
           // Default to dark when no preference is stored yet
           var hasStored = ls === 'dark' || ls === 'light';
           var mode = hasStored ? ls : 'dark';
           if (!hasStored) {
             localStorage.setItem('tatchi-site-theme', mode);
-            localStorage.setItem('vitepress-theme-appearance', mode);
           }
           // Keep SDK/theme hooks in sync with environment by reflecting on <html>
           document.documentElement.classList.toggle('dark', mode === 'dark');

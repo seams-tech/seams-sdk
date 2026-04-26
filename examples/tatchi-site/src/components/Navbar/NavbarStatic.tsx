@@ -195,7 +195,6 @@ function applyDocumentTheme(next: 'light' | 'dark'): void {
   document.documentElement.setAttribute('data-w3a-theme', next);
   try {
     window.localStorage?.setItem?.('tatchi-site-theme', next);
-    window.localStorage?.setItem?.('vitepress-theme-appearance', next);
   } catch {}
   window.dispatchEvent(new CustomEvent<'light' | 'dark'>('w3a:appearance', { detail: next }));
 }

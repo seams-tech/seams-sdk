@@ -3867,7 +3867,6 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.addInitScript(() => {
       window.localStorage.setItem('tatchi-site-theme', 'dark');
-      window.localStorage.setItem('vitepress-theme-appearance', 'dark');
     });
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {

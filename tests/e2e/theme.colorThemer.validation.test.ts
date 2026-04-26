@@ -90,11 +90,9 @@ async function readStoredTheme(page: Page, key: string): Promise<string | null> 
 async function expectStoredTheme(page: Page, theme: ThemeMode): Promise<void> {
   await expect
     .poll(async () => {
-      const modern = await readStoredTheme(page, 'tatchi-site-theme');
-      const legacy = await readStoredTheme(page, 'vitepress-theme-appearance');
-      return { modern, legacy };
+      return await readStoredTheme(page, 'tatchi-site-theme');
     })
-    .toEqual({ modern: theme, legacy: theme });
+    .toBe(theme);
 }
 
 async function setTheme(page: Page, target: ThemeMode): Promise<void> {
@@ -119,7 +117,6 @@ async function setTheme(page: Page, target: ThemeMode): Promise<void> {
     document.documentElement.setAttribute('data-w3a-theme', next);
     try {
       window.localStorage.setItem('tatchi-site-theme', next);
-      window.localStorage.setItem('vitepress-theme-appearance', next);
     } catch {}
     window.dispatchEvent(new CustomEvent('w3a:appearance', { detail: next }));
   }, target);

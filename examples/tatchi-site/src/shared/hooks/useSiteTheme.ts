@@ -3,14 +3,11 @@ import * as React from 'react';
 export type SiteTheme = 'light' | 'dark';
 
 const SITE_THEME_KEY = 'tatchi-site-theme';
-const LEGACY_THEME_KEY = 'vitepress-theme-appearance';
 
 function readStoredTheme(): SiteTheme | null {
   try {
     const value = window.localStorage?.getItem?.(SITE_THEME_KEY);
     if (value === 'light' || value === 'dark') return value;
-    const legacy = window.localStorage?.getItem?.(LEGACY_THEME_KEY);
-    if (legacy === 'light' || legacy === 'dark') return legacy;
   } catch {}
   return null;
 }
@@ -34,8 +31,6 @@ function applyTheme(next: SiteTheme): void {
   if (typeof window !== 'undefined') {
     try {
       window.localStorage?.setItem?.(SITE_THEME_KEY, next);
-      // Keep legacy key synchronized while older code paths still exist.
-      window.localStorage?.setItem?.(LEGACY_THEME_KEY, next);
     } catch {}
   }
 
@@ -70,7 +65,7 @@ export function useSiteTheme() {
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== SITE_THEME_KEY && e.key !== LEGACY_THEME_KEY) return;
+      if (e.key !== SITE_THEME_KEY) return;
       const next = e.newValue === 'dark' ? 'dark' : 'light';
       setThemeState(next);
     };
