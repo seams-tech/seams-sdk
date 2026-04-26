@@ -293,6 +293,56 @@ test.describe('AuthService OIDC exchange verification', () => {
     );
   });
 
+  test('Google Email OTP login repairs missing wallet subject link from finalized enrollment', async () => {
+    const service = makeService();
+    const registered = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-orphaned-enrollment',
+      email: 'orphaned@example.com',
+      accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok || registered.mode !== 'register_started') return;
+
+    const identity = (service as any).getIdentityStore();
+    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
+    await enrollmentStore.put({
+      version: 'email_otp_wallet_enrollment_v1',
+      walletId: registered.walletId,
+      providerUserId: 'google:subject-orphaned-enrollment',
+      orgId: ORG_ID,
+      verifiedEmail: 'orphaned@example.com',
+      enrollmentId: `email-otp-device-enrollment-v1:${registered.walletId}:google:subject-orphaned-enrollment`,
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
+      recoveryWrappedEnrollmentEscrowCount: 10,
+      clientUnlockPublicKeyB64u: 'unlock-public',
+      unlockKeyVersion: 'unlock-key-v1',
+      thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    });
+    await expect(
+      identity.getUserIdBySubject('wallet:google:subject-orphaned-enrollment'),
+    ).resolves.toBeNull();
+
+    const resolved = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-orphaned-enrollment',
+      accountMode: 'login',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    expect(resolved.mode).toBe('existing_wallet');
+    expect(resolved.walletId).toBe(registered.walletId);
+    await expect(
+      identity.getUserIdBySubject('wallet:google:subject-orphaned-enrollment'),
+    ).resolves.toBe(registered.walletId);
+  });
+
   test('Google Email OTP register with existing active wallet switches to login resolution', async () => {
     const service = makeService();
     const identity = (service as any).getIdentityStore();
@@ -353,7 +403,32 @@ test.describe('AuthService OIDC exchange verification', () => {
     ).resolves.toBeNull();
   });
 
-  test('Google Email OTP register with stale failed wallet does not reuse stale wallet', async () => {
+  test('Google Email OTP login reports stale identity mappings explicitly', async () => {
+    const service = makeService();
+    const identity = (service as any).getIdentityStore();
+    await identity.linkSubjectToUserId({
+      userId: 'stale-login-c1d2e3f4g5.relayer.testnet',
+      subject: 'wallet:google:subject-stale-login',
+      allowMoveIfSoleIdentity: false,
+    });
+
+    await expect(
+      service.resolveGoogleEmailOtpSession({
+        providerSubject: 'google:subject-stale-login',
+        accountMode: 'login',
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+      }),
+    ).rejects.toMatchObject({
+      code: 'stale_identity_mapping',
+      message:
+        'Google Email OTP identity mapping is stale. Clear the stale identity mapping with the dev cleanup route before registering this Google account.',
+    });
+    await expect(identity.getUserIdBySubject('wallet:google:subject-stale-login')).resolves.toBe(
+      'stale-login-c1d2e3f4g5.relayer.testnet',
+    );
+  });
+
+  test('Google Email OTP register rejects stale identity mappings without mutating them', async () => {
     const service = makeService();
     const identity = (service as any).getIdentityStore();
     await identity.linkSubjectToUserId({
@@ -370,8 +445,12 @@ test.describe('AuthService OIDC exchange verification', () => {
     });
     expect(resolved.ok).toBe(false);
     if (resolved.ok) return;
-    expect(resolved.mode).toBe('registration_incomplete');
+    expect(resolved.mode).toBe('stale_identity_mapping');
+    expect(resolved.code).toBe('stale_identity_mapping');
     expect(resolved.walletId).toBe('stale-failed-c1d2e3f4g5.relayer.testnet');
+    await expect(identity.getUserIdBySubject('wallet:google:subject-stale-failed')).resolves.toBe(
+      'stale-failed-c1d2e3f4g5.relayer.testnet',
+    );
   });
 
   test('completed Google Email OTP registration resolves through OIDC wallet helper only after finalization', async () => {
@@ -581,6 +660,89 @@ test.describe('AuthService OIDC exchange verification', () => {
     );
   });
 
+  test('dev cleanup removes mappings whose Email OTP enrollment belongs to another Google subject', async () => {
+    const service = makeService();
+    const identity = (service as any).getIdentityStore();
+    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
+    await identity.linkSubjectToUserId({
+      userId: 'mismatched-subject.relayer.testnet',
+      subject: 'wallet:google:subject-cleanup-target',
+      allowMoveIfSoleIdentity: false,
+    });
+    await enrollmentStore.put({
+      version: 'email_otp_wallet_enrollment_v1',
+      walletId: 'mismatched-subject.relayer.testnet',
+      providerUserId: 'google:another-subject',
+      orgId: ORG_ID,
+      verifiedEmail: 'mismatched-subject@example.com',
+      enrollmentId:
+        'email-otp-device-enrollment-v1:mismatched-subject.relayer.testnet:google:another-subject',
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
+      recoveryWrappedEnrollmentEscrowCount: 10,
+      clientUnlockPublicKeyB64u: 'unlock-public',
+      unlockKeyVersion: 'unlock-key-v1',
+      thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    });
+
+    const cleaned = await service.cleanupGoogleEmailOtpDevRegistrationState({
+      providerSubject: 'google:subject-cleanup-target',
+    });
+
+    expect(cleaned).toMatchObject({
+      ok: true,
+      linkedWalletId: 'mismatched-subject.relayer.testnet',
+      orphanedWalletMappingRemoved: true,
+    });
+    await expect(identity.getUserIdBySubject('wallet:google:subject-cleanup-target')).resolves.toBeNull();
+  });
+
+  test('dev cleanup removes mappings whose Email OTP enrollment belongs to another org when org is provided', async () => {
+    const service = makeService();
+    const identity = (service as any).getIdentityStore();
+    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
+    await identity.linkSubjectToUserId({
+      userId: 'mismatched-org.relayer.testnet',
+      subject: 'wallet:google:subject-cleanup-org',
+      allowMoveIfSoleIdentity: false,
+    });
+    await enrollmentStore.put({
+      version: 'email_otp_wallet_enrollment_v1',
+      walletId: 'mismatched-org.relayer.testnet',
+      providerUserId: 'google:subject-cleanup-org',
+      orgId: 'another-org',
+      verifiedEmail: 'mismatched-org@example.com',
+      enrollmentId:
+        'email-otp-device-enrollment-v1:mismatched-org.relayer.testnet:google:subject-cleanup-org',
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
+      recoveryWrappedEnrollmentEscrowCount: 10,
+      clientUnlockPublicKeyB64u: 'unlock-public',
+      unlockKeyVersion: 'unlock-key-v1',
+      thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    });
+
+    const cleaned = await service.cleanupGoogleEmailOtpDevRegistrationState({
+      providerSubject: 'google:subject-cleanup-org',
+      orgId: ORG_ID,
+    });
+
+    expect(cleaned).toMatchObject({
+      ok: true,
+      linkedWalletId: 'mismatched-org.relayer.testnet',
+      orphanedWalletMappingRemoved: true,
+    });
+    await expect(identity.getUserIdBySubject('wallet:google:subject-cleanup-org')).resolves.toBeNull();
+  });
+
   test('derives HMAC-readable OIDC wallet id when no registration mapping exists', async () => {
     const service = makeService();
     const walletId = await service.resolveOidcWalletId({
@@ -622,7 +784,7 @@ test.describe('AuthService OIDC exchange verification', () => {
     });
   });
 
-  test('Google Email OTP registration moves stale top-level wallet mappings to relayer subaccounts', async () => {
+  test('Google Email OTP registration rejects stale top-level wallet mappings', async () => {
     const service = makeService();
     const identity = (service as any).getIdentityStore();
     await identity.linkSubjectToUserId({
@@ -638,8 +800,7 @@ test.describe('AuthService OIDC exchange verification', () => {
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toMatchObject({
-      code: 'not_found',
-      message: 'Email OTP enrollment not found',
+      code: 'stale_identity_mapping',
     });
 
     const originalNow = Date.now;
@@ -651,11 +812,10 @@ test.describe('AuthService OIDC exchange verification', () => {
         accountMode: 'register',
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       });
-      expect(registered.ok).toBe(true);
-      if (!registered.ok) return;
-      expect(registered.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
-      expect(registered.walletId).not.toContain('stale');
-      expect(registered.walletId).not.toContain('example');
+      expect(registered.ok).toBe(false);
+      if (registered.ok) return;
+      expect(registered.mode).toBe('stale_identity_mapping');
+      expect(registered.walletId).toBe('stale-google-wallet.testnet');
     } finally {
       Date.now = originalNow;
     }

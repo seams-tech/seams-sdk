@@ -1,4 +1,5 @@
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import { isIndexedDBPersistenceDisabled } from '../../../indexedDB';
 import {
   SIGNING_SESSION_RESTORE_LEASE_STORE_NAME,
   SIGNING_SESSION_RUNTIME_SESSION_ID_KEY,
@@ -87,6 +88,7 @@ function readRuntimeSessionId(): string | null {
 }
 
 function getIndexedDbSafe(): IDBFactory | null {
+  if (isIndexedDBPersistenceDisabled()) return null;
   const indexedDBFactory = (globalThis as { indexedDB?: IDBFactory }).indexedDB;
   return indexedDBFactory || null;
 }

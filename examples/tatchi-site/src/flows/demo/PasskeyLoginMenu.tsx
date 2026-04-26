@@ -56,7 +56,16 @@ function formatGoogleSsoEmailOtpError(error: unknown): string {
     return 'This Google SSO registration hit an existing wallet id that is not controlled by the new Email OTP signer. Try a fresh dev wallet or use the existing account signer to add this login method.';
   }
   if (code === 'registration_incomplete') {
-    return 'This Google account has an incomplete Email OTP registration. Retry registration after the stale attempt expires, or clear the local dev registration state.';
+    return (
+      message ||
+      'This Google account has an incomplete Email OTP registration. Retry registration after the stale attempt expires, or clear the local dev registration state.'
+    );
+  }
+  if (code === 'stale_identity_mapping') {
+    return (
+      message ||
+      'This Google account has stale Email OTP identity state. Clear the local dev registration state before registering again.'
+    );
   }
   if ((code === 'not_found' || status === 404) && /Email OTP enrollment not found/i.test(message)) {
     return 'No Email OTP wallet is enrolled for this Google account yet. Use Register with Google SSO first.';
@@ -316,7 +325,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           };
 
     let googleResolution = exchange.session.googleEmailOtpResolution;
-    const otpFlow: 'enroll' | 'login' =
+    let otpFlow: 'enroll' | 'login' =
       googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
     if (isRegister && otpFlow === 'login') {
       toast.info(
@@ -356,36 +365,39 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         throw new Error(message);
       }
     };
+    const buildOtpPromptCopy = () => ({
+      title:
+        otpFlow === 'enroll'
+          ? 'Check your email to finish registration'
+          : 'Check your email to unlock your wallet',
+      description:
+        otpFlow === 'enroll'
+          ? `Enter the 6-digit setup code we sent${emailHint ? ` to ${emailHint}` : ''}.`
+          : `Enter the 6-digit code we sent${emailHint ? ` to ${emailHint}` : ''}.`,
+      submitLabel: otpFlow === 'enroll' ? 'Create wallet' : 'Unlock wallet',
+      helperText:
+        otpFlow === 'enroll'
+          ? 'Google started your wallet registration. The email code secures wallet signing for this account.'
+          : 'Google keeps you signed in. The email code unlocks wallet signing for this session.',
+    });
     let challenge = await requestCurrentOtpChallenge();
+    const otpPromptCopy = buildOtpPromptCopy();
 
     toast.success('Email code sent', { id: 'google-sso' });
-    const otpPromptTitle =
-      otpFlow === 'enroll'
-        ? 'Check your email to finish registration'
-        : 'Check your email to unlock your wallet';
-    const otpPromptDescription =
-      otpFlow === 'enroll'
-        ? `Enter the 6-digit setup code we sent${emailHint ? ` to ${emailHint}` : ''}.`
-        : `Enter the 6-digit code we sent${emailHint ? ` to ${emailHint}` : ''}.`;
-    const otpPromptSubmitLabel = otpFlow === 'enroll' ? 'Create wallet' : 'Unlock wallet';
-    const otpPromptHelperText =
-      otpFlow === 'enroll'
-        ? 'Google started your wallet registration. The email code secures wallet signing for this account.'
-        : 'Google keeps you signed in. The email code unlocks wallet signing for this session.';
 
     return {
       username: walletId,
       otpPrompt: {
-        title: otpPromptTitle,
-        description: otpPromptDescription,
+        title: otpPromptCopy.title,
+        description: otpPromptCopy.description,
         emailHint: emailHint || walletId,
         accountId: walletId,
-        submitLabel: otpPromptSubmitLabel,
-        helperText: otpPromptHelperText,
-        ...(otpFlow === 'enroll'
+        submitLabel: otpPromptCopy.submitLabel,
+        helperText: otpPromptCopy.helperText,
+        ...(isRegister
           ? {
               onRerollAccount: async () => {
-                toast.loading('Choosing another wallet name…', { id: 'google-sso' });
+                toast.loading('Generating another wallet name...', { id: 'google-sso' });
                 const nextExchange = await tatchi.auth.exchangeGoogleEmailOtpSession({
                   idToken,
                   accountMode: 'register',
@@ -404,12 +416,19 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
                 walletId = nextWalletId;
                 appSessionJwt = nextAppSessionJwt;
                 googleResolution = nextExchange.session.googleEmailOtpResolution;
+                otpFlow =
+                  googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
                 challenge = await requestCurrentOtpChallenge();
                 toast.success('New wallet name selected. Email code sent.', { id: 'google-sso' });
+                const nextPromptCopy = buildOtpPromptCopy();
                 return {
                   username: walletId,
                   accountId: walletId,
                   emailHint: emailHint || walletId,
+                  title: nextPromptCopy.title,
+                  description: nextPromptCopy.description,
+                  submitLabel: nextPromptCopy.submitLabel,
+                  helperText: nextPromptCopy.helperText,
                 };
               },
             }

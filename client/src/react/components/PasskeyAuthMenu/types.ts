@@ -31,8 +31,27 @@ export type PasskeyAuthMenuOtpPrompt = {
     context?: { recoveryKey?: string },
   ) => void | Promise<unknown>;
   onRerollAccount?: () =>
-    | Promise<{ username?: string; accountId?: string; emailHint?: string } | void>
-    | { username?: string; accountId?: string; emailHint?: string }
+    | Promise<
+        | {
+            username?: string;
+            accountId?: string;
+            emailHint?: string;
+            title?: string;
+            description?: string;
+            submitLabel?: string;
+            helperText?: string;
+          }
+        | void
+      >
+    | {
+        username?: string;
+        accountId?: string;
+        emailHint?: string;
+        title?: string;
+        description?: string;
+        submitLabel?: string;
+        helperText?: string;
+      }
     | void;
   onResend?: () =>
     | Promise<{ challengeId?: string; emailHint?: string } | void>

@@ -147,6 +147,13 @@ export async function ensurePostgresSchema(input: {
       CREATE INDEX IF NOT EXISTS email_otp_wallet_enrollments_org_updated_idx
       ON email_otp_wallet_enrollments (namespace, org_id, updated_at_ms)
     `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS email_otp_wallet_enrollments_provider_user_unique_idx
+      ON email_otp_wallet_enrollments (namespace, org_id, ((record_json->>'providerUserId')))
+    `);
+    await pool.query(`
+      DROP INDEX IF EXISTS email_otp_wallet_enrollments_provider_user_idx
+    `);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS email_otp_recovery_wrapped_enrollment_escrows (

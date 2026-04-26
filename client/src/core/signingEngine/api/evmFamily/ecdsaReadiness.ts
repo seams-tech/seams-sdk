@@ -1,7 +1,7 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import type { SigningLaneContext } from '../../session/signingSessionTypes';
+import { SigningOperationIntent, type SigningLaneContext } from '../../session/signingSessionTypes';
 import {
   createEvmFamilySigningSessionCoordinator,
   type EvmFamilySigningSessionCoordinatorDeps,
@@ -82,6 +82,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
     source,
     runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.tatchiPasskeyConfigs),
     usesNeeded: Math.max(1, Math.floor(Number(args.remainingUses) || 1)),
+    operationIntent: SigningOperationIntent.TransactionSign,
     ...(args.sessionId ? { sessionId: args.sessionId } : {}),
     ...(args.walletSigningSessionId ? { walletSigningSessionId: args.walletSigningSessionId } : {}),
     ...(args.clientRootShare32B64u ? { clientRootShare32B64u: args.clientRootShare32B64u } : {}),

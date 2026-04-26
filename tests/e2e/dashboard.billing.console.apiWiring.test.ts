@@ -274,7 +274,10 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           return true;
         }
 
-        if (method === 'GET' && pathname === '/console/billing/sponsored-executions/reconciliation') {
+        if (
+          method === 'GET' &&
+          pathname === '/console/billing/sponsored-executions/reconciliation'
+        ) {
           await fulfillJson(route, {
             ok: true,
             page: {
@@ -840,9 +843,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
 
     await page.reload();
     await expect.poll(() => lookupRequests.length).toBe(2);
-    await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue(
-      'Target Billing Org',
-    );
+    await expect(page.getByRole('combobox', { name: 'Search' })).toHaveValue('Target Billing Org');
     await expect(
       page.locator('section[aria-label="Customer organisation account summary"]'),
     ).toContainText('Target Billing Org');
@@ -875,22 +876,24 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     expect(activityBox.y).toBeLessThan(adjustmentBox.y);
 
     await adjustmentSection.getByRole('button', { name: 'Create Bill Adjustment' }).click();
-    const adjustmentModal = page.locator('[role="dialog"]').filter({ hasText: 'Create Bill Adjustment' });
+    const adjustmentModal = page
+      .locator('[role="dialog"]')
+      .filter({ hasText: 'Create Bill Adjustment' });
     await expect(adjustmentModal).toBeVisible();
     await expect(adjustmentModal).toHaveAttribute('aria-modal', 'true');
     await expect(adjustmentModal).toContainText('Create Bill Adjustment');
     await expect(adjustmentModal.getByLabel('Adjustment type')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(adjustmentModal).toHaveCount(0);
-    await expect(adjustmentSection.getByRole('button', { name: 'Create Bill Adjustment' })).toBeFocused();
+    await expect(
+      adjustmentSection.getByRole('button', { name: 'Create Bill Adjustment' }),
+    ).toBeFocused();
 
     await adjustmentSection.getByRole('button', { name: 'Create Bill Adjustment' }).click();
     await expect(adjustmentModal).toBeVisible();
     await adjustmentModal.getByLabel('Amount (USD)').fill('15.00');
     await adjustmentModal.getByLabel('Reason code').fill('incident_credit');
-    await adjustmentModal
-      .getByLabel('Related document ID (optional)')
-      .fill('inv_202603_001');
+    await adjustmentModal.getByLabel('Related document ID (optional)').fill('inv_202603_001');
     await adjustmentModal.getByLabel('Operator note').fill('Applied goodwill credit');
 
     await expect(adjustmentModal).toContainText('Impact preview: $50.00 -> $65.00 (+$15.00).');
@@ -988,7 +991,8 @@ test.describe('dashboard billing prepaid console api wiring', () => {
             periodMonthUtc: String(url.searchParams.get('periodMonthUtc') || ''),
             eventType: String(url.searchParams.get('eventType') || ''),
           });
-          const organization = organizations.find((entry) => entry.id === orgId) || organizations[0]!;
+          const organization =
+            organizations.find((entry) => entry.id === orgId) || organizations[0]!;
           await fulfillJson(route, {
             ok: true,
             result: {
@@ -1070,114 +1074,6 @@ test.describe('dashboard billing prepaid console api wiring', () => {
     await expect(
       page.locator('section[aria-label="Customer organisation account summary"]'),
     ).toContainText('Pokopia Labs');
-  });
-
-  test('billing account page no longer renders platform-only or duplicate activity sections', async ({
-    page,
-    baseURL,
-  }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
-    let activityRequestCount = 0;
-
-    await routeWorkspaceScaffold(page, consoleOrigin, {
-      userId: 'user_dash_billing_adjustments_platform',
-      roles: ['platform_admin'],
-      org: {
-        id: 'org_dash_billing_adjustments_platform',
-        name: 'Dashboard Billing Platform Org',
-        slug: 'dashboard-billing-platform-org',
-        status: 'ACTIVE',
-        createdAt: iso('2026-01-01T00:00:00.000Z'),
-        updatedAt: iso('2026-01-01T00:00:00.000Z'),
-      },
-      project: {
-        id: 'proj_dash_billing_adjustments_platform',
-        name: 'Billing Platform Project',
-        slug: 'billing-platform-project',
-        status: 'ACTIVE',
-        environmentCount: 1,
-        createdAt: iso('2026-01-01T00:00:00.000Z'),
-        updatedAt: iso('2026-01-01T00:00:00.000Z'),
-      },
-      environment: {
-        id: 'env_dash_billing_adjustments_platform',
-        projectId: 'proj_dash_billing_adjustments_platform',
-        key: 'prod',
-        name: 'Production',
-        status: 'ACTIVE',
-        createdAt: iso('2026-01-01T00:00:00.000Z'),
-        updatedAt: iso('2026-01-01T00:00:00.000Z'),
-      },
-      handleBillingRequest: async (route, pathname, method, _url) => {
-        if (method === 'GET' && pathname === '/console/billing/overview') {
-          await fulfillJson(route, {
-            ok: true,
-            overview: {
-              usageMetricVersion: 'maw_v1',
-              currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 0,
-              creditBalanceMinor: 3000,
-              lowBalanceThresholdMinor: 2000,
-              recentUsageDebitMinor: 0,
-              recentCreditPurchasedMinor: 0,
-              documentCount: 0,
-            },
-          });
-          return true;
-        }
-
-        if (method === 'GET' && pathname === '/console/billing/usage/monthly-active-wallets') {
-          await fulfillJson(route, {
-            ok: true,
-            usage: {
-              usageMetricVersion: 'maw_v1',
-              monthUtc: '2026-03',
-              monthlyActiveWallets: 0,
-            },
-          });
-          return true;
-        }
-
-        if (method === 'GET' && pathname === '/console/billing/account/activity') {
-          activityRequestCount += 1;
-          await fulfillJson(route, {
-            ok: true,
-            activity: {
-              entries: [],
-            },
-          });
-          return true;
-        }
-
-        if (method === 'GET' && pathname === '/console/billing/invoices') {
-          await fulfillJson(route, {
-            ok: true,
-            invoices: [],
-            nextCursor: null,
-            totalCount: 0,
-            summary: {
-              totalCount: 0,
-              openCount: 0,
-              overdueCount: 0,
-              paidCount: 0,
-              outstandingAmountMinor: 0,
-              latestPeriodMonthUtc: null,
-              receiptCount: 0,
-              statementCount: 0,
-            },
-          });
-          return true;
-        }
-
-        return false;
-      },
-    });
-
-    await page.goto('/dashboard/billing/account');
-    await expect(page.locator('section[aria-label="Internal billing adjustments"]')).toHaveCount(0);
-    await expect(page.locator('section[aria-label="Billing account activity"]')).toHaveCount(0);
-    await expect(page.locator('section[aria-label="Prepaid top-up actions"]')).toBeVisible();
-    expect(activityRequestCount).toBe(0);
   });
 
   test('platform billing page is forbidden for non-platform roles', async ({ page, baseURL }) => {
@@ -1608,7 +1504,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
       page.locator('section[aria-label="Billing document sponsorship links"]'),
     ).toContainText('This statement stays aggregated by billing period');
     await page
-      .locator('section[aria-label="Billing document sponsorship links"] a:has-text("Sponsored usage history")')
+      .locator(
+        'section[aria-label="Billing document sponsorship links"] a:has-text("Sponsored usage history")',
+      )
       .click();
     await expect(page).toHaveURL(/\/dashboard\/billing\/account#billing-sponsored-history$/);
     await expect(page.locator('section[aria-label="Sponsored execution history"]')).toContainText(

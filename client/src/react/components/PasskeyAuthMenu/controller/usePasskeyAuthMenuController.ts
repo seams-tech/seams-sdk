@@ -612,6 +612,10 @@ export function usePasskeyAuthMenuController(
         const username = String(result?.username || result?.accountId || '').trim();
         const accountId = String(result?.accountId || result?.username || '').trim();
         const emailHint = String(result?.emailHint || '').trim();
+        const title = String(result?.title || '').trim();
+        const description = String(result?.description || '').trim();
+        const submitLabel = String(result?.submitLabel || '').trim();
+        const helperText = String(result?.helperText || '').trim();
         if (username) setCurrentValue(username);
         setOtpPromptState((current) =>
           current
@@ -620,6 +624,10 @@ export function usePasskeyAuthMenuController(
                 ...(username ? { username } : {}),
                 ...(accountId ? { accountId } : {}),
                 ...(emailHint ? { emailHint } : {}),
+                ...(title ? { title } : {}),
+                ...(description ? { description } : {}),
+                ...(submitLabel ? { submitLabel } : {}),
+                ...(helperText ? { helperText } : {}),
               }
             : current,
         );
@@ -715,8 +723,8 @@ export function usePasskeyAuthMenuController(
       ...(canRerollAccount
         ? {
             rerollAccountLabel: otpRerollBusy
-              ? 'Choosing another name…'
-              : 'Try another wallet name',
+              ? 'Generating another name...'
+              : 'Generate another name',
             onRerollAccount: onOtpRerollAccount,
           }
         : {}),

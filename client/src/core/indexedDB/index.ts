@@ -163,6 +163,10 @@ export function getIndexedDBNames(): { clientDbName: string; accountKeyMaterialD
   );
 }
 
+export function isIndexedDBPersistenceDisabled(): boolean {
+  return Boolean(configured?.clientDisabled && configured?.accountKeyMaterialDisabled);
+}
+
 // Export singleton instance of unified manager
 export const IndexedDBManager = new UnifiedIndexedDBManager({
   clientDB: passkeyClientDB,

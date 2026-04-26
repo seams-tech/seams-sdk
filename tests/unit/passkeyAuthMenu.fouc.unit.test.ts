@@ -372,6 +372,103 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toBe('123456');
   });
 
+  test('Google SSO registration Email OTP prompt can generate another wallet name', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        await new Promise<void>((resolve, reject) => {
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = paths.reactStyles;
+          link.addEventListener('load', () => resolve());
+          link.addEventListener('error', () =>
+            reject(new Error(`Failed to load: ${paths.reactStyles}`)),
+          );
+          document.head.appendChild(link);
+        });
+
+        const mount = document.createElement('div');
+        mount.id = 'pam2-google-otp-reroll-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const providerMod: any = await import(paths.provider);
+        const menuMod: any = await import(paths.passkeyAuthMenu);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+        const { AuthMenuMode } = typesMod;
+
+        const config = {
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayer: { url: 'https://relay-server.localhost' },
+          iframeWallet: { walletOrigin: '' },
+        };
+
+        (window as any).__otpRerollCalls = 0;
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(
+            React.createElement(
+              Provider,
+              { config },
+              React.createElement(PasskeyAuthMenu, {
+                defaultMode: AuthMenuMode.Register,
+                socialLogin: {
+                  google: () => ({
+                    username: 'frost-beacon.testnet',
+                    otpPrompt: {
+                      title: 'Check your email to unlock your wallet',
+                      description: 'Enter the 6-digit code we sent to alice@example.com.',
+                      emailHint: 'alice@example.com',
+                      accountId: 'frost-beacon.testnet',
+                      submitLabel: 'Unlock wallet',
+                      helperText:
+                        'Google keeps you signed in. The email code unlocks wallet signing for this session.',
+                      onRerollAccount: async () => {
+                        (window as any).__otpRerollCalls += 1;
+                        return {
+                          username: 'ember-river.testnet',
+                          accountId: 'ember-river.testnet',
+                          emailHint: 'alice@example.com',
+                          title: 'Check your email to finish registration',
+                          description:
+                            'Enter the 6-digit setup code we sent to alice@example.com.',
+                          submitLabel: 'Create wallet',
+                          helperText:
+                            'Google started your wallet registration. The email code secures wallet signing for this account.',
+                        };
+                      },
+                      onSubmit: async () => undefined,
+                    },
+                  }),
+                },
+              }),
+            ),
+          );
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-google-otp-reroll-mount');
+    await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({ state: 'attached' });
+    await mount.getByRole('button', { name: 'Register with Google SSO' }).click();
+    await expect(mount.getByText('frost-beacon.testnet')).toBeVisible();
+    await mount.getByRole('button', { name: 'Generate another name' }).click();
+    await expect(mount.getByText('ember-river.testnet')).toBeVisible();
+    await expect(mount.getByText('Check your email to finish registration')).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Create wallet' })).toBeVisible();
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__otpRerollCalls))
+      .toBe(1);
+  });
+
   test('Google SSO can hand off to an Email OTP device recovery prompt', async ({ page }) => {
     await page.evaluate(
       async ({ paths }) => {

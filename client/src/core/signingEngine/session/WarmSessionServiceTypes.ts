@@ -14,6 +14,7 @@ import type {
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import type { EmailOtpAuthLane } from '../emailOtp/authLane';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
+import type { SigningOperationIntent } from './signingSessionTypes';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
@@ -76,6 +77,7 @@ export type EnsureWarmEcdsaCapabilityReadyArgs = {
     publishableKey: string;
   };
   usesNeeded?: number;
+  operationIntent?: SigningOperationIntent;
   sessionId?: string;
   walletSigningSessionId?: string;
   clientRootShare32B64u?: string;
@@ -126,6 +128,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
+  operationIntent?: SigningOperationIntent;
 };
 
 export type WarmEcdsaBootstrapRequest = {
@@ -147,6 +150,7 @@ export type WarmEcdsaBootstrapRequest = {
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
+  operationIntent?: SigningOperationIntent;
 };
 
 export type ProvisionWarmEcdsaCapabilityArgs = ResolveWarmEcdsaBootstrapRequestArgs & {

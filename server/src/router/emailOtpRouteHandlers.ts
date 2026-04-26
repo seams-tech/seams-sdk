@@ -1386,6 +1386,12 @@ export async function handleEmailOtpDevCleanupGoogleRegistrationRoute(input: {
   const result = await input.service.cleanupGoogleEmailOtpDevRegistrationState({
     providerSubject: verified.providerSubject || verified.userId,
     walletId: (body as Record<string, unknown>).walletId,
+    orgId:
+      (body as Record<string, unknown>).orgId ??
+      ((body as Record<string, unknown>).runtimePolicyScope &&
+      typeof (body as Record<string, unknown>).runtimePolicyScope === 'object'
+        ? ((body as Record<string, unknown>).runtimePolicyScope as Record<string, unknown>).orgId
+        : undefined),
   });
   return { status: result.ok ? 200 : emailOtpStatusCode(result.code), body: result };
 }

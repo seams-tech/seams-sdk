@@ -81,6 +81,7 @@ import {
   UserConfirmationType,
   type ExportPrivateKeyDisplayEntry,
 } from './touchConfirm/shared/confirmTypes';
+import { SigningOperationIntent } from './session/signingSessionTypes';
 import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
 import type { EvmSigningRequest } from './chainAdaptors/evm/types';
@@ -634,6 +635,21 @@ export class SigningEngine {
         const message = error instanceof Error ? error.message : String(error || 'unknown error');
         console.warn(
           '[threshold-ecdsa] registration bootstrap skipped sealed-refresh startup parity enforcement',
+          {
+            nearAccountId: String(args.nearAccountId || '').trim(),
+            chain: args.chain || 'tempo',
+            error: message,
+          },
+        );
+        return;
+      }
+      if (
+        args.operationIntent === SigningOperationIntent.TransactionSign &&
+        isRetryableSealedRefreshCapabilityFetchError(error)
+      ) {
+        const message = error instanceof Error ? error.message : String(error || 'unknown error');
+        console.warn(
+          '[threshold-ecdsa] transaction bootstrap skipped retryable sealed-refresh capability fetch failure',
           {
             nearAccountId: String(args.nearAccountId || '').trim(),
             chain: args.chain || 'tempo',
@@ -2412,6 +2428,9 @@ export class SigningEngine {
               : {}),
             ...(provisionArgs.runtimeScopeBootstrap
               ? { runtimeScopeBootstrap: provisionArgs.runtimeScopeBootstrap }
+              : {}),
+            ...(provisionArgs.operationIntent
+              ? { operationIntent: provisionArgs.operationIntent }
               : {}),
             ...(provisionArgs.sessionId ? { sessionId: provisionArgs.sessionId } : {}),
             ...(provisionArgs.walletSigningSessionId

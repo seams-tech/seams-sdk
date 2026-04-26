@@ -177,4 +177,68 @@ test.describe('hosted Google Email OTP account privacy', () => {
       failureCode: 'rerolled_by_user',
     });
   });
+
+  test('registration reroll can allocate a new wallet when the Google account already has an Email OTP wallet', async () => {
+    const service = makeService();
+    const providerSubject = 'google:subject-reroll-existing';
+    const first = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email: 'reroll-existing@example.com',
+      accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok || first.mode !== 'register_started') return;
+
+    const identity = (service as any).getIdentityStore();
+    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
+    await identity.linkSubjectToUserId({
+      userId: first.walletId,
+      subject: `wallet:${providerSubject}`,
+      allowMoveIfSoleIdentity: false,
+    });
+    await enrollmentStore.put({
+      version: 'email_otp_wallet_enrollment_v1',
+      walletId: first.walletId,
+      providerUserId: providerSubject,
+      orgId: ORG_ID,
+      verifiedEmail: 'reroll-existing@example.com',
+      enrollmentId: `email-otp-device-enrollment-v1:${first.walletId}:${providerSubject}`,
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
+      recoveryWrappedEnrollmentEscrowCount: 10,
+      clientUnlockPublicKeyB64u: 'unlock-public',
+      unlockKeyVersion: 'unlock-key-v1',
+      thresholdEcdsaClientVerifyingShareB64u: 'ecdsa-client-verifying-share',
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    });
+
+    const existing = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email: 'reroll-existing@example.com',
+      accountMode: 'register',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(existing.ok).toBe(true);
+    if (!existing.ok) return;
+    expect(existing.mode).toBe('existing_wallet');
+    expect(existing.walletId).toBe(first.walletId);
+
+    const rerolled = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email: 'reroll-existing@example.com',
+      accountMode: 'register',
+      rerollRegistrationAttempt: true,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(rerolled.ok).toBe(true);
+    if (!rerolled.ok) return;
+    expect(rerolled.mode).toBe('register_started');
+    if (rerolled.mode !== 'register_started') return;
+    expect(rerolled.walletId).not.toBe(first.walletId);
+    expect(rerolled.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
+  });
 });

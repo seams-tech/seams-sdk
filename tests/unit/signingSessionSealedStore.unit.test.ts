@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
+  indexedDB: '/sdk/esm/core/indexedDB/index.js',
   signingSessionSealedStore: '/sdk/esm/core/signingEngine/api/session/signingSessionSealedStore.js',
 } as const;
 
@@ -322,6 +323,44 @@ test.describe('signing session sealed store', () => {
     expect(result.sessionRaw).toBeNull();
     expect(result.sessionIndex).toBeNull();
     expect(result.runtimeSessionId).toEqual(expect.any(String));
+  });
+
+  test('does not create tatchi_wallet_v1 when IndexedDB persistence is disabled', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        await new Promise<void>((resolve) => {
+          const req = indexedDB.deleteDatabase('tatchi_wallet_v1');
+          req.onsuccess = () => resolve();
+          req.onerror = () => resolve();
+          req.onblocked = () => resolve();
+        });
+        const indexedDbMod = await import(paths.indexedDB);
+        indexedDbMod.configureIndexedDB({ mode: 'disabled' });
+        const mod = await import(paths.signingSessionSealedStore);
+        await mod.writeSigningSessionSealedRecord({
+          thresholdSessionId: 'sess-disabled-mode',
+          walletSigningSessionId: 'wallet-sess-disabled-mode',
+          sealedSecretB64u: 'sealed-disabled',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          updatedAtMs: Date.now(),
+        });
+        const record = await mod.readSigningSessionSealedRecord('sess-disabled-mode');
+        await mod.clearAllSigningSessionSealedRecords();
+        const databaseNames =
+          typeof indexedDB.databases === 'function'
+            ? (await indexedDB.databases()).map((db) => db.name).filter(Boolean)
+            : [];
+        return {
+          record,
+          databaseNames,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.record).toBeNull();
+    expect(result.databaseNames).not.toContain('tatchi_wallet_v1');
   });
 
   test('deletes IndexedDB record when browser-session marker is missing', async ({ page }) => {

@@ -1,6 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { createWalletSigningSessionCoordinator } from '@/core/signingEngine/session/WalletSigningSessionCoordinator';
+import { createWalletSigningBudgetLedger } from '@/core/signingEngine/session/WalletSigningBudgetLedger';
+import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/SigningBudgetSpendPlan';
+import { buildEvmTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
+import {
+  SigningOperationIntent,
+  SigningSessionIds,
+} from '@/core/signingEngine/session/signingSessionTypes';
 import { upsertStoredThresholdEcdsaSessionRecord } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+import { toAccountId } from '@/core/types/accountIds';
 import {
   createSigningSessionSealCipherAdapter,
   createSigningSessionSealService,
@@ -194,5 +202,147 @@ test.describe('wallet signing-session budget parity', () => {
     expect(new Set(serverBudgetSessionIds)).toEqual(
       new Set([walletSigningBudgetSessionId(WALLET_SIGNING_SESSION_ID)]),
     );
+  });
+
+  test('targeted reservation follows refreshed EVM lane when stale siblings share the wallet session', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const accountId = 'wallet-budget-targeted-passkey.testnet';
+    const walletSigningSessionId = 'ws-budget-targeted-passkey';
+    const ed25519SessionId = 'ed-budget-targeted-passkey-stale';
+    const tempoSessionId = 'tempo-budget-targeted-passkey-stale';
+    const evmSessionId = 'evm-budget-targeted-passkey-refreshed';
+    const expiresAtMs = Date.now() + 120_000;
+    const claimsBySessionId = new Map<
+      string,
+      | { state: 'warm'; remainingUses: number; expiresAtMs: number }
+      | { state: 'exhausted' }
+    >([
+      [ed25519SessionId, { state: 'exhausted' }],
+      [tempoSessionId, { state: 'exhausted' }],
+      [evmSessionId, { state: 'warm', remainingUses: 1, expiresAtMs }],
+    ]);
+    const readStatus = (sessionId: string) => {
+      const claim = claimsBySessionId.get(sessionId);
+      if (claim?.state === 'warm') {
+        return {
+          ok: true as const,
+          remainingUses: claim.remainingUses,
+          expiresAtMs: claim.expiresAtMs,
+        };
+      }
+      return {
+        ok: false as const,
+        code: 'exhausted',
+        message: 'exhausted',
+      };
+    };
+    const consumedSessionIds: string[] = [];
+
+    seedEd25519WarmSessionRecord({
+      nearAccountId: accountId,
+      thresholdSessionId: ed25519SessionId,
+      walletSigningSessionId,
+      thresholdSessionJwt: `jwt:${ed25519SessionId}`,
+      remainingUses: 0,
+      expiresAtMs,
+      source: 'login',
+    });
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: accountId,
+      chain: 'tempo',
+      source: 'login',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: accountId,
+        chain: 'tempo',
+        sessionId: tempoSessionId,
+        walletSigningSessionId,
+      }),
+    });
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: accountId,
+      chain: 'evm',
+      source: 'login',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: accountId,
+        chain: 'evm',
+        sessionId: evmSessionId,
+        walletSigningSessionId,
+      }),
+    });
+
+    const coordinator = createWalletSigningSessionCoordinator({
+      touchConfirm: {
+        getWarmSessionStatus: async ({ sessionId }) => readStatus(String(sessionId)),
+        getWarmSessionStatuses: async ({ sessionIds }) => ({
+          results: sessionIds.map((sessionId) => ({
+            sessionId,
+            result: readStatus(String(sessionId)),
+          })),
+        }),
+        consumeWarmSessionUses: async ({ sessionId, uses }) => {
+          const normalizedSessionId = String(sessionId);
+          consumedSessionIds.push(normalizedSessionId);
+          const claim = claimsBySessionId.get(normalizedSessionId);
+          if (claim?.state !== 'warm' || claim.remainingUses <= 0) {
+            return {
+              ok: false as const,
+              code: 'exhausted',
+              message: 'exhausted',
+            };
+          }
+          claim.remainingUses = Math.max(0, claim.remainingUses - Math.max(1, uses || 1));
+          if (claim.remainingUses <= 0) {
+            claimsBySessionId.set(normalizedSessionId, { state: 'exhausted' });
+            return {
+              ok: false as const,
+              code: 'exhausted',
+              message: 'exhausted',
+            };
+          }
+          return {
+            ok: true as const,
+            remainingUses: claim.remainingUses,
+            expiresAtMs: claim.expiresAtMs,
+          };
+        },
+      },
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        [...ecdsaStore.recordsByLane.values()].filter((record) => record.chain === chain),
+    });
+    const ledger = createWalletSigningBudgetLedger({
+      getStatus: (args) => coordinator.getStatus(args),
+      consumeUse: (args) => coordinator.consumeUse(args),
+    });
+    const lane = buildEvmTransactionSigningLane({
+      accountId: toAccountId(accountId),
+      authMethod: 'passkey',
+      storageSource: 'login',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(evmSessionId),
+      signingRootId: 'sr-test:dev',
+    });
+    const spend = buildWalletSigningSpendPlan(
+      {
+        operationId: SigningSessionIds.signingOperation('op-budget-targeted-passkey'),
+        operationFingerprint: SigningSessionIds.signingOperationFingerprint(
+          'sha256:targeted-passkey',
+        ),
+        intent: SigningOperationIntent.TransactionSign,
+      },
+      lane,
+    );
+
+    const reservation = await ledger.reserve({ spend });
+    expect(reservation).toBeTruthy();
+    await expect(ledger.recordSuccess({ spend })).resolves.toMatchObject({
+      status: 'exhausted',
+    });
+    expect(consumedSessionIds).toEqual([
+      ed25519SessionId,
+      evmSessionId,
+      tempoSessionId,
+    ]);
   });
 });

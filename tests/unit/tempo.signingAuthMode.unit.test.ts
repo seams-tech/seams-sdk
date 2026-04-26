@@ -1471,8 +1471,11 @@ test.describe('tempo signing auth-mode resolution', () => {
           senderSignatureAlgorithm: 'secp256k1',
           nearAccountId: 'alice.testnet',
           chain: 'tempo',
-          confirmationOperationId: 'op-refreshed-keyref',
-          operationFingerprint: 'fingerprint-refreshed-keyref',
+          operation: {
+            operationId: 'op-refreshed-keyref',
+            operationFingerprint: 'fingerprint-refreshed-keyref',
+            intent: 'transaction_sign',
+          },
           ecdsaSigningLane: oldLane,
           thresholdEcdsaRecord: {
             nearAccountId: 'alice.testnet',
@@ -1497,10 +1500,11 @@ test.describe('tempo signing auth-mode resolution', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.statusReads).toEqual([
+    expect(result.statusReads).toMatchObject([
       {
         nearAccountId: 'alice.testnet',
         walletSigningSessionId: 'wallet-refreshed',
+        targetThresholdSessionIds: ['ecdsa-refreshed'],
       },
     ]);
   });

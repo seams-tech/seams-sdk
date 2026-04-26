@@ -19,6 +19,7 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/session/sessionPolicy';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import type { SigningOperationIntent } from '../../session/signingSessionTypes';
 
 export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
@@ -34,6 +35,7 @@ export type BootstrapEcdsaSessionArgs = {
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
+  operationIntent?: SigningOperationIntent;
   thresholdRouteAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {

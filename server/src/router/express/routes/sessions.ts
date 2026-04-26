@@ -672,7 +672,14 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
           }
         } catch (e: any) {
           const code = typeof e?.code === 'string' && e.code ? e.code : 'internal';
-          const status = code === 'not_found' ? 404 : code === 'invalid_body' ? 400 : 500;
+          const status =
+            code === 'not_found'
+              ? 404
+              : code === 'invalid_body'
+                ? 400
+                : code === 'already_linked' || code === 'stale_identity_mapping'
+                  ? 409
+                  : 500;
           const message = e?.message || 'Failed to resolve OIDC wallet id';
           await emitSessionExchangeFailed({
             status,

@@ -71,7 +71,8 @@ export type GoogleEmailOtpResolutionMode =
   | 'existing_wallet'
   | 'register_started'
   | 'wallet_id_collision'
-  | 'registration_incomplete';
+  | 'registration_incomplete'
+  | 'stale_identity_mapping';
 
 export type GoogleEmailOtpResolutionResult =
   | {
@@ -93,8 +94,8 @@ export type GoogleEmailOtpResolutionResult =
     }
   | {
       ok: false;
-      mode: 'wallet_id_collision' | 'registration_incomplete';
-      code: 'wallet_id_collision' | 'registration_incomplete';
+      mode: 'wallet_id_collision' | 'registration_incomplete' | 'stale_identity_mapping';
+      code: 'wallet_id_collision' | 'registration_incomplete' | 'stale_identity_mapping';
       walletId?: string;
       providerSubject: string;
       email?: string;
@@ -972,6 +973,82 @@ export class AuthService {
     return attempt;
   }
 
+  private async getGoogleEmailOtpEnrollmentBySubject(input: {
+    providerSubject: string;
+    orgId: string;
+  }): Promise<EmailOtpWalletEnrollmentRecord | null> {
+    const providerSubject = toOptionalTrimmedString(input.providerSubject);
+    const orgId = toOptionalTrimmedString(input.orgId);
+    if (!providerSubject || !orgId) return null;
+
+    const enrollment = await this.getEmailOtpWalletEnrollmentStore().getByProviderUserId({
+      providerUserId: providerSubject,
+      orgId,
+    });
+    if (
+      !enrollment ||
+      enrollment.providerUserId !== providerSubject ||
+      enrollment.orgId !== orgId ||
+      !isValidAccountId(enrollment.walletId) ||
+      !this.isHostedHmacReadableRelayerSubaccount(enrollment.walletId)
+    ) {
+      return null;
+    }
+    return enrollment;
+  }
+
+  private async repairGoogleEmailOtpWalletSubjectLink(input: {
+    providerSubject: string;
+    walletId: string;
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const linked = await this.getIdentityStore().linkSubjectToUserId({
+      userId: input.walletId,
+      subject: `wallet:${input.providerSubject}`,
+      allowMoveIfSoleIdentity: true,
+    });
+    if (!linked.ok) {
+      return {
+        ok: false,
+        code: linked.code,
+        message: linked.message,
+      };
+    }
+    return { ok: true };
+  }
+
+  private isGoogleEmailOtpEnrollmentLookupMiss(code: string): boolean {
+    return (
+      code === 'not_found' ||
+      code === 'provider_identity_mismatch' ||
+      code === 'tenant_scope_mismatch'
+    );
+  }
+
+  private googleEmailOtpStaleIdentityMapping(input: {
+    providerSubject: string;
+    linkedWalletId: string;
+    email?: string;
+  }): {
+    ok: false;
+    mode: 'stale_identity_mapping';
+    code: 'stale_identity_mapping';
+    walletId: string;
+    providerSubject: string;
+    email?: string;
+    message: string;
+  } {
+    return {
+      ok: false,
+      mode: 'stale_identity_mapping',
+      code: 'stale_identity_mapping',
+      walletId: input.linkedWalletId,
+      providerSubject: input.providerSubject,
+      ...(input.email ? { email: input.email } : {}),
+      message:
+        'Google Email OTP identity mapping is stale. Clear the stale identity mapping with the dev cleanup route before registering this Google account.',
+    };
+  }
+
   async resolveGoogleEmailOtpSession(input: {
     providerSubject?: string;
     sub?: string;
@@ -993,6 +1070,11 @@ export class AuthService {
     if (!orgId) {
       throw new Error('Google Email OTP requires orgId tenant scope');
     }
+    const rerollRegistrationAttempt =
+      input.rerollRegistrationAttempt === true ||
+      String(input.rerollRegistrationAttempt || '')
+        .trim()
+        .toLowerCase() === 'true';
     const walletSubject = `wallet:${providerSubject}`;
     const identity = this.getIdentityStore();
     const linkedWalletId = await identity.getUserIdBySubject(walletSubject);
@@ -1006,25 +1088,61 @@ export class AuthService {
     );
 
     if (accountMode === 'login') {
-      if (!linkedIsUsableRelayerWallet || !linkedIsHostedHmacReadableWallet) {
+      if (linkedIsUsableRelayerWallet && linkedIsHostedHmacReadableWallet) {
+        const enrollment = await this.readActiveEmailOtpEnrollment({
+          walletId: linkedWalletId,
+          orgId,
+          providerUserId: providerSubject,
+        });
+        if (enrollment.ok) {
+          return {
+            ok: true,
+            mode: 'existing_wallet',
+            walletId: linkedWalletId,
+            providerSubject,
+            ...(email ? { email } : {}),
+            hasEmailOtpEnrollment: true,
+          };
+        }
+        if (!this.isGoogleEmailOtpEnrollmentLookupMiss(enrollment.code)) {
+          const error = new Error(enrollment.message) as Error & { code?: string };
+          error.code = enrollment.code;
+          throw error;
+        }
+      }
+
+      const discovered = await this.getGoogleEmailOtpEnrollmentBySubject({
+        providerSubject,
+        orgId,
+      });
+      if (!discovered) {
+        if (linkedWalletId) {
+          const stale = this.googleEmailOtpStaleIdentityMapping({
+            providerSubject,
+            linkedWalletId,
+            ...(email ? { email } : {}),
+          });
+          const error = new Error(stale.message) as Error & { code?: string };
+          error.code = stale.code;
+          throw error;
+        }
         const error = new Error('Email OTP enrollment not found') as Error & { code?: string };
         error.code = 'not_found';
         throw error;
       }
-      const enrollment = await this.readActiveEmailOtpEnrollment({
-        walletId: linkedWalletId,
-        orgId,
-        providerUserId: providerSubject,
+      const repaired = await this.repairGoogleEmailOtpWalletSubjectLink({
+        providerSubject,
+        walletId: discovered.walletId,
       });
-      if (!enrollment.ok) {
-        const error = new Error(enrollment.message) as Error & { code?: string };
-        error.code = enrollment.code;
+      if (!repaired.ok) {
+        const error = new Error(repaired.message) as Error & { code?: string };
+        error.code = repaired.code;
         throw error;
       }
       return {
         ok: true,
         mode: 'existing_wallet',
-        walletId: linkedWalletId,
+        walletId: discovered.walletId,
         providerSubject,
         ...(email ? { email } : {}),
         hasEmailOtpEnrollment: true,
@@ -1035,11 +1153,43 @@ export class AuthService {
       throw new Error('Email is required to register a Google Email OTP wallet id');
     }
 
-    const rerollRegistrationAttempt =
-      input.rerollRegistrationAttempt === true ||
-      String(input.rerollRegistrationAttempt || '')
-        .trim()
-        .toLowerCase() === 'true';
+    const discoveredExistingEnrollment = await this.getGoogleEmailOtpEnrollmentBySubject({
+      providerSubject,
+      orgId,
+    });
+    if (discoveredExistingEnrollment && !rerollRegistrationAttempt) {
+      const repaired = await this.repairGoogleEmailOtpWalletSubjectLink({
+        providerSubject,
+        walletId: discoveredExistingEnrollment.walletId,
+      });
+      if (!repaired.ok) {
+        return {
+          ok: false,
+          mode: 'registration_incomplete',
+          code: 'registration_incomplete',
+          walletId: discoveredExistingEnrollment.walletId,
+          providerSubject,
+          email,
+          message: repaired.message,
+        };
+      }
+      return {
+        ok: true,
+        mode: 'existing_wallet',
+        walletId: discoveredExistingEnrollment.walletId,
+        providerSubject,
+        email,
+        hasEmailOtpEnrollment: true,
+      };
+    }
+    if (linkedWalletId && !rerollRegistrationAttempt) {
+      return this.googleEmailOtpStaleIdentityMapping({
+        providerSubject,
+        linkedWalletId,
+        email,
+      });
+    }
+
     let minCollisionCounter = 0;
     const resumableAttempt = await this.findResumableGoogleEmailOtpRegistrationAttempt({
       providerSubject,
@@ -1065,30 +1215,6 @@ export class AuthService {
       }
     }
 
-    if (linkedIsUsableRelayerWallet && linkedIsHostedHmacReadableWallet) {
-      const enrollment = await this.readEmailOtpEnrollment({ walletId: linkedWalletId, orgId });
-      if (enrollment.ok) {
-        return {
-          ok: true,
-          mode: 'existing_wallet',
-          walletId: linkedWalletId,
-          providerSubject,
-          email,
-          hasEmailOtpEnrollment: true,
-        };
-      }
-      return {
-        ok: false,
-        mode: 'registration_incomplete',
-        code: 'registration_incomplete',
-        walletId: linkedWalletId,
-        providerSubject,
-        email,
-        message:
-          'Google Email OTP registration is incomplete for this wallet. Retry after cleaning stale local registration state.',
-      };
-    }
-
     const nowMs = Date.now();
     const authProvider = 'google_oidc';
     let walletId = '';
@@ -1106,6 +1232,8 @@ export class AuthService {
           walletId: candidate,
           nowMs,
         });
+      const inUseByEnrollment = await this.getEmailOtpWalletEnrollmentStore().get(candidate);
+      if (inUseByEnrollment) continue;
       if (!inUseByLiveAttempt) {
         walletId = candidate;
         collisionCounter = attempt;
@@ -1279,6 +1407,7 @@ export class AuthService {
   async cleanupGoogleEmailOtpDevRegistrationState(input: {
     providerSubject?: unknown;
     walletId?: unknown;
+    orgId?: unknown;
     nowMs?: unknown;
   }): Promise<
     | {
@@ -1291,7 +1420,8 @@ export class AuthService {
           | 'no_linked_wallet'
           | 'wallet_id_mismatch'
           | 'not_relayer_subaccount'
-          | 'active_email_otp_enrollment';
+          | 'active_email_otp_enrollment'
+          | 'mismatched_email_otp_enrollment';
       }
     | { ok: false; code: string; message: string }
   > {
@@ -1309,6 +1439,7 @@ export class AuthService {
     }
 
     const requestedWalletId = toOptionalTrimmedString(input.walletId);
+    const requestedOrgId = toOptionalTrimmedString(input.orgId);
     const nowMsRaw = typeof input.nowMs === 'number' ? input.nowMs : Number(input.nowMs);
     const nowMs = Number.isFinite(nowMsRaw) && nowMsRaw > 0 ? Math.floor(nowMsRaw) : Date.now();
     const expiredRegistrationAttemptsDeleted =
@@ -1351,14 +1482,18 @@ export class AuthService {
 
     const activeEnrollment = await this.getEmailOtpWalletEnrollmentStore().get(linkedWalletId);
     if (activeEnrollment) {
-      return {
-        ok: true,
-        providerSubject,
-        expiredRegistrationAttemptsDeleted,
-        linkedWalletId,
-        orphanedWalletMappingRemoved: false,
-        orphanedWalletMappingSkippedReason: 'active_email_otp_enrollment',
-      };
+      const enrollmentMatchesProvider = activeEnrollment.providerUserId === providerSubject;
+      const enrollmentMatchesOrg = !requestedOrgId || activeEnrollment.orgId === requestedOrgId;
+      if (enrollmentMatchesProvider && enrollmentMatchesOrg) {
+        return {
+          ok: true,
+          providerSubject,
+          expiredRegistrationAttemptsDeleted,
+          linkedWalletId,
+          orphanedWalletMappingRemoved: false,
+          orphanedWalletMappingSkippedReason: 'active_email_otp_enrollment',
+        };
+      }
     }
     const deleted = await identity.deleteSubjectLinkForDevCleanup({
       userId: linkedWalletId,
@@ -5741,6 +5876,17 @@ export class AuthService {
       createdAtMs: existing?.createdAtMs ?? nowMs,
       updatedAtMs: nowMs,
     };
+    const existingProviderEnrollment =
+      await this.getEmailOtpWalletEnrollmentStore().getByProviderUserId({
+        providerUserId: enrollmentRecord.providerUserId,
+        orgId: enrollmentRecord.orgId,
+      });
+    if (
+      existingProviderEnrollment &&
+      existingProviderEnrollment.walletId !== enrollmentRecord.walletId
+    ) {
+      await this.getEmailOtpWalletEnrollmentStore().del(existingProviderEnrollment.walletId);
+    }
     await this.getEmailOtpWalletEnrollmentStore().put(enrollmentRecord);
     const recoveryWrappedEnrollmentEscrowStore =
       this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore();

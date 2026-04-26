@@ -13,6 +13,7 @@ export interface RouteErrorBody {
     | 'access_key_not_provisioned'
     | 'wallet_id_collision'
     | 'registration_incomplete'
+    | 'stale_identity_mapping'
     | 'wallet_identity_mismatch';
   message: string;
 }

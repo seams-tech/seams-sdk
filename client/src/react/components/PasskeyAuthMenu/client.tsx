@@ -228,7 +228,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
                   onClick={controller.otpPrompt.onRerollAccount}
                   disabled={controller.otpPrompt.rerollAccountDisabled}
                 >
-                  {controller.otpPrompt.rerollAccountLabel || 'Try another wallet name'}
+                  {controller.otpPrompt.rerollAccountLabel || 'Generate another name'}
                 </button>
               ) : null}
             </div>

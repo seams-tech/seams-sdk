@@ -60,6 +60,7 @@ import {
   reserveEvmFamilyWalletSigningSessionBudget,
   type EvmFamilyTransactionSigningOperationContext,
 } from './evmFamily/budgetSpending';
+import { SigningAuthPlanKind } from '../touchConfirm/shared/confirmTypes';
 import { applySuccessfulEvmFamilyEcdsaPostSignPolicy } from './evmFamily/postSignPolicy';
 import { executeEvmFamilyTransactionSigning } from './evmFamily/transactionExecutor';
 import { completeEvmFamilyEmailOtpSigningRefresh } from './evmFamily/emailOtpRefresh';
@@ -395,6 +396,10 @@ async function signEvmFamilyAttempt(
     if (
       attempt.retryingFreshAuth ||
       args.request.senderSignatureAlgorithm !== 'secp256k1' ||
+      // If this attempt already performed passkey reauth, retrying would show a
+      // second Touch ID prompt for the same user operation instead of surfacing
+      // the budget-lane bug that made the fresh session unusable.
+      signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth ||
       !isWalletSigningBudgetExhaustedError(error)
     ) {
       return null;

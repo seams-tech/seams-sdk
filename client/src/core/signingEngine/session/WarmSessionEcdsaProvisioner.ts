@@ -429,6 +429,7 @@ export async function ensureWarmEcdsaCapabilityReady(
           : {}),
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
         ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
+        ...(args.operationIntent ? { operationIntent: args.operationIntent } : {}),
         ...(inheritedEmailOtpRecord?.emailOtpAuthContext
           ? { emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext }
           : {}),

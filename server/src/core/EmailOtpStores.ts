@@ -135,6 +135,10 @@ export type EmailOtpWalletEnrollmentRecord = {
 
 export interface EmailOtpWalletEnrollmentStore {
   get(walletId: string): Promise<EmailOtpWalletEnrollmentRecord | null>;
+  getByProviderUserId(input: {
+    providerUserId: string;
+    orgId: string;
+  }): Promise<EmailOtpWalletEnrollmentRecord | null>;
   put(record: EmailOtpWalletEnrollmentRecord): Promise<void>;
   del(walletId: string): Promise<void>;
 }
@@ -948,9 +952,32 @@ class InMemoryEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentS
     return record ? cloneRecord(record) : null;
   }
 
+  async getByProviderUserId(input: {
+    providerUserId: string;
+    orgId: string;
+  }): Promise<EmailOtpWalletEnrollmentRecord | null> {
+    const providerUserId = toOptionalTrimmedString(input.providerUserId);
+    const orgId = toOptionalTrimmedString(input.orgId);
+    if (!providerUserId || !orgId) return null;
+    const record =
+      Array.from(this.map.values()).find(
+        (candidate) => candidate.providerUserId === providerUserId && candidate.orgId === orgId,
+      ) || null;
+    return record ? cloneRecord(record) : null;
+  }
+
   async put(record: EmailOtpWalletEnrollmentRecord): Promise<void> {
     const parsed = parseWalletEnrollmentRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP wallet enrollment record');
+    const duplicate = Array.from(this.map.values()).find(
+      (existing) =>
+        existing.walletId !== parsed.walletId &&
+        existing.orgId === parsed.orgId &&
+        existing.providerUserId === parsed.providerUserId,
+    );
+    if (duplicate) {
+      throw new Error('Email OTP wallet enrollment already exists for this provider user in org');
+    }
     this.map.set(parsed.walletId, cloneRecord(parsed));
   }
 
@@ -1418,6 +1445,30 @@ class PostgresEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentS
       return null;
     }
     return cloneRecord(parsed);
+  }
+
+  async getByProviderUserId(input: {
+    providerUserId: string;
+    orgId: string;
+  }): Promise<EmailOtpWalletEnrollmentRecord | null> {
+    const providerUserId = toOptionalTrimmedString(input.providerUserId);
+    const orgId = toOptionalTrimmedString(input.orgId);
+    if (!providerUserId || !orgId) return null;
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json
+        FROM email_otp_wallet_enrollments
+        WHERE namespace = $1
+          AND org_id = $2
+          AND record_json->>'providerUserId' = $3
+        ORDER BY updated_at_ms DESC
+        LIMIT 1
+      `,
+      [this.namespace, orgId, providerUserId],
+    );
+    const parsed = parseWalletEnrollmentRecord(rows[0]?.record_json);
+    return parsed ? cloneRecord(parsed) : null;
   }
 
   async put(record: EmailOtpWalletEnrollmentRecord): Promise<void> {
