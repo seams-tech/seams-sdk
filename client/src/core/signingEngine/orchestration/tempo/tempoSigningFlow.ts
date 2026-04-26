@@ -18,7 +18,7 @@ import {
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { WalletSigningBudgetReservation } from '../../session/WalletSigningBudgetLedger';
-import type { ReserveNonceInput } from '@/core/rpcClients/evm/nonceManager';
+import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceManager';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '../../chainAdaptors/evm/bytes';
@@ -51,7 +51,6 @@ import {
   resolveTouchConfirmSigningAuthMethod,
 } from '../shared/touchConfirmSigning';
 
-type ManagedNonceReservation = ReserveNonceInput & { nonce: bigint };
 type TempoSigningAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
 type TempoPasskeyEcdsaReconnect = {
   prepare: (args: { usesNeeded: number }) => Promise<{
@@ -153,6 +152,7 @@ export async function signTempoWithTouchConfirm(args: {
   let preparedRequest = args.request;
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
+  let thresholdSignatureCreated = false;
   let walletBudgetReservation: WalletSigningBudgetReservation | null = null;
   let walletBudgetReservationAttempted = false;
   const reserveWalletSigningBudgetOnce = async (): Promise<void> => {
@@ -171,6 +171,18 @@ export async function signTempoWithTouchConfirm(args: {
     try {
       await args.releaseNonceReservation(nonceReservation);
     } catch {}
+  };
+  const markNonceReservationSigned = async (): Promise<void> => {
+    if (!nonceReservation) return;
+    const leaseId = String(nonceReservation.leaseId || '').trim();
+    const operationId = String(nonceReservation.operationId || '').trim();
+    if (!leaseId || !operationId) {
+      throw new Error('[chains] managed Tempo nonce reservation is missing lease metadata');
+    }
+    await args.ctx.nonceCoordinator.markSigned({
+      leaseId,
+      operationId,
+    });
   };
 
   const intentPreparationTask = (async () => {
@@ -403,6 +415,8 @@ export async function signTempoWithTouchConfirm(args: {
         });
       },
     });
+    thresholdSignatureCreated = true;
+    await markNonceReservationSigned();
     emitProgress({
       phase: SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
       status: 'succeeded',
@@ -422,15 +436,17 @@ export async function signTempoWithTouchConfirm(args: {
       managedNonce: toManagedNonceReservationSnapshot(nonceReservation),
     };
   } catch (error: unknown) {
-    releaseWalletBudgetReservation();
-    if (nonceReservation) {
-      await releaseNonceReservation();
-    } else if (args.releaseNonceReservation) {
-      await intentPreparationTask
-        .then(async () => {
-          await releaseNonceReservation();
-        })
-        .catch(() => undefined);
+    if (!thresholdSignatureCreated) {
+      releaseWalletBudgetReservation();
+      if (nonceReservation) {
+        await releaseNonceReservation();
+      } else if (args.releaseNonceReservation) {
+        await intentPreparationTask
+          .then(async () => {
+            await releaseNonceReservation();
+          })
+          .catch(() => undefined);
+      }
     }
     throw error;
   }

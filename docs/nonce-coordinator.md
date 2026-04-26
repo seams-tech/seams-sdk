@@ -437,11 +437,11 @@ Remaining TODO:
    lease creation.
 4. [ ] Reserve wallet-session budget before threshold signing and release it on
    every no-signature outcome.
-5. [ ] Mark nonce leases signed immediately after threshold signature creation.
+5. [x] Mark nonce leases signed immediately after threshold signature creation.
    - [x] NEAR transaction signing marks the TouchConfirm lease signed after the
      threshold signer returns.
-   - [ ] EVM-family signing should record the same explicit signed transition
-     instead of jumping directly from reserved to broadcast lifecycle events.
+   - [x] EVM-family signing records the same explicit signed transition instead
+     of jumping directly from reserved to broadcast lifecycle events.
 6. [ ] Ensure post-sign finalization consumes wallet-session budget before
    broadcast status polling can hide errors.
 7. [ ] Make retry paths reuse the same operation id only when the operation

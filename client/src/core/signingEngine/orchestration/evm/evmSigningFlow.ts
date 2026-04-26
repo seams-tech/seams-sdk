@@ -26,7 +26,7 @@ import {
   type EvmSignedResult,
 } from '@/core/signingEngine/chainAdaptors/evm/evmAdapter';
 import type { EvmSigningRequest } from '@/core/signingEngine/chainAdaptors/evm/types';
-import type { ReserveNonceInput } from '@/core/rpcClients/evm/nonceManager';
+import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceManager';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
 import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
 import { buildEvmDisplayModel } from '@/core/signingEngine/touchConfirm/displayFormat/evmTx';
@@ -52,7 +52,6 @@ import {
   resolveTouchConfirmSigningAuthMethod,
 } from '../shared/touchConfirmSigning';
 
-type ManagedNonceReservation = ReserveNonceInput & { nonce: bigint };
 type EvmSigningAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
 type EvmPasskeyEcdsaReconnect = {
   prepare: (args: { usesNeeded: number }) => Promise<{
@@ -153,6 +152,7 @@ export async function signEvmWithTouchConfirm(args: {
   let preparedRequest = args.request;
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
+  let thresholdSignatureCreated = false;
   let walletBudgetReservation: WalletSigningBudgetReservation | null = null;
   let walletBudgetReservationAttempted = false;
   const reserveWalletSigningBudgetOnce = async (): Promise<void> => {
@@ -171,6 +171,18 @@ export async function signEvmWithTouchConfirm(args: {
     try {
       await args.releaseNonceReservation(nonceReservation);
     } catch {}
+  };
+  const markNonceReservationSigned = async (): Promise<void> => {
+    if (!nonceReservation) return;
+    const leaseId = String(nonceReservation.leaseId || '').trim();
+    const operationId = String(nonceReservation.operationId || '').trim();
+    if (!leaseId || !operationId) {
+      throw new Error('[chains] managed EVM nonce reservation is missing lease metadata');
+    }
+    await args.ctx.nonceCoordinator.markSigned({
+      leaseId,
+      operationId,
+    });
   };
 
   const intentPreparationTask = (async () => {
@@ -382,6 +394,8 @@ export async function signEvmWithTouchConfirm(args: {
         });
       },
     });
+    thresholdSignatureCreated = true;
+    await markNonceReservationSigned();
     emitProgress({
       phase: SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
       status: 'succeeded',
@@ -399,15 +413,17 @@ export async function signEvmWithTouchConfirm(args: {
       managedNonce: toManagedNonceReservationSnapshot(nonceReservation),
     };
   } catch (error: unknown) {
-    releaseWalletBudgetReservation();
-    if (nonceReservation) {
-      await releaseNonceReservation();
-    } else if (args.releaseNonceReservation) {
-      await intentPreparationTask
-        .then(async () => {
-          await releaseNonceReservation();
-        })
-        .catch(() => undefined);
+    if (!thresholdSignatureCreated) {
+      releaseWalletBudgetReservation();
+      if (nonceReservation) {
+        await releaseNonceReservation();
+      } else if (args.releaseNonceReservation) {
+        await intentPreparationTask
+          .then(async () => {
+            await releaseNonceReservation();
+          })
+          .catch(() => undefined);
+      }
     }
     throw error;
   }
