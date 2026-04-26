@@ -2,7 +2,7 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
-import type { EvmNonceManager } from '@/core/rpcClients/evm/nonceManager';
+import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { AccountId } from '@/core/types/accountIds';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
@@ -82,7 +82,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
-  evmNonceManager: EvmNonceManager;
+  nonceCoordinator: NonceCoordinator;
   touchConfirm: TouchConfirmRuntimeBridgePort;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   consumeEmailOtpWarmSessionUses?: (args: {
@@ -449,7 +449,7 @@ export function createOrchestrationDependencyBundle(
     tempoSigningDeps: {
       indexedDB: IndexedDBManager,
       tatchiPasskeyConfigs: args.tatchiPasskeyConfigs,
-      evmNonceManager: args.evmNonceManager,
+      nonceCoordinator: args.nonceCoordinator,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       getEmailOtpThresholdEcdsaKeyRefForSigning: ({ nearAccountId, chain }) =>
         args.getEmailOtpThresholdEcdsaKeyRefForSigning({

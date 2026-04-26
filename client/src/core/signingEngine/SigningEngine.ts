@@ -462,7 +462,7 @@ export class SigningEngine {
       touchIdPrompt: this.touchIdPrompt,
       userPreferencesManager: this.userPreferencesManager,
       nonceManager: this.nonceManager,
-      evmNonceManager: assembly.evmNonceManager,
+      nonceCoordinator: assembly.nonceCoordinator,
       touchConfirm: this.touchConfirm,
       getEmailOtpWarmSessionStatus: (sessionId) =>
         this.emailOtpSessions.getWarmSessionStatus(sessionId),

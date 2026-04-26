@@ -1,4 +1,4 @@
-import type { ReserveNonceInput } from '@/core/rpcClients/evm/nonceManager';
+import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceManager';
 import { createSigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type { SigningExecutionTransitionEvent } from '../../session/SigningExecutionMachine';
 import { emitNonceLifecycleMetric } from './nonceMetrics';
@@ -7,7 +7,7 @@ import type {
   EvmFamilyLifecycleEventCallback,
 } from './types';
 
-export type EvmFamilyManagedNonceReservation = ReserveNonceInput & { nonce: bigint };
+export type EvmFamilyManagedNonceReservation = ManagedNonceReservation;
 
 export function toNonceLifecycleMetricBase(
   reservation: EvmFamilyManagedNonceReservation,

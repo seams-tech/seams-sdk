@@ -24,17 +24,21 @@ test.describe('evm nonce lifecycle metrics', () => {
         try {
           await reportTempoBroadcastAccepted(
             {
-              evmNonceManager: {
-                reserveNextNonce: async () => 1n,
+              nonceCoordinator: {
                 markBroadcastAccepted: async () => undefined,
-                markBroadcastRejected: () => undefined,
+                markBroadcastRejected: async () => undefined,
                 markFinalized: async () => undefined,
                 markDroppedOrReplaced: async () => undefined,
-                reconcileLane: async () => ({
+                reconcile: async () => ({
                   chainNextNonce: 0n,
                   unresolvedInFlightNonces: [],
                   blocked: false,
                 }),
+                reserve: async () => {
+                  throw new Error('not used');
+                },
+                release: async () => undefined,
+                markSigned: async () => undefined,
                 clearForAccount: () => undefined,
               },
             } as any,
@@ -53,6 +57,9 @@ test.describe('evm nonce lifecycle metrics', () => {
                   sender: `0x${'11'.repeat(20)}` as `0x${string}`,
                   nonce: '8',
                   nearAccountId: 'alice.testnet',
+                  leaseId: 'nonce-lease-metrics',
+                  operationId: 'operation-metrics',
+                  operationFingerprint: 'sha256:metrics',
                 },
               },
             },
@@ -91,18 +98,22 @@ test.describe('evm nonce lifecycle metrics', () => {
         try {
           await reconcileTempoNonceLane(
             {
-              evmNonceManager: {
-                reserveNextNonce: async () => 1n,
+              nonceCoordinator: {
                 markBroadcastAccepted: async () => undefined,
-                markBroadcastRejected: () => undefined,
+                markBroadcastRejected: async () => undefined,
                 markFinalized: async () => undefined,
                 markDroppedOrReplaced: async () => undefined,
-                reconcileLane: async () => ({
+                reconcile: async () => ({
                   chainNextNonce: 15n,
                   unresolvedInFlightNonces: [15n],
                   blocked: true,
                   blockedNonce: 15n,
                 }),
+                reserve: async () => {
+                  throw new Error('not used');
+                },
+                release: async () => undefined,
+                markSigned: async () => undefined,
                 clearForAccount: () => undefined,
               },
             } as any,
@@ -120,6 +131,9 @@ test.describe('evm nonce lifecycle metrics', () => {
                   sender: `0x${'11'.repeat(20)}` as `0x${string}`,
                   nonce: '15',
                   nearAccountId: 'alice.testnet',
+                  leaseId: 'nonce-lease-metrics',
+                  operationId: 'operation-metrics',
+                  operationFingerprint: 'sha256:metrics',
                 },
               },
             },

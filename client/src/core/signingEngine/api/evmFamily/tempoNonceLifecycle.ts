@@ -1,4 +1,9 @@
 import type { ReserveNonceInput } from '@/core/rpcClients/evm/nonceManager';
+import {
+  evmNonceLeaseToManagedReservation,
+  evmReserveNonceInputToLane,
+  type NonceOperationContext,
+} from '../../nonce/NonceCoordinator';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 import { mapToRetryableNonceStateError } from './errors';
 import type { EvmFamilyManagedNonceReservation } from './events';
@@ -18,6 +23,7 @@ export async function reserveManagedTempoNonceForRequest(args: {
   deps: TempoManagedNonceDeps;
   nearAccountId: string;
   request: TempoSigningRequest;
+  operation: NonceOperationContext;
   senderHint?: `0x${string}`;
 }): Promise<{ request: TempoSigningRequest; reservation: EvmFamilyManagedNonceReservation }> {
   const sender = await resolveManagedNonceSender(args);
@@ -32,9 +38,13 @@ export async function reserveManagedTempoNonceForRequest(args: {
     nonceKey: args.request.tx.nonceKey,
     nearAccountId: args.nearAccountId,
   };
-  let nonce: bigint;
+  let reservation: EvmFamilyManagedNonceReservation;
   try {
-    nonce = await args.deps.evmNonceManager.reserveNextNonce(reservationInput);
+    const lease = await args.deps.nonceCoordinator.reserve({
+      lane: evmReserveNonceInputToLane(reservationInput),
+      operation: args.operation,
+    });
+    reservation = evmNonceLeaseToManagedReservation(lease);
   } catch (error: unknown) {
     throw mapToRetryableNonceStateError({
       error,
@@ -48,12 +58,9 @@ export async function reserveManagedTempoNonceForRequest(args: {
       ...args.request,
       tx: {
         ...args.request.tx,
-        nonce,
+        nonce: reservation.nonce,
       },
     },
-    reservation: {
-      ...reservationInput,
-      nonce,
-    },
+    reservation,
   };
 }

@@ -20,6 +20,20 @@ export type ManagedNonceReservationSnapshot = {
   nonceKey?: string;
   nonce: string;
   nearAccountId?: string;
+  leaseId?: string;
+  operationId?: string;
+  operationFingerprint?: string;
+  reservedAtMs?: number;
+  expiresAtMs?: number;
+};
+
+export type ManagedNonceReservation = ReserveNonceInput & {
+  nonce: bigint;
+  leaseId?: string;
+  operationId?: string;
+  operationFingerprint?: string;
+  reservedAtMs?: number;
+  expiresAtMs?: number;
 };
 
 export interface EvmNonceManager {
@@ -71,7 +85,7 @@ export type CreateEvmNonceManagerArgs = {
 type ChainWithChainId = Extract<TatchiChainConfig, { chainId: number }>;
 
 export function toManagedNonceReservationSnapshot(
-  input: ReserveNonceInput & { nonce: bigint },
+  input: ManagedNonceReservation,
 ): ManagedNonceReservationSnapshot {
   const nearAccountId = normalizeAccountId(input.nearAccountId);
   const snapshot: ManagedNonceReservationSnapshot = {
@@ -89,13 +103,28 @@ export function toManagedNonceReservationSnapshot(
   if (nearAccountId) {
     snapshot.nearAccountId = nearAccountId;
   }
+  if (typeof input.leaseId === 'string' && input.leaseId.trim()) {
+    snapshot.leaseId = input.leaseId.trim();
+  }
+  if (typeof input.operationId === 'string' && input.operationId.trim()) {
+    snapshot.operationId = input.operationId.trim();
+  }
+  if (typeof input.operationFingerprint === 'string' && input.operationFingerprint.trim()) {
+    snapshot.operationFingerprint = input.operationFingerprint.trim();
+  }
+  if (Number.isSafeInteger(input.reservedAtMs)) {
+    snapshot.reservedAtMs = input.reservedAtMs;
+  }
+  if (Number.isSafeInteger(input.expiresAtMs)) {
+    snapshot.expiresAtMs = input.expiresAtMs;
+  }
 
   return snapshot;
 }
 
 export function fromManagedNonceReservationSnapshot(
   snapshot: ManagedNonceReservationSnapshot,
-): ReserveNonceInput & { nonce: bigint } {
+): ManagedNonceReservation {
   if (!snapshot || typeof snapshot !== 'object') {
     throw new Error('[evmNonceManager] invalid managed nonce snapshot: object');
   }
@@ -116,6 +145,11 @@ export function fromManagedNonceReservationSnapshot(
   const parsedNonceKey =
     snapshot.nonceKey == null ? undefined : normalizeBigint(snapshot.nonceKey, 'nonceKey');
   const nearAccountId = normalizeAccountId(snapshot.nearAccountId);
+  const leaseId = normalizeOptionalString(snapshot.leaseId);
+  const operationId = normalizeOptionalString(snapshot.operationId);
+  const operationFingerprint = normalizeOptionalString(snapshot.operationFingerprint);
+  const reservedAtMs = normalizeOptionalSafeInteger(snapshot.reservedAtMs);
+  const expiresAtMs = normalizeOptionalSafeInteger(snapshot.expiresAtMs);
 
   return {
     chain,
@@ -125,6 +159,11 @@ export function fromManagedNonceReservationSnapshot(
     ...(parsedNonceKey != null ? { nonceKey: parsedNonceKey } : {}),
     ...(nearAccountId ? { nearAccountId } : {}),
     nonce,
+    ...(leaseId ? { leaseId } : {}),
+    ...(operationId ? { operationId } : {}),
+    ...(operationFingerprint ? { operationFingerprint } : {}),
+    ...(reservedAtMs != null ? { reservedAtMs } : {}),
+    ...(expiresAtMs != null ? { expiresAtMs } : {}),
   };
 }
 
@@ -800,6 +839,17 @@ function normalizeBigint(value: unknown, label: string): bigint {
 function normalizeAccountId(value: unknown): string | undefined {
   const normalized = String(value || '').trim();
   return normalized || undefined;
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  const normalized = String(value || '').trim();
+  return normalized || undefined;
+}
+
+function normalizeOptionalSafeInteger(value: unknown): number | undefined {
+  if (value == null) return undefined;
+  const parsed = Math.floor(Number(value));
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
 function parseRpcHexQuantity(value: unknown, method: string): bigint {

@@ -15,6 +15,10 @@ import type { TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
 import type { WalletSigningBudgetReservation } from '../../session/WalletSigningBudgetLedger';
+import {
+  evmReserveNonceInputToLane,
+  type NonceOperationContext,
+} from '../../nonce/NonceCoordinator';
 import { mapToRetryableNonceStateError } from './errors';
 import {
   emitEvmFamilySigningExecutionTrace,
@@ -105,6 +109,7 @@ async function executeEvmTransactionSigning(args: {
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
   retryWithFreshEmailOtpAuth: (error: unknown) => Promise<TempoSignedResult | EvmSignedResult | null>;
+  nonceOperation: NonceOperationContext;
 }): Promise<EvmSignedResult | TempoSignedResult> {
   const signEvmWithTouchConfirm = await loadSignEvmWithTouchConfirm();
   const ecdsaSignerAddress = resolveThresholdEcdsaSignerAddress({
@@ -119,7 +124,11 @@ async function executeEvmTransactionSigning(args: {
     ...(ecdsaSignerAddress ? { senderHint: ecdsaSignerAddress } : {}),
   });
   void reservationInputPromise
-    .then((reservationInput) => args.deps.evmNonceManager.reconcileLane(reservationInput))
+    .then((reservationInput) =>
+      args.deps.nonceCoordinator.reconcile({
+        lane: evmReserveNonceInputToLane(reservationInput),
+      }),
+    )
     .catch(() => null);
 
   try {
@@ -133,6 +142,7 @@ async function executeEvmTransactionSigning(args: {
           deps: args.deps,
           request: args.request,
           reservationInput: await reservationInputPromise,
+          operation: args.nonceOperation,
         }),
       releaseNonceReservation: async (reservation: EvmFamilyManagedNonceReservation) => {
         await releaseEvmFamilyNonceReservation(args.deps, reservation);
@@ -177,6 +187,7 @@ async function executeTempoTransactionSigning(args: {
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
   retryWithFreshEmailOtpAuth: (error: unknown) => Promise<TempoSignedResult | EvmSignedResult | null>;
+  nonceOperation: NonceOperationContext;
 }): Promise<EvmSignedResult | TempoSignedResult> {
   const signTempoWithTouchConfirm = await loadSignTempoWithTouchConfirm();
   const ecdsaSignerAddress = resolveThresholdEcdsaSignerAddress({
@@ -196,6 +207,7 @@ async function executeTempoTransactionSigning(args: {
           deps: args.deps,
           nearAccountId: args.nearAccountId,
           request: args.request,
+          operation: args.nonceOperation,
           ...(ecdsaSignerAddress ? { senderHint: ecdsaSignerAddress } : {}),
         }),
       releaseNonceReservation: async (reservation: EvmFamilyManagedNonceReservation) => {
@@ -241,6 +253,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
   retryWithFreshEmailOtpAuth: (error: unknown) => Promise<TempoSignedResult | EvmSignedResult | null>;
+  nonceOperation: NonceOperationContext;
 }): Promise<TempoSignedResult | EvmSignedResult> {
   if (args.request.chain === 'evm') {
     return await executeEvmTransactionSigning({

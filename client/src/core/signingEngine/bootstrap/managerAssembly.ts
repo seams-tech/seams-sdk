@@ -2,7 +2,11 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import NonceManagerInstance from '@/core/rpcClients/near/nonceManager';
-import { createEvmNonceManager, type EvmNonceManager } from '@/core/rpcClients/evm/nonceManager';
+import { createEvmNonceManager } from '@/core/rpcClients/evm/nonceManager';
+import {
+  createNonceCoordinator,
+  type NonceCoordinator,
+} from '../nonce/NonceCoordinator';
 import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
 import type {
   ThemeName,
@@ -20,7 +24,7 @@ export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
-  evmNonceManager: EvmNonceManager;
+  nonceCoordinator: NonceCoordinator;
   touchConfirm: TouchConfirmRuntimeBridgePort;
   signerWorkerManager: SignerWorkerManager;
 };
@@ -40,6 +44,9 @@ export function createManagerAssembly(args: {
   const chains = args.tatchiPasskeyConfigs.network.chains;
   const evmNonceManager = createEvmNonceManager({
     chains,
+  });
+  const nonceCoordinator = createNonceCoordinator({
+    evmNonceManager,
   });
   const nearExplorerUrl = resolvePrimaryExplorerUrl(chains, 'near');
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');
@@ -93,7 +100,7 @@ export function createManagerAssembly(args: {
     touchIdPrompt,
     userPreferencesManager,
     nonceManager,
-    evmNonceManager,
+    nonceCoordinator,
     touchConfirm,
     signerWorkerManager,
   };

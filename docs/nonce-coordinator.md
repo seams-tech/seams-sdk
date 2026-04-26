@@ -360,26 +360,40 @@ leases with those budget reservations, but it must not decrement or refill
 
 ### Phase 1. Define Coordinator Types And State Machine
 
-1. [ ] Add `NonceLane`, `NonceOperationContext`, `NonceLease`, and
+1. [x] Add `NonceLane`, `NonceOperationContext`, `NonceLease`, and
    `NonceCoordinator` types.
-2. [ ] Implement a pure transition reducer for nonce lease states.
-3. [ ] Make illegal transitions fail closed with typed errors.
-4. [ ] Bind every transition to `operationId` and operation fingerprint.
+2. [x] Implement a pure transition reducer for nonce lease states.
+3. [x] Make illegal transitions fail closed with typed errors.
+4. [x] Bind every transition to `operationId` and operation fingerprint.
 5. [ ] Add redacted trace events for reserve, release, signed, accepted,
    rejected, finalized, dropped, replaced, expired, and reconciled.
+   - [x] Added trace events for reserve, release, signed, accepted, rejected,
+     finalized, dropped, replaced, and lane reconciliation.
+   - [ ] Add explicit lease expiry transitions and trace events.
 
 ### Phase 2. Implement EVM-Family Coordinator Backend
 
-1. [ ] Move current EVM nonce lane state into the coordinator backend.
+Progress:
+
+1. [x] Route EVM-family nonce reservation and lifecycle calls through
+   `NonceCoordinator`.
+2. [x] Keep the current EVM nonce manager as the coordinator backend while the
+   transaction-facing boundary migrates.
+3. [x] Carry nonce lease metadata through managed nonce snapshots.
+4. [x] Fail closed when managed signing results are missing nonce lease metadata.
+
+Remaining TODO:
+
+1. [ ] Move current EVM nonce lane state fully into the coordinator backend.
 2. [ ] Keep one serialized lock per EVM-family nonce lane.
-3. [ ] Store reserved nonces with `reservedAtMs` and `expiresAtMs`.
-4. [ ] Validate managed nonce snapshots strictly; accept only `evm` and
+3. [x] Store reserved nonces with `reservedAtMs` and `expiresAtMs`.
+4. [x] Validate managed nonce snapshots strictly; accept only `evm` and
    `tempo`.
-5. [ ] Treat missing managed nonce metadata as an invariant failure in managed
+5. [x] Treat missing managed nonce metadata as an invariant failure in managed
    signing results.
 6. [ ] Reconcile on dropped, replaced, stale in-flight, and rejected nonce
    errors.
-7. [ ] Remove direct lifecycle mutation calls from EVM/Tempo/Arc flows once they
+7. [x] Remove direct lifecycle mutation calls from EVM/Tempo/Arc flows once they
    route through the coordinator.
 
 ### Phase 3. Integrate NEAR Access-Key Nonces

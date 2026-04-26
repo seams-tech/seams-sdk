@@ -1961,14 +1961,29 @@ test.describe('tempo signing auth-mode resolution', () => {
             network: { chains: [{ network: 'tempo-testnet', chainId: 11155111, rpcUrl: '' }] },
             signing: { thresholdEcdsa: { presignPool: { enabled: false } } },
           },
-          evmNonceManager: {
-            reserveNextNonce: async () => 1n,
-            reconcileLane: async () => ({
+          nonceCoordinator: {
+            reserve: async ({ lane, operation }: any) => ({
+              leaseId: 'nonce-lease-test',
+              lane,
+              operationId: operation.operationId,
+              operationFingerprint: operation.operationFingerprint,
+              nonce: 1n,
+              state: 'reserved',
+              reservedAtMs: 1,
+              expiresAtMs: 60_000,
+            }),
+            reconcile: async () => ({
               blocked: false,
               chainNextNonce: 1n,
               unresolvedInFlightNonces: [],
             }),
-            markBroadcastRejected: () => undefined,
+            release: async () => undefined,
+            markSigned: async () => undefined,
+            markBroadcastAccepted: async () => undefined,
+            markBroadcastRejected: async () => undefined,
+            markFinalized: async () => undefined,
+            markDroppedOrReplaced: async () => undefined,
+            clearForAccount: () => undefined,
           },
           getSignerWorkerContext: () => ({
             requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -2220,14 +2235,29 @@ test.describe('tempo signing auth-mode resolution', () => {
             network: { chains: [{ network: 'tempo-testnet', chainId: 11155111, rpcUrl: '' }] },
             signing: { thresholdEcdsa: { presignPool: { enabled: false } } },
           },
-          evmNonceManager: {
-            reserveNextNonce: async () => 1n,
-            reconcileLane: async () => ({
+          nonceCoordinator: {
+            reserve: async ({ lane, operation }: any) => ({
+              leaseId: 'nonce-lease-test',
+              lane,
+              operationId: operation.operationId,
+              operationFingerprint: operation.operationFingerprint,
+              nonce: 1n,
+              state: 'reserved',
+              reservedAtMs: 1,
+              expiresAtMs: 60_000,
+            }),
+            reconcile: async () => ({
               blocked: false,
               chainNextNonce: 1n,
               unresolvedInFlightNonces: [],
             }),
-            markBroadcastRejected: () => undefined,
+            release: async () => undefined,
+            markSigned: async () => undefined,
+            markBroadcastAccepted: async () => undefined,
+            markBroadcastRejected: async () => undefined,
+            markFinalized: async () => undefined,
+            markDroppedOrReplaced: async () => undefined,
+            clearForAccount: () => undefined,
           },
           getSignerWorkerContext: () => ({
             requestWorkerOperation: async ({ request }: { request: any }) => {
@@ -2547,15 +2577,30 @@ test.describe('tempo signing auth-mode resolution', () => {
                 smartAccountDeployment: { mode: 'off' },
               },
             },
-            evmNonceManager: {
-              reserveNextNonce: async () => 1n,
-              reconcileLane: async () => ({
-                blocked: false,
-                chainNextNonce: 1n,
-                unresolvedInFlightNonces: [],
-              }),
-              markBroadcastRejected: () => undefined,
-            },
+            nonceCoordinator: {
+            reserve: async ({ lane, operation }: any) => ({
+              leaseId: 'nonce-lease-test',
+              lane,
+              operationId: operation.operationId,
+              operationFingerprint: operation.operationFingerprint,
+              nonce: 1n,
+              state: 'reserved',
+              reservedAtMs: 1,
+              expiresAtMs: 60_000,
+            }),
+            reconcile: async () => ({
+              blocked: false,
+              chainNextNonce: 1n,
+              unresolvedInFlightNonces: [],
+            }),
+            release: async () => undefined,
+            markSigned: async () => undefined,
+            markBroadcastAccepted: async () => undefined,
+            markBroadcastRejected: async () => undefined,
+            markFinalized: async () => undefined,
+            markDroppedOrReplaced: async () => undefined,
+            clearForAccount: () => undefined,
+          },
             getSignerWorkerContext: () => ({
               requestWorkerOperation: async () => new Uint8Array([0x76, 0xaa]).buffer,
             }),
@@ -2917,15 +2962,30 @@ test.describe('tempo signing auth-mode resolution', () => {
                 smartAccountDeployment: { mode: 'off' },
               },
             },
-            evmNonceManager: {
-              reserveNextNonce: async () => 1n,
-              reconcileLane: async () => ({
-                blocked: false,
-                chainNextNonce: 1n,
-                unresolvedInFlightNonces: [],
-              }),
-              markBroadcastRejected: () => undefined,
-            },
+            nonceCoordinator: {
+            reserve: async ({ lane, operation }: any) => ({
+              leaseId: 'nonce-lease-test',
+              lane,
+              operationId: operation.operationId,
+              operationFingerprint: operation.operationFingerprint,
+              nonce: 1n,
+              state: 'reserved',
+              reservedAtMs: 1,
+              expiresAtMs: 60_000,
+            }),
+            reconcile: async () => ({
+              blocked: false,
+              chainNextNonce: 1n,
+              unresolvedInFlightNonces: [],
+            }),
+            release: async () => undefined,
+            markSigned: async () => undefined,
+            markBroadcastAccepted: async () => undefined,
+            markBroadcastRejected: async () => undefined,
+            markFinalized: async () => undefined,
+            markDroppedOrReplaced: async () => undefined,
+            clearForAccount: () => undefined,
+          },
             getSignerWorkerContext: () => ({
               requestWorkerOperation: async () => new Uint8Array([0x76, 0xaa]).buffer,
             }),
@@ -3206,15 +3266,30 @@ test.describe('tempo signing auth-mode resolution', () => {
                 smartAccountDeployment: { mode: 'off' },
               },
             },
-            evmNonceManager: {
-              reserveNextNonce: async () => 1n,
-              reconcileLane: async () => ({
-                blocked: false,
-                chainNextNonce: 1n,
-                unresolvedInFlightNonces: [],
-              }),
-              markBroadcastRejected: () => undefined,
-            },
+            nonceCoordinator: {
+            reserve: async ({ lane, operation }: any) => ({
+              leaseId: 'nonce-lease-test',
+              lane,
+              operationId: operation.operationId,
+              operationFingerprint: operation.operationFingerprint,
+              nonce: 1n,
+              state: 'reserved',
+              reservedAtMs: 1,
+              expiresAtMs: 60_000,
+            }),
+            reconcile: async () => ({
+              blocked: false,
+              chainNextNonce: 1n,
+              unresolvedInFlightNonces: [],
+            }),
+            release: async () => undefined,
+            markSigned: async () => undefined,
+            markBroadcastAccepted: async () => undefined,
+            markBroadcastRejected: async () => undefined,
+            markFinalized: async () => undefined,
+            markDroppedOrReplaced: async () => undefined,
+            clearForAccount: () => undefined,
+          },
             getSignerWorkerContext: () => ({
               requestWorkerOperation: async () => {
                 throw new Error('signing worker should not run after cancellation');
@@ -3534,14 +3609,29 @@ test.describe('tempo signing auth-mode resolution', () => {
               smartAccountDeployment: { mode: 'off' },
             },
           },
-          evmNonceManager: {
-            reserveNextNonce: async () => 1n,
-            reconcileLane: async () => ({
+          nonceCoordinator: {
+            reserve: async ({ lane, operation }: any) => ({
+              leaseId: 'nonce-lease-test',
+              lane,
+              operationId: operation.operationId,
+              operationFingerprint: operation.operationFingerprint,
+              nonce: 1n,
+              state: 'reserved',
+              reservedAtMs: 1,
+              expiresAtMs: 60_000,
+            }),
+            reconcile: async () => ({
               blocked: false,
               chainNextNonce: 1n,
               unresolvedInFlightNonces: [],
             }),
-            markBroadcastRejected: () => undefined,
+            release: async () => undefined,
+            markSigned: async () => undefined,
+            markBroadcastAccepted: async () => undefined,
+            markBroadcastRejected: async () => undefined,
+            markFinalized: async () => undefined,
+            markDroppedOrReplaced: async () => undefined,
+            clearForAccount: () => undefined,
           },
           getSignerWorkerContext: () => ({
             requestWorkerOperation: async () => new Uint8Array([0x76, 0xaa]).buffer,

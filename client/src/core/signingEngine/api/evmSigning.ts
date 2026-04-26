@@ -3,7 +3,7 @@ import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
 import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
-import type { EvmNonceManager } from '@/core/rpcClients/evm/nonceManager';
+import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
 import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
@@ -90,7 +90,7 @@ export {
 export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
   tatchiPasskeyConfigs: TatchiConfigsReadonly;
-  evmNonceManager: EvmNonceManager;
+  nonceCoordinator: NonceCoordinator;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   withThresholdEcdsaCommitQueue: <T>(args: {
     queueKey: string;
@@ -471,6 +471,15 @@ async function signEvmFamilyAttempt(
     nearAccountId: args.nearAccountId,
     request: args.request,
     flowArgs,
+    nonceOperation: {
+      operationId: ensureConfirmationOperationId(),
+      operationFingerprint,
+      accountId: args.nearAccountId,
+      chainFamily: args.request.chain,
+      ...(ecdsaSigningLane?.walletSigningSessionId
+        ? { walletSigningSessionId: String(ecdsaSigningLane.walletSigningSessionId) }
+        : {}),
+    },
     onConfirmationDisplayed: markConfirmationDisplayed,
     reserveWalletSigningSessionBudget,
     recordSuccessfulWalletSigningSessionSpend,

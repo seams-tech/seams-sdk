@@ -1,9 +1,12 @@
 import {
   fromManagedNonceReservationSnapshot,
-  type EvmNonceManager,
   type NonceLaneStatus,
 } from '@/core/rpcClients/evm/nonceManager';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
+import {
+  evmManagedReservationToLane,
+  type NonceCoordinator,
+} from '../../nonce/NonceCoordinator';
 import type { EvmSignedResult } from '../../chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
 import {
@@ -29,7 +32,7 @@ import type {
 } from './types';
 
 export type EvmFamilyNonceLifecycleDeps = {
-  evmNonceManager: EvmNonceManager;
+  nonceCoordinator: NonceCoordinator;
 };
 
 function toEvmFamilyManagedNonceReservationFromSignedResult(args: {
@@ -61,7 +64,11 @@ export async function releaseEvmFamilyNonceReservation(
   deps: EvmFamilyNonceLifecycleDeps,
   reservation: EvmFamilyManagedNonceReservation,
 ): Promise<void> {
-  await deps.evmNonceManager.markBroadcastRejected(reservation);
+  const leaseRef = requireManagedNonceLeaseRef(reservation);
+  await deps.nonceCoordinator.release({
+    ...leaseRef,
+    reason: 'signing_failed',
+  });
 }
 
 function formatNonceLaneStatus(status: NonceLaneStatus): EvmFamilyNonceLaneStatus {
@@ -98,8 +105,8 @@ export async function reportEvmFamilyBroadcastAccepted(
     (args.signedResult.chain === 'evm'
       ? (args.signedResult.txHashHex as `0x${string}`)
       : undefined);
-  await deps.evmNonceManager.markBroadcastAccepted({
-    ...reservation,
+  await deps.nonceCoordinator.markBroadcastAccepted({
+    ...requireManagedNonceLeaseRef(reservation),
     ...(txHash ? { txHash } : {}),
   });
   emitEvmFamilyNonceLifecycleMetric({
@@ -140,7 +147,10 @@ export async function reportEvmFamilyBroadcastRejected(
       nonce: reservation.nonce.toString(),
     },
   });
-  await deps.evmNonceManager.markBroadcastRejected(reservation);
+  await deps.nonceCoordinator.markBroadcastRejected({
+    ...requireManagedNonceLeaseRef(reservation),
+    error: args.error,
+  });
   const mappedError = mapToRetryableNonceStateError({
     error: args.error,
     chain: reservation.chain,
@@ -182,7 +192,9 @@ export async function reportEvmFamilyBroadcastRejected(
       errorCode: extractErrorCode(mappedError),
     },
   });
-  const laneStatus = await deps.evmNonceManager.reconcileLane(reservation).catch(() => null);
+  const laneStatus = await deps.nonceCoordinator
+    .reconcile({ lane: evmManagedReservationToLane(reservation) })
+    .catch(() => null);
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_SUCCEEDED,
     status: 'succeeded',
@@ -216,8 +228,8 @@ export async function reportEvmFamilyFinalized(
     (args.signedResult.chain === 'evm'
       ? (args.signedResult.txHashHex as `0x${string}`)
       : undefined);
-  await deps.evmNonceManager.markFinalized({
-    ...reservation,
+  await deps.nonceCoordinator.markFinalized({
+    ...requireManagedNonceLeaseRef(reservation),
     ...(txHash ? { txHash } : {}),
   });
   emitEvmFamilyNonceLifecycleMetric({
@@ -254,8 +266,8 @@ export async function reportEvmFamilyDroppedOrReplaced(
       ...(args.txHash ? { txHash: args.txHash } : {}),
     },
   });
-  await deps.evmNonceManager.markDroppedOrReplaced({
-    ...reservation,
+  await deps.nonceCoordinator.markDroppedOrReplaced({
+    ...requireManagedNonceLeaseRef(reservation),
     reason: args.reason,
     ...(args.txHash ? { txHash: args.txHash } : {}),
   });
@@ -303,7 +315,9 @@ export async function reconcileEvmFamilyNonceLane(
       chainId: reservation.chainId.toString(),
     },
   });
-  const laneStatus = await deps.evmNonceManager.reconcileLane(reservation);
+  const laneStatus = await deps.nonceCoordinator.reconcile({
+    lane: evmManagedReservationToLane(reservation),
+  });
   const formatted = formatNonceLaneStatus(laneStatus);
   emitEvmFamilyNonceLifecycleMetric({
     metric: 'reconciled',
@@ -335,4 +349,16 @@ export async function reconcileEvmFamilyNonceLane(
     });
   }
   return formatted;
+}
+
+function requireManagedNonceLeaseRef(reservation: EvmFamilyManagedNonceReservation): {
+  leaseId: string;
+  operationId: string;
+} {
+  const leaseId = String(reservation.leaseId || '').trim();
+  const operationId = String(reservation.operationId || '').trim();
+  if (!leaseId || !operationId) {
+    throw new Error('[SigningEngine][evm-family] managedNonce lease metadata is required');
+  }
+  return { leaseId, operationId };
 }
