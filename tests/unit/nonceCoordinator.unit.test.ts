@@ -236,6 +236,53 @@ test.describe('NonceCoordinator', () => {
     ]);
   });
 
+  test('marks a NEAR lease signed with operation binding', async () => {
+    const calls: unknown[] = [];
+    const traces: unknown[] = [];
+    const coordinator = createNonceCoordinator({
+      evmNonceManager: createFakeEvmNonceManager(calls),
+      nearNonceManager: createFakeNearNonceManager(calls),
+      now: () => 3_000,
+      onTrace: (event) => traces.push(event),
+    });
+    const operation = {
+      ...createOperation(),
+      chainFamily: 'near' as const,
+    };
+    const lease = await coordinator.reserve({
+      lane: createNearLane(),
+      operation,
+      count: 2,
+    });
+
+    await expect(
+      coordinator.markSigned({
+        leaseId: lease.leaseId,
+        operationId: SigningSessionIds.signingOperation('op-other'),
+      }),
+    ).rejects.toThrow('operation mismatch');
+
+    await coordinator.markSigned({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+    });
+
+    expect(traces).toContainEqual(
+      expect.objectContaining({
+        event: 'nonce_lease_signed',
+        previousState: 'reserved',
+        nextState: 'signed',
+      }),
+    );
+    await expect(
+      coordinator.release({
+        leaseId: lease.leaseId,
+        operationId: operation.operationId,
+        reason: 'signing_failed',
+      }),
+    ).rejects.toThrow('illegal nonce lease transition');
+  });
+
   test('expires reserved leases and releases backend reservations before reuse', async () => {
     const calls: unknown[] = [];
     const traces: unknown[] = [];

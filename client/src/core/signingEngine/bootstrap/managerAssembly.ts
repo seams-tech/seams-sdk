@@ -88,6 +88,7 @@ export function createManagerAssembly(args: {
     args.nearClient,
     userPreferencesManager,
     nonceManager,
+    nonceCoordinator,
     args.tatchiPasskeyConfigs.network.relayer.url,
     chains,
     args.tatchiPasskeyConfigs.wallet.iframe?.rpIdOverride,

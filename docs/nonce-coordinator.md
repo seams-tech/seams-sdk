@@ -416,6 +416,8 @@ Progress:
    `NonceCoordinator`.
 4. [x] Recompute the highest reserved NEAR nonce after every release in the
    existing NEAR nonce manager backend.
+5. [x] Carry TouchConfirm NEAR nonce lease handles into the signing worker and
+   mark the lease signed after threshold signature creation.
 
 Remaining TODO:
 
@@ -436,6 +438,10 @@ Remaining TODO:
 4. [ ] Reserve wallet-session budget before threshold signing and release it on
    every no-signature outcome.
 5. [ ] Mark nonce leases signed immediately after threshold signature creation.
+   - [x] NEAR transaction signing marks the TouchConfirm lease signed after the
+     threshold signer returns.
+   - [ ] EVM-family signing should record the same explicit signed transition
+     instead of jumping directly from reserved to broadcast lifecycle events.
 6. [ ] Ensure post-sign finalization consumes wallet-session budget before
    broadcast status polling can hide errors.
 7. [ ] Make retry paths reuse the same operation id only when the operation

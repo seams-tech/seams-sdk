@@ -12,6 +12,7 @@ import type {
 } from './workerTypes';
 import { UserPreferencesManager } from '../api/userPreferences';
 import { NonceManager } from '@/core/rpcClients/near/nonceManager';
+import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { ThemeName, TatchiChainConfig } from '@/core/types/tatchi';
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
@@ -43,6 +44,7 @@ export class SignerWorkerManager {
   private nearClient: NearClient;
   private userPreferencesManager: UserPreferencesManager;
   private nonceManager: NonceManager;
+  private nonceCoordinator: NonceCoordinator;
   private relayerUrl: string;
   private chains?: readonly TatchiChainConfig[];
   private nearExplorerUrl?: string;
@@ -57,6 +59,7 @@ export class SignerWorkerManager {
     nearClient: NearClient,
     userPreferencesManager: UserPreferencesManager,
     nonceManager: NonceManager,
+    nonceCoordinator: NonceCoordinator,
     relayerUrl: string,
     chains?: readonly TatchiChainConfig[],
     rpIdOverride?: string,
@@ -75,6 +78,7 @@ export class SignerWorkerManager {
     this.nearClient = nearClient;
     this.userPreferencesManager = userPreferencesManager;
     this.nonceManager = nonceManager;
+    this.nonceCoordinator = nonceCoordinator;
     this.relayerUrl = relayerUrl;
     this.chains = chains;
     this.nearExplorerUrl = nearExplorerUrl;
@@ -98,6 +102,7 @@ export class SignerWorkerManager {
       nearClient: this.nearClient,
       userPreferencesManager: this.userPreferencesManager,
       nonceManager: this.nonceManager,
+      nonceCoordinator: this.nonceCoordinator,
       chains: this.chains,
       getTheme: this.getTheme,
       rpIdOverride: this.touchIdPrompt.getRpId(),

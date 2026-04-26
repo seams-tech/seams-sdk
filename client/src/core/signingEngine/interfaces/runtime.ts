@@ -1,6 +1,7 @@
 import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { NonceManager } from '../../rpcClients/near/nonceManager';
+import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { TouchConfirmSigningSessionPort } from '../touchConfirm';
 import type { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import type { UserPreferencesManager } from '../api/userPreferences';
@@ -22,6 +23,7 @@ export interface SigningRuntimeDeps {
   indexedDB: UnifiedIndexedDBManager;
   userPreferencesManager: UserPreferencesManager;
   nonceManager: NonceManager;
+  nonceCoordinator: NonceCoordinator;
   chains?: readonly TatchiChainConfig[];
   getTheme?: () => ThemeName;
   rpIdOverride?: string;

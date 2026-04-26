@@ -340,6 +340,14 @@ export async function handleTransactionSigningFlow(
         otpCode: normalizeSixDigitOtpCode(otpCode),
         ...(emailOtpChallengeId ? { emailOtpChallengeId } : {}),
         transactionContext,
+        ...(nearRpc.nonceLease
+          ? {
+              nonceLease: {
+                leaseId: nearRpc.nonceLease.leaseId,
+                operationId: String(nearRpc.nonceLease.operationId),
+              },
+            }
+          : {}),
       });
       return;
     }
@@ -351,6 +359,14 @@ export async function handleTransactionSigningFlow(
         intentDigest: resolvedIntentDigestForResponse,
         confirmed: true,
         transactionContext,
+        ...(nearRpc.nonceLease
+          ? {
+              nonceLease: {
+                leaseId: nearRpc.nonceLease.leaseId,
+                operationId: String(nearRpc.nonceLease.operationId),
+              },
+            }
+          : {}),
       });
       return;
     }
@@ -374,6 +390,14 @@ export async function handleTransactionSigningFlow(
       confirmed: true,
       credential: serializedCredential,
       transactionContext,
+      ...(nearRpc.nonceLease
+        ? {
+            nonceLease: {
+              leaseId: nearRpc.nonceLease.leaseId,
+              operationId: String(nearRpc.nonceLease.operationId),
+            },
+          }
+        : {}),
     });
   } catch (err: unknown) {
     // Treat TouchID/FaceID cancellation and related errors as a negative decision

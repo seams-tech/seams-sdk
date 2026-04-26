@@ -117,6 +117,10 @@ export interface SigningConfirmationResultWithTxContext {
   credential?: SerializableCredential;
   otpCode?: string;
   emailOtpChallengeId?: string;
+  nonceLease?: {
+    leaseId: string;
+    operationId: string;
+  };
 }
 
 export interface SigningConfirmationResultIntentDigest {
@@ -488,6 +492,7 @@ export async function orchestrateSigningConfirmation(
     credential: decision.credential,
     otpCode: decision.otpCode,
     emailOtpChallengeId: decision.emailOtpChallengeId,
+    nonceLease: decision.nonceLease,
   };
 }
 

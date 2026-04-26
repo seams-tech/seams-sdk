@@ -405,6 +405,7 @@ export async function signTransactionsWithActions({
 
   const intentDigest = confirmation.intentDigest;
   const transactionContext = confirmation.transactionContext;
+  const nonceLeaseRef = confirmation.nonceLease;
 
   const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
     confirmation.credential as WebAuthnAuthenticationCredential | undefined;
@@ -699,6 +700,12 @@ export async function signTransactionsWithActions({
   try {
     await reserveWalletSigningSessionBudget();
     const okResponse = await executeSignRequest(requestPayload);
+    if (nonceLeaseRef) {
+      await ctx.nonceCoordinator.markSigned({
+        leaseId: nonceLeaseRef.leaseId,
+        operationId: nonceLeaseRef.operationId,
+      });
+    }
     const signedResults = toSignedTransactionResults({
       okResponse,
       expectedTransactionCount: transactions.length,
@@ -765,6 +772,12 @@ export async function signTransactionsWithActions({
         });
         requestPayload = buildRequestPayload(repairedXClientBaseB64u);
         const okResponse = await executeSignRequest(requestPayload);
+        if (nonceLeaseRef) {
+          await ctx.nonceCoordinator.markSigned({
+            leaseId: nonceLeaseRef.leaseId,
+            operationId: nonceLeaseRef.operationId,
+          });
+        }
         const signedResults = toSignedTransactionResults({
           okResponse,
           expectedTransactionCount: transactions.length,
