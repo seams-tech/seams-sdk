@@ -1550,7 +1550,9 @@ export class TatchiPasskey {
       return;
     }
     try {
-      await this.signingEngine.getNonceManager().prefetchBlockheight(this.nearClient);
+      await this.signingEngine.getNonceCoordinator().prefetchNearContext({
+        nearClient: this.nearClient,
+      });
     } catch {}
   }
 

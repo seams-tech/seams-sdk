@@ -15,7 +15,6 @@ import {
 } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
-import { toAccountId } from '@/core/types/accountIds';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   generateSessionId,
@@ -87,10 +86,6 @@ export async function signNep413Message({
       relayerUrl,
       thresholdKeyMaterial,
     });
-
-    // Initialize nonce manager for a better UserConfirm context (block height + access key lookup).
-    // NEP-413 signing itself doesn't require nonces, but UserConfirm uses Near context for UI.
-    ctx.nonceManager.initializeUser(toAccountId(nearAccountId), signingContext.nearPublicKey);
 
     const usesNeeded = 1;
     const thresholdAuthPlan = signingContext.threshold

@@ -161,11 +161,9 @@ export async function signTransactionsWithActions(args: {
  * );
  * ```
  *
- * sendTransaction centrally manages nonce lifecycle around broadcast:
- * - On success: reconciles nonce with chain via updateNonceFromBlockchain() (async),
- *   which also prunes any stale reservations.
- * - On failure: releases the reserved nonce immediately to avoid leaks.
- * Callers SHOULD NOT release the nonce in their own catch blocks.
+ * sendTransaction centrally reports nonce lifecycle for transactions produced by
+ * the coordinator-backed signing flow. Transactions without a nonce lease are
+ * treated as externally managed; there is no local reservation to reconcile.
  */
 export async function sendTransaction({
   context,
@@ -177,6 +175,7 @@ export async function sendTransaction({
   options?: SendTransactionHooksOptions;
 }): Promise<ActionResult> {
   const accountId = resolveSignedTransactionAccountId(signedTransaction);
+  const nonceLease = signedTransaction.nonceLease;
   emitNearSigningEvent(options?.onEvent, accountId, {
     phase: SigningEventPhase.STEP_12_BROADCAST_STARTED,
     status: 'running',
@@ -209,15 +208,18 @@ export async function sendTransaction({
     );
     txId = transactionResult.transaction?.hash || transactionResult.transaction?.id;
 
-    // Update nonce from blockchain after successful transaction broadcast asynchronously
-    const nonce = signedTransaction.transaction.nonce;
-    context.signingEngine
-      .getNonceManager()
-      .updateNonceFromBlockchain(context.nearClient, nonce.toString())
-      .catch((error) => {
-        console.warn('[sendTransaction] Failed to update nonce from blockchain:', error);
-        // don't fail transaction if nonce update fails
+    if (nonceLease) {
+      await context.signingEngine.getNonceCoordinator().markBroadcastAccepted({
+        leaseId: nonceLease.leaseId,
+        operationId: nonceLease.operationId,
+        ...(txId ? { txHash: txId } : {}),
       });
+      await context.signingEngine.getNonceCoordinator().markFinalized({
+        leaseId: nonceLease.leaseId,
+        operationId: nonceLease.operationId,
+        ...(txId ? { txHash: txId } : {}),
+      });
+    }
 
     emitNearSigningEvent(options?.onEvent, accountId, {
       phase: SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
@@ -241,10 +243,14 @@ export async function sendTransaction({
       // Surface full details at error level for visibility during debugging
       console.error('[sendTransaction] RPC error details:', details);
     }
-    // Centralized cleanup: release reserved nonce on failure (idempotent)
     try {
-      const nonce = signedTransaction.transaction.nonce;
-      context.signingEngine.getNonceManager().releaseNonce(nonce.toString());
+      if (nonceLease) {
+        await context.signingEngine.getNonceCoordinator().markBroadcastRejected({
+          leaseId: nonceLease.leaseId,
+          operationId: nonceLease.operationId,
+          error: e,
+        });
+      }
     } catch (nonceError) {
       console.warn('[sendTransaction]: Failed to release nonce after failure:', nonceError);
     }
@@ -299,16 +305,6 @@ export async function executeActionInternal({
   const actions = Array.isArray(actionArgs) ? actionArgs : [actionArgs];
 
   try {
-    // Pre-warm NonceManager with fresh transaction context data without blocking UI feedback.
-    // Only attempt when the NonceManager has been initialized with user data; signing handlers
-    // will initialize it when the active access key is known.
-    const nonceManager = context.signingEngine.getNonceManager();
-    if (nonceManager.nearAccountId && nonceManager.nearPublicKeyStr) {
-      void nonceManager.getNonceBlockHashAndHeight(context.nearClient).catch((error) => {
-        console.warn('[executeAction]: Failed to pre-warm NonceManager:', error);
-      });
-    }
-
     const signedTxs = await signTransactionsWithActionsInternal({
       context,
       nearAccountId,
@@ -392,8 +388,6 @@ export async function signAndSendTransactionsInternal({
     }
     return txResults;
   } catch (error: unknown) {
-    // If signing fails, release all reserved nonces
-    context.signingEngine.getNonceManager().releaseAllNonces();
     const e = toError(error);
     const short = (e as { short?: string }).short || getNearShortErrorMessage(e) || e.message;
     emitNearSigningEvent(options?.onEvent, nearAccountId, {

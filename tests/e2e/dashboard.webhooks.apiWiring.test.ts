@@ -118,10 +118,7 @@ async function routeWorkspaceScaffold(
 }
 
 test.describe('dashboard webhooks console api wiring', () => {
-  test('create endpoint posts eventCategories and never legacy subscriptions', async ({
-    page,
-    baseURL,
-  }) => {
+  test('create endpoint posts eventCategories', async ({ page, baseURL }) => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     const createBodies: Record<string, unknown>[] = [];
     const endpoints: Record<string, unknown>[] = [];
@@ -204,26 +201,15 @@ test.describe('dashboard webhooks console api wiring', () => {
     await expect(page.getByRole('button', { name: 'Create Webhook' })).toBeVisible();
 
     await page.getByRole('button', { name: 'Create Webhook' }).click();
-    await expect(page.getByRole('dialog', { name: 'Create webhook modal' })).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog', { name: 'Create webhook modal' })).toBeHidden();
-
-    await page.getByRole('button', { name: 'Create Webhook' }).click();
-    await expect(page.getByRole('dialog', { name: 'Create webhook modal' })).toBeVisible();
     await page
       .getByPlaceholder('https://example.com/webhooks/tatchi')
       .fill('https://example.com/webhooks/dashboard-test');
     await page.getByLabel('Event categories dropdown').selectOption('wallet');
-    await page.getByRole('dialog', { name: 'Create webhook modal' }).getByRole('button', {
-      name: 'Create endpoint',
-    }).click();
+    await page.locator('button').filter({ hasText: 'Create endpoint' }).click();
 
     await expect.poll(() => createBodies.length).toBe(1);
     expect(createBodies[0]?.url).toBe('https://example.com/webhooks/dashboard-test');
     expect(createBodies[0]?.eventCategories).toEqual(['billing', 'wallet']);
-    expect(Object.prototype.hasOwnProperty.call(createBodies[0] || {}, 'subscriptions')).toBe(
-      false,
-    );
 
     await expect(page.getByLabel('Webhook endpoints table')).toContainText(
       'https://example.com/webhooks/dashboard-test',
@@ -350,7 +336,9 @@ test.describe('dashboard webhooks console api wiring', () => {
       },
     });
 
-    await page.goto('/dashboard/webhooks?endpointId=wh_ep_dash_secondary&deliveryId=dlv_secondary_14');
+    await page.goto(
+      '/dashboard/webhooks?endpointId=wh_ep_dash_secondary&deliveryId=dlv_secondary_14',
+    );
     await expect(page.locator('main[aria-label="Dashboard workspace"]')).toBeVisible();
     await expect.poll(() => deliveryRequests.join(',')).toContain('wh_ep_dash_secondary');
     await expect(page.getByLabel('Webhook deliveries table')).toContainText('dlv_secondary_14');

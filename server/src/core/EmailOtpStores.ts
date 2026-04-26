@@ -109,6 +109,7 @@ export type EmailOtpGrantRecord = {
 
 export interface EmailOtpGrantStore {
   put(record: EmailOtpGrantRecord): Promise<void>;
+  get(grantToken: string): Promise<EmailOtpGrantRecord | null>;
   consume(grantToken: string): Promise<EmailOtpGrantRecord | null>;
   del(grantToken: string): Promise<void>;
 }
@@ -119,7 +120,11 @@ export type EmailOtpWalletEnrollmentRecord = {
   providerUserId: string;
   orgId: string;
   verifiedEmail: string;
+  enrollmentId: string;
+  enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
+  signingRootId: string;
+  signingRootVersion: string;
   recoveryWrappedEnrollmentEscrowCount: number;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
@@ -452,7 +457,11 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   const orgId = toOptionalTrimmedString(obj.orgId);
   const verifiedEmail = toOptionalTrimmedString(obj.verifiedEmail)?.toLowerCase() || '';
   if (Object.prototype.hasOwnProperty.call(obj, 'enrollmentEscrowCiphertextB64u')) return null;
+  const enrollmentId = toOptionalTrimmedString(obj.enrollmentId);
+  const enrollmentVersion = toOptionalTrimmedString(obj.enrollmentVersion);
   const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
+  const signingRootId = toOptionalTrimmedString(obj.signingRootId);
+  const signingRootVersion = toOptionalTrimmedString(obj.signingRootVersion);
   const recoveryWrappedEnrollmentEscrowCount = Number(obj.recoveryWrappedEnrollmentEscrowCount);
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
@@ -461,7 +470,17 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   const createdAtMs = Number(obj.createdAtMs);
   const updatedAtMs = Number(obj.updatedAtMs);
   if (version !== 'email_otp_wallet_enrollment_v1') return null;
-  if (!walletId || !providerUserId || !orgId || !verifiedEmail || !enrollmentSealKeyVersion) {
+  if (
+    !walletId ||
+    !providerUserId ||
+    !orgId ||
+    !verifiedEmail ||
+    !enrollmentId ||
+    !enrollmentVersion ||
+    !enrollmentSealKeyVersion ||
+    !signingRootId ||
+    !signingRootVersion
+  ) {
     return null;
   }
   if (
@@ -481,7 +500,11 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
     providerUserId,
     orgId,
     verifiedEmail,
+    enrollmentId,
+    enrollmentVersion,
     enrollmentSealKeyVersion,
+    signingRootId,
+    signingRootVersion,
     recoveryWrappedEnrollmentEscrowCount: Math.floor(recoveryWrappedEnrollmentEscrowCount),
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
@@ -891,6 +914,13 @@ class InMemoryEmailOtpGrantStore implements EmailOtpGrantStore {
     const parsed = parseGrantRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP grant record');
     this.map.set(parsed.grantToken, cloneRecord(parsed));
+  }
+
+  async get(grantToken: string): Promise<EmailOtpGrantRecord | null> {
+    const token = toOptionalTrimmedString(grantToken);
+    if (!token) return null;
+    const record = this.map.get(token);
+    return record ? cloneRecord(record) : null;
   }
 
   async consume(grantToken: string): Promise<EmailOtpGrantRecord | null> {
@@ -1332,6 +1362,22 @@ class PostgresEmailOtpGrantStore implements EmailOtpGrantStore {
     const parsed = parseGrantRecord(rows[0]?.record_json);
     if (!parsed) return null;
     return cloneRecord(parsed);
+  }
+
+  async get(grantToken: string): Promise<EmailOtpGrantRecord | null> {
+    const token = toOptionalTrimmedString(grantToken);
+    if (!token) return null;
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json
+        FROM email_otp_grants
+        WHERE namespace = $1 AND grant_token = $2
+      `,
+      [this.namespace, token],
+    );
+    const parsed = parseGrantRecord(rows[0]?.record_json);
+    return parsed ? cloneRecord(parsed) : null;
   }
 
   async del(grantToken: string): Promise<void> {

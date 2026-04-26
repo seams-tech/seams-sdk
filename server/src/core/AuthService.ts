@@ -1160,7 +1160,6 @@ export class AuthService {
   async completeGoogleEmailOtpRegistrationAttempt(input: {
     registrationAttemptId?: unknown;
     walletId?: unknown;
-    finalizedPublicKey?: unknown;
   }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
     const registrationAttemptId = toOptionalTrimmedString(input.registrationAttemptId);
     if (!registrationAttemptId) return { ok: true };
@@ -1209,8 +1208,53 @@ export class AuthService {
     }
     attempt.state = 'active';
     attempt.updatedAtMs = Date.now();
-    const publicKey = toOptionalTrimmedString(input.finalizedPublicKey);
-    if (publicKey) attempt.finalizedPublicKey = publicKey;
+    await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+    return { ok: true };
+  }
+
+  async recordGoogleEmailOtpRegistrationAttemptPublicKey(input: {
+    registrationAttemptId?: unknown;
+    walletId?: unknown;
+    finalizedPublicKey?: unknown;
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const registrationAttemptId = toOptionalTrimmedString(input.registrationAttemptId);
+    if (!registrationAttemptId) return { ok: true };
+    const walletId = toOptionalTrimmedString(input.walletId);
+    const finalizedPublicKey = toOptionalTrimmedString(input.finalizedPublicKey);
+    const attempt = await this.getEmailOtpRegistrationAttemptStore().get(registrationAttemptId);
+    if (!attempt) {
+      return {
+        ok: false,
+        code: 'registration_incomplete',
+        message: 'Google Email OTP registration attempt expired or was not found',
+      };
+    }
+    if (attempt.expiresAtMs <= Date.now()) {
+      attempt.state = 'expired';
+      attempt.updatedAtMs = Date.now();
+      await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+      return {
+        ok: false,
+        code: 'registration_incomplete',
+        message: 'Google Email OTP registration attempt expired',
+      };
+    }
+    if (walletId !== attempt.walletId) {
+      return {
+        ok: false,
+        code: 'wallet_identity_mismatch',
+        message: 'registrationAttemptId does not match walletId',
+      };
+    }
+    if (attempt.state !== 'started' && attempt.state !== 'active') {
+      return {
+        ok: false,
+        code: 'registration_incomplete',
+        message: 'Google Email OTP registration attempt is no longer active',
+      };
+    }
+    if (finalizedPublicKey) attempt.finalizedPublicKey = finalizedPublicKey;
+    attempt.updatedAtMs = Date.now();
     await this.getEmailOtpRegistrationAttemptStore().put(attempt);
     return { ok: true };
   }
@@ -1711,6 +1755,7 @@ export class AuthService {
     challenge: { limit: number; windowMs: number };
     verify: { limit: number; windowMs: number };
     grant: { limit: number; windowMs: number };
+    recoveryKeyAttempt: { limit: number; windowMs: number };
   } {
     const parseConfiguredInt = (
       name: string,
@@ -1739,6 +1784,9 @@ export class AuthService {
       : { limit: 100, windowMs: 60_000 };
     const grantDefault = production
       ? { limit: 8, windowMs: 5 * 60_000 }
+      : { limit: 100, windowMs: 60_000 };
+    const recoveryKeyAttemptDefault = production
+      ? { limit: 10, windowMs: 5 * 60_000 }
       : { limit: 100, windowMs: 60_000 };
     return {
       challenge: {
@@ -1789,11 +1837,27 @@ export class AuthService {
           24 * 60 * 60_000,
         ),
       },
+      recoveryKeyAttempt: {
+        limit: parseConfiguredInt(
+          'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX',
+          this.readEmailOtpConfigValue('EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX'),
+          recoveryKeyAttemptDefault.limit,
+          1,
+          1000,
+        ),
+        windowMs: parseConfiguredInt(
+          'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS',
+          this.readEmailOtpConfigValue('EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS'),
+          recoveryKeyAttemptDefault.windowMs,
+          1_000,
+          24 * 60 * 60_000,
+        ),
+      },
     };
   }
 
   private async consumeEmailOtpRateLimit(args: {
-    scope: 'challenge' | 'verify' | 'grant';
+    scope: 'challenge' | 'verify' | 'grant' | 'recoveryKeyAttempt';
     action?: EmailOtpChallengeAction | typeof WALLET_EMAIL_OTP_ACTIONS.unseal;
     userId?: string;
     walletId?: string;
@@ -5246,7 +5310,11 @@ export class AuthService {
           walletId: string;
           providerUserId: string;
           orgId: string;
+          enrollmentId: string;
+          enrollmentVersion: string;
           enrollmentSealKeyVersion: string;
+          signingRootId: string;
+          signingRootVersion: string;
           recoveryWrappedEnrollmentEscrowCount: number;
         };
       }
@@ -5275,11 +5343,7 @@ export class AuthService {
         verified.walletId,
       );
     const scopedRecoveryWrappedEnrollmentEscrows = recoveryWrappedEnrollmentEscrows.filter(
-      (record) =>
-        record.walletId === enrollment.enrollment.walletId &&
-        record.userId === enrollment.enrollment.providerUserId &&
-        record.authSubjectId === enrollment.enrollment.providerUserId &&
-        record.enrollmentSealKeyVersion === enrollment.enrollment.enrollmentSealKeyVersion,
+      (record) => this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollment.enrollment),
     );
     if (scopedRecoveryWrappedEnrollmentEscrows.length <= 0) {
       return {
@@ -5324,7 +5388,11 @@ export class AuthService {
         walletId: enrollment.enrollment.walletId,
         providerUserId: enrollment.enrollment.providerUserId,
         orgId: enrollment.enrollment.orgId,
+        enrollmentId: enrollment.enrollment.enrollmentId,
+        enrollmentVersion: enrollment.enrollment.enrollmentVersion,
         enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+        signingRootId: enrollment.enrollment.signingRootId,
+        signingRootVersion: enrollment.enrollment.signingRootVersion,
         recoveryWrappedEnrollmentEscrowCount:
           enrollment.enrollment.recoveryWrappedEnrollmentEscrowCount,
       },
@@ -5552,6 +5620,22 @@ export class AuthService {
     return { ok: true };
   }
 
+  private emailOtpRecoveryEscrowMatchesEnrollment(
+    record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+    enrollment: EmailOtpWalletEnrollmentRecord,
+  ): boolean {
+    return (
+      record.walletId === enrollment.walletId &&
+      record.userId === enrollment.providerUserId &&
+      record.authSubjectId === enrollment.providerUserId &&
+      record.enrollmentId === enrollment.enrollmentId &&
+      record.enrollmentVersion === enrollment.enrollmentVersion &&
+      record.enrollmentSealKeyVersion === enrollment.enrollmentSealKeyVersion &&
+      record.signingRootId === enrollment.signingRootId &&
+      record.signingRootVersion === enrollment.signingRootVersion
+    );
+  }
+
   async verifyEmailOtpEnrollment(request: {
     userId?: unknown;
     walletId?: unknown;
@@ -5567,6 +5651,7 @@ export class AuthService {
     clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
     thresholdEcdsaClientVerifyingShareB64u?: unknown;
+    googleEmailOtpRegistrationAttemptId?: unknown;
   }): Promise<
     | {
         ok: true;
@@ -5613,6 +5698,14 @@ export class AuthService {
     const existing = await this.getEmailOtpWalletEnrollmentStore().get(verified.walletId);
     const existingState = await this.getEmailOtpAuthStateStore().get(verified.walletId);
     const nowMs = Date.now();
+    const enrollmentScope = enrollmentMaterial.recoveryWrappedEnrollmentEscrows[0];
+    if (!enrollmentScope) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} recovery-wrapped enrollment escrows are required`,
+      };
+    }
     for (const record of enrollmentMaterial.recoveryWrappedEnrollmentEscrows) {
       if (
         record.walletId !== verified.walletId ||
@@ -5634,7 +5727,11 @@ export class AuthService {
       providerUserId: verified.userId,
       orgId,
       verifiedEmail,
+      enrollmentId: enrollmentScope.enrollmentId,
+      enrollmentVersion: enrollmentScope.enrollmentVersion,
       enrollmentSealKeyVersion: enrollmentMaterial.enrollmentSealKeyVersion,
+      signingRootId: enrollmentScope.signingRootId,
+      signingRootVersion: enrollmentScope.signingRootVersion,
       recoveryWrappedEnrollmentEscrowCount:
         enrollmentMaterial.recoveryWrappedEnrollmentEscrows.length,
       clientUnlockPublicKeyB64u: enrollmentMaterial.clientUnlockPublicKeyB64u,
@@ -5657,11 +5754,8 @@ export class AuthService {
       await recoveryWrappedEnrollmentEscrowStore.listActiveByWallet(verified.walletId)
     ).filter(
       (record) =>
-        record.walletId === verified.walletId &&
-        record.userId === verified.userId &&
-        record.authSubjectId === verified.userId &&
-        record.enrollmentSealKeyVersion === enrollmentMaterial.enrollmentSealKeyVersion &&
-        record.recoveryKeyStatus === 'active',
+        record.recoveryKeyStatus === 'active' &&
+        this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollmentRecord),
     ).length;
     if (activeRecoveryWrappedEnrollmentEscrowCount !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
       return {
@@ -5696,6 +5790,11 @@ export class AuthService {
         ? { lastStrongAuthAtMs: existingState.lastStrongAuthAtMs }
         : {}),
     });
+    const completedRegistration = await this.completeGoogleEmailOtpRegistrationAttempt({
+      registrationAttemptId: request.googleEmailOtpRegistrationAttemptId,
+      walletId: verified.walletId,
+    });
+    if (!completedRegistration.ok) return completedRegistration;
     return {
       ok: true,
       walletId: verified.walletId,
@@ -6032,12 +6131,7 @@ export class AuthService {
           message: 'Recovery key is not active',
         };
       }
-      const metadataMismatch =
-        recoveryRecord.walletId !== enrollment.enrollment.walletId ||
-        recoveryRecord.userId !== enrollment.enrollment.providerUserId ||
-        recoveryRecord.authSubjectId !== enrollment.enrollment.providerUserId ||
-        recoveryRecord.enrollmentSealKeyVersion !== enrollment.enrollment.enrollmentSealKeyVersion;
-      if (metadataMismatch) {
+      if (!this.emailOtpRecoveryEscrowMatchesEnrollment(recoveryRecord, enrollment.enrollment)) {
         return {
           ok: false,
           code: 'recovery_key_binding_mismatch',
@@ -6054,11 +6148,8 @@ export class AuthService {
       });
       const activeRecoveryWrappedEnrollmentEscrowCount = (
         await recoveryWrappedEnrollmentEscrowStore.listActiveByWallet(walletId)
-      ).filter(
-        (activeRecord) =>
-          activeRecord.userId === enrollment.enrollment.providerUserId &&
-          activeRecord.authSubjectId === enrollment.enrollment.providerUserId &&
-          activeRecord.enrollmentSealKeyVersion === enrollment.enrollment.enrollmentSealKeyVersion,
+      ).filter((activeRecord) =>
+        this.emailOtpRecoveryEscrowMatchesEnrollment(activeRecord, enrollment.enrollment),
       ).length;
 
       return {
@@ -6073,6 +6164,119 @@ export class AuthService {
         ok: false,
         code: 'internal',
         message: errorMessage(e) || 'Failed to consume Email OTP recovery key',
+      };
+    }
+  }
+
+  async recordEmailOtpRecoveryKeyAttemptFailure(request: {
+    recoveryConsumeGrant?: unknown;
+    userId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    sessionHash?: unknown;
+    appSessionVersion?: unknown;
+    clientIp?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        walletId: string;
+        recordedAtMs: number;
+      }
+    | { ok: false; code: string; message: string; retryAfterMs?: number; resetAtMs?: number }
+  > {
+    try {
+      const recoveryConsumeGrant = toOptionalTrimmedString(request.recoveryConsumeGrant);
+      const userId = toOptionalTrimmedString(request.userId);
+      const walletId = toOptionalTrimmedString(request.walletId);
+      const orgId = toOptionalTrimmedString(request.orgId) || '';
+      const sessionHash = toOptionalTrimmedString(request.sessionHash);
+      const appSessionVersion = toOptionalTrimmedString(request.appSessionVersion);
+      const clientIp = toOptionalTrimmedString(request.clientIp) || undefined;
+      if (!recoveryConsumeGrant) {
+        return { ok: false, code: 'invalid_body', message: 'Missing recoveryConsumeGrant' };
+      }
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
+      if (!appSessionVersion) {
+        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      }
+
+      const record = await this.getEmailOtpGrantStore().get(recoveryConsumeGrant);
+      if (!record || Date.now() > record.expiresAtMs) {
+        if (record && Date.now() > record.expiresAtMs) {
+          await this.getEmailOtpGrantStore().del(recoveryConsumeGrant);
+        }
+        return {
+          ok: false,
+          code: 'recovery_consume_grant_invalid_or_expired',
+          message: 'Recovery consume grant is invalid or expired',
+        };
+      }
+      if (record.action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery) {
+        return {
+          ok: false,
+          code: 'recovery_consume_grant_invalid_or_expired',
+          message: 'Recovery consume grant is invalid or expired',
+        };
+      }
+
+      const bindingMismatch =
+        record.userId !== userId ||
+        record.walletId !== walletId ||
+        record.otpChannel !== EMAIL_OTP_CHANNEL ||
+        record.sessionHash !== sessionHash ||
+        record.appSessionVersion !== appSessionVersion ||
+        record.orgId !== orgId;
+      if (bindingMismatch) {
+        return {
+          ok: false,
+          code: 'recovery_grant_binding_mismatch',
+          message: 'Recovery grant is not valid for the current app session',
+        };
+      }
+
+      const rateLimit = await this.consumeEmailOtpRateLimit({
+        scope: 'recoveryKeyAttempt',
+        action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
+        userId,
+        walletId,
+        orgId,
+        clientIp,
+      });
+      if (!rateLimit.ok) return rateLimit;
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
+      if (!enrollment.ok) return enrollment;
+
+      const activeRecoveryWrappedEnrollmentEscrowCount = (
+        await this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore().listActiveByWallet(walletId)
+      ).filter((activeRecord) =>
+        this.emailOtpRecoveryEscrowMatchesEnrollment(activeRecord, enrollment.enrollment),
+      ).length;
+      if (activeRecoveryWrappedEnrollmentEscrowCount <= 0) {
+        return {
+          ok: false,
+          code: 'recovery_wrapped_escrows_missing',
+          message: 'No active Email OTP recovery-wrapped enrollment escrows are available',
+        };
+      }
+
+      return {
+        ok: true,
+        walletId,
+        recordedAtMs: Date.now(),
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to record Email OTP recovery-key failure',
       };
     }
   }

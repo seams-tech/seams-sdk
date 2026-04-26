@@ -30,7 +30,7 @@ test.describe('console API key secret format', () => {
     expect(parseApiKeySecret(secret)).toEqual({ kind: 'secret_key' });
   });
 
-  test('rejects legacy dotted token layouts', async () => {
+  test('rejects dotted and separator-heavy token layouts', async () => {
     expect(parseApiKeySecret('pk_org.part.keypart')).toBeNull();
     expect(parseApiKeySecret('sk_org.part.keypart')).toBeNull();
     expect(parseApiKeySecret('pk_body-with-dash')).toBeNull();

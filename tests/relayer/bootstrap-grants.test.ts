@@ -408,7 +408,7 @@ test.describe('managed bootstrap grants', () => {
     const { apiKeys, secret } = await createPublishableKey({});
     const bootstrapTokens = createInMemoryConsoleBootstrapTokenService();
     const createdAccounts: Array<{ accountId: string; publicKey?: string }> = [];
-    const completedGoogleAttempts: Array<Record<string, unknown>> = [];
+    const recordedGoogleAttemptPublicKeys: Array<Record<string, unknown>> = [];
     let keyVisible = false;
     const service = new AuthService({
       relayerAccount: 'w3a-relayer.testnet',
@@ -460,9 +460,12 @@ test.describe('managed bootstrap grants', () => {
           ]
         : [],
     });
-    (service as any).completeGoogleEmailOtpRegistrationAttempt = async (input: unknown) => {
-      completedGoogleAttempts.push(input as Record<string, unknown>);
+    (service as any).recordGoogleEmailOtpRegistrationAttemptPublicKey = async (input: unknown) => {
+      recordedGoogleAttemptPublicKeys.push(input as Record<string, unknown>);
       return { ok: true };
+    };
+    (service as any).completeGoogleEmailOtpRegistrationAttempt = async () => {
+      throw new Error('HSS finalize must not activate Google Email OTP identity mappings');
     };
     const router = createRelayRouter(
       service,
@@ -524,7 +527,7 @@ test.describe('managed bootstrap grants', () => {
           publicKey: 'ed25519:test-registration-public-key',
         },
       ]);
-      expect(completedGoogleAttempts).toEqual([
+      expect(recordedGoogleAttemptPublicKeys).toEqual([
         {
           registrationAttemptId: 'google-email-otp-attempt-test',
           walletId: relayBody.new_account_id,

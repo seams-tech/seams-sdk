@@ -3,6 +3,7 @@ import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
 import type { ThemeName } from '@/core/types/tatchi';
 import type { NonceLease } from '@/core/signingEngine/nonce/NonceCoordinator';
+import { nonceLeaseToRef } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   UserConfirmationType,
@@ -48,6 +49,15 @@ function getTransactionSigningAuthMode(request: SigningUserConfirmRequest) {
     return getSigningAuthMode(request) ?? 'webauthn';
   }
   return 'webauthn';
+}
+
+function shouldReserveNearNonceLeases(
+  request: SigningUserConfirmRequest,
+  transactionSummary: TransactionSummary,
+): boolean {
+  if (request.type === UserConfirmationType.SIGN_NEP413_MESSAGE) return false;
+  if (request.type !== UserConfirmationType.SIGN_TRANSACTION) return false;
+  return transactionSummary.type !== 'delegateAction';
 }
 
 function normalizeSixDigitOtpCode(value: unknown): string {
@@ -110,13 +120,14 @@ export async function handleTransactionSigningFlow(
     let resolvedChallengeB64u = resolvedIntentDigest;
     resolvedIntentDigestForResponse = resolvedIntentDigest;
     const sessionPolicyDigest32 = request.payload.sessionPolicyDigest32;
+    const reserveNearNonces = shouldReserveNearNonceLeases(request, transactionSummary);
 
     // 1) Start NEAR context fetch + nonce reservation immediately.
     const nearContextPromise = adapters.near.fetchNearContext({
       nearAccountId,
       nearPublicKeyStr: getNearPublicKeyStr(request),
       txCount: usesNeeded,
-      reserveNonces: true,
+      reserveNonces: reserveNearNonces,
       allowFallback: false,
       operationId: request.requestId,
       operationFingerprint: resolvedIntentDigest || request.requestId,
@@ -176,7 +187,7 @@ export async function handleTransactionSigningFlow(
           error?: string;
           details?: string;
           reservedNonces?: string[];
-          nonceLease?: NonceLease;
+          nonceLeases?: NonceLease[];
         }
       | undefined;
     const applyPreparedIntentData = (prepared: IntentDigestPreparationResult): void => {
@@ -264,7 +275,7 @@ export async function handleTransactionSigningFlow(
         });
         return;
       }
-      session.setNonceLease(nearRpc.nonceLease);
+      session.setNonceLeases(nearRpc.nonceLeases);
       const transactionContext: TransactionContext = nearRpc.transactionContext;
       const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
         ? {
@@ -309,7 +320,7 @@ export async function handleTransactionSigningFlow(
           : ERROR_MESSAGES.nearRpcFailed,
       });
     }
-    session.setNonceLease(nearRpc.nonceLease);
+    session.setNonceLeases(nearRpc.nonceLeases);
     const transactionContext: TransactionContext = nearRpc.transactionContext;
 
     if (preparedIntentPromise) {
@@ -340,12 +351,9 @@ export async function handleTransactionSigningFlow(
         otpCode: normalizeSixDigitOtpCode(otpCode),
         ...(emailOtpChallengeId ? { emailOtpChallengeId } : {}),
         transactionContext,
-        ...(nearRpc.nonceLease
+        ...(nearRpc.nonceLeases?.length
           ? {
-              nonceLease: {
-                leaseId: nearRpc.nonceLease.leaseId,
-                operationId: String(nearRpc.nonceLease.operationId),
-              },
+              nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
             }
           : {}),
       });
@@ -359,12 +367,9 @@ export async function handleTransactionSigningFlow(
         intentDigest: resolvedIntentDigestForResponse,
         confirmed: true,
         transactionContext,
-        ...(nearRpc.nonceLease
+        ...(nearRpc.nonceLeases?.length
           ? {
-              nonceLease: {
-                leaseId: nearRpc.nonceLease.leaseId,
-                operationId: String(nearRpc.nonceLease.operationId),
-              },
+              nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
             }
           : {}),
       });
@@ -390,12 +395,9 @@ export async function handleTransactionSigningFlow(
       confirmed: true,
       credential: serializedCredential,
       transactionContext,
-      ...(nearRpc.nonceLease
+      ...(nearRpc.nonceLeases?.length
         ? {
-            nonceLease: {
-              leaseId: nearRpc.nonceLease.leaseId,
-              operationId: String(nearRpc.nonceLease.operationId),
-            },
+            nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
           }
         : {}),
     });

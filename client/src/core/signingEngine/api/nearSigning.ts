@@ -411,6 +411,7 @@ async function readNearTransactionWalletBudgetStatus(args: {
     return await args.preConfirmDeps.walletSigningBudgetLedger.getAvailableStatus({
       nearAccountId: args.nearAccountId,
       walletSigningSessionId,
+      targetThresholdSessionIds: [args.record.thresholdSessionId],
     });
   } catch {
     return {

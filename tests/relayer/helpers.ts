@@ -241,6 +241,7 @@ export function makeFakeAuthService(
     verifyOidcJwtExchange: AuthService['verifyOidcJwtExchange'];
     resolveOidcWalletId: AuthService['resolveOidcWalletId'];
     resolveGoogleEmailOtpSession: AuthService['resolveGoogleEmailOtpSession'];
+    recordGoogleEmailOtpRegistrationAttemptPublicKey: AuthService['recordGoogleEmailOtpRegistrationAttemptPublicKey'];
     completeGoogleEmailOtpRegistrationAttempt: AuthService['completeGoogleEmailOtpRegistrationAttempt'];
     failGoogleEmailOtpRegistrationAttempt: AuthService['failGoogleEmailOtpRegistrationAttempt'];
     cleanupGoogleEmailOtpDevRegistrationState: AuthService['cleanupGoogleEmailOtpDevRegistrationState'];
@@ -324,6 +325,8 @@ export function makeFakeAuthService(
       }),
     completeGoogleEmailOtpRegistrationAttempt:
       overrides.completeGoogleEmailOtpRegistrationAttempt || (async () => ({ ok: true })),
+    recordGoogleEmailOtpRegistrationAttemptPublicKey:
+      overrides.recordGoogleEmailOtpRegistrationAttemptPublicKey || (async () => ({ ok: true })),
     failGoogleEmailOtpRegistrationAttempt:
       overrides.failGoogleEmailOtpRegistrationAttempt || (async () => undefined),
     cleanupGoogleEmailOtpDevRegistrationState:
@@ -343,12 +346,18 @@ export function makeFakeAuthService(
           walletId: String(
             (request as { walletId?: unknown }).walletId || 'g-fake-oidc-wallet.testnet',
           ),
-          userId: 'user.testnet',
-          otpChannel: 'email_otp',
+          providerUserId: 'user.testnet',
+          orgId: 'org_fake',
+          verifiedEmail: 'user@example.com',
+          enrollmentId: 'email-otp-device-enrollment-v1:g-fake-oidc-wallet.testnet:user.testnet',
+          enrollmentVersion: '1',
           enrollmentSealKeyVersion: 'test-email-otp-key-v1',
+          signingRootId: 'email_otp_default_signing_root',
+          signingRootVersion: 'default',
           recoveryWrappedEnrollmentEscrowCount: 10,
           clientUnlockPublicKeyB64u: 'test-unlock-public-key',
           unlockKeyVersion: 'test-unlock-key-v1',
+          thresholdEcdsaClientVerifyingShareB64u: 'test-ecdsa-client-verifying-share',
           createdAtMs: 0,
           updatedAtMs: 0,
         },

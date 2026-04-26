@@ -607,6 +607,38 @@ test.describe('Email OTP routes', () => {
       });
       expect(typeof records?.[0]?.nonceB64u).toBe('string');
       expect(typeof records?.[0]?.wrappedDeviceEnrollmentEscrowB64u).toBe('string');
+      const rejectedFailureReport = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/recovery-key/attempt-failed`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            recoveryConsumeGrant: recovered.json?.recoveryConsumeGrant,
+            recoveryKey: 'must-not-be-sent',
+          }),
+        },
+      );
+      expect(rejectedFailureReport.status).toBe(400);
+      expect(rejectedFailureReport.json?.code).toBe('invalid_body');
+
+      const failureReport = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/recovery-key/attempt-failed`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            recoveryConsumeGrant: recovered.json?.recoveryConsumeGrant,
+          }),
+        },
+      );
+      expect(failureReport.status).toBe(200);
+      expect(failureReport.json).toMatchObject({
+        ok: true,
+        walletId: 'alice.testnet',
+      });
+
       const consume = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-key/consume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },

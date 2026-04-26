@@ -754,7 +754,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       const result = await signTransactionsWithActions({
         ctx: {
           indexedDB: makeIndexedDbThresholdDeps('ed25519:threshold-public-key'),
-          nonceManager: {
+          nearContextFixture: {
             initializeUser: () => undefined,
           },
           touchIdPrompt: {
@@ -919,7 +919,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       const result = await signTransactionsWithActions({
         ctx: {
           indexedDB: makeIndexedDbThresholdDeps('ed25519:threshold-public-key'),
-          nonceManager: {
+          nearContextFixture: {
             initializeUser: () => undefined,
           },
           touchIdPrompt: {
@@ -1368,7 +1368,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       await signTransactionsWithActions({
         ctx: {
           indexedDB: makeIndexedDbThresholdDeps(thresholdPublicKey),
-          nonceManager: {
+          nearContextFixture: {
             initializeUser: () => undefined,
           },
           touchIdPrompt: {

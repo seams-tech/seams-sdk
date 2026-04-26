@@ -4,7 +4,8 @@ import { setupBasicPasskeyTest } from '../setup';
 const IMPORT_PATHS = {
   signEvmWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/evm/evmSigningFlow.js',
   signTempoWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/tempo/tempoSigningFlow.js',
-  nonceManager: '/sdk/esm/core/rpcClients/evm/nonceManager.js',
+  nonceBackend: '/sdk/esm/core/rpcClients/evm/nonceBackend.js',
+  nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;
 
 test.describe('managed nonce signing flow integration', () => {
@@ -18,9 +19,14 @@ test.describe('managed nonce signing flow integration', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { signEvmWithTouchConfirm } = await import(paths.signEvmWithTouchConfirm);
-        const { createEvmNonceManager } = await import(paths.nonceManager);
+        const { createEvmNonceBackend } = await import(paths.nonceBackend);
+        const {
+          createNonceCoordinator,
+          evmNonceLeaseToManagedReservation,
+          evmReserveNonceInputToLane,
+        } = await import(paths.nonceCoordinator);
 
-        const manager = createEvmNonceManager({
+        const backend = createEvmNonceBackend({
           chains: [
             {
               network: 'arc-testnet',
@@ -35,6 +41,9 @@ test.describe('managed nonce signing flow integration', () => {
               headers: { 'content-type': 'application/json' },
             }),
         });
+        const nonceCoordinator = createNonceCoordinator({
+          evmNonceBackend: backend,
+        });
 
         const reservationBase = {
           chain: 'evm' as const,
@@ -45,6 +54,7 @@ test.describe('managed nonce signing flow integration', () => {
         };
 
         const preparedNonces: string[] = [];
+        let operationCounter = 0;
         const workerCtx = {
           requestWorkerOperation: async ({ request }: { request: any }) => {
             const type = String(request?.type || '');
@@ -89,7 +99,7 @@ test.describe('managed nonce signing flow integration', () => {
 
         const runSign = async () =>
           await signEvmWithTouchConfirm({
-            ctx: { indexedDB: {} } as any,
+            ctx: { indexedDB: {}, nonceCoordinator } as any,
             workerCtx: workerCtx as any,
             touchConfirm,
             nearAccountId: 'alice.testnet',
@@ -115,21 +125,35 @@ test.describe('managed nonce signing flow integration', () => {
               },
             } as any,
             prepareRequestWithManagedNonce: async () => {
-              const nonce = await manager.reserveNextNonce(reservationBase);
+              operationCounter += 1;
+              const operationId = `op-managed-evm-${operationCounter}`;
+              const lease = await nonceCoordinator.reserve({
+                lane: evmReserveNonceInputToLane(reservationBase),
+                operation: {
+                  operationId,
+                  operationFingerprint: `sha256:${operationId}`,
+                  intent: 'transaction_sign',
+                  accountId: 'alice.testnet',
+                  chainFamily: 'evm',
+                },
+              });
+              const reservation = evmNonceLeaseToManagedReservation(lease);
+              const nonce = reservation.nonce;
               preparedNonces.push(String(nonce));
               return {
                 request: {
                   ...baseRequest,
                   tx: { ...baseRequest.tx, nonce },
                 },
-                reservation: {
-                  ...reservationBase,
-                  nonce,
-                },
+                reservation,
               };
             },
             releaseNonceReservation: async (reservation: any) => {
-              await manager.markBroadcastRejected(reservation);
+              await nonceCoordinator.release({
+                leaseId: reservation.leaseId,
+                operationId: reservation.operationId,
+                reason: 'cancelled',
+              });
             },
           });
 
@@ -153,9 +177,14 @@ test.describe('managed nonce signing flow integration', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { signTempoWithTouchConfirm } = await import(paths.signTempoWithTouchConfirm);
-        const { createEvmNonceManager } = await import(paths.nonceManager);
+        const { createEvmNonceBackend } = await import(paths.nonceBackend);
+        const {
+          createNonceCoordinator,
+          evmNonceLeaseToManagedReservation,
+          evmReserveNonceInputToLane,
+        } = await import(paths.nonceCoordinator);
 
-        const manager = createEvmNonceManager({
+        const backend = createEvmNonceBackend({
           chains: [
             {
               network: 'tempo-testnet',
@@ -170,6 +199,9 @@ test.describe('managed nonce signing flow integration', () => {
               headers: { 'content-type': 'application/json' },
             }),
         });
+        const nonceCoordinator = createNonceCoordinator({
+          evmNonceBackend: backend,
+        });
 
         const reservationBase = {
           chain: 'tempo' as const,
@@ -181,6 +213,7 @@ test.describe('managed nonce signing flow integration', () => {
         };
 
         const preparedNonces: string[] = [];
+        let operationCounter = 0;
         const workerCtx = {
           requestWorkerOperation: async ({ request }: { request: any }) => {
             const type = String(request?.type || '');
@@ -230,7 +263,7 @@ test.describe('managed nonce signing flow integration', () => {
 
         const runSign = async () =>
           await signTempoWithTouchConfirm({
-            ctx: { indexedDB: {} } as any,
+            ctx: { indexedDB: {}, nonceCoordinator } as any,
             workerCtx: workerCtx as any,
             touchConfirm,
             nearAccountId: 'alice.testnet',
@@ -256,21 +289,35 @@ test.describe('managed nonce signing flow integration', () => {
               },
             } as any,
             prepareRequestWithManagedNonce: async () => {
-              const nonce = await manager.reserveNextNonce(reservationBase);
+              operationCounter += 1;
+              const operationId = `op-managed-tempo-${operationCounter}`;
+              const lease = await nonceCoordinator.reserve({
+                lane: evmReserveNonceInputToLane(reservationBase),
+                operation: {
+                  operationId,
+                  operationFingerprint: `sha256:${operationId}`,
+                  intent: 'transaction_sign',
+                  accountId: 'alice.testnet',
+                  chainFamily: 'tempo',
+                },
+              });
+              const reservation = evmNonceLeaseToManagedReservation(lease);
+              const nonce = reservation.nonce;
               preparedNonces.push(String(nonce));
               return {
                 request: {
                   ...baseRequest,
                   tx: { ...baseRequest.tx, nonce },
                 },
-                reservation: {
-                  ...reservationBase,
-                  nonce,
-                },
+                reservation,
               };
             },
             releaseNonceReservation: async (reservation: any) => {
-              await manager.markBroadcastRejected(reservation);
+              await nonceCoordinator.release({
+                leaseId: reservation.leaseId,
+                operationId: reservation.operationId,
+                reason: 'cancelled',
+              });
             },
           });
 

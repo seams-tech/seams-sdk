@@ -205,6 +205,12 @@ async function readEvmFamilyWalletBudgetStatus(args: {
     return await args.deps.walletSigningBudgetLedger.getAvailableStatus({
       nearAccountId: args.lane.accountId,
       walletSigningSessionId,
+      ...(args.lane.backingMaterialSessionId
+        ? { targetBackingMaterialSessionIds: [args.lane.backingMaterialSessionId] }
+        : {}),
+      ...(args.lane.thresholdSessionId
+        ? { targetThresholdSessionIds: [args.lane.thresholdSessionId] }
+        : {}),
     });
   } catch {
     return {

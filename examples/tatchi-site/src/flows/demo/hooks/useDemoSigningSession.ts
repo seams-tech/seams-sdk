@@ -21,6 +21,35 @@ export type DemoWalletSessionSnapshot = {
   signingSession: DemoSigningSessionStatus | null;
   authMethod?: string | null;
   retention?: string | null;
+  nonceDiagnostics?: DemoNonceDiagnostics | null;
+};
+
+export type DemoNonceDiagnostics = {
+  leaseCount: number;
+  laneCount: number;
+  metrics?: {
+    oldestLeaseAgeMs?: number;
+    oldestInFlightLeaseAgeMs?: number;
+    staleInFlightLeaseCount?: number;
+    staleInFlightLaneCount?: number;
+  };
+  leasesByState?: Record<string, number>;
+  lanes?: Array<{
+    family: string;
+    accountId?: string;
+    networkKey: string;
+    chain?: string;
+    chainId?: number;
+    leaseCount: number;
+    states?: Record<string, number>;
+  }>;
+  near?: {
+    hasContext: boolean;
+    reservedNonceCount: number;
+    activeAccountId?: string;
+    activePublicKey?: string;
+    lastReservedNonce?: string;
+  };
 };
 
 type UseDemoSigningSessionArgs = {
@@ -61,6 +90,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
           signingSession: sess.signingSession || null,
           authMethod: sess.authMethod || null,
           retention: sess.retention || null,
+          nonceDiagnostics: sess.nonceDiagnostics || null,
         };
         setWalletSession(snapshot);
         setSessionStatus(snapshot.signingSession);

@@ -22,6 +22,7 @@ import type { WalletSession, RegistrationResult } from '../../types/tatchi';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import { toAccountId } from '../../types/accountIds';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
+import type { NonceLeaseRef } from '../../signingEngine/nonce/NonceCoordinator';
 import {
   isPlainSignedTransactionLike,
   extractBorshBytesFromPlainSignedTx,
@@ -70,10 +71,12 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     if (candidate && isPlainSignedTransactionLike(candidate)) {
       try {
         const borsh = extractBorshBytesFromPlainSignedTx(candidate);
+        const nonceLease = (candidate as { nonceLease?: NonceLeaseRef }).nonceLease;
         return SignedTransaction.fromPlain({
           transaction: candidate.transaction,
           signature: candidate.signature,
           borsh_bytes: borsh,
+          ...(nonceLease ? { nonceLease } : {}),
         });
       } catch {
         return candidate;

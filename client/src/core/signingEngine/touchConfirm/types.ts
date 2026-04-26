@@ -6,7 +6,6 @@ import type { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import type { UserPreferencesManager } from '../api/userPreferences';
-import type { NonceManager } from '../../rpcClients/near/nonceManager';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type {
   UserConfirmDecision,
@@ -42,7 +41,6 @@ export interface TouchConfirmContext {
   nearClient: NearClient;
   indexedDB: UnifiedIndexedDBManager;
   userPreferencesManager: UserPreferencesManager;
-  nonceManager: NonceManager;
   nonceCoordinator: NonceCoordinator;
   chains?: readonly TatchiChainConfig[];
   getTheme?: () => ThemeName;

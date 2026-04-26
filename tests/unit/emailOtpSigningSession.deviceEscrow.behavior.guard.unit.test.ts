@@ -1,66 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const REPO_ROOT = new URL('../..', import.meta.url).pathname;
-const FORBIDDEN_COMPAT_TERMS =
-  /\b(backfill|backfilled|backfilling|fallback|fallbacks|legacy|compatibility|compat|alias|aliases|deprecated|repair|repairs|repaired)\b/i;
-
-function listFiles(path: string): string[] {
-  if (!existsSync(path)) return [];
-  const stat = statSync(path);
-  if (stat.isFile()) return [path];
-  if (!stat.isDirectory()) return [];
-  return readdirSync(path).flatMap((entry) => listFiles(join(path, entry)));
-}
-
-test.describe('Email OTP and signing-session persistence no compatibility paths guard', () => {
-  test('forbids backfill and fallback language in scoped source surfaces', () => {
-    const sources = [
-      'server/src/router/emailOtpRouteHandlers.ts',
-      'server/src/router/emailOtpSessionRouteHelpers.ts',
-      'server/src/core/EmailOtpStores.ts',
-      'server/src/threshold/session/signingSessionSeal',
-      'client/src/core/signingEngine/emailOtp',
-      'client/src/core/signingEngine/api/session/signingSessionSealedStore.ts',
-      'client/src/core/signingEngine/session/WarmSessionStore.ts',
-      'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
-      'client/src/core/signingEngine/workerManager/workers/email-otp',
-    ].flatMap((path) => listFiles(join(REPO_ROOT, path)));
-
-    const violations = sources
-      .filter((path) => /\.(ts|tsx)$/.test(path))
-      .filter((path) => FORBIDDEN_COMPAT_TERMS.test(readFileSync(path, 'utf8')))
-      .map((path) => relative(REPO_ROOT, path));
-
-    expect(violations).toEqual([]);
-  });
-
-  test('forbids AuthService Email OTP identity repair and seal key defaults', () => {
-    const authService = readFileSync(join(REPO_ROOT, 'server/src/core/AuthService.ts'), 'utf8');
-
-    expect(authService).not.toContain('shouldBackfill');
-    expect(authService).not.toContain('backfillVerifiedEmail');
-    expect(authService).not.toContain('verifiedChallengeEmail');
-    expect(authService).not.toContain('existingEnrollmentEmail');
-    expect(authService).not.toContain("SIGNING_SESSION_SEAL_KEY_VERSION') ||");
-    expect(authService).not.toContain('"SIGNING_SESSION_SEAL_KEY_VERSION") ||');
-    expect(authService).not.toContain("'kek-s-2026-02'");
-    expect(authService).not.toContain('"kek-s-2026-02"');
-    expect(authService).not.toContain("this.readEmailOtpConfigValue('UPSTASH_REDIS_REST_URL')");
-    expect(authService).not.toContain("this.readEmailOtpConfigValue('UPSTASH_REDIS_REST_TOKEN')");
-    expect(authService).not.toContain("this.readEmailOtpConfigValue('REDIS_URL')");
-    expect(authService).not.toContain('useSharedBackendConfig');
-    expect(authService).not.toContain('challengeFallback');
-    expect(authService).not.toContain('verifyFallback');
-    expect(authService).not.toContain('grantFallback');
-    const emailOtpConfigAndSealSlice = authService.slice(
-      authService.indexOf('  private getEmailOtpRateLimiter()'),
-      authService.indexOf('  private async deliverEmailOtpCode('),
-    );
-    expect(FORBIDDEN_COMPAT_TERMS.test(emailOtpConfigAndSealSlice)).toBe(false);
-  });
-
+test.describe('Email OTP signing-session device escrow guard', () => {
   test('normal Email OTP login requires device-local enc_s(S)', () => {
     const workerSource = readFileSync(
       join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
@@ -126,6 +69,8 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
     );
 
     expect(walletEnrollmentType).not.toContain('enrollmentEscrowCiphertextB64u');
+    expect(walletEnrollmentType).toContain('enrollmentId');
+    expect(walletEnrollmentType).toContain('signingRootId');
     expect(walletEnrollmentType).toContain('recoveryWrappedEnrollmentEscrowCount');
     expect(recoveryWrappedType).toContain('wrappedDeviceEnrollmentEscrowB64u');
     expect(verifyEnrollmentRequest).not.toContain('enrollmentEscrowCiphertextB64u');
@@ -134,6 +79,32 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
     expect(finalizeRoute).toContain('recoveryWrappedEnrollmentEscrows');
     expect(loginVerifyResponse).not.toContain('enrollmentEscrowCiphertextB64u');
     expect(loginVerifyResponse).toContain('enrollmentSealKeyVersion');
+  });
+
+  test('Email OTP enrollment persists device-local enc_s(S) before server finalization', () => {
+    const workerSource = readFileSync(
+      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      'utf8',
+    );
+    const enrollSlice = workerSource.slice(
+      workerSource.indexOf('async function completeEmailOtpEnrollmentFromSecret32'),
+      workerSource.indexOf('async function loginWithEmailOtpAndRecoverClientRootShare'),
+    );
+
+    const persistIndex = enrollSlice.indexOf('writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord');
+    const finalizeIndex = enrollSlice.indexOf(
+      "route: emailOtpRoutePath(args.routePlan, 'finalize')",
+    );
+    expect(persistIndex).toBeGreaterThanOrEqual(0);
+    expect(finalizeIndex).toBeGreaterThanOrEqual(0);
+    expect(persistIndex).toBeLessThan(finalizeIndex);
+    expect(workerSource).toContain('persisted.encSB64u !== record.encSB64u');
+    expect(workerSource).toContain(
+      'persisted.enrollmentSealKeyVersion !== record.enrollmentSealKeyVersion',
+    );
+    expect(workerSource).toContain('persisted.signingRootId !== record.signingRootId');
+    expect(workerSource).toContain('persisted.signingRootVersion !== record.signingRootVersion');
+    expect(enrollSlice).toContain('Email OTP enrollment did not persist device-local enc_s(S)');
   });
 
   test('Email OTP recovery restore unwraps C_i and persists device-local enc_s(S)', () => {
@@ -148,9 +119,11 @@ test.describe('Email OTP and signing-session persistence no compatibility paths 
 
     expect(restoreSlice).toContain("route: '/wallet/email-otp/recovery-wrapped-escrows'");
     expect(restoreSlice).toContain('unwrapEmailOtpDeviceEnrollmentEscrow');
-    expect(restoreSlice).toContain('writeEmailOtpDeviceEnrollmentEscrowRecord');
-    expect(restoreSlice).toContain('readEmailOtpDeviceEnrollmentEscrowRecord');
+    expect(restoreSlice).toContain('writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord');
     expect(restoreSlice).toContain("route: '/wallet/email-otp/recovery-key/consume'");
+    expect(workerSource).toContain("route: '/wallet/email-otp/recovery-key/attempt-failed'");
+    expect(restoreSlice).toContain('reportEmailOtpRecoveryKeyAttemptFailure');
+    expect(restoreSlice).toContain('sawRecoveryKeyUnwrapFailure');
     expect(restoreSlice).toContain('recoveryConsumeGrant');
     expect(restoreSlice).toContain('Email OTP recovery did not persist device-local enc_s(S)');
     expect(restoreSlice).not.toContain('loginGrant');

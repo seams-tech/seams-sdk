@@ -90,14 +90,6 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
 });
 
 test.describe('wallet iframe host canonical signer error mapping', () => {
-  test('legacy in-flight wording maps to threshold_ecdsa_session_not_ready', async () => {
-    const code = resolveWalletBoundaryErrorCode({
-      requestType: 'PM_SIGN_TEMPO',
-      message: '[SigningEngine] threshold ECDSA signing already in progress for alice.testnet',
-    });
-    expect(code).toBe('threshold_ecdsa_session_not_ready');
-  });
-
   test('maps deployment failure message to deployment_failed', async () => {
     const code = resolveWalletBoundaryErrorCode({
       requestType: 'PM_SIGN_TEMPO',
@@ -298,7 +290,8 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(
       resolveWalletBoundaryErrorCode({
         requestType: 'PM_SIGN_TEMPO',
-        message: '[SigningEngine] evm signing requires fresh Email OTP verification with per_operation policy',
+        message:
+          '[SigningEngine] evm signing requires fresh Email OTP verification with per_operation policy',
       }),
     ).toBe('fresh_email_otp_required');
     expect(

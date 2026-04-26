@@ -286,7 +286,6 @@ test.describe('AuthService OIDC exchange verification', () => {
     const completed = await service.completeGoogleEmailOtpRegistrationAttempt({
       registrationAttemptId: registered.registrationAttemptId,
       walletId: registered.walletId,
-      finalizedPublicKey: 'ed25519:test-public-key',
     });
     expect(completed).toEqual({ ok: true });
     await expect(identity.getUserIdBySubject('wallet:google:subject-finalize')).resolves.toBe(
@@ -309,7 +308,12 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerUserId: 'google:subject-existing-active',
       orgId: ORG_ID,
       verifiedEmail: 'existing-active@example.com',
-
+      enrollmentId:
+        'email-otp-device-enrollment-v1:existing-active-a1b2c3d4e5.relayer.testnet:google:subject-existing-active',
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
       recoveryWrappedEnrollmentEscrowCount: 10,
       clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
@@ -390,7 +394,11 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerUserId: 'google:subject-finalized-helper',
       orgId: ORG_ID,
       verifiedEmail: 'finalized-helper@example.com',
-
+      enrollmentId: `email-otp-device-enrollment-v1:${registered.walletId}:google:subject-finalized-helper`,
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
       recoveryWrappedEnrollmentEscrowCount: 10,
       clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
@@ -466,7 +474,12 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerUserId: 'google:subject-active-stable',
       orgId: ORG_ID,
       verifiedEmail: 'active-stable@example.com',
-
+      enrollmentId:
+        'email-otp-device-enrollment-v1:active-stable-b1c2d3e4f5.relayer.testnet:google:subject-active-stable',
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
       recoveryWrappedEnrollmentEscrowCount: 10,
       clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',
@@ -539,7 +552,12 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerUserId: 'google:subject-active-cleanup',
       orgId: ORG_ID,
       verifiedEmail: 'active-cleanup@example.com',
-
+      enrollmentId:
+        'email-otp-device-enrollment-v1:active.relayer.testnet:google:subject-active-cleanup',
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: 'email-key-v1',
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
       recoveryWrappedEnrollmentEscrowCount: 10,
       clientUnlockPublicKeyB64u: 'unlock-public',
       unlockKeyVersion: 'unlock-key-v1',

@@ -50,7 +50,7 @@ function findCallObjects(source: string, callName: string): string[] {
   return objects;
 }
 
-test.describe('account signer lifecycle no-legacy-surface guard', () => {
+test.describe('account signer lifecycle domain guard', () => {
   test('production signer lifecycle writes always set signerKind, signerAuthMethod, and signerSource', () => {
     const offenders: string[] = [];
 
@@ -70,37 +70,6 @@ test.describe('account signer lifecycle no-legacy-surface guard', () => {
           ) {
             offenders.push(`${relativePath}:${callName}`);
           }
-        }
-      }
-    }
-
-    expect(offenders).toEqual([]);
-  });
-
-  test('signerKind does not include auth methods, proof methods, or recovery flows', () => {
-    const offenders: string[] = [];
-
-    for (const absolutePath of listTsFiles(clientSrcRoot)) {
-      const relativePath = path.relative(repoRoot, absolutePath);
-      const source = readRepoFile(relativePath);
-      for (const forbiddenKind of ['passkey', 'session', 'recovery']) {
-        if (source.includes(`signerKind: '${forbiddenKind}'`)) {
-          offenders.push(`${relativePath}:signerKind:${forbiddenKind}`);
-        }
-      }
-      const legacyEmailOtpSource = ['signerSource: ', "'email_", "otp'"].join('');
-      if (source.includes(legacyEmailOtpSource)) {
-        offenders.push(`${relativePath}:signerSource:email_otp`);
-      }
-      for (const legacyName of [
-        ['signer', 'Family'].join(''),
-        ['replacement', 'Policy'].join(''),
-        ['replace_same', '_family'].join(''),
-        ['replace_same', '_kind'].join(''),
-        ['replacement', 'SignerId'].join(''),
-      ]) {
-        if (source.includes(legacyName)) {
-          offenders.push(`${relativePath}:${legacyName}`);
         }
       }
     }

@@ -1,7 +1,7 @@
 import type { ChainAdapter, SigningIntent, SignatureBytes } from '../../interfaces/signing';
 import { bytesToHex } from '../evm/bytes';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { ManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
+import type { ManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import type { TempoSigningRequest, TempoUnsignedTx } from './types';
 import {
   computeTempoSenderHashWasm,

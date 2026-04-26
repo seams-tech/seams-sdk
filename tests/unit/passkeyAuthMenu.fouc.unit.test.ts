@@ -134,7 +134,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     expect(remount.hasClientMenuAtFirstFrame).toBe(true);
   });
 
-  test('login mode shows passkey and Google SSO Email OTP methods without legacy email recovery CTA', async ({
+  test('login mode shows passkey and Google SSO Email OTP methods without email recovery CTA', async ({
     page,
   }) => {
     await page.evaluate(
@@ -429,10 +429,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
                         scanLabel: 'Scan key',
                         onScan: async () => '008j4ct4ank7f24snaxwsqfezw834n3p',
                       },
-                      onSubmit: async (
-                        otpCode: string,
-                        context?: { recoveryKey?: string },
-                      ) => {
+                      onSubmit: async (otpCode: string, context?: { recoveryKey?: string }) => {
                         (window as any).__otpRecoverySubmit = {
                           otpCode,
                           recoveryKey: context?.recoveryKey,

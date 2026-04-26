@@ -106,6 +106,7 @@ import type {
 import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
 import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
+import type { NonceLeaseRef } from '../../signingEngine/nonce/NonceCoordinator';
 import type {
   ThresholdEcdsaLoginPrefillResult,
   ThresholdEcdsaSessionBootstrapResult,
@@ -2109,10 +2110,12 @@ function normalizeSignedTransactionObject(result: SignTransactionResult) {
   const normalized = arr.map((entry) => {
     const st = entry?.signedTransaction;
     if (st && isPlainSignedTransactionLike(st)) {
+      const nonceLease = (st as { nonceLease?: NonceLeaseRef }).nonceLease;
       entry.signedTransaction = SignedTransaction.fromPlain({
         transaction: st.transaction,
         signature: st.signature,
         borsh_bytes: extractBorshBytesFromPlainSignedTx(st),
+        ...(nonceLease ? { nonceLease } : {}),
       });
     }
     return entry;

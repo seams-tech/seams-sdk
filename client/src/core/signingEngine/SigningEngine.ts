@@ -19,7 +19,7 @@ import { SIGNER_MATERIAL_FINGERPRINT_METADATA_KEY } from '../indexedDB/accountSi
 import { resolveProfileAccountContextFromCandidates } from '../indexedDB/profileAccountProjection';
 import type { ProfileAuthenticatorRecord } from '../indexedDB/passkeyClientDB.types';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
-import type { NonceManager } from '../rpcClients/near/nonceManager';
+import type { NonceCoordinator } from './nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '../types/accountIds';
 import type { ActionArgsWasm } from '../types/actions';
 import type { AuthenticatorOptions } from '../types/authenticatorOptions';
@@ -397,7 +397,7 @@ export class SigningEngine {
   private readonly touchIdPrompt: TouchIdPrompt;
   private readonly userPreferencesManager: UserPreferencesManager;
   private readonly nearClient: NearClient;
-  private readonly nonceManager: NonceManager;
+  private readonly nonceCoordinator: NonceCoordinator;
   private workerBaseOrigin: string = '';
   private theme: ThemeName = 'dark';
   private readonly thresholdEcdsaBootstrapQueueByAccount: Map<string, Promise<void>> = new Map();
@@ -437,7 +437,7 @@ export class SigningEngine {
 
     this.touchIdPrompt = assembly.touchIdPrompt;
     this.userPreferencesManager = assembly.userPreferencesManager;
-    this.nonceManager = assembly.nonceManager;
+    this.nonceCoordinator = assembly.nonceCoordinator;
     this.signerWorkerManager = assembly.signerWorkerManager;
     this.emailOtpSessions = new EmailOtpThresholdSessionCoordinator({
       configs: this.tatchiPasskeyConfigs,
@@ -461,7 +461,6 @@ export class SigningEngine {
       nearClient: this.nearClient,
       touchIdPrompt: this.touchIdPrompt,
       userPreferencesManager: this.userPreferencesManager,
-      nonceManager: this.nonceManager,
       nonceCoordinator: assembly.nonceCoordinator,
       touchConfirm: this.touchConfirm,
       getEmailOtpWarmSessionStatus: (sessionId) =>
@@ -821,8 +820,8 @@ export class SigningEngine {
     return this.touchIdPrompt.getRpId();
   }
 
-  getNonceManager(): NonceManager {
-    return this.nonceManager;
+  getNonceCoordinator(): NonceCoordinator {
+    return this.nonceCoordinator;
   }
 
   setTheme(next: ThemeName): void {
@@ -3399,7 +3398,7 @@ export class SigningEngine {
 
   destroy(): void {
     this.userPreferencesManager.destroy();
-    this.nonceManager.clear();
+    this.nonceCoordinator.clearAll();
     this.clearThresholdEcdsaCommitQueue();
     this.clearAllThresholdEcdsaSessionRecords();
   }
@@ -3445,7 +3444,7 @@ export type SigningEnginePublic = Pick<
   | 'setTheme'
   | 'getUserPreferences'
   | 'getRpId'
-  | 'getNonceManager'
+  | 'getNonceCoordinator'
   | 'warmCriticalResources'
   | 'assertSealedRefreshStartupParity'
   | 'signNear'

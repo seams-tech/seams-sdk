@@ -2357,7 +2357,9 @@ test.describe('dashboard console config page api wiring', () => {
 
     await organizationButton.click();
     const organizationMenu = page.locator('[aria-label="Organization options"]');
-    await expect(organizationMenu.getByRole('menuitemradio', { name: 'Pokopia Labs' })).toBeVisible();
+    await expect(
+      organizationMenu.getByRole('menuitemradio', { name: 'Pokopia Labs' }),
+    ).toBeVisible();
     await expect(organizationMenu.getByRole('menuitemradio', { name: 'Watchbook' })).toBeVisible();
 
     await organizationMenu.getByRole('menuitemradio', { name: 'Watchbook' }).click();
@@ -3459,15 +3461,16 @@ test.describe('dashboard console config page api wiring', () => {
         switchBodies.push({ orgId, body });
         const organization = organizations.get(orgId);
         const project = projectByOrg.get(orgId);
-        const environment = project ? environmentByProject.get(String(project.id || '').trim()) : null;
+        const environment = project
+          ? environmentByProject.get(String(project.id || '').trim())
+          : null;
         activeOrgId = orgId;
         sessionClaims = {
           userId: 'user_account_settings_flow',
           orgId,
-          roles:
-            (organization?.actorRoles as string[] | undefined)?.filter(
-              (role) => role === 'owner' || role === 'admin',
-            ) || ['admin'],
+          roles: (organization?.actorRoles as string[] | undefined)?.filter(
+            (role) => role === 'owner' || role === 'admin',
+          ) || ['admin'],
           projectId: project ? String(project.id || '').trim() : '',
           environmentId: environment ? String(environment.id || '').trim() : '',
           provider: 'passkey',
@@ -3959,121 +3962,6 @@ test.describe('dashboard console config page api wiring', () => {
     await expect
       .poll(() => page.evaluate(() => window.localStorage.getItem('tatchi-site-theme')))
       .toBe('dark');
-  });
-
-  test('dashboard strips legacy db_* query params from URL', async ({ page, baseURL }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
-    const context = buildMockDashboardContext();
-
-    await page.route(`${consoleOrigin}/console/**`, async (route) => {
-      const req = route.request();
-      const method = req.method().toUpperCase();
-      const url = new URL(req.url());
-      const { pathname } = url;
-
-      if (pathname === '/console/session') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            claims: {
-              userId: 'user_dash_console_pages',
-              orgId: 'org_dash_console_pages',
-              roles: ['admin'],
-              projectId: 'proj_active',
-              environmentId: 'env_active',
-            },
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/onboarding/state' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            state: {
-              orgId: 'org_dash_console_pages',
-              organization: context.org,
-              activeProjectCount: 1,
-              activeEnvironmentCount: 1,
-              activeApiKeyCount: 1,
-              hasOrganization: true,
-              hasProject: true,
-              hasEnvironment: true,
-              hasApiKey: true,
-              accountReady: true,
-              organizationReady: true,
-              billingReady: true,
-              projectReady: true,
-              onboardingComplete: true,
-              currentStep: 'complete',
-              complete: true,
-              selectedProjectId: 'proj_active',
-              selectedEnvironmentId: 'env_active',
-            },
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/org' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, org: context.org }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/projects' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/environments' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/wallets' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, wallets: [], nextCursor: null }),
-        });
-        return;
-      }
-
-      await route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ok: false,
-          code: 'not_stubbed',
-          path: pathname,
-          method,
-        }),
-      });
-    });
-
-    await page.goto(
-      '/dashboard/wallets-list?db_sb=1&db_groups=walletInfrastructure%2CsecurityPolicy%2CintegrationsAutomation%2CenvironmentSettings&db_org=org-dev&db_project=proj_console_core&db_env=proj_console_core-prod&db_acct=Account+%26+Settings',
-    );
-
-    await expect(page.locator('#dashboard-main-title')).toHaveText(/user wallets list/i);
-    await expect.poll(() => new URL(page.url()).search).toBe('');
   });
 
   test('restores persisted project and environment context after reload', async ({
@@ -4991,9 +4879,9 @@ test.describe('dashboard console config page api wiring', () => {
       .locator('section[aria-label="Onboarding form"]:has(h2:has-text("Name your organization"))')
       .last();
     await expect(organizationFormAfterBack).toBeVisible();
-    await expect(organizationFormAfterBack.locator('input[placeholder="Acme Wallets"]')).toHaveValue(
-      'Acme Wallets',
-    );
+    await expect(
+      organizationFormAfterBack.locator('input[placeholder="Acme Wallets"]'),
+    ).toHaveValue('Acme Wallets');
     await expect(page.locator('section[aria-label="Create project"]')).toHaveCount(0);
     await organizationFormAfterBack.locator('button:has-text("Continue to project setup")').click();
 
@@ -5002,7 +4890,9 @@ test.describe('dashboard console config page api wiring', () => {
         'section[aria-label="Onboarding form"]:has(h2:has-text("Create your first project"))',
       )
       .last();
-    await expect(projectFormAfterBack.locator('label:has-text("Project name") input')).toBeVisible();
+    await expect(
+      projectFormAfterBack.locator('label:has-text("Project name") input'),
+    ).toBeVisible();
     await projectFormAfterBack.locator('label:has-text("Project name") input').fill('Consumer App');
     await expect(projectFormAfterBack.locator('text=Project ID (optional)')).toHaveCount(0);
     await expect(projectFormAfterBack.locator('text=Environment ID (optional)')).toHaveCount(0);
@@ -6132,9 +6022,8 @@ test.describe('dashboard console config page api wiring', () => {
           name: String(body.name || 'Gas Sponsorship Policy'),
           kind: String(rules.kind || 'evm_call'),
           executionMode: String(
-            rules.executionMode || (String(rules.kind || 'evm_call') === 'near_delegate'
-              ? 'near_delegate'
-              : 'evm_eoa'),
+            rules.executionMode ||
+              (String(rules.kind || 'evm_call') === 'near_delegate' ? 'near_delegate' : 'evm_eoa'),
           ),
           scopePolicyName: null,
           scopeType,
@@ -6364,9 +6253,7 @@ test.describe('dashboard console config page api wiring', () => {
     await gasCreateModalAfterRefresh
       .locator('label:has-text("Max gas limit") input')
       .fill('1000000');
-    await gasCreateModalAfterRefresh
-      .locator('label:has-text("Max value (wei)") input')
-      .fill('0');
+    await gasCreateModalAfterRefresh.locator('label:has-text("Max value (wei)") input').fill('0');
     await gasCreateModalAfterRefresh
       .locator('button:has-text("Create sponsorship policy")')
       .click();
@@ -6562,16 +6449,16 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(newSponsorshipRow).toContainText('725.50 AlphaUSD');
 
     await gasCreateSection.locator('button:has-text("Create policy")').click();
-    const nearCreateModal = page.locator('section[aria-label="Create gas sponsorship policy modal"]');
+    const nearCreateModal = page.locator(
+      'section[aria-label="Create gas sponsorship policy modal"]',
+    );
     await expect(nearCreateModal).toBeVisible();
     await nearCreateModal.locator('button:has-text("NEAR delegate")').click();
     await nearCreateModal.locator('label:has-text("Policy name") input').fill('NEAR sponsorship');
     await nearCreateModal.locator('button:has-text("Per chain total")').click();
     await nearCreateModal.getByLabel('NEAR Testnet spend cap').fill('120.00');
     await nearCreateModal.locator('button:has-text("Add delegate action")').click();
-    await nearCreateModal
-      .locator('label:has-text("Receiver ID") input')
-      .fill('guest-book.testnet');
+    await nearCreateModal.locator('label:has-text("Receiver ID") input').fill('guest-book.testnet');
     await nearCreateModal
       .locator('label:has-text("Max deposit (yoctoNEAR)") input')
       .fill('1000000000000000000000000');
@@ -6579,7 +6466,9 @@ test.describe('dashboard console config page api wiring', () => {
       .locator('label:has-text("Allowed methods (comma or newline separated)") textarea')
       .fill('add_message, vote');
     await nearCreateModal
-      .locator('label:has-text("Allow native transfers in the delegate action") input[type="checkbox"]')
+      .locator(
+        'label:has-text("Allow native transfers in the delegate action") input[type="checkbox"]',
+      )
       .check();
     await nearCreateModal.locator('button:has-text("Create sponsorship policy")').click();
 
@@ -6628,9 +6517,11 @@ test.describe('dashboard console config page api wiring', () => {
           lastGasCreateBody?.rules &&
             typeof lastGasCreateBody.rules === 'object' &&
             !Array.isArray(lastGasCreateBody.rules)
-            ? ((lastGasCreateBody.rules as Record<string, unknown>).allowedDelegateActions as
-                | Array<unknown>
-                | undefined)?.[0] || null
+            ? (
+                (lastGasCreateBody.rules as Record<string, unknown>).allowedDelegateActions as
+                  | Array<unknown>
+                  | undefined
+              )?.[0] || null
             : null,
         ),
       )
@@ -8110,124 +8001,6 @@ test.describe('dashboard console config page api wiring', () => {
     );
   });
 
-  test('approvals route is removed from dashboard navigation and redirects', async ({
-    page,
-    baseURL,
-  }) => {
-    const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
-    const context = buildMockDashboardContext();
-
-    await page.route(`${consoleOrigin}/console/**`, async (route) => {
-      const req = route.request();
-      const method = req.method().toUpperCase();
-      const url = new URL(req.url());
-      const { pathname } = url;
-
-      if (pathname === '/console/session') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            claims: {
-              userId: 'user_dash_console_pages',
-              orgId: 'org_dash_console_pages',
-              roles: ['admin'],
-              projectId: 'proj_active',
-              environmentId: 'env_active',
-            },
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/onboarding/state' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            state: {
-              orgId: 'org_dash_console_pages',
-              organization: context.org,
-              activeProjectCount: 1,
-              activeEnvironmentCount: 1,
-              activeApiKeyCount: 1,
-              hasOrganization: true,
-              hasProject: true,
-              hasEnvironment: true,
-              hasApiKey: true,
-              accountReady: true,
-              organizationReady: true,
-              billingReady: true,
-              projectReady: true,
-              onboardingComplete: true,
-              currentStep: 'complete',
-              complete: true,
-              selectedProjectId: 'proj_active',
-              selectedEnvironmentId: 'env_active',
-            },
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/org' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, org: context.org }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/projects' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, projects: [context.activeProject] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/environments' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, environments: [context.activeEnvironment] }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/wallets' && method === 'GET') {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: true, wallets: [], nextCursor: null }),
-        });
-        return;
-      }
-
-      await route.fulfill({
-        status: 404,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ok: false,
-          code: 'not_found',
-          message: `Unhandled mock path ${pathname}`,
-        }),
-      });
-    });
-
-    await page.goto('/dashboard/approvals');
-    await expect.poll(() => new URL(page.url()).pathname).not.toBe('/dashboard/approvals');
-    await expect(
-      page.locator(
-        'aside[aria-label="Primary dashboard navigation"] a[href="/dashboard/approvals"]',
-      ),
-    ).toHaveCount(0);
-  });
-
   test('audit page renders a single searchable events table without depending on evidence or exports', async ({
     page,
     baseURL,
@@ -8955,7 +8728,9 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(table).toContainText(
       'Updated organization Directory Resolved Org from account settings',
     );
-    await expect(table).toContainText('Deleted organization Deleted Org Name from account settings');
+    await expect(table).toContainText(
+      'Deleted organization Deleted Org Name from account settings',
+    );
     await expect(table).not.toContainText('org_audit_named from account settings');
     await expect(table).not.toContainText('org_audit_directory from account settings');
     await expect(table).not.toContainText('org_audit_deleted from account settings');

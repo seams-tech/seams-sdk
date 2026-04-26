@@ -224,6 +224,9 @@ export async function handleEmailOtpRegistrationFinalizeRoute(input: {
     clientUnlockPublicKeyB64u: body.clientUnlockPublicKeyB64u,
     unlockKeyVersion: body.unlockKeyVersion,
     thresholdEcdsaClientVerifyingShareB64u: body.thresholdEcdsaClientVerifyingShareB64u,
+    googleEmailOtpRegistrationAttemptId: isGoogleOidcEmailOtpSession(input.claims)
+      ? toOptionalRecordString(input.claims, 'googleEmailOtpRegistrationAttemptId')
+      : undefined,
   });
 
   if (result.ok) {
@@ -556,6 +559,62 @@ export async function handleEmailOtpRecoveryKeyConsumeRoute(input: {
     walletId: walletValidation.walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
     recoveryKeyId: recoveryKeyIdValidation.value,
+    sessionHash,
+    appSessionVersion: input.appSessionVersion,
+    clientIp: input.clientIp,
+  });
+  return { status: emailOtpResultStatus(result), body: result };
+}
+
+export async function handleEmailOtpRecoveryKeyAttemptFailedRoute(input: {
+  body: unknown;
+  claims: Record<string, unknown>;
+  userId: string;
+  appSessionVersion: string;
+  clientIp?: string;
+  service: AuthService;
+}): Promise<EmailOtpRouteResponse> {
+  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
+  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
+
+  const body = bodyValidation.body;
+  for (const field of ['recoveryKey', 'recoveryKeyB64u', 'recoveryKek', 'encS', 'encSB64u']) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-key failure reports must not include recovery-key material',
+        },
+      };
+    }
+  }
+
+  const walletValidation = validateEmailOtpWalletId({
+    body,
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!walletValidation.ok) return { status: walletValidation.status, body: walletValidation.body };
+
+  const recoveryConsumeGrantValidation = validateEmailOtpRequiredString(
+    body,
+    'recoveryConsumeGrant',
+  );
+  if (!recoveryConsumeGrantValidation.ok) {
+    return {
+      status: recoveryConsumeGrantValidation.status,
+      body: recoveryConsumeGrantValidation.body,
+    };
+  }
+
+  const sessionHash = await hashEmailOtpAppSessionClaims(input.claims);
+  const result = await input.service.recordEmailOtpRecoveryKeyAttemptFailure({
+    recoveryConsumeGrant: recoveryConsumeGrantValidation.value,
+    userId: input.userId,
+    walletId: walletValidation.walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
     sessionHash,
     appSessionVersion: input.appSessionVersion,
     clientIp: input.clientIp,

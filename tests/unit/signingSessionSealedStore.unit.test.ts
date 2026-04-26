@@ -93,11 +93,11 @@ test.describe('signing session sealed store', () => {
     expect(result.rawHasJwt).toBe(false);
   });
 
-  test('fails closed on malformed/legacy record payloads', async ({ page }) => {
+  test('fails closed on malformed plaintext record payloads', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.signingSessionSealedStore);
-        const thresholdSessionId = 'sess-legacy';
+        const thresholdSessionId = 'sess-plaintext-record';
         await mod.clearAllSigningSessionSealedRecords();
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
           const req = indexedDB.open('tatchi_wallet_v1');

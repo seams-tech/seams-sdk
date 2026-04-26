@@ -68,12 +68,9 @@ test.describe('threshold-ecdsa hss transport shape', () => {
       serverEvalResponseB64u: 'server-eval-response',
     });
 
-    const parsedClient = parseThresholdEcdsaHssHiddenEvalServerResponseMessage(
-      responseMessageB64u,
-    );
-    const parsedServer = parseThresholdEcdsaHssHiddenEvalServerResponseEnvelope(
-      responseMessageB64u,
-    );
+    const parsedClient = parseThresholdEcdsaHssHiddenEvalServerResponseMessage(responseMessageB64u);
+    const parsedServer =
+      parseThresholdEcdsaHssHiddenEvalServerResponseEnvelope(responseMessageB64u);
     expect(parsedClient).toEqual(parsedServer);
     expect(Object.keys(parseClientOpaqueBase64Envelope(responseMessageB64u) || {}).sort()).toEqual([
       'ceremonyId',
@@ -91,9 +88,7 @@ test.describe('threshold-ecdsa hss transport shape', () => {
       responseMessageB64u,
       clientEvalFinalizeB64u: 'client-eval-finalize',
     });
-    const finalizeEnvelope = parseThresholdEcdsaHssHiddenEvalFinalizeEnvelope(
-      finalizeMessageB64u,
-    );
+    const finalizeEnvelope = parseThresholdEcdsaHssHiddenEvalFinalizeEnvelope(finalizeMessageB64u);
     expect(finalizeEnvelope?.kind).toBe('threshold_ecdsa_hss_hidden_eval_client_finalize_v1');
     expect(finalizeEnvelope?.ceremonyId).toBe('ceremony-4');
     expect(finalizeEnvelope?.requestDigestB64u).toBe(
@@ -127,23 +122,23 @@ test.describe('threshold-ecdsa hss transport shape', () => {
     ).rejects.toThrow(/active client request/i);
   });
 
-  test('server hidden-eval parsers reject removed cleartext staged envelopes', () => {
-    const legacyCleartextRequest = createOpaqueBase64Envelope({
+  test('server hidden-eval parsers reject non-hidden-eval envelopes', () => {
+    const cleartextRequest = createOpaqueBase64Envelope({
       v: 1,
       kind: 'threshold_ecdsa_hss_client_request_v1',
-      ceremonyId: 'legacy',
+      ceremonyId: 'cleartext',
       preparedServerSessionB64u: 'prepared',
       serverAssistInitB64u: 'assist',
       yClient32LeB64u: 'raw-client-root-share',
     });
-    const legacyCleartextResponse = createOpaqueBase64Envelope({
+    const cleartextResponse = createOpaqueBase64Envelope({
       v: 1,
       kind: 'threshold_ecdsa_hss_server_response_v1',
-      ceremonyId: 'legacy',
+      ceremonyId: 'cleartext',
       requestDigestB64u: 'digest',
     });
 
-    expect(parseThresholdEcdsaHssHiddenEvalClientRequestEnvelope(legacyCleartextRequest)).toBeNull();
-    expect(parseThresholdEcdsaHssHiddenEvalServerResponseEnvelope(legacyCleartextResponse)).toBeNull();
+    expect(parseThresholdEcdsaHssHiddenEvalClientRequestEnvelope(cleartextRequest)).toBeNull();
+    expect(parseThresholdEcdsaHssHiddenEvalServerResponseEnvelope(cleartextResponse)).toBeNull();
   });
 });

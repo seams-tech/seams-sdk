@@ -17,7 +17,7 @@ import {
   type TransactionResponse,
   type WorkerSuccessResponse,
 } from '@/core/types/signer-worker';
-import { AccountId } from '@/core/types/accountIds';
+import { AccountId, toAccountId } from '@/core/types/accountIds';
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
 import type {
   NearEd25519WarmupHook,
@@ -36,7 +36,6 @@ import {
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
-import { toAccountId } from '@/core/types/accountIds';
 import { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import {
@@ -67,6 +66,7 @@ import {
   type SigningLaneContext,
   type SigningOperationId,
 } from '../../session/signingSessionTypes';
+import type { NonceLeaseRef } from '../../nonce/NonceCoordinator';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
@@ -74,6 +74,7 @@ import {
 import type { WalletSigningBudgetLedger } from '../../session/WalletSigningBudgetLedger';
 import { createTransactionSigningBudgetFinalizer } from '../../session/TransactionSigningBudgetFinalizer';
 import { computeSigningOperationFingerprint } from '../../session/SigningOperationFingerprint';
+import { bindCallerProvidedSigningOperationIdToFingerprint } from '../../session/SigningOperationIdPayloadBinding';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -174,6 +175,7 @@ export async function signTransactionsWithActions({
 > {
   const sessionId = providedSessionId ?? generateSessionId();
   let signingOperationId = providedSigningOperationId;
+  const callerProvidedSigningOperationId = Boolean(providedSigningOperationId);
   const ensureSigningOperationId = (): SigningOperationId => {
     signingOperationId = signingOperationId || createNearTransactionSigningOperationId();
     return signingOperationId;
@@ -186,6 +188,12 @@ export async function signTransactionsWithActions({
       transactions,
     },
   });
+  if (callerProvidedSigningOperationId) {
+    bindCallerProvidedSigningOperationIdToFingerprint({
+      operationId: ensureSigningOperationId(),
+      operationFingerprint,
+    });
+  }
   const relayerUrl = ctx.relayerUrl;
   const ed25519WarmupPromise =
     ed25519Warmup?.isPending() === true
@@ -239,15 +247,6 @@ export async function signTransactionsWithActions({
     relayerUrl,
     thresholdKeyMaterial,
   });
-
-  // Ensure nonce/block context is fetched for the same access key that will sign.
-  // Threshold signing MUST use the threshold/group public key (relayer access key) for:
-  // - correct nonce reservation
-  // - relayer scope checks (/authorize expects signingPayload.transactionContext.nearPublicKeyStr == relayer key)
-  ctx.nonceManager.initializeUser(
-    toAccountId(nearAccountId),
-    signingContext.signingNearPublicKeyStr,
-  );
 
   // Normalize rpcCall to ensure required fields are present.
   const resolvedRpcCall = {
@@ -405,7 +404,9 @@ export async function signTransactionsWithActions({
 
   const intentDigest = confirmation.intentDigest;
   const transactionContext = confirmation.transactionContext;
-  const nonceLeaseRef = confirmation.nonceLease;
+  const nonceLeaseRefs = confirmation.nonceLeases || [];
+  let thresholdSignatureCreated = false;
+  let walletSpendRecorded = false;
 
   const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
     confirmation.credential as WebAuthnAuthenticationCredential | undefined;
@@ -632,13 +633,18 @@ export async function signTransactionsWithActions({
     });
   };
   const recordSuccessfulWalletSigningSessionSpend = async (): Promise<void> => {
+    if (walletSpendRecorded) return;
     const finalizer = createNearBudgetFinalizer();
-    if (!finalizer) return;
+    if (!finalizer) {
+      walletSpendRecorded = true;
+      return;
+    }
     await finalizer.recordSuccess({
       ...(ed25519WarmSessionBudgetClaimed
         ? { alreadyConsumedThresholdSessionIds: [canonicalThresholdSessionId] }
         : {}),
     });
+    walletSpendRecorded = true;
   };
   const reserveWalletSigningSessionBudget = async (): Promise<void> => {
     const finalizer = createNearBudgetFinalizer();
@@ -646,9 +652,29 @@ export async function signTransactionsWithActions({
     await finalizer.reserve();
   };
   const recordFailedWalletSigningSessionSpend = (error: unknown): void => {
+    if (walletSpendRecorded || thresholdSignatureCreated) return;
     const finalizer = createNearBudgetFinalizer();
     if (!finalizer) return;
     finalizer.recordZeroSpend(error);
+    walletSpendRecorded = true;
+  };
+  const releaseUnsignedNonceLeases = async (error: unknown): Promise<void> => {
+    if (thresholdSignatureCreated || !nonceLeaseRefs.length) return;
+    await releaseNearNonceLeases(ctx, nonceLeaseRefs, 'signing_failed').catch((releaseError) => {
+      console.warn('[SigningEngine][near][transactions] failed to release nonce leases', {
+        originalError: error instanceof Error ? error.message : String(error || ''),
+        releaseError:
+          releaseError instanceof Error ? releaseError.message : String(releaseError || ''),
+      });
+    });
+  };
+  const finalizeFailedSigningAttempt = async (error: unknown): Promise<void> => {
+    if (thresholdSignatureCreated) {
+      await recordSuccessfulWalletSigningSessionSpend();
+      return;
+    }
+    await releaseUnsignedNonceLeases(error);
+    recordFailedWalletSigningSessionSpend(error);
   };
   const buildRequestPayload = (
     xClientBaseOverride?: string,
@@ -700,17 +726,14 @@ export async function signTransactionsWithActions({
   try {
     await reserveWalletSigningSessionBudget();
     const okResponse = await executeSignRequest(requestPayload);
-    if (nonceLeaseRef) {
-      await ctx.nonceCoordinator.markSigned({
-        leaseId: nonceLeaseRef.leaseId,
-        operationId: nonceLeaseRef.operationId,
-      });
-    }
+    thresholdSignatureCreated = true;
+    await markNearNonceLeasesSigned(ctx, nonceLeaseRefs);
     const signedResults = toSignedTransactionResults({
       okResponse,
       expectedTransactionCount: transactions.length,
       nearAccountId,
       warnings,
+      nonceLeases: nonceLeaseRefs,
     });
     await recordSuccessfulWalletSigningSessionSpend();
     emitNearSigningEvent(onEvent, nearAccountId, {
@@ -772,17 +795,14 @@ export async function signTransactionsWithActions({
         });
         requestPayload = buildRequestPayload(repairedXClientBaseB64u);
         const okResponse = await executeSignRequest(requestPayload);
-        if (nonceLeaseRef) {
-          await ctx.nonceCoordinator.markSigned({
-            leaseId: nonceLeaseRef.leaseId,
-            operationId: nonceLeaseRef.operationId,
-          });
-        }
+        thresholdSignatureCreated = true;
+        await markNearNonceLeasesSigned(ctx, nonceLeaseRefs);
         const signedResults = toSignedTransactionResults({
           okResponse,
           expectedTransactionCount: transactions.length,
           nearAccountId,
           warnings,
+          nonceLeases: nonceLeaseRefs,
         });
         await recordSuccessfulWalletSigningSessionSpend();
         emitNearSigningEvent(onEvent, nearAccountId, {
@@ -806,23 +826,55 @@ export async function signTransactionsWithActions({
           console.warn(msg);
           warnings.push(msg);
           const finalError = new Error(msg);
-          recordFailedWalletSigningSessionSpend(finalError);
+          await finalizeFailedSigningAttempt(finalError);
           throw finalError;
         }
-        recordFailedWalletSigningSessionSpend(repairErr);
+        await finalizeFailedSigningAttempt(repairErr);
         throw repairErr;
       }
     }
 
     if (isThresholdSessionAuthUnavailableError(err)) {
       const finalError = new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
-      recordFailedWalletSigningSessionSpend(finalError);
+      await finalizeFailedSigningAttempt(finalError);
       throw finalError;
     }
 
-    recordFailedWalletSigningSessionSpend(err);
+    await finalizeFailedSigningAttempt(err);
     throw err;
   }
+}
+
+async function releaseNearNonceLeases(
+  ctx: SigningRuntimeDeps,
+  nonceLeases: readonly NonceLeaseRef[],
+  reason: 'cancelled' | 'auth_failed' | 'signing_failed' | 'nonce_failed',
+): Promise<void> {
+  if (!nonceLeases.length) return;
+  await Promise.all(
+    nonceLeases.map((nonceLease) =>
+      ctx.nonceCoordinator.release({
+        leaseId: nonceLease.leaseId,
+        operationId: nonceLease.operationId,
+        reason,
+      }),
+    ),
+  );
+}
+
+async function markNearNonceLeasesSigned(
+  ctx: SigningRuntimeDeps,
+  nonceLeases: readonly NonceLeaseRef[],
+): Promise<void> {
+  if (!nonceLeases.length) return;
+  await Promise.all(
+    nonceLeases.map((nonceLease) =>
+      ctx.nonceCoordinator.markSigned({
+        leaseId: nonceLease.leaseId,
+        operationId: nonceLease.operationId,
+      }),
+    ),
+  );
 }
 
 function toSignedTransactionResults(args: {
@@ -830,10 +882,12 @@ function toSignedTransactionResults(args: {
   expectedTransactionCount: number;
   nearAccountId: string;
   warnings: string[];
+  nonceLeases?: readonly NonceLeaseRef[];
 }): Array<{
   signedTransaction: SignedTransaction;
   nearAccountId: AccountId;
   logs?: string[];
+  nonceLease?: NonceLeaseRef;
 }> {
   const signedTransactions = args.okResponse.payload.signedTransactions || [];
   if (signedTransactions.length !== args.expectedTransactionCount) {
@@ -846,14 +900,18 @@ function toSignedTransactionResults(args: {
     if (!signedTx || !signedTx.transaction || !signedTx.signature) {
       throw new Error(`Incomplete signed transaction data received for transaction ${index + 1}`);
     }
+    const nonceLease = args.nonceLeases?.[index];
+    const signedTransaction = new SignedTransaction({
+      transaction: signedTx.transaction,
+      signature: signedTx.signature,
+      borsh_bytes: Array.from(signedTx.borshBytes || []),
+      ...(nonceLease ? { nonceLease } : {}),
+    });
     return {
-      signedTransaction: new SignedTransaction({
-        transaction: signedTx.transaction,
-        signature: signedTx.signature,
-        borsh_bytes: Array.from(signedTx.borshBytes || []),
-      }),
+      signedTransaction,
       nearAccountId: toAccountId(args.nearAccountId),
       logs: [...(args.okResponse.payload.logs || []), ...args.warnings],
+      ...(nonceLease ? { nonceLease } : {}),
     };
   });
 }

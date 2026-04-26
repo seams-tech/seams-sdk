@@ -382,7 +382,7 @@ test.describe('signing session architecture boundary guard', () => {
 
   test('EVM-family nonce lifecycle modules stay out of signing-session policy', () => {
     const nonceFiles = [
-      'client/src/core/signingEngine/api/evmFamily/nonceLifecycle.ts',
+      'client/src/core/signingEngine/api/evmFamily/nonceLifecycleAdapter.ts',
       'client/src/core/signingEngine/api/evmFamily/nonceResolution.ts',
       'client/src/core/signingEngine/api/evmFamily/evmNonceLifecycle.ts',
       'client/src/core/signingEngine/api/evmFamily/tempoNonceLifecycle.ts',
@@ -606,8 +606,9 @@ test.describe('signing session architecture boundary guard', () => {
     );
     expect(signingEngine).toContain('listWarmThresholdEcdsaSessionStatuses');
     expect(signingEngine).toContain(
-      '}).listEcdsaSigningSessionStatuses({ nearAccountId, chain });',
+      'this.createWarmSessionStatusReader().listEcdsaSigningSessionStatuses({',
     );
+    expect(signingEngine).toContain('nearAccountId,\n        chain,');
     expect(login).toContain('listWarmThresholdEcdsaSessionStatuses');
     expect(login).not.toContain('getWarmThresholdEcdsaSessionStatus(nearAccountId,');
   });

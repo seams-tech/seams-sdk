@@ -1,6 +1,10 @@
 import type { FinalExecutionOutcome } from '@near-js/types';
 import type { AccountId } from './accountIds';
 import type { SignedTransaction } from '../rpcClients/near/NearClient';
+import type {
+  NonceCoordinatorDiagnostics,
+  NonceLeaseRef,
+} from '../signingEngine/nonce/NonceCoordinator';
 import type { AuthenticatorOptions } from './authenticatorOptions';
 import type { ClientUserData } from '../accountData/near/types';
 import type { WasmSignedDelegate } from './signer-worker';
@@ -432,6 +436,7 @@ export interface WalletSession {
   signingSession: SigningSessionStatus | null;
   authMethod?: WalletAuthMethod | null;
   retention?: SigningSessionRetention | null;
+  nonceDiagnostics?: NonceCoordinatorDiagnostics | null;
 }
 
 export interface ActionResult {
@@ -446,6 +451,7 @@ export interface ActionResult {
 export interface SignTransactionResult {
   signedTransaction: SignedTransaction;
   nearAccountId: string;
+  nonceLease?: NonceLeaseRef;
   logs?: string[];
 }
 

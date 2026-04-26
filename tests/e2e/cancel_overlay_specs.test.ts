@@ -7,7 +7,7 @@ import {
   captureOverlay,
 } from '../wallet-iframe/harness';
 
-test.describe('Wallet iframe overlay contracts on cancel', () => {
+test.describe('Wallet iframe overlay specs on cancel', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
     await page.waitForTimeout(500);
@@ -164,7 +164,7 @@ test.describe('Wallet iframe overlay contracts on cancel', () => {
             // Cancel everything (best-effort); host emits PROGRESS('cancelled') + ERROR, and router hides even without pending
             await router.cancelAll();
 
-            // Ensure overlay contracts
+            // Ensure overlay specs
             const hidden = await waitFor(isOverlayHidden, 8000);
             const afterCancel = captureOverlayState();
 

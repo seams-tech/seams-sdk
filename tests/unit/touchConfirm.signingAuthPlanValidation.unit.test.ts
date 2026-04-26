@@ -27,7 +27,7 @@ test.describe('touchConfirm signing auth plan validation', () => {
     );
   });
 
-  test('rejects legacy signingAuthMode payload input', () => {
+  test('rejects direct signingAuthMode payload input', () => {
     expect(() =>
       validateUserConfirmRequest(
         signIntentDigestRequest({

@@ -115,7 +115,7 @@ test.describe('near signing session selection', () => {
                   }),
                 },
               },
-              nonceManager: {
+              nearContextFixture: {
                 initializeUser: () => undefined,
               },
               touchIdPrompt: {
@@ -347,7 +347,7 @@ test.describe('near signing session selection', () => {
                   }),
                 },
               },
-              nonceManager: {
+              nearContextFixture: {
                 initializeUser: () => undefined,
               },
               touchIdPrompt: {

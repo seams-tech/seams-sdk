@@ -270,14 +270,21 @@ export async function writeEmailOtpDeviceEnrollmentEscrowRecord(
     issuedAtMs: args.issuedAtMs ?? nowMs,
     updatedAtMs: args.updatedAtMs ?? nowMs,
   });
-  if (!record) return;
+  if (!record) {
+    throw new Error('Invalid Email OTP device enrollment escrow record');
+  }
 
   const db = await openEmailOtpDeviceEnrollmentEscrowDb();
-  if (!db) return;
+  if (!db) {
+    throw new Error('Email OTP device enrollment escrow IndexedDB is unavailable');
+  }
   try {
     const tx = db.transaction(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME, 'readwrite');
-    tx.objectStore(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME).put(record);
-    await transactionDone(tx).catch(() => undefined);
+    const done = transactionDone(tx);
+    await requestToPromise(
+      tx.objectStore(EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME).put(record),
+    );
+    await done;
   } finally {
     db.close();
   }

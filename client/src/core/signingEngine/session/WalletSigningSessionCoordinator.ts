@@ -63,6 +63,8 @@ export type WalletSigningSessionCoordinator = {
   getStatus(args: {
     nearAccountId: AccountId | string;
     walletSigningSessionId?: string;
+    targetBackingMaterialSessionIds?: string[];
+    targetThresholdSessionIds?: string[];
   }): Promise<SigningSessionStatus | null>;
   getLaneClaimsForAccount(
     nearAccountId: AccountId | string,
@@ -427,6 +429,12 @@ async function readClaimsForLanes(args: {
   return claims;
 }
 
+type ConsumeResultEntry = {
+  lane: DiscoveredSigningSessionLane;
+  result: WarmSessionStatusResult;
+  laneIsExplicitTarget: boolean;
+};
+
 function statusFromClaim(args: {
   walletSigningSessionId: string;
   lanes: DiscoveredSigningSessionLane[];
@@ -473,22 +481,37 @@ function assertConsumeResult(args: {
 function statusFromConsumeResults(args: {
   walletSigningSessionId: string;
   lanes: DiscoveredSigningSessionLane[];
-  results: WarmSessionStatusResult[];
+  results: ConsumeResultEntry[];
+  hasExplicitTarget: boolean;
 }): SigningSessionStatus | null {
-  if (args.results.some((result) => !result.ok && result.code === 'exhausted')) {
-    return statusFromConsumedLanes(args);
+  const relevantEntries = args.hasExplicitTarget
+    ? args.results.filter((entry) => entry.laneIsExplicitTarget)
+    : args.results;
+  const relevantResults = relevantEntries.map((entry) => entry.result);
+  const relevantLanes = relevantEntries.map((entry) => entry.lane);
+  const statusLanes = relevantLanes.length ? relevantLanes : args.lanes;
+  if (relevantResults.some((result) => !result.ok && result.code === 'exhausted')) {
+    return statusFromConsumedLanes({
+      walletSigningSessionId: args.walletSigningSessionId,
+      lanes: statusLanes,
+    });
   }
-  const okResults = args.results.filter(
+  const okResults = relevantResults.filter(
     (result): result is Extract<WarmSessionStatusResult, { ok: true }> => result.ok,
   );
   if (!okResults.length) return null;
   const remainingUses = Math.min(
     ...okResults.map((result) => Math.max(0, Math.floor(Number(result.remainingUses) || 0))),
   );
-  if (remainingUses <= 0) return statusFromConsumedLanes(args);
+  if (remainingUses <= 0) {
+    return statusFromConsumedLanes({
+      walletSigningSessionId: args.walletSigningSessionId,
+      lanes: statusLanes,
+    });
+  }
   return statusFromClaim({
     walletSigningSessionId: args.walletSigningSessionId,
-    lanes: args.lanes,
+    lanes: statusLanes,
     claim: {
       state: 'warm',
       sessionId: args.walletSigningSessionId,
@@ -584,18 +607,40 @@ export function createWalletSigningSessionCoordinator(
     async getStatus(args: {
       nearAccountId: AccountId | string;
       walletSigningSessionId?: string;
+      targetBackingMaterialSessionIds?: string[];
+      targetThresholdSessionIds?: string[];
     }): Promise<SigningSessionStatus | null> {
       const lanes = getLanesForWalletSession(args);
       if (!lanes.length) return null;
       const walletSigningSessionId =
         normalizeNonEmpty(args.walletSigningSessionId) || lanes[0].walletSigningSessionId;
-      const rawClaims = await readClaimsForLanes({ deps, lanes });
+      const targetBacking = new Set(
+        (args.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
+      );
+      const targetThreshold = new Set(
+        (args.targetThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
+      );
+      const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
+      const statusLanes = hasExplicitTarget
+        ? lanes.filter(
+            (lane) =>
+              targetBacking.has(lane.backingMaterialSessionId) ||
+              targetThreshold.has(lane.thresholdSessionId),
+          )
+        : lanes;
+      if (hasExplicitTarget && !statusLanes.length) {
+        return {
+          sessionId: walletSigningSessionId,
+          status: 'not_found',
+        };
+      }
+      const rawClaims = await readClaimsForLanes({ deps, lanes: statusLanes });
       const scopedClaims = walletScopedClaimsForLanes({
-        lanes,
+        lanes: statusLanes,
         claimsByThresholdSessionId: rawClaims,
         statusOverrides,
       });
-      const claims = lanes
+      const claims = statusLanes
         .map((lane) => scopedClaims.get(lane.thresholdSessionId) || null)
         .filter(Boolean);
       const claim =
@@ -604,7 +649,7 @@ export function createWalletSigningSessionCoordinator(
         claims.find((candidate) => candidate?.state === 'unavailable') ||
         claims.find((candidate) => candidate?.state === 'warm') ||
         null;
-      return statusFromClaim({ walletSigningSessionId, lanes, claim });
+      return statusFromClaim({ walletSigningSessionId, lanes: statusLanes, claim });
     },
 
     async consumeUse(args: WalletSigningSessionConsumeUseArgs): Promise<SigningSessionStatus> {
@@ -652,7 +697,7 @@ export function createWalletSigningSessionCoordinator(
       const lanesToConsume = lanes;
       const consumedBacking = new Set<string>();
       let skippedAlreadyConsumedBacking = false;
-      const consumeResults: WarmSessionStatusResult[] = [];
+      const consumeResults: ConsumeResultEntry[] = [];
       for (const lane of lanesToConsume) {
         const laneIsExplicitTarget =
           !hasExplicitTarget ||
@@ -673,7 +718,7 @@ export function createWalletSigningSessionCoordinator(
             sessionId: lane.backingMaterialSessionId,
             uses,
           });
-          if (result) consumeResults.push(result);
+          if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
           assertConsumeResult({
             result,
             backing: lane.backing,
@@ -684,7 +729,7 @@ export function createWalletSigningSessionCoordinator(
             sessionId: lane.backingMaterialSessionId,
             uses,
           });
-          if (result) consumeResults.push(result);
+          if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
           assertConsumeResult({
             result,
             backing: lane.backing,
@@ -716,6 +761,7 @@ export function createWalletSigningSessionCoordinator(
         walletSigningSessionId,
         lanes,
         results: consumeResults,
+        hasExplicitTarget,
       });
       // Wallet signing-session budget is shared across Ed25519 and ECDSA lanes.
       // A previous targeted consume only decremented the lane that signed, leaving

@@ -29,6 +29,7 @@ import {
   WasmTransaction,
   WasmSignature,
 } from '../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import type { NonceLeaseRef } from '@/core/signingEngine/nonce/NonceCoordinator';
 
 // re-export near-js types
 export type { AccessKeyList } from '@near-js/types';
@@ -63,26 +64,33 @@ export class SignedTransaction {
   transaction: WasmTransaction;
   signature: WasmSignature;
   borsh_bytes: number[];
+  nonceLease?: NonceLeaseRef;
 
   constructor(data: {
     transaction: WasmTransaction;
     signature: WasmSignature;
     borsh_bytes: number[];
+    nonceLease?: NonceLeaseRef;
   }) {
     this.transaction = data.transaction;
     this.signature = data.signature;
     this.borsh_bytes = data.borsh_bytes;
+    if (data.nonceLease) {
+      this.nonceLease = data.nonceLease;
+    }
   }
 
   static fromPlain(input: {
     transaction: unknown;
     signature: unknown;
     borsh_bytes: number[];
+    nonceLease?: NonceLeaseRef;
   }): SignedTransaction {
     return new SignedTransaction({
       transaction: input.transaction as WasmTransaction,
       signature: input.signature as WasmSignature,
       borsh_bytes: input.borsh_bytes,
+      ...(input.nonceLease ? { nonceLease: input.nonceLease } : {}),
     });
   }
 

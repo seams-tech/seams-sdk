@@ -185,4 +185,159 @@ test.describe('Email OTP device enrollment escrow store', () => {
     expect(result.beforeDelete?.enrollmentId).toBe('good-enrollment');
     expect(result.afterDelete).toBeNull();
   });
+
+  test('write rejects invalid records and unavailable IndexedDB before enrollment finalization can continue', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.store);
+        await mod.clearAllEmailOtpDeviceEnrollmentEscrowRecords();
+        const invalidMessage = await mod
+          .writeEmailOtpDeviceEnrollmentEscrowRecord({
+            walletId: 'alice.testnet',
+            authSubjectId: 'google-sub-1',
+            enrollmentId: 'enrollment-1',
+            enrollmentVersion: '1',
+            enrollmentSealKeyVersion: 'seal-v1',
+            signingRootId: 'root-1',
+            signingRootVersion: 'root-v1',
+            encSB64u: '',
+          })
+          .then(
+            () => '',
+            (error: unknown) => String((error as Error)?.message || error),
+          );
+
+        const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+        let unavailableMessage = '';
+        try {
+          Object.defineProperty(globalThis, 'indexedDB', {
+            configurable: true,
+            value: undefined,
+          });
+          unavailableMessage = await mod
+            .writeEmailOtpDeviceEnrollmentEscrowRecord({
+              walletId: 'alice.testnet',
+              authSubjectId: 'google-sub-1',
+              enrollmentId: 'enrollment-1',
+              enrollmentVersion: '1',
+              enrollmentSealKeyVersion: 'seal-v1',
+              signingRootId: 'root-1',
+              signingRootVersion: 'root-v1',
+              encSB64u: 'ZW5jX3Nfcy1ieXRlcw',
+            })
+            .then(
+              () => '',
+              (error: unknown) => String((error as Error)?.message || error),
+            );
+        } finally {
+          if (descriptor) {
+            Object.defineProperty(globalThis, 'indexedDB', descriptor);
+          }
+        }
+
+        return { invalidMessage, unavailableMessage };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.invalidMessage).toBe('Invalid Email OTP device enrollment escrow record');
+    expect(result.unavailableMessage).toBe(
+      'Email OTP device enrollment escrow IndexedDB is unavailable',
+    );
+  });
+
+  test('write rejects blocked IndexedDB open and transaction aborts', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.store);
+        const validRecord = {
+          walletId: 'alice.testnet',
+          authSubjectId: 'google-sub-1',
+          enrollmentId: 'enrollment-1',
+          enrollmentVersion: '1',
+          enrollmentSealKeyVersion: 'seal-v1',
+          signingRootId: 'root-1',
+          signingRootVersion: 'root-v1',
+          encSB64u: 'ZW5jX3Nfcy1ieXRlcw',
+        };
+
+        const indexedDbDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+        let blockedMessage = '';
+        try {
+          Object.defineProperty(globalThis, 'indexedDB', {
+            configurable: true,
+            value: {
+              open: () => {
+                const request: Record<string, unknown> = {};
+                setTimeout(() => {
+                  const onblocked = request.onblocked;
+                  if (typeof onblocked === 'function') onblocked.call(request, new Event('blocked'));
+                }, 0);
+                return request;
+              },
+            },
+          });
+          blockedMessage = await mod.writeEmailOtpDeviceEnrollmentEscrowRecord(validRecord).then(
+            () => '',
+            (error: unknown) => String((error as Error)?.message || error),
+          );
+        } finally {
+          if (indexedDbDescriptor) {
+            Object.defineProperty(globalThis, 'indexedDB', indexedDbDescriptor);
+          }
+        }
+
+        const transactionDescriptor = Object.getOwnPropertyDescriptor(
+          IDBDatabase.prototype,
+          'transaction',
+        );
+        let abortMessage = '';
+        try {
+          Object.defineProperty(IDBDatabase.prototype, 'transaction', {
+            configurable: true,
+            value: () => {
+              const tx: Record<string, unknown> = {
+                error: new Error('forced transaction abort'),
+                objectStore: () => ({
+                  put: () => {
+                    const request: Record<string, unknown> = { result: undefined };
+                    setTimeout(() => {
+                      const onsuccess = request.onsuccess;
+                      if (typeof onsuccess === 'function') {
+                        onsuccess.call(request, new Event('success'));
+                      }
+                      const onabort = tx.onabort;
+                      if (typeof onabort === 'function') onabort.call(tx, new Event('abort'));
+                    }, 0);
+                    return request;
+                  },
+                }),
+              };
+              return tx;
+            },
+          });
+          abortMessage = await mod.writeEmailOtpDeviceEnrollmentEscrowRecord(validRecord).then(
+            () => '',
+            (error: unknown) => String((error as Error)?.message || error),
+          );
+        } finally {
+          if (transactionDescriptor) {
+            Object.defineProperty(IDBDatabase.prototype, 'transaction', transactionDescriptor);
+          } else {
+            delete (IDBDatabase.prototype as unknown as Record<string, unknown>).transaction;
+          }
+        }
+
+        return { blockedMessage, abortMessage };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.blockedMessage).toBe(
+      'Email OTP device enrollment escrow IndexedDB is unavailable',
+    );
+    expect(result.abortMessage).toBe('forced transaction abort');
+  });
 });

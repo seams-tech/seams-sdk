@@ -31,6 +31,7 @@ import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingE
 import { sendConfirmResponse } from '../../../shared/confirmCommon';
 import { toAccountId } from '@/core/types/accountIds';
 import {
+  SigningOperationIntent,
   SigningSessionIds,
   type SigningOperationFingerprint,
   type SigningOperationId,
@@ -56,7 +57,7 @@ export async function fetchNearContext(
   error?: string;
   details?: string;
   reservedNonces?: string[];
-  nonceLease?: NonceLease;
+  nonceLeases?: NonceLease[];
 }> {
   const allowFallback = opts.allowFallback === true;
   try {
@@ -65,59 +66,74 @@ export async function fetchNearContext(
         ? opts.nearPublicKeyStr.trim()
         : '';
     if (explicitNearPublicKeyStr) {
-      ctx.nonceManager.initializeUser(toAccountId(opts.nearAccountId), explicitNearPublicKeyStr);
-      const cached = await ctx.nonceManager.getNonceBlockHashAndHeight(ctx.nearClient);
-      const transactionContext: TransactionContext = { ...cached };
       const txCount = Math.max(1, Math.floor(Number(opts.txCount) || 1));
-      const nonceLease = opts.reserveNonces
-        ? await reserveNearNonceLease(ctx, {
-            nearAccountId: opts.nearAccountId,
-            nearPublicKeyStr: explicitNearPublicKeyStr,
-            count: txCount,
-            operationId: opts.operationId,
-            operationFingerprint: opts.operationFingerprint,
-          })
-        : undefined;
-      const reservedNonces = nonceLease?.nonces.map((nonce) => String(nonce));
-      if (reservedNonces?.[0]) {
-        transactionContext.nextNonce = reservedNonces[0];
+      if (opts.reserveNonces) {
+        const { transactionContext, nonceLeases } = await reserveNearTransactionContext(ctx, {
+          nearAccountId: opts.nearAccountId,
+          nearPublicKeyStr: explicitNearPublicKeyStr,
+          count: txCount,
+          operationId: opts.operationId,
+          operationFingerprint: opts.operationFingerprint,
+        });
+        const reservedNonces = nonceLeases.map((lease) => String(lease.nonce));
+        return {
+          transactionContext,
+          reservedNonces,
+          nonceLeases,
+        };
       }
+
+      const transactionContext = await ctx.nonceCoordinator.fetchNearContext({
+        lane: createNearNonceLane(ctx, {
+          nearAccountId: opts.nearAccountId,
+          nearPublicKeyStr: explicitNearPublicKeyStr,
+        }),
+        nearClient: ctx.nearClient,
+      });
       return {
         transactionContext,
-        reservedNonces,
-        nonceLease,
       };
     }
 
-    // Prefer NonceManager when initialized (signing flows).
-    // Use cached transaction context if fresh; avoid forcing a refresh here.
-    const cached = await ctx.nonceManager.getNonceBlockHashAndHeight(ctx.nearClient);
-    // IMPORTANT: `NonceManager` returns its cached `transactionContext` object by reference.
-    // Never mutate it in-place here, otherwise concurrent signing requests can race and overwrite
-    // `nextNonce` for each other, leading to duplicate nonces (InvalidNonce) under load.
-    const transactionContext: TransactionContext = { ...cached };
-
     const txCount = opts.txCount || 1;
-    let reservedNonces: string[] | undefined;
-    let nonceLease: NonceLease | undefined;
     if (opts.reserveNonces) {
-      const nearPublicKeyStr = String(transactionContext.nearPublicKeyStr || '').trim();
+      const nearPublicKeyStr = String(ctx.nonceCoordinator.getActiveNearPublicKey() || '').trim();
       if (!nearPublicKeyStr) {
         throw new Error('NEAR nonce reservation requires nearPublicKeyStr');
       }
-      nonceLease = await reserveNearNonceLease(ctx, {
+      const { transactionContext, nonceLeases } = await reserveNearTransactionContext(ctx, {
         nearAccountId: opts.nearAccountId,
         nearPublicKeyStr,
         count: txCount,
         operationId: opts.operationId,
         operationFingerprint: opts.operationFingerprint,
       });
-      reservedNonces = nonceLease.nonces.map((nonce) => String(nonce));
-      // Provide the first reserved nonce to the worker context; worker handles per-tx assignment
-      transactionContext.nextNonce = reservedNonces[0];
+      return {
+        transactionContext,
+        reservedNonces: nonceLeases.map((lease) => String(lease.nonce)),
+        nonceLeases,
+      };
     }
 
-    return { transactionContext, reservedNonces, nonceLease };
+    // Prefer coordinator-owned NEAR context when initialized (signing flows).
+    // Use cached transaction context if fresh; avoid forcing a refresh here.
+    const nearPublicKeyStr = String(ctx.nonceCoordinator.getActiveNearPublicKey() || '').trim();
+    if (!nearPublicKeyStr) {
+      throw new Error('NEAR context fetch requires nearPublicKeyStr');
+    }
+    const cached = await ctx.nonceCoordinator.fetchNearContext({
+      lane: createNearNonceLane(ctx, {
+        nearAccountId: opts.nearAccountId,
+        nearPublicKeyStr,
+      }),
+      nearClient: ctx.nearClient,
+    });
+    // IMPORTANT: the NEAR nonce context may originate from a shared cached object.
+    // Never mutate it in-place here, otherwise concurrent signing requests can race and overwrite
+    // `nextNonce` for each other, leading to duplicate nonces (InvalidNonce) under load.
+    const transactionContext: TransactionContext = { ...cached };
+
+    return { transactionContext };
   } catch (error) {
     if (!allowFallback) {
       return {
@@ -127,7 +143,7 @@ export async function fetchNearContext(
       };
     }
 
-    // Registration or pre-login flows may not have NonceManager initialized.
+    // Registration or pre-login flows may not have coordinator NEAR context initialized.
     // Fallback: fetch latest block info directly; nonces are not required for registration/link flows.
     try {
       const block = await ctx.nearClient.viewBlock({ finality: 'final' } as BlockReference);
@@ -156,6 +172,48 @@ export async function fetchNearContext(
   }
 }
 
+async function reserveNearTransactionContext(
+  ctx: TouchConfirmContext,
+  args: {
+    nearAccountId: string;
+    nearPublicKeyStr: string;
+    count: number;
+    operationId?: string;
+    operationFingerprint?: string;
+  },
+): Promise<{ transactionContext: TransactionContext; nonceLeases: NonceLease[] }> {
+  const nearPublicKeyStr = String(args.nearPublicKeyStr || '').trim();
+  if (!nearPublicKeyStr) {
+    throw new Error('NEAR nonce reservation requires nearPublicKeyStr');
+  }
+  const { context, leases } = await ctx.nonceCoordinator.reserveNearContext({
+    lane: createNearNonceLane(ctx, {
+      nearAccountId: args.nearAccountId,
+      nearPublicKeyStr,
+    }),
+    operation: createNearNonceOperationContext({
+      nearAccountId: args.nearAccountId,
+      operationId: args.operationId,
+      operationFingerprint: args.operationFingerprint,
+    }),
+    count: Math.max(1, Math.floor(Number(args.count) || 1)),
+    nearClient: ctx.nearClient,
+  });
+  return { transactionContext: context, nonceLeases: leases };
+}
+
+function createNearNonceLane(
+  ctx: TouchConfirmContext,
+  args: { nearAccountId: string; nearPublicKeyStr: string },
+) {
+  return {
+    family: 'near' as const,
+    networkKey: resolveNearNonceNetworkKey(ctx),
+    accountId: toAccountId(args.nearAccountId),
+    publicKey: String(args.nearPublicKeyStr || '').trim(),
+  };
+}
+
 function createNearNonceOperationContext(args: {
   nearAccountId: string;
   operationId?: string;
@@ -174,39 +232,10 @@ function createNearNonceOperationContext(args: {
   return {
     operationId: operationId as SigningOperationId,
     operationFingerprint: operationFingerprint as SigningOperationFingerprint,
+    intent: SigningOperationIntent.TransactionSign,
     accountId: args.nearAccountId,
     chainFamily: 'near',
   };
-}
-
-async function reserveNearNonceLease(
-  ctx: TouchConfirmContext,
-  args: {
-    nearAccountId: string;
-    nearPublicKeyStr: string;
-    count: number;
-    operationId?: string;
-    operationFingerprint?: string;
-  },
-): Promise<NonceLease> {
-  const nearPublicKeyStr = String(args.nearPublicKeyStr || '').trim();
-  if (!nearPublicKeyStr) {
-    throw new Error('NEAR nonce reservation requires nearPublicKeyStr');
-  }
-  return await ctx.nonceCoordinator.reserve({
-    lane: {
-      family: 'near',
-      networkKey: resolveNearNonceNetworkKey(ctx),
-      accountId: args.nearAccountId,
-      publicKey: nearPublicKeyStr,
-    },
-    operation: createNearNonceOperationContext({
-      nearAccountId: args.nearAccountId,
-      operationId: args.operationId,
-      operationFingerprint: args.operationFingerprint,
-    }),
-    count: Math.max(1, Math.floor(Number(args.count) || 1)),
-  });
 }
 
 function resolveNearNonceNetworkKey(ctx: TouchConfirmContext): string {
@@ -218,14 +247,18 @@ function resolveNearNonceNetworkKey(ctx: TouchConfirmContext): string {
 
 export async function releaseReservedNonces(
   ctx: TouchConfirmContext,
-  nonceLease?: NonceLease,
+  nonceLeases?: readonly NonceLease[],
 ) {
-  if (!nonceLease) return;
-  await ctx.nonceCoordinator.release({
-    leaseId: nonceLease.leaseId,
-    operationId: nonceLease.operationId,
-    reason: 'cancelled',
-  });
+  if (!nonceLeases?.length) return;
+  await Promise.all(
+    nonceLeases.map((nonceLease) =>
+      ctx.nonceCoordinator.release({
+        leaseId: nonceLease.leaseId,
+        operationId: nonceLease.operationId,
+        reason: 'cancelled',
+      }),
+    ),
+  );
 }
 
 async function collectAuthenticationCredentialWithPRF({
@@ -407,7 +440,7 @@ export function createConfirmSession({
   transactionSummary: TransactionSummary;
   theme: ThemeName;
 }): {
-  setNonceLease: (lease?: NonceLease) => void;
+  setNonceLeases: (leases?: readonly NonceLease[]) => void;
   updateUI: (props: ConfirmUIUpdate) => void;
   promptUser: (args: {
     securityContext?: Partial<UserConfirmSecurityContext>;
@@ -426,11 +459,11 @@ export function createConfirmSession({
    */
   confirmAndCloseModal: (decision: UserConfirmDecision) => void;
 } {
-  let nonceLease: NonceLease | undefined;
+  let nonceLeases: readonly NonceLease[] | undefined;
   let confirmHandle: ConfirmUIHandle | undefined;
 
-  const setNonceLease = (lease?: NonceLease) => {
-    nonceLease = lease;
+  const setNonceLeases = (leases?: readonly NonceLease[]) => {
+    nonceLeases = leases;
   };
 
   const updateUI = (props: ConfirmUIUpdate) => {
@@ -473,14 +506,14 @@ export function createConfirmSession({
       sendConfirmResponse(worker, decision);
     } finally {
       if (!decision.confirmed) {
-        void adapters.near.releaseReservedNonces(nonceLease);
+        void adapters.near.releaseReservedNonces(nonceLeases);
       }
       adapters.ui.closeModalSafely(!!decision.confirmed, confirmHandle);
     }
   };
 
   return {
-    setNonceLease,
+    setNonceLeases,
     updateUI,
     promptUser,
     confirmAndCloseModal,

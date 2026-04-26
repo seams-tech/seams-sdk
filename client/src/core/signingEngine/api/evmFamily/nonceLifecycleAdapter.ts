@@ -1,7 +1,7 @@
 import {
   fromManagedNonceReservationSnapshot,
   type NonceLaneStatus,
-} from '@/core/rpcClients/evm/nonceManager';
+} from '@/core/rpcClients/evm/nonceBackend';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import {
   evmManagedReservationToLane,

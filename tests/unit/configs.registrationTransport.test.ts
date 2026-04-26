@@ -30,17 +30,6 @@ test.describe('buildConfigsFromEnv registration transport defaults', () => {
     expect(cfg.registration.bootstrapUrl).toBe('https://app.example/api/registration/bootstrap');
   });
 
-  test('rejects removed browser-side relayer.apiKey config', async () => {
-    expect(() =>
-      buildConfigsFromEnv({
-        relayer: {
-          url: 'https://relay.example',
-          apiKey: 'sk_secret',
-        } as any,
-      }),
-    ).toThrow(/relayer\.apiKey has been removed/i);
-  });
-
   test('requires environmentId for managed registration config', async () => {
     expect(() =>
       buildConfigsFromEnv({

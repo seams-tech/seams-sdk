@@ -78,6 +78,8 @@ export type WalletSigningBudgetLedger = {
   getAvailableStatus(input: {
     nearAccountId: AccountId | string;
     walletSigningSessionId: string;
+    targetBackingMaterialSessionIds?: readonly string[];
+    targetThresholdSessionIds?: readonly string[];
   }): Promise<SigningSessionStatus | null>;
   recordSuccess(
     input: WalletSigningBudgetLedgerRecordSuccessInput,
@@ -220,6 +222,8 @@ export function createWalletSigningBudgetLedger(
       const status = await deps.getStatus({
         nearAccountId: input.nearAccountId,
         walletSigningSessionId,
+        targetBackingMaterialSessionIds: normalizeStringList(input.targetBackingMaterialSessionIds),
+        targetThresholdSessionIds: normalizeStringList(input.targetThresholdSessionIds),
       });
       if (!status) {
         return {
@@ -369,6 +373,8 @@ async function assertWalletSigningBudgetReservationAvailable(args: {
   const status = await args.deps.getStatus({
     nearAccountId: spend.nearAccountId,
     walletSigningSessionId: spend.walletSigningSessionId,
+    targetBackingMaterialSessionIds: normalizeStringList(spend.backingMaterialSessionIds),
+    targetThresholdSessionIds: normalizeStringList(spend.thresholdSessionIds),
   });
   if (!status || status.status === 'not_found') {
     throw new Error('[WalletSigningBudgetLedger] wallet signing-session budget is not available');

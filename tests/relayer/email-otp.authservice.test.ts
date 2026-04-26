@@ -45,9 +45,28 @@ const EMAIL_OTP_RATE_LIMIT_ENV_UNSET: Record<string, string | undefined> = {
   EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS: undefined,
   EMAIL_OTP_GRANT_RATE_LIMIT_MAX: undefined,
   EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS: undefined,
+  EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX: undefined,
+  EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS: undefined,
   EMAIL_OTP_RATE_LIMIT_KEY_PREFIX: undefined,
   EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_CONTEXT: undefined,
 };
+
+function recoveryEscrowAadHashB64u(metadata: {
+  walletId: string;
+  userId: string;
+  authSubjectId: string;
+  authMethod: string;
+  enrollmentId: string;
+  enrollmentVersion: string;
+  enrollmentSealKeyVersion: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  recoveryKeyId: string;
+}): string {
+  return base64UrlEncode(
+    createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata)).digest(),
+  );
+}
 
 function randPrefix(tag: string): string {
   return `test:${tag}:${Date.now()}:${Math.random().toString(16).slice(2)}:`;
@@ -171,7 +190,11 @@ async function seedEmailOtpEnrollment(service: AuthService): Promise<void> {
     providerUserId: USER_ID,
     orgId: ORG_ID,
     verifiedEmail: EMAIL,
+    enrollmentId: RECOVERY_ENROLLMENT_ID,
+    enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
     enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+    signingRootId: RECOVERY_SIGNING_ROOT_ID,
+    signingRootVersion: RECOVERY_SIGNING_ROOT_VERSION,
     recoveryWrappedEnrollmentEscrowCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
     clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     unlockKeyVersion: 'email-otp-unlock-v1',
@@ -181,14 +204,30 @@ async function seedEmailOtpEnrollment(service: AuthService): Promise<void> {
   });
 }
 
-function makeRecoveryWrappedEnrollmentEscrows(nowMs = Date.now()) {
+function makeRecoveryWrappedEnrollmentEscrows(
+  nowMs = Date.now(),
+  scope: {
+    walletId?: string;
+    userId?: string;
+    authSubjectId?: string;
+    enrollmentId?: string;
+  } = {},
+) {
+  const walletId = scope.walletId || WALLET_ID;
+  const userId = scope.userId || USER_ID;
+  const authSubjectId = scope.authSubjectId || userId;
+  const enrollmentId =
+    scope.enrollmentId ||
+    (walletId === WALLET_ID && userId === USER_ID
+      ? RECOVERY_ENROLLMENT_ID
+      : `email-otp-device-enrollment-v1:${walletId}:${userId}`);
   return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => {
     const metadata = {
-      walletId: WALLET_ID,
-      userId: USER_ID,
-      authSubjectId: USER_ID,
+      walletId,
+      userId,
+      authSubjectId,
       authMethod: 'google_sso_email_otp',
-      enrollmentId: RECOVERY_ENROLLMENT_ID,
+      enrollmentId,
       enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
       enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
       signingRootId: RECOVERY_SIGNING_ROOT_ID,
@@ -206,9 +245,7 @@ function makeRecoveryWrappedEnrollmentEscrows(nowMs = Date.now()) {
       wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
         Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
       ),
-      aadHashB64u: base64UrlEncode(
-        createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata)).digest(),
-      ),
+      aadHashB64u: recoveryEscrowAadHashB64u(metadata),
       issuedAtMs: nowMs,
       updatedAtMs: nowMs,
     };
@@ -297,6 +334,37 @@ async function verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
     clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     unlockKeyVersion: 'email-otp-unlock-v1',
     thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+  });
+}
+
+async function verifyDeviceRecoveryChallenge(service: AuthService) {
+  const challenge = await service.createEmailOtpDeviceRecoveryChallenge({
+    userId: USER_ID,
+    walletId: WALLET_ID,
+    orgId: ORG_ID,
+    email: EMAIL,
+    otpChannel: 'email_otp',
+    sessionHash: SESSION_HASH,
+    appSessionVersion: APP_SESSION_VERSION,
+  });
+  expect(challenge.ok).toBe(true);
+  if (!challenge.ok) return challenge;
+  const outbox = await service.readEmailOtpOutboxEntry({
+    challengeId: challenge.challenge.challengeId,
+    userId: USER_ID,
+    walletId: WALLET_ID,
+  });
+  expect(outbox.ok).toBe(true);
+  if (!outbox.ok) return outbox;
+  return service.verifyEmailOtpDeviceRecoveryChallenge({
+    userId: USER_ID,
+    walletId: WALLET_ID,
+    orgId: ORG_ID,
+    challengeId: challenge.challenge.challengeId,
+    otpCode: outbox.otpCode,
+    otpChannel: 'email_otp',
+    sessionHash: SESSION_HASH,
+    appSessionVersion: APP_SESSION_VERSION,
   });
 }
 
@@ -389,6 +457,85 @@ test.describe('AuthService Email OTP policy', () => {
     expect(active.ok).toBe(true);
   });
 
+  test('Google Email OTP identity link activates after enrollment persistence', async () => {
+    process.env.ACCOUNT_ID_DERIVATION_SECRET ||= 'test-account-id-derivation-secret';
+    const service = makeService();
+    const providerSubject = 'google:subject-enrollment-activation';
+    const registered = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email: 'activation@example.com',
+      accountMode: 'register',
+      runtimePolicyScope: {
+        orgId: ORG_ID,
+        projectId: 'project_email_otp_authservice',
+        envId: 'env_email_otp_authservice',
+        signingRootVersion: 'default',
+      },
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok || registered.mode !== 'register_started') return;
+
+    const identity = (service as any).getIdentityStore();
+    await expect(identity.getUserIdBySubject(`wallet:${providerSubject}`)).resolves.toBeNull();
+
+    const recordedKey = await service.recordGoogleEmailOtpRegistrationAttemptPublicKey({
+      registrationAttemptId: registered.registrationAttemptId,
+      walletId: registered.walletId,
+      finalizedPublicKey: 'ed25519:test-public-key',
+    });
+    expect(recordedKey).toEqual({ ok: true });
+    await expect(identity.getUserIdBySubject(`wallet:${providerSubject}`)).resolves.toBeNull();
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: registered.walletId,
+      orgId: ORG_ID,
+      email: 'activation@example.com',
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: registered.walletId,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) return;
+
+    const verified = await service.verifyEmailOtpEnrollment({
+      userId: providerSubject,
+      walletId: registered.walletId,
+      orgId: ORG_ID,
+      challengeId: challenge.challenge.challengeId,
+      otpCode: outbox.otpCode,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+      recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows(Date.now(), {
+        walletId: registered.walletId,
+        userId: providerSubject,
+      }),
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      unlockKeyVersion: 'email-otp-unlock-v1',
+      thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      googleEmailOtpRegistrationAttemptId: registered.registrationAttemptId,
+    });
+    expect(verified.ok).toBe(true);
+    await expect(identity.getUserIdBySubject(`wallet:${providerSubject}`)).resolves.toBe(
+      registered.walletId,
+    );
+    await expect(
+      (service as any).getEmailOtpRegistrationAttemptStore().get(registered.registrationAttemptId),
+    ).resolves.toMatchObject({
+      state: 'active',
+      finalizedPublicKey: 'ed25519:test-public-key',
+    });
+  });
+
   test('Email OTP enrollment rejects duplicate recovery key ids', async () => {
     const service = makeService();
     const escrows = makeRecoveryWrappedEnrollmentEscrows();
@@ -447,6 +594,59 @@ test.describe('AuthService Email OTP policy', () => {
       'Recovery-wrapped enrollment escrow aadHashB64u does not match metadata',
     );
     expect(await (service as any).getEmailOtpWalletEnrollmentStore().get(WALLET_ID)).toBeNull();
+  });
+
+  test('Email OTP recovery scopes active escrows by enrollment and signing-root identity', async () => {
+    const service = makeService();
+    await enrollRecoveryWallet(service);
+    const stale = makeRecoveryWrappedEnrollmentEscrows()[0];
+    const staleMetadata = {
+      walletId: stale.walletId,
+      userId: stale.userId,
+      authSubjectId: stale.authSubjectId,
+      authMethod: stale.authMethod,
+      enrollmentId: 'email-otp-device-enrollment-v1:old-enrollment',
+      enrollmentVersion: stale.enrollmentVersion,
+      enrollmentSealKeyVersion: stale.enrollmentSealKeyVersion,
+      signingRootId: 'old-signing-root',
+      signingRootVersion: stale.signingRootVersion,
+      recoveryKeyId: 'stale-recovery-key',
+    };
+    await (service as any).getEmailOtpRecoveryWrappedEnrollmentEscrowStore().put({
+      ...stale,
+      ...staleMetadata,
+      nonceB64u: base64UrlEncode(Uint8Array.from([9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9])),
+      aadHashB64u: recoveryEscrowAadHashB64u(staleMetadata),
+    });
+
+    const recovered = await verifyDeviceRecoveryChallenge(service);
+    expect(recovered?.ok).toBe(true);
+    if (!recovered?.ok) return;
+    expect(recovered.recoveryWrappedEnrollmentEscrows).toHaveLength(EMAIL_OTP_RECOVERY_KEY_COUNT);
+    expect(
+      recovered.recoveryWrappedEnrollmentEscrows.some(
+        (record) => record.recoveryKeyId === 'stale-recovery-key',
+      ),
+    ).toBe(false);
+    expect(recovered.enrollment).toMatchObject({
+      enrollmentId: RECOVERY_ENROLLMENT_ID,
+      enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
+      signingRootId: RECOVERY_SIGNING_ROOT_ID,
+      signingRootVersion: RECOVERY_SIGNING_ROOT_VERSION,
+    });
+
+    const staleConsume = await service.consumeEmailOtpRecoveryKey({
+      recoveryConsumeGrant: recovered.recoveryConsumeGrant,
+      recoveryKeyId: 'stale-recovery-key',
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(staleConsume.ok).toBe(false);
+    if (staleConsume.ok) return;
+    expect(staleConsume.code).toBe('recovery_key_binding_mismatch');
   });
 
   test('Email OTP login challenges bind export_key operation through verification', async () => {
@@ -839,7 +1039,11 @@ test.describe('AuthService Email OTP policy', () => {
         providerUserId: USER_ID,
         orgId: ORG_ID,
         verifiedEmail: EMAIL,
+        enrollmentId: RECOVERY_ENROLLMENT_ID,
+        enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
         enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+        signingRootId: RECOVERY_SIGNING_ROOT_ID,
+        signingRootVersion: RECOVERY_SIGNING_ROOT_VERSION,
         recoveryWrappedEnrollmentEscrowCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
         clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
         unlockKeyVersion: 'unlock-v1',
@@ -1498,6 +1702,63 @@ test.describe('AuthService Email OTP policy', () => {
         expect(consume2.ok).toBe(false);
         if (consume2.ok) return;
         expect(consume2.code).toBe('rate_limited');
+      },
+    );
+  });
+
+  test('Email OTP rate limits failed recovery-key attempts without consuming the recovery grant', async () => {
+    await withEnv(
+      {
+        EMAIL_OTP_RATE_LIMITER_KIND: 'in-memory',
+        EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX: '1',
+        EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS: '60000',
+      },
+      async () => {
+        const service = makeService();
+        await enrollRecoveryWallet(service);
+
+        const recovered = await verifyDeviceRecoveryChallenge(service);
+        expect(recovered.ok).toBe(true);
+        if (!recovered.ok) return;
+
+        const failureReport = await service.recordEmailOtpRecoveryKeyAttemptFailure({
+          recoveryConsumeGrant: recovered.recoveryConsumeGrant,
+          userId: USER_ID,
+          walletId: WALLET_ID,
+          orgId: ORG_ID,
+          sessionHash: SESSION_HASH,
+          appSessionVersion: APP_SESSION_VERSION,
+          clientIp: '203.0.113.42',
+        });
+        expect(failureReport.ok).toBe(true);
+
+        const consume = await service.consumeEmailOtpRecoveryKey({
+          recoveryConsumeGrant: recovered.recoveryConsumeGrant,
+          recoveryKeyId: recovered.recoveryWrappedEnrollmentEscrows[0]?.recoveryKeyId,
+          userId: USER_ID,
+          walletId: WALLET_ID,
+          orgId: ORG_ID,
+          sessionHash: SESSION_HASH,
+          appSessionVersion: APP_SESSION_VERSION,
+          clientIp: '203.0.113.42',
+        });
+        expect(consume.ok).toBe(true);
+
+        const recoveredAgain = await verifyDeviceRecoveryChallenge(service);
+        expect(recoveredAgain.ok).toBe(true);
+        if (!recoveredAgain.ok) return;
+        const limited = await service.recordEmailOtpRecoveryKeyAttemptFailure({
+          recoveryConsumeGrant: recoveredAgain.recoveryConsumeGrant,
+          userId: USER_ID,
+          walletId: WALLET_ID,
+          orgId: ORG_ID,
+          sessionHash: SESSION_HASH,
+          appSessionVersion: APP_SESSION_VERSION,
+          clientIp: '203.0.113.42',
+        });
+        expect(limited.ok).toBe(false);
+        if (limited.ok) return;
+        expect(limited.code).toBe('rate_limited');
       },
     );
   });

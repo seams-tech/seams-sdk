@@ -2,6 +2,7 @@ import React from 'react';
 
 import Refresh from '@/components/icons/Refresh';
 import type {
+  DemoNonceDiagnostics,
   DemoSigningSessionStatus,
   DemoWalletSessionSnapshot,
 } from '../hooks/useDemoSigningSession';
@@ -44,6 +45,45 @@ function formatTtl(args: {
   return args.expiresInSec > 0 ? `${args.expiresInSec}s` : '0s';
 }
 
+function formatNonceStateSummary(diagnostics: DemoNonceDiagnostics | null): string {
+  if (!diagnostics) return '-';
+  const stateOrder = [
+    'reserved',
+    'signed',
+    'broadcast_accepted',
+    'broadcast_rejected',
+    'finalized',
+    'expired',
+    'signed_lease_expired',
+    'dropped',
+    'replaced',
+  ];
+  const states = diagnostics.leasesByState || {};
+  const parts = stateOrder
+    .map((state) => {
+      const count = states[state] || 0;
+      if (count <= 0) return '';
+      return `${state}:${count}`;
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(' ') : 'idle';
+}
+
+function formatNearNonceContext(diagnostics: DemoNonceDiagnostics | null): string {
+  if (!diagnostics?.near) return '-';
+  if (!diagnostics.near.hasContext) return 'No context';
+  const reserved = diagnostics.near.reservedNonceCount || 0;
+  return reserved > 0 ? `Ready, ${reserved} held` : 'Ready';
+}
+
+function formatStaleNonceLanes(diagnostics: DemoNonceDiagnostics | null): string {
+  if (!diagnostics?.metrics) return '-';
+  const staleLanes = diagnostics.metrics.staleInFlightLaneCount || 0;
+  const staleLeases = diagnostics.metrics.staleInFlightLeaseCount || 0;
+  if (staleLanes <= 0 && staleLeases <= 0) return '0';
+  return `${staleLanes} lanes, ${staleLeases} leases`;
+}
+
 function statusTone(args: {
   walletSession: DemoWalletSessionSnapshot | null;
   signingSession: DemoSigningSessionStatus | null;
@@ -69,6 +109,9 @@ export function WalletSessionStatusIndicator(
     props.walletSession?.authMethod ||
     props.walletSession?.login.authMethod;
   const retention = props.signingSession?.retention || props.walletSession?.retention || '-';
+  const nonceDiagnostics = props.walletSession?.nonceDiagnostics || null;
+  const nonceStateSummary = formatNonceStateSummary(nonceDiagnostics);
+  const staleNonceSummary = formatStaleNonceLanes(nonceDiagnostics);
 
   return (
     <section className="wallet-session-status" aria-label="Wallet session status">
@@ -112,6 +155,36 @@ export function WalletSessionStatusIndicator(
           <span className="wallet-session-status__label">Retention</span>
           <span className="wallet-session-status__value">{String(retention || '-')}</span>
         </div>
+        <div className="wallet-session-status__metric">
+          <span className="wallet-session-status__label">Nonce Leases</span>
+          <span className="wallet-session-status__value">
+            {nonceDiagnostics ? nonceDiagnostics.leaseCount : '-'}
+          </span>
+        </div>
+        <div className="wallet-session-status__metric">
+          <span className="wallet-session-status__label">Nonce Lanes</span>
+          <span className="wallet-session-status__value">
+            {nonceDiagnostics ? nonceDiagnostics.laneCount : '-'}
+          </span>
+        </div>
+        <div className="wallet-session-status__metric">
+          <span className="wallet-session-status__label">Nonce State</span>
+          <span className="wallet-session-status__value" title={nonceStateSummary}>
+            {nonceStateSummary}
+          </span>
+        </div>
+        <div className="wallet-session-status__metric">
+          <span className="wallet-session-status__label">Near Nonce</span>
+          <span className="wallet-session-status__value">
+            {formatNearNonceContext(nonceDiagnostics)}
+          </span>
+        </div>
+        <div className="wallet-session-status__metric">
+          <span className="wallet-session-status__label">Nonce Stale</span>
+          <span className="wallet-session-status__value" title={staleNonceSummary}>
+            {staleNonceSummary}
+          </span>
+        </div>
       </div>
 
       <button
@@ -130,4 +203,3 @@ export function WalletSessionStatusIndicator(
     </section>
   );
 }
-

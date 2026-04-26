@@ -3,7 +3,7 @@ import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
 import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
-import type { NonceCoordinator } from '../nonce/NonceCoordinator';
+import type { NonceCoordinator, NonceOperationContext } from '../nonce/NonceCoordinator';
 import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
 import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
 import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
@@ -26,6 +26,7 @@ import type {
 import type { SignerWorkerManagerContext } from '../workerManager';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
 import {
+  SigningOperationIntent,
   type SigningLaneContext,
   type SigningOperationFingerprint,
   type SigningOperationId,
@@ -57,6 +58,7 @@ import {
   recordFailedEvmFamilyWalletSigningSessionSpend,
   recordSuccessfulEvmFamilyWalletSigningSessionSpend,
   reserveEvmFamilyWalletSigningSessionBudget,
+  type EvmFamilyTransactionSigningOperationContext,
 } from './evmFamily/budgetSpending';
 import { applySuccessfulEvmFamilyEcdsaPostSignPolicy } from './evmFamily/postSignPolicy';
 import { executeEvmFamilyTransactionSigning } from './evmFamily/transactionExecutor';
@@ -65,6 +67,7 @@ import { createEvmFamilySigningFlowRuntime } from './evmFamily/signingFlowRuntim
 import { maybeRetryEvmFamilyWithFreshEmailOtpAuth } from './evmFamily/freshEmailOtpRetry';
 import { emitEvmFamilySigningEvent } from './evmFamily/events';
 import {
+  bindEvmFamilyCallerProvidedOperationIdToFingerprint,
   createEvmFamilySigningOperationIds,
   ensureEvmFamilyConfirmationOperationId,
   type EvmFamilySigningOperationIds,
@@ -85,7 +88,7 @@ export {
   reportEvmFamilyBroadcastRejected,
   reportEvmFamilyDroppedOrReplaced,
   reportEvmFamilyFinalized,
-} from './evmFamily/nonceLifecycle';
+} from './evmFamily/nonceLifecycleAdapter';
 
 export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
@@ -230,8 +233,14 @@ async function signEvmFamilyAttempt(
         request: args.request,
       },
     });
+  bindEvmFamilyCallerProvidedOperationIdToFingerprint(operationIds, operationFingerprint);
   const ensureConfirmationOperationId = (): SigningOperationId =>
     ensureEvmFamilyConfirmationOperationId(operationIds);
+  const createTransactionSigningOperation = (): EvmFamilyTransactionSigningOperationContext => ({
+    operationId: ensureConfirmationOperationId(),
+    operationFingerprint,
+    intent: SigningOperationIntent.TransactionSign,
+  });
   let confirmationDisplayed = false;
   const markConfirmationDisplayed = (): SigningOperationId => {
     confirmationDisplayed = true;
@@ -410,8 +419,7 @@ async function signEvmFamilyAttempt(
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
-      confirmationOperationId: ensureConfirmationOperationId(),
-      operationFingerprint,
+      operation: createTransactionSigningOperation(),
       ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
       ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
       ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
@@ -425,8 +433,7 @@ async function signEvmFamilyAttempt(
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
-      confirmationOperationId: ensureConfirmationOperationId(),
-      operationFingerprint,
+      operation: createTransactionSigningOperation(),
       ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
       ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
       ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
@@ -440,8 +447,7 @@ async function signEvmFamilyAttempt(
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
-      confirmationOperationId: ensureConfirmationOperationId(),
-      operationFingerprint,
+      operation: createTransactionSigningOperation(),
       error,
       ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
       ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
@@ -465,21 +471,21 @@ async function signEvmFamilyAttempt(
       ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
     });
   };
+  const nonceOperation: NonceOperationContext = {
+    ...createTransactionSigningOperation(),
+    accountId: args.nearAccountId,
+    chainFamily: args.request.chain,
+    ...(ecdsaSigningLane?.walletSigningSessionId
+      ? { walletSigningSessionId: String(ecdsaSigningLane.walletSigningSessionId) }
+      : {}),
+  };
 
   return await executeEvmFamilyTransactionSigning({
     deps,
     nearAccountId: args.nearAccountId,
     request: args.request,
     flowArgs,
-    nonceOperation: {
-      operationId: ensureConfirmationOperationId(),
-      operationFingerprint,
-      accountId: args.nearAccountId,
-      chainFamily: args.request.chain,
-      ...(ecdsaSigningLane?.walletSigningSessionId
-        ? { walletSigningSessionId: String(ecdsaSigningLane.walletSigningSessionId) }
-        : {}),
-    },
+    nonceOperation,
     onConfirmationDisplayed: markConfirmationDisplayed,
     reserveWalletSigningSessionBudget,
     recordSuccessfulWalletSigningSessionSpend,

@@ -24,7 +24,7 @@ test.describe('UserConfirm worker router', () => {
           nearClient: {},
           indexedDB: {},
           userPreferencesManager: {},
-          nonceManager: {},
+          nearContextFixture: {},
         } as any);
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
@@ -113,7 +113,7 @@ test.describe('UserConfirm worker router', () => {
           nearClient: {},
           indexedDB: {},
           userPreferencesManager: {},
-          nonceManager: {},
+          nearContextFixture: {},
         } as any);
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
@@ -178,7 +178,7 @@ test.describe('UserConfirm worker router', () => {
           nearClient: {},
           indexedDB: {},
           userPreferencesManager: {},
-          nonceManager: {},
+          nearContextFixture: {},
         } as any);
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
@@ -291,7 +291,7 @@ test.describe('UserConfirm worker router', () => {
           nearClient: {},
           indexedDB: {},
           userPreferencesManager: {},
-          nonceManager: {},
+          nearContextFixture: {},
         } as any);
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
@@ -375,7 +375,7 @@ test.describe('UserConfirm worker router', () => {
           nearClient: {},
           indexedDB: {},
           userPreferencesManager: {},
-          nonceManager: {},
+          nearContextFixture: {},
         } as any);
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
@@ -444,7 +444,7 @@ test.describe('UserConfirm worker router', () => {
             nearClient: {},
             indexedDB: {},
             userPreferencesManager: {},
-            nonceManager: {},
+            nearContextFixture: {},
           } as any,
         );
 
@@ -570,7 +570,7 @@ test.describe('UserConfirm worker router', () => {
             nearClient: {},
             indexedDB: {},
             userPreferencesManager: {},
-            nonceManager: {},
+            nearContextFixture: {},
           } as any,
         );
 
@@ -708,7 +708,7 @@ test.describe('UserConfirm worker router', () => {
             nearClient: {},
             indexedDB: {},
             userPreferencesManager: {},
-            nonceManager: {},
+            nearContextFixture: {},
           } as any,
         );
 
@@ -901,7 +901,7 @@ test.describe('UserConfirm worker router', () => {
             nearClient: {},
             indexedDB: {},
             userPreferencesManager: {},
-            nonceManager: {},
+            nearContextFixture: {},
           } as any,
         );
 
@@ -1019,7 +1019,7 @@ test.describe('UserConfirm worker router', () => {
             nearClient: {},
             indexedDB: {},
             userPreferencesManager: {},
-            nonceManager: {},
+            nearContextFixture: {},
           } as any,
         );
 
@@ -1125,7 +1125,7 @@ test.describe('UserConfirm worker router', () => {
           nearClient: {},
           indexedDB: {},
           userPreferencesManager: {},
-          nonceManager: {},
+          nearContextFixture: {},
         } as any;
 
         const managerA = mod.createTouchConfirmManager(baseConfig, baseContext);
@@ -1254,7 +1254,7 @@ test.describe('UserConfirm worker router', () => {
             nearClient: {},
             indexedDB: {},
             userPreferencesManager: {},
-            nonceManager: {},
+            nearContextFixture: {},
           } as any,
         );
 
@@ -1401,7 +1401,7 @@ test.describe('UserConfirm worker router', () => {
           nearClient: {},
           indexedDB: {},
           userPreferencesManager: {},
-          nonceManager: {},
+          nearContextFixture: {},
         } as any;
 
         const managerA = mod.createTouchConfirmManager(baseConfig, baseContext);
@@ -1578,7 +1578,7 @@ test.describe('UserConfirm worker router', () => {
             nearClient: {},
             indexedDB: {},
             userPreferencesManager: {},
-            nonceManager: {},
+            nearContextFixture: {},
           } as any,
         );
 
@@ -1675,7 +1675,7 @@ test.describe('UserConfirm worker router', () => {
             nearClient: {},
             indexedDB: {},
             userPreferencesManager: {},
-            nonceManager: {},
+            nearContextFixture: {},
           } as any,
         );
 
@@ -1758,7 +1758,7 @@ test.describe('UserConfirm worker router', () => {
             nearClient: {},
             indexedDB: {},
             userPreferencesManager: {},
-            nonceManager: {},
+            nearContextFixture: {},
           } as any,
         );
 
@@ -1859,7 +1859,7 @@ test.describe('UserConfirm worker router', () => {
           nearClient: {},
           indexedDB: {},
           userPreferencesManager: {},
-          nonceManager: {},
+          nearContextFixture: {},
         } as any);
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
@@ -1956,7 +1956,7 @@ test.describe('UserConfirm worker router', () => {
           nearClient: {},
           indexedDB: {},
           userPreferencesManager: {},
-          nonceManager: {},
+          nearContextFixture: {},
         } as any);
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {

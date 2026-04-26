@@ -148,15 +148,6 @@ export async function signDelegateAction({
     warnings,
   });
 
-  // Ensure nonce/block context is fetched for the same access key that will sign.
-  // Threshold signing MUST use the threshold/group public key (relayer access key) for:
-  // - correct nonce reservation
-  // - relayer scope checks (/authorize expects signingPayload.delegate.publicKey == relayer key)
-  ctx.nonceManager.initializeUser(
-    toAccountId(nearAccountId),
-    signingContext.signingNearPublicKeyStr,
-  );
-
   const usesNeeded = 1;
   const thresholdAuthPlan = signingContext.threshold
     ? await resolveNearThresholdSigningAuthPlan({

@@ -1,7 +1,7 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
+import type { NonceCoordinator } from '../../nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { WebAuthnRegistrationCredential } from '@/core/types';
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
@@ -20,7 +20,10 @@ import type { IDBPDatabase } from 'idb';
 export type RegistrationAccountLifecycleDeps = {
   indexedDB: UnifiedIndexedDBManager;
   userPreferencesManager: Pick<UserPreferencesManager, 'setCurrentUser' | 'reloadUserSettings'>;
-  nonceManager: Pick<NonceManager, 'initializeUser' | 'prefetchBlockheight'>;
+  nonceCoordinator: Pick<
+    NonceCoordinator,
+    'initializeNearAccessKey' | 'prefetchNearContext'
+  >;
   extractCosePublicKey: (attestationObjectBase64url: string) => Promise<Uint8Array>;
 };
 
@@ -189,16 +192,19 @@ export async function initializeCurrentUser(
   // Ensure confirmation preferences are loaded before callers read them (best-effort)
   await deps.userPreferencesManager.reloadUserSettings().catch(() => undefined);
 
-  // Initialize NonceManager with the selected operational NEAR key (best-effort)
+  // Initialize the coordinator's NEAR access-key lane with the selected operational key.
   const userData = await readNearUserData(deps, accountId, signerSlotToUse);
   if (userData && userData.operationalPublicKey) {
-    deps.nonceManager.initializeUser(accountId, userData.operationalPublicKey);
+    deps.nonceCoordinator.initializeNearAccessKey({
+      accountId,
+      publicKey: userData.operationalPublicKey,
+    });
   }
 
   // Prefetch block height for better UX (non-fatal if it fails and nearClient is provided)
   if (args.nearClient) {
-    await deps.nonceManager
-      .prefetchBlockheight(args.nearClient)
+    await deps.nonceCoordinator
+      .prefetchNearContext({ nearClient: args.nearClient })
       .catch((prefetchErr) =>
         console.debug(
           'Nonce prefetch after authentication state initialization failed (non-fatal):',

@@ -903,12 +903,30 @@ export async function getWalletSession(
     login.authMethod ||
     (login.isLoggedIn && login.publicKey ? 'passkey' : null);
   const retention = signingSession?.retention || null;
+  const nonceDiagnostics = readWalletSessionNonceDiagnostics(context, login.nearAccountId);
   return {
     login: { ...login, authMethod },
     signingSession,
     authMethod,
     retention,
+    nonceDiagnostics,
   };
+}
+
+function readWalletSessionNonceDiagnostics(
+  context: PasskeyManagerContext,
+  nearAccountId?: AccountId | string | null,
+): WalletSession['nonceDiagnostics'] {
+  const accountId = String(nearAccountId || '').trim();
+  if (!accountId) return null;
+  try {
+    return context.signingEngine.getNonceCoordinator().getDiagnostics({
+      accountId,
+      emitMetrics: true,
+    });
+  } catch {
+    return null;
+  }
 }
 
 const THRESHOLD_ECDSA_LOGIN_METADATA_CHAINS: ReadonlyArray<'tempo' | 'evm'> = [
@@ -1313,7 +1331,7 @@ export async function lock(context: PasskeyManagerContext): Promise<void> {
   const { signingEngine } = context;
   await IndexedDBManager.clientDB.clearLastProfileSelection().catch(() => undefined);
   try {
-    signingEngine.getNonceManager().clear();
+    signingEngine.getNonceCoordinator().clearAll();
   } catch {}
   try {
     signingEngine.clearThresholdEcdsaCommitQueue();

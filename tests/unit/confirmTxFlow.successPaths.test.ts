@@ -7,11 +7,91 @@ const IMPORT_PATHS = {
   types: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js',
   localOnly: '/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/localOnly.js',
   litRegistry: '/sdk/esm/core/signingEngine/touchConfirm/ui/registry.js',
+  nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;
 
 test.describe('confirmTxFlow – success paths', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
+    await page.evaluate((nonceCoordinatorPath) => {
+      (globalThis as any).__attachTestNonceCoordinator = async (ctx: any) => {
+        const nonceCoordinatorMod = await import(nonceCoordinatorPath);
+        const nearContextFixture = ctx.nearContextFixture || (ctx.nearContextFixture = {});
+        if (typeof nearContextFixture.getNonceBlockHashAndHeight !== 'function') {
+          nearContextFixture.getNonceBlockHashAndHeight = async () => ({
+            nearPublicKeyStr: nearContextFixture.nearPublicKeyStr || 'ed25519:test-public-key',
+            accessKeyInfo: { nonce: 30, permission: 'FullAccess' },
+            nextNonce: '31',
+            txBlockHeight: '1',
+            txBlockHash: 'test-block',
+          });
+        }
+        if (typeof nearContextFixture.reserveNonces !== 'function') {
+          nearContextFixture.__nextNonce = Number(nearContextFixture.__nextNonce || 31);
+          nearContextFixture.__reservedNonces = nearContextFixture.__reservedNonces || new Set();
+          nearContextFixture.reserveNonces = (count: number) =>
+            Array.from({ length: count }, () => {
+              const nonce = String(nearContextFixture.__nextNonce++);
+              nearContextFixture.__reservedNonces.add(nonce);
+              return nonce;
+            });
+          nearContextFixture.releaseNonce = (nonce: string) =>
+            nearContextFixture.__reservedNonces.delete(nonce);
+          nearContextFixture.releaseAllNonces = () => nearContextFixture.__reservedNonces.clear();
+        }
+        if (typeof nearContextFixture.clear !== 'function') {
+          nearContextFixture.clear = () => {};
+        }
+        const nearClient = ctx.nearClient || (ctx.nearClient = {});
+        if (typeof nearClient.viewAccessKey !== 'function') {
+          nearClient.viewAccessKey = async () => {
+            const context = await nearContextFixture.getNonceBlockHashAndHeight(nearClient);
+            nearContextFixture.__lastContext = context;
+            return context.accessKeyInfo || { nonce: 30, permission: 'FullAccess' };
+          };
+        }
+        if (typeof nearClient.viewBlock !== 'function') {
+          nearClient.viewBlock = async () => {
+            const context =
+              nearContextFixture.__lastContext ||
+              (await nearContextFixture.getNonceBlockHashAndHeight(nearClient));
+            return {
+              header: {
+                height: Number(context.txBlockHeight || 1),
+                hash: String(context.txBlockHash || 'test-block'),
+              },
+            };
+          };
+        }
+        ctx.nonceCoordinator = nonceCoordinatorMod.createNonceCoordinator({
+          evmNonceBackend: {
+            fetchChainNonce: async () => 0n,
+          },
+          nearClient,
+          onTrace: (event: any) => {
+            if (event?.lease?.lane?.family !== 'near') return;
+            if (event.event === 'nonce_lease_reserved') {
+              nearContextFixture.__observedReserveIds =
+                nearContextFixture.__observedReserveIds || new Set();
+              if (!nearContextFixture.__observedReserveIds.has(event.lease.leaseId)) {
+                nearContextFixture.__observedReserveIds.add(event.lease.leaseId);
+                nearContextFixture.reserveNonces?.(1);
+              }
+            }
+            if (event.event === 'nonce_lease_released') {
+              nearContextFixture.releaseNonce?.(String(event.lease.nonce));
+            }
+          },
+        });
+        if (nearContextFixture.nearPublicKeyStr) {
+          ctx.nonceCoordinator.initializeNearAccessKey({
+            accountId: nearContextFixture.nearAccountId || 'test-near-context.testnet',
+            publicKey: nearContextFixture.nearPublicKeyStr,
+          });
+        }
+        return ctx.nonceCoordinator;
+      };
+    }, IMPORT_PATHS.nonceCoordinator);
   });
 
   test('LocalOnly: decryptPrivateKeyWithPrf returns credential (no prfOutput)', async ({
@@ -77,7 +157,7 @@ test.describe('confirmTxFlow – success paths', () => {
             },
           },
           // not used in LocalOnly branch
-          nonceManager: {},
+          nearContextFixture: {},
           nearClient: {},
           touchConfirmManager: {},
         };
@@ -284,7 +364,8 @@ test.describe('confirmTxFlow – success paths', () => {
               autoProceedDelay: 0,
             }),
           },
-          nonceManager: {
+          nearContextFixture: {
+            nearPublicKeyStr: 'pk',
             async getNonceBlockHashAndHeight(_nc: any, _opts?: any) {
               return {
                 nearPublicKeyStr: 'pk',
@@ -350,6 +431,7 @@ test.describe('confirmTxFlow – success paths', () => {
             },
           },
         };
+        await (globalThis as any).__attachTestNonceCoordinator(ctx);
 
         const request = {
           requestId: 'r2',
@@ -414,7 +496,7 @@ test.describe('confirmTxFlow – success paths', () => {
               autoProceedDelay: 0,
             }),
           },
-          nonceManager: {
+          nearContextFixture: {
             async getNonceBlockHashAndHeight(_nc: any, _opts?: any) {
               return {
                 nearPublicKeyStr: 'pk',
@@ -493,6 +575,7 @@ test.describe('confirmTxFlow – success paths', () => {
             },
           },
         };
+        await (globalThis as any).__attachTestNonceCoordinator(ctx);
 
         const request = {
           requestId: 'r3',
@@ -500,7 +583,9 @@ test.describe('confirmTxFlow – success paths', () => {
           summary: {},
           payload: {
             intentDigest: 'intent-1',
+            signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
             nearAccountId: 'carol.testnet',
+            nearPublicKeyStr: 'pk',
             txSigningRequests: [{ receiverId: 'x', actions: [] }],
             rpcCall: {
               method: 'sign',
@@ -548,6 +633,7 @@ test.describe('confirmTxFlow – success paths', () => {
         const types = await import(paths.types);
         const handle = mod.handlePromptFromWorker as Function;
 
+        const reserved: string[] = [];
         const ctx: any = {
           userPreferencesManager: {
             getConfirmationConfig: () => ({
@@ -556,7 +642,7 @@ test.describe('confirmTxFlow – success paths', () => {
               autoProceedDelay: 0,
             }),
           },
-          nonceManager: {
+          nearContextFixture: {
             async getNonceBlockHashAndHeight(_nc: any, _opts?: any) {
               return {
                 nearPublicKeyStr: 'pk-nep413',
@@ -567,6 +653,7 @@ test.describe('confirmTxFlow – success paths', () => {
               };
             },
             reserveNonces(_n: number) {
+              reserved.push('11');
               return ['11'];
             },
             releaseNonce(_n: string) {},
@@ -634,13 +721,16 @@ test.describe('confirmTxFlow – success paths', () => {
             },
           },
         };
+        await (globalThis as any).__attachTestNonceCoordinator(ctx);
 
         const request = {
           requestId: 'r-nep',
           type: types.UserConfirmationType.SIGN_NEP413_MESSAGE,
           summary: {},
           payload: {
+            signingAuthPlan: { kind: 'passkeyReauth', method: 'passkey' },
             nearAccountId: 'nep.testnet',
+            nearPublicKeyStr: 'pk-nep413',
             message: 'hello-world',
             recipient: 'receiver.testnet',
             nearRpcUrl: 'https://rpc.custom.testnet',
@@ -663,6 +753,7 @@ test.describe('confirmTxFlow – success paths', () => {
           error: resp?.error,
           prf: resp?.prfOutput,
           tx: resp?.transactionContext,
+          reserved,
         };
       },
       { paths: IMPORT_PATHS },
@@ -670,6 +761,7 @@ test.describe('confirmTxFlow – success paths', () => {
 
     expect(result.confirmed, result.error || 'unknown error').toBe(true);
     expect(result.tx?.nextNonce).toBe('11');
+    expect(result.reserved).toEqual([]);
     // NEP-413 signing also must not expose PRF output.
     expect(result.prf).toBeUndefined();
   });

@@ -1,7 +1,7 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
+import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { getLastLoggedInSignerSlot } from '../signers/webauthn/device/signerSlot';
 
@@ -9,7 +9,7 @@ export type WorkerResourceWarmupDeps = {
   workerBaseOrigin: string;
   indexedDB: UnifiedIndexedDBManager;
   nearClient: NearClient;
-  nonceManager: Pick<NonceManager, 'prefetchBlockheight'>;
+  nonceCoordinator: Pick<NonceCoordinator, 'prefetchNearContext'>;
   prewarmWorkers: () => Promise<void>;
   initializeTouchConfirm: () => Promise<void>;
   prewarmTouchConfirmUi: () => Promise<void>;
@@ -37,8 +37,10 @@ export async function warmCriticalResources(
     await deps.initializeCurrentUser(toAccountId(nearAccountId), deps.nearClient).catch(() => null);
   }
 
-  // Prefetch latest block/nonce context (best-effort).
-  await deps.nonceManager.prefetchBlockheight(deps.nearClient).catch(() => null);
+  // Prefetch latest block/nonce context through the coordinator (best-effort).
+  await deps.nonceCoordinator
+    .prefetchNearContext({ nearClient: deps.nearClient })
+    .catch(() => null);
 
   // Best-effort: open IndexedDB and warm key data for the account.
   if (nearAccountId) {

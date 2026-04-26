@@ -26,8 +26,8 @@ import {
   type EvmSignedResult,
 } from '@/core/signingEngine/chainAdaptors/evm/evmAdapter';
 import type { EvmSigningRequest } from '@/core/signingEngine/chainAdaptors/evm/types';
-import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceManager';
-import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
+import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
+import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
 import { buildEvmDisplayModel } from '@/core/signingEngine/touchConfirm/displayFormat/evmTx';
 import {

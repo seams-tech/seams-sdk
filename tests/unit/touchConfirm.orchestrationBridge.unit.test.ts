@@ -50,17 +50,17 @@ test.describe('touchConfirm orchestration manager bridge', () => {
           },
         },
       } as any,
-      sessionId: 'session-fallback',
+      sessionId: 'session-bridge',
       chain: 'near',
       kind: 'intentDigest',
       signerAccountId: 'alice.testnet',
       challengeB64u: 'AQ',
-      intentDigest: 'intent-fallback',
+      intentDigest: 'intent-bridge',
       signingAuthPlan: passkeyPlan,
     });
 
     expect(managerCalls).toBe(1);
-    expect(result.intentDigest).toBe('intent-fallback');
+    expect(result.intentDigest).toBe('intent-bridge');
   });
 
   test('throws when manager request bridge is unavailable', async () => {
@@ -170,7 +170,7 @@ test.describe('touchConfirm orchestration manager bridge', () => {
     }
   });
 
-  test('near warmSession transaction can be driven by signingAuthPlan without legacy mode', async () => {
+  test('near warmSession transaction can be driven by signingAuthPlan only', async () => {
     const sessionId = 'session-near-warm-plan';
     let capturedRequest: any;
 

@@ -1,8 +1,6 @@
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import { NonceManager } from '@/core/rpcClients/near/nonceManager';
-import NonceManagerInstance from '@/core/rpcClients/near/nonceManager';
-import { createEvmNonceManager } from '@/core/rpcClients/evm/nonceManager';
+import { createEvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
 import {
   createNonceCoordinator,
   type NonceCoordinator,
@@ -23,7 +21,6 @@ import UserPreferencesInstance from '../api/userPreferences';
 export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
-  nonceManager: NonceManager;
   nonceCoordinator: NonceCoordinator;
   touchConfirm: TouchConfirmRuntimeBridgePort;
   signerWorkerManager: SignerWorkerManager;
@@ -40,14 +37,13 @@ export function createManagerAssembly(args: {
     true,
   );
   const userPreferencesManager = UserPreferencesInstance;
-  const nonceManager = NonceManagerInstance;
   const chains = args.tatchiPasskeyConfigs.network.chains;
-  const evmNonceManager = createEvmNonceManager({
+  const evmNonceBackend = createEvmNonceBackend({
     chains,
   });
   const nonceCoordinator = createNonceCoordinator({
-    evmNonceManager,
-    nearNonceManager: nonceManager,
+    evmNonceBackend,
+    nearClient: args.nearClient,
   });
   const nearExplorerUrl = resolvePrimaryExplorerUrl(chains, 'near');
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');
@@ -71,7 +67,6 @@ export function createManagerAssembly(args: {
       nearClient: args.nearClient,
       indexedDB: IndexedDBManager,
       userPreferencesManager: userPreferencesManager,
-      nonceManager: nonceManager,
       nonceCoordinator: nonceCoordinator,
       chains,
       rpIdOverride: touchIdPrompt.getRpId(),
@@ -87,7 +82,6 @@ export function createManagerAssembly(args: {
     touchConfirm,
     args.nearClient,
     userPreferencesManager,
-    nonceManager,
     nonceCoordinator,
     args.tatchiPasskeyConfigs.network.relayer.url,
     chains,
@@ -102,7 +96,6 @@ export function createManagerAssembly(args: {
   return {
     touchIdPrompt,
     userPreferencesManager,
-    nonceManager,
     nonceCoordinator,
     touchConfirm,
     signerWorkerManager,

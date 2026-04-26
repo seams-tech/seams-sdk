@@ -167,41 +167,6 @@ function makeSeedWallet(input: {
   };
 }
 
-const REMOVED_BILLING_SETTLEMENT_ROUTE_CASES: Array<{
-  method: 'GET' | 'POST';
-  path: string;
-  body?: Record<string, unknown>;
-}> = [
-  {
-    method: 'POST',
-    path: '/console/billing/stripe/payment-intent',
-    body: { invoiceId: 'inv_removed' },
-  },
-  {
-    method: 'POST',
-    path: '/console/billing/stripe/payment-intents/pi_removed/reconcile',
-    body: { providerStatus: 'FAILED' },
-  },
-  { method: 'GET', path: '/console/billing/stablecoins/assets' },
-  {
-    method: 'POST',
-    path: '/console/billing/stablecoins/quotes',
-    body: { invoiceId: 'inv_removed', asset: 'USDC', chain: 'Ethereum' },
-  },
-  {
-    method: 'POST',
-    path: '/console/billing/stablecoins/payment-intents',
-    body: { invoiceId: 'inv_removed', quoteId: 'quote_removed' },
-  },
-  { method: 'GET', path: '/console/billing/stablecoins/payment-intents/scpi_removed' },
-  { method: 'POST', path: '/console/billing/stablecoins/payment-intents/scpi_removed/cancel' },
-  {
-    method: 'POST',
-    path: '/console/billing/stablecoins/payment-intents/scpi_removed/reconcile',
-    body: { observedAmountMinor: 0, observedConfirmations: 0 },
-  },
-];
-
 async function seedOrgProjectEnvironment(
   service: ConsoleOrgProjectEnvService,
   input: {
@@ -1785,7 +1750,11 @@ test.describe('console router (express)', () => {
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService();
     const auditExports: ConsoleAuditExportsService = createInMemoryConsoleAuditExportsService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-audit-read-role-1', 'user-audit-read-role-1'),
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-audit-read-role-1',
+        'user-audit-read-role-1',
+      ),
       audit,
       auditExports,
     });
@@ -3751,7 +3720,11 @@ test.describe('console router (express)', () => {
       ],
     });
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-wallet-read-role-1', 'user-wallet-read-role-1'),
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-wallet-read-role-1',
+        'user-wallet-read-role-1',
+      ),
       wallets,
     });
     const srv = await startExpressRouter(router);
@@ -5512,27 +5485,6 @@ test.describe('console router (express)', () => {
     }
   });
 
-  test('legacy billing settlement routes are removed (express)', async () => {
-    const router = createConsoleRouter({});
-    const srv = await startExpressRouter(router);
-    try {
-      for (const routeCase of REMOVED_BILLING_SETTLEMENT_ROUTE_CASES) {
-        const res = await fetchJson(`${srv.baseUrl}${routeCase.path}`, {
-          method: routeCase.method,
-          ...(routeCase.body
-            ? {
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(routeCase.body),
-              }
-            : {}),
-        });
-        expect(res.status, `${routeCase.method} ${routeCase.path}`).toBe(404);
-      }
-    } finally {
-      await srv.close();
-    }
-  });
-
   test('POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service', async () => {
     const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
     const srv = await startExpressRouter(router);
@@ -5810,10 +5762,7 @@ test.describe('console router (express)', () => {
         'Admin Express',
       ]);
       expect(teamMembers.map((entry) => String(entry?.access || ''))).toEqual(['OWNER', 'ADMIN']);
-      expect(teamMembers.map((entry) => String(entry?.status || ''))).toEqual([
-        'ACTIVE',
-        'ACTIVE',
-      ]);
+      expect(teamMembers.map((entry) => String(entry?.status || ''))).toEqual(['ACTIVE', 'ACTIVE']);
     } finally {
       await srv.close();
     }
@@ -6006,40 +5955,6 @@ test.describe('console router (express)', () => {
       );
       expect(String(adjustmentAudit?.metadata?.note || '')).toBe('Applied by platform admin');
       expect(String(adjustmentAudit?.metadata?.platformBilling || '')).toBe('true');
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('legacy billing subscription route is removed', async () => {
-    const router = createConsoleRouter({ auth: makeConsoleAuthAdapter(['admin']) });
-    const srv = await startExpressRouter(router);
-    try {
-      const res = await fetchJson(`${srv.baseUrl}/console/billing/subscription`, {
-        method: 'GET',
-      });
-      expect(res.status).toBe(404);
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('legacy billing subscription lifecycle routes are removed', async () => {
-    const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing: createInMemoryConsoleBillingService(),
-    });
-    const srv = await startExpressRouter(router);
-    try {
-      const canceled = await fetchJson(`${srv.baseUrl}/console/billing/subscription/cancel`, {
-        method: 'POST',
-      });
-      expect(canceled.status).toBe(404);
-
-      const resumed = await fetchJson(`${srv.baseUrl}/console/billing/subscription/resume`, {
-        method: 'POST',
-      });
-      expect(resumed.status).toBe(404);
     } finally {
       await srv.close();
     }
@@ -6766,7 +6681,11 @@ test.describe('console router (express)', () => {
   test('billing read routes require billing read role', async () => {
     const billing = createInMemoryConsoleBillingService();
     const router = createConsoleRouter({
-      auth: makeConsoleAuthAdapter(['developer'], 'org-billing-read-role-1', 'user-billing-read-role-1'),
+      auth: makeConsoleAuthAdapter(
+        ['developer'],
+        'org-billing-read-role-1',
+        'user-billing-read-role-1',
+      ),
       billing,
     });
     const srv = await startExpressRouter(router);
@@ -11757,18 +11676,6 @@ test.describe('console router (cloudflare)', () => {
     expect(oversizedSortKey.json?.code).toBe('invalid_query');
   });
 
-  test('legacy billing settlement routes are removed (cloudflare)', async () => {
-    const handler = createCloudflareConsoleRouter({});
-    for (const routeCase of REMOVED_BILLING_SETTLEMENT_ROUTE_CASES) {
-      const res = await callCf(handler, {
-        method: routeCase.method,
-        path: routeCase.path,
-        ...(routeCase.body ? { body: routeCase.body } : {}),
-      });
-      expect(res.status, `${routeCase.method} ${routeCase.path}`).toBe(404);
-    }
-  });
-
   test('POST /console/billing/stripe/checkout-session returns billing_not_configured without billing service', async () => {
     const handler = createCloudflareConsoleRouter({
       auth: makeConsoleAuthAdapter(['admin']),
@@ -12014,10 +11921,7 @@ test.describe('console router (cloudflare)', () => {
       'Admin Cloudflare',
     ]);
     expect(teamMembers.map((entry) => String(entry?.access || ''))).toEqual(['OWNER', 'ADMIN']);
-    expect(teamMembers.map((entry) => String(entry?.status || ''))).toEqual([
-      'ACTIVE',
-      'ACTIVE',
-    ]);
+    expect(teamMembers.map((entry) => String(entry?.status || ''))).toEqual(['ACTIVE', 'ACTIVE']);
   });
 
   test('GET /console/platform/billing/search finds organization matches for platform_admin', async () => {
@@ -12188,41 +12092,9 @@ test.describe('console router (cloudflare)', () => {
     expect(String(adjustmentAudit?.metadata?.organizationId || '')).toBe(
       'org-platform-adjust-target-cloudflare',
     );
-    expect(String(adjustmentAudit?.metadata?.organizationName || '')).toBe(
-      'Default Organization',
-    );
+    expect(String(adjustmentAudit?.metadata?.organizationName || '')).toBe('Default Organization');
     expect(String(adjustmentAudit?.metadata?.note || '')).toBe('Applied by platform admin');
     expect(String(adjustmentAudit?.metadata?.platformBilling || '')).toBe('true');
-  });
-
-  test('legacy billing subscription route is removed', async () => {
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-    });
-    const res = await callCf(handler, {
-      method: 'GET',
-      path: '/console/billing/subscription',
-    });
-    expect(res.status).toBe(404);
-  });
-
-  test('legacy billing subscription lifecycle routes are removed', async () => {
-    const handler = createCloudflareConsoleRouter({
-      auth: makeConsoleAuthAdapter(['admin']),
-      billing: createInMemoryConsoleBillingService(),
-    });
-
-    const canceled = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/subscription/cancel',
-    });
-    expect(canceled.status).toBe(404);
-
-    const resumed = await callCf(handler, {
-      method: 'POST',
-      path: '/console/billing/subscription/resume',
-    });
-    expect(resumed.status).toBe(404);
   });
 
   test('POST /console/billing/stripe/webhook requires configured shared secret', async () => {

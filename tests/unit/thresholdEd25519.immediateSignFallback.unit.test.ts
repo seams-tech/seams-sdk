@@ -126,7 +126,7 @@ function createNearThresholdRuntimeCtx({
         }),
       },
     },
-    nonceManager: {
+    nearContextFixture: {
       initializeUser: () => undefined,
     },
     touchIdPrompt: {
@@ -256,7 +256,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               }),
             },
           },
-          nonceManager: {
+          nearContextFixture: {
             initializeUser: () => undefined,
           },
           touchIdPrompt: {
@@ -503,7 +503,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               }),
             },
           },
-          nonceManager: {
+          nearContextFixture: {
             initializeUser: () => undefined,
           },
           touchIdPrompt: {
@@ -760,7 +760,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 }),
               },
             },
-            nonceManager: {
+            nearContextFixture: {
               initializeUser: () => undefined,
             },
             touchIdPrompt: {
@@ -922,7 +922,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               }),
             },
           },
-          nonceManager: {
+          nearContextFixture: {
             initializeUser: () => undefined,
           },
           touchIdPrompt: {

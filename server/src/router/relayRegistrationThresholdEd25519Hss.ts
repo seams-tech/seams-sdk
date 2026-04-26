@@ -307,6 +307,24 @@ export const handleRelayRegistrationThresholdEd25519HssFinalize: RelayRegistrati
   if (!result.ok) return routeJson(400, result);
 
   const body = isPlainObject(input.body) ? input.body : {};
+  const googleEmailOtpRegistrationAttemptId =
+    body.google_email_otp_registration_attempt_id ??
+    body.googleEmailOtpRegistrationAttemptId ??
+    body.registrationAttemptId;
+  const recordedGoogleAttempt =
+    await input.services.authService.recordGoogleEmailOtpRegistrationAttemptPublicKey({
+      registrationAttemptId: googleEmailOtpRegistrationAttemptId,
+      walletId: body.new_account_id,
+      finalizedPublicKey: result.publicKey,
+    });
+  if (!recordedGoogleAttempt.ok) {
+    return routeJson(409, {
+      ok: false,
+      code: recordedGoogleAttempt.code,
+      message: recordedGoogleAttempt.message,
+    });
+  }
+
   const provisioning = await ensureRegistrationAccountProvisioning({
     body,
     authService: input.services.authService,
@@ -314,30 +332,11 @@ export const handleRelayRegistrationThresholdEd25519HssFinalize: RelayRegistrati
   });
   if (!provisioning.ok) {
     await input.services.authService.failGoogleEmailOtpRegistrationAttempt({
-      registrationAttemptId:
-        body.google_email_otp_registration_attempt_id ??
-        body.googleEmailOtpRegistrationAttemptId ??
-        body.registrationAttemptId,
+      registrationAttemptId: googleEmailOtpRegistrationAttemptId,
       walletId: body.new_account_id,
       failureCode: (provisioning.response.body as { code?: unknown }).code,
     });
     return provisioning.response;
-  }
-
-  const completed = await input.services.authService.completeGoogleEmailOtpRegistrationAttempt({
-    registrationAttemptId:
-      body.google_email_otp_registration_attempt_id ??
-      body.googleEmailOtpRegistrationAttemptId ??
-      body.registrationAttemptId,
-    walletId: body.new_account_id,
-    finalizedPublicKey: result.publicKey,
-  });
-  if (!completed.ok) {
-    return routeJson(409, {
-      ok: false,
-      code: completed.code,
-      message: completed.message,
-    });
   }
 
   await input.services.authService.recordNearPublicKeyMetadata({

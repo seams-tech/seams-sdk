@@ -1,4 +1,4 @@
-import type { ReserveNonceInput } from '@/core/rpcClients/evm/nonceManager';
+import type { ReserveNonceInput } from '@/core/rpcClients/evm/nonceBackend';
 import {
   evmNonceLeaseToManagedReservation,
   evmReserveNonceInputToLane,
@@ -7,7 +7,7 @@ import {
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 import { mapToRetryableNonceStateError } from './errors';
 import type { EvmFamilyManagedNonceReservation } from './events';
-import type { EvmFamilyNonceLifecycleDeps } from './nonceLifecycle';
+import type { EvmFamilyNonceLifecycleDeps } from './nonceLifecycleAdapter';
 import {
   resolveManagedNonceSender,
   resolveNonceNetworkKey,

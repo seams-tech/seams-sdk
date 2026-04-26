@@ -4,7 +4,7 @@ import {
   encodeEip1559SignedTxFromSignature65Wasm,
 } from '../../signers/wasm/ethSignerWasm';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { ManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
+import type { ManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { bytesToHex } from './bytes';
 import type { Eip1559UnsignedTx, EvmSigningRequest } from './types';
 

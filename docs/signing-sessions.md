@@ -236,7 +236,7 @@ Finalization bugs are usually post-broadcast issues, not signing failures.
 
 Primary implementation:
 
-- `client/src/core/rpcClients/evm/nonceManager.ts`
+- `client/src/core/rpcClients/evm/nonceBackend.ts`
 - `client/src/core/signingEngine/api/evmSigning.ts`
 
 Critical rules:

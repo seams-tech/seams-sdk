@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
-import type { EvmNonceManager } from '@/core/rpcClients/evm/nonceManager';
-import { fromManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
+import type { EvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
+import type { NearClient } from '@/core/rpcClients/near/NearClient';
+import { fromManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import {
   createNonceCoordinator,
   evmNonceLeaseToManagedReservation,
@@ -8,55 +9,43 @@ import {
   type EvmNonceLane,
   type NearNonceLane,
 } from '@/core/signingEngine/nonce/NonceCoordinator';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSessionTypes';
+import {
+  SigningOperationIntent,
+  SigningSessionIds,
+} from '@/core/signingEngine/session/signingSessionTypes';
 
 const TEST_SENDER = `0x${'22'.repeat(20)}` as const;
 
-function createFakeEvmNonceManager(calls: unknown[]): EvmNonceManager {
+function createFakeEvmNonceBackend(calls: unknown[], nonce = 7n): EvmNonceBackend {
   return {
-    reserveNextNonce: async (input) => {
-      calls.push({ fn: 'reserveNextNonce', input });
-      return 7n;
-    },
-    markBroadcastAccepted: async (input) => {
-      calls.push({ fn: 'markBroadcastAccepted', input });
-    },
-    markBroadcastRejected: async (input) => {
-      calls.push({ fn: 'markBroadcastRejected', input });
-    },
-    markFinalized: async (input) => {
-      calls.push({ fn: 'markFinalized', input });
-    },
-    markDroppedOrReplaced: async (input) => {
-      calls.push({ fn: 'markDroppedOrReplaced', input });
-    },
-    reconcileLane: async (input) => {
-      calls.push({ fn: 'reconcileLane', input });
-      return {
-        chainNextNonce: 8n,
-        unresolvedInFlightNonces: [],
-        blocked: false,
-      };
-    },
-    clearForAccount: (nearAccountId) => {
-      calls.push({ fn: 'clearForAccount', nearAccountId });
+    fetchChainNonce: async (input) => {
+      calls.push({ fn: 'fetchChainNonce', input });
+      return nonce;
     },
   };
 }
 
-function createFakeNearNonceManager(calls: unknown[]) {
+function createFakeNearClient(calls: unknown[], nonce = 30): NearClient {
   return {
-    reserveNonces: (count: number) => {
-      calls.push({ fn: 'near.reserveNonces', count });
-      return Array.from({ length: count }, (_, index) => String(31 + index));
+    viewAccessKey: async (accountId: string, publicKey: string) => {
+      calls.push({ fn: 'near.viewAccessKey', accountId, publicKey });
+      return {
+        nonce,
+        permission: 'FullAccess' as const,
+        block_height: 1,
+        block_hash: 'test-access-key-block',
+      };
     },
-    releaseNonce: (nonce: string) => {
-      calls.push({ fn: 'near.releaseNonce', nonce });
+    viewBlock: async () => {
+      calls.push({ fn: 'near.viewBlock' });
+      return {
+        header: {
+          height: 1,
+          hash: 'test-block',
+        },
+      };
     },
-    releaseAllNonces: () => {
-      calls.push({ fn: 'near.releaseAllNonces' });
-    },
-  };
+  } as unknown as NearClient;
 }
 
 function createOperation() {
@@ -65,6 +54,7 @@ function createOperation() {
     operationFingerprint: SigningSessionIds.signingOperationFingerprint(
       'sha256:test-nonce-coordinator',
     ),
+    intent: SigningOperationIntent.TransactionSign,
     accountId: 'nonce-coordinator.testnet',
     walletSigningSessionId: 'wallet-session-nonce-coordinator',
     chainFamily: 'tempo' as const,
@@ -107,7 +97,7 @@ test.describe('NonceCoordinator', () => {
   test('reserves and releases an EVM-family nonce lease with operation binding', async () => {
     const calls: unknown[] = [];
     const coordinator = createNonceCoordinator({
-      evmNonceManager: createFakeEvmNonceManager(calls),
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
       now: () => 1_000,
       leaseTtlMs: 5_000,
     });
@@ -127,7 +117,7 @@ test.describe('NonceCoordinator', () => {
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
-      fn: 'reserveNextNonce',
+      fn: 'fetchChainNonce',
       input: {
         chain: 'tempo',
         networkKey: 'tempo:42431',
@@ -151,19 +141,13 @@ test.describe('NonceCoordinator', () => {
       operationId: operation.operationId,
       reason: 'cancelled',
     });
-    expect(calls.at(-1)).toMatchObject({
-      fn: 'markBroadcastRejected',
-      input: {
-        chain: 'tempo',
-        nonce: 7n,
-      },
-    });
+    expect(calls).toHaveLength(1);
   });
 
   test('carries lease metadata through managed nonce snapshots', async () => {
     const calls: unknown[] = [];
     const coordinator = createNonceCoordinator({
-      evmNonceManager: createFakeEvmNonceManager(calls),
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
       now: () => 10_000,
     });
     const operation = createOperation();
@@ -200,8 +184,8 @@ test.describe('NonceCoordinator', () => {
   test('reserves and releases multi-nonce NEAR leases through the coordinator', async () => {
     const calls: unknown[] = [];
     const coordinator = createNonceCoordinator({
-      evmNonceManager: createFakeEvmNonceManager(calls),
-      nearNonceManager: createFakeNearNonceManager(calls),
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      nearClient: createFakeNearClient(calls),
       now: () => 2_000,
       leaseTtlMs: 10_000,
     });
@@ -209,39 +193,83 @@ test.describe('NonceCoordinator', () => {
       ...createOperation(),
       chainFamily: 'near' as const,
     };
-    const lease = await coordinator.reserve({
+    const { leases } = await coordinator.reserveNearContext({
       lane: createNearLane(),
       operation,
       count: 3,
     });
+    const lease = leases[0]!;
 
     expect(lease).toMatchObject({
       nonce: '31',
-      nonces: ['31', '32', '33'],
       state: 'reserved',
       reservedAtMs: 2_000,
       expiresAtMs: 12_000,
+      txIndex: 0,
     });
-    expect(calls[0]).toEqual({ fn: 'near.reserveNonces', count: 3 });
-
-    await coordinator.release({
-      leaseId: lease.leaseId,
-      operationId: operation.operationId,
-      reason: 'cancelled',
-    });
-    expect(calls.slice(1)).toEqual([
-      { fn: 'near.releaseNonce', nonce: '31' },
-      { fn: 'near.releaseNonce', nonce: '32' },
-      { fn: 'near.releaseNonce', nonce: '33' },
+    expect(lease.batchId).toContain('nonce-batch-v1:near:');
+    expect(leases.map((entry) => String(entry.nonce))).toEqual(['31', '32', '33']);
+    expect(calls).toEqual([
+      {
+        fn: 'near.viewAccessKey',
+        accountId: 'nonce-coordinator.testnet',
+        publicKey: 'ed25519:test-key',
+      },
+      { fn: 'near.viewBlock' },
     ]);
+
+    for (const nonceLease of leases) {
+      await coordinator.release({
+        leaseId: nonceLease.leaseId,
+        operationId: operation.operationId,
+        reason: 'cancelled',
+      });
+    }
+  });
+
+  test('reserves NEAR transaction context and leases under one coordinator lane operation', async () => {
+    const calls: unknown[] = [];
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      now: () => 2_500,
+      leaseTtlMs: 10_000,
+    });
+    const operation = {
+      ...createOperation(),
+      chainFamily: 'near' as const,
+    };
+
+    const result = await coordinator.reserveNearContext({
+      lane: createNearLane(),
+      operation,
+      count: 2,
+      fetchContext: async () => {
+        calls.push({ fn: 'near.fetchContext' });
+        return {
+          nearPublicKeyStr: 'ed25519:test-key',
+          accessKeyInfo: {
+            nonce: 30n,
+            permission: 'FullAccess',
+            block_height: 1,
+            block_hash: 'test-access-key-block',
+          },
+          nextNonce: '31',
+          txBlockHeight: '2000',
+          txBlockHash: 'h2000',
+        };
+      },
+    });
+
+    expect(result.context.nextNonce).toBe('31');
+    expect(result.leases.map((lease) => String(lease.nonce))).toEqual(['31', '32']);
+    expect(calls).toEqual([{ fn: 'near.fetchContext' }]);
   });
 
   test('marks a NEAR lease signed with operation binding', async () => {
     const calls: unknown[] = [];
     const traces: unknown[] = [];
     const coordinator = createNonceCoordinator({
-      evmNonceManager: createFakeEvmNonceManager(calls),
-      nearNonceManager: createFakeNearNonceManager(calls),
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
       now: () => 3_000,
       onTrace: (event) => traces.push(event),
     });
@@ -249,11 +277,24 @@ test.describe('NonceCoordinator', () => {
       ...createOperation(),
       chainFamily: 'near' as const,
     };
-    const lease = await coordinator.reserve({
+    const { leases } = await coordinator.reserveNearContext({
       lane: createNearLane(),
       operation,
       count: 2,
+      fetchContext: async () => ({
+        nearPublicKeyStr: 'ed25519:test-key',
+        accessKeyInfo: {
+          nonce: 30n,
+          permission: 'FullAccess',
+          block_height: 1,
+          block_hash: 'test-access-key-block',
+        },
+        nextNonce: '31',
+        txBlockHeight: '2000',
+        txBlockHash: 'h2000',
+      }),
     });
+    const lease = leases[0]!;
 
     await expect(
       coordinator.markSigned({
@@ -283,12 +324,64 @@ test.describe('NonceCoordinator', () => {
     ).rejects.toThrow('illegal nonce lease transition');
   });
 
+  test('routes finalized NEAR leases through coordinator-owned NEAR chain refresh', async () => {
+    const calls: unknown[] = [];
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      nearClient: createFakeNearClient(calls, 31),
+      now: () => 4_000,
+    });
+    const operation = {
+      ...createOperation(),
+      chainFamily: 'near' as const,
+    };
+    const { leases } = await coordinator.reserveNearContext({
+      lane: createNearLane(),
+      operation,
+      count: 1,
+      fetchContext: async () => ({
+        nearPublicKeyStr: 'ed25519:test-key',
+        accessKeyInfo: {
+          nonce: 30n,
+          permission: 'FullAccess',
+          block_height: 1,
+          block_hash: 'test-access-key-block',
+        },
+        nextNonce: '31',
+        txBlockHeight: '2000',
+        txBlockHash: 'h2000',
+      }),
+    });
+    const lease = leases[0]!;
+
+    await coordinator.markSigned({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+    });
+    await coordinator.markBroadcastAccepted({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      txHash: 'near-tx-hash',
+    });
+    await coordinator.markFinalized({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      txHash: 'near-tx-hash',
+    });
+
+    expect(calls.at(-1)).toMatchObject({
+      fn: 'near.viewAccessKey',
+      accountId: 'nonce-coordinator.testnet',
+      publicKey: 'ed25519:test-key',
+    });
+  });
+
   test('expires reserved leases and releases backend reservations before reuse', async () => {
     const calls: unknown[] = [];
     const traces: unknown[] = [];
     let nowMs = 1_000;
     const coordinator = createNonceCoordinator({
-      evmNonceManager: createFakeEvmNonceManager(calls),
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
       now: () => nowMs,
       leaseTtlMs: 50,
       onTrace: (event) => traces.push(event),
@@ -309,13 +402,7 @@ test.describe('NonceCoordinator', () => {
       leaseId: lease.leaseId,
       state: 'expired',
     });
-    expect(calls.at(-1)).toMatchObject({
-      fn: 'markBroadcastRejected',
-      input: {
-        chain: 'tempo',
-        nonce: 7n,
-      },
-    });
+    expect(calls).toHaveLength(1);
     expect(traces).toContainEqual(
       expect.objectContaining({
         event: 'nonce_lease_expired',
@@ -323,5 +410,391 @@ test.describe('NonceCoordinator', () => {
         nextState: 'expired',
       }),
     );
+  });
+
+  test('expires signed EVM leases through rejected release plus lane reconciliation', async () => {
+    const calls: unknown[] = [];
+    const traces: unknown[] = [];
+    let nowMs = 1_000;
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      now: () => nowMs,
+      leaseTtlMs: 10_000,
+      signedLeaseTtlMs: 25,
+      onTrace: (event) => traces.push(event),
+    });
+    const operation = createOperation();
+    const lease = await coordinator.reserve({
+      lane: createLane(),
+      operation,
+    });
+
+    nowMs = 1_010;
+    await coordinator.markSigned({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      signedTxHash: 'signed-tx-hash',
+    });
+    expect(coordinator.getDiagnostics().leasesByState.signed).toBe(1);
+
+    nowMs = 1_036;
+    const expired = await coordinator.expireLeases({
+      accountId: 'nonce-coordinator.testnet',
+    });
+
+    expect(expired).toHaveLength(1);
+    expect(expired[0]).toMatchObject({
+      leaseId: lease.leaseId,
+      state: 'signed_lease_expired',
+    });
+    expect(calls.slice(-1)).toEqual([
+      expect.objectContaining({
+        fn: 'fetchChainNonce',
+        input: expect.objectContaining({
+          chain: 'tempo',
+          networkKey: 'tempo:42431',
+        }),
+      }),
+    ]);
+    expect(traces).toContainEqual(
+      expect.objectContaining({
+        event: 'nonce_lease_expired',
+        previousState: 'signed',
+        nextState: 'signed_lease_expired',
+        reason: 'signed_lease_ttl_elapsed',
+      }),
+    );
+    expect(traces).toContainEqual(
+      expect.objectContaining({
+        event: 'nonce_lane_reconciled',
+      }),
+    );
+  });
+
+  test('serializes EVM-family nonce reservations through same-origin lane locks', async () => {
+    const calls: unknown[] = [];
+    const lockKeys: string[] = [];
+    let activeLocks = 0;
+    let maxActiveLocks = 0;
+    let lockTail = Promise.resolve();
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      sameOriginLock: {
+        async withLock(key, task) {
+          const previous = lockTail;
+          let release!: () => void;
+          lockTail = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          await previous;
+          lockKeys.push(key);
+          activeLocks += 1;
+          maxActiveLocks = Math.max(maxActiveLocks, activeLocks);
+          try {
+            return await task();
+          } finally {
+            activeLocks -= 1;
+            release();
+          }
+        },
+      },
+    });
+
+    const lane = createLane();
+    const leases = await Promise.all([
+      coordinator.reserve({ lane, operation: createOperation() }),
+      coordinator.reserve({
+        lane,
+        operation: {
+          ...createOperation(),
+          operationId: SigningSessionIds.signingOperation('op-nonce-coordinator-2'),
+        },
+      }),
+      coordinator.reserve({
+        lane,
+        operation: {
+          ...createOperation(),
+          operationId: SigningSessionIds.signingOperation('op-nonce-coordinator-3'),
+        },
+      }),
+    ]);
+
+    expect(lockKeys).toHaveLength(3);
+    expect(lockKeys.every((key) => key.startsWith('nonce-coordinator:evm:tempo:'))).toBe(true);
+    expect(maxActiveLocks).toBe(1);
+    expect(leases.map((lease) => String(lease.nonce))).toEqual(['7', '8', '9']);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('shares active EVM-family nonce leases across coordinator instances in one origin', async () => {
+    const callsA: unknown[] = [];
+    const callsB: unknown[] = [];
+    const records = new Map<string, any>();
+    const leaseStore = {
+      readLane: (laneKey: string) =>
+        Array.from(records.values()).filter((record) => record.laneKey === laneKey),
+      upsert: (record: any) => {
+        records.set(`${record.laneKey}:${record.leaseId}`, { ...record });
+      },
+      remove: ({ laneKey, leaseId }: { laneKey: string; leaseId: string }) => {
+        records.delete(`${laneKey}:${leaseId}`);
+      },
+      clearForAccount: (accountId: string) => {
+        for (const [key, record] of records.entries()) {
+          if (record.accountId === accountId) records.delete(key);
+        }
+      },
+      clearAll: () => records.clear(),
+    };
+    let lockTail = Promise.resolve();
+    const sameOriginLock = {
+      async withLock<T>(_key: string, task: () => Promise<T>): Promise<T> {
+        const previous = lockTail;
+        let release!: () => void;
+        lockTail = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await previous;
+        try {
+          return await task();
+        } finally {
+          release();
+        }
+      },
+    };
+    const coordinatorA = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(callsA),
+      sameOriginLock,
+      sameOriginLeaseStore: leaseStore,
+      now: () => 1_000,
+    });
+    const coordinatorB = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(callsB),
+      sameOriginLock,
+      sameOriginLeaseStore: leaseStore,
+      now: () => 1_010,
+    });
+    const lane = createLane();
+
+    const first = await coordinatorA.reserve({ lane, operation: createOperation() });
+    const second = await coordinatorB.reserve({
+      lane,
+      operation: {
+        ...createOperation(),
+        operationId: SigningSessionIds.signingOperation('op-other-tab'),
+      },
+    });
+
+    expect(String(first.nonce)).toBe('7');
+    expect(String(second.nonce)).toBe('8');
+    expect(records.size).toBe(2);
+    expect(callsA).toHaveLength(1);
+    expect(callsB).toHaveLength(1);
+  });
+
+  test('emits an alert and console warning for repeated dropped/replaced EVM outcomes', async () => {
+    const calls: unknown[] = [];
+    const traces: unknown[] = [];
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      droppedReplacedAlertThreshold: 2,
+      onTrace: (event) => traces.push(event),
+    });
+    const lane = createLane();
+
+    try {
+      for (let index = 0; index < 2; index += 1) {
+        const operation = {
+          ...createOperation(),
+          operationId: SigningSessionIds.signingOperation(`op-dropped-alert-${index}`),
+        };
+        const lease = await coordinator.reserve({ lane, operation });
+        await coordinator.markSigned({ leaseId: lease.leaseId, operationId: operation.operationId });
+        await coordinator.markBroadcastAccepted({
+          leaseId: lease.leaseId,
+          operationId: operation.operationId,
+          txHash: `0x${String(index + 1).padStart(64, '0')}`,
+        });
+        await coordinator.markDroppedOrReplaced({
+          leaseId: lease.leaseId,
+          operationId: operation.operationId,
+          reason: 'dropped',
+        });
+      }
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(traces).toContainEqual(
+      expect.objectContaining({
+        event: 'nonce_lane_alert',
+        alert: expect.objectContaining({
+          kind: 'repeated_dropped_or_replaced',
+          reason: 'dropped',
+          count: 2,
+        }),
+      }),
+    );
+    expect(warnings[0]?.[0]).toBe(
+      '[NonceCoordinator] repeated EVM-family dropped/replaced nonce outcomes',
+    );
+  });
+
+  test('clearForAccount clears EVM lanes and full active NEAR access-key state', async () => {
+    const calls: unknown[] = [];
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      now: () => 5_000,
+    });
+    const operation = {
+      ...createOperation(),
+      chainFamily: 'near' as const,
+    };
+    const lane = createNearLane();
+    await coordinator.reserveNearContext({
+      lane,
+      operation,
+      count: 1,
+      fetchContext: async () => ({
+        nearPublicKeyStr: 'ed25519:test-key',
+        accessKeyInfo: {
+          nonce: 30n,
+          permission: 'FullAccess',
+          block_height: 1,
+          block_hash: 'test-access-key-block',
+        },
+        nextNonce: '31',
+        txBlockHeight: '2000',
+        txBlockHash: 'h2000',
+      }),
+    });
+
+    coordinator.clearForAccount('nonce-coordinator.testnet');
+
+    expect(coordinator.getActiveNearPublicKey()).toBeNull();
+    expect(coordinator.getDiagnostics().leaseCount).toBe(0);
+    expect(calls).toEqual([]);
+    await expect(
+      coordinator.reserveBatch({
+        lane,
+        operation: {
+          ...operation,
+          operationId: SigningSessionIds.signingOperation('op-after-clear'),
+        },
+        count: 1,
+      }),
+    ).rejects.toThrow('NEAR transaction context not available');
+  });
+
+  test('emits redacted aggregate metrics for stale in-flight nonce leases', async () => {
+    const calls: unknown[] = [];
+    const traces: unknown[] = [];
+    let nowMs = 1_000;
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      now: () => nowMs,
+      leaseTtlMs: 100,
+      signedLeaseTtlMs: 50,
+      onTrace: (event) => traces.push(event),
+    });
+    const operation = createOperation();
+    const lease = await coordinator.reserve({
+      lane: createLane(),
+      operation,
+    });
+
+    nowMs = 1_030;
+    await coordinator.markSigned({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+    });
+    nowMs = 1_090;
+
+    const diagnostics = coordinator.getDiagnostics({
+      accountId: 'nonce-coordinator.testnet',
+      emitMetrics: true,
+    });
+
+    expect(diagnostics.metrics).toMatchObject({
+      accountId: 'nonce-coordinator.testnet',
+      leaseCount: 1,
+      laneCount: 1,
+      oldestLeaseAgeMs: 90,
+      oldestInFlightLeaseAgeMs: 90,
+      staleInFlightLeaseCount: 1,
+      staleInFlightLaneCount: 1,
+      reservedLeaseCount: 0,
+      signedLeaseCount: 1,
+    });
+    expect(traces.at(-1)).toMatchObject({
+      event: 'nonce_coordinator_metrics',
+      accountId: 'nonce-coordinator.testnet',
+      metrics: expect.objectContaining({
+        staleInFlightLeaseCount: 1,
+        staleInFlightLaneCount: 1,
+      }),
+    });
+  });
+
+  test('clearAll clears every coordinator lane and same-origin lease state', async () => {
+    const calls: unknown[] = [];
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      now: () => 6_000,
+    });
+    const operation = createOperation();
+    const evmLease = await coordinator.reserve({
+      lane: createLane(),
+      operation,
+    });
+    await coordinator.reserveNearContext({
+      lane: createNearLane(),
+      operation: {
+        ...operation,
+        operationId: SigningSessionIds.signingOperation('op-clear-all-near'),
+        chainFamily: 'near' as const,
+      },
+      count: 1,
+      fetchContext: async () => ({
+        nearPublicKeyStr: 'ed25519:test-key',
+        accessKeyInfo: {
+          nonce: 30n,
+          permission: 'FullAccess',
+          block_height: 1,
+          block_hash: 'test-access-key-block',
+        },
+        nextNonce: '31',
+        txBlockHeight: '2000',
+        txBlockHash: 'h2000',
+      }),
+    });
+
+    coordinator.clearAll();
+
+    expect(calls).toEqual([
+      expect.objectContaining({
+        fn: 'fetchChainNonce',
+      }),
+    ]);
+    expect(coordinator.getDiagnostics()).toMatchObject({
+      leaseCount: 0,
+      laneCount: 0,
+      near: {
+        hasContext: false,
+        reservedNonceCount: 0,
+      },
+    });
+    await expect(
+      coordinator.release({
+        leaseId: evmLease.leaseId,
+        operationId: operation.operationId,
+        reason: 'cancelled',
+      }),
+    ).rejects.toThrow('nonce lease not found');
   });
 });

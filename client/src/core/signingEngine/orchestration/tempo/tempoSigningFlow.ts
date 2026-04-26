@@ -18,8 +18,8 @@ import {
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { WalletSigningBudgetReservation } from '../../session/WalletSigningBudgetLedger';
-import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceManager';
-import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
+import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
+import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '../../chainAdaptors/evm/bytes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';

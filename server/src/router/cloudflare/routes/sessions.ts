@@ -15,6 +15,7 @@ import {
   handleEmailOtpDeviceRecoveryChallengeRoute,
   handleEmailOtpLoginChallengeRoute,
   handleEmailOtpLoginVerifyAndUnsealRoute,
+  handleEmailOtpRecoveryKeyAttemptFailedRoute,
   handleEmailOtpRecoveryKeyConsumeRoute,
   handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
@@ -1413,6 +1414,33 @@ export async function handleWalletEmailOtpRecoveryKeyConsume(
     return validated.response;
   }
   const response = await handleEmailOtpRecoveryKeyConsumeRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
+  });
+  return json(response.body, { status: response.status });
+}
+
+export async function handleWalletEmailOtpRecoveryKeyAttemptFailed(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/attempt-failed') {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateAppSession(ctx);
+  if (!validated.ok) {
+    await maybeEmitWarmExpiredFromValidationFailure({
+      ctx,
+      validated,
+      source: 'wallet.email_otp.recovery_key.attempt_failed',
+    });
+    return validated.response;
+  }
+  const response = await handleEmailOtpRecoveryKeyAttemptFailedRoute({
     body,
     claims: validated.claims,
     userId: validated.userId,

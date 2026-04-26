@@ -3,6 +3,7 @@ import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import { TransactionSummary, RegistrationUserConfirmRequest } from '../../shared/confirmTypes';
 import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
+import { nonceLeaseToRef } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { sha256Base64UrlUtf8 } from '@/utils/intentDigest';
 import { isUserCancelledUserConfirm, ERROR_MESSAGES } from '../../shared/confirmCommon';
 import { getNearAccountId, getIntentDigest, getRegisterAccountPayload } from './adapters/request';
@@ -55,7 +56,7 @@ export async function handleRegistrationFlow(
       });
     }
     const transactionContext = nearRpc.transactionContext as TransactionContext;
-    session.setNonceLease(nearRpc.nonceLease);
+    session.setNonceLeases(nearRpc.nonceLeases);
 
     const computeBoundIntentDigestB64u = async (): Promise<string> => {
       const uiIntentDigest = getIntentDigest(request);
@@ -150,6 +151,11 @@ export async function handleRegistrationFlow(
       confirmed: true,
       credential: serialized,
       transactionContext,
+      ...(nearRpc.nonceLeases?.length
+        ? {
+            nonceLeases: nearRpc.nonceLeases.map(nonceLeaseToRef),
+          }
+        : {}),
     });
   } catch (err: unknown) {
     const cancelled = isUserCancelledUserConfirm(err);

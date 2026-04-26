@@ -1,7 +1,6 @@
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import type { NonceManager } from '@/core/rpcClients/near/nonceManager';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { AccountId } from '@/core/types/accountIds';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
@@ -81,7 +80,6 @@ export type CreateOrchestrationDependencyBundleArgs = {
   nearClient: NearClient;
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
-  nonceManager: NonceManager;
   nonceCoordinator: NonceCoordinator;
   touchConfirm: TouchConfirmRuntimeBridgePort;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
@@ -431,7 +429,7 @@ export function createOrchestrationDependencyBundle(
     workerBaseOrigin: args.getWorkerBaseOrigin(),
     indexedDB: IndexedDBManager,
     nearClient: args.nearClient,
-    nonceManager: args.nonceManager,
+    nonceCoordinator: args.nonceCoordinator,
     prewarmWorkers: args.signerWorkerManager.prewarmWorkers.bind(args.signerWorkerManager),
     initializeTouchConfirm: args.touchConfirm.initialize.bind(args.touchConfirm),
     prewarmTouchConfirmUi: prewarmTxConfirmerUi,
@@ -522,7 +520,7 @@ export function createOrchestrationDependencyBundle(
     registrationAccountLifecycleDeps: {
       indexedDB: IndexedDBManager,
       userPreferencesManager: args.userPreferencesManager,
-      nonceManager: args.nonceManager,
+      nonceCoordinator: args.nonceCoordinator,
       extractCosePublicKey: args.extractCosePublicKey,
     },
     registrationSessionDeps: {

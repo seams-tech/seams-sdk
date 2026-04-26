@@ -75,7 +75,7 @@ export class WalletIframeCoordinator {
 
   async init(nearAccountId?: string): Promise<void> {
     const walletOriginConfigured = this.configs.wallet.mode === 'iframe';
-    // Warm local critical resources (NonceManager, workers) regardless of iframe usage.
+    // Warm local critical resources (nonce coordinator, workers) regardless of iframe usage.
     // In iframe mode, avoid persisting user state (lastUserAccountId, preferences) on the app origin.
     const shouldAvoidLocalUserState = walletOriginConfigured && !__isWalletIframeHostMode();
     await this.signingEngine.warmCriticalResources(
@@ -151,7 +151,7 @@ export class WalletIframeCoordinator {
           });
 
           await this.iframeRouter.init();
-          // Opportunistically warm remote NonceManager.
+          // Opportunistically warm remote nonce context.
           try {
             await this.iframeRouter.prefetchBlockheight();
           } catch {}
@@ -165,7 +165,7 @@ export class WalletIframeCoordinator {
       }
     } else {
       await this.iframeRouter.init();
-      // Opportunistically warm remote NonceManager.
+      // Opportunistically warm remote nonce context.
       try {
         await this.iframeRouter.prefetchBlockheight();
       } catch {}

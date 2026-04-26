@@ -609,18 +609,18 @@ the same active enrollment scope.
 
 Todo:
 
-1. [ ] Reject duplicate `recoveryKeyId` values in
+1. [x] Reject duplicate `recoveryKeyId` values in
    `verifyEmailOtpEnrollment(...)` before any enrollment state is written.
-2. [ ] Reject duplicate recovery ciphertext nonces within the same enrollment
+2. [x] Reject duplicate recovery ciphertext nonces within the same enrollment
    upload.
-3. [ ] Verify every uploaded record has the same wallet id, user id,
+3. [x] Verify every uploaded record has the same wallet id, user id,
    auth subject id, enrollment id, enrollment version, enrollment seal key
    version, signing root id, and signing root version.
-4. [ ] Recompute or otherwise validate `aadHashB64u` server-side from the
+4. [x] Recompute or otherwise validate `aadHashB64u` server-side from the
    submitted metadata so a malformed record cannot advertise a false binding.
-5. [ ] After persistence, read active recovery-wrapped escrows back and require
+5. [x] After persistence, read active recovery-wrapped escrows back and require
    the active count for the enrollment scope to be exactly 10.
-6. [ ] Add unit and route tests for duplicate recovery key ids, duplicate
+6. [x] Add unit and route tests for duplicate recovery key ids, duplicate
    nonces, mismatched enrollment metadata, mismatched signing-root metadata, and
    active-count collapse through store upsert.
 
@@ -635,16 +635,16 @@ root version.
 
 Todo:
 
-1. [ ] Add `enrollmentId`, `enrollmentVersion`, `signingRootId`, and
+1. [x] Add `enrollmentId`, `enrollmentVersion`, `signingRootId`, and
    `signingRootVersion` to the active Email OTP enrollment record, or add an
    equivalent authoritative server-side enrollment-scope record.
-2. [ ] Populate those fields during enrollment finalization from the same
+2. [x] Populate those fields during enrollment finalization from the same
    metadata used to produce recovery-wrapped escrows.
-3. [ ] Filter `/wallet/email-otp/recovery-wrapped-escrows` by the full active
+3. [x] Filter `/wallet/email-otp/recovery-wrapped-escrows` by the full active
    enrollment scope.
-4. [ ] Validate `/wallet/email-otp/recovery-key/consume` against the full active
+4. [x] Validate `/wallet/email-otp/recovery-key/consume` against the full active
    enrollment scope.
-5. [ ] Add tests proving ciphertext swapping across enrollment id, enrollment
+5. [x] Add tests proving ciphertext swapping across enrollment id, enrollment
    version, signing root id, and signing root version fails closed.
 
 ### 3. Durable Device-Local Escrow Before Enrollment Success
@@ -658,17 +658,17 @@ on recovery.
 
 Todo:
 
-1. [ ] Make `writeEmailOtpDeviceEnrollmentEscrowRecord(...)` fail closed:
+1. [x] Make `writeEmailOtpDeviceEnrollmentEscrowRecord(...)` fail closed:
    invalid records, unavailable IndexedDB, blocked opens, and transaction
    failures must throw instead of returning silently.
-2. [ ] During enrollment, write and read back device-local `enc_s(S)` before
+2. [x] During enrollment, write and read back device-local `enc_s(S)` before
    reporting enrollment success to the caller.
-3. [ ] Prefer writing local escrow before server finalization where feasible.
+3. [x] Prefer writing local escrow before server finalization where feasible.
    If server finalization must remain first, add an explicit recovery path for
    "server finalized but local persistence failed" and make that state visible.
-4. [ ] Add tests for missing IndexedDB, malformed local escrow records, blocked
+4. [x] Add tests for missing IndexedDB, malformed local escrow records, blocked
    IndexedDB open, transaction abort, and post-write readback mismatch.
-5. [ ] Ensure logout and wallet-lock flows still preserve device-local
+5. [x] Ensure logout and wallet-lock flows still preserve device-local
    enrollment escrow unless the user explicitly removes this device.
 
 ### 4. Failed Recovery-Key Attempt Accounting
@@ -682,16 +682,16 @@ server.
 
 Todo:
 
-1. [ ] Add a recovery-key attempt route that records failed unwrap attempts
+1. [x] Add a recovery-key attempt route that records failed unwrap attempts
    without receiving the recovery key, derived KEK, plaintext `S`, or
    `enc_s(S)`.
-2. [ ] Bind failed-attempt reports to the recovery challenge, wallet id,
-   user id, app-session version, and candidate recovery key id or record id.
-3. [ ] Rate-limit failed recovery-key attempts server-side separately from OTP
+2. [x] Bind failed-attempt reports to the recovery challenge, wallet id,
+   user id, app-session version, and active enrollment scope.
+3. [x] Rate-limit failed recovery-key attempts server-side separately from OTP
    failures.
-4. [ ] Make the worker report failed unwrap attempts before trying another
-   recovery-wrapped record or returning failure.
-5. [ ] Add tests that repeated wrong recovery-key attempts are rate-limited and
+4. [x] Make the worker report one failed unwrap attempt for a submitted
+   recovery key before returning failure.
+5. [x] Add tests that repeated wrong recovery-key attempts are rate-limited and
    that successful recovery still consumes exactly one active key.
 
 ### 5. Wallet Signing Budget Consume Boundary
@@ -705,16 +705,16 @@ unknown or failed.
 
 Todo:
 
-1. [ ] Decide and document the fail-closed rule for successful signing when
+1. [x] Decide and document the fail-closed rule for successful signing when
    `WalletSigningBudgetLedger.recordSuccess(...)` fails.
-2. [ ] Make transaction signing return failure or a clearly recoverable
+2. [x] Make transaction signing return failure or a clearly recoverable
    "signature produced but budget finalization failed" state instead of silently
    succeeding.
-3. [ ] Add NEAR, EVM, and Tempo tests where budget consume fails after a
+3. [x] Add NEAR, EVM, and Tempo tests where budget consume fails after a
    signature is produced.
-4. [ ] Add retry semantics for transient budget consume failure that remain
+4. [x] Add retry semantics for transient budget consume failure that remain
    idempotent by operation id and do not double-consume.
-5. [ ] Ensure trace output exposes budget-finalization failure without logging
+5. [x] Ensure trace output exposes budget-finalization failure without logging
    secret material.
 
 ### 6. Operation Id Scope And Payload Binding
@@ -727,15 +727,15 @@ mask a required budget consume or confuse signing-session accounting.
 
 Todo:
 
-1. [ ] Define the canonical transaction identity included in operation id scope
+1. [x] Define the canonical transaction identity included in operation id scope
    for NEAR, EVM, and Tempo.
-2. [ ] Store or compute an operation fingerprint for caller-provided operation
+2. [x] Store or compute an operation fingerprint for caller-provided operation
    ids before confirmation.
-3. [ ] Reject reuse of the same caller-provided operation id with a different
+3. [x] Reject reuse of the same caller-provided operation id with a different
    operation fingerprint.
-4. [ ] Keep internally generated operation ids unique without requiring payload
+4. [x] Keep internally generated operation ids unique without requiring payload
    fingerprint storage.
-5. [ ] Add tests for same-payload retry, different-payload same operation id,
+5. [x] Add tests for same-payload retry, different-payload same operation id,
    and cross-chain operation id reuse.
 
 ## Acceptance Criteria

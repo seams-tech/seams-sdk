@@ -14,6 +14,7 @@ import {
   type UserConfirmProgressEvent,
   type UserConfirmDecision,
 } from '../shared/confirmTypes';
+import type { NonceLeaseRef } from '../../nonce/NonceCoordinator';
 import type { TxDisplayModel } from '../shared/displayModel';
 import { buildNearDisplayModel } from '../displayFormat/nearTx';
 import {
@@ -117,10 +118,7 @@ export interface SigningConfirmationResultWithTxContext {
   credential?: SerializableCredential;
   otpCode?: string;
   emailOtpChallengeId?: string;
-  nonceLease?: {
-    leaseId: string;
-    operationId: string;
-  };
+  nonceLeases?: NonceLeaseRef[];
 }
 
 export interface SigningConfirmationResultIntentDigest {
@@ -492,7 +490,7 @@ export async function orchestrateSigningConfirmation(
     credential: decision.credential,
     otpCode: decision.otpCode,
     emailOtpChallengeId: decision.emailOtpChallengeId,
-    nonceLease: decision.nonceLease,
+    nonceLeases: decision.nonceLeases,
   };
 }
 

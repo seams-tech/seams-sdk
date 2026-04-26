@@ -1545,6 +1545,44 @@ function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(
   return record;
 }
 
+async function writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord(
+  record: Parameters<typeof writeEmailOtpDeviceEnrollmentEscrowRecord>[0],
+  errorMessage: string,
+): Promise<void> {
+  await writeEmailOtpDeviceEnrollmentEscrowRecord(record);
+  const persisted = await readEmailOtpDeviceEnrollmentEscrowRecord({
+    walletId: record.walletId,
+    authSubjectId: record.authSubjectId,
+    enrollmentId: record.enrollmentId,
+  });
+  if (
+    !persisted ||
+    persisted.encSB64u !== record.encSB64u ||
+    persisted.enrollmentSealKeyVersion !== record.enrollmentSealKeyVersion ||
+    persisted.signingRootId !== record.signingRootId ||
+    persisted.signingRootVersion !== record.signingRootVersion
+  ) {
+    throw new Error(errorMessage);
+  }
+}
+
+async function reportEmailOtpRecoveryKeyAttemptFailure(args: {
+  relayUrl: string;
+  routeAuth: ReturnType<typeof routePlanSessionAuth>;
+  walletId: string;
+  recoveryConsumeGrant: string;
+}): Promise<void> {
+  await postEmailOtpJson({
+    relayUrl: args.relayUrl,
+    route: '/wallet/email-otp/recovery-key/attempt-failed',
+    ...(args.routeAuth ? { sessionAuth: args.routeAuth } : {}),
+    body: {
+      walletId: args.walletId,
+      recoveryConsumeGrant: args.recoveryConsumeGrant,
+    },
+  });
+}
+
 async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
   relayUrl: string;
   walletId: string;
@@ -1597,6 +1635,7 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
     throw new Error('No active Email OTP recovery-wrapped enrollment escrows are available');
   }
 
+  let sawRecoveryKeyUnwrapFailure = false;
   for (const record of records) {
     if (record.walletId !== walletId) continue;
     if (requestedUserId && record.userId !== requestedUserId) continue;
@@ -1638,28 +1677,23 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
             ),
         },
       });
-      await writeEmailOtpDeviceEnrollmentEscrowRecord({
-        walletId: record.walletId,
-        userId: record.userId,
-        authSubjectId: record.authSubjectId,
-        enrollmentId: record.enrollmentId,
-        enrollmentVersion: record.enrollmentVersion,
-        enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-        signingRootId: record.signingRootId,
-        signingRootVersion: record.signingRootVersion,
-        shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
-        encSB64u: base64UrlEncode(encS),
-        issuedAtMs: Date.now(),
-        updatedAtMs: Date.now(),
-      });
-      const persisted = await readEmailOtpDeviceEnrollmentEscrowRecord({
-        walletId: record.walletId,
-        authSubjectId: record.authSubjectId,
-        enrollmentId: record.enrollmentId,
-      });
-      if (!persisted || persisted.encSB64u !== base64UrlEncode(encS)) {
-        throw new Error('Email OTP recovery did not persist device-local enc_s(S)');
-      }
+      await writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord(
+        {
+          walletId: record.walletId,
+          userId: record.userId,
+          authSubjectId: record.authSubjectId,
+          enrollmentId: record.enrollmentId,
+          enrollmentVersion: record.enrollmentVersion,
+          enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+          signingRootId: record.signingRootId,
+          signingRootVersion: record.signingRootVersion,
+          shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+          encSB64u: base64UrlEncode(encS),
+          issuedAtMs: Date.now(),
+          updatedAtMs: Date.now(),
+        },
+        'Email OTP recovery did not persist device-local enc_s(S)',
+      );
       const consumeResponse = await postEmailOtpJson({
         relayUrl,
         route: '/wallet/email-otp/recovery-key/consume',
@@ -1691,6 +1725,7 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
       };
     } catch {
       if (encS) throw new Error('Email OTP recovery restore failed after successful unwrap');
+      sawRecoveryKeyUnwrapFailure = true;
       continue;
     } finally {
       zeroizeBytes(aad);
@@ -1698,6 +1733,14 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
     }
   }
 
+  if (sawRecoveryKeyUnwrapFailure) {
+    await reportEmailOtpRecoveryKeyAttemptFailure({
+      relayUrl,
+      routeAuth,
+      walletId,
+      recoveryConsumeGrant,
+    });
+  }
   throw new Error('Email OTP recovery unwrap failed');
 }
 
@@ -2004,6 +2047,21 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
         encSB64u: enrollmentEscrowCiphertextB64u,
       });
 
+    await writeAndVerifyEmailOtpDeviceEnrollmentEscrowRecord(
+      {
+        walletId,
+        userId,
+        authSubjectId: userId,
+        enrollmentId,
+        enrollmentVersion,
+        enrollmentSealKeyVersion,
+        signingRootId,
+        signingRootVersion,
+        encSB64u: enrollmentEscrowCiphertextB64u,
+        shamirPrimeB64u,
+      },
+      'Email OTP enrollment did not persist device-local enc_s(S)',
+    );
     await postEmailOtpJson({
       relayUrl,
       route: emailOtpRoutePath(args.routePlan, 'finalize'),
@@ -2019,18 +2077,6 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
         unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
         thresholdEcdsaClientVerifyingShareB64u,
       },
-    });
-    await writeEmailOtpDeviceEnrollmentEscrowRecord({
-      walletId,
-      userId,
-      authSubjectId: userId,
-      enrollmentId,
-      enrollmentVersion,
-      enrollmentSealKeyVersion,
-      signingRootId,
-      signingRootVersion,
-      encSB64u: enrollmentEscrowCiphertextB64u,
-      shamirPrimeB64u,
     });
     args.onProgress?.('otp.verify.succeeded');
     args.onProgress?.('signer.email_otp.enroll.started');

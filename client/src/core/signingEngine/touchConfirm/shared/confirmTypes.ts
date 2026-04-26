@@ -13,6 +13,7 @@ import type {
   WalletAuthCurve,
   WalletAuthIntent,
 } from '@/core/signingEngine/auth/walletAuthModeResolver';
+import type { NonceLeaseRef } from '../../nonce/NonceCoordinator';
 
 // === SECURE CONFIRM TYPES (V2) ===
 
@@ -59,10 +60,7 @@ export interface UserConfirmDecision extends ForbiddenMainThreadSecrets {
   otpCode?: string;
   emailOtpChallengeId?: string;
   transactionContext?: TransactionContext; // NEAR data fetched during confirmation
-  nonceLease?: {
-    leaseId: string;
-    operationId: string;
-  };
+  nonceLeases?: NonceLeaseRef[];
   // This is a private field used to close the confirmation modal
   _confirmHandle?: { close: (confirmed: boolean) => void };
   error?: string;

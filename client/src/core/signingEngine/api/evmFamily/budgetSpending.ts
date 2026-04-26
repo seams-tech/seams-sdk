@@ -5,15 +5,18 @@ import type {
   WalletSigningBudgetReservation,
 } from '../../session/WalletSigningBudgetLedger';
 import {
-  SigningOperationIntent,
   SigningSessionIds,
   type SigningLaneContext,
   type SigningOperationFingerprint,
-  type SigningOperationId,
+  type SigningOperationContext,
 } from '../../session/signingSessionTypes';
 import { readSelectedEcdsaRecordForLane, type EvmFamilyEcdsaSessionReaderDeps } from './ecdsaLanes';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
 import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
+
+export type EvmFamilyTransactionSigningOperationContext = SigningOperationContext & {
+  operationFingerprint: SigningOperationFingerprint;
+};
 
 type EvmFamilyWalletSigningSessionBudgetArgs = {
   deps: EvmFamilyEcdsaSessionReaderDeps;
@@ -21,8 +24,7 @@ type EvmFamilyWalletSigningSessionBudgetArgs = {
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   nearAccountId: string;
   chain: EvmFamilyChain;
-  confirmationOperationId: SigningOperationId;
-  operationFingerprint: SigningOperationFingerprint;
+  operation: EvmFamilyTransactionSigningOperationContext;
   ecdsaSigningLane?: SigningLaneContext;
   thresholdEcdsaRecord?: ThresholdEcdsaSessionRecord;
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
@@ -81,11 +83,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
   return {
     finalizer: createTransactionSigningBudgetFinalizer({
       walletSigningBudgetLedger: args.walletSigningBudgetLedger,
-      operation: {
-        operationId: args.confirmationOperationId,
-        operationFingerprint: args.operationFingerprint,
-        intent: SigningOperationIntent.TransactionSign,
-      },
+      operation: args.operation,
       // Passkey reauth can replace the ECDSA threshold session after the
       // confirmation. Budget finalization must follow the refreshed keyRef,
       // not the exhausted lane that was selected during pre-confirm planning.

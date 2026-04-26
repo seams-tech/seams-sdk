@@ -1,11 +1,14 @@
 import {
   SigningSessionIds,
+  type SigningOperationFingerprint,
   type SigningOperationId,
 } from '../../session/signingSessionTypes';
+import { bindCallerProvidedSigningOperationIdToFingerprint } from '../../session/SigningOperationIdPayloadBinding';
 
 export type EvmFamilySigningOperationIds = {
   planningOperationId: SigningOperationId;
   confirmationOperationId?: SigningOperationId;
+  callerProvided: boolean;
 };
 
 function createEvmFamilySigningOperationId(): SigningOperationId {
@@ -24,10 +27,12 @@ export function createEvmFamilySigningOperationIds(
     return {
       planningOperationId: providedOperationId,
       confirmationOperationId: providedOperationId,
+      callerProvided: true,
     };
   }
   return {
     planningOperationId: createEvmFamilySigningOperationId(),
+    callerProvided: false,
   };
 }
 
@@ -37,4 +42,15 @@ export function ensureEvmFamilyConfirmationOperationId(
   operationIds.confirmationOperationId =
     operationIds.confirmationOperationId || createEvmFamilySigningOperationId();
   return operationIds.confirmationOperationId;
+}
+
+export function bindEvmFamilyCallerProvidedOperationIdToFingerprint(
+  operationIds: EvmFamilySigningOperationIds,
+  operationFingerprint: SigningOperationFingerprint,
+): void {
+  if (!operationIds.callerProvided) return;
+  bindCallerProvidedSigningOperationIdToFingerprint({
+    operationId: operationIds.planningOperationId,
+    operationFingerprint,
+  });
 }

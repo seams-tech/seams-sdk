@@ -61,6 +61,60 @@ test.describe('Email OTP wallet-session readiness', () => {
               getThresholdEcdsaSessionRecordForLookup: () => ({
                 thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
               }),
+              getNonceCoordinator: () => ({
+                getDiagnostics: (input: { accountId?: string }) => ({
+                  leaseCount: input.accountId === nearAccountId ? 2 : 0,
+                  laneCount: input.accountId === nearAccountId ? 1 : 0,
+                  metrics: {
+                    atMs: now,
+                    accountId: input.accountId,
+                    leaseCount: input.accountId === nearAccountId ? 2 : 0,
+                    laneCount: input.accountId === nearAccountId ? 1 : 0,
+                    oldestLeaseAgeMs: 250,
+                    oldestInFlightLeaseAgeMs: 250,
+                    staleInFlightLeaseCount: 1,
+                    staleInFlightLaneCount: 1,
+                    reservedLeaseCount: 1,
+                    signedLeaseCount: 1,
+                    broadcastAcceptedLeaseCount: 0,
+                    droppedLeaseCount: 0,
+                    replacedLeaseCount: 0,
+                    reconciledLeaseCount: 0,
+                    releasedLeaseCount: 0,
+                  },
+                  leasesByState: {
+                    reserved: 1,
+                    released: 0,
+                    expired: 0,
+                    signed: 1,
+                    signed_lease_expired: 0,
+                    broadcast_accepted: 0,
+                    broadcast_rejected: 0,
+                    finalized: 0,
+                    dropped: 0,
+                    replaced: 0,
+                    reconciled: 0,
+                  },
+                  lanes: [
+                    {
+                      family: 'evm',
+                      accountId: nearAccountId,
+                      networkKey: 'tempo:testnet',
+                      chain: 'tempo',
+                      chainId: 131316,
+                      leaseCount: 2,
+                      states: { reserved: 1, signed: 1 },
+                    },
+                  ],
+                  near: {
+                    hasContext: true,
+                    activeAccountId: nearAccountId,
+                    activePublicKey: 'ed25519:near-key',
+                    reservedNonceCount: 1,
+                    lastReservedNonce: '41',
+                  },
+                }),
+              }),
             },
             configs: {
               signing: {
@@ -90,6 +144,13 @@ test.describe('Email OTP wallet-session readiness', () => {
     expect(result.authMethod).toBe('email_otp');
     expect(result.retention).toBe('session');
     expect(result.login?.authMethod).toBe('email_otp');
+    expect(result.nonceDiagnostics?.leaseCount).toBe(2);
+    expect(result.nonceDiagnostics?.laneCount).toBe(1);
+    expect(result.nonceDiagnostics?.leasesByState?.reserved).toBe(1);
+    expect(result.nonceDiagnostics?.leasesByState?.signed).toBe(1);
+    expect(result.nonceDiagnostics?.near?.reservedNonceCount).toBe(1);
+    expect(result.nonceDiagnostics?.metrics?.staleInFlightLeaseCount).toBe(1);
+    expect(result.nonceDiagnostics?.metrics?.staleInFlightLaneCount).toBe(1);
   });
 
   test('does not expose a stale NEAR public key for ECDSA-only Email OTP sessions', async ({

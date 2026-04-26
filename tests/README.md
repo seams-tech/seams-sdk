@@ -147,11 +147,11 @@ pnpm -C sdk build
 - E2E
   - `e2e/thresholdEd25519.*.test.ts` threshold keygen/session/signing coverage
   - `e2e/worker_events.test.ts` signer/UserConfirm worker wiring and events
-  - `e2e/nonceManager.test.ts` reserved nonce lifecycle in real session
-  - `e2e/cancel_overlay_contracts.test.ts` cancel + overlay contract (cancel hides UI)
+  - `e2e/cancel_overlay_specs.test.ts` cancel + overlay specs (cancel hides UI)
   - `e2e/signTransactions.concurrentSessions.walletIframe.test.ts` concurrent signing session isolation
 
 - Unit
+  - `unit/nonceCoordinator.nearContext.test.ts` coordinator-owned NEAR nonce context and batch lifecycle
   - `unit/confirmTxFlow.successPaths.test.ts` register/sign/local‑only success
   - `unit/confirmTxFlow.defensivePaths.test.ts` cancel releases nonces, PRF errors
   - `unit/confirmTxFlow.determineConfirmationConfig.test.ts` override precedence
@@ -210,7 +210,7 @@ If you update the handshake logic, re-run:
 
 ```bash
 pnpm exec playwright test tests/wallet-iframe/playwright/handshake.test.ts --project=chromium
-pnpm exec playwright test tests/e2e/cancel_overlay_contracts.test.ts --project=chromium
+pnpm exec playwright test tests/e2e/cancel_overlay_specs.test.ts --project=chromium
 ```
 
 These cover both the transport handshake and the overlay cancel contract that depends on the simulated progress events.

@@ -1981,6 +1981,13 @@ export function createRelayRouteDefinitions(
       ['authService', 'session'],
     ),
     userSessionRoute(
+      'wallet_email_otp_recovery_key_attempt_failed',
+      'POST',
+      '/wallet/email-otp/recovery-key/attempt-failed',
+      'Record a failed Email OTP recovery-key unwrap attempt for server-side rate limiting',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
       'wallet_email_otp_signing_session_verify',
       'POST',
       '/wallet/email-otp/signing-session/verify',

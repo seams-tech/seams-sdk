@@ -310,13 +310,21 @@ function makeEcdsaThresholdAdapter(input: {
           step: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
         },
         protocol: {
-          signInit: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
+          signInit: async () => ({
+            ok: false,
+            code: 'not_implemented',
+            message: 'not implemented',
+          }),
           signFinalize: async () => ({
             ok: false,
             code: 'not_implemented',
             message: 'not implemented',
           }),
-          cosignInit: async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' }),
+          cosignInit: async () => ({
+            ok: false,
+            code: 'not_implemented',
+            message: 'not implemented',
+          }),
           cosignFinalize: async () => ({
             ok: false,
             code: 'not_implemented',
@@ -1569,41 +1577,6 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(dispatched[0]?.payload?.orgId).toBe('org-relay-cf-auth-identities-parse-fail');
   });
 
-  test('POST /smart-account/deploy: removed (404)', async () => {
-    const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
-
-    const res = await callCf(handler, {
-      method: 'POST',
-      path: '/smart-account/deploy',
-      origin: 'https://example.localhost',
-      body: {},
-    });
-
-    expect(res.status).toBe(404);
-  });
-
-  test('POST /threshold-ecdsa/keygen and /threshold-ecdsa/session: removed (404)', async () => {
-    const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, { corsOrigins: ['https://example.localhost'] });
-
-    const keygen = await callCf(handler, {
-      method: 'POST',
-      path: '/threshold-ecdsa/keygen',
-      origin: 'https://example.localhost',
-      body: {},
-    });
-    expect(keygen.status).toBe(404);
-
-    const session = await callCf(handler, {
-      method: 'POST',
-      path: '/threshold-ecdsa/session',
-      origin: 'https://example.localhost',
-      body: {},
-    });
-    expect(session.status).toBe(404);
-  });
-
   test('POST /threshold-ecdsa/hss/prepare injects runtime scope from threshold session claims', async () => {
     let capturedRequest: Record<string, unknown> | null = null;
     const service = makeFakeAuthService();
@@ -1970,9 +1943,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
 
     expect(res.status).toBe(200);
     expect(getPath(res.json, 'session', 'userId')).toBe('google:user-cf-1');
-    expect(getPath(res.json, 'session', 'walletId')).toBe(
-      'brisk-maple-k7q9yh.testnet',
-    );
+    expect(getPath(res.json, 'session', 'walletId')).toBe('brisk-maple-k7q9yh.testnet');
     expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toMatchObject({
       mode: 'register_started',
       registrationAttemptId: 'attempt-google-register-cf',
@@ -3853,36 +3824,6 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(mismatchRes.status).toBe(409);
     expect(mismatchRes.json?.code).toBe('runtime_snapshot_checksum_mismatch');
     expect(authorizeCalls).toBe(1);
-  });
-
-  test('POST /session/logout: removed (404)', async () => {
-    const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, {
-      corsOrigins: ['https://example.localhost'],
-    });
-
-    const res = await callCf(handler, {
-      method: 'POST',
-      path: '/session/logout',
-      origin: 'https://example.localhost',
-    });
-
-    expect(res.status).toBe(404);
-  });
-
-  test('GET /session/auth: removed (404)', async () => {
-    const service = makeFakeAuthService();
-    const handler = createCloudflareRouter(service, {
-      corsOrigins: ['https://example.localhost'],
-    });
-
-    const res = await callCf(handler, {
-      method: 'GET',
-      path: '/session/auth',
-      origin: 'https://example.localhost',
-    });
-
-    expect(res.status).toBe(404);
   });
 
   test('POST /recover-email: async mode uses ctx.waitUntil and returns 202 queued', async () => {

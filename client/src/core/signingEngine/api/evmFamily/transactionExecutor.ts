@@ -24,7 +24,10 @@ import {
   emitEvmFamilySigningExecutionTrace,
   type EvmFamilyManagedNonceReservation,
 } from './events';
-import { releaseEvmFamilyNonceReservation, type EvmFamilyNonceLifecycleDeps } from './nonceLifecycle';
+import {
+  releaseEvmFamilyNonceReservation,
+  type EvmFamilyNonceLifecycleDeps,
+} from './nonceLifecycleAdapter';
 import {
   resolveNonceNetworkKeyForError,
   type EvmFamilyAccountMetadataDeps,
@@ -66,6 +69,8 @@ async function runSuccessfulEvmFamilyPostSignCommands(args: {
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
 }): Promise<void> {
+  // EVM/Tempo touch-confirm flows return a signed raw transaction, not a broadcast result.
+  // Consume wallet-session budget here before the caller can dispatch and poll transaction status.
   if (!args.signingSessionPlan || args.signingSessionPlan.kind === SigningSessionPlanKind.NotReady) {
     await args.recordSuccessfulWalletSigningSessionSpend();
     await args.applySuccessfulEcdsaPostSignPolicy(args.chain);

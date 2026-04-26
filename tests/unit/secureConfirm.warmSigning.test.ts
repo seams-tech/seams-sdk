@@ -4,6 +4,7 @@ import { setupBasicPasskeyTest } from '../setup';
 const IMPORT_PATHS = {
   handle: '/sdk/esm/core/signingEngine/touchConfirm/handlers/handlePromptFromWorker.js',
   types: '/sdk/esm/core/signingEngine/touchConfirm/shared/confirmTypes.js',
+  nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;
 
 test.describe('UserConfirm – warm signing', () => {
@@ -29,7 +30,7 @@ test.describe('UserConfirm – warm signing', () => {
               autoProceedDelay: 0,
             }),
           },
-          nonceManager: {
+          nearContextFixture: {
             async getNonceBlockHashAndHeight() {
               return {
                 nearPublicKeyStr: 'pk',
@@ -46,7 +47,21 @@ test.describe('UserConfirm – warm signing', () => {
             },
             releaseNonce(_nonce: string) {},
           },
-          nearClient: {},
+          nearClient: {
+            async viewAccessKey() {
+              const context = await ctx.nearContextFixture.getNonceBlockHashAndHeight();
+              return context.accessKeyInfo;
+            },
+            async viewBlock() {
+              const context = await ctx.nearContextFixture.getNonceBlockHashAndHeight();
+              return {
+                header: {
+                  height: Number(context.txBlockHeight || 1),
+                  hash: String(context.txBlockHash || 'h3000'),
+                },
+              };
+            },
+          },
           touchIdPrompt: {
             getRpId: () => 'example.localhost',
             async getAuthenticationCredentialsInternal() {
@@ -74,6 +89,23 @@ test.describe('UserConfirm – warm signing', () => {
             },
           },
         };
+        const nonceCoordinatorMod = await import(paths.nonceCoordinator);
+        ctx.nonceCoordinator = nonceCoordinatorMod.createNonceCoordinator({
+          evmNonceBackend: {
+            fetchChainNonce: async () => 0n,
+          },
+          nearClient: ctx.nearClient,
+          onTrace: (event: any) => {
+            if (event?.lease?.lane?.family !== 'near') return;
+            if (event.event === 'nonce_lease_reserved') {
+              ctx.nearContextFixture.reserveNonces(1);
+            }
+          },
+        });
+        ctx.nonceCoordinator.initializeNearAccessKey({
+          accountId: 'alice.testnet',
+          publicKey: 'pk',
+        });
 
         const request = {
           requestId: 'sess-warm',
