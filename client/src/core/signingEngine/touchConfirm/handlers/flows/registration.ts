@@ -43,6 +43,8 @@ export async function handleRegistrationFlow(
       txCount: 1,
       reserveNonces: true,
       allowFallback: true,
+      operationId: request.requestId,
+      operationFingerprint: getIntentDigest(request) || request.requestId,
     });
     if (nearRpc.error && !nearRpc.transactionContext) {
       return session.confirmAndCloseModal({
@@ -53,7 +55,7 @@ export async function handleRegistrationFlow(
       });
     }
     const transactionContext = nearRpc.transactionContext as TransactionContext;
-    session.setReservedNonces(nearRpc.reservedNonces);
+    session.setNonceLease(nearRpc.nonceLease);
 
     const computeBoundIntentDigestB64u = async (): Promise<string> => {
       const uiIntentDigest = getIntentDigest(request);

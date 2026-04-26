@@ -2,6 +2,7 @@ import type { TouchConfirmContext } from '../../';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
 import type { ThemeName } from '@/core/types/tatchi';
+import type { NonceLease } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   UserConfirmationType,
@@ -117,6 +118,8 @@ export async function handleTransactionSigningFlow(
       txCount: usesNeeded,
       reserveNonces: true,
       allowFallback: false,
+      operationId: request.requestId,
+      operationFingerprint: resolvedIntentDigest || request.requestId,
     });
 
     // 2) Mount confirmer immediately (non-blocking) while NEAR context fetch is in flight.
@@ -173,6 +176,7 @@ export async function handleTransactionSigningFlow(
           error?: string;
           details?: string;
           reservedNonces?: string[];
+          nonceLease?: NonceLease;
         }
       | undefined;
     const applyPreparedIntentData = (prepared: IntentDigestPreparationResult): void => {
@@ -260,7 +264,7 @@ export async function handleTransactionSigningFlow(
         });
         return;
       }
-      session.setReservedNonces(nearRpc.reservedNonces);
+      session.setNonceLease(nearRpc.nonceLease);
       const transactionContext: TransactionContext = nearRpc.transactionContext;
       const securityContext: Partial<UserConfirmSecurityContext> | undefined = rpId
         ? {
@@ -305,7 +309,7 @@ export async function handleTransactionSigningFlow(
           : ERROR_MESSAGES.nearRpcFailed,
       });
     }
-    session.setReservedNonces(nearRpc.reservedNonces);
+    session.setNonceLease(nearRpc.nonceLease);
     const transactionContext: TransactionContext = nearRpc.transactionContext;
 
     if (preparedIntentPromise) {

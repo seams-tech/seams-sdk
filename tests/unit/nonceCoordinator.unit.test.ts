@@ -6,6 +6,7 @@ import {
   evmNonceLeaseToManagedReservation,
   reduceNonceLeaseState,
   type EvmNonceLane,
+  type NearNonceLane,
 } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { SigningSessionIds } from '@/core/signingEngine/session/signingSessionTypes';
 
@@ -43,6 +44,21 @@ function createFakeEvmNonceManager(calls: unknown[]): EvmNonceManager {
   };
 }
 
+function createFakeNearNonceManager(calls: unknown[]) {
+  return {
+    reserveNonces: (count: number) => {
+      calls.push({ fn: 'near.reserveNonces', count });
+      return Array.from({ length: count }, (_, index) => String(31 + index));
+    },
+    releaseNonce: (nonce: string) => {
+      calls.push({ fn: 'near.releaseNonce', nonce });
+    },
+    releaseAllNonces: () => {
+      calls.push({ fn: 'near.releaseAllNonces' });
+    },
+  };
+}
+
 function createOperation() {
   return {
     operationId: SigningSessionIds.signingOperation('op-nonce-coordinator'),
@@ -64,6 +80,15 @@ function createLane(): EvmNonceLane {
     sender: TEST_SENDER,
     nonceKey: 3n,
     accountId: 'nonce-coordinator.testnet',
+  };
+}
+
+function createNearLane(): NearNonceLane {
+  return {
+    family: 'near',
+    networkKey: 'near-testnet',
+    accountId: 'nonce-coordinator.testnet',
+    publicKey: 'ed25519:test-key',
   };
 }
 
@@ -170,5 +195,44 @@ test.describe('NonceCoordinator', () => {
       operationFingerprint: String(operation.operationFingerprint),
       reservedAtMs: 10_000,
     });
+  });
+
+  test('reserves and releases multi-nonce NEAR leases through the coordinator', async () => {
+    const calls: unknown[] = [];
+    const coordinator = createNonceCoordinator({
+      evmNonceManager: createFakeEvmNonceManager(calls),
+      nearNonceManager: createFakeNearNonceManager(calls),
+      now: () => 2_000,
+      leaseTtlMs: 10_000,
+    });
+    const operation = {
+      ...createOperation(),
+      chainFamily: 'near' as const,
+    };
+    const lease = await coordinator.reserve({
+      lane: createNearLane(),
+      operation,
+      count: 3,
+    });
+
+    expect(lease).toMatchObject({
+      nonce: '31',
+      nonces: ['31', '32', '33'],
+      state: 'reserved',
+      reservedAtMs: 2_000,
+      expiresAtMs: 12_000,
+    });
+    expect(calls[0]).toEqual({ fn: 'near.reserveNonces', count: 3 });
+
+    await coordinator.release({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      reason: 'cancelled',
+    });
+    expect(calls.slice(1)).toEqual([
+      { fn: 'near.releaseNonce', nonce: '31' },
+      { fn: 'near.releaseNonce', nonce: '32' },
+      { fn: 'near.releaseNonce', nonce: '33' },
+    ]);
   });
 });

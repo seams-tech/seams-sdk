@@ -5,6 +5,7 @@ import type {
   NonceLaneStatus,
   ReserveNonceInput,
 } from '@/core/rpcClients/evm/nonceManager';
+import type { NonceManager as NearNonceManager } from '@/core/rpcClients/near/nonceManager';
 import type {
   SigningOperationFingerprint,
   SigningOperationId,
@@ -56,6 +57,7 @@ export type NonceLease = {
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   nonce: bigint | string;
+  nonces: readonly (bigint | string)[];
   state: NonceLeaseState;
   reservedAtMs: number;
   expiresAtMs: number;
@@ -82,6 +84,10 @@ export type NonceCoordinatorTraceEvent = {
 
 export type NonceCoordinatorDeps = {
   evmNonceManager: EvmNonceManager;
+  nearNonceManager?: Pick<
+    NearNonceManager,
+    'reserveNonces' | 'releaseNonce' | 'releaseAllNonces'
+  >;
   now?: () => number;
   leaseTtlMs?: number;
   onTrace?: (event: NonceCoordinatorTraceEvent) => void;
@@ -262,10 +268,35 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
   return {
     async reserve(input) {
-      if (input.lane.family !== 'evm') {
-        throw new Error('[NonceCoordinator] NEAR nonce lanes are not wired yet');
-      }
       const count = Math.max(1, Math.floor(Number(input.count || 1)));
+      if (input.lane.family === 'near') {
+        if (!deps.nearNonceManager) {
+          throw new Error('[NonceCoordinator] NEAR nonce manager is not configured');
+        }
+        const nonces = deps.nearNonceManager.reserveNonces(count);
+        if (!nonces.length) {
+          throw new Error('[NonceCoordinator] NEAR nonce manager returned no nonces');
+        }
+        const reservedAtMs = now();
+        const lease: NonceLease = {
+          leaseId: createNonceLeaseId({
+            operationId: input.operation.operationId,
+            chain: 'near',
+            nonce: nonces[0],
+          }),
+          lane: input.lane,
+          operationId: input.operation.operationId,
+          operationFingerprint: input.operation.operationFingerprint,
+          nonce: nonces[0],
+          nonces,
+          state: 'reserved',
+          reservedAtMs,
+          expiresAtMs: reservedAtMs + leaseTtlMs,
+        };
+        leases.set(lease.leaseId, lease);
+        emit({ event: 'nonce_lease_reserved', lease });
+        return { ...lease };
+      }
       if (count !== 1) {
         throw new Error('[NonceCoordinator] EVM nonce leases support exactly one nonce');
       }
@@ -282,6 +313,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         operationId: input.operation.operationId,
         operationFingerprint: input.operation.operationFingerprint,
         nonce,
+        nonces: [nonce],
         state: 'reserved',
         reservedAtMs,
         expiresAtMs: reservedAtMs + leaseTtlMs,
@@ -369,11 +401,19 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
     async release(input) {
       const lease = readLease(input);
-      assertEvmLease(lease);
-      await deps.evmNonceManager.markBroadcastRejected({
-        ...evmLaneToReserveNonceInput(lease.lane),
-        nonce: normalizeBigint(lease.nonce, 'nonce'),
-      });
+      if (lease.lane.family === 'evm') {
+        await deps.evmNonceManager.markBroadcastRejected({
+          ...evmLaneToReserveNonceInput(lease.lane),
+          nonce: normalizeBigint(lease.nonce, 'nonce'),
+        });
+      } else {
+        if (!deps.nearNonceManager) {
+          throw new Error('[NonceCoordinator] NEAR nonce manager is not configured');
+        }
+        for (const nonce of normalizeLeaseNonces(lease)) {
+          deps.nearNonceManager.releaseNonce(String(nonce));
+        }
+      }
       transitionLease({
         lease,
         transition: 'release',
@@ -384,7 +424,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
     async reconcile(input) {
       if (input.lane.family !== 'evm') {
-        throw new Error('[NonceCoordinator] NEAR nonce lanes are not wired yet');
+        throw new Error('[NonceCoordinator] NEAR nonce reconciliation is not wired yet');
       }
       const status = await deps.evmNonceManager.reconcileLane(
         evmLaneToReserveNonceInput(input.lane),
@@ -395,6 +435,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
     clearForAccount(accountId) {
       deps.evmNonceManager.clearForAccount(accountId);
+      deps.nearNonceManager?.releaseAllNonces();
       for (const [leaseId, lease] of leases.entries()) {
         if (lease.lane.family === 'evm' && lease.lane.accountId === accountId) {
           leases.delete(leaseId);
@@ -464,14 +505,18 @@ function assertOperationMatches(
 
 function createNonceLeaseId(args: {
   operationId: SigningOperationId;
-  chain: EvmNonceChain;
-  nonce: bigint;
+  chain: EvmNonceChain | 'near';
+  nonce: bigint | string;
 }): string {
   const randomId =
     typeof globalThis.crypto?.randomUUID === 'function'
       ? globalThis.crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return `nonce-lease-v1:${args.chain}:${args.operationId}:${args.nonce.toString()}:${randomId}`;
+  return `nonce-lease-v1:${args.chain}:${args.operationId}:${String(args.nonce)}:${randomId}`;
+}
+
+function normalizeLeaseNonces(lease: NonceLease): readonly (bigint | string)[] {
+  return lease.nonces.length ? lease.nonces : [lease.nonce];
 }
 
 function normalizeRequiredString(value: unknown, label: string): string {

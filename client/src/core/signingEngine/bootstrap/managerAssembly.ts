@@ -47,6 +47,7 @@ export function createManagerAssembly(args: {
   });
   const nonceCoordinator = createNonceCoordinator({
     evmNonceManager,
+    nearNonceManager: nonceManager,
   });
   const nearExplorerUrl = resolvePrimaryExplorerUrl(chains, 'near');
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');
@@ -71,6 +72,7 @@ export function createManagerAssembly(args: {
       indexedDB: IndexedDBManager,
       userPreferencesManager: userPreferencesManager,
       nonceManager: nonceManager,
+      nonceCoordinator: nonceCoordinator,
       chains,
       rpIdOverride: touchIdPrompt.getRpId(),
       nearExplorerUrl,

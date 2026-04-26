@@ -204,6 +204,7 @@ type NonceLease = {
   operationId: SigningOperationId;
   operationFingerprint: string;
   nonce: bigint | string;
+  nonces: readonly (bigint | string)[];
   reservedAtMs: number;
   expiresAtMs: number;
 };
@@ -398,12 +399,20 @@ Remaining TODO:
 
 ### Phase 3. Integrate NEAR Access-Key Nonces
 
-1. [ ] Model NEAR account/public-key as a nonce lane.
-2. [ ] Support multi-nonce leases for NEAR batches.
-3. [ ] Recompute the highest reserved NEAR nonce after every release.
-4. [ ] Refresh block hash, block height, and access-key nonce through the same
+Progress:
+
+1. [x] Model NEAR account/public-key as a nonce lane.
+2. [x] Support multi-nonce leases for NEAR batches.
+3. [x] Wire TouchConfirm NEAR reservation/cancel cleanup through
+   `NonceCoordinator`.
+4. [x] Recompute the highest reserved NEAR nonce after every release in the
+   existing NEAR nonce manager backend.
+
+Remaining TODO:
+
+1. [ ] Refresh block hash, block height, and access-key nonce through the same
    lane lock.
-5. [ ] Route NEAR signing cleanup through coordinator release/finalize
+2. [ ] Route NEAR signing cleanup through coordinator release/finalize
    transitions.
 
 ### Phase 4. Wire Transaction Signing Through One Boundary

@@ -29,6 +29,16 @@ import type { ThemeName } from '@/core/types/tatchi';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { sendConfirmResponse } from '../../../shared/confirmCommon';
+import { toAccountId } from '@/core/types/accountIds';
+import {
+  SigningSessionIds,
+  type SigningOperationFingerprint,
+  type SigningOperationId,
+} from '@/core/signingEngine/session/signingSessionTypes';
+import type {
+  NonceLease,
+  NonceOperationContext,
+} from '@/core/signingEngine/nonce/NonceCoordinator';
 
 export async function fetchNearContext(
   ctx: TouchConfirmContext,
@@ -38,12 +48,15 @@ export async function fetchNearContext(
     txCount: number;
     reserveNonces: boolean;
     allowFallback?: boolean;
+    operationId?: string;
+    operationFingerprint?: string;
   },
 ): Promise<{
   transactionContext: TransactionContext | null;
   error?: string;
   details?: string;
   reservedNonces?: string[];
+  nonceLease?: NonceLease;
 }> {
   const allowFallback = opts.allowFallback === true;
   try {
@@ -52,24 +65,27 @@ export async function fetchNearContext(
         ? opts.nearPublicKeyStr.trim()
         : '';
     if (explicitNearPublicKeyStr) {
-      const [accessKeyInfo, block] = await Promise.all([
-        ctx.nearClient.viewAccessKey(opts.nearAccountId, explicitNearPublicKeyStr),
-        ctx.nearClient.viewBlock({ finality: 'final' } as BlockReference),
-      ]);
+      ctx.nonceManager.initializeUser(toAccountId(opts.nearAccountId), explicitNearPublicKeyStr);
+      const cached = await ctx.nonceManager.getNonceBlockHashAndHeight(ctx.nearClient);
+      const transactionContext: TransactionContext = { ...cached };
       const txCount = Math.max(1, Math.floor(Number(opts.txCount) || 1));
-      const baseNonce = BigInt(accessKeyInfo.nonce) + 1n;
-      const reservedNonces = opts.reserveNonces
-        ? Array.from({ length: txCount }, (_, index) => (baseNonce + BigInt(index)).toString())
+      const nonceLease = opts.reserveNonces
+        ? await reserveNearNonceLease(ctx, {
+            nearAccountId: opts.nearAccountId,
+            nearPublicKeyStr: explicitNearPublicKeyStr,
+            count: txCount,
+            operationId: opts.operationId,
+            operationFingerprint: opts.operationFingerprint,
+          })
         : undefined;
+      const reservedNonces = nonceLease?.nonces.map((nonce) => String(nonce));
+      if (reservedNonces?.[0]) {
+        transactionContext.nextNonce = reservedNonces[0];
+      }
       return {
-        transactionContext: {
-          nearPublicKeyStr: explicitNearPublicKeyStr,
-          accessKeyInfo,
-          nextNonce: reservedNonces?.[0] || baseNonce.toString(),
-          txBlockHeight: String(block?.header?.height ?? ''),
-          txBlockHash: String(block?.header?.hash ?? ''),
-        } as TransactionContext,
+        transactionContext,
         reservedNonces,
+        nonceLease,
       };
     }
 
@@ -83,17 +99,25 @@ export async function fetchNearContext(
 
     const txCount = opts.txCount || 1;
     let reservedNonces: string[] | undefined;
+    let nonceLease: NonceLease | undefined;
     if (opts.reserveNonces) {
-      try {
-        reservedNonces = ctx.nonceManager.reserveNonces(txCount);
-        // Provide the first reserved nonce to the worker context; worker handles per-tx assignment
-        transactionContext.nextNonce = reservedNonces[0];
-      } catch {
-        // Continue with existing nextNonce; worker may auto-increment where appropriate
+      const nearPublicKeyStr = String(transactionContext.nearPublicKeyStr || '').trim();
+      if (!nearPublicKeyStr) {
+        throw new Error('NEAR nonce reservation requires nearPublicKeyStr');
       }
+      nonceLease = await reserveNearNonceLease(ctx, {
+        nearAccountId: opts.nearAccountId,
+        nearPublicKeyStr,
+        count: txCount,
+        operationId: opts.operationId,
+        operationFingerprint: opts.operationFingerprint,
+      });
+      reservedNonces = nonceLease.nonces.map((nonce) => String(nonce));
+      // Provide the first reserved nonce to the worker context; worker handles per-tx assignment
+      transactionContext.nextNonce = reservedNonces[0];
     }
 
-    return { transactionContext, reservedNonces };
+    return { transactionContext, reservedNonces, nonceLease };
   } catch (error) {
     if (!allowFallback) {
       return {
@@ -132,8 +156,76 @@ export async function fetchNearContext(
   }
 }
 
-export function releaseReservedNonces(ctx: TouchConfirmContext, nonces?: string[]) {
-  nonces?.forEach((n) => ctx.nonceManager.releaseNonce(n));
+function createNearNonceOperationContext(args: {
+  nearAccountId: string;
+  operationId?: string;
+  operationFingerprint?: string;
+}): NonceOperationContext {
+  const randomId =
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const operationId = SigningSessionIds.signingOperation(
+    args.operationId || `near-touch-confirm:${randomId}`,
+  );
+  const operationFingerprint = SigningSessionIds.signingOperationFingerprint(
+    args.operationFingerprint || `near-touch-confirm:${operationId}`,
+  );
+  return {
+    operationId: operationId as SigningOperationId,
+    operationFingerprint: operationFingerprint as SigningOperationFingerprint,
+    accountId: args.nearAccountId,
+    chainFamily: 'near',
+  };
+}
+
+async function reserveNearNonceLease(
+  ctx: TouchConfirmContext,
+  args: {
+    nearAccountId: string;
+    nearPublicKeyStr: string;
+    count: number;
+    operationId?: string;
+    operationFingerprint?: string;
+  },
+): Promise<NonceLease> {
+  const nearPublicKeyStr = String(args.nearPublicKeyStr || '').trim();
+  if (!nearPublicKeyStr) {
+    throw new Error('NEAR nonce reservation requires nearPublicKeyStr');
+  }
+  return await ctx.nonceCoordinator.reserve({
+    lane: {
+      family: 'near',
+      networkKey: resolveNearNonceNetworkKey(ctx),
+      accountId: args.nearAccountId,
+      publicKey: nearPublicKeyStr,
+    },
+    operation: createNearNonceOperationContext({
+      nearAccountId: args.nearAccountId,
+      operationId: args.operationId,
+      operationFingerprint: args.operationFingerprint,
+    }),
+    count: Math.max(1, Math.floor(Number(args.count) || 1)),
+  });
+}
+
+function resolveNearNonceNetworkKey(ctx: TouchConfirmContext): string {
+  const nearChain = ctx.chains?.find((chain) =>
+    String((chain as { network?: unknown }).network || '').startsWith('near-'),
+  );
+  return String((nearChain as { network?: unknown } | undefined)?.network || 'near');
+}
+
+export async function releaseReservedNonces(
+  ctx: TouchConfirmContext,
+  nonceLease?: NonceLease,
+) {
+  if (!nonceLease) return;
+  await ctx.nonceCoordinator.release({
+    leaseId: nonceLease.leaseId,
+    operationId: nonceLease.operationId,
+    reason: 'cancelled',
+  });
 }
 
 async function collectAuthenticationCredentialWithPRF({
@@ -276,8 +368,8 @@ export function createConfirmTxFlowAdapters(ctx: TouchConfirmContext) {
     near: {
       fetchNearContext: (opts: Parameters<typeof fetchNearContext>[1]) =>
         fetchNearContext(ctx, opts),
-      releaseReservedNonces: (nonces: Parameters<typeof releaseReservedNonces>[1]) =>
-        releaseReservedNonces(ctx, nonces),
+      releaseReservedNonces: (nonceLease: Parameters<typeof releaseReservedNonces>[1]) =>
+        releaseReservedNonces(ctx, nonceLease),
     },
     security: {
       getRpId: () => ctx.touchIdPrompt.getRpId(),
@@ -315,7 +407,7 @@ export function createConfirmSession({
   transactionSummary: TransactionSummary;
   theme: ThemeName;
 }): {
-  setReservedNonces: (nonces?: string[]) => void;
+  setNonceLease: (lease?: NonceLease) => void;
   updateUI: (props: ConfirmUIUpdate) => void;
   promptUser: (args: {
     securityContext?: Partial<UserConfirmSecurityContext>;
@@ -334,11 +426,11 @@ export function createConfirmSession({
    */
   confirmAndCloseModal: (decision: UserConfirmDecision) => void;
 } {
-  let reservedNonces: string[] | undefined;
+  let nonceLease: NonceLease | undefined;
   let confirmHandle: ConfirmUIHandle | undefined;
 
-  const setReservedNonces = (nonces?: string[]) => {
-    reservedNonces = nonces;
+  const setNonceLease = (lease?: NonceLease) => {
+    nonceLease = lease;
   };
 
   const updateUI = (props: ConfirmUIUpdate) => {
@@ -381,14 +473,14 @@ export function createConfirmSession({
       sendConfirmResponse(worker, decision);
     } finally {
       if (!decision.confirmed) {
-        adapters.near.releaseReservedNonces(reservedNonces);
+        void adapters.near.releaseReservedNonces(nonceLease);
       }
       adapters.ui.closeModalSafely(!!decision.confirmed, confirmHandle);
     }
   };
 
   return {
-    setReservedNonces,
+    setNonceLease,
     updateUI,
     promptUser,
     confirmAndCloseModal,

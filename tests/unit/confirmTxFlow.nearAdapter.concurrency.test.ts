@@ -3,6 +3,7 @@ import { handleInfrastructureErrors } from '../setup';
 
 const IMPORT_PATHS = {
   nonceManager: '/sdk/esm/core/rpcClients/near/nonceManager.js',
+  nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
   nearAdapter: '/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/adapters/adapters.js',
 } as const;
 
@@ -17,6 +18,8 @@ test.describe('touchConfirm near adapter – concurrency', () => {
         try {
           // @ts-ignore runtime import
           const nonceManager = (await import(paths.nonceManager)).default;
+          // @ts-ignore runtime import
+          const nonceCoordinatorMod = await import(paths.nonceCoordinator);
           // @ts-ignore runtime import
           const nearAdapter = await import(paths.nearAdapter);
 
@@ -34,7 +37,26 @@ test.describe('touchConfirm near adapter – concurrency', () => {
           (nonceManager as any).lastNonceUpdate = Date.now();
           (nonceManager as any).lastBlockHeightUpdate = Date.now();
 
-          const ctx = { nonceManager, nearClient: {} } as any;
+          const ctx = {
+            nonceManager,
+            nonceCoordinator: nonceCoordinatorMod.createNonceCoordinator({
+              evmNonceManager: {
+                reserveNextNonce: async () => 0n,
+                markBroadcastAccepted: async () => {},
+                markBroadcastRejected: async () => {},
+                markFinalized: async () => {},
+                markDroppedOrReplaced: async () => {},
+                reconcileLane: async () => ({
+                  chainNextNonce: 0n,
+                  unresolvedInFlightNonces: [],
+                  blocked: false,
+                }),
+                clearForAccount: () => {},
+              },
+              nearNonceManager: nonceManager,
+            }),
+            nearClient: {},
+          } as any;
           const adapters = nearAdapter.createConfirmTxFlowAdapters(ctx);
 
           // Run two reservations "concurrently" to mimic rapid-fire signing requests.
