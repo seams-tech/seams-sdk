@@ -153,7 +153,7 @@ export async function connectEd25519Session(args: {
   let credential: WebAuthnAuthenticationCredential | undefined = args.localPrfCredential;
   const appSessionJwt = String(args.appSessionJwt || '').trim();
   const hasAppSessionAuth = Boolean(appSessionJwt || args.useAppSessionCookie === true);
-  if (!hasAppSessionAuth) {
+  if (!hasAppSessionAuth && !credential) {
     const walletAuthResolver = createWalletAuthModeResolver({
       passkey: createPasskeyWalletAuthAdapter({
         challenge: async () =>
@@ -191,8 +191,9 @@ export async function connectEd25519Session(args: {
       };
     }
 
-    // Collect WebAuthn assertion for challenge=sessionPolicyDigest32 when no app session is
-    // available. Login warm-up uses the app-session JWT instead to avoid a second prompt.
+    // Collect WebAuthn only when the caller did not already confirm the same session policy.
+    // A regression here ignored `localPrfCredential`, so post-exhaustion transaction signing
+    // showed one tx confirmation and then a second TouchID prompt for the session mint.
     const credentialChallenge = await walletAuthPlan.challenge();
     const walletAuthProof = await walletAuthPlan.complete(credentialChallenge);
     credential = walletAuthProof.webauthnAuthentication as WebAuthnAuthenticationCredential;

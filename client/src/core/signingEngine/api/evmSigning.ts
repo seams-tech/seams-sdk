@@ -1,4 +1,5 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
 import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
@@ -26,23 +27,22 @@ import type { SignerWorkerManagerContext } from '../workerManager';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
 import {
   type SigningLaneContext,
+  type SigningOperationFingerprint,
   type SigningOperationId,
 } from '../session/signingSessionTypes';
+import { computeSigningOperationFingerprint } from '../session/SigningOperationFingerprint';
 import {
   createWalletSigningBudgetLedger,
+  isWalletSigningBudgetExhaustedError,
   type WalletSigningBudgetLedger,
+  type WalletSigningBudgetReservation,
 } from '../session/WalletSigningBudgetLedger';
 import { emitSigningLaneResolutionTrace } from '../session/SigningSessionTrace';
 import type { BootstrapEcdsaSessionArgs } from './thresholdLifecycle/thresholdSessionActivation';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpAuthLane } from '../emailOtp/authLane';
-import type {
-  EvmFamilyChain,
-  EvmFamilyLifecycleEventCallback,
-} from './evmFamily/types';
-import {
-  throwIfEvmFamilySigningCancelled,
-} from './evmFamily/errors';
+import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './evmFamily/types';
+import { throwIfEvmFamilySigningCancelled } from './evmFamily/errors';
 import {
   requireEvmFamilyEcdsaAuthMethod,
   requireEvmFamilyEcdsaSigningLane,
@@ -63,6 +63,7 @@ import { executeEvmFamilyTransactionSigning } from './evmFamily/transactionExecu
 import { completeEvmFamilyEmailOtpSigningRefresh } from './evmFamily/emailOtpRefresh';
 import { createEvmFamilySigningFlowRuntime } from './evmFamily/signingFlowRuntime';
 import { maybeRetryEvmFamilyWithFreshEmailOtpAuth } from './evmFamily/freshEmailOtpRetry';
+import { emitEvmFamilySigningEvent } from './evmFamily/events';
 import {
   createEvmFamilySigningOperationIds,
   ensureEvmFamilyConfirmationOperationId,
@@ -165,11 +166,32 @@ type SignEvmFamilyArgs = {
 };
 
 type SignEvmFamilyAttemptOptions = {
-  forceFreshEmailOtpAuth?: boolean;
+  forceFreshAuth?: boolean;
   operationIds?: EvmFamilySigningOperationIds;
-  retryingFreshEmailOtpAuth?: boolean;
+  retryingFreshAuth?: boolean;
   walletSigningBudgetLedger?: WalletSigningBudgetLedger;
 };
+
+function emitEvmFamilyFreshAuthRetryEvent(args: {
+  nearAccountId: string;
+  chain: EvmFamilyChain;
+  accountAuth: AccountAuthMetadata;
+  onEvent?: EvmFamilyLifecycleEventCallback;
+}): void {
+  const isEmailOtp = args.accountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp;
+  emitEvmFamilySigningEvent(args.onEvent, {
+    phase: isEmailOtp
+      ? SigningEventPhase.STEP_06_AUTH_EMAIL_OTP_CHALLENGE_STARTED
+      : SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
+    status: 'running',
+    accountId: args.nearAccountId,
+    message: isEmailOtp
+      ? 'Signing session needs reauthorization; requesting Email OTP'
+      : 'Signing session needs reauthorization; requesting passkey',
+    interaction: { kind: 'none', overlay: 'none' },
+    data: { chain: args.chain, reason: 'wallet_signing_budget_reserved' },
+  });
+}
 
 export async function signEvmFamily(
   deps: EvmFamilySigningDeps,
@@ -200,6 +222,14 @@ async function signEvmFamilyAttempt(
   let emailOtpReauthRecord: ThresholdEcdsaSessionRecord | undefined;
   const operationIds =
     attempt.operationIds || createEvmFamilySigningOperationIds(args.signingOperationId);
+  const operationFingerprint: SigningOperationFingerprint =
+    await computeSigningOperationFingerprint({
+      kind: `evm-family:${args.request.chain}`,
+      payload: {
+        nearAccountId: args.nearAccountId,
+        request: args.request,
+      },
+    });
   const ensureConfirmationOperationId = (): SigningOperationId =>
     ensureEvmFamilyConfirmationOperationId(operationIds);
   let confirmationDisplayed = false;
@@ -257,12 +287,15 @@ async function signEvmFamilyAttempt(
   const resolveEmailOtpReauthRecord = (): ThresholdEcdsaSessionRecord | undefined =>
     selectedEcdsaAuthMethod === SIGNER_AUTH_METHODS.emailOtp ? emailOtpReauthRecord : undefined;
   const walletAuthArgsBase = {
-    deps,
+    deps: {
+      ...deps,
+      walletSigningBudgetLedger,
+    },
     confirmedDeps: deps,
     nearAccountId: args.nearAccountId,
     chain: args.request.chain,
     accountAuth: resolvedAccountAuth,
-    forceFreshAuth: attempt.forceFreshEmailOtpAuth === true,
+    forceFreshAuth: attempt.forceFreshAuth === true,
     onEvent: args.onEvent,
   };
   const { signingAuthPlan, signingSessionPlan, emailOtpSigning } =
@@ -333,16 +366,41 @@ async function signEvmFamilyAttempt(
       chain: args.request.chain,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       accountAuth: resolvedAccountAuth,
-      alreadyRetryingFreshEmailOtpAuth: attempt.retryingFreshEmailOtpAuth,
+      alreadyRetryingFreshEmailOtpAuth: attempt.retryingFreshAuth,
       hasEmailOtpSigningPlan: !!emailOtpSigning,
       onEvent: args.onEvent,
       retry: async () =>
         await signEvmFamilyAttempt(deps, args, {
-          forceFreshEmailOtpAuth: true,
+          forceFreshAuth: true,
           operationIds,
-          retryingFreshEmailOtpAuth: true,
+          retryingFreshAuth: true,
           walletSigningBudgetLedger,
         }),
+    });
+  };
+  const retryWithFreshAuth = async (
+    error: unknown,
+  ): Promise<TempoSignedResult | EvmSignedResult | null> => {
+    const emailOtpRetry = await retryWithFreshEmailOtpAuth(error);
+    if (emailOtpRetry) return emailOtpRetry;
+    if (
+      attempt.retryingFreshAuth ||
+      args.request.senderSignatureAlgorithm !== 'secp256k1' ||
+      !isWalletSigningBudgetExhaustedError(error)
+    ) {
+      return null;
+    }
+    emitEvmFamilyFreshAuthRetryEvent({
+      nearAccountId: args.nearAccountId,
+      chain: args.request.chain,
+      accountAuth: resolvedAccountAuth,
+      onEvent: args.onEvent,
+    });
+    return await signEvmFamilyAttempt(deps, args, {
+      forceFreshAuth: true,
+      operationIds,
+      retryingFreshAuth: true,
+      walletSigningBudgetLedger,
     });
   };
   const recordSuccessfulWalletSigningSessionSpend = async (): Promise<void> => {
@@ -353,19 +411,22 @@ async function signEvmFamilyAttempt(
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
       confirmationOperationId: ensureConfirmationOperationId(),
+      operationFingerprint,
       ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
       ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
       ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
     });
   };
-  const reserveWalletSigningSessionBudget = async (): Promise<void> => {
-    await reserveEvmFamilyWalletSigningSessionBudget({
+  const reserveWalletSigningSessionBudget =
+    async (): Promise<WalletSigningBudgetReservation | null> => {
+    return await reserveEvmFamilyWalletSigningSessionBudget({
       deps,
       walletSigningBudgetLedger,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
       confirmationOperationId: ensureConfirmationOperationId(),
+      operationFingerprint,
       ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
       ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
       ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
@@ -380,6 +441,7 @@ async function signEvmFamilyAttempt(
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
       confirmationOperationId: ensureConfirmationOperationId(),
+      operationFingerprint,
       error,
       ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
       ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
@@ -414,7 +476,7 @@ async function signEvmFamilyAttempt(
     recordSuccessfulWalletSigningSessionSpend,
     recordFailedWalletSigningSessionSpend,
     applySuccessfulEcdsaPostSignPolicy,
-    retryWithFreshEmailOtpAuth,
+    retryWithFreshEmailOtpAuth: retryWithFreshAuth,
     ...(signingSessionPlan ? { signingSessionPlan } : {}),
     ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
     ...(resolveEmailOtpReauthRecord()

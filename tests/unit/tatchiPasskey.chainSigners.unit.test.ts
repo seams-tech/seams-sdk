@@ -1334,4 +1334,166 @@ test.describe('TatchiPasskey chain signer modules', () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test('TempoSigner.executeEvmFamilyTransaction surfaces finalization timeout when nonce cleanup stalls', async () => {
+    const calls = {
+      signTempo: 0,
+      reportBroadcastAccepted: 0,
+      reportBroadcastRejected: 0,
+      reportFinalized: 0,
+      reportDroppedOrReplaced: 0,
+      reconcileNonceLane: 0,
+    };
+    const events: any[] = [];
+    const txHash = `0x${'88'.repeat(32)}`;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      let body: Record<string, unknown> = {};
+      try {
+        body = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+      } catch {}
+      const id = body.id ?? Date.now();
+      const method = String(body.method || '');
+      if (method === 'eth_sendRawTransaction') {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: txHash }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (method === 'eth_getTransactionReceipt' || method === 'eth_getTransactionByHash') {
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id, result: null }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (method === 'eth_getBlockByNumber') {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            result: { number: '0x1', baseFeePerGas: '0x1' },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          error: { code: -32601, message: `unsupported method: ${method}` },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const signer = new TempoSigner({
+        getContext: () =>
+          ({
+            configs: {
+              network: {
+                chains: [
+                  {
+                    network: 'tempo-testnet',
+                    rpcUrl: 'https://rpc.tempo.test',
+                    explorerUrl: 'https://explorer.tempo.test',
+                    chainId: 42431,
+                  },
+                ],
+              },
+            },
+            signingEngine: {
+              assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
+              applyThresholdEcdsaPostSignPolicy,
+              signTempo: async () => {
+                calls.signTempo += 1;
+                return {
+                  chain: 'evm',
+                  kind: 'eip1559',
+                  txHashHex: `0x${'cd'.repeat(32)}`,
+                  rawTxHex: `0x02${'34'.repeat(31)}`,
+                  managedNonce: {
+                    sender: '0x1111111111111111111111111111111111111111',
+                    nonce: '15',
+                  },
+                };
+              },
+              reportTempoBroadcastAccepted: async () => {
+                calls.reportBroadcastAccepted += 1;
+              },
+              reportTempoBroadcastRejected: async () => {
+                calls.reportBroadcastRejected += 1;
+              },
+              reportTempoFinalized: async () => {
+                calls.reportFinalized += 1;
+              },
+              reportTempoDroppedOrReplaced: async () => {
+                calls.reportDroppedOrReplaced += 1;
+              },
+              reconcileTempoNonceLane: async (args: any) => {
+                calls.reconcileNonceLane += 1;
+                args.onEvent?.(
+                  createTestSigningEvent(
+                    SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
+                    'running',
+                  ),
+                );
+                await new Promise(() => {});
+              },
+            },
+          }) as any,
+        walletIframe: {
+          shouldUseWalletIframe: () => false,
+          requireRouter: async () => {
+            throw new Error('router should not be called');
+          },
+        },
+      });
+
+      await expect(
+        signer.executeEvmFamilyTransaction({
+          nearAccountId: 'alice.testnet',
+          request: {
+            chain: 'evm',
+            kind: 'eip1559',
+            senderSignatureAlgorithm: 'secp256k1',
+            tx: {
+              chainId: 42431,
+              maxPriorityFeePerGas: 1n,
+              maxFeePerGas: 2n,
+              gasLimit: 21000n,
+              to: '0x1111111111111111111111111111111111111111',
+              value: 0n,
+              data: '0xdeadbeef',
+              accessList: [],
+            },
+          },
+          finalization: {
+            timeoutMs: 30,
+            pollIntervalMs: 1,
+          },
+          options: {
+            onEvent: (event: any) => events.push(event),
+          },
+        }),
+      ).rejects.toThrow(
+        /Timed out waiting for tx receipt|Timed out waiting for transaction finalization/,
+      );
+
+      expect(calls.signTempo).toBe(1);
+      expect(calls.reportBroadcastAccepted).toBe(1);
+      expect(calls.reportBroadcastRejected).toBe(0);
+      expect(calls.reportFinalized).toBe(0);
+      expect(calls.reportDroppedOrReplaced).toBe(0);
+      expect(calls.reconcileNonceLane).toBe(1);
+      expect(events.map((event) => event.phase)).toContain(
+        SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

@@ -76,6 +76,10 @@ export type EnsureWarmEcdsaCapabilityReadyArgs = {
     publishableKey: string;
   };
   usesNeeded?: number;
+  sessionId?: string;
+  walletSigningSessionId?: string;
+  clientRootShare32B64u?: string;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
   beforeReconnect?: () => void | Promise<void>;
   assertNotCancelled?: () => void;
 };
@@ -121,6 +125,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
   };
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
 };
 
 export type WarmEcdsaBootstrapRequest = {
@@ -141,6 +146,7 @@ export type WarmEcdsaBootstrapRequest = {
   };
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
 };
 
 export type ProvisionWarmEcdsaCapabilityArgs = ResolveWarmEcdsaBootstrapRequestArgs & {

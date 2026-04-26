@@ -15,14 +15,12 @@ export type ThresholdSessionId = ThresholdEd25519SessionId | ThresholdEcdsaSessi
 export type BackingMaterialSessionId = Brand<string, 'BackingMaterialSessionId'>;
 export type EmailOtpChallengeId = Brand<string, 'EmailOtpChallengeId'>;
 export type SigningOperationId = Brand<string, 'SigningOperationId'>;
+export type SigningOperationFingerprint = Brand<string, 'SigningOperationFingerprint'>;
 
 export type SigningCurve = 'ed25519' | 'ecdsa';
 export type SigningChainFamily = 'near' | ThresholdEcdsaActivationChain;
 export type SigningAuthMethod = Extract<WalletAuthMethod, 'email_otp' | 'passkey'>;
-export type SigningKeyKind =
-  | 'threshold_ed25519'
-  | 'threshold_ecdsa_secp256k1'
-  | 'webauthn_p256';
+export type SigningKeyKind = 'threshold_ed25519' | 'threshold_ecdsa_secp256k1' | 'webauthn_p256';
 export type SigningSessionOrigin =
   | 'login'
   | 'registration'
@@ -60,6 +58,7 @@ export type SigningLaneContext = {
 export type SigningOperationContext = {
   operationId: SigningOperationId;
   intent: SigningOperationIntent;
+  operationFingerprint?: SigningOperationFingerprint;
 };
 
 export type SigningLaneResolutionBlockedReason =
@@ -100,6 +99,7 @@ export type SigningKeyRefIntent =
 
 export type WalletSigningSpendPlan = {
   operationId: SigningOperationId;
+  operationFingerprint?: SigningOperationFingerprint;
   nearAccountId: AccountId;
   walletSigningSessionId: WalletSigningSessionId;
   lane: SigningLaneContext;
@@ -207,6 +207,9 @@ export const SigningSessionIds = {
   signingOperation(value: unknown): SigningOperationId {
     return toRequiredBrandedString(value, 'signingOperationId');
   },
+  signingOperationFingerprint(value: unknown): SigningOperationFingerprint {
+    return toRequiredBrandedString(value, 'signingOperationFingerprint');
+  },
 } as const;
 
 export function summarizeSigningLane(lane: SigningLaneContext): SigningLaneSummary {
@@ -222,7 +225,9 @@ export function summarizeSigningLane(lane: SigningLaneContext): SigningLaneSumma
   };
 }
 
-export function normalizeWalletSigningSpendPlan(input: WalletSigningSpendPlan): WalletSigningSpendPlan {
+export function normalizeWalletSigningSpendPlan(
+  input: WalletSigningSpendPlan,
+): WalletSigningSpendPlan {
   if (!input || typeof input !== 'object') {
     throw new Error('[SigningSession] wallet signing spend plan is required');
   }
@@ -231,6 +236,10 @@ export function normalizeWalletSigningSpendPlan(input: WalletSigningSpendPlan): 
     throw new Error('[SigningSession] wallet signing spend plan lane is required');
   }
   const operationId = SigningSessionIds.signingOperation(input.operationId);
+  const operationFingerprint =
+    input.operationFingerprint != null
+      ? SigningSessionIds.signingOperationFingerprint(input.operationFingerprint)
+      : undefined;
   const nearAccountId = toAccountId(input.nearAccountId || lane.accountId);
   const laneAccountId = toAccountId(lane.accountId);
   if (String(nearAccountId) !== String(laneAccountId)) {
@@ -243,7 +252,9 @@ export function normalizeWalletSigningSpendPlan(input: WalletSigningSpendPlan): 
     lane.walletSigningSessionId,
   );
   if (walletSigningSessionId !== laneWalletSigningSessionId) {
-    throw new Error('[SigningSession] wallet signing spend walletSigningSessionId does not match lane');
+    throw new Error(
+      '[SigningSession] wallet signing spend walletSigningSessionId does not match lane',
+    );
   }
   if (input.uses !== 1) {
     throw new Error('[SigningSession] wallet signing spend uses must be 1');
@@ -254,6 +265,7 @@ export function normalizeWalletSigningSpendPlan(input: WalletSigningSpendPlan): 
   return {
     ...input,
     operationId,
+    ...(operationFingerprint ? { operationFingerprint } : {}),
     nearAccountId,
     walletSigningSessionId,
     lane: {

@@ -141,6 +141,9 @@ test.describe('WalletSigningSessionCoordinator', () => {
         sessionJwt: 'jwt:ecdsa-missing-wallet-id-session',
       }),
     });
+    const recordWithoutWalletId = { ...record };
+    delete recordWithoutWalletId.walletSigningSessionId;
+    upsertStoredThresholdEcdsaSessionRecord(ecdsaStore, recordWithoutWalletId);
 
     const { touchConfirm } = createMutableTouchConfirmStatus({
       [record.thresholdSessionId]: { state: 'warm', remainingUses: 5, expiresAtMs },
@@ -284,6 +287,211 @@ test.describe('WalletSigningSessionCoordinator', () => {
     expect(emailOtpConsumeCalls).toEqual([]);
     expect(consumeCalls).toEqual([{ sessionId: 'ed-email-consume', uses: 1 }]);
     expect(markCalls).toEqual([{ thresholdSessionId: 'ed-email-consume', uses: 1 }]);
+  });
+
+  test('consumes sibling ECDSA lanes when one chain spends a shared wallet session', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const expiresAtMs = Date.now() + 120_000;
+    const walletSigningSessionId = 'ws-cross-chain-shared';
+
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'cross-chain-shared.testnet',
+      chain: 'tempo',
+      source: 'login',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'cross-chain-shared.testnet',
+        chain: 'tempo',
+        ecdsaThresholdKeyId: 'ek-cross-chain-tempo',
+        sessionId: 'ecdsa-cross-chain-tempo',
+        sessionJwt: 'jwt:ecdsa-cross-chain-tempo',
+        walletSigningSessionId,
+      }),
+    });
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'cross-chain-shared.testnet',
+      chain: 'evm',
+      source: 'login',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'cross-chain-shared.testnet',
+        chain: 'evm',
+        ecdsaThresholdKeyId: 'ek-cross-chain-evm',
+        sessionId: 'ecdsa-cross-chain-evm',
+        sessionJwt: 'jwt:ecdsa-cross-chain-evm',
+        walletSigningSessionId,
+      }),
+    });
+
+    const { touchConfirm, consumeCalls } = createMutableTouchConfirmStatus({
+      'ecdsa-cross-chain-tempo': { state: 'warm', remainingUses: 5, expiresAtMs },
+      'ecdsa-cross-chain-evm': { state: 'warm', remainingUses: 5, expiresAtMs },
+    });
+    const coordinator = createWalletSigningSessionCoordinator({
+      touchConfirm,
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        [...ecdsaStore.recordsByLane.values()].filter((record) => record.chain === chain),
+    });
+
+    const status = await coordinator.consumeUse({
+      nearAccountId: 'cross-chain-shared.testnet',
+      walletSigningSessionId,
+      uses: 1,
+      reason: 'transaction_sign',
+      targetThresholdSessionIds: ['ecdsa-cross-chain-tempo'],
+    });
+
+    expect(consumeCalls).toHaveLength(2);
+    expect(consumeCalls).toEqual(
+      expect.arrayContaining([
+        { sessionId: 'ecdsa-cross-chain-tempo', uses: 1 },
+        { sessionId: 'ecdsa-cross-chain-evm', uses: 1 },
+      ]),
+    );
+    expect(status).toMatchObject({
+      status: 'active',
+      authMethod: 'passkey',
+      remainingUses: 4,
+    });
+  });
+
+  test('marks passkey Ed25519 exhausted when sibling ECDSA spends the last shared use', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const expiresAtMs = Date.now() + 120_000;
+    const walletSigningSessionId = 'ws-passkey-sibling-exhaustion';
+
+    seedEd25519WarmSessionRecord({
+      nearAccountId: 'passkey-sibling-exhaustion.testnet',
+      thresholdSessionId: 'ed-passkey-sibling-exhaustion',
+      walletSigningSessionId,
+      thresholdSessionJwt: 'jwt:ed-passkey-sibling-exhaustion',
+      remainingUses: 1,
+      expiresAtMs,
+      source: 'login',
+    });
+    seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'passkey-sibling-exhaustion.testnet',
+      chain: 'tempo',
+      source: 'login',
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'passkey-sibling-exhaustion.testnet',
+        chain: 'tempo',
+        ecdsaThresholdKeyId: 'ek-passkey-sibling-exhaustion',
+        sessionId: 'ecdsa-passkey-sibling-exhaustion',
+        sessionJwt: 'jwt:ecdsa-passkey-sibling-exhaustion',
+        walletSigningSessionId,
+      }),
+    });
+
+    const { touchConfirm, consumeCalls } = createMutableTouchConfirmStatus({
+      'ed-passkey-sibling-exhaustion': { state: 'warm', remainingUses: 1, expiresAtMs },
+      'ecdsa-passkey-sibling-exhaustion': { state: 'warm', remainingUses: 1, expiresAtMs },
+    });
+    const coordinator = createWalletSigningSessionCoordinator({
+      touchConfirm,
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        chain === 'tempo' ? [...ecdsaStore.recordsByLane.values()] : [],
+    });
+
+    const status = await coordinator.consumeUse({
+      nearAccountId: 'passkey-sibling-exhaustion.testnet',
+      walletSigningSessionId,
+      uses: 1,
+      reason: 'transaction_sign',
+      targetThresholdSessionIds: ['ecdsa-passkey-sibling-exhaustion'],
+    });
+    const nextStatus = await coordinator.getStatus({
+      nearAccountId: 'passkey-sibling-exhaustion.testnet',
+      walletSigningSessionId,
+    });
+    const claims = await coordinator.getLaneClaimsForAccount(
+      'passkey-sibling-exhaustion.testnet',
+    );
+
+    expect(consumeCalls).toEqual([
+      { sessionId: 'ed-passkey-sibling-exhaustion', uses: 1 },
+      { sessionId: 'ecdsa-passkey-sibling-exhaustion', uses: 1 },
+    ]);
+    expect(status).toMatchObject({
+      sessionId: walletSigningSessionId,
+      status: 'exhausted',
+      authMethod: 'passkey',
+      remainingUses: 0,
+    });
+    expect(nextStatus).toMatchObject({
+      sessionId: walletSigningSessionId,
+      status: 'exhausted',
+      authMethod: 'passkey',
+    });
+    expect(claims.get('ed-passkey-sibling-exhaustion')).toMatchObject({
+      state: 'exhausted',
+    });
+  });
+
+  test('returns exhausted after an already-consumed ECDSA Email OTP lane disappears', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const walletSigningSessionId = 'ws-email-ecdsa-already-consumed';
+    const thresholdSessionId = 'ecdsa-email-already-consumed';
+
+    const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
+      nearAccountId: 'email-ecdsa-already-consumed.testnet',
+      chain: 'tempo',
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        policy: 'per_operation',
+        retention: 'single_use',
+        reason: 'sign',
+        authMethod: 'email_otp',
+      },
+      bootstrap: createThresholdEcdsaBootstrapFixture({
+        nearAccountId: 'email-ecdsa-already-consumed.testnet',
+        chain: 'tempo',
+        ecdsaThresholdKeyId: 'ek-email-already-consumed',
+        sessionId: thresholdSessionId,
+        sessionJwt: 'jwt:ecdsa-email-already-consumed',
+        walletSigningSessionId,
+      }),
+    });
+    upsertStoredThresholdEcdsaSessionRecord(ecdsaStore, {
+      ...ecdsaRecord,
+      clientAdditiveShareHandle: {
+        kind: 'email_otp_worker_session',
+        sessionId: 'email-worker-already-consumed',
+      },
+    });
+
+    const emailOtpConsumeCalls: Array<{ sessionId: string; uses?: number }> = [];
+    const coordinator = createWalletSigningSessionCoordinator({
+      listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
+        chain === 'tempo' ? [...ecdsaStore.recordsByLane.values()] : [],
+      getEmailOtpWarmSessionStatus: async () => ({
+        ok: false,
+        code: 'not_found',
+        message: 'already consumed by signing worker',
+      }),
+      consumeEmailOtpWarmSessionUses: async (args) => {
+        emailOtpConsumeCalls.push(args);
+        return { ok: false, code: 'not_found', message: 'should not be called' };
+      },
+    });
+
+    const status = await coordinator.consumeUse({
+      nearAccountId: 'email-ecdsa-already-consumed.testnet',
+      walletSigningSessionId,
+      uses: 1,
+      reason: 'transaction_sign',
+      alreadyConsumedThresholdSessionIds: [thresholdSessionId],
+    });
+
+    expect(emailOtpConsumeCalls).toEqual([]);
+    expect(status).toMatchObject({
+      sessionId: walletSigningSessionId,
+      status: 'exhausted',
+      authMethod: 'email_otp',
+      retention: 'single_use',
+      remainingUses: 0,
+    });
   });
 
   test('syncs the sealed-refresh record to the shared Email OTP budget after Ed25519 signing', async () => {

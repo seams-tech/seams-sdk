@@ -14,6 +14,7 @@ import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
 import type { TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
+import type { WalletSigningBudgetReservation } from '../../session/WalletSigningBudgetLedger';
 import { mapToRetryableNonceStateError } from './errors';
 import {
   emitEvmFamilySigningExecutionTrace,
@@ -99,7 +100,7 @@ async function executeEvmTransactionSigning(args: {
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   signingSessionPlan?: SigningSessionPlan;
   onConfirmationDisplayed: () => void;
-  reserveWalletSigningSessionBudget: () => Promise<void>;
+  reserveWalletSigningSessionBudget: () => Promise<WalletSigningBudgetReservation | null>;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
@@ -133,8 +134,8 @@ async function executeEvmTransactionSigning(args: {
           request: args.request,
           reservationInput: await reservationInputPromise,
         }),
-      releaseNonceReservation: (reservation: EvmFamilyManagedNonceReservation) => {
-        releaseEvmFamilyNonceReservation(args.deps, reservation);
+      releaseNonceReservation: async (reservation: EvmFamilyManagedNonceReservation) => {
+        await releaseEvmFamilyNonceReservation(args.deps, reservation);
       },
     } as unknown);
     await runSuccessfulEvmFamilyPostSignCommands({
@@ -171,7 +172,7 @@ async function executeTempoTransactionSigning(args: {
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   signingSessionPlan?: SigningSessionPlan;
   onConfirmationDisplayed: () => void;
-  reserveWalletSigningSessionBudget: () => Promise<void>;
+  reserveWalletSigningSessionBudget: () => Promise<WalletSigningBudgetReservation | null>;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
@@ -197,8 +198,8 @@ async function executeTempoTransactionSigning(args: {
           request: args.request,
           ...(ecdsaSignerAddress ? { senderHint: ecdsaSignerAddress } : {}),
         }),
-      releaseNonceReservation: (reservation: EvmFamilyManagedNonceReservation) => {
-        releaseEvmFamilyNonceReservation(args.deps, reservation);
+      releaseNonceReservation: async (reservation: EvmFamilyManagedNonceReservation) => {
+        await releaseEvmFamilyNonceReservation(args.deps, reservation);
       },
     } as unknown);
     await runSuccessfulEvmFamilyPostSignCommands({
@@ -235,7 +236,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   signingSessionPlan?: SigningSessionPlan;
   onConfirmationDisplayed: () => void;
-  reserveWalletSigningSessionBudget: () => Promise<void>;
+  reserveWalletSigningSessionBudget: () => Promise<WalletSigningBudgetReservation | null>;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;

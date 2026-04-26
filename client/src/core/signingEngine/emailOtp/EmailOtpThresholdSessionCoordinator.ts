@@ -1508,6 +1508,12 @@ export class EmailOtpThresholdSessionCoordinator {
     const ecdsaRecord = args.ecdsaRecord;
     if (sealedRecord.authMethod !== 'email_otp') return null;
     if (sealedRecord.secretKind !== 'signing_session_secret32') return null;
+    // Sealed refresh restore is lane-exact. Accepting an Ed25519 seal here could
+    // pair the restored ECDSA lane with the wrong wallet session and later fail
+    // as an unauthorized Email OTP bootstrap.
+    if (sealedRecord.curve !== 'ecdsa') {
+      throw new Error('Email OTP sealed refresh curve mismatch');
+    }
     if (ecdsaRecord.source !== 'email_otp') return null;
     const emailOtpAuthContext = ecdsaRecord.emailOtpAuthContext;
     if (!emailOtpAuthContext || emailOtpAuthContext.retention !== 'session') return null;

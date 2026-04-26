@@ -8,6 +8,8 @@ import {
   TEMPO_ALPHA_USD_FEE_TOKEN,
   TEMPO_DRIP_GAS_LIMIT,
   TEMPO_GREETING_CONTRACT,
+  EVM_GREETING_FINALITY_POLL_INTERVAL_MS,
+  EVM_GREETING_FINALITY_TIMEOUT_MS,
   buildEvmExplorerTxUrl,
   buildTempoEip1559GreetingRequest,
   compactHex,
@@ -349,6 +351,10 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       const execution = await tatchi.tempo.executeEvmFamilyTransaction({
         nearAccountId,
         request,
+        finalization: {
+          timeoutMs: EVM_GREETING_FINALITY_TIMEOUT_MS,
+          pollIntervalMs: EVM_GREETING_FINALITY_POLL_INTERVAL_MS,
+        },
         payloadExpectation: {
           to: request.tx.to,
           input: request.tx.data || '0x',

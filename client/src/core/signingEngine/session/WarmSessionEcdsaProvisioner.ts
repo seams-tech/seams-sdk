@@ -212,6 +212,7 @@ export async function provisionWarmEcdsaCapability(
       runtimeScopeBootstrap: args.runtimeScopeBootstrap,
       clientRootShare32: args.clientRootShare32,
       clientRootShare32B64u: args.clientRootShare32B64u,
+      webauthnAuthentication: args.webauthnAuthentication,
     },
     warmSession: beforeWarmSession,
   });
@@ -413,15 +414,25 @@ export async function ensureWarmEcdsaCapabilityReady(
   let reconnectPromise = deps.reconnectInFlightByCapability.get(inflightKey);
   if (!reconnectPromise) {
     reconnectPromise = (async (): Promise<EnsureWarmEcdsaCapabilityReadyResult> => {
+      const reconnectUses = Math.max(1, Math.floor(Number(args.usesNeeded) || 1));
       const provisioned = await deps.provisionEcdsaCapability({
         nearAccountId,
         chain: args.chain,
         source: inheritedEmailOtpRecord ? 'email_otp' : 'manual-bootstrap',
+        ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+        ...(args.walletSigningSessionId
+          ? { walletSigningSessionId: args.walletSigningSessionId }
+          : {}),
+        ...(args.clientRootShare32B64u ? { clientRootShare32B64u: args.clientRootShare32B64u } : {}),
+        ...(args.webauthnAuthentication
+          ? { webauthnAuthentication: args.webauthnAuthentication }
+          : {}),
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
         ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
         ...(inheritedEmailOtpRecord?.emailOtpAuthContext
           ? { emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext }
           : {}),
+        remainingUses: reconnectUses,
         beforeProvision: args.beforeReconnect,
         assertNotCancelled: args.assertNotCancelled,
       });

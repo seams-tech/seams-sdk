@@ -1,7 +1,11 @@
 import { ThresholdSigningService } from '@server/core/ThresholdService/ThresholdSigningService';
 import { createThresholdEd25519SessionStore } from '@server/core/ThresholdService/stores/SessionStore';
 import { createThresholdEcdsaSessionStore } from '@server/core/ThresholdService/stores/SessionStore';
-import { createEcdsaAuthSessionStore } from '@server/core/ThresholdService/stores/AuthSessionStore';
+import {
+  createEcdsaAuthSessionStore,
+  createEd25519AuthSessionStore,
+  type Ed25519AuthSessionStore,
+} from '@server/core/ThresholdService/stores/AuthSessionStore';
 import { createThresholdEcdsaKeyStore } from '@server/core/ThresholdService/stores/KeyStore';
 import { createThresholdEcdsaSigningStores } from '@server/core/ThresholdService/stores/EcdsaSigningStore';
 import { parseThresholdEd25519KeyRecord } from '@server/core/ThresholdService/validation';
@@ -137,9 +141,11 @@ export function createThresholdSigningServiceForUnitTests(input: {
         webauthn_authentication: WebAuthnAuthenticationCredential;
       }) => Promise<{ success: boolean; verified: boolean; code?: string; message?: string }>)
     | null;
+  authSessionStore?: Ed25519AuthSessionStore | null;
 }): {
   svc: ThresholdSigningService;
   sessionStore: ReturnType<typeof createThresholdEd25519SessionStore>;
+  authSessionStore: Ed25519AuthSessionStore;
 } {
   const logger = normalizeLogger(input.logger || silentLogger());
   const sessionStore = createThresholdEd25519SessionStore({
@@ -162,6 +168,13 @@ export function createThresholdSigningServiceForUnitTests(input: {
     logger,
     isNode: true,
   });
+  const authSessionStore =
+    input.authSessionStore ||
+    createEd25519AuthSessionStore({
+      config: { kind: 'in-memory' },
+      logger,
+      isNode: true,
+    });
   const {
     signingSessionStore: ecdsaSigningSessionStore,
     presignSessionStore: ecdsaPresignSessionStore,
@@ -227,13 +240,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
       del: async () => {},
     },
     sessionStore,
-    authSessionStore: {
-      putSession: async () => {},
-      getSession: async () => null,
-      getSessionStatus: async () => null,
-      consumeUseCount: async () => ({ ok: false, code: 'unauthorized', message: 'unused' }),
-      consumeUseCountOnce: async () => ({ ok: false, code: 'unauthorized', message: 'unused' }),
-    },
+    authSessionStore,
     ecdsaKeyStore,
     ecdsaSessionStore,
     ecdsaAuthSessionStore,
@@ -256,7 +263,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
       }) as any,
   });
 
-  return { svc, sessionStore };
+  return { svc, sessionStore, authSessionStore };
 }
 
 export async function verifyThresholdEd25519CoordinatorGrantHmac(

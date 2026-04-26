@@ -37,9 +37,12 @@ import {
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WarmSessionSealedRestoreEvent } from '../session/WarmSessionSealedRefreshRestorer';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import { isThresholdSessionAuthUnavailableError } from '../threshold/session/sessionPolicy';
 import {
-  createWalletSigningBudgetLedger,
+  buildEd25519SessionPolicy,
+  isThresholdSessionAuthUnavailableError,
+} from '../threshold/session/sessionPolicy';
+import {
+  isWalletSigningBudgetExhaustedError,
   type WalletSigningBudgetLedger,
 } from '../session/WalletSigningBudgetLedger';
 import {
@@ -200,6 +203,8 @@ export type NearSigningApiDeps = {
     record: ThresholdEd25519SessionRecord;
     localPrfCredential: WebAuthnAuthenticationCredential;
     usesNeeded?: number;
+    sessionId?: string;
+    walletSigningSessionId?: string;
   }) => Promise<{ sessionId: string }>;
   walletSigningBudgetLedger?: WalletSigningBudgetLedger;
   restoreEmailOtpEcdsaSigningSessionForNearTransaction?: (args: {
@@ -225,6 +230,7 @@ export type NearSigningApiDeps = {
 
 type NearTransactionPreConfirmSigningDeps = {
   getWarmThresholdEd25519SessionStatusForSession?: NearSigningApiDeps['getWarmThresholdEd25519SessionStatusForSession'];
+  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
   hasTouchConfirm: () => boolean;
 };
 
@@ -316,6 +322,11 @@ async function resolveNearTransactionPlannerReadiness(args: {
   const usesNeeded = Math.max(1, Math.floor(Number(args.usesNeeded) || 1));
   const resolveExpiresAtMs = (): number => args.record.expiresAtMs;
   const resolveRemainingUses = (): number => args.record.remainingUses;
+  const walletBudgetStatus = await readNearTransactionWalletBudgetStatus({
+    preConfirmDeps: args.preConfirmDeps,
+    nearAccountId: args.nearAccountId,
+    record: args.record,
+  });
   const buildReadiness = (
     status: SigningSessionReadiness['status'],
     remainingUses = resolveRemainingUses(),
@@ -327,6 +338,38 @@ async function resolveNearTransactionPlannerReadiness(args: {
     expiresAtMs: resolveExpiresAtMs(),
     remainingUses,
   });
+  const buildBudgetAwareReadyReadiness = (input: {
+    expiresAtMs: number;
+    remainingUses: number;
+  }) => {
+    let expiresAtMs = Math.floor(Number(input.expiresAtMs) || 0);
+    let remainingUses = Math.max(0, Math.floor(Number(input.remainingUses) || 0));
+    if (walletBudgetStatus) {
+      if (walletBudgetStatus.status === 'not_found') return buildReadiness('missing_session', 0);
+      if (walletBudgetStatus.status === 'unavailable') {
+        return buildReadiness('status_unavailable', 0);
+      }
+      if (walletBudgetStatus.status === 'expired') return buildReadiness('expired', 0);
+      if (walletBudgetStatus.status === 'exhausted') return buildReadiness('exhausted', 0);
+      const budgetRemainingUses = Math.max(
+        0,
+        Math.floor(Number(walletBudgetStatus.remainingUses) || 0),
+      );
+      const budgetExpiresAtMs = Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0);
+      remainingUses = Math.min(remainingUses, budgetRemainingUses);
+      if (budgetExpiresAtMs > 0) expiresAtMs = Math.min(expiresAtMs, budgetExpiresAtMs);
+    }
+    if (remainingUses < usesNeeded) return buildReadiness('exhausted', remainingUses);
+    if (expiresAtMs <= Date.now()) return buildReadiness('expired', 0);
+    return {
+      readiness: {
+        status: 'ready' as const,
+        thresholdSessionId,
+      },
+      expiresAtMs,
+      remainingUses,
+    };
+  };
 
   const isSingleUseEmailOtpRecord =
     args.record.source === 'email_otp' &&
@@ -345,30 +388,36 @@ async function resolveNearTransactionPlannerReadiness(args: {
   if (liveStatus?.sessionId === sessionId) {
     if (liveStatus.status !== 'active') return buildReadiness('missing_session', 0);
     const remainingUses = Math.floor(Number(liveStatus.remainingUses) || 0);
-    if (remainingUses < usesNeeded) return buildReadiness('exhausted', remainingUses);
-    return {
-      readiness: {
-        status: 'ready',
-        thresholdSessionId,
-      },
+    return buildBudgetAwareReadyReadiness({
       expiresAtMs: Math.floor(Number(liveStatus.expiresAtMs) || args.record.expiresAtMs),
       remainingUses,
-    };
+    });
   }
 
   if (args.preConfirmDeps.hasTouchConfirm()) return buildReadiness('missing_session', 0);
   const remainingUses = resolveRemainingUses();
   const expiresAtMs = resolveExpiresAtMs();
-  if (remainingUses < usesNeeded) return buildReadiness('exhausted', remainingUses);
-  if (expiresAtMs <= Date.now()) return buildReadiness('expired', 0);
-  return {
-    readiness: {
-      status: 'ready',
-      thresholdSessionId,
-    },
-    expiresAtMs,
-    remainingUses,
-  };
+  return buildBudgetAwareReadyReadiness({ expiresAtMs, remainingUses });
+}
+
+async function readNearTransactionWalletBudgetStatus(args: {
+  preConfirmDeps: NearTransactionPreConfirmSigningDeps;
+  nearAccountId: AccountId;
+  record: ThresholdEd25519SessionRecord;
+}) {
+  const walletSigningSessionId = String(args.record.walletSigningSessionId || '').trim();
+  if (!walletSigningSessionId || !args.preConfirmDeps.walletSigningBudgetLedger) return null;
+  try {
+    return await args.preConfirmDeps.walletSigningBudgetLedger.getAvailableStatus({
+      nearAccountId: args.nearAccountId,
+      walletSigningSessionId,
+    });
+  } catch {
+    return {
+      sessionId: walletSigningSessionId,
+      status: 'unavailable' as const,
+    };
+  }
 }
 
 function hasThresholdEd25519RouteAuth(record: ThresholdEd25519SessionRecord): boolean {
@@ -693,9 +742,7 @@ export async function signTransactionsWithActions(
     return operationId;
   };
   const walletSigningBudgetLedger =
-    attempt.walletSigningBudgetLedger ||
-    deps.walletSigningBudgetLedger ||
-    createWalletSigningBudgetLedger({});
+    attempt.walletSigningBudgetLedger || deps.walletSigningBudgetLedger;
   let thresholdSessionRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
   const hasPendingEmailOtpEd25519Warmup = (): boolean =>
     deps.isEmailOtpEd25519WarmupPending?.({ nearAccountId }) === true;
@@ -728,6 +775,7 @@ export async function signTransactionsWithActions(
     preConfirmDeps: {
       getWarmThresholdEd25519SessionStatusForSession:
         deps.getWarmThresholdEd25519SessionStatusForSession,
+      walletSigningBudgetLedger,
       hasTouchConfirm: () => Boolean(deps.getSignerWorkerContext().touchConfirm),
     },
     confirmedDeps: {
@@ -780,12 +828,47 @@ export async function signTransactionsWithActions(
             typeof deps.reconnectPasskeyEd25519CapabilityForSigning === 'function'
               ? {
                   passkeyEd25519Reconnect: {
-                    reconnect: async ({ credential, usesNeeded }) =>
+                    prepare: async ({ usesNeeded }) => {
+                      const rpId = String(ctx.touchIdPrompt.getRpId() || '').trim();
+                      if (!rpId) {
+                        throw new Error('[SigningEngine] missing rpId for passkey Ed25519 reauth');
+                      }
+                      const remainingUses = Math.max(1, Math.floor(Number(usesNeeded) || 1));
+                      const { policy, sessionPolicyDigest32 } = await buildEd25519SessionPolicy({
+                        nearAccountId,
+                        rpId,
+                        relayerKeyId: thresholdSessionRecord.relayerKeyId,
+                        ...(thresholdSessionRecord.runtimePolicyScope
+                          ? { runtimePolicyScope: thresholdSessionRecord.runtimePolicyScope }
+                          : {}),
+                        participantIds: thresholdSessionRecord.participantIds,
+                        ...(thresholdSessionRecord.walletSigningSessionId
+                          ? {
+                              walletSigningSessionId:
+                                thresholdSessionRecord.walletSigningSessionId,
+                            }
+                          : {}),
+                        remainingUses,
+                      });
+                      return {
+                        sessionId: policy.sessionId,
+                        walletSigningSessionId: policy.walletSigningSessionId,
+                        sessionPolicyDigest32,
+                      };
+                    },
+                    reconnect: async ({
+                      credential,
+                      usesNeeded,
+                      sessionId,
+                      walletSigningSessionId,
+                    }) =>
                       await deps.reconnectPasskeyEd25519CapabilityForSigning!({
                         nearAccountId,
                         record: thresholdSessionRecord,
                         localPrfCredential: credential,
                         usesNeeded,
+                        ...(sessionId ? { sessionId } : {}),
+                        ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
                       }),
                   },
                 }
@@ -795,11 +878,15 @@ export async function signTransactionsWithActions(
       },
     });
   } catch (error: unknown) {
+    const alreadyAttemptedFreshAuth =
+      signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth ||
+      signingAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth ||
+      Boolean(emailOtpSigning);
     if (
       !attempt.retryingFreshAuth &&
-      !emailOtpSigning &&
+      !alreadyAttemptedFreshAuth &&
       thresholdSessionRecord &&
-      isThresholdSessionAuthUnavailableError(error)
+      (isThresholdSessionAuthUnavailableError(error) || isWalletSigningBudgetExhaustedError(error))
     ) {
       const isEmailOtpSession = thresholdSessionRecord.source === 'email_otp';
       emitNearSigningEvent(args.onEvent, nearAccountId, {
@@ -808,10 +895,15 @@ export async function signTransactionsWithActions(
           : SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
         status: 'running',
         message: isEmailOtpSession
-          ? 'Signing session expired; requesting Email OTP reauthorization'
-          : 'Signing session expired; requesting passkey reauthorization',
+          ? 'Signing session needs reauthorization; requesting Email OTP'
+          : 'Signing session needs reauthorization; requesting passkey',
         interaction: { kind: 'none', overlay: 'none' },
-        data: { chain: 'near', reason: 'threshold_session_expired' },
+        data: {
+          chain: 'near',
+          reason: isWalletSigningBudgetExhaustedError(error)
+            ? 'wallet_signing_budget_reserved'
+            : 'threshold_session_expired',
+        },
       });
       return await signTransactionsWithActions(deps, args, {
         forceFreshAuth: true,

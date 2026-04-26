@@ -24,7 +24,10 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   isWalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import { EMAIL_OTP_RECOVERY_KEY_COUNT } from '@shared/utils/emailOtpRecoveryKey';
+import {
+  EMAIL_OTP_RECOVERY_KEY_COUNT,
+  encodeEmailOtpRecoveryWrappedEnrollmentAad,
+} from '@shared/utils/emailOtpRecoveryKey';
 import {
   buildRecoveryEmailBody,
   buildRecoveryEmailPayload,
@@ -450,6 +453,18 @@ async function resolveBoundThresholdRuntimePolicyScope(args: {
     if (scope) return scope;
   }
   return undefined;
+}
+
+async function sha256BytesPortable(input: Uint8Array): Promise<Uint8Array> {
+  const subtle = globalThis.crypto?.subtle;
+  if (subtle && typeof subtle.digest === 'function') {
+    return new Uint8Array(await subtle.digest('SHA-256', input));
+  }
+  if (typeof process !== 'undefined' && process.versions?.node) {
+    const { createHash } = await import('node:crypto');
+    return Uint8Array.from(createHash('sha256').update(input).digest());
+  }
+  throw new Error('SHA-256 digest is unavailable in this runtime');
 }
 
 async function resolveExistingThresholdEd25519Binding(args: {
@@ -5364,6 +5379,10 @@ export class AuthService {
         message: 'enrollmentSealKeyVersion is required',
       };
     }
+    const escrowSetValidation = await this.validateEmailOtpRecoveryWrappedEnrollmentEscrowSet(
+      recoveryWrappedEnrollmentEscrows,
+    );
+    if (!escrowSetValidation.ok) return escrowSetValidation;
     if (!clientUnlockPublicKeyB64u) {
       return { ok: false, code: 'invalid_body', message: 'clientUnlockPublicKeyB64u is required' };
     }
@@ -5441,6 +5460,96 @@ export class AuthService {
       unlockKeyVersion,
       thresholdEcdsaClientVerifyingShareB64u,
     };
+  }
+
+  private async validateEmailOtpRecoveryWrappedEnrollmentEscrowSet(
+    records: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[],
+  ): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const recoveryKeyIds = new Set<string>();
+    const nonceB64us = new Set<string>();
+    const first = records[0];
+    if (!first) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} recovery-wrapped enrollment escrows are required`,
+      };
+    }
+
+    for (const record of records) {
+      if (recoveryKeyIds.has(record.recoveryKeyId)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow recoveryKeyId values must be unique',
+        };
+      }
+      recoveryKeyIds.add(record.recoveryKeyId);
+
+      if (nonceB64us.has(record.nonceB64u)) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow nonce values must be unique',
+        };
+      }
+      nonceB64us.add(record.nonceB64u);
+
+      if (
+        record.walletId !== first.walletId ||
+        record.userId !== first.userId ||
+        record.authSubjectId !== first.authSubjectId ||
+        record.authMethod !== first.authMethod ||
+        record.enrollmentId !== first.enrollmentId ||
+        record.enrollmentVersion !== first.enrollmentVersion ||
+        record.enrollmentSealKeyVersion !== first.enrollmentSealKeyVersion ||
+        record.signingRootId !== first.signingRootId ||
+        record.signingRootVersion !== first.signingRootVersion
+      ) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow metadata must share one enrollment scope',
+        };
+      }
+
+      const expectedAadHashB64u = base64UrlEncode(
+        await sha256BytesPortable(
+          encodeEmailOtpRecoveryWrappedEnrollmentAad({
+            walletId: record.walletId,
+            userId: record.userId,
+            authSubjectId: record.authSubjectId,
+            authMethod: record.authMethod,
+            enrollmentId: record.enrollmentId,
+            enrollmentVersion: record.enrollmentVersion,
+            enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+            signingRootId: record.signingRootId,
+            signingRootVersion: record.signingRootVersion,
+            recoveryKeyId: record.recoveryKeyId,
+          }),
+        ),
+      );
+      if (record.aadHashB64u !== expectedAadHashB64u) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrow aadHashB64u does not match metadata',
+        };
+      }
+    }
+
+    if (
+      recoveryKeyIds.size !== EMAIL_OTP_RECOVERY_KEY_COUNT ||
+      nonceB64us.size !== EMAIL_OTP_RECOVERY_KEY_COUNT
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `Exactly ${EMAIL_OTP_RECOVERY_KEY_COUNT} distinct recovery-wrapped enrollment escrows are required`,
+      };
+    }
+
+    return { ok: true };
   }
 
   async verifyEmailOtpEnrollment(request: {
@@ -5543,6 +5652,23 @@ export class AuthService {
         ...record,
         updatedAtMs: nowMs,
       });
+    }
+    const activeRecoveryWrappedEnrollmentEscrowCount = (
+      await recoveryWrappedEnrollmentEscrowStore.listActiveByWallet(verified.walletId)
+    ).filter(
+      (record) =>
+        record.walletId === verified.walletId &&
+        record.userId === verified.userId &&
+        record.authSubjectId === verified.userId &&
+        record.enrollmentSealKeyVersion === enrollmentMaterial.enrollmentSealKeyVersion &&
+        record.recoveryKeyStatus === 'active',
+    ).length;
+    if (activeRecoveryWrappedEnrollmentEscrowCount !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: `Email OTP enrollment persisted ${activeRecoveryWrappedEnrollmentEscrowCount} active recovery-wrapped escrows; expected ${EMAIL_OTP_RECOVERY_KEY_COUNT}`,
+      };
     }
     await this.getEmailOtpAuthStateStore().put({
       version: 'email_otp_auth_state_v1',

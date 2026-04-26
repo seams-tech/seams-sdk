@@ -16,6 +16,9 @@ export function buildWalletSigningSpendPlan(
 ): WalletSigningSpendPlan {
   return {
     operationId: operation.operationId,
+    ...(operation.operationFingerprint
+      ? { operationFingerprint: operation.operationFingerprint }
+      : {}),
     nearAccountId: lane.accountId,
     walletSigningSessionId: lane.walletSigningSessionId,
     lane,

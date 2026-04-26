@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   signEvmWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/evm/evmSigningFlow.js',
@@ -8,7 +9,7 @@ const IMPORT_PATHS = {
 
 test.describe('managed nonce signing flow integration', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
   test('concurrent EVM signs use distinct reserved nonces for the same sender', async ({
@@ -127,8 +128,8 @@ test.describe('managed nonce signing flow integration', () => {
                 },
               };
             },
-            releaseNonceReservation: (reservation: any) => {
-              manager.markBroadcastRejected(reservation);
+            releaseNonceReservation: async (reservation: any) => {
+              await manager.markBroadcastRejected(reservation);
             },
           });
 
@@ -268,8 +269,8 @@ test.describe('managed nonce signing flow integration', () => {
                 },
               };
             },
-            releaseNonceReservation: (reservation: any) => {
-              manager.markBroadcastRejected(reservation);
+            releaseNonceReservation: async (reservation: any) => {
+              await manager.markBroadcastRejected(reservation);
             },
           });
 

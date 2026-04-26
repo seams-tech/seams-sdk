@@ -852,6 +852,59 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect(internalLoginRequests[0]).not.toHaveProperty('sessionId');
   });
 
+  test('Email OTP ECDSA sealed restore rejects cross-curve sealed records before worker restore', async () => {
+    let workerCalls = 0;
+    const engine = makeBareSigningEngine();
+    const emailOtpSessions = installEmailOtpSessionsFixture(engine as any, {
+      requestWorkerOperation: async () => {
+        workerCalls += 1;
+        throw new Error('worker restore should not run');
+      },
+    });
+
+    await expect(
+      emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord({
+        sealedRecord: {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          runtimeSessionId: 'runtime-curve-mismatch',
+          authMethod: 'email_otp',
+          secretKind: 'signing_session_secret32',
+          walletSigningSessionId: 'wallet-signing-session-curve-mismatch',
+          thresholdSessionIds: { ecdsa: 'ecdsa-curve-mismatch-session' },
+          sealedSecretB64u: 'sealed-session-secret',
+          curve: 'ed25519',
+          issuedAtMs: Date.now(),
+          expiresAtMs: Date.now() + 120_000,
+          remainingUses: 4,
+          updatedAtMs: Date.now(),
+        },
+        ecdsaRecord: {
+          nearAccountId: 'curve-mismatch.testnet',
+          chain: 'evm',
+          source: 'email_otp',
+          thresholdSessionId: 'ecdsa-curve-mismatch-session',
+          thresholdSessionKind: 'jwt',
+          thresholdSessionJwt: 'jwt:ecdsa-curve-mismatch-session',
+          walletSigningSessionId: 'wallet-signing-session-curve-mismatch',
+          relayerUrl: 'https://relay.example',
+          ecdsaThresholdKeyId: 'ecdsa-key-curve-mismatch',
+          relayerKeyId: 'relayer-key-curve-mismatch',
+          participantIds: [1, 2],
+          signingSessionSealShamirPrimeB64u: 'prime-b64u',
+          emailOtpAuthContext: {
+            policy: 'session',
+            retention: 'session',
+            reason: 'login',
+            authMethod: 'email_otp',
+          },
+        },
+      }),
+    ).rejects.toThrow('Email OTP sealed refresh curve mismatch');
+    expect(workerCalls).toBe(0);
+  });
+
   test('transaction ECDSA Email OTP reauth provisions a one-use transaction session', async () => {
     const walletId = 'alice.testnet';
     const internalLoginRequests: Array<Record<string, any>> = [];
@@ -1931,10 +1984,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
           reason: 'login',
         },
       });
-      expect(confirmationTypes).toEqual([
-        'signIntentDigest',
-        'showSecurePrivateKeyUi',
-      ]);
+      expect(confirmationTypes).toEqual(['signIntentDigest', 'showSecurePrivateKeyUi']);
     } finally {
       globalThis.fetch = originalFetch;
       clearAllStoredThresholdEd25519SessionRecords();

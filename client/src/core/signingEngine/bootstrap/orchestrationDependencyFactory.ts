@@ -52,8 +52,14 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../session/WarmSessionServiceTypes';
-import { createWalletSigningSessionCoordinator } from '../session/WalletSigningSessionCoordinator';
-import { createWalletSigningBudgetLedger } from '../session/WalletSigningBudgetLedger';
+import {
+  createWalletSigningSessionCoordinator,
+  type WalletSigningSessionCoordinator,
+} from '../session/WalletSigningSessionCoordinator';
+import {
+  createWalletSigningBudgetLedger,
+  type WalletSigningBudgetLedger,
+} from '../session/WalletSigningBudgetLedger';
 
 export type OrchestrationSignTempoInput = {
   nearAccountId: string;
@@ -223,6 +229,8 @@ export type OrchestrationDependencyBundle = {
     nearAccountId: AccountId | string,
     chain: 'tempo' | 'evm',
   ) => string | null;
+  walletSigningSessionCoordinator: WalletSigningSessionCoordinator;
+  walletSigningBudgetLedger: WalletSigningBudgetLedger;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
   getManagerConvenienceDeps: () => ManagerConvenienceDeps;
 };
@@ -327,16 +335,27 @@ export function createOrchestrationDependencyBundle(
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
         ...(authLane ? { authLane } : {}),
       }) || Promise.reject(new Error('Email OTP Ed25519 signing bootstrap is not configured')),
-    reconnectPasskeyEd25519CapabilityForSigning: async ({ nearAccountId, record, usesNeeded }) => {
+    reconnectPasskeyEd25519CapabilityForSigning: async ({
+      nearAccountId,
+      record,
+      localPrfCredential,
+      usesNeeded,
+      sessionId,
+      walletSigningSessionId,
+    }) => {
       const provisioned = await args.provisionThresholdEd25519Session({
         nearAccountId,
         relayerUrl: record.relayerUrl,
         relayerKeyId: record.relayerKeyId,
+        // The transaction confirmer already collected a WebAuthn assertion for the planned
+        // session policy. Dropping it here regressed passkey reauth into a second TouchID prompt.
+        localPrfCredential,
         ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
         participantIds: record.participantIds,
         sessionKind: record.thresholdSessionKind,
-        ...(record.walletSigningSessionId
-          ? { walletSigningSessionId: record.walletSigningSessionId }
+        ...(sessionId ? { sessionId } : {}),
+        ...(walletSigningSessionId || record.walletSigningSessionId
+          ? { walletSigningSessionId: walletSigningSessionId || record.walletSigningSessionId }
           : {}),
         remainingUses: Math.max(1, Math.floor(Number(usesNeeded) || 1)),
       });
@@ -397,6 +416,12 @@ export function createOrchestrationDependencyBundle(
     getWarmThresholdEd25519SessionStatusForSession: ({ nearAccountId, thresholdSessionId }) =>
       createWarmSessionStatusReader({
         touchConfirm: args.touchConfirm,
+        listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
+          args.listThresholdEcdsaSessionRecordsForLookup({
+            nearAccountId,
+            chain,
+          }),
+        walletSigningSessionCoordinator,
         getEmailOtpWarmSessionStatus,
       }).getEd25519SigningSessionStatusForSession({ nearAccountId, thresholdSessionId }),
     withThresholdEd25519CommitQueue: (queueArgs) => args.withThresholdEd25519CommitQueue(queueArgs),
@@ -480,7 +505,7 @@ export function createOrchestrationDependencyBundle(
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({ nearAccountId, chain }) =>
         args.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({ nearAccountId, chain }),
       walletSigningBudgetLedger,
-          getEmailOtpWarmSessionStatus,
+      getEmailOtpWarmSessionStatus,
       provisionThresholdEcdsaSession: (provisionArgs) =>
         args.provisionThresholdEcdsaSession(provisionArgs),
       withThresholdEcdsaCommitQueue: (queueArgs) => args.withThresholdEcdsaCommitQueue(queueArgs),
@@ -520,6 +545,8 @@ export function createOrchestrationDependencyBundle(
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
     },
     resolveCanonicalThresholdEcdsaSessionIdForChain,
+    walletSigningSessionCoordinator,
+    walletSigningBudgetLedger,
     getWorkerResourceWarmupDeps: getWorkerResourceWarmupDeps,
     getManagerConvenienceDeps: (): ManagerConvenienceDeps => ({
       signTempo: args.signTempo,
@@ -534,6 +561,7 @@ export function createOrchestrationDependencyBundle(
               nearAccountId,
               chain,
             }),
+          walletSigningSessionCoordinator,
           getEmailOtpWarmSessionStatus,
         }).getEd25519SigningSessionStatus(nearAccountId),
     }),

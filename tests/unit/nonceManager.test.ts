@@ -256,13 +256,72 @@ test.describe('NonceManager Pure Unit Tests', () => {
 
     expect(result.success).toBe(true);
     expect(result.batch1).toEqual(['201', '202', '203']);
-    expect(result.batch2).toEqual(['204', '205']);
-    expect(result.single).toBe('206');
-    expect(result.batch3).toEqual(['207', '208']);
-    expect(result.totalReserved).toBe(5); // 204, 205, 206, 207, 208
-    expect(result.allReserved).toEqual(['204', '205', '206', '207', '208']);
+    expect(result.batch2).toEqual(['201', '202']);
+    expect(result.single).toBe('203');
+    expect(result.batch3).toEqual(['204', '205']);
+    expect(result.totalReserved).toBe(5); // 201, 202, 203, 204, 205
+    expect(result.allReserved).toEqual(['201', '202', '203', '204', '205']);
 
     console.log('NonceManager batch transaction test passed');
+  });
+
+  test('NonceManager - releasing highest nonce lets the next reservation reuse it', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        try {
+          // @ts-ignore - Runtime import
+          const nonceManager = (await import(paths.nonceManager)).default;
+          nonceManager.clear();
+          nonceManager.initializeUser('test-account', 'test-public-key');
+
+          (nonceManager as any).transactionContext = {
+            nearPublicKeyStr: 'test-public-key',
+            accessKeyInfo: { nonce: '300' },
+            nextNonce: '301',
+            txBlockHeight: '3000',
+            txBlockHash: 'test-block-hash-release-high',
+          };
+          (nonceManager as any).lastNonceUpdate = Date.now();
+          (nonceManager as any).lastBlockHeightUpdate = Date.now();
+
+          const first = nonceManager.getNextNonce();
+          const second = nonceManager.getNextNonce();
+          nonceManager.releaseNonce(second);
+          const reused = nonceManager.getNextNonce();
+
+          return {
+            success: true as const,
+            first,
+            second,
+            reused,
+            lastReservedNonce: (nonceManager as any).lastReservedNonce,
+          };
+        } catch (error: any) {
+          return {
+            success: false as const,
+            error: error.message,
+            stack: error.stack,
+          };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) {
+        return;
+      }
+      console.error('Highest nonce release test failed:', result.error);
+      expect(result.success).toBe(true);
+      return;
+    }
+
+    expect(result.first).toBe('301');
+    expect(result.second).toBe('302');
+    expect(result.reused).toBe('302');
+    expect(result.lastReservedNonce).toBe('302');
   });
 
   test('NonceManager - Error Handling', async ({ page }) => {

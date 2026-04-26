@@ -319,6 +319,12 @@ export interface SignIntentDigestPayload {
    */
   challengeB64u: string;
   displayModel?: TxDisplayModel;
+  /**
+   * Optional base64url-encoded 32-byte session-policy digest. Passkey
+   * threshold-session reauth uses this as the WebAuthn challenge so the same
+   * assertion can both confirm the transaction and mint the one-use session.
+   */
+  sessionPolicyDigest32?: string;
   signingAuthPlan: SigningAuthPlan;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
 }

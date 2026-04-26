@@ -853,6 +853,8 @@ export interface ThresholdEd25519AuthorizeResponse {
   message?: string;
   mpcSessionId?: string;
   expiresAt?: string;
+  walletSigningSessionId?: string;
+  remainingUses?: number;
 }
 
 export interface ThresholdEd25519SignInitRequest {
@@ -1132,6 +1134,8 @@ export interface ThresholdEcdsaAuthorizeResponse {
   message?: string;
   mpcSessionId?: string;
   expiresAt?: string;
+  walletSigningSessionId?: string;
+  remainingUses?: number;
   presignPoolPolicy?: ThresholdEcdsaPresignPoolPolicyHint;
 }
 

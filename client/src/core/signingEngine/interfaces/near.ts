@@ -28,9 +28,16 @@ export type NearEd25519WarmupHook = {
 };
 
 export type NearPasskeyEd25519ReconnectHook = {
+  prepare?: (args: { usesNeeded: number }) => Promise<{
+    sessionId: string;
+    walletSigningSessionId?: string;
+    sessionPolicyDigest32: string;
+  }>;
   reconnect: (args: {
     credential: WebAuthnAuthenticationCredential;
     usesNeeded: number;
+    sessionId?: string;
+    walletSigningSessionId?: string;
   }) => Promise<{ sessionId: string }>;
 };
 

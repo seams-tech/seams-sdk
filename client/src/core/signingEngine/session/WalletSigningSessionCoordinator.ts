@@ -40,11 +40,21 @@ type DiscoveredSigningSessionLane = SigningSessionLane & {
   backing: 'touch_confirm' | 'email_otp_worker';
 };
 
+type WalletSigningSessionStatusOverride = {
+  nearAccountId: string;
+  walletSigningSessionId: string;
+  status: SigningSessionStatus;
+  thresholdSessionIds: Set<string>;
+  updatedAtMs: number;
+};
+
 export type WalletSigningSessionConsumeUseArgs = {
   nearAccountId: AccountId | string;
   walletSigningSessionId: string;
   uses: number;
   reason: SigningOperationIntent;
+  targetBackingMaterialSessionIds?: string[];
+  targetThresholdSessionIds?: string[];
   alreadyConsumedBackingMaterialSessionIds?: string[];
   alreadyConsumedThresholdSessionIds?: string[];
 };
@@ -201,6 +211,7 @@ function discoverLanesForAccount(
 function walletScopedClaimsForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
   claimsByThresholdSessionId: Map<string, WarmSessionPrfClaim | null>;
+  statusOverrides?: Map<string, WalletSigningSessionStatusOverride>;
 }): Map<string, WarmSessionPrfClaim | null> {
   const grouped = new Map<string, DiscoveredSigningSessionLane[]>();
   for (const lane of args.lanes) {
@@ -211,10 +222,33 @@ function walletScopedClaimsForLanes(args: {
 
   const scoped = new Map<string, WarmSessionPrfClaim | null>();
   for (const group of grouped.values()) {
+    const walletSigningSessionId = group[0]?.walletSigningSessionId || '';
+    const nearAccountId = group[0]?.record.nearAccountId || '';
+    const override = args.statusOverrides?.get(
+      walletSigningSessionStatusOverrideKey(nearAccountId, walletSigningSessionId),
+    );
+    const applicableOverride = override
+      ? resolveApplicableWalletSigningSessionStatusOverride({
+          override,
+          lanes: group,
+          claimsByThresholdSessionId: args.claimsByThresholdSessionId,
+          statusOverrides: args.statusOverrides,
+        })
+      : null;
     const entries = group.map((lane) => ({
       lane,
       claim: args.claimsByThresholdSessionId.get(lane.thresholdSessionId) || null,
     }));
+    if (applicableOverride) {
+      const overrideClaim = claimFromWalletSigningSessionStatusOverride(applicableOverride);
+      for (const entry of entries) {
+        scoped.set(
+          entry.lane.thresholdSessionId,
+          overrideClaim ? { ...overrideClaim, sessionId: entry.lane.thresholdSessionId } : null,
+        );
+      }
+      continue;
+    }
     const terminal =
       entries.find((entry) => entry.claim?.state === 'expired')?.claim ||
       entries.find((entry) => entry.claim?.state === 'exhausted')?.claim ||
@@ -250,6 +284,103 @@ function walletScopedClaimsForLanes(args: {
     }
   }
   return scoped;
+}
+
+function walletSigningSessionStatusOverrideKey(
+  nearAccountId: AccountId | string,
+  walletSigningSessionId: string,
+): string {
+  return `${normalizeNonEmpty(nearAccountId)}:${normalizeNonEmpty(walletSigningSessionId)}`;
+}
+
+function rememberWalletSigningSessionStatusOverride(args: {
+  overrides: Map<string, WalletSigningSessionStatusOverride>;
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: string;
+  lanes: DiscoveredSigningSessionLane[];
+  status: SigningSessionStatus;
+}): void {
+  const walletSigningSessionId = normalizeNonEmpty(args.walletSigningSessionId);
+  if (!walletSigningSessionId) return;
+  const now = Date.now();
+  args.overrides.set(
+    walletSigningSessionStatusOverrideKey(args.nearAccountId, walletSigningSessionId),
+    {
+      nearAccountId: normalizeNonEmpty(args.nearAccountId),
+      walletSigningSessionId,
+      status: {
+        ...args.status,
+        sessionId: walletSigningSessionId,
+      },
+      thresholdSessionIds: new Set(
+        args.lanes.map((lane) => normalizeNonEmpty(lane.thresholdSessionId)).filter(Boolean),
+      ),
+      updatedAtMs: now,
+    },
+  );
+}
+
+function resolveApplicableWalletSigningSessionStatusOverride(args: {
+  override: WalletSigningSessionStatusOverride;
+  lanes: DiscoveredSigningSessionLane[];
+  claimsByThresholdSessionId: Map<string, WarmSessionPrfClaim | null>;
+  statusOverrides?: Map<string, WalletSigningSessionStatusOverride>;
+}): WalletSigningSessionStatusOverride | null {
+  if (!args.lanes.length) return null;
+  const freshActiveLane = args.lanes.find((lane) => {
+    const thresholdSessionId = normalizeNonEmpty(lane.thresholdSessionId);
+    if (args.override.thresholdSessionIds.has(thresholdSessionId)) return false;
+    const recordUpdatedAtMs = Math.floor(Number(lane.record.updatedAtMs) || 0);
+    if (recordUpdatedAtMs <= args.override.updatedAtMs) return false;
+    const claim = args.claimsByThresholdSessionId.get(thresholdSessionId) || null;
+    return claim?.state === 'warm';
+  });
+  if (freshActiveLane) {
+    args.statusOverrides?.delete(
+      walletSigningSessionStatusOverrideKey(
+        freshActiveLane.record.nearAccountId,
+        args.override.walletSigningSessionId,
+      ),
+    );
+    return null;
+  }
+  return args.override;
+}
+
+function claimFromWalletSigningSessionStatusOverride(
+  override: WalletSigningSessionStatusOverride,
+): WarmSessionPrfClaim | null {
+  const status = override.status;
+  if (status.status === 'active') {
+    const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
+    const expiresAtMs = Math.floor(Number(status.expiresAtMs) || 0);
+    if (remainingUses <= 0 || expiresAtMs <= Date.now()) {
+      return {
+        state: remainingUses <= 0 ? 'exhausted' : 'expired',
+        sessionId: override.walletSigningSessionId,
+      };
+    }
+    return {
+      state: 'warm',
+      sessionId: override.walletSigningSessionId,
+      remainingUses,
+      expiresAtMs,
+    };
+  }
+  if (status.status === 'expired') {
+    return { state: 'expired', sessionId: override.walletSigningSessionId };
+  }
+  if (status.status === 'exhausted') {
+    return { state: 'exhausted', sessionId: override.walletSigningSessionId };
+  }
+  if (status.status === 'unavailable') {
+    return {
+      state: 'unavailable',
+      sessionId: override.walletSigningSessionId,
+      code: status.statusCode || 'wallet_budget_status_override',
+    };
+  }
+  return null;
 }
 
 async function readClaimsForLanes(args: {
@@ -310,6 +441,85 @@ function statusFromClaim(args: {
   });
 }
 
+function statusFromConsumedLanes(args: {
+  walletSigningSessionId: string;
+  lanes: DiscoveredSigningSessionLane[];
+}): SigningSessionStatus {
+  const emailOtpLane = args.lanes.find((lane) => lane.source === 'email_otp');
+  return {
+    sessionId: args.walletSigningSessionId,
+    status: 'exhausted',
+    remainingUses: 0,
+    ...(emailOtpLane ? { authMethod: 'email_otp' as const } : { authMethod: 'passkey' as const }),
+    ...(emailOtpLane?.record.emailOtpAuthContext?.retention
+      ? { retention: emailOtpLane.record.emailOtpAuthContext.retention }
+      : {}),
+  };
+}
+
+function assertConsumeResult(args: {
+  result: WarmSessionStatusResult | undefined;
+  backing: 'touch_confirm' | 'email_otp_worker';
+  required: boolean;
+}): void {
+  const result = args.result;
+  if (!result || result.ok || result.code === 'exhausted') return;
+  if (!args.required && result.code === 'not_found') return;
+  throw new Error(
+    `[WalletSigningSessionCoordinator] ${args.backing} signing-session consume returned ${result.code}`,
+  );
+}
+
+function statusFromConsumeResults(args: {
+  walletSigningSessionId: string;
+  lanes: DiscoveredSigningSessionLane[];
+  results: WarmSessionStatusResult[];
+}): SigningSessionStatus | null {
+  if (args.results.some((result) => !result.ok && result.code === 'exhausted')) {
+    return statusFromConsumedLanes(args);
+  }
+  const okResults = args.results.filter(
+    (result): result is Extract<WarmSessionStatusResult, { ok: true }> => result.ok,
+  );
+  if (!okResults.length) return null;
+  const remainingUses = Math.min(
+    ...okResults.map((result) => Math.max(0, Math.floor(Number(result.remainingUses) || 0))),
+  );
+  if (remainingUses <= 0) return statusFromConsumedLanes(args);
+  return statusFromClaim({
+    walletSigningSessionId: args.walletSigningSessionId,
+    lanes: args.lanes,
+    claim: {
+      state: 'warm',
+      sessionId: args.walletSigningSessionId,
+      remainingUses,
+      expiresAtMs: Math.min(
+        ...okResults.map((result) => Math.floor(Number(result.expiresAtMs) || 0)),
+      ),
+    },
+  });
+}
+
+function resolveStatusAfterConsume(args: {
+  walletSigningSessionId: string;
+  lanes: DiscoveredSigningSessionLane[];
+  status: SigningSessionStatus;
+  consumedStatus: SigningSessionStatus | null;
+  skippedAlreadyConsumedBacking: boolean;
+}): SigningSessionStatus {
+  if (args.consumedStatus?.status === 'exhausted') return args.consumedStatus;
+  if (args.status.status === 'not_found' && args.skippedAlreadyConsumedBacking) {
+    return statusFromConsumedLanes(args);
+  }
+  if (args.consumedStatus?.status === 'active') {
+    if (args.status.status !== 'active') return args.consumedStatus;
+    const statusRemainingUses = Math.floor(Number(args.status.remainingUses) || 0);
+    const consumedRemainingUses = Math.floor(Number(args.consumedStatus.remainingUses) || 0);
+    if (consumedRemainingUses < statusRemainingUses) return args.consumedStatus;
+  }
+  return args.status;
+}
+
 async function syncSealedRefreshPolicyForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
   status: SigningSessionStatus;
@@ -347,6 +557,7 @@ async function syncSealedRefreshPolicyForLanes(args: {
 export function createWalletSigningSessionCoordinator(
   deps: WalletSigningSessionCoordinatorDeps = {},
 ): WalletSigningSessionCoordinator {
+  const statusOverrides = new Map<string, WalletSigningSessionStatusOverride>();
   const getLanesForWalletSession = (args: {
     nearAccountId: AccountId | string;
     walletSigningSessionId?: string;
@@ -363,7 +574,11 @@ export function createWalletSigningSessionCoordinator(
     ): Promise<Map<string, WarmSessionPrfClaim | null>> {
       const lanes = discoverLanesForAccount(deps, nearAccountId);
       const rawClaims = await readClaimsForLanes({ deps, lanes });
-      return walletScopedClaimsForLanes({ lanes, claimsByThresholdSessionId: rawClaims });
+      return walletScopedClaimsForLanes({
+        lanes,
+        claimsByThresholdSessionId: rawClaims,
+        statusOverrides,
+      });
     },
 
     async getStatus(args: {
@@ -378,6 +593,7 @@ export function createWalletSigningSessionCoordinator(
       const scopedClaims = walletScopedClaimsForLanes({
         lanes,
         claimsByThresholdSessionId: rawClaims,
+        statusOverrides,
       });
       const claims = lanes
         .map((lane) => scopedClaims.get(lane.thresholdSessionId) || null)
@@ -405,6 +621,12 @@ export function createWalletSigningSessionCoordinator(
       const alreadyConsumedThreshold = new Set(
         (args.alreadyConsumedThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
       );
+      const targetBacking = new Set(
+        (args.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
+      );
+      const targetThreshold = new Set(
+        (args.targetThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
+      );
       const lanes = getLanesForWalletSession({
         nearAccountId: args.nearAccountId,
         walletSigningSessionId,
@@ -414,12 +636,33 @@ export function createWalletSigningSessionCoordinator(
           '[WalletSigningSessionCoordinator] wallet signing-session has no matching signing lanes for account',
         );
       }
+      const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
+      const hasMatchingTarget =
+        !hasExplicitTarget ||
+        lanes.some(
+          (lane) =>
+            targetBacking.has(lane.backingMaterialSessionId) ||
+            targetThreshold.has(lane.thresholdSessionId),
+        );
+      if (!hasMatchingTarget) {
+        throw new Error(
+          '[WalletSigningSessionCoordinator] wallet signing-session has no matching target signing lane for account',
+        );
+      }
+      const lanesToConsume = lanes;
       const consumedBacking = new Set<string>();
-      for (const lane of lanes) {
+      let skippedAlreadyConsumedBacking = false;
+      const consumeResults: WarmSessionStatusResult[] = [];
+      for (const lane of lanesToConsume) {
+        const laneIsExplicitTarget =
+          !hasExplicitTarget ||
+          targetBacking.has(lane.backingMaterialSessionId) ||
+          targetThreshold.has(lane.thresholdSessionId);
         const thresholdAlreadyConsumed = alreadyConsumedThreshold.has(lane.thresholdSessionId);
         const backingAlreadyConsumed =
           thresholdAlreadyConsumed || alreadyConsumedBacking.has(lane.backingMaterialSessionId);
         if (backingAlreadyConsumed) {
+          skippedAlreadyConsumedBacking = true;
           consumedBacking.add(lane.backingMaterialSessionId);
           continue;
         }
@@ -430,22 +673,28 @@ export function createWalletSigningSessionCoordinator(
             sessionId: lane.backingMaterialSessionId,
             uses,
           });
-          if (result && !result.ok && result.code === 'worker_error') {
-            throw new Error(result.message || 'Failed to consume Email OTP warm-session use');
-          }
+          if (result) consumeResults.push(result);
+          assertConsumeResult({
+            result,
+            backing: lane.backing,
+            required: laneIsExplicitTarget,
+          });
         } else {
           const result = await deps.touchConfirm?.consumeWarmSessionUses?.({
             sessionId: lane.backingMaterialSessionId,
             uses,
           });
-          if (result && !result.ok && result.code === 'worker_error') {
-            throw new Error(result.message || 'Failed to consume TouchConfirm warm-session use');
-          }
+          if (result) consumeResults.push(result);
+          assertConsumeResult({
+            result,
+            backing: lane.backing,
+            required: laneIsExplicitTarget,
+          });
         }
         consumedBacking.add(lane.backingMaterialSessionId);
       }
 
-      const ed25519EmailOtpLane = lanes.find(
+      const ed25519EmailOtpLane = lanesToConsume.find(
         (lane) => lane.curve === 'ed25519' && lane.source === 'email_otp',
       );
       if (ed25519EmailOtpLane) {
@@ -463,13 +712,42 @@ export function createWalletSigningSessionCoordinator(
         sessionId: walletSigningSessionId,
         status: 'not_found',
       };
-      await syncSealedRefreshPolicyForLanes({
+      const consumedStatus = statusFromConsumeResults({
+        walletSigningSessionId,
+        lanes,
+        results: consumeResults,
+      });
+      // Wallet signing-session budget is shared across Ed25519 and ECDSA lanes.
+      // A previous targeted consume only decremented the lane that signed, leaving
+      // sibling lanes locally warm after the server-side wallet budget was spent.
+      // That made exhausted Passkey Ed25519 signing show a stale confirmation first,
+      // then retry into a second confirmation for passkey reauth.
+      const resolvedStatus = resolveStatusAfterConsume({
+        walletSigningSessionId,
         lanes,
         status,
+        consumedStatus,
+        skippedAlreadyConsumedBacking,
+      });
+      // The server-side wallet budget is authoritative, but client status reads
+      // still come from per-lane local warm-session material. After a successful
+      // spend, remember the wallet-level result here so sibling lanes and UI
+      // polling cannot keep showing stale remaining uses until every local lane
+      // independently refreshes.
+      rememberWalletSigningSessionStatusOverride({
+        overrides: statusOverrides,
+        nearAccountId: args.nearAccountId,
+        walletSigningSessionId,
+        lanes,
+        status: resolvedStatus,
+      });
+      await syncSealedRefreshPolicyForLanes({
+        lanes,
+        status: resolvedStatus,
         updatePolicy: deps.updateSigningSessionSealedRecordPolicy,
         deleteRecord: deps.deleteSigningSessionSealedRecord,
       });
-      return status;
+      return resolvedStatus;
     },
 
     async clear(args: {
@@ -477,6 +755,9 @@ export function createWalletSigningSessionCoordinator(
       walletSigningSessionId: string;
     }): Promise<void> {
       const lanes = getLanesForWalletSession(args);
+      statusOverrides.delete(
+        walletSigningSessionStatusOverrideKey(args.nearAccountId, args.walletSigningSessionId),
+      );
       const cleared = new Set<string>();
       let clearEd25519Record = false;
       const ecdsaLanesToClear = new Map<

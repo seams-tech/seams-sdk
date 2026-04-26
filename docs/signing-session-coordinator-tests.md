@@ -4,8 +4,8 @@ Date created: 2026-04-24
 
 ## Objective
 
-Track the security and edge-case test work needed to keep
-`SigningSessionCoordinator` as the real transaction-signing boundary.
+Track the security and edge-case test work needed to keep the chain-specific
+signing session coordinators as the real transaction-signing boundary.
 
 The coordinator must continue to:
 
@@ -28,20 +28,24 @@ wallet signing-session budget consume path is server-side atomic.
 
 Tests to add:
 
-1. [ ] Unit test two distinct in-process operations racing for the last
-   remaining wallet signing-session use.
-2. [ ] Unit test two retries with the same `operationId` are deduped and consume
-   at most once.
+1. [x] Unit test two distinct in-process operations racing for the last
+       remaining wallet signing-session use.
+2. [x] Unit test two retries with the same `operationId` are deduped and consume
+       at most once.
 3. [ ] Integration-style test that NEAR, Tempo, and EVM all reserve before
-   threshold signing and release or zero-spend on failure.
+       threshold signing and release or zero-spend on failure.
 4. [ ] Server-side or relay-facing test for atomic consume when two clients
-   submit distinct operations against the same last remaining use.
+       submit distinct operations against the same last remaining use.
+5. [x] Unit test that success finalization fails closed when the authoritative
+       consume path is missing or returns no status.
 
 Acceptance checks:
 
-1. [ ] Distinct operations cannot overspend in one runtime.
-2. [ ] Same-operation retries remain idempotent.
+1. [x] Distinct operations cannot overspend in one runtime.
+2. [x] Same-operation retries remain idempotent.
 3. [ ] Cross-runtime atomicity is covered at the authoritative budget boundary.
+4. [x] A missing or malformed success consume result does not silently count as
+       a successful signature budget spend.
 
 ### 2. Stale Readiness
 
@@ -54,15 +58,15 @@ Tests to add:
 
 1. [ ] Warm session expires after confirmation display but before PRF claim.
 2. [ ] Warm session is exhausted after planner readiness but before threshold
-   signing.
+       signing.
 3. [ ] `SigningExecutionMachine` path still performs just-in-time readiness or
-   claim validation before signing.
-4. [ ] EVM/Tempo commit queue readiness fails closed when the session expires
-   while waiting in the queue.
+       claim validation before signing.
+4. [x] EVM/Tempo commit queue readiness fails closed when the session expires
+       while waiting in the queue.
 
 Acceptance checks:
 
-1. [ ] Pre-confirm readiness is advisory, not final authority for signing.
+1. [x] Pre-confirm readiness is advisory, not final authority for signing.
 2. [ ] Expired or exhausted material cannot produce a signature.
 3. [ ] Failure releases or zero-spends reserved budget.
 
@@ -77,19 +81,19 @@ wrong auth method, wallet session, curve, chain, or retention.
 Tests to add:
 
 1. [ ] Reject restore when account id matches but wallet signing-session id
-   differs.
+       differs.
 2. [ ] Reject restore when threshold session id matches but chain/source differs.
 3. [ ] Reject restore when auth method differs between Email OTP and passkey.
-4. [ ] Reject restore when curve differs between Ed25519 and ECDSA.
+4. [x] Reject restore when curve differs between Ed25519 and ECDSA.
 5. [ ] Reject restore when retention differs for single-use vs session-retained
-   material.
+       material.
 6. [ ] Static guard that transaction signing never falls back from a selected
-   lane to generic source search.
+       lane to generic source search.
 
 Acceptance checks:
 
 1. [ ] Restore requires exact account, wallet session, threshold session, auth
-   method, curve, chain/source, and retention.
+       method, curve, chain/source, and retention.
 2. [ ] No transaction path can restore or sign from a secondary lane.
 
 ### 4. Cleanup Idempotency
@@ -104,9 +108,9 @@ Tests to add:
 1. [ ] Post-sign cleanup can run twice for the same operation without throwing.
 2. [ ] Single-use Email OTP cleanup is idempotent after success.
 3. [ ] Cleanup failure after a successful signature does not double-spend budget
-   on retry.
+       on retry.
 4. [ ] Cleanup failure is visible in trace/error reporting without leaking
-   session material.
+       session material.
 
 Acceptance checks:
 
@@ -130,12 +134,12 @@ Tests to add:
 6. [ ] Threshold reconnect fails.
 7. [ ] Signer worker fails after reservation.
 8. [ ] Broadcast fails after signature creation, with the expected budget
-   semantics documented and tested.
+       semantics documented and tested.
 
 Acceptance checks:
 
 1. [ ] Every cancellation or failure path records exactly one zero-spend or
-   release outcome.
+       release outcome.
 2. [ ] Successful signature paths record exactly one success spend.
 
 ### 6. Operation Id Scope
@@ -149,15 +153,15 @@ spend.
 Tests to add:
 
 1. [ ] Same transaction retry with same operation id dedupes spend.
-2. [ ] Different transaction with same caller-provided operation id is rejected
-   or treated according to an explicit documented policy.
+2. [x] Different transaction with same caller-provided operation id is rejected
+       or treated according to an explicit documented policy.
 3. [ ] Operation id includes enough transaction identity in trace/debug context
-   to diagnose accidental reuse without leaking payload secrets.
+       to diagnose accidental reuse without leaking payload secrets.
 
 Acceptance checks:
 
-1. [ ] Idempotency cannot mask a distinct signed operation without an explicit
-   policy decision.
+1. [x] Idempotency cannot mask a distinct signed operation without an explicit
+       policy decision.
 2. [ ] Tests cover caller-provided operation ids and internally generated ids.
 
 ### 7. Worker And PRF Failure Modes
@@ -185,26 +189,27 @@ Acceptance checks:
 Add or keep guards for these boundaries:
 
 1. [ ] `SigningSessionPlanner` imports no storage, worker, OTP, passkey, ledger,
-   or threshold provisioner modules.
+       or threshold provisioner modules.
 2. [ ] `WarmSessionStore` imports no planner, execution machine, transaction
-   confirmation, or budget ledger modules.
-3. [ ] `SigningSessionCoordinator` is the only chain-facing composition layer
-   that wires planner, execution machine, warm-session services, executors,
-   ledger, and cleanup together.
+       confirmation, or budget ledger modules.
+3. [x] Chain-facing composition stays in explicit chain-specific coordinators
+       and adapters (`createEvmFamilySigningSessionCoordinator`,
+       `createNearSigningSessionCoordinator`, and touch-confirm orchestration)
+       rather than a single concrete `SigningSessionCoordinator.ts` file.
 4. [ ] Transaction signing code cannot call generic source-less ECDSA lookup
-   helpers.
+       helpers.
 5. [ ] No code path synthesizes wallet signing-session ids from threshold
-   session ids.
+       session ids.
 6. [ ] No auth side effect can start before the confirmation-displayed boundary.
 
 ## Implementation Order
 
 1. [ ] Add missing static guards first, because they catch architecture drift
-   cheaply.
-2. [ ] Add stale-readiness and budget-release tests next, because they protect
-   the highest-risk runtime failures.
-3. [ ] Add lane-exact sealed restore tests before expanding restore behavior.
+       cheaply.
+2. [x] Add stale-readiness and budget-release tests next, because they protect
+       the highest-risk runtime failures.
+3. [x] Add lane-exact sealed restore tests before expanding restore behavior.
 4. [ ] Add cross-runtime/server atomic consume coverage when the authoritative
-   budget endpoint is available.
+       budget endpoint is available.
 5. [ ] Keep this file as the open test backlog; move completed architecture
-   narrative to `docs/signing-session-architecture.md`.
+       narrative to `docs/signing-session-architecture.md`.

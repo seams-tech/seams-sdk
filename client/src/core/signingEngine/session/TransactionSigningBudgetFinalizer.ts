@@ -1,10 +1,9 @@
 import { buildWalletSigningSpendPlan } from './SigningBudgetSpendPlan';
-import {
-  inferWalletSigningBudgetZeroSpendReason,
-} from './WalletSigningBudgetFailureReason';
+import { inferWalletSigningBudgetZeroSpendReason } from './WalletSigningBudgetFailureReason';
 import type {
   WalletSigningBudgetLedger,
   WalletSigningBudgetLedgerRecordSuccessInput,
+  WalletSigningBudgetReservation,
 } from './WalletSigningBudgetLedger';
 import type {
   BackingMaterialSessionId,
@@ -16,10 +15,8 @@ import type {
 
 export type TransactionSigningBudgetFinalizer = {
   spend?: WalletSigningSpendPlan;
-  reserve(): Promise<void>;
-  recordSuccess(
-    input?: Omit<WalletSigningBudgetLedgerRecordSuccessInput, 'spend'>,
-  ): Promise<void>;
+  reserve(): Promise<WalletSigningBudgetReservation | null>;
+  recordSuccess(input?: Omit<WalletSigningBudgetLedgerRecordSuccessInput, 'spend'>): Promise<void>;
   recordZeroSpend(error: unknown): void;
 };
 
@@ -43,13 +40,17 @@ export function createTransactionSigningBudgetFinalizer(args: {
   return {
     spend,
     async reserve() {
-      if (!ledger) return;
-      await ledger.reserve({ spend });
+      if (!ledger) return null;
+      return await ledger.reserve({ spend });
     },
     async recordSuccess(input = {}) {
       if (!ledger) return;
       await ledger.recordSuccess({ ...input, spend }).catch((error) => {
         args.onRecordSuccessError?.(error, spend);
+        // Do not fail open here. A previous regression logged spend failures and
+        // still reported signing success, leaving the next operation to hit
+        // wallet signing-session not_found/exhausted errors unpredictably.
+        throw error;
       });
     },
     recordZeroSpend(error) {

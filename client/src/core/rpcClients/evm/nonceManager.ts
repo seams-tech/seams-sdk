@@ -27,7 +27,7 @@ export interface EvmNonceManager {
   markBroadcastAccepted(
     input: ReserveNonceInput & { nonce: bigint; txHash?: `0x${string}` },
   ): Promise<void>;
-  markBroadcastRejected(input: ReserveNonceInput & { nonce: bigint }): void;
+  markBroadcastRejected(input: ReserveNonceInput & { nonce: bigint }): Promise<void>;
   markFinalized(
     input: ReserveNonceInput & { nonce: bigint; txHash?: `0x${string}` },
   ): Promise<void>;
@@ -56,6 +56,7 @@ export type CreateEvmNonceManagerWithFetcherArgs = {
   now?: () => number;
   refreshTtlMs?: number;
   staleInFlightThresholdMs?: number;
+  reservedNonceTtlMs?: number;
 };
 
 export type CreateEvmNonceManagerArgs = {
@@ -64,6 +65,7 @@ export type CreateEvmNonceManagerArgs = {
   now?: () => number;
   refreshTtlMs?: number;
   staleInFlightThresholdMs?: number;
+  reservedNonceTtlMs?: number;
 };
 
 type ChainWithChainId = Extract<TatchiChainConfig, { chainId: number }>;
@@ -94,12 +96,21 @@ export function toManagedNonceReservationSnapshot(
 export function fromManagedNonceReservationSnapshot(
   snapshot: ManagedNonceReservationSnapshot,
 ): ReserveNonceInput & { nonce: bigint } {
-  const chain = snapshot.chain === 'tempo' ? 'tempo' : 'evm';
+  if (!snapshot || typeof snapshot !== 'object') {
+    throw new Error('[evmNonceManager] invalid managed nonce snapshot: object');
+  }
+  const chain = snapshot.chain;
+  if (chain !== 'evm' && chain !== 'tempo') {
+    throw new Error('[evmNonceManager] invalid managed nonce snapshot: chain');
+  }
   const networkKey = String(snapshot.networkKey || '').trim();
   if (!networkKey) {
     throw new Error('[evmNonceManager] invalid managed nonce snapshot: networkKey');
   }
   const chainId = snapshot.chainId;
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) {
+    throw new Error('[evmNonceManager] invalid managed nonce snapshot: chainId');
+  }
   const sender = normalizeSender(snapshot.sender);
   const nonce = normalizeBigint(snapshot.nonce, 'nonce');
   const parsedNonceKey =
@@ -129,10 +140,15 @@ type NormalizedInput = {
 type NonceState = {
   chainNonce: bigint | null;
   nextCandidate: bigint | null;
-  reserved: Set<string>;
+  reserved: Map<string, ReservedNonceRecord>;
   inFlight: Map<string, InFlightNonceRecord>;
   lastRefreshMs: number | null;
   inflightRefresh: Promise<bigint> | null;
+};
+
+type ReservedNonceRecord = {
+  nonce: bigint;
+  reservedAtMs: number;
 };
 
 type InFlightNonceRecord = {
@@ -146,6 +162,7 @@ type InFlightNonceRecord = {
 const DEFAULT_REFRESH_TTL_MS = 5_000;
 const DEFAULT_RPC_TIMEOUT_MS = 15_000;
 const DEFAULT_STALE_INFLIGHT_THRESHOLD_MS = 45_000;
+const DEFAULT_RESERVED_NONCE_TTL_MS = 120_000;
 
 class InMemoryEvmNonceManager implements EvmNonceManager {
   private readonly states = new Map<string, NonceState>();
@@ -156,6 +173,7 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
   private readonly now: () => number;
   private readonly refreshTtlMs: number;
   private readonly staleInFlightThresholdMs: number;
+  private readonly reservedNonceTtlMs: number;
 
   constructor(args: CreateEvmNonceManagerWithFetcherArgs) {
     this.fetchChainNonce = args.fetchChainNonce;
@@ -165,6 +183,10 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
       args.staleInFlightThresholdMs,
       DEFAULT_STALE_INFLIGHT_THRESHOLD_MS,
     );
+    this.reservedNonceTtlMs = normalizePositiveInt(
+      args.reservedNonceTtlMs,
+      DEFAULT_RESERVED_NONCE_TTL_MS,
+    );
   }
 
   async reserveNextNonce(input: ReserveNonceInput): Promise<bigint> {
@@ -173,6 +195,7 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
     return await this.withKeyLock(key, async () => {
       const state = this.getOrCreateState(key);
       this.indexKeyByAccount(normalized.nearAccountId, key);
+      this.pruneExpiredReservationsLocked(state);
 
       if (this.shouldRefresh(state)) {
         await this.refreshFromChainLocked(normalized, state);
@@ -187,14 +210,22 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
         });
       }
 
-      let candidate = state.nextCandidate ?? 0n;
+      // Regression note: failed EVM-family broadcasts can release a future nonce while
+      // the chain nonce stays lower. Starting at nextCandidate made the lane keep
+      // signing ahead of the gap, so Arc/Tempo waited forever for txs that could
+      // not enter the pending pool. Start at the chain-visible nonce and skip only
+      // currently reserved/in-flight values so released holes are reused.
+      let candidate = state.chainNonce ?? state.nextCandidate ?? 0n;
       while (
         state.reserved.has(candidate.toString()) ||
         state.inFlight.has(candidate.toString())
       ) {
         candidate += 1n;
       }
-      state.reserved.add(candidate.toString());
+      state.reserved.set(candidate.toString(), {
+        nonce: candidate,
+        reservedAtMs: this.now(),
+      });
       state.nextCandidate = candidate + 1n;
       return candidate;
     });
@@ -223,16 +254,18 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
     });
   }
 
-  markBroadcastRejected(input: ReserveNonceInput & { nonce: bigint }): void {
+  async markBroadcastRejected(input: ReserveNonceInput & { nonce: bigint }): Promise<void> {
     const normalized = normalizeInput(input);
     const key = toReservationKey(normalized);
     const nonce = normalizeBigint(input.nonce, 'nonce').toString();
-    const state = this.states.get(key);
-    if (!state) return;
-    state.reserved.delete(nonce);
-    if (state.reserved.size === 0 && state.inFlight.size === 0) {
-      state.lastRefreshMs = null;
-    }
+    await this.withKeyLock(key, async () => {
+      const state = this.states.get(key);
+      if (!state) return;
+      state.reserved.delete(nonce);
+      if (state.reserved.size === 0 && state.inFlight.size === 0) {
+        state.lastRefreshMs = null;
+      }
+    });
   }
 
   async markFinalized(
@@ -328,13 +361,15 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
       const chainNextNonceRaw = await this.fetchChainNonce(input);
       const chainNextNonce = chainNextNonceRaw >= 0n ? chainNextNonceRaw : 0n;
 
+      this.pruneExpiredReservationsLocked(state);
+
       let highestReserved = 0n;
-      const prunedReserved = new Set<string>();
-      for (const reserved of state.reserved) {
+      const prunedReserved = new Map<string, ReservedNonceRecord>();
+      for (const [reserved, record] of state.reserved.entries()) {
         const value = parseBigintOrNull(reserved);
         if (value == null) continue;
         if (value >= chainNextNonce) {
-          prunedReserved.add(reserved);
+          prunedReserved.set(reserved, record);
           if (value > highestReserved) highestReserved = value;
         }
       }
@@ -350,7 +385,11 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
       state.inFlight = prunedInFlight;
 
       const nextFromChain = chainNextNonce;
-      const nextFromCurrent = state.nextCandidate || 0n;
+      const hasOutstandingLocalNonce = prunedReserved.size > 0 || prunedInFlight.size > 0;
+      // If no local nonce is outstanding, nextCandidate is just stale memory. Keeping
+      // it here caused the manager to stay ahead after dropped/released transactions
+      // and create nonce gaps on the next post-OTP ECDSA signing attempt.
+      const nextFromCurrent = hasOutstandingLocalNonce ? state.nextCandidate || 0n : 0n;
       const nextFromReserved = highestReserved > 0n ? highestReserved + 1n : 0n;
       const nextFromInFlight = highestInFlight > 0n ? highestInFlight + 1n : 0n;
       state.nextCandidate = maxBigInt(
@@ -377,6 +416,7 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
   }
 
   private shouldRefresh(state: NonceState): boolean {
+    this.pruneExpiredReservationsLocked(state);
     if (state.nextCandidate == null) return true;
     if (state.lastRefreshMs == null) return true;
     if (state.inFlight.size > 0) return true;
@@ -390,7 +430,7 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
     const created: NonceState = {
       chainNonce: null,
       nextCandidate: null,
-      reserved: new Set<string>(),
+      reserved: new Map<string, ReservedNonceRecord>(),
       inFlight: new Map<string, InFlightNonceRecord>(),
       lastRefreshMs: null,
       inflightRefresh: null,
@@ -427,6 +467,23 @@ class InMemoryEvmNonceManager implements EvmNonceManager {
       if (this.keyLocks.get(key) === next) {
         this.keyLocks.delete(key);
       }
+    }
+  }
+
+  private pruneExpiredReservationsLocked(state: NonceState): void {
+    if (state.reserved.size === 0) return;
+    const now = this.now();
+    let pruned = false;
+    for (const [key, record] of state.reserved.entries()) {
+      if (now - record.reservedAtMs < this.reservedNonceTtlMs) continue;
+      state.reserved.delete(key);
+      pruned = true;
+    }
+    if (pruned) {
+      // Reserved nonces are created before user/OTP confirmation. If that flow
+      // disappears, the reservation must expire and force an RPC refresh;
+      // otherwise the manager can stay ahead of the chain and create nonce gaps.
+      state.lastRefreshMs = null;
     }
   }
 
@@ -468,6 +525,7 @@ export function createEvmNonceManager(args: CreateEvmNonceManagerArgs): EvmNonce
     now: args.now,
     refreshTtlMs: args.refreshTtlMs,
     staleInFlightThresholdMs: args.staleInFlightThresholdMs,
+    reservedNonceTtlMs: args.reservedNonceTtlMs,
     fetchChainNonce: async (input) =>
       await fetchChainNonceFromRpc({
         chains: args.chains,

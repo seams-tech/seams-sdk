@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { signTransactionsWithActions } from '@/core/signingEngine/orchestration/near/transactionsFlow';
+import { connectEd25519Session } from '@/core/signingEngine/threshold/workflows/connectEd25519Session';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSessionPersistence';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
@@ -1063,6 +1064,9 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         });
 
         let reconnectCalls = 0;
+        let preparedSessionPolicyDigest = '';
+        let reconnectSessionId = '';
+        let reconnectWalletSigningSessionId = '';
         const signingLane = buildNearTransactionSigningLane({
           accountId: nearAccountId as any,
           authMethod: 'passkey',
@@ -1078,6 +1082,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             relayerKeyId,
             rpId,
             orchestrateSigningConfirmation: async (params: any) => {
+              preparedSessionPolicyDigest = String(params?.sessionPolicyDigest32 || '').trim();
               params?.onProgress?.({
                 requestId: 'request-near-passkey-trace',
                 step: 1,
@@ -1122,8 +1127,15 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           },
           signingLane,
           passkeyEd25519Reconnect: {
-            reconnect: async () => {
+            prepare: async () => ({
+              sessionId: thresholdSessionId,
+              walletSigningSessionId,
+              sessionPolicyDigest32: 'planned-ed25519-session-policy-digest',
+            }),
+            reconnect: async (args) => {
               reconnectCalls += 1;
+              reconnectSessionId = String(args.sessionId || '').trim();
+              reconnectWalletSigningSessionId = String(args.walletSigningSessionId || '').trim();
               return { sessionId: thresholdSessionId };
             },
           },
@@ -1131,6 +1143,9 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
         expect(signed).toHaveLength(1);
         expect(reconnectCalls).toBe(1);
+        expect(preparedSessionPolicyDigest).toBe('planned-ed25519-session-policy-digest');
+        expect(reconnectSessionId).toBe(thresholdSessionId);
+        expect(reconnectWalletSigningSessionId).toBe(walletSigningSessionId);
         const boundaryEvents = debugCalls
           .filter(([label]) => label === '[SigningBoundary][near]')
           .map(([, event]) => event as any)
@@ -1150,6 +1165,87 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         } else {
           delete (globalThis as { localStorage?: Storage }).localStorage;
         }
+      }
+    });
+  });
+
+  test('reuses caller-provided Ed25519 session-policy credential without another passkey prompt', async () => {
+    await withNearThresholdTestEnv(async () => {
+      const originalFetch = globalThis.fetch;
+      const nearAccountId = 'near-passkey-reconnect-single-prompt.testnet';
+      const relayerUrl = 'https://relay.example.test';
+      const relayerKeyId = 'ed25519:relayer-key-id';
+      const plannedSessionId = 'threshold-ed25519-planned-reconnect-session';
+      const plannedWalletSigningSessionId = 'wallet-planned-reconnect-session';
+      const credential = {
+        id: 'session-policy-credential',
+        rawId: 'session-policy-credential-raw',
+        type: 'public-key',
+        authenticatorAttachment: 'platform',
+        response: {
+          clientDataJSON: 'clientDataJSON-b64u',
+          authenticatorData: 'authenticatorData-b64u',
+          signature: 'signature-b64u',
+          userHandle: '',
+        },
+        clientExtensionResults: {
+          prf: { results: { first: 'AQ', second: undefined } },
+        },
+      };
+      let promptCalls = 0;
+      let mintBody: any = null;
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === `${relayerUrl}/threshold-ed25519/session`) {
+          mintBody = JSON.parse(String(init?.body || '{}'));
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              sessionId: plannedSessionId,
+              walletSigningSessionId: plannedWalletSigningSessionId,
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+              remainingUses: 1,
+              jwt: 'planned-threshold-jwt',
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }
+        return await originalFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        const result = await connectEd25519Session({
+          indexedDB: {} as any,
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
+              promptCalls += 1;
+              throw new Error('unexpected second WebAuthn prompt');
+            },
+          },
+          relayerUrl,
+          relayerKeyId,
+          nearAccountId,
+          participantIds: [1, 2],
+          sessionId: plannedSessionId,
+          walletSigningSessionId: plannedWalletSigningSessionId,
+          remainingUses: 1,
+          localPrfCredential: credential as any,
+        });
+
+        expect(result.ok).toBe(true);
+        expect(result.sessionId).toBe(plannedSessionId);
+        expect(promptCalls).toBe(0);
+        expect(mintBody?.sessionPolicy?.sessionId).toBe(plannedSessionId);
+        expect(mintBody?.sessionPolicy?.walletSigningSessionId).toBe(plannedWalletSigningSessionId);
+        expect(mintBody?.webauthn_authentication?.id).toBe('session-policy-credential');
+        expect(mintBody?.webauthn_authentication?.clientExtensionResults?.prf).toBeUndefined();
+      } finally {
+        globalThis.fetch = originalFetch;
       }
     });
   });

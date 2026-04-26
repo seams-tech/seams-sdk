@@ -1,5 +1,6 @@
 import type { Server } from 'node:http';
 import http from 'node:http';
+import { createHash } from 'node:crypto';
 import expressImport from 'express';
 import type { AuthService } from '@server/core/AuthService';
 import type { SessionAdapter } from '@server/router/express-adaptor';
@@ -10,6 +11,7 @@ import {
   EMAIL_OTP_RECOVERY_WRAP_ALG,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+  encodeEmailOtpRecoveryWrappedEnrollmentAad,
 } from '@shared/utils/emailOtpRecoveryKey';
 
 type ExpressMiddleware = (req: unknown, res: unknown, next: (err?: unknown) => void) => unknown;
@@ -168,32 +170,37 @@ export function makeEmailOtpRecoveryWrappedEnrollmentEscrows(input: {
 }) {
   const nowMs = input.nowMs ?? Date.now();
   const authSubjectId = input.authSubjectId || input.userId;
-  return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => ({
-    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-    walletId: input.walletId,
-    userId: input.userId,
-    authSubjectId,
-    authMethod: 'google_sso_email_otp',
-    enrollmentId: `email-otp-device-enrollment-v1:${input.walletId}:${authSubjectId}`,
-    enrollmentVersion: '1',
-    enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
-    signingRootId: 'email_otp_default_signing_root',
-    signingRootVersion: 'default',
-    recoveryKeyId: `recovery-key-${index + 1}`,
-    recoveryKeyStatus: 'active',
-    nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
-    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
-      Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
-    ),
-    aadHashB64u: base64UrlEncode(
-      Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + index + 2)),
-    ),
-    issuedAtMs: nowMs,
-    updatedAtMs: nowMs,
-  }));
+  return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => {
+    const metadata = {
+      walletId: input.walletId,
+      userId: input.userId,
+      authSubjectId,
+      authMethod: 'google_sso_email_otp',
+      enrollmentId: `email-otp-device-enrollment-v1:${input.walletId}:${authSubjectId}`,
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
+      recoveryKeyId: `recovery-key-${index + 1}`,
+    };
+    return {
+      version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+      alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
+      secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+      escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+      ...metadata,
+      recoveryKeyStatus: 'active',
+      nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
+      wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
+        Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
+      ),
+      aadHashB64u: base64UrlEncode(
+        createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata)).digest(),
+      ),
+      issuedAtMs: nowMs,
+      updatedAtMs: nowMs,
+    };
+  });
 }
 
 export function makeSessionAdapter(overrides: Partial<SessionAdapter> = {}): SessionAdapter {

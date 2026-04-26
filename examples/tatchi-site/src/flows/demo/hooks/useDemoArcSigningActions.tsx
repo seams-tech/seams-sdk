@@ -4,6 +4,8 @@ import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG } from '@/config';
 import {
+  EVM_GREETING_FINALITY_POLL_INTERVAL_MS,
+  EVM_GREETING_FINALITY_TIMEOUT_MS,
   buildEvmExplorerTxUrl,
   buildDemoEip1559Request,
   compactHex,
@@ -11,6 +13,7 @@ import {
   isUserCancellationError,
   parseInsufficientFundsError,
   resolveClickTimeEip1559FeeCaps,
+  waitForExpectedGreeting,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
 import { handleSigningToastEvent } from './signingToast';
@@ -56,6 +59,10 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       const execution = await tatchi.tempo.executeEvmFamilyTransaction({
         nearAccountId,
         request,
+        finalization: {
+          timeoutMs: EVM_GREETING_FINALITY_TIMEOUT_MS,
+          pollIntervalMs: EVM_GREETING_FINALITY_POLL_INTERVAL_MS,
+        },
         payloadExpectation: {
           to: request.tx.to,
           input: request.tx.data || '0x',
@@ -69,7 +76,10 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
             }),
         },
         postFinalizationCheck: async () => {
-          await fetchArcGreeting({ silent: true });
+          await waitForExpectedGreeting({
+            fetchGreeting: fetchArcGreeting,
+            expectedGreeting: requestedGreeting,
+          });
           await refreshThresholdEvmFundingAddress();
         },
       });

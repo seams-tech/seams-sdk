@@ -73,6 +73,7 @@ import {
 } from '../../session/SigningSessionTrace';
 import type { WalletSigningBudgetLedger } from '../../session/WalletSigningBudgetLedger';
 import { createTransactionSigningBudgetFinalizer } from '../../session/TransactionSigningBudgetFinalizer';
+import { computeSigningOperationFingerprint } from '../../session/SigningOperationFingerprint';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -178,6 +179,13 @@ export async function signTransactionsWithActions({
     return signingOperationId;
   };
   const nearAccountId = toAccountId(rpcCall.nearAccountId);
+  const operationFingerprint = await computeSigningOperationFingerprint({
+    kind: 'near:transactions_with_actions',
+    payload: {
+      nearAccountId,
+      transactions,
+    },
+  });
   const relayerUrl = ctx.relayerUrl;
   const ed25519WarmupPromise =
     ed25519Warmup?.isPending() === true
@@ -319,15 +327,16 @@ export async function signTransactionsWithActions({
   });
   const confirmationOperationId = ensureSigningOperationId();
   const emailOtpChallenge = emailOtpSigning ? await emailOtpSigning.prepare() : undefined;
-  const emailOtpPrompt = emailOtpSigning && emailOtpChallenge
-    ? {
-        challengeId: emailOtpChallenge.challengeId,
-        ...(emailOtpChallenge.emailHint ? { emailHint: emailOtpChallenge.emailHint } : {}),
-        title: 'Enter email code to sign',
-        helperText: formatEmailOtpSentText(emailOtpChallenge.emailHint),
-        ...(emailOtpSigning.resend ? { onResend: emailOtpSigning.resend } : {}),
-      }
-    : undefined;
+  const emailOtpPrompt =
+    emailOtpSigning && emailOtpChallenge
+      ? {
+          challengeId: emailOtpChallenge.challengeId,
+          ...(emailOtpChallenge.emailHint ? { emailHint: emailOtpChallenge.emailHint } : {}),
+          title: 'Enter email code to sign',
+          helperText: formatEmailOtpSentText(emailOtpChallenge.emailHint),
+          ...(emailOtpSigning.resend ? { onResend: emailOtpSigning.resend } : {}),
+        }
+      : undefined;
   const signingAuthPlan = providedSigningAuthPlan
     ? providedSigningAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth && emailOtpPrompt
       ? { ...providedSigningAuthPlan, emailOtpPrompt }
@@ -338,6 +347,13 @@ export async function signTransactionsWithActions({
   const touchConfirmAuthPayload = signingAuthPlan
     ? { signingAuthPlan }
     : (thresholdAuthPlan?.touchConfirmAuthPayload ?? { signingAuthPlan: passkeySigningAuthPlan() });
+  const shouldReconnectWithPasskeyEd25519 =
+    touchConfirmAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
+    Boolean(passkeyEd25519Reconnect);
+  const plannedPasskeyReconnect =
+    shouldReconnectWithPasskeyEd25519 && passkeyEd25519Reconnect?.prepare
+      ? await passkeyEd25519Reconnect.prepare({ usesNeeded })
+      : undefined;
   if (touchConfirmAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
@@ -373,6 +389,12 @@ export async function signTransactionsWithActions({
         }
       : {}),
     ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
+    // Passkey Ed25519 reauth mints a new threshold session after confirmation. The server
+    // verifies the WebAuthn challenge against this session-policy digest, so using the tx
+    // intent digest here caused one confirmation plus a second TouchID prompt for session mint.
+    ...(plannedPasskeyReconnect?.sessionPolicyDigest32
+      ? { sessionPolicyDigest32: plannedPasskeyReconnect.sessionPolicyDigest32 }
+      : {}),
     onProgress: emitTouchConfirmProgress,
   });
   emitNearSigningEvent(onEvent, nearAccountId, {
@@ -412,11 +434,12 @@ export async function signTransactionsWithActions({
     if (!refreshedSessionId) {
       throw new Error('[SigningEngine] Email OTP signing did not return a threshold session id');
     }
+    // Regression note: after session exhaustion, the old Ed25519 session may
+    // authorize the OTP route, but the worker must sign with the freshly minted
+    // session. Keeping the stale id here caused OTP success followed by
+    // threshold_ed25519_session_not_ready in the NEAR signer.
     canonicalThresholdSessionId = refreshedSessionId;
-  } else if (
-    providedSigningAuthPlan?.kind === SigningAuthPlanKind.PasskeyReauth &&
-    passkeyEd25519Reconnect
-  ) {
+  } else if (shouldReconnectWithPasskeyEd25519 && passkeyEd25519Reconnect) {
     if (!credentialWithPrf) {
       throw new Error('[SigningEngine] missing WebAuthn credential for passkey session reconnect');
     }
@@ -430,10 +453,24 @@ export async function signTransactionsWithActions({
     const refreshed = await passkeyEd25519Reconnect.reconnect({
       credential: credentialWithPrf,
       usesNeeded,
+      ...(plannedPasskeyReconnect?.sessionId
+        ? { sessionId: plannedPasskeyReconnect.sessionId }
+        : {}),
+      ...(plannedPasskeyReconnect?.walletSigningSessionId
+        ? { walletSigningSessionId: plannedPasskeyReconnect.walletSigningSessionId }
+        : {}),
     });
     const refreshedSessionId = String(refreshed.sessionId || '').trim();
     if (!refreshedSessionId) {
       throw new Error('[SigningEngine] passkey signing did not return a threshold session id');
+    }
+    if (
+      plannedPasskeyReconnect?.sessionId &&
+      refreshedSessionId !== plannedPasskeyReconnect.sessionId
+    ) {
+      throw new Error(
+        '[SigningEngine] passkey signing returned a different threshold session id than the confirmed session policy',
+      );
     }
     canonicalThresholdSessionId = refreshedSessionId;
     emitNearSigningEvent(onEvent, nearAccountId, {
@@ -568,6 +605,7 @@ export async function signTransactionsWithActions({
       walletSigningBudgetLedger,
       operation: {
         operationId: confirmationOperationId,
+        operationFingerprint,
         intent: SigningOperationIntent.TransactionSign,
       },
       lane: spendLane,
@@ -585,7 +623,9 @@ export async function signTransactionsWithActions({
           nearAccountId,
           thresholdSessionId: canonicalThresholdSessionId,
           error:
-            ledgerError instanceof Error ? ledgerError.message : String(ledgerError || 'unknown error'),
+            ledgerError instanceof Error
+              ? ledgerError.message
+              : String(ledgerError || 'unknown error'),
         });
       },
     });

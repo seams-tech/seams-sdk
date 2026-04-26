@@ -592,6 +592,152 @@ attacker may be able to exfiltrate enc_s(S) or S during a live session
 
 This refactor does not solve active malicious-server frontend compromise. It restores the threshold property for server storage compromise and removes the direct server-side path from stored data to unilateral signing.
 
+## Open Remediation Track
+
+The following issues were identified after the recovery-wrapped enrollment and
+signing-session coordinator refactors. They should be fixed before treating the
+Email OTP recovery model and transaction-signing budget model as complete.
+
+### 1. Recovery-Wrapped Escrow Set Integrity
+
+Risk:
+
+Enrollment currently validates that the request contains 10 parseable
+recovery-wrapped escrow records, but the server must also prove that those
+records persist as exactly 10 active, distinct, single-use recovery records for
+the same active enrollment scope.
+
+Todo:
+
+1. [ ] Reject duplicate `recoveryKeyId` values in
+   `verifyEmailOtpEnrollment(...)` before any enrollment state is written.
+2. [ ] Reject duplicate recovery ciphertext nonces within the same enrollment
+   upload.
+3. [ ] Verify every uploaded record has the same wallet id, user id,
+   auth subject id, enrollment id, enrollment version, enrollment seal key
+   version, signing root id, and signing root version.
+4. [ ] Recompute or otherwise validate `aadHashB64u` server-side from the
+   submitted metadata so a malformed record cannot advertise a false binding.
+5. [ ] After persistence, read active recovery-wrapped escrows back and require
+   the active count for the enrollment scope to be exactly 10.
+6. [ ] Add unit and route tests for duplicate recovery key ids, duplicate
+   nonces, mismatched enrollment metadata, mismatched signing-root metadata, and
+   active-count collapse through store upsert.
+
+### 2. Active Enrollment Scope
+
+Risk:
+
+Recovery listing and consume checks currently scope records by wallet, user,
+auth subject, and seal key version. The target model also binds recovery
+ciphertexts to enrollment id, enrollment version, signing root id, and signing
+root version.
+
+Todo:
+
+1. [ ] Add `enrollmentId`, `enrollmentVersion`, `signingRootId`, and
+   `signingRootVersion` to the active Email OTP enrollment record, or add an
+   equivalent authoritative server-side enrollment-scope record.
+2. [ ] Populate those fields during enrollment finalization from the same
+   metadata used to produce recovery-wrapped escrows.
+3. [ ] Filter `/wallet/email-otp/recovery-wrapped-escrows` by the full active
+   enrollment scope.
+4. [ ] Validate `/wallet/email-otp/recovery-key/consume` against the full active
+   enrollment scope.
+5. [ ] Add tests proving ciphertext swapping across enrollment id, enrollment
+   version, signing root id, and signing root version fails closed.
+
+### 3. Durable Device-Local Escrow Before Enrollment Success
+
+Risk:
+
+Server enrollment can currently complete before the worker proves that
+device-local `enc_s(S)` was durably written. If IndexedDB is unavailable or the
+record is malformed, the account can end up enrolled but immediately dependent
+on recovery.
+
+Todo:
+
+1. [ ] Make `writeEmailOtpDeviceEnrollmentEscrowRecord(...)` fail closed:
+   invalid records, unavailable IndexedDB, blocked opens, and transaction
+   failures must throw instead of returning silently.
+2. [ ] During enrollment, write and read back device-local `enc_s(S)` before
+   reporting enrollment success to the caller.
+3. [ ] Prefer writing local escrow before server finalization where feasible.
+   If server finalization must remain first, add an explicit recovery path for
+   "server finalized but local persistence failed" and make that state visible.
+4. [ ] Add tests for missing IndexedDB, malformed local escrow records, blocked
+   IndexedDB open, transaction abort, and post-write readback mismatch.
+5. [ ] Ensure logout and wallet-lock flows still preserve device-local
+   enrollment escrow unless the user explicitly removes this device.
+
+### 4. Failed Recovery-Key Attempt Accounting
+
+Risk:
+
+The spec requires server-side rate limiting for failed recovery attempts even
+though ChaCha20-Poly1305 unwrap failure happens client-side. A wrong recovery
+key currently fails locally without reporting the failed key attempt to the
+server.
+
+Todo:
+
+1. [ ] Add a recovery-key attempt route that records failed unwrap attempts
+   without receiving the recovery key, derived KEK, plaintext `S`, or
+   `enc_s(S)`.
+2. [ ] Bind failed-attempt reports to the recovery challenge, wallet id,
+   user id, app-session version, and candidate recovery key id or record id.
+3. [ ] Rate-limit failed recovery-key attempts server-side separately from OTP
+   failures.
+4. [ ] Make the worker report failed unwrap attempts before trying another
+   recovery-wrapped record or returning failure.
+5. [ ] Add tests that repeated wrong recovery-key attempts are rate-limited and
+   that successful recovery still consumes exactly one active key.
+
+### 5. Wallet Signing Budget Consume Boundary
+
+Risk:
+
+Transaction signing currently treats post-sign budget consume failures as
+non-fatal. If wallet signing-session budget is the authoritative user-visible
+spend limit, successful signatures must not be returned while budget consume is
+unknown or failed.
+
+Todo:
+
+1. [ ] Decide and document the fail-closed rule for successful signing when
+   `WalletSigningBudgetLedger.recordSuccess(...)` fails.
+2. [ ] Make transaction signing return failure or a clearly recoverable
+   "signature produced but budget finalization failed" state instead of silently
+   succeeding.
+3. [ ] Add NEAR, EVM, and Tempo tests where budget consume fails after a
+   signature is produced.
+4. [ ] Add retry semantics for transient budget consume failure that remain
+   idempotent by operation id and do not double-consume.
+5. [ ] Ensure trace output exposes budget-finalization failure without logging
+   secret material.
+
+### 6. Operation Id Scope And Payload Binding
+
+Risk:
+
+`operationId` dedupe is safe only when the id is scoped to the same confirmed
+operation. Reusing a caller-provided operation id for a different payload can
+mask a required budget consume or confuse signing-session accounting.
+
+Todo:
+
+1. [ ] Define the canonical transaction identity included in operation id scope
+   for NEAR, EVM, and Tempo.
+2. [ ] Store or compute an operation fingerprint for caller-provided operation
+   ids before confirmation.
+3. [ ] Reject reuse of the same caller-provided operation id with a different
+   operation fingerprint.
+4. [ ] Keep internally generated operation ids unique without requiring payload
+   fingerprint storage.
+5. [ ] Add tests for same-payload retry, different-payload same operation id,
+   and cross-chain operation id reuse.
+
 ## Acceptance Criteria
 
 1. Server persistence contains no direct `enc_s(S)` for active Email OTP enrollments.

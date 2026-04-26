@@ -27,6 +27,7 @@ import type {
   SigningLaneContext,
   SigningSessionPlan,
 } from '../../session/signingSessionTypes';
+import type { WalletSigningBudgetLedger } from '../../session/WalletSigningBudgetLedger';
 import {
   SigningOperationIntent,
   SigningSessionPlanKind,
@@ -50,6 +51,7 @@ import type {
 export type EvmFamilyPreConfirmSigningDeps = {
   touchConfirm: WarmSessionStatusReader;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
 };
 export type EvmFamilyWarmSessionReadinessDeps = EvmFamilyPreConfirmSigningDeps;
 
@@ -107,7 +109,10 @@ export type ResolveEvmFamilyTransactionWalletAuthArgs =
     });
 
 async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
-  deps: Pick<EvmFamilyPreConfirmSigningDeps, 'touchConfirm' | 'getEmailOtpWarmSessionStatus'>;
+  deps: Pick<
+    EvmFamilyPreConfirmSigningDeps,
+    'touchConfirm' | 'getEmailOtpWarmSessionStatus' | 'walletSigningBudgetLedger'
+  >;
   lane: SigningLaneContext;
   record?: ThresholdEcdsaSessionRecord;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
@@ -137,6 +142,29 @@ async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
   const signingRootId = record.runtimePolicyScope
     ? signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope).signingRootId
     : undefined;
+  const walletBudgetStatus = await readEvmFamilyWalletBudgetStatus({
+    deps: args.deps,
+    lane: args.lane,
+  });
+  const buildBudgetAwareReadiness = (input: {
+    expiresAtMs: number;
+    remainingUses: number;
+  }) => {
+    const budget = applyEvmFamilyWalletBudgetStatus({
+      walletBudgetStatus,
+      expiresAtMs: input.expiresAtMs,
+      remainingUses: input.remainingUses,
+    });
+    return {
+      readiness: {
+        status: budget.status,
+        ...base,
+      },
+      expiresAtMs: budget.expiresAtMs,
+      remainingUses: budget.remainingUses,
+      ...(signingRootId ? { signingRootId } : {}),
+    };
+  };
 
   if (isEmailOtpThresholdEcdsaSigningContext({ record, keyRef: args.keyRef })) {
     const emailOtpWorkerSessionId =
@@ -156,27 +184,73 @@ async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     let status = await readEmailOtpStatus();
     const statusExpiresAtMs = status?.ok ? status.expiresAtMs : 0;
     const statusRemainingUses = status?.ok ? status.remainingUses : 0;
-    return {
-      readiness: {
-        status: readinessStatusFromBudget(statusExpiresAtMs, statusRemainingUses),
-        ...base,
-      },
+    return buildBudgetAwareReadiness({
       expiresAtMs: Math.floor(Number(statusExpiresAtMs) || 0),
       remainingUses: Math.floor(Number(statusRemainingUses) || 0),
-      ...(signingRootId ? { signingRootId } : {}),
-    };
+    });
   }
 
   const expiresAtMs = record.expiresAtMs;
   const remainingUses = record.remainingUses;
+  return buildBudgetAwareReadiness({ expiresAtMs, remainingUses });
+}
+
+async function readEvmFamilyWalletBudgetStatus(args: {
+  deps: Pick<EvmFamilyPreConfirmSigningDeps, 'walletSigningBudgetLedger'>;
+  lane: SigningLaneContext;
+}) {
+  const walletSigningSessionId = String(args.lane.walletSigningSessionId || '').trim();
+  if (!walletSigningSessionId || !args.deps.walletSigningBudgetLedger) return null;
+  try {
+    return await args.deps.walletSigningBudgetLedger.getAvailableStatus({
+      nearAccountId: args.lane.accountId,
+      walletSigningSessionId,
+    });
+  } catch {
+    return {
+      sessionId: walletSigningSessionId,
+      status: 'unavailable' as const,
+    };
+  }
+}
+
+function applyEvmFamilyWalletBudgetStatus(args: {
+  walletBudgetStatus: Awaited<ReturnType<typeof readEvmFamilyWalletBudgetStatus>>;
+  expiresAtMs: number;
+  remainingUses: number;
+}): {
+  status: SigningSessionReadiness['status'];
+  expiresAtMs: number;
+  remainingUses: number;
+} {
+  let expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
+  let remainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
+  const walletBudgetStatus = args.walletBudgetStatus;
+  if (walletBudgetStatus) {
+    if (walletBudgetStatus.status === 'not_found') {
+      return { status: 'missing_session', expiresAtMs: 0, remainingUses: 0 };
+    }
+    if (walletBudgetStatus.status === 'unavailable') {
+      return { status: 'status_unavailable', expiresAtMs: 0, remainingUses: 0 };
+    }
+    if (walletBudgetStatus.status === 'expired') {
+      return { status: 'expired', expiresAtMs: 0, remainingUses: 0 };
+    }
+    if (walletBudgetStatus.status === 'exhausted') {
+      return { status: 'exhausted', expiresAtMs, remainingUses: 0 };
+    }
+    const budgetRemainingUses = Math.max(
+      0,
+      Math.floor(Number(walletBudgetStatus.remainingUses) || 0),
+    );
+    const budgetExpiresAtMs = Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0);
+    remainingUses = Math.min(remainingUses, budgetRemainingUses);
+    if (budgetExpiresAtMs > 0) expiresAtMs = Math.min(expiresAtMs, budgetExpiresAtMs);
+  }
   return {
-    readiness: {
-      status: readinessStatusFromBudget(expiresAtMs, remainingUses),
-      ...base,
-    },
+    status: readinessStatusFromBudget(expiresAtMs, remainingUses),
     expiresAtMs,
     remainingUses,
-    ...(signingRootId ? { signingRootId } : {}),
   };
 }
 

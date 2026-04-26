@@ -1,6 +1,7 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { computeThresholdEcdsaKeygenIntentDigest } from '@/utils/intentDigest';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   thresholdEcdsaHssFinalize,
   thresholdEcdsaHssPrepare,
@@ -136,6 +137,7 @@ export async function bootstrapEcdsaSession(args: {
   walletSigningSessionId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
   bootstrapAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
@@ -199,7 +201,7 @@ export async function bootstrapEcdsaSession(args: {
         : 'Missing threshold-ecdsa client root share for authorization bootstrap; reconnect session priming and retry (missing sessionId)',
     };
   }
-  let credential: unknown = null;
+  let credential: WebAuthnAuthenticationCredential | null = null;
   let yClient32Le: Uint8Array | null = null;
 
   try {
@@ -217,6 +219,7 @@ export async function bootstrapEcdsaSession(args: {
       challengeB64u,
       providedClientRootShare32,
       providedClientRootShare32B64u,
+      providedCredential: args.webauthnAuthentication,
     });
     if (!resolvedClientRootShare.ok) {
       return resolvedClientRootShare;
@@ -250,7 +253,9 @@ export async function bootstrapEcdsaSession(args: {
     const sessionId = requestedSessionId || generateThresholdSessionId();
     const walletSigningSessionId =
       String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
-    const webauthnAuthentication = useAuthorizationBootstrap ? undefined : (credential as any);
+    const webauthnAuthentication = useAuthorizationBootstrap
+      ? undefined
+      : args.webauthnAuthentication || credential || undefined;
     const routeAuth: ThresholdEcdsaHssRouteAuth | undefined = useAuthorizationBootstrap
       ? args.bootstrapAuth
       : managedBootstrapGrant?.token

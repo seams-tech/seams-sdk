@@ -1,21 +1,19 @@
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { createTransactionSigningBudgetFinalizer } from '../../session/TransactionSigningBudgetFinalizer';
-import type { WalletSigningBudgetLedger } from '../../session/WalletSigningBudgetLedger';
+import type {
+  WalletSigningBudgetLedger,
+  WalletSigningBudgetReservation,
+} from '../../session/WalletSigningBudgetLedger';
 import {
   SigningOperationIntent,
   SigningSessionIds,
   type SigningLaneContext,
+  type SigningOperationFingerprint,
   type SigningOperationId,
 } from '../../session/signingSessionTypes';
-import {
-  readSelectedEcdsaRecordForLane,
-  type EvmFamilyEcdsaSessionReaderDeps,
-} from './ecdsaLanes';
+import { readSelectedEcdsaRecordForLane, type EvmFamilyEcdsaSessionReaderDeps } from './ecdsaLanes';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
-import type {
-  EvmFamilyChain,
-  EvmFamilySenderSignatureAlgorithm,
-} from './types';
+import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
 
 type EvmFamilyWalletSigningSessionBudgetArgs = {
   deps: EvmFamilyEcdsaSessionReaderDeps;
@@ -24,14 +22,13 @@ type EvmFamilyWalletSigningSessionBudgetArgs = {
   nearAccountId: string;
   chain: EvmFamilyChain;
   confirmationOperationId: SigningOperationId;
+  operationFingerprint: SigningOperationFingerprint;
   ecdsaSigningLane?: SigningLaneContext;
   thresholdEcdsaRecord?: ThresholdEcdsaSessionRecord;
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
 };
 
-function createEvmFamilyTransactionBudgetFinalizer(
-  args: EvmFamilyWalletSigningSessionBudgetArgs,
-) {
+function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningSessionBudgetArgs) {
   if (args.senderSignatureAlgorithm !== 'secp256k1') return;
 
   const selectedSigningLane = args.ecdsaSigningLane;
@@ -46,33 +43,64 @@ function createEvmFamilyTransactionBudgetFinalizer(
     });
 
   const thresholdSessionId = String(
-    selectedSigningLane.thresholdSessionId ||
+    args.thresholdEcdsaKeyRef?.thresholdSessionId ||
+      currentRecord?.thresholdSessionId ||
+      selectedSigningLane.thresholdSessionId ||
+      '',
+  ).trim();
+  const walletSigningSessionId = String(
+    args.thresholdEcdsaKeyRef?.walletSigningSessionId ||
+      currentRecord?.walletSigningSessionId ||
+      selectedSigningLane.walletSigningSessionId ||
+      '',
+  ).trim();
+  if (!walletSigningSessionId) {
+    throw new Error(
+      '[SigningEngine][ecdsa] missing wallet signing session id for budget finalizer',
+    );
+  }
+  const budgetLane =
+    walletSigningSessionId !== String(selectedSigningLane.walletSigningSessionId || '').trim() ||
+    (thresholdSessionId &&
+      thresholdSessionId !== String(selectedSigningLane.thresholdSessionId || '').trim())
+      ? {
+          ...selectedSigningLane,
+          walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+          ...(thresholdSessionId
+            ? { thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId) }
+            : {}),
+        }
+      : selectedSigningLane;
+  const resolvedThresholdSessionId = String(
+    budgetLane.thresholdSessionId ||
       currentRecord?.thresholdSessionId ||
       args.thresholdEcdsaKeyRef?.thresholdSessionId ||
       '',
   ).trim();
-  const walletSigningSessionId = String(selectedSigningLane.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId) {
-    throw new Error('[SigningEngine][ecdsa] missing wallet signing session id for budget finalizer');
-  }
 
   return {
     finalizer: createTransactionSigningBudgetFinalizer({
       walletSigningBudgetLedger: args.walletSigningBudgetLedger,
       operation: {
         operationId: args.confirmationOperationId,
+        operationFingerprint: args.operationFingerprint,
         intent: SigningOperationIntent.TransactionSign,
       },
-      lane: selectedSigningLane,
-      ...(thresholdSessionId
-        ? { thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId) }
+      // Passkey reauth can replace the ECDSA threshold session after the
+      // confirmation. Budget finalization must follow the refreshed keyRef,
+      // not the exhausted lane that was selected during pre-confirm planning.
+      lane: budgetLane,
+      ...(resolvedThresholdSessionId
+        ? {
+            thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(resolvedThresholdSessionId),
+          }
         : {}),
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to update wallet signing-session budget', {
           nearAccountId: args.nearAccountId,
           chain: args.chain,
           walletSigningSessionId,
-          thresholdSessionId,
+          thresholdSessionId: resolvedThresholdSessionId,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
       },
@@ -84,8 +112,8 @@ function createEvmFamilyTransactionBudgetFinalizer(
         });
       },
     }),
-    thresholdSessionId,
-    selectedSigningLane,
+    thresholdSessionId: resolvedThresholdSessionId,
+    selectedSigningLane: budgetLane,
   };
 }
 
@@ -103,10 +131,10 @@ export async function recordSuccessfulEvmFamilyWalletSigningSessionSpend(
 
 export async function reserveEvmFamilyWalletSigningSessionBudget(
   args: EvmFamilyWalletSigningSessionBudgetArgs,
-): Promise<void> {
+): Promise<WalletSigningBudgetReservation | null> {
   const result = createEvmFamilyTransactionBudgetFinalizer(args);
-  if (!result) return;
-  await result.finalizer.reserve();
+  if (!result) return null;
+  return await result.finalizer.reserve();
 }
 
 export function recordFailedEvmFamilyWalletSigningSessionSpend(

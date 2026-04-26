@@ -35,9 +35,11 @@ export type EvmFamilyNonceLifecycleDeps = {
 function toEvmFamilyManagedNonceReservationFromSignedResult(args: {
   signedResult: TempoSignedResult | EvmSignedResult;
   nearAccountId: string;
-}): EvmFamilyManagedNonceReservation | null {
+}): EvmFamilyManagedNonceReservation {
   const snapshot = (args.signedResult as { managedNonce?: unknown }).managedNonce;
-  if (!snapshot || typeof snapshot !== 'object') return null;
+  if (!snapshot || typeof snapshot !== 'object') {
+    throw new Error('[SigningEngine][evm-family] managedNonce is required for nonce lifecycle');
+  }
   try {
     const parsed = fromManagedNonceReservationSnapshot(
       snapshot as Parameters<typeof fromManagedNonceReservationSnapshot>[0],
@@ -46,16 +48,20 @@ function toEvmFamilyManagedNonceReservationFromSignedResult(args: {
       ...parsed,
       ...(String(parsed.nearAccountId || '').trim() ? {} : { nearAccountId: args.nearAccountId }),
     };
-  } catch {
-    return null;
+  } catch (error: unknown) {
+    throw new Error(
+      `[SigningEngine][evm-family] invalid managedNonce: ${
+        error instanceof Error ? error.message : String(error || 'unknown error')
+      }`,
+    );
   }
 }
 
-export function releaseEvmFamilyNonceReservation(
+export async function releaseEvmFamilyNonceReservation(
   deps: EvmFamilyNonceLifecycleDeps,
   reservation: EvmFamilyManagedNonceReservation,
-): void {
-  deps.evmNonceManager.markBroadcastRejected(reservation);
+): Promise<void> {
+  await deps.evmNonceManager.markBroadcastRejected(reservation);
 }
 
 function formatNonceLaneStatus(status: NonceLaneStatus): EvmFamilyNonceLaneStatus {
@@ -75,7 +81,6 @@ export async function reportEvmFamilyBroadcastAccepted(
     signedResult: args.signedResult,
     nearAccountId: args.nearAccountId,
   });
-  if (!reservation) return;
 
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
@@ -124,7 +129,6 @@ export async function reportEvmFamilyBroadcastRejected(
     signedResult: args.signedResult,
     nearAccountId: args.nearAccountId,
   });
-  if (!reservation) return;
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_12_BROADCAST_REJECTED,
     status: 'running',
@@ -136,7 +140,7 @@ export async function reportEvmFamilyBroadcastRejected(
       nonce: reservation.nonce.toString(),
     },
   });
-  deps.evmNonceManager.markBroadcastRejected(reservation);
+  await deps.evmNonceManager.markBroadcastRejected(reservation);
   const mappedError = mapToRetryableNonceStateError({
     error: args.error,
     chain: reservation.chain,
@@ -207,7 +211,6 @@ export async function reportEvmFamilyFinalized(
     signedResult: args.signedResult,
     nearAccountId: args.nearAccountId,
   });
-  if (!reservation) return;
   const txHash =
     args.txHash ||
     (args.signedResult.chain === 'evm'
@@ -232,7 +235,6 @@ export async function reportEvmFamilyDroppedOrReplaced(
     signedResult: args.signedResult,
     nearAccountId: args.nearAccountId,
   });
-  if (!reservation) return;
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase:
       args.reason === 'replaced'
@@ -291,13 +293,6 @@ export async function reconcileEvmFamilyNonceLane(
     signedResult: args.signedResult,
     nearAccountId: args.nearAccountId,
   });
-  if (!reservation) {
-    return {
-      chainNextNonce: '0',
-      unresolvedInFlightNonces: [],
-      blocked: false,
-    };
-  }
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
     status: 'running',

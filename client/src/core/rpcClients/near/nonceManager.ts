@@ -441,6 +441,7 @@ export class NonceManager {
   public releaseNonce(nonce: string): void {
     if (this.reservedNonces.has(nonce)) {
       this.reservedNonces.delete(nonce);
+      this.lastReservedNonce = this.computeLastReservedNonce(this.reservedNonces);
     }
   }
 
@@ -616,8 +617,19 @@ export class NonceManager {
     }
     return {
       set: newSet,
-      lastReserved: newLast ? newLast.toString() : null,
+      lastReserved: newLast === null ? null : newLast.toString(),
     };
+  }
+
+  private computeLastReservedNonce(reserved: Set<string>): string | null {
+    let last: bigint | null = null;
+    for (const value of reserved) {
+      try {
+        const parsed = BigInt(value);
+        if (last === null || parsed > last) last = parsed;
+      } catch {}
+    }
+    return last === null ? null : last.toString();
   }
 }
 

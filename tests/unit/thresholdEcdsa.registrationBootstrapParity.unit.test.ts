@@ -107,4 +107,58 @@ test.describe('threshold ECDSA registration bootstrap parity gate', () => {
       }),
     ).rejects.toThrow('Client/server mismatch');
   });
+
+  test('transaction signing soft-fails retryable well-known fetch errors', async () => {
+    const engine: any = Object.create(SigningEngine.prototype);
+    engine.ensureSealedRefreshStartupParity = async () => {
+      throw Object.assign(
+        new Error('[sealed-refresh-parity] Well-known endpoint returned HTTP 502'),
+        { code: 'sealed_refresh_parity_http_error' },
+      );
+    };
+
+    const originalWarn = console.warn;
+    const warnings: unknown[][] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+
+    try {
+      await expect(
+        engine.ensureSealedRefreshStartupParityForTransactionSigning({
+          nearAccountId: 'alice.testnet',
+          chain: 'tempo',
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(warnings).toHaveLength(1);
+    expect(String(warnings[0]?.[0] || '')).toContain(
+      'transaction signing skipped retryable sealed-refresh capability fetch failure',
+    );
+    expect(warnings[0]?.[1]).toMatchObject({
+      nearAccountId: 'alice.testnet',
+      chain: 'tempo',
+      error: '[sealed-refresh-parity] Well-known endpoint returned HTTP 502',
+    });
+  });
+
+  test('transaction signing still fails closed on parity mismatches', async () => {
+    const engine: any = Object.create(SigningEngine.prototype);
+    engine.ensureSealedRefreshStartupParity = async () => {
+      throw Object.assign(
+        new Error('[sealed-refresh-parity] Client/server mismatch for fields: keyVersion'),
+        { code: 'sealed_refresh_parity_mismatch' },
+      );
+    };
+
+    await expect(
+      engine.ensureSealedRefreshStartupParityForTransactionSigning({
+        nearAccountId: 'alice.testnet',
+        chain: 'evm',
+      }),
+    ).rejects.toThrow('Client/server mismatch');
+  });
 });

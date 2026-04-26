@@ -33,6 +33,9 @@ type TempoLifecycleCapability = {
 const DEFAULT_FINALIZATION_TIMEOUT_MS = 90_000;
 const DEFAULT_FINALIZATION_POLL_INTERVAL_MS = 1_250;
 const DEFAULT_FINALIZATION_CONFIRMATIONS = 1;
+const BEST_EFFORT_NONCE_CLEANUP_TIMEOUT_MS = 5_000;
+const MIN_BEST_EFFORT_NONCE_CLEANUP_TIMEOUT_MS = 250;
+const FINALIZATION_WATCHDOG_GRACE_MS = 2_000;
 
 function emitLifecycleEvent(
   onEvent: ((event: TempoNonceLifecycleEvent) => void) | undefined,
@@ -54,6 +57,60 @@ function createCancelledError(): Error & { code: string } {
   const err = new Error('Request cancelled') as Error & { code: string };
   err.code = 'cancelled';
   return err;
+}
+
+function createLifecycleTimeoutError(message: string): Error & { code: string } {
+  const error = new Error(message) as Error & { code: string };
+  error.code = 'timeout';
+  return error;
+}
+
+async function withLifecycleTimeout<T>(args: {
+  promise: Promise<T>;
+  timeoutMs: number;
+  message: string;
+  onTimeout?: () => void;
+}): Promise<T> {
+  const timeoutMs = Math.max(1, Math.floor(Number(args.timeoutMs) || 0));
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let settled = false;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try {
+          args.onTimeout?.();
+        } catch {}
+        reject(createLifecycleTimeoutError(args.message));
+      }, timeoutMs);
+      args.promise.then(
+        (value) => {
+          if (settled) return;
+          settled = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          resolve(value);
+        },
+        (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          reject(error);
+        },
+      );
+    });
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+function resolveBestEffortCleanupTimeoutMs(finalizationTimeoutMs: unknown): number {
+  const parsed = Math.floor(Number(finalizationTimeoutMs));
+  if (!Number.isFinite(parsed) || parsed <= 0) return BEST_EFFORT_NONCE_CLEANUP_TIMEOUT_MS;
+  return Math.min(
+    BEST_EFFORT_NONCE_CLEANUP_TIMEOUT_MS,
+    Math.max(MIN_BEST_EFFORT_NONCE_CLEANUP_TIMEOUT_MS, parsed),
+  );
 }
 
 function throwIfCancelled(shouldAbort?: () => boolean): void {
@@ -146,11 +203,14 @@ function resolveRpcUrlForRequest(args: {
   );
 }
 
-function extractManagedNonceHints(
-  signedResult: TempoSignedResult | EvmSignedResult,
-): { senderHint?: `0x${string}`; nonceHint?: bigint } {
+function extractManagedNonceHints(signedResult: TempoSignedResult | EvmSignedResult): {
+  senderHint?: `0x${string}`;
+  nonceHint?: bigint;
+} {
   const senderRaw = String(signedResult?.managedNonce?.sender || '').trim();
-  const senderHint = /^0x[0-9a-fA-F]{40}$/.test(senderRaw) ? (senderRaw as `0x${string}`) : undefined;
+  const senderHint = /^0x[0-9a-fA-F]{40}$/.test(senderRaw)
+    ? (senderRaw as `0x${string}`)
+    : undefined;
   let nonceHint: bigint | undefined;
   try {
     const nonceRaw = String(signedResult?.managedNonce?.nonce || '').trim();
@@ -165,9 +225,10 @@ function extractManagedNonceHints(
   };
 }
 
-function inferPayloadExpectation(
-  request: ExecuteEvmFamilyTransactionArgs['request'],
-): { to?: `0x${string}`; input?: `0x${string}` } {
+function inferPayloadExpectation(request: ExecuteEvmFamilyTransactionArgs['request']): {
+  to?: `0x${string}`;
+  input?: `0x${string}`;
+} {
   if (request.chain === 'evm') {
     const to = request.tx.to || undefined;
     const input = normalizeHexData(request.tx.data || '0x') || undefined;
@@ -270,7 +331,10 @@ async function reportBroadcastFailure(args: {
       options: { onEvent: args.onEvent },
     });
   } catch (reconcileError: unknown) {
-    if (hasErrorCode(reconcileError, 'nonce_lane_blocked') || messageIncludesNonceLaneBlocked(reconcileError)) {
+    if (
+      hasErrorCode(reconcileError, 'nonce_lane_blocked') ||
+      messageIncludesNonceLaneBlocked(reconcileError)
+    ) {
       await args.capability.reportDroppedOrReplaced({
         nearAccountId: args.nearAccountId,
         signedResult: args.signedResult,
@@ -287,7 +351,9 @@ async function reportBroadcastFailure(args: {
 function normalizeTxHashOrThrow(value: unknown): `0x${string}` {
   const normalized = String(value || '').trim();
   if (!/^0x[0-9a-fA-F]{64}$/.test(normalized)) {
-    throw new Error(`[TempoSigner] invalid transaction hash from broadcast: ${normalized || 'empty'}`);
+    throw new Error(
+      `[TempoSigner] invalid transaction hash from broadcast: ${normalized || 'empty'}`,
+    );
   }
   return normalized as `0x${string}`;
 }
@@ -300,9 +366,10 @@ function assertRawTxHexOrThrow(value: unknown): `0x${string}` {
   return normalized as `0x${string}`;
 }
 
-function ensurePayloadExpectation(
-  args: ExecuteEvmFamilyTransactionArgs,
-): { to?: `0x${string}`; input?: `0x${string}` } {
+function ensurePayloadExpectation(args: ExecuteEvmFamilyTransactionArgs): {
+  to?: `0x${string}`;
+  input?: `0x${string}`;
+} {
   const inferred = inferPayloadExpectation(args.request);
   return {
     ...(inferred.to ? { to: inferred.to } : {}),
@@ -393,37 +460,51 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
         abortController.abort(createCancelledError());
       }, 100);
     }
-    const receipt = await client
-      .waitForTransactionReceipt({
-        txHash,
-        timeoutMs: Math.max(
-          1,
-          Math.floor(Number(args.input.finalization?.timeoutMs ?? DEFAULT_FINALIZATION_TIMEOUT_MS) || 0),
-        ),
-        pollIntervalMs: Math.max(
-          1,
-          Math.floor(
-            Number(args.input.finalization?.pollIntervalMs ?? DEFAULT_FINALIZATION_POLL_INTERVAL_MS) ||
-              0,
-          ),
-        ),
-        confirmations: Math.max(
-          1,
-          Math.floor(
-            Number(args.input.finalization?.confirmations ?? DEFAULT_FINALIZATION_CONFIRMATIONS) || 0,
-          ),
-        ),
-        maxFeePerGasHint: request.tx.maxFeePerGas,
-        signal: abortController.signal,
-        ...extractManagedNonceHints(signedResult),
-      })
-      .finally(() => {
-        if (abortInterval) {
-          clearInterval(abortInterval);
-          abortInterval = null;
-        }
-        abortController.abort(new Error('finalization wait settled'));
-      });
+    const finalizationTimeoutMs = Math.max(
+      1,
+      Math.floor(
+        Number(args.input.finalization?.timeoutMs ?? DEFAULT_FINALIZATION_TIMEOUT_MS) || 0,
+      ),
+    );
+    const finalizationPollIntervalMs = Math.max(
+      1,
+      Math.floor(
+        Number(args.input.finalization?.pollIntervalMs ?? DEFAULT_FINALIZATION_POLL_INTERVAL_MS) ||
+          0,
+      ),
+    );
+    const finalizationConfirmations = Math.max(
+      1,
+      Math.floor(
+        Number(args.input.finalization?.confirmations ?? DEFAULT_FINALIZATION_CONFIRMATIONS) || 0,
+      ),
+    );
+    const receipt = await withLifecycleTimeout({
+      promise: client
+        .waitForTransactionReceipt({
+          txHash,
+          timeoutMs: finalizationTimeoutMs,
+          pollIntervalMs: finalizationPollIntervalMs,
+          confirmations: finalizationConfirmations,
+          maxFeePerGasHint: request.tx.maxFeePerGas,
+          signal: abortController.signal,
+          ...extractManagedNonceHints(signedResult),
+        })
+        .finally(() => {
+          if (abortInterval) {
+            clearInterval(abortInterval);
+            abortInterval = null;
+          }
+          abortController.abort(new Error('finalization wait settled'));
+        }),
+      timeoutMs: finalizationTimeoutMs + FINALIZATION_WATCHDOG_GRACE_MS,
+      message: `Timed out waiting for transaction finalization after ${finalizationTimeoutMs.toString()}ms`,
+      onTimeout: () => {
+        abortController.abort(
+          createLifecycleTimeoutError('Transaction finalization watchdog timed out'),
+        );
+      },
+    });
 
     const status = normalizeToken(receipt.status);
     if (status && status !== '0x1' && status !== '0x01') {
@@ -527,14 +608,18 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
     };
   } catch (error: unknown) {
     if (!finalizedReported && signedResult) {
-      await reportBroadcastFailure({
-        capability: args.capability,
-        nearAccountId: args.input.nearAccountId,
-        signedResult,
-        error,
-        broadcastAccepted,
-        ...(txHash ? { txHash } : {}),
-        ...(onEvent ? { onEvent } : {}),
+      await withLifecycleTimeout({
+        promise: reportBroadcastFailure({
+          capability: args.capability,
+          nearAccountId: args.input.nearAccountId,
+          signedResult,
+          error,
+          broadcastAccepted,
+          ...(txHash ? { txHash } : {}),
+          ...(onEvent ? { onEvent } : {}),
+        }),
+        timeoutMs: resolveBestEffortCleanupTimeoutMs(args.input.finalization?.timeoutMs),
+        message: 'Timed out during best-effort nonce cleanup after EVM-family signing failure',
       }).catch(() => null);
     }
     throw error;

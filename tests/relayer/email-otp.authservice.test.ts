@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { AuthService } from '@server/core/AuthService';
 import {
   createEmailOtpChallengeStore,
@@ -12,6 +13,7 @@ import {
   EMAIL_OTP_RECOVERY_WRAP_ALG,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+  encodeEmailOtpRecoveryWrappedEnrollmentAad,
 } from '@shared/utils/emailOtpRecoveryKey';
 import { ensurePostgresSchema, getPostgresPool } from '../../server/src/storage/postgres';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
@@ -180,32 +182,37 @@ async function seedEmailOtpEnrollment(service: AuthService): Promise<void> {
 }
 
 function makeRecoveryWrappedEnrollmentEscrows(nowMs = Date.now()) {
-  return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => ({
-    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-    walletId: WALLET_ID,
-    userId: USER_ID,
-    authSubjectId: USER_ID,
-    authMethod: 'google_sso_email_otp',
-    enrollmentId: RECOVERY_ENROLLMENT_ID,
-    enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
-    enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
-    signingRootId: RECOVERY_SIGNING_ROOT_ID,
-    signingRootVersion: RECOVERY_SIGNING_ROOT_VERSION,
-    recoveryKeyId: `recovery-key-${index + 1}`,
-    recoveryKeyStatus: 'active',
-    nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
-    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
-      Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
-    ),
-    aadHashB64u: base64UrlEncode(
-      Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + index + 2)),
-    ),
-    issuedAtMs: nowMs,
-    updatedAtMs: nowMs,
-  }));
+  return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => {
+    const metadata = {
+      walletId: WALLET_ID,
+      userId: USER_ID,
+      authSubjectId: USER_ID,
+      authMethod: 'google_sso_email_otp',
+      enrollmentId: RECOVERY_ENROLLMENT_ID,
+      enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      signingRootId: RECOVERY_SIGNING_ROOT_ID,
+      signingRootVersion: RECOVERY_SIGNING_ROOT_VERSION,
+      recoveryKeyId: `recovery-key-${index + 1}`,
+    };
+    return {
+      version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+      alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
+      secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+      escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
+      ...metadata,
+      recoveryKeyStatus: 'active',
+      nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
+      wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
+        Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
+      ),
+      aadHashB64u: base64UrlEncode(
+        createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata)).digest(),
+      ),
+      issuedAtMs: nowMs,
+      updatedAtMs: nowMs,
+    };
+  });
 }
 
 async function consumeEmailOtpChallengeRateLimit(service: AuthService, clientIp: string) {
@@ -252,6 +259,45 @@ async function enrollRecoveryWallet(service: AuthService): Promise<void> {
     thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
   });
   expect(verified.ok).toBe(true);
+}
+
+async function verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
+  service: AuthService,
+  recoveryWrappedEnrollmentEscrows: unknown,
+) {
+  const challenge = await service.createEmailOtpEnrollmentChallenge({
+    userId: USER_ID,
+    walletId: WALLET_ID,
+    orgId: ORG_ID,
+    email: EMAIL,
+    otpChannel: 'email_otp',
+    sessionHash: SESSION_HASH,
+    appSessionVersion: APP_SESSION_VERSION,
+  });
+  expect(challenge.ok).toBe(true);
+  if (!challenge.ok) return challenge;
+  const outbox = await service.readEmailOtpOutboxEntry({
+    challengeId: challenge.challenge.challengeId,
+    userId: USER_ID,
+    walletId: WALLET_ID,
+  });
+  expect(outbox.ok).toBe(true);
+  if (!outbox.ok) return outbox;
+  return service.verifyEmailOtpEnrollment({
+    userId: USER_ID,
+    walletId: WALLET_ID,
+    orgId: ORG_ID,
+    challengeId: challenge.challenge.challengeId,
+    otpCode: outbox.otpCode,
+    otpChannel: 'email_otp',
+    sessionHash: SESSION_HASH,
+    appSessionVersion: APP_SESSION_VERSION,
+    recoveryWrappedEnrollmentEscrows,
+    enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+    clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+    unlockKeyVersion: 'email-otp-unlock-v1',
+    thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+  });
 }
 
 async function withMockedNow<T>(
@@ -341,6 +387,66 @@ test.describe('AuthService Email OTP policy', () => {
       providerUserId: USER_ID,
     });
     expect(active.ok).toBe(true);
+  });
+
+  test('Email OTP enrollment rejects duplicate recovery key ids', async () => {
+    const service = makeService();
+    const escrows = makeRecoveryWrappedEnrollmentEscrows();
+    escrows[1] = { ...escrows[1], recoveryKeyId: escrows[0].recoveryKeyId };
+
+    const verified = await verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(service, escrows);
+    expect(verified?.ok).toBe(false);
+    if (verified?.ok) return;
+    expect(verified?.code).toBe('invalid_body');
+    expect(verified?.message).toBe(
+      'Recovery-wrapped enrollment escrow recoveryKeyId values must be unique',
+    );
+    expect(await (service as any).getEmailOtpWalletEnrollmentStore().get(WALLET_ID)).toBeNull();
+  });
+
+  test('Email OTP enrollment rejects duplicate recovery nonces', async () => {
+    const service = makeService();
+    const escrows = makeRecoveryWrappedEnrollmentEscrows();
+    escrows[1] = { ...escrows[1], nonceB64u: escrows[0].nonceB64u };
+
+    const verified = await verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(service, escrows);
+    expect(verified?.ok).toBe(false);
+    if (verified?.ok) return;
+    expect(verified?.code).toBe('invalid_body');
+    expect(verified?.message).toBe(
+      'Recovery-wrapped enrollment escrow nonce values must be unique',
+    );
+    expect(await (service as any).getEmailOtpWalletEnrollmentStore().get(WALLET_ID)).toBeNull();
+  });
+
+  test('Email OTP enrollment rejects mixed recovery enrollment metadata', async () => {
+    const service = makeService();
+    const escrows = makeRecoveryWrappedEnrollmentEscrows();
+    escrows[1] = { ...escrows[1], signingRootId: 'other-signing-root' };
+
+    const verified = await verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(service, escrows);
+    expect(verified?.ok).toBe(false);
+    if (verified?.ok) return;
+    expect(verified?.code).toBe('invalid_body');
+    expect(verified?.message).toBe(
+      'Recovery-wrapped enrollment escrow metadata must share one enrollment scope',
+    );
+    expect(await (service as any).getEmailOtpWalletEnrollmentStore().get(WALLET_ID)).toBeNull();
+  });
+
+  test('Email OTP enrollment rejects recovery escrow AAD hash mismatch', async () => {
+    const service = makeService();
+    const escrows = makeRecoveryWrappedEnrollmentEscrows();
+    escrows[1] = { ...escrows[1], aadHashB64u: base64UrlEncode(Uint8Array.from([1, 2, 3])) };
+
+    const verified = await verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(service, escrows);
+    expect(verified?.ok).toBe(false);
+    if (verified?.ok) return;
+    expect(verified?.code).toBe('invalid_body');
+    expect(verified?.message).toBe(
+      'Recovery-wrapped enrollment escrow aadHashB64u does not match metadata',
+    );
+    expect(await (service as any).getEmailOtpWalletEnrollmentStore().get(WALLET_ID)).toBeNull();
   });
 
   test('Email OTP login challenges bind export_key operation through verification', async () => {

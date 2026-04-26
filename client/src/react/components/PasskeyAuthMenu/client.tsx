@@ -415,6 +415,9 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
 
                   {controller.mode === AuthMenuMode.Register && (
                     <>
+                      {/* Register starts the username entry flow; it must not be gated by
+                          passkey submit eligibility yet. Gating it on canSubmit disabled
+                          first-load passkey registration. */}
                       <button
                         type="button"
                         onClick={controller.onProceed}

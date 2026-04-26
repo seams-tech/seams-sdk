@@ -41,6 +41,8 @@ export function resolveWarmEcdsaBootstrapRequestFromSession(args: {
   const explicitThresholdKeyId = toOptionalNonEmptyString(request.ecdsaThresholdKeyId);
   const explicitClientRootShare32 = cloneOptionalFixed32Bytes(request.clientRootShare32);
   const explicitClientRootShare32B64u = toOptionalNonEmptyString(request.clientRootShare32B64u);
+  const explicitWebauthnAuthentication = request.webauthnAuthentication;
+  const shouldUseFreshWebAuthnBootstrap = Boolean(explicitWebauthnAuthentication);
   const explicitRuntimeScopeBootstrap =
     request.runtimeScopeBootstrap &&
     String(request.runtimeScopeBootstrap.environmentId || '').trim() &&
@@ -120,7 +122,8 @@ export function resolveWarmEcdsaBootstrapRequestFromSession(args: {
         : {}),
     ...(explicitThresholdRouteAuth
       ? { thresholdRouteAuth: explicitThresholdRouteAuth }
-      : toOptionalNonEmptyString(reusableWarmCapability?.auth?.thresholdSessionJwt)
+      : !shouldUseFreshWebAuthnBootstrap &&
+          toOptionalNonEmptyString(reusableWarmCapability?.auth?.thresholdSessionJwt)
         ? {
             thresholdRouteAuth: {
               kind: 'threshold_session',
@@ -137,6 +140,9 @@ export function resolveWarmEcdsaBootstrapRequestFromSession(args: {
     ...(explicitClientRootShare32 ? { clientRootShare32: explicitClientRootShare32 } : {}),
     ...(explicitClientRootShare32B64u
       ? { clientRootShare32B64u: explicitClientRootShare32B64u }
+      : {}),
+    ...(explicitWebauthnAuthentication
+      ? { webauthnAuthentication: explicitWebauthnAuthentication }
       : {}),
   };
 }

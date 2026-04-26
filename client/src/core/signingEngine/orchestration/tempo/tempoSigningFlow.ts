@@ -1,4 +1,5 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   TouchConfirmSigningPort,
   TouchConfirmSecureConfirmationPort,
@@ -16,6 +17,7 @@ import {
   SigningAuthPlanKind,
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
+import type { WalletSigningBudgetReservation } from '../../session/WalletSigningBudgetLedger';
 import type { ReserveNonceInput } from '@/core/rpcClients/evm/nonceManager';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceManager';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -51,6 +53,19 @@ import {
 
 type ManagedNonceReservation = ReserveNonceInput & { nonce: bigint };
 type TempoSigningAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
+type TempoPasskeyEcdsaReconnect = {
+  prepare: (args: { usesNeeded: number }) => Promise<{
+    sessionId: string;
+    walletSigningSessionId?: string;
+    sessionPolicyDigest32: string;
+  }>;
+  reconnect: (args: {
+    credential: WebAuthnAuthenticationCredential;
+    usesNeeded: number;
+    sessionId?: string;
+    walletSigningSessionId?: string;
+  }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+};
 
 export async function signTempoWithTouchConfirm(args: {
   ctx: TouchConfirmContext;
@@ -65,13 +80,14 @@ export async function signTempoWithTouchConfirm(args: {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
   ensureThresholdEcdsaKeyRefReady?: () => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  passkeyEcdsaReconnect?: TempoPasskeyEcdsaReconnect;
   prepareRequestWithManagedNonce?: () => Promise<{
     request: TempoSigningRequest;
     reservation: ManagedNonceReservation;
   }>;
-  releaseNonceReservation?: (reservation: ManagedNonceReservation) => void;
+  releaseNonceReservation?: (reservation: ManagedNonceReservation) => void | Promise<void>;
   onConfirmationDisplayed?: () => void;
-  reserveWalletSigningSessionBudget?: () => Promise<void>;
+  reserveWalletSigningSessionBudget?: () => Promise<WalletSigningBudgetReservation | null>;
   emailOtpSigning?: {
     prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
@@ -137,11 +153,23 @@ export async function signTempoWithTouchConfirm(args: {
   let preparedRequest = args.request;
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
-  const releaseNonceReservation = (): void => {
+  let walletBudgetReservation: WalletSigningBudgetReservation | null = null;
+  let walletBudgetReservationAttempted = false;
+  const reserveWalletSigningBudgetOnce = async (): Promise<void> => {
+    if (walletBudgetReservationAttempted) return;
+    walletBudgetReservationAttempted = true;
+    walletBudgetReservation = (await args.reserveWalletSigningSessionBudget?.()) || null;
+  };
+  const releaseWalletBudgetReservation = (): void => {
+    if (!walletBudgetReservation) return;
+    walletBudgetReservation.release();
+    walletBudgetReservation = null;
+  };
+  const releaseNonceReservation = async (): Promise<void> => {
     if (reservationReleased || !nonceReservation || !args.releaseNonceReservation) return;
     reservationReleased = true;
     try {
-      args.releaseNonceReservation(nonceReservation);
+      await args.releaseNonceReservation(nonceReservation);
     } catch {}
   };
 
@@ -215,7 +243,16 @@ export async function signTempoWithTouchConfirm(args: {
       ...(args.signingAuthPlan ? { signingAuthPlan: args.signingAuthPlan } : {}),
       ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
     });
+    const usesNeeded = 1;
+    const shouldReconnectWithPasskeyEcdsa =
+      touchConfirmAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
+      Boolean(args.passkeyEcdsaReconnect);
+    const plannedPasskeyReconnect =
+      shouldReconnectWithPasskeyEcdsa && args.passkeyEcdsaReconnect?.prepare
+        ? await args.passkeyEcdsaReconnect.prepare({ usesNeeded })
+        : undefined;
     if (touchConfirmAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.WarmSession) {
+      await reserveWalletSigningBudgetOnce();
       emitProgress({
         phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
         status: 'succeeded',
@@ -240,6 +277,9 @@ export async function signTempoWithTouchConfirm(args: {
       body,
       ...touchConfirmAuthPayload,
       ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
+      ...(plannedPasskeyReconnect?.sessionPolicyDigest32
+        ? { sessionPolicyDigest32: plannedPasskeyReconnect.sessionPolicyDigest32 }
+        : {}),
       onProgress: emitTouchConfirmProgress,
       confirmationConfigOverride: args.confirmationConfigOverride,
     });
@@ -248,9 +288,6 @@ export async function signTempoWithTouchConfirm(args: {
       status: 'succeeded',
       interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
     });
-    if (!args.emailOtpSigning) {
-      await args.reserveWalletSigningSessionBudget?.();
-    }
     const intentPrepared = await intentPreparationTask;
     const intent = intentPrepared.intent;
 
@@ -290,13 +327,42 @@ export async function signTempoWithTouchConfirm(args: {
       );
       thresholdEcdsaKeyRef = refreshed;
       ensuredThresholdKeyRef = refreshed;
-      await args.reserveWalletSigningSessionBudget?.();
+      await reserveWalletSigningBudgetOnce();
     }
     const hasSecp256k1Request = intent.signRequests.some(
       (signReq) => signReq.algorithm === 'secp256k1',
     );
+    if (hasSecp256k1Request && shouldReconnectWithPasskeyEcdsa && args.passkeyEcdsaReconnect) {
+      if (!confirmation.credential) {
+        throw new Error('[chains] missing WebAuthn credential for threshold ECDSA reconnect');
+      }
+      notifyAuthSideEffectStarted('threshold_reconnect');
+      const refreshed = await args.passkeyEcdsaReconnect.reconnect({
+        credential: confirmation.credential as WebAuthnAuthenticationCredential,
+        usesNeeded,
+        ...(plannedPasskeyReconnect?.sessionId
+          ? { sessionId: plannedPasskeyReconnect.sessionId }
+          : {}),
+        ...(plannedPasskeyReconnect?.walletSigningSessionId
+          ? { walletSigningSessionId: plannedPasskeyReconnect.walletSigningSessionId }
+          : {}),
+      });
+      if (
+        plannedPasskeyReconnect?.sessionId &&
+        String(refreshed.thresholdSessionId || '').trim() !== plannedPasskeyReconnect.sessionId
+      ) {
+        throw new Error(
+          '[chains] threshold ECDSA reconnect returned a different session id than the confirmed session policy',
+        );
+      }
+      thresholdEcdsaKeyRef = refreshed;
+      ensuredThresholdKeyRef = refreshed;
+    }
     if (hasSecp256k1Request && args.ensureThresholdEcdsaKeyRefReady) {
       await ensureThresholdKeyRef();
+    }
+    if (!args.emailOtpSigning) {
+      await reserveWalletSigningBudgetOnce();
     }
 
     if (hasSecp256k1Request) {
@@ -356,12 +422,13 @@ export async function signTempoWithTouchConfirm(args: {
       managedNonce: toManagedNonceReservationSnapshot(nonceReservation),
     };
   } catch (error: unknown) {
+    releaseWalletBudgetReservation();
     if (nonceReservation) {
-      releaseNonceReservation();
+      await releaseNonceReservation();
     } else if (args.releaseNonceReservation) {
-      void intentPreparationTask
-        .then(() => {
-          releaseNonceReservation();
+      await intentPreparationTask
+        .then(async () => {
+          await releaseNonceReservation();
         })
         .catch(() => undefined);
     }

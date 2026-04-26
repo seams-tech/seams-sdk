@@ -612,7 +612,7 @@ Current owner inventory:
 3. Auth side effects:
    `api/evmFamily/transactionExecutor.ts` and shared touch-confirm signing helpers execute transaction confirmation and confirmed EVM/Tempo OTP/passkey reauth. `api/nearSigning.ts` still owns NEAR per-operation OTP/passkey reauth execution. `EmailOtpThresholdSessionCoordinator.ts`, `TatchiPasskey/index.ts`, and `email-otp.worker.ts` own Email OTP challenge/verification mechanics. `WarmSessionEcdsaProvisioner.ts` owns ECDSA reconnect/provisioning mechanics and is now called by source-required EVM-family readiness APIs for transaction signing.
 4. Budget and cleanup:
-   `WalletSigningBudgetLedger.ts` owns idempotent transaction budget spending. `WalletSigningSessionCoordinator.ts` owns wallet-session spend discovery and low-level use consumption. `SigningPostSignPolicy.ts` owns selected-lane ECDSA single-use cleanup policy. `WarmSessionPostSignPolicyAdapter.ts` adapts store/status reads for cleanup. `SigningEngine.clearThresholdEcdsa*` and threshold session-store helpers remain low-level admin cleanup APIs.
+   `WalletSigningBudgetLedger.ts` owns idempotent transaction budget spending, operation-fingerprint binding, in-runtime reservation, and fail-closed success consume. `WalletSigningSessionCoordinator.ts` owns wallet-session spend discovery and low-level use consumption. `SigningPostSignPolicy.ts` owns selected-lane ECDSA single-use cleanup policy. `WarmSessionPostSignPolicyAdapter.ts` adapts store/status reads for cleanup. `SigningEngine.clearThresholdEcdsa*` and threshold session-store helpers remain low-level admin cleanup APIs.
 
 Acceptance checks:
 

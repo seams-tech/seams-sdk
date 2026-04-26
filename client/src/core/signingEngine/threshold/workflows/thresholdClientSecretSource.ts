@@ -1,4 +1,5 @@
 import { base64UrlDecode } from '@shared/utils/base64';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   collectAuthenticationCredentialForChallengeB64u,
   getPrfFirstB64uFromCredential,
@@ -20,11 +21,12 @@ export async function resolveThresholdEcdsaClientRootShare(args: {
   challengeB64u?: string;
   providedClientRootShare32?: Uint8Array;
   providedClientRootShare32B64u?: string;
+  providedCredential?: WebAuthnAuthenticationCredential;
 }): Promise<
   | {
       ok: true;
       clientRootShare32: Uint8Array;
-      credential?: Awaited<ReturnType<typeof collectAuthenticationCredentialForChallengeB64u>>;
+      credential?: WebAuthnAuthenticationCredential;
     }
   | { ok: false; code: string; message: string }
 > {
@@ -64,6 +66,34 @@ export async function resolveThresholdEcdsaClientRootShare(args: {
         code: 'invalid_args',
         message:
           'threshold-ecdsa client root share must be 32 bytes supplied as base64url or raw bytes',
+      };
+    } finally {
+      decoded?.fill(0);
+    }
+  }
+
+  if (args.providedCredential) {
+    const prfFirstB64u = getPrfFirstB64uFromCredential(args.providedCredential);
+    if (!prfFirstB64u) {
+      return {
+        ok: false,
+        code: 'unsupported',
+        message: 'Missing PRF.first output from credential (requires a PRF-enabled passkey)',
+      };
+    }
+    let decoded: Uint8Array | null = null;
+    try {
+      decoded = base64UrlDecode(prfFirstB64u);
+      return {
+        ok: true,
+        clientRootShare32: cloneFixed32Bytes(decoded, 'threshold-ecdsa credential PRF.first'),
+        credential: args.providedCredential,
+      };
+    } catch {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'threshold-ecdsa credential PRF.first must decode to 32 bytes',
       };
     } finally {
       decoded?.fill(0);

@@ -29,7 +29,10 @@ function collectTokenViolations(args: {
   return violations;
 }
 
-function collectRepoFiles(relativeRoot: string, predicate: (relativePath: string) => boolean): string[] {
+function collectRepoFiles(
+  relativeRoot: string,
+  predicate: (relativePath: string) => boolean,
+): string[] {
   const root = path.join(repoRoot, relativeRoot);
   const files: string[] = [];
   const visit = (absolutePath: string): void => {
@@ -88,10 +91,7 @@ test.describe('signing session architecture boundary guard', () => {
       'client/src/core/signingEngine/api/tempoSigning.ts',
       'client/src/core/signingEngine/api/evmFamily/authPlanning.ts',
     ];
-    const forbidden = [
-      'resolveEd25519SigningAuthPlan',
-      'WarmSessionEd25519SigningAuthPlan',
-    ];
+    const forbidden = ['resolveEd25519SigningAuthPlan', 'WarmSessionEd25519SigningAuthPlan'];
 
     const violations = collectTokenViolations({
       files: productionFiles,
@@ -207,7 +207,9 @@ test.describe('signing session architecture boundary guard', () => {
       'client/src/core/signingEngine/session/WarmSessionEcdsaProvisioner.ts',
       'client/src/core/signingEngine/session/WarmSessionEd25519Provisioner.ts',
     ];
-    const policySource = readRepoFile('client/src/core/signingEngine/session/SigningPostSignPolicy.ts');
+    const policySource = readRepoFile(
+      'client/src/core/signingEngine/session/SigningPostSignPolicy.ts',
+    );
     const forbidden = collectTokenViolations({
       files: focusedServiceFiles,
       forbiddenTokens: [
@@ -280,7 +282,10 @@ test.describe('signing session architecture boundary guard', () => {
     const confirmedStart = source.indexOf('export type EvmFamilyConfirmedSigningDeps');
     const transactionDepsStart = source.indexOf('export type EvmFamilyTransactionWalletAuthDeps');
     const baseArgsStart = source.indexOf('type ResolveEvmFamilyTransactionWalletAuthBaseArgs');
-    const baseArgsEnd = source.indexOf('export type ResolveEvmFamilyTransactionWalletAuthArgs', baseArgsStart);
+    const baseArgsEnd = source.indexOf(
+      'export type ResolveEvmFamilyTransactionWalletAuthArgs',
+      baseArgsStart,
+    );
 
     expect(preConfirmStart).toBeGreaterThanOrEqual(0);
     expect(confirmedEmailOtpStart).toBeGreaterThan(preConfirmStart);
@@ -458,6 +463,22 @@ test.describe('signing session architecture boundary guard', () => {
     expect(violations, violations.join('\n')).toEqual([]);
   });
 
+  test('EVM-family commit queue performs just-in-time readiness before signing task execution', () => {
+    const runtime = readRepoFile(
+      'client/src/core/signingEngine/api/evmFamily/signingFlowRuntime.ts',
+    );
+    const queueStart = runtime.indexOf('withThresholdEcdsaCommitQueue({');
+    const readinessCheck = runtime.indexOf(
+      'await assertThresholdSigningSessionReady({',
+      queueStart,
+    );
+    const taskExecution = runtime.indexOf('return await queueArgs.task();', queueStart);
+
+    expect(queueStart).toBeGreaterThanOrEqual(0);
+    expect(readinessCheck).toBeGreaterThan(queueStart);
+    expect(taskExecution).toBeGreaterThan(readinessCheck);
+  });
+
   test('EVM-family transaction modules stay behind planner and ledger boundaries', () => {
     const evmFamilyTransactionFiles = [
       'client/src/core/signingEngine/api/evmSigning.ts',
@@ -531,9 +552,7 @@ test.describe('signing session architecture boundary guard', () => {
     const serviceTypes = readRepoFile(
       'client/src/core/signingEngine/session/WarmSessionServiceTypes.ts',
     );
-    const readiness = readRepoFile(
-      'client/src/core/signingEngine/api/evmFamily/ecdsaReadiness.ts',
-    );
+    const readiness = readRepoFile('client/src/core/signingEngine/api/evmFamily/ecdsaReadiness.ts');
     const signingSessionCoordinator = readRepoFile(
       'client/src/core/signingEngine/api/evmFamily/signingSessionCoordinator.ts',
     );
@@ -543,7 +562,9 @@ test.describe('signing session architecture boundary guard', () => {
     expect(serviceTypes).not.toContain('tryReuseReadyEcdsaBootstrapForSource');
     expect(readiness).toContain('ensureEcdsaCapabilityReady({');
     expect(readiness).toContain('source,');
-    expect(signingSessionCoordinator).toContain('export type EvmFamilySigningSessionCoordinator = Pick');
+    expect(signingSessionCoordinator).toContain(
+      'export type EvmFamilySigningSessionCoordinator = Pick',
+    );
     expect(signingSessionCoordinator).toContain("'ensureEcdsaCapabilityReady'");
     expect(signingSessionCoordinator).toContain("'applyEcdsaPostSignPolicy'");
     expect(signingSessionCoordinator).toContain("'assertEcdsaOperationAllowed'");
@@ -555,12 +576,16 @@ test.describe('signing session architecture boundary guard', () => {
     expect(signingSessionCoordinator).toContain('createWarmSessionStatusReader');
     expect(signingSessionCoordinator).toContain('ensureWarmEcdsaCapabilityReady');
     expect(signingSessionCoordinator).toContain(
-      'throw new Error(\'[SigningEngine] ECDSA signing source is required for signing-artifact cleanup\')',
+      "throw new Error('[SigningEngine] ECDSA signing source is required for signing-artifact cleanup')",
     );
     expect(signingSessionCoordinator).toContain('listThresholdEcdsaSessionRecordsForLookup');
-    expect(signingSessionCoordinator).toContain('for (const source of THRESHOLD_ECDSA_SESSION_STORE_SOURCES)');
+    expect(signingSessionCoordinator).toContain(
+      'for (const source of THRESHOLD_ECDSA_SESSION_STORE_SOURCES)',
+    );
     expect(signingSessionCoordinator).toContain('listThresholdEcdsaKeyRefsForLookup');
-    expect(signingSessionCoordinator).toContain('source ? [source] : THRESHOLD_ECDSA_SESSION_STORE_SOURCES');
+    expect(signingSessionCoordinator).toContain(
+      'source ? [source] : THRESHOLD_ECDSA_SESSION_STORE_SOURCES',
+    );
   });
 
   test('source-less ECDSA status reads return multi-lane status, not a selected lane', () => {
@@ -603,9 +628,7 @@ test.describe('signing session architecture boundary guard', () => {
       "throw new Error('[WarmSessionStatusReader] thresholdSessionId is required for Ed25519 status')",
     );
     expect(thresholdAuthMode).toContain('getEd25519SigningSessionStatusForSession({');
-    expect(thresholdAuthMode).not.toContain(
-      'getEd25519SigningSessionStatus(args.nearAccountId)',
-    );
+    expect(thresholdAuthMode).not.toContain('getEd25519SigningSessionStatus(args.nearAccountId)');
   });
 
   test('EVM-family ECDSA cleanup requires the selected lane and has no pre-sign policy guard', () => {
@@ -622,10 +645,10 @@ test.describe('signing session architecture boundary guard', () => {
     expect(postSignPolicy).toContain('applyEcdsaPostSignPolicy');
     expect(postSignPolicy).not.toContain('applyEcdsaPostSignPolicyForSource');
     expect(postSignPolicy).toContain(
-      'throw new Error(\'[SigningEngine] ECDSA signing lane is required for post-sign cleanup\')',
+      "throw new Error('[SigningEngine] ECDSA signing lane is required for post-sign cleanup')",
     );
     expect(postSignPolicy).toContain(
-      'throw new Error(\'[SigningEngine] ECDSA signing source is required for post-sign cleanup\')',
+      "throw new Error('[SigningEngine] ECDSA signing source is required for post-sign cleanup')",
     );
     expect(postSignPolicy).toContain('readSelectedEcdsaRecordForLane');
     expect(postSignPolicy).toContain('source: selectedEcdsaSource');
@@ -634,11 +657,11 @@ test.describe('signing session architecture boundary guard', () => {
     );
     expect(evmSigning).toContain('const selectedSource = resolveSelectedEcdsaSource();');
     expect(evmSigning).toContain(
-      'throw new Error(\'[SigningEngine] ECDSA signing source is required for post-sign cleanup\')',
+      "throw new Error('[SigningEngine] ECDSA signing source is required for post-sign cleanup')",
     );
     expect(evmSigning).toContain('...(ecdsaSigningLane ? { ecdsaSigningLane } : {})');
     expect(evmSigning).not.toContain(
-      'throw new Error(\'[SigningEngine] ECDSA signing source is required for operation policy\')',
+      "throw new Error('[SigningEngine] ECDSA signing source is required for operation policy')",
     );
     expect(evmSigning).not.toContain('assertEcdsaOperationAllowedForSource({');
     expect(evmSigning).not.toContain(
@@ -647,9 +670,7 @@ test.describe('signing session architecture boundary guard', () => {
   });
 
   test('post-sign cleanup policy stays out of wallet-budget spending', () => {
-    const source = readRepoFile(
-      'client/src/core/signingEngine/session/SigningPostSignPolicy.ts',
-    );
+    const source = readRepoFile('client/src/core/signingEngine/session/SigningPostSignPolicy.ts');
 
     expect(source).toContain('clearEcdsaEphemeralMaterial');
     expect(source).toContain('markEmailOtpSessionConsumed');
@@ -723,12 +744,8 @@ test.describe('signing session architecture boundary guard', () => {
     expect(transactionExecutor).toContain(
       'command.kind === SigningExecutionCommandKind.SpendBudget',
     );
-    expect(transactionExecutor).toContain(
-      'command.kind === SigningExecutionCommandKind.Cleanup',
-    );
-    expect(signingFlowRuntime).toContain(
-      'commandKind: SigningExecutionCommandKind.RequestOtp',
-    );
+    expect(transactionExecutor).toContain('command.kind === SigningExecutionCommandKind.Cleanup');
+    expect(signingFlowRuntime).toContain('commandKind: SigningExecutionCommandKind.RequestOtp');
     expect(signingFlowRuntime).toContain(
       'commandKind: SigningExecutionCommandKind.ReconnectThreshold',
     );

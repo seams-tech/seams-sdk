@@ -18,7 +18,6 @@ export type WalletSigningBudgetLedgerTraceEvent = {
     | 'wallet_signing_budget_reservation_failed'
     | 'wallet_signing_budget_spend_started'
     | 'wallet_signing_budget_spend_deduped'
-    | 'wallet_signing_budget_spend_skipped'
     | 'wallet_signing_budget_spend_succeeded'
     | 'wallet_signing_budget_spend_failed'
     | 'wallet_signing_budget_zero_spend_recorded';
@@ -46,6 +45,14 @@ export type WalletSigningBudgetLedgerRecordSuccessInput = {
   alreadyConsumedThresholdSessionIds?: readonly string[];
 };
 
+export const WALLET_SIGNING_BUDGET_EXHAUSTED_ERROR =
+  '[WalletSigningBudgetLedger] wallet signing-session budget is exhausted';
+
+export function isWalletSigningBudgetExhaustedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return message.includes(WALLET_SIGNING_BUDGET_EXHAUSTED_ERROR);
+}
+
 export type WalletSigningBudgetLedgerZeroSpendReason =
   | 'confirmation_cancelled'
   | 'email_otp_failed'
@@ -65,7 +72,13 @@ export type WalletSigningBudgetReservation = {
 };
 
 export type WalletSigningBudgetLedger = {
-  reserve(input: WalletSigningBudgetLedgerRecordSuccessInput): Promise<WalletSigningBudgetReservation | null>;
+  reserve(
+    input: WalletSigningBudgetLedgerRecordSuccessInput,
+  ): Promise<WalletSigningBudgetReservation | null>;
+  getAvailableStatus(input: {
+    nearAccountId: AccountId | string;
+    walletSigningSessionId: string;
+  }): Promise<SigningSessionStatus | null>;
   recordSuccess(
     input: WalletSigningBudgetLedgerRecordSuccessInput,
   ): Promise<SigningSessionStatus | null>;
@@ -78,7 +91,13 @@ export function createWalletSigningBudgetLedger(
 ): WalletSigningBudgetLedger {
   const successfulSpendsByOperationId = new Map<
     string,
-    Promise<SigningSessionStatus | null>
+    {
+      // Operation ids are request-scoped idempotency keys, not reusable budget
+      // buckets. Binding the payload fingerprint prevents a retry/caller bug from
+      // deduping a different transaction and hiding a real budget spend failure.
+      operationFingerprint: string;
+      promise: Promise<SigningSessionStatus | null>;
+    }
   >();
   const reservationsByOperationId = new Map<string, WalletSigningBudgetLedgerRecordSuccessInput>();
   const reservedUsesByWalletSessionId = new Map<string, number>();
@@ -95,6 +114,11 @@ export function createWalletSigningBudgetLedger(
       );
       const existingSpend = successfulSpendsByOperationId.get(operationId);
       if (existingSpend) {
+        assertWalletSigningOperationFingerprintMatches({
+          operationId,
+          existingFingerprint: existingSpend.operationFingerprint,
+          nextFingerprint: resolveWalletSigningOperationFingerprint(spend),
+        });
         emitWalletSigningBudgetLedgerTrace(
           deps,
           normalizedInput,
@@ -103,6 +127,13 @@ export function createWalletSigningBudgetLedger(
         return null;
       }
       if (reservationsByOperationId.has(operationId)) {
+        assertWalletSigningOperationFingerprintMatches({
+          operationId,
+          existingFingerprint: resolveWalletSigningOperationFingerprint(
+            reservationsByOperationId.get(operationId)!.spend,
+          ),
+          nextFingerprint: resolveWalletSigningOperationFingerprint(spend),
+        });
         emitWalletSigningBudgetLedgerTrace(
           deps,
           normalizedInput,
@@ -111,61 +142,95 @@ export function createWalletSigningBudgetLedger(
         return null;
       }
 
-      return await enqueueWalletReservation(walletReservationQueues, walletSigningSessionId, async () => {
-        if (reservationsByOperationId.has(operationId)) {
-          emitWalletSigningBudgetLedgerTrace(
-            deps,
-            normalizedInput,
-            'wallet_signing_budget_reservation_deduped',
-          );
-          return null;
-        }
-
-        emitWalletSigningBudgetLedgerTrace(
-          deps,
-          normalizedInput,
-          'wallet_signing_budget_reservation_started',
-        );
-        try {
-          await assertWalletSigningBudgetReservationAvailable({
-            deps,
-            input: normalizedInput,
-            reservedUsesByWalletSessionId,
-          });
-        } catch (error) {
-          emitWalletSigningBudgetLedgerTrace(
-            deps,
-            normalizedInput,
-            'wallet_signing_budget_reservation_failed',
-            {
-              error: error instanceof Error ? error.message : String(error || 'unknown error'),
-            },
-          );
-          throw error;
-        }
-
-        reservationsByOperationId.set(operationId, normalizedInput);
-        reservedUsesByWalletSessionId.set(
-          walletSigningSessionId,
-          (reservedUsesByWalletSessionId.get(walletSigningSessionId) || 0) + spend.uses,
-        );
-        emitWalletSigningBudgetLedgerTrace(
-          deps,
-          normalizedInput,
-          'wallet_signing_budget_reservation_succeeded',
-        );
-        return createWalletSigningBudgetReservation({
-          operationId: spend.operationId,
-          release: (reason) => {
-            releaseWalletSigningBudgetReservation({
-              deps,
-              reservationsByOperationId,
-              reservedUsesByWalletSessionId,
-              input: normalizedInput,
-              reason,
+      return await enqueueWalletReservation(
+        walletReservationQueues,
+        walletSigningSessionId,
+        async () => {
+          if (reservationsByOperationId.has(operationId)) {
+            assertWalletSigningOperationFingerprintMatches({
+              operationId,
+              existingFingerprint: resolveWalletSigningOperationFingerprint(
+                reservationsByOperationId.get(operationId)!.spend,
+              ),
+              nextFingerprint: resolveWalletSigningOperationFingerprint(spend),
             });
-          },
-        });
+            emitWalletSigningBudgetLedgerTrace(
+              deps,
+              normalizedInput,
+              'wallet_signing_budget_reservation_deduped',
+            );
+            return null;
+          }
+
+          emitWalletSigningBudgetLedgerTrace(
+            deps,
+            normalizedInput,
+            'wallet_signing_budget_reservation_started',
+          );
+          try {
+            await assertWalletSigningBudgetReservationAvailable({
+              deps,
+              input: normalizedInput,
+              reservedUsesByWalletSessionId,
+            });
+          } catch (error) {
+            emitWalletSigningBudgetLedgerTrace(
+              deps,
+              normalizedInput,
+              'wallet_signing_budget_reservation_failed',
+              {
+                error: error instanceof Error ? error.message : String(error || 'unknown error'),
+              },
+            );
+            throw error;
+          }
+
+          reservationsByOperationId.set(operationId, normalizedInput);
+          reservedUsesByWalletSessionId.set(
+            walletSigningSessionId,
+            (reservedUsesByWalletSessionId.get(walletSigningSessionId) || 0) + spend.uses,
+          );
+          emitWalletSigningBudgetLedgerTrace(
+            deps,
+            normalizedInput,
+            'wallet_signing_budget_reservation_succeeded',
+          );
+          return createWalletSigningBudgetReservation({
+            operationId: spend.operationId,
+            release: (reason) => {
+              releaseWalletSigningBudgetReservation({
+                deps,
+                reservationsByOperationId,
+                reservedUsesByWalletSessionId,
+                input: normalizedInput,
+                reason,
+              });
+            },
+          });
+        },
+      );
+    },
+
+    async getAvailableStatus(input) {
+      const walletSigningSessionId = normalizeRequired(
+        input.walletSigningSessionId,
+        'walletSigningSessionId',
+      );
+      if (!deps.getStatus) return null;
+      const status = await deps.getStatus({
+        nearAccountId: input.nearAccountId,
+        walletSigningSessionId,
+      });
+      if (!status) {
+        return {
+          sessionId: walletSigningSessionId,
+          status: 'not_found',
+        };
+      }
+      return applyWalletSigningBudgetReservationsToStatus({
+        status,
+        walletSigningSessionId,
+        reservedUsesByWalletSessionId,
       });
     },
 
@@ -174,34 +239,52 @@ export function createWalletSigningBudgetLedger(
       const operationId = normalizeRequired(normalizedInput.spend.operationId, 'operationId');
       const existing = successfulSpendsByOperationId.get(operationId);
       if (existing) {
+        assertWalletSigningOperationFingerprintMatches({
+          operationId,
+          existingFingerprint: existing.operationFingerprint,
+          nextFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
+        });
         emitWalletSigningBudgetLedgerTrace(
           deps,
           normalizedInput,
           'wallet_signing_budget_spend_deduped',
         );
-        return await existing;
+        return await existing.promise;
+      }
+      const reservation = reservationsByOperationId.get(operationId);
+      if (reservation) {
+        assertWalletSigningOperationFingerprintMatches({
+          operationId,
+          existingFingerprint: resolveWalletSigningOperationFingerprint(reservation.spend),
+          nextFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
+        });
       }
 
-      const spendPromise = recordWalletSigningSpend(deps, normalizedInput).catch((error) => {
-        successfulSpendsByOperationId.delete(operationId);
-        emitWalletSigningBudgetLedgerTrace(
-          deps,
-          normalizedInput,
-          'wallet_signing_budget_spend_failed',
-          {
-            error: error instanceof Error ? error.message : String(error || 'unknown error'),
-          },
-        );
-        throw error;
-      }).finally(() => {
-        releaseWalletSigningBudgetReservation({
-          deps,
-          reservationsByOperationId,
-          reservedUsesByWalletSessionId,
-          input: normalizedInput,
+      const spendPromise = recordWalletSigningSpend(deps, normalizedInput)
+        .catch((error) => {
+          successfulSpendsByOperationId.delete(operationId);
+          emitWalletSigningBudgetLedgerTrace(
+            deps,
+            normalizedInput,
+            'wallet_signing_budget_spend_failed',
+            {
+              error: error instanceof Error ? error.message : String(error || 'unknown error'),
+            },
+          );
+          throw error;
+        })
+        .finally(() => {
+          releaseWalletSigningBudgetReservation({
+            deps,
+            reservationsByOperationId,
+            reservedUsesByWalletSessionId,
+            input: normalizedInput,
+          });
         });
+      successfulSpendsByOperationId.set(operationId, {
+        operationFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
+        promise: spendPromise,
       });
-      successfulSpendsByOperationId.set(operationId, spendPromise);
       return await spendPromise;
     },
 
@@ -230,6 +313,31 @@ export function createWalletSigningBudgetLedger(
     hasRecorded(operationId) {
       return successfulSpendsByOperationId.has(String(operationId));
     },
+  };
+}
+
+function applyWalletSigningBudgetReservationsToStatus(args: {
+  status: SigningSessionStatus;
+  walletSigningSessionId: string;
+  reservedUsesByWalletSessionId: Map<string, number>;
+}): SigningSessionStatus {
+  if (args.status.status !== 'active') return args.status;
+  const remainingUses = Math.max(0, Math.floor(Number(args.status.remainingUses) || 0));
+  const reservedUses = Math.max(
+    0,
+    Math.floor(Number(args.reservedUsesByWalletSessionId.get(args.walletSigningSessionId)) || 0),
+  );
+  const availableUses = Math.max(0, remainingUses - reservedUses);
+  if (availableUses <= 0) {
+    return {
+      ...args.status,
+      status: 'exhausted',
+      remainingUses: 0,
+    };
+  }
+  return {
+    ...args.status,
+    remainingUses: availableUses,
   };
 }
 
@@ -266,12 +374,14 @@ async function assertWalletSigningBudgetReservationAvailable(args: {
     throw new Error('[WalletSigningBudgetLedger] wallet signing-session budget is not available');
   }
   if (status.status !== 'active') {
-    throw new Error(`[WalletSigningBudgetLedger] wallet signing-session budget is ${status.status}`);
+    throw new Error(
+      `[WalletSigningBudgetLedger] wallet signing-session budget is ${status.status}`,
+    );
   }
   const remainingUses = Math.floor(Number(status.remainingUses) || 0);
   const reservedUses = args.reservedUsesByWalletSessionId.get(spend.walletSigningSessionId) || 0;
   if (remainingUses - reservedUses < spend.uses) {
-    throw new Error('[WalletSigningBudgetLedger] wallet signing-session budget is exhausted');
+    throw new Error(WALLET_SIGNING_BUDGET_EXHAUSTED_ERROR);
   }
 }
 
@@ -308,8 +418,7 @@ function releaseWalletSigningBudgetReservation(args: {
   );
   const nextReservedUses = Math.max(
     0,
-    (args.reservedUsesByWalletSessionId.get(walletSigningSessionId) || 0) -
-      reservation.spend.uses,
+    (args.reservedUsesByWalletSessionId.get(walletSigningSessionId) || 0) - reservation.spend.uses,
   );
   if (nextReservedUses > 0) {
     args.reservedUsesByWalletSessionId.set(walletSigningSessionId, nextReservedUses);
@@ -338,8 +447,9 @@ async function recordWalletSigningSpend(
   input: WalletSigningBudgetLedgerRecordSuccessInput,
 ): Promise<SigningSessionStatus | null> {
   if (!deps.consumeUse) {
-    emitWalletSigningBudgetLedgerTrace(deps, input, 'wallet_signing_budget_spend_skipped');
-    return null;
+    throw new Error(
+      '[WalletSigningBudgetLedger] consumeUse is required to record wallet signing-session spend',
+    );
   }
   const spend = input.spend;
   const walletSigningSessionId = normalizeRequired(
@@ -353,6 +463,8 @@ async function recordWalletSigningSpend(
     walletSigningSessionId,
     uses: spend.uses,
     reason: spend.reason,
+    targetBackingMaterialSessionIds: normalizeStringList(spend.backingMaterialSessionIds),
+    targetThresholdSessionIds: normalizeStringList(spend.thresholdSessionIds),
     alreadyConsumedBackingMaterialSessionIds: normalizeStringList(
       input.alreadyConsumedBackingMaterialSessionIds,
     ),
@@ -360,7 +472,10 @@ async function recordWalletSigningSpend(
       input.alreadyConsumedThresholdSessionIds,
     ),
   });
-  if (status?.status === 'not_found') {
+  if (!status) {
+    throw new Error('[WalletSigningBudgetLedger] wallet signing-session spend returned no status');
+  }
+  if (status.status === 'not_found') {
     throw new Error('[WalletSigningBudgetLedger] wallet signing-session spend returned not_found');
   }
   const statusSummary = status ? summarizeWalletSigningSessionStatus(status) : undefined;
@@ -371,6 +486,21 @@ async function recordWalletSigningSpend(
     statusSummary ? { status: statusSummary } : {},
   );
   return status || null;
+}
+
+function resolveWalletSigningOperationFingerprint(spend: WalletSigningSpendPlan): string {
+  return String(spend.operationFingerprint || `operation-id:${spend.operationId}`).trim();
+}
+
+function assertWalletSigningOperationFingerprintMatches(args: {
+  operationId: string;
+  existingFingerprint: string;
+  nextFingerprint: string;
+}): void {
+  if (args.existingFingerprint === args.nextFingerprint) return;
+  throw new Error(
+    `[WalletSigningBudgetLedger] signing operation id reused for a different operation: ${args.operationId}`,
+  );
 }
 
 function summarizeWalletSigningSessionStatus(

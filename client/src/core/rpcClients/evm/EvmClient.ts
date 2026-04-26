@@ -40,15 +40,12 @@ export type WaitForEvmTransactionReceiptArgs = {
 export type EvmTransactionWaitErrorBranch =
   | 'dropped_nonce_advanced'
   | 'dropped_hash_disappeared'
+  | 'dropped_nonce_gap'
   | 'underpriced_fee'
   | 'timeout';
 
 export interface EvmClient {
-  request<T>(args: {
-    method: string;
-    params: unknown[];
-    timeoutMs?: number;
-  }): Promise<T>;
+  request<T>(args: { method: string; params: unknown[]; timeoutMs?: number }): Promise<T>;
   getTransactionReceipt(args: {
     txHash: `0x${string}`;
     timeoutMs?: number;
@@ -375,15 +372,19 @@ export function createEvmClient(args: {
       15_000,
       Math.max(pollIntervalMs * 3, Math.floor(timeoutMs / 6)),
     );
+    const missingNonceGapMinDurationMs = Math.min(
+      10_000,
+      Math.max(pollIntervalMs * 3, Math.floor(timeoutMs / 5)),
+    );
     let lastRpcError: string | null = null;
     let underpricedSinceMs: number | null = null;
     let observedTxFrom: `0x${string}` | null = null;
     let observedTxNonce: bigint | null = null;
     let nonceAdvancedStreak = 0;
     let txSeenByHash = false;
-    let txMissingAfterSeenStreak = 0;
     let txMissingWithoutEverSeenStreak = 0;
     let txMissingLikelyReplacedStreak = 0;
+    let txMissingNonceGapStreak = 0;
     if (toAddressOrNull(waitArgs.senderHint)) {
       observedTxFrom = waitArgs.senderHint as `0x${string}`;
     }
@@ -456,7 +457,6 @@ export function createEvmClient(args: {
             observedTxNonce === txNonce
           ) {
             txSeenByHash = true;
-            txMissingAfterSeenStreak = 0;
             txMissingWithoutEverSeenStreak = 0;
             txMissingLikelyReplacedStreak = 0;
           }
@@ -502,14 +502,12 @@ export function createEvmClient(args: {
             // Receipt propagation can lag transaction indexing on some RPCs.
             // Keep polling when transaction is already mined by hash.
             nonceAdvancedStreak = 0;
-            txMissingAfterSeenStreak = 0;
             txMissingWithoutEverSeenStreak = 0;
             txMissingLikelyReplacedStreak = 0;
           } else {
             if (txMatchesObservedNonce(tx)) {
               // Original tx is still visible; do not classify as dropped/replaced yet.
               nonceAdvancedStreak = 0;
-              txMissingAfterSeenStreak = 0;
               txMissingWithoutEverSeenStreak = 0;
               txMissingLikelyReplacedStreak = 0;
             } else {
@@ -578,6 +576,77 @@ export function createEvmClient(args: {
           }
         } else if (latestNonce !== null && latestNonce <= observedTxNonce) {
           nonceAdvancedStreak = 0;
+          if (latestNonce < observedTxNonce && !txSeenByHash) {
+            // Regression note: a tx signed with a skipped local nonce is queued
+            // behind a gap, so its hash may never become visible while latest nonce
+            // remains below the tx nonce. Classify that as dropped instead of
+            // leaving the UI stuck on "Checking transaction status" until timeout.
+            const txLookupRemainingMs = Math.max(1, deadline - Date.now());
+            const tx =
+              txByHashSnapshot === undefined
+                ? await getTransactionByHash({
+                    txHash: waitArgs.txHash,
+                    timeoutMs: Math.min(requestTimeoutMs, txLookupRemainingMs),
+                  }).catch(() => null)
+                : txByHashSnapshot;
+            txByHashSnapshot = tx;
+
+            if (txMatchesObservedNonce(tx)) {
+              txSeenByHash = true;
+              txMissingNonceGapStreak = 0;
+              txMissingWithoutEverSeenStreak = 0;
+              txMissingLikelyReplacedStreak = 0;
+            } else {
+              const pendingNonceRemainingMs = Math.max(1, deadline - Date.now());
+              const pendingNonce = await getTransactionCount({
+                address: observedTxFrom,
+                blockTag: 'pending',
+                timeoutMs: Math.min(requestTimeoutMs, pendingNonceRemainingMs),
+              }).catch(() => null);
+              if (pendingNonce !== null && pendingNonce <= observedTxNonce) {
+                txMissingNonceGapStreak += 1;
+                txMissingWithoutEverSeenStreak = 0;
+                txMissingLikelyReplacedStreak = 0;
+              } else if (pendingNonce !== null && pendingNonce > observedTxNonce) {
+                txMissingNonceGapStreak = 0;
+                txMissingWithoutEverSeenStreak = 0;
+                txMissingLikelyReplacedStreak += 1;
+              } else {
+                txMissingNonceGapStreak = 0;
+                txMissingWithoutEverSeenStreak = 0;
+                txMissingLikelyReplacedStreak = 0;
+              }
+            }
+
+            const waitedMs = Date.now() - waitStartedAtMs;
+            if (txMissingNonceGapStreak >= 2 && waitedMs >= missingNonceGapMinDurationMs) {
+              const error = new Error(
+                `Transaction dropped or queued behind a nonce gap: tx hash never became visible while account nonce stayed behind tx nonce (${latestNonce.toString()} < ${observedTxNonce.toString()}).`,
+              ) as EvmWaitError;
+              error.code = 'tx_dropped_or_replaced';
+              error.reason = 'dropped';
+              error.txNonce = observedTxNonce.toString();
+              error.latestNonce = latestNonce.toString();
+              error.txFrom = observedTxFrom;
+              error.finalizationBranch = 'dropped_nonce_gap';
+              throw error;
+            }
+            if (
+              txMissingLikelyReplacedStreak >= 2 &&
+              waitedMs >= missingLikelyReplacedMinDurationMs
+            ) {
+              const error = new Error(
+                `Transaction dropped or replaced: tx hash never became visible and pending nonce moved ahead of tx nonce (${observedTxNonce.toString()}).`,
+              ) as EvmWaitError;
+              error.code = 'tx_dropped_or_replaced';
+              error.reason = 'replaced';
+              error.txNonce = observedTxNonce.toString();
+              error.latestNonce = latestNonce.toString();
+              error.txFrom = observedTxFrom;
+              error.finalizationBranch = 'dropped_hash_disappeared';
+              throw error;
+            }
+          }
           if (txSeenByHash) {
             const txLookupRemainingMs = Math.max(1, deadline - Date.now());
             const tx =
@@ -591,7 +660,6 @@ export function createEvmClient(args: {
             const txMatchesObservedNonceNow = txMatchesObservedNonce(tx);
 
             if (txMatchesObservedNonceNow) {
-              txMissingAfterSeenStreak = 0;
               txMissingWithoutEverSeenStreak = 0;
               txMissingLikelyReplacedStreak = 0;
             } else {
@@ -602,28 +670,14 @@ export function createEvmClient(args: {
                 timeoutMs: Math.min(requestTimeoutMs, pendingNonceRemainingMs),
               }).catch(() => null);
               if (pendingNonce !== null && pendingNonce <= observedTxNonce) {
-                txMissingAfterSeenStreak += 1;
+                // A seen hash can temporarily disappear from pending-pool indexing.
+                // Without nonce movement, keep waiting for a receipt or timeout.
                 txMissingLikelyReplacedStreak = 0;
               } else if (pendingNonce !== null && pendingNonce > observedTxNonce) {
-                txMissingAfterSeenStreak = 0;
                 txMissingLikelyReplacedStreak += 1;
               } else {
-                txMissingAfterSeenStreak = 0;
                 txMissingLikelyReplacedStreak = 0;
               }
-            }
-
-            if (txMissingAfterSeenStreak >= 2) {
-              const error = new Error(
-                `Transaction dropped or replaced: tx hash disappeared from pending pool at nonce ${observedTxNonce.toString()}.`,
-              ) as EvmWaitError;
-              error.code = 'tx_dropped_or_replaced';
-              error.reason = 'dropped';
-              error.txNonce = observedTxNonce.toString();
-              error.latestNonce = latestNonce.toString();
-              error.txFrom = observedTxFrom;
-              error.finalizationBranch = 'dropped_hash_disappeared';
-              throw error;
             }
 
             const waitedMs = Date.now() - waitStartedAtMs;
@@ -664,7 +718,11 @@ export function createEvmClient(args: {
                 blockTag: 'pending',
                 timeoutMs: Math.min(requestTimeoutMs, pendingNonceRemainingMs),
               }).catch(() => null);
-              if (pendingNonce !== null && pendingNonce <= observedTxNonce) {
+              if (
+                pendingNonce !== null &&
+                pendingNonce === observedTxNonce &&
+                latestNonce === observedTxNonce
+              ) {
                 txMissingWithoutEverSeenStreak += 1;
                 txMissingLikelyReplacedStreak = 0;
               } else if (pendingNonce !== null && pendingNonce > observedTxNonce) {
@@ -677,10 +735,7 @@ export function createEvmClient(args: {
             }
 
             const waitedMs = Date.now() - waitStartedAtMs;
-            if (
-              txMissingWithoutEverSeenStreak >= 3 &&
-              waitedMs >= missingNeverSeenMinDurationMs
-            ) {
+            if (txMissingWithoutEverSeenStreak >= 3 && waitedMs >= missingNeverSeenMinDurationMs) {
               const error = new Error(
                 `Transaction dropped or replaced: tx hash never became visible to RPC pending pool at nonce ${observedTxNonce.toString()}.`,
               ) as EvmWaitError;
@@ -746,13 +801,13 @@ export function createEvmClient(args: {
       await sleepWithAbort(pollIntervalMs, waitArgs.signal);
     }
 
-  throwIfAborted(waitArgs.signal);
-  const details = lastRpcError ? `; last RPC error: ${lastRpcError}` : '';
-  const timeoutError = new Error(
-    `Timed out waiting for tx receipt after ${timeoutMs}ms${details}`,
-  ) as EvmWaitError;
-  timeoutError.finalizationBranch = 'timeout';
-  throw timeoutError;
+    throwIfAborted(waitArgs.signal);
+    const details = lastRpcError ? `; last RPC error: ${lastRpcError}` : '';
+    const timeoutError = new Error(
+      `Timed out waiting for tx receipt after ${timeoutMs}ms${details}`,
+    ) as EvmWaitError;
+    timeoutError.finalizationBranch = 'timeout';
+    throw timeoutError;
   };
 
   return {

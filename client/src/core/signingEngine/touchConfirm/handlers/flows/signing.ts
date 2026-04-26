@@ -422,6 +422,7 @@ export async function handleIntentDigestSigningFlow(
 
   try {
     const signingAuthMode = getIntentDigestSigningAuthMode(request);
+    const sessionPolicyDigest32 = request.payload.sessionPolicyDigest32;
     let resolvedIntentDigest = String(getIntentDigest(request) || '').trim() || undefined;
     let resolvedChallengeB64u = String(request.payload.challengeB64u || '').trim();
     const requiresExplicitConfirmClick =
@@ -559,7 +560,7 @@ export async function handleIntentDigestSigningFlow(
       });
     }
 
-    const challengeB64u = String(resolvedChallengeB64u || '').trim();
+    const challengeB64u = String(sessionPolicyDigest32 || resolvedChallengeB64u || '').trim();
     if (!challengeB64u) {
       throw new Error('Missing WebAuthn challenge digest for intent signing flow');
     }

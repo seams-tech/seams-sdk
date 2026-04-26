@@ -201,7 +201,10 @@ import { createWarmSessionStatusReader } from './session/WarmSessionStatusReader
 import { provisionWarmEd25519Capability } from './session/WarmSessionEd25519Provisioner';
 import { provisionWarmEcdsaCapability } from './session/WarmSessionEcdsaProvisioner';
 import { assertWarmSessionEcdsaOperationAllowed } from './session/WarmSessionPostSignPolicyAdapter';
-import { claimWarmSessionPrfFirst, ensureEcdsaPrfSealPersisted } from './session/warmSessionRuntime';
+import {
+  claimWarmSessionPrfFirst,
+  ensureEcdsaPrfSealPersisted,
+} from './session/warmSessionRuntime';
 import type { WarmSessionEcdsaCapabilityState } from './session/warmSessionTypes';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
@@ -477,8 +480,7 @@ export class SigningEngine {
       upsertThresholdEcdsaSessionFromBootstrap: (args) =>
         this.upsertThresholdEcdsaSessionFromBootstrap(args),
       getThresholdEcdsaKeyRefForLookup: (args) => this.getThresholdEcdsaKeyRefForLookup(args),
-      listThresholdEcdsaKeyRefsForLookup: (args) =>
-        this.listThresholdEcdsaKeyRefsForLookup(args),
+      listThresholdEcdsaKeyRefsForLookup: (args) => this.listThresholdEcdsaKeyRefsForLookup(args),
       getThresholdEcdsaSessionRecordForLookup: (args) =>
         this.getThresholdEcdsaSessionRecordForLookup(args),
       listThresholdEcdsaSessionRecordsForLookup: (args) =>
@@ -660,6 +662,26 @@ export class SigningEngine {
     }
   }
 
+  private async ensureSealedRefreshStartupParityForTransactionSigning(args: {
+    nearAccountId: string;
+    chain: ThresholdEcdsaActivationChain;
+  }): Promise<void> {
+    try {
+      await this.ensureSealedRefreshStartupParity();
+    } catch (error: unknown) {
+      if (!isRetryableSealedRefreshCapabilityFetchError(error)) throw error;
+      const message = error instanceof Error ? error.message : String(error || 'unknown error');
+      console.warn(
+        '[threshold-ecdsa] transaction signing skipped retryable sealed-refresh capability fetch failure',
+        {
+          nearAccountId: String(args.nearAccountId || '').trim(),
+          chain: args.chain,
+          error: message,
+        },
+      );
+    }
+  }
+
   private createWarmSessionCapabilityReader() {
     return createWarmSessionCapabilityReader({
       touchConfirm: this.touchConfirm,
@@ -686,9 +708,56 @@ export class SigningEngine {
           nearAccountId,
           chain,
         }),
+      walletSigningSessionCoordinator: this.orchestrationDeps.walletSigningSessionCoordinator,
       getEmailOtpWarmSessionStatus: (sessionId) =>
         this.emailOtpSessions.getWarmSessionStatus(sessionId),
     });
+  }
+
+  private async getWalletSigningBudgetAvailableStatus(args: {
+    nearAccountId: AccountId | string;
+    walletSigningSessionId?: string;
+  }): Promise<SigningSessionStatus | null> {
+    const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+    if (!walletSigningSessionId) return null;
+    return await this.orchestrationDeps.walletSigningBudgetLedger
+      .getAvailableStatus({
+        nearAccountId: args.nearAccountId,
+        walletSigningSessionId,
+      })
+      .catch(() => null);
+  }
+
+  private mergeWalletSigningBudgetStatus<TStatus extends SigningSessionStatus>(
+    status: TStatus,
+    budgetStatus: SigningSessionStatus | null,
+  ): TStatus {
+    if (!budgetStatus) return status;
+    if (budgetStatus.status !== 'active') {
+      return {
+        ...status,
+        ...budgetStatus,
+        sessionId: status.sessionId,
+      };
+    }
+    const statusRemainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
+    const budgetRemainingUses = Math.max(
+      0,
+      Math.floor(Number(budgetStatus.remainingUses) || 0),
+    );
+    const statusExpiresAtMs = Math.floor(Number(status.expiresAtMs) || 0);
+    const budgetExpiresAtMs = Math.floor(Number(budgetStatus.expiresAtMs) || 0);
+    return {
+      ...status,
+      status: 'active',
+      remainingUses: Math.min(statusRemainingUses, budgetRemainingUses),
+      expiresAtMs:
+        statusExpiresAtMs > 0 && budgetExpiresAtMs > 0
+          ? Math.min(statusExpiresAtMs, budgetExpiresAtMs)
+          : statusExpiresAtMs || budgetExpiresAtMs,
+      ...(budgetStatus.authMethod ? { authMethod: budgetStatus.authMethod } : {}),
+      ...(budgetStatus.retention ? { retention: budgetStatus.retention } : {}),
+    };
   }
 
   private async clearEcdsaEphemeralMaterialForWarmSession(args: {
@@ -782,7 +851,10 @@ export class SigningEngine {
     shouldAbort?: () => boolean;
     onEvent?: (event: SigningFlowEvent) => void;
   }): Promise<TempoSignedResult | EvmSignedResult> {
-    await this.ensureSealedRefreshStartupParity();
+    await this.ensureSealedRefreshStartupParityForTransactionSigning({
+      nearAccountId: args.nearAccountId,
+      chain: args.request.chain === 'evm' ? 'evm' : 'tempo',
+    });
     return await signTempoValue(this.orchestrationDeps.tempoSigningDeps, args);
   }
 
@@ -999,7 +1071,8 @@ export class SigningEngine {
         accountId: String(nearAccountId),
         interaction: { kind: 'none', overlay: 'hide' },
         error: {
-          message: errorMessage(error) || (cancelled ? 'Key export cancelled' : 'Key export failed'),
+          message:
+            errorMessage(error) || (cancelled ? 'Key export cancelled' : 'Key export failed'),
         },
         data: { chain: options.chain },
       });
@@ -1116,9 +1189,7 @@ export class SigningEngine {
         : [];
       for (const owner of owners) {
         if (owner.status && owner.status !== 'active') continue;
-        const thresholdEcdsaPublicKeyB64u = String(
-          owner.thresholdEcdsaPublicKeyB64u || '',
-        ).trim();
+        const thresholdEcdsaPublicKeyB64u = String(owner.thresholdEcdsaPublicKeyB64u || '').trim();
         if (!thresholdEcdsaPublicKeyB64u) continue;
         const rpId = String(owner.rpId || this.getRpId() || '').trim();
         if (!rpId) continue;
@@ -1149,15 +1220,14 @@ export class SigningEngine {
     onEvent?: KeyExportEventCallback;
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
     const keyRefThresholdSessionId = String(args.keyRef?.thresholdSessionId || '').trim();
-    const currentRecord =
-      keyRefThresholdSessionId
-        ? this.listThresholdEcdsaSessionRecordsForLookup({
-            nearAccountId: args.nearAccountId,
-            chain: args.chain,
-          }).find(
-            (record) => String(record.thresholdSessionId || '').trim() === keyRefThresholdSessionId,
-          ) || null
-        : null;
+    const currentRecord = keyRefThresholdSessionId
+      ? this.listThresholdEcdsaSessionRecordsForLookup({
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+        }).find(
+          (record) => String(record.thresholdSessionId || '').trim() === keyRefThresholdSessionId,
+        ) || null
+      : null;
     const exportPublicKey =
       String(args.keyRef?.ecdsaHssExportArtifact?.publicKeyHex || '').trim() ||
       String(args.keyRef?.ecdsaThresholdKeyId || '').trim() ||
@@ -1263,11 +1333,11 @@ export class SigningEngine {
             statusReader.resolveCurrentEcdsaRecord(recordArgs),
         },
         {
-        nearAccountId: args.nearAccountId,
-        chain: args.chain,
-        thresholdSessionId: args.keyRef.thresholdSessionId,
-        operationLabel: 'threshold-ecdsa key export',
-        sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requirePasskey,
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+          thresholdSessionId: args.keyRef.thresholdSessionId,
+          operationLabel: 'threshold-ecdsa key export',
+          sensitivePolicy: SENSITIVE_OPERATION_POLICIES.requirePasskey,
         },
       );
     } catch (error: unknown) {
@@ -1973,7 +2043,8 @@ export class SigningEngine {
         accountId: String(args.nearAccountId),
         interaction: { kind: 'none', overlay: 'hide' },
         error: {
-          message: errorMessage(error) || (cancelled ? 'Key export cancelled' : 'Key export failed'),
+          message:
+            errorMessage(error) || (cancelled ? 'Key export cancelled' : 'Key export failed'),
         },
         data: { chain: 'near', curve: 'ed25519' },
       });
@@ -2328,6 +2399,9 @@ export class SigningEngine {
             ...(provisionArgs.clientRootShare32B64u
               ? { clientRootShare32B64u: provisionArgs.clientRootShare32B64u }
               : {}),
+            ...(provisionArgs.webauthnAuthentication
+              ? { webauthnAuthentication: provisionArgs.webauthnAuthentication }
+              : {}),
             ...(provisionArgs.ecdsaThresholdKeyId
               ? { ecdsaThresholdKeyId: provisionArgs.ecdsaThresholdKeyId }
               : {}),
@@ -2370,6 +2444,7 @@ export class SigningEngine {
         runtimeScopeBootstrap: args.runtimeScopeBootstrap,
         clientRootShare32: args.clientRootShare32,
         clientRootShare32B64u: args.clientRootShare32B64u,
+        webauthnAuthentication: args.webauthnAuthentication,
         ttlMs: args.ttlMs,
         remainingUses: args.remainingUses,
         smartAccount: args.smartAccount,
@@ -3066,16 +3141,18 @@ export class SigningEngine {
   getWarmThresholdEd25519SessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
-    return createWarmSessionStatusReader({
-      touchConfirm: this.touchConfirm,
-      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
-        this.listThresholdEcdsaSessionRecordsForLookup({
-          nearAccountId,
-          chain,
-        }),
-      getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.getWarmSessionStatus(sessionId),
-    }).getEd25519SigningSessionStatus(nearAccountId);
+    return (async () => {
+      const status = await this.createWarmSessionStatusReader().getEd25519SigningSessionStatus(
+        nearAccountId,
+      );
+      const record = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
+      const walletBudgetStatus = await this.getWalletSigningBudgetAvailableStatus({
+        nearAccountId,
+        walletSigningSessionId: record?.walletSigningSessionId,
+      });
+      if (!status) return walletBudgetStatus;
+      return this.mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
+    })();
   }
 
   getWarmThresholdEcdsaSessionStatus(
@@ -3083,32 +3160,40 @@ export class SigningEngine {
     chain: 'tempo' | 'evm',
     thresholdSessionId: string,
   ): Promise<WarmEcdsaSigningSessionStatus | null> {
-    return createWarmSessionStatusReader({
-      touchConfirm: this.touchConfirm,
-      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
-        this.listThresholdEcdsaSessionRecordsForLookup({
-          nearAccountId,
-          chain,
-        }),
-      getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.getWarmSessionStatus(sessionId),
-    }).getEcdsaSigningSessionStatus({ nearAccountId, chain, thresholdSessionId });
+    return (async () => {
+      const status = await this.createWarmSessionStatusReader().getEcdsaSigningSessionStatus({
+        nearAccountId,
+        chain,
+        thresholdSessionId,
+      });
+      const walletBudgetStatus = await this.getWalletSigningBudgetAvailableStatus({
+        nearAccountId,
+        walletSigningSessionId: status?.walletSigningSessionId,
+      });
+      if (!status) return walletBudgetStatus as WarmEcdsaSigningSessionStatus | null;
+      return this.mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
+    })();
   }
 
   listWarmThresholdEcdsaSessionStatuses(
     nearAccountId: AccountId | string,
     chain: 'tempo' | 'evm',
   ): Promise<WarmEcdsaSigningSessionStatus[]> {
-    return createWarmSessionStatusReader({
-      touchConfirm: this.touchConfirm,
-      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
-        this.listThresholdEcdsaSessionRecordsForLookup({
-          nearAccountId,
-          chain,
+    return (async () => {
+      const statuses = await this.createWarmSessionStatusReader().listEcdsaSigningSessionStatuses({
+        nearAccountId,
+        chain,
+      });
+      return await Promise.all(
+        statuses.map(async (status) => {
+          const walletBudgetStatus = await this.getWalletSigningBudgetAvailableStatus({
+            nearAccountId,
+            walletSigningSessionId: status.walletSigningSessionId,
+          });
+          return this.mergeWalletSigningBudgetStatus(status, walletBudgetStatus);
         }),
-      getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.getWarmSessionStatus(sessionId),
-    }).listEcdsaSigningSessionStatuses({ nearAccountId, chain });
+      );
+    })();
   }
 
   async scheduleThresholdEcdsaLoginPresignPrefill(args: {

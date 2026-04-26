@@ -48,7 +48,7 @@ test.describe('EvmNonceManager', () => {
           manager.reserveNextNonce(baseInput),
         ]);
 
-        manager.markBroadcastRejected({ ...baseInput, nonce: reserved[1] });
+        await manager.markBroadcastRejected({ ...baseInput, nonce: reserved[1] });
         const afterRelease = await manager.reserveNextNonce(baseInput);
 
         return {
@@ -61,7 +61,7 @@ test.describe('EvmNonceManager', () => {
 
     const sortedReserved = [...result.reserved].sort((a, b) => Number(a) - Number(b));
     expect(sortedReserved).toEqual(['7', '8', '9']);
-    expect(result.afterRelease).toBe('10');
+    expect(result.afterRelease).toBe('8');
   });
 
   test('reconcileLane reports chain nonce and reserve uses warmed state', async ({ page }) => {
@@ -123,7 +123,9 @@ test.describe('EvmNonceManager', () => {
     expect(result.next).toBe('12');
   });
 
-  test('releasing last reservation refreshes chain nonce but preserves monotonic progression', async ({ page }) => {
+  test('releasing last reservation refreshes chain nonce and reuses the chain-visible nonce', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths, sender }) => {
         const mod = await import(paths.nonceManager);
@@ -158,7 +160,7 @@ test.describe('EvmNonceManager', () => {
         };
 
         const first = await manager.reserveNextNonce(input);
-        manager.markBroadcastRejected({ ...input, nonce: first });
+        await manager.markBroadcastRejected({ ...input, nonce: first });
         const second = await manager.reserveNextNonce(input);
 
         return {
@@ -172,7 +174,146 @@ test.describe('EvmNonceManager', () => {
 
     expect(result.fetchCalls).toBe(2);
     expect(result.first).toBe('1');
-    expect(result.second).toBe('2');
+    expect(result.second).toBe('1');
+  });
+
+  test('dropped future nonce rewinds to chain nonce after refresh', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths, sender }) => {
+        const mod = await import(paths.nonceManager);
+        let chainNonce = 10n;
+        let fetchCalls = 0;
+
+        const manager = mod.createEvmNonceManager({
+          chains: [
+            {
+              network: 'arc-testnet',
+              rpcUrl: 'https://rpc.example.test',
+              explorerUrl: 'https://explorer.example.test',
+              chainId: 11155111,
+            },
+          ],
+          fetchImpl: async () => {
+            fetchCalls += 1;
+            return new Response(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                id: '1',
+                result: `0x${chainNonce.toString(16)}`,
+              }),
+              { status: 200, headers: { 'content-type': 'application/json' } },
+            );
+          },
+        });
+
+        const input = {
+          chain: 'evm' as const,
+          networkKey: 'evm:11155111',
+          chainId: 11155111,
+          sender: sender as `0x${string}`,
+          nearAccountId: 'alice.testnet',
+        };
+
+        const first = await manager.reserveNextNonce(input);
+        const second = await manager.reserveNextNonce(input);
+        const third = await manager.reserveNextNonce(input);
+
+        await manager.markBroadcastRejected({ ...input, nonce: first });
+        await manager.markBroadcastRejected({ ...input, nonce: second });
+        await manager.markDroppedOrReplaced({ ...input, nonce: third, reason: 'dropped' });
+        chainNonce = 10n;
+        const next = await manager.reserveNextNonce(input);
+
+        return {
+          fetchCalls,
+          first: first.toString(),
+          second: second.toString(),
+          third: third.toString(),
+          next: next.toString(),
+        };
+      },
+      { paths: IMPORT_PATHS, sender: TEST_SENDER },
+    );
+
+    expect(result.fetchCalls).toBe(2);
+    expect(result.first).toBe('10');
+    expect(result.second).toBe('11');
+    expect(result.third).toBe('12');
+    expect(result.next).toBe('10');
+  });
+
+  test('expires pre-confirm nonce reservations and refreshes from chain', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths, sender }) => {
+        const mod = await import(paths.nonceManager);
+        let nowMs = 1_000;
+        let fetchCalls = 0;
+
+        const manager = mod.createEvmNonceManager({
+          chains: [
+            {
+              network: 'arc-testnet',
+              rpcUrl: 'https://rpc.example.test',
+              explorerUrl: 'https://explorer.example.test',
+              chainId: 11155111,
+            },
+          ],
+          now: () => nowMs,
+          reservedNonceTtlMs: 100,
+          fetchImpl: async () => {
+            fetchCalls += 1;
+            return new Response(JSON.stringify({ jsonrpc: '2.0', id: '1', result: '0x5' }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' },
+            });
+          },
+        });
+
+        const input = {
+          chain: 'evm' as const,
+          networkKey: 'evm:11155111',
+          chainId: 11155111,
+          sender: sender as `0x${string}`,
+          nearAccountId: 'alice.testnet',
+        };
+
+        const first = await manager.reserveNextNonce(input);
+        nowMs += 101;
+        const second = await manager.reserveNextNonce(input);
+
+        return {
+          fetchCalls,
+          first: first.toString(),
+          second: second.toString(),
+        };
+      },
+      { paths: IMPORT_PATHS, sender: TEST_SENDER },
+    );
+
+    expect(result.fetchCalls).toBe(2);
+    expect(result.first).toBe('5');
+    expect(result.second).toBe('5');
+  });
+
+  test('fails closed for malformed managed nonce snapshot chain', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths, sender }) => {
+      const mod = await import(paths.nonceManager);
+      try {
+        mod.fromManagedNonceReservationSnapshot({
+          chain: 'not-evm',
+          networkKey: 'arc-testnet',
+          chainId: 11155111,
+          sender,
+          nonce: '1',
+        });
+        return { ok: true, message: '' };
+      } catch (error: unknown) {
+        return { ok: false, message: String((error as { message?: unknown })?.message || error) };
+      }
+    }, { paths: IMPORT_PATHS, sender: TEST_SENDER });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('chain');
   });
 
   test('clearForAccount drops cached reservation state for that account', async ({ page }) => {

@@ -48,6 +48,8 @@ export async function authorizeEcdsaWithSession(args: {
   mpcSessionId?: string;
   expiresAtMs?: number;
   expiresAt?: string;
+  walletSigningSessionId?: string;
+  remainingUses?: number;
   presignPoolPolicy?: ThresholdEcdsaPresignPoolPolicyInput;
   code?: string;
   message?: string;
@@ -114,6 +116,8 @@ export async function authorizeEcdsaWithSession(args: {
     ok: boolean;
     mpcSessionId: string;
     expiresAt: string;
+    walletSigningSessionId: string;
+    remainingUses: number;
     presignPoolPolicy: ThresholdEcdsaPresignPoolPolicyInput;
     code: string;
     message: string;
@@ -156,6 +160,12 @@ export async function authorizeEcdsaWithSession(args: {
       mpcSessionId: data.mpcSessionId,
       ...(data.expiresAt ? { expiresAt: data.expiresAt } : {}),
       ...(expiresAtMs ? { expiresAtMs } : {}),
+      ...(String(data.walletSigningSessionId || '').trim()
+        ? { walletSigningSessionId: String(data.walletSigningSessionId || '').trim() }
+        : {}),
+      ...(Number.isFinite(Number(data.remainingUses))
+        ? { remainingUses: Math.max(0, Math.floor(Number(data.remainingUses))) }
+        : {}),
       ...(presignPoolPolicy ? { presignPoolPolicy } : {}),
       ...(data.code ? { code: data.code } : {}),
       ...(data.message ? { message: data.message } : {}),

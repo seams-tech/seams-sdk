@@ -13,6 +13,7 @@ import { emitEvmFamilySigningEvent } from './events';
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
 import { throwIfEvmFamilySigningCancelled } from './errors';
 import type { ThresholdEcdsaSessionStoreSource } from '../thresholdLifecycle/thresholdSessionStore';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
 export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilySigningSessionCoordinatorDeps & {
   tatchiPasskeyConfigs: TatchiConfigsReadonly;
@@ -53,6 +54,11 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   deps: EvmFamilyThresholdEcdsaReadinessDeps;
   lane: SigningLaneContext;
   keyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
+  sessionId?: string;
+  walletSigningSessionId?: string;
+  clientRootShare32B64u?: string;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
+  remainingUses?: number;
   shouldAbort?: () => boolean;
   onEvent?: EvmFamilyLifecycleEventCallback;
 }): Promise<ThresholdEcdsaSecp256k1KeyRef> {
@@ -75,7 +81,11 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
     keyRef: resolvedKeyRef,
     source,
     runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.tatchiPasskeyConfigs),
-    usesNeeded: 1,
+    usesNeeded: Math.max(1, Math.floor(Number(args.remainingUses) || 1)),
+    ...(args.sessionId ? { sessionId: args.sessionId } : {}),
+    ...(args.walletSigningSessionId ? { walletSigningSessionId: args.walletSigningSessionId } : {}),
+    ...(args.clientRootShare32B64u ? { clientRootShare32B64u: args.clientRootShare32B64u } : {}),
+    ...(args.webauthnAuthentication ? { webauthnAuthentication: args.webauthnAuthentication } : {}),
     beforeReconnect: async () => {
       try {
         emitEvmFamilySigningEvent(args.onEvent, {

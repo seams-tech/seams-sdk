@@ -18,6 +18,7 @@ import type {
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/session/sessionPolicy';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
 export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
@@ -32,6 +33,7 @@ export type BootstrapEcdsaSessionArgs = {
   walletSigningSessionId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
   thresholdRouteAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
@@ -137,6 +139,7 @@ export async function bootstrapEcdsaSessionValue(
       walletSigningSessionId: args.walletSigningSessionId,
       clientRootShare32: args.clientRootShare32,
       clientRootShare32B64u: args.clientRootShare32B64u,
+      webauthnAuthentication: args.webauthnAuthentication,
       thresholdRouteAuth: args.thresholdRouteAuth,
       runtimePolicyScope: args.runtimePolicyScope,
       runtimeScopeBootstrap: args.runtimeScopeBootstrap,

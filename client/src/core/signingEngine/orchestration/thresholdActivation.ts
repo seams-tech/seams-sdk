@@ -12,6 +12,7 @@ import type { keygenEcdsa } from '@/core/signingEngine/threshold/workflows/keyge
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
 export type ThresholdKeyActivationChain = 'near' | 'evm' | 'tempo';
 
@@ -84,6 +85,7 @@ export type ActivateEcdsaSessionRequest = {
   walletSigningSessionId?: string;
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
   thresholdRouteAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
@@ -115,6 +117,7 @@ export async function activateEcdsaSession(
     walletSigningSessionId: args.walletSigningSessionId,
     clientRootShare32: args.clientRootShare32,
     clientRootShare32B64u: args.clientRootShare32B64u,
+    webauthnAuthentication: args.webauthnAuthentication,
     bootstrapAuth: args.thresholdRouteAuth,
     runtimePolicyScope: args.runtimePolicyScope,
     runtimeScopeBootstrap: args.runtimeScopeBootstrap,

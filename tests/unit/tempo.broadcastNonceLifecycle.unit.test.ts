@@ -71,6 +71,47 @@ test.describe('tempo broadcast nonce lifecycle', () => {
     expect(result[0]?.input?.networkKey).toBe('arc-testnet');
   });
 
+  test('fails closed when signed result is missing managed nonce metadata', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths }) => {
+      const { reportTempoBroadcastAccepted } = await import(paths.tempoSigningApi);
+      try {
+        await reportTempoBroadcastAccepted(
+          {
+            evmNonceManager: {
+              reserveNextNonce: async () => 1n,
+              markBroadcastAccepted: async () => undefined,
+              markBroadcastRejected: async () => undefined,
+              markFinalized: async () => undefined,
+              markDroppedOrReplaced: async () => undefined,
+              reconcileLane: async () => ({
+                chainNextNonce: 0n,
+                unresolvedInFlightNonces: [],
+                blocked: false,
+              }),
+              clearForAccount: () => undefined,
+            },
+          } as any,
+          {
+            nearAccountId: 'alice.testnet',
+            txHash: `0x${'ab'.repeat(32)}` as `0x${string}`,
+            signedResult: {
+              chain: 'evm',
+              kind: 'eip1559',
+              txHashHex: `0x${'cd'.repeat(32)}` as `0x${string}`,
+              rawTxHex: '0x02',
+            },
+          },
+        );
+        return { ok: true, message: '' };
+      } catch (error: unknown) {
+        return { ok: false, message: String((error as { message?: unknown })?.message || error) };
+      }
+    }, { paths: IMPORT_PATHS });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('managedNonce is required');
+  });
+
   test('marks managed nonce reservation rejected on broadcast failure', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {

@@ -1688,6 +1688,7 @@ export class ThresholdSigningService {
     participantIds: number[];
     ttlMs: number;
     remainingUses: number;
+    refreshExisting?: boolean;
   }): Promise<
     | { ok: true; expiresAtMs: number; participantIds: number[] }
     | { ok: false; code: string; message: string }
@@ -1726,9 +1727,39 @@ export class ThresholdSigningService {
           message: 'walletSigningSessionId already exists for a different participant set',
         };
       }
+      if (!input.refreshExisting) {
+        return {
+          ok: true,
+          expiresAtMs: existingSession.expiresAtMs,
+          participantIds: existingSession.participantIds,
+        };
+      }
+      const expiresAtMs = Date.now() + input.ttlMs;
+      // Reauth reuses the walletSigningSessionId so Ed25519 and ECDSA lanes
+      // stay under one wallet-level budget. The budget record itself must be
+      // refreshed here; otherwise the client stores fresh lane records while
+      // /authorize still consumes the exhausted server-side wallet budget.
+      //
+      // This is only enabled for mint paths that already proved fresh wallet
+      // auth, such as Ed25519 passkey mint and ECDSA registration-bootstrap
+      // reauth. Threshold-session-authorized ECDSA bootstraps must not refill
+      // an exhausted wallet budget by presenting an old JWT.
+      await this.putAuthSessionRecord({
+        store: this.authSessionStore,
+        sessionId,
+        record: {
+          expiresAtMs,
+          relayerKeyId: WALLET_SIGNING_BUDGET_RELAYER_KEY_ID,
+          userId: input.userId,
+          rpId: input.rpId,
+          participantIds: input.participantIds,
+        },
+        ttlMs: input.ttlMs,
+        remainingUses: input.remainingUses,
+      });
       return {
         ok: true,
-        expiresAtMs: existingSession.expiresAtMs,
+        expiresAtMs,
         participantIds: existingSession.participantIds,
       };
     }
@@ -2145,6 +2176,7 @@ export class ThresholdSigningService {
           participantIds: existingSession.participantIds,
           ttlMs,
           remainingUses,
+          refreshExisting: true,
         });
         if (!walletBudget.ok) return walletBudget;
         return {
@@ -2190,6 +2222,7 @@ export class ThresholdSigningService {
         participantIds,
         ttlMs,
         remainingUses,
+        refreshExisting: true,
       });
       if (!walletBudget.ok) return walletBudget;
 
@@ -2520,6 +2553,7 @@ export class ThresholdSigningService {
     clientRootShare32B64u: string;
     sessionPolicy: Record<string, unknown>;
     ecdsaThresholdKeyId?: string;
+    refreshExistingWalletBudget?: boolean;
   }): Promise<ThresholdEcdsaHssFinalizeResponse> {
     const userId = String(input.userId || '').trim();
     const rpId = String(input.rpId || '').trim();
@@ -2691,6 +2725,7 @@ export class ThresholdSigningService {
       remainingUsesRaw: Number(policy.remainingUses),
       policyParticipantIds,
       signingRootMetadata: derived.value.signingRootMetadata,
+      refreshExistingWalletBudget: input.refreshExistingWalletBudget === true,
     });
     if (!session.ok) return session;
 
@@ -2919,6 +2954,7 @@ export class ThresholdSigningService {
     remainingUsesRaw: number;
     policyParticipantIds: number[] | null;
     signingRootMetadata: ThresholdEcdsaSigningRootMetadata;
+    refreshExistingWalletBudget?: boolean;
   }): Promise<ThresholdEcdsaBootstrapSessionResult> {
     const {
       relayerKeyId,
@@ -2931,6 +2967,7 @@ export class ThresholdSigningService {
       remainingUsesRaw,
       policyParticipantIds,
       signingRootMetadata,
+      refreshExistingWalletBudget,
     } = input;
 
     const parsedClientVerifyingShare = await this.parseCompressedSecp256k1PublicKeyB64u({
@@ -2994,6 +3031,7 @@ export class ThresholdSigningService {
         participantIds: existingSession.participantIds,
         ttlMs,
         remainingUses,
+        refreshExisting: refreshExistingWalletBudget === true,
       });
       if (!walletBudget.ok) return walletBudget;
       return {
@@ -3003,6 +3041,7 @@ export class ThresholdSigningService {
         expiresAtMs: walletBudget.expiresAtMs,
         expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
         participantIds: walletBudget.participantIds,
+        remainingUses,
       };
     }
 
@@ -3028,6 +3067,7 @@ export class ThresholdSigningService {
       participantIds,
       ttlMs,
       remainingUses,
+      refreshExisting: refreshExistingWalletBudget === true,
     });
     if (!walletBudget.ok) return walletBudget;
 
@@ -3745,6 +3785,9 @@ export class ThresholdSigningService {
             ? { keygenSessionId: ceremony.value.keygenSessionId }
             : {}),
         },
+        refreshExistingWalletBudget:
+          ceremony.value.operation === 'registration_bootstrap' &&
+          Boolean(ceremony.value.webauthnAuthentication),
       });
       if (!bootstrap.ok) return bootstrap;
       if ('canonicalSecp256k1KeyB64u' in (bootstrap as unknown as Record<string, unknown>)) {
@@ -3992,6 +4035,10 @@ export class ThresholdSigningService {
         ok: true,
         mpcSessionId,
         expiresAt: new Date(expiresAtMs).toISOString(),
+        ...(toOptionalTrimmedString(claims.walletSigningSessionId)
+          ? { walletSigningSessionId: toOptionalTrimmedString(claims.walletSigningSessionId) }
+          : {}),
+        remainingUses: consumed.remainingUses,
         ...(this.ecdsaPresignPoolPolicyHint
           ? { presignPoolPolicy: this.ecdsaPresignPoolPolicyHint }
           : {}),
@@ -4182,6 +4229,7 @@ export class ThresholdSigningService {
           participantIds: existingSession.participantIds,
           ttlMs,
           remainingUses,
+          refreshExisting: true,
         });
         if (!walletBudget.ok) return walletBudget;
         return {
@@ -4215,6 +4263,7 @@ export class ThresholdSigningService {
         participantIds,
         ttlMs,
         remainingUses,
+        refreshExisting: true,
       });
       if (!walletBudget.ok) return walletBudget;
 
@@ -5199,6 +5248,10 @@ export class ThresholdSigningService {
         ok: true,
         mpcSessionId,
         expiresAt: new Date(expiresAtMs).toISOString(),
+        ...(toOptionalTrimmedString(claims.walletSigningSessionId)
+          ? { walletSigningSessionId: toOptionalTrimmedString(claims.walletSigningSessionId) }
+          : {}),
+        remainingUses: consumed.remainingUses,
       };
     } catch (e: unknown) {
       const msg = String(
