@@ -235,4 +235,46 @@ test.describe('NonceCoordinator', () => {
       { fn: 'near.releaseNonce', nonce: '33' },
     ]);
   });
+
+  test('expires reserved leases and releases backend reservations before reuse', async () => {
+    const calls: unknown[] = [];
+    const traces: unknown[] = [];
+    let nowMs = 1_000;
+    const coordinator = createNonceCoordinator({
+      evmNonceManager: createFakeEvmNonceManager(calls),
+      now: () => nowMs,
+      leaseTtlMs: 50,
+      onTrace: (event) => traces.push(event),
+    });
+    const operation = createOperation();
+    const lease = await coordinator.reserve({
+      lane: createLane(),
+      operation,
+    });
+
+    nowMs = 1_051;
+    const expired = await coordinator.expireLeases({
+      accountId: 'nonce-coordinator.testnet',
+    });
+
+    expect(expired).toHaveLength(1);
+    expect(expired[0]).toMatchObject({
+      leaseId: lease.leaseId,
+      state: 'expired',
+    });
+    expect(calls.at(-1)).toMatchObject({
+      fn: 'markBroadcastRejected',
+      input: {
+        chain: 'tempo',
+        nonce: 7n,
+      },
+    });
+    expect(traces).toContainEqual(
+      expect.objectContaining({
+        event: 'nonce_lease_expired',
+        previousState: 'reserved',
+        nextState: 'expired',
+      }),
+    );
+  });
 });

@@ -347,9 +347,18 @@ leases with those budget reservations, but it must not decrement or refill
 
 ### Phase 0. Freeze Invariants And Regression Tests
 
-1. [ ] Add tests for the five known nonce review findings:
+1. [x] Add tests for the five known nonce review findings:
    reserved EVM nonce expiry, locked rejection cleanup, fail-closed chain
    parsing, mandatory managed nonce metadata, and NEAR reservation recompute.
+   - [x] EVM reserved nonce expiry is covered in
+     `tests/unit/evmNonceManager.unit.test.ts`.
+   - [x] EVM rejection cleanup is async and runs through the lane lock.
+   - [x] Managed nonce chain parsing fails closed for non-`evm`/`tempo`
+     snapshots.
+   - [x] Missing managed nonce metadata fails closed in EVM-family lifecycle
+     tests.
+   - [x] NEAR release recomputes highest reserved nonce in
+     `tests/unit/nonceManager.test.ts`.
 2. [ ] Add tests that signing-session budget reservations and nonce leases are
    both released on cancellation before signature creation.
 3. [ ] Add tests that a signature-created-but-broadcast-failed operation consumes
@@ -366,11 +375,11 @@ leases with those budget reservations, but it must not decrement or refill
 2. [x] Implement a pure transition reducer for nonce lease states.
 3. [x] Make illegal transitions fail closed with typed errors.
 4. [x] Bind every transition to `operationId` and operation fingerprint.
-5. [ ] Add redacted trace events for reserve, release, signed, accepted,
+5. [x] Add redacted trace events for reserve, release, signed, accepted,
    rejected, finalized, dropped, replaced, expired, and reconciled.
    - [x] Added trace events for reserve, release, signed, accepted, rejected,
      finalized, dropped, replaced, and lane reconciliation.
-   - [ ] Add explicit lease expiry transitions and trace events.
+   - [x] Add explicit lease expiry transitions and trace events.
 
 ### Phase 2. Implement EVM-Family Coordinator Backend
 
@@ -386,13 +395,13 @@ Progress:
 Remaining TODO:
 
 1. [ ] Move current EVM nonce lane state fully into the coordinator backend.
-2. [ ] Keep one serialized lock per EVM-family nonce lane.
+2. [x] Keep one serialized lock per EVM-family nonce lane.
 3. [x] Store reserved nonces with `reservedAtMs` and `expiresAtMs`.
 4. [x] Validate managed nonce snapshots strictly; accept only `evm` and
    `tempo`.
 5. [x] Treat missing managed nonce metadata as an invariant failure in managed
    signing results.
-6. [ ] Reconcile on dropped, replaced, stale in-flight, and rejected nonce
+6. [x] Reconcile on dropped, replaced, stale in-flight, and rejected nonce
    errors.
 7. [x] Remove direct lifecycle mutation calls from EVM/Tempo/Arc flows once they
    route through the coordinator.
@@ -417,16 +426,19 @@ Remaining TODO:
 
 ### Phase 4. Wire Transaction Signing Through One Boundary
 
-1. [ ] Make `SigningSessionCoordinator` request nonce leases through the
+1. [x] Make EVM-family and TouchConfirm NEAR transaction flows request nonce
+   leases through the `NonceCoordinator` instead of chain-specific helpers.
+2. [ ] Make all remaining `SigningSessionCoordinator` paths request nonce
+   leases through the
    `NonceCoordinator` instead of chain-specific helpers.
-2. [ ] Use the same `SigningOperationContext` for budget reservation and nonce
+3. [ ] Use the same `SigningOperationContext` for budget reservation and nonce
    lease creation.
-3. [ ] Reserve wallet-session budget before threshold signing and release it on
+4. [ ] Reserve wallet-session budget before threshold signing and release it on
    every no-signature outcome.
-4. [ ] Mark nonce leases signed immediately after threshold signature creation.
-5. [ ] Ensure post-sign finalization consumes wallet-session budget before
+5. [ ] Mark nonce leases signed immediately after threshold signature creation.
+6. [ ] Ensure post-sign finalization consumes wallet-session budget before
    broadcast status polling can hide errors.
-6. [ ] Make retry paths reuse the same operation id only when the operation
+7. [ ] Make retry paths reuse the same operation id only when the operation
    fingerprint matches.
 
 ### Phase 5. Browser Runtime Coordination
@@ -436,7 +448,7 @@ Remaining TODO:
 2. [ ] Persist only redacted lease metadata required for recovery and
    reconciliation. Do not persist signed transaction bytes unless a deliberate
    retry queue is added.
-3. [ ] Expire abandoned reserved leases after a short TTL.
+3. [x] Expire abandoned reserved leases after a short TTL.
 4. [ ] Expire signed-but-not-broadcast leases after a separate short TTL and
    force lane reconciliation.
 5. [ ] Clear all lane leases for an account on wallet lock, account switch, or

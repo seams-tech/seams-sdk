@@ -67,6 +67,7 @@ export type NonceCoordinatorTraceEvent = {
   event:
     | 'nonce_lease_reserved'
     | 'nonce_lease_released'
+    | 'nonce_lease_expired'
     | 'nonce_lease_signed'
     | 'nonce_lease_broadcast_accepted'
     | 'nonce_lease_broadcast_rejected'
@@ -130,6 +131,7 @@ export type NonceCoordinator = {
     operationId: SigningOperationId | string;
     reason: 'cancelled' | 'auth_failed' | 'signing_failed' | 'nonce_failed';
   }): Promise<void>;
+  expireLeases(input?: { accountId?: string }): Promise<NonceLease[]>;
   reconcile(input: { lane: NonceLane }): Promise<NonceLaneStatus>;
   clearForAccount(accountId: string): void;
 };
@@ -266,8 +268,45 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     });
   };
 
+  const releaseBackendReservation = async (lease: NonceLease): Promise<void> => {
+    if (lease.lane.family === 'evm') {
+      await deps.evmNonceManager.markBroadcastRejected({
+        ...evmLaneToReserveNonceInput(lease.lane),
+        nonce: normalizeBigint(lease.nonce, 'nonce'),
+      });
+      return;
+    }
+    if (!deps.nearNonceManager) {
+      throw new Error('[NonceCoordinator] NEAR nonce manager is not configured');
+    }
+    for (const nonce of normalizeLeaseNonces(lease)) {
+      deps.nearNonceManager.releaseNonce(String(nonce));
+    }
+  };
+
+  const expireDueLeases = async (input?: { accountId?: string }): Promise<NonceLease[]> => {
+    const nowMs = now();
+    const accountId = input?.accountId ? String(input.accountId).trim() : '';
+    const expired: NonceLease[] = [];
+    for (const lease of Array.from(leases.values())) {
+      if (accountId && lease.lane.accountId !== accountId) continue;
+      if (lease.expiresAtMs > nowMs) continue;
+      if (lease.state !== 'reserved' && lease.state !== 'signed') continue;
+      await releaseBackendReservation(lease);
+      transitionLease({
+        lease,
+        transition: 'expire',
+        event: 'nonce_lease_expired',
+        reason: 'lease_ttl_elapsed',
+      });
+      expired.push({ ...lease });
+    }
+    return expired;
+  };
+
   return {
     async reserve(input) {
+      await expireDueLeases({ accountId: input.operation.accountId });
       const count = Math.max(1, Math.floor(Number(input.count || 1)));
       if (input.lane.family === 'near') {
         if (!deps.nearNonceManager) {
@@ -401,25 +440,17 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
     async release(input) {
       const lease = readLease(input);
-      if (lease.lane.family === 'evm') {
-        await deps.evmNonceManager.markBroadcastRejected({
-          ...evmLaneToReserveNonceInput(lease.lane),
-          nonce: normalizeBigint(lease.nonce, 'nonce'),
-        });
-      } else {
-        if (!deps.nearNonceManager) {
-          throw new Error('[NonceCoordinator] NEAR nonce manager is not configured');
-        }
-        for (const nonce of normalizeLeaseNonces(lease)) {
-          deps.nearNonceManager.releaseNonce(String(nonce));
-        }
-      }
+      await releaseBackendReservation(lease);
       transitionLease({
         lease,
         transition: 'release',
         event: 'nonce_lease_released',
         reason: input.reason,
       });
+    },
+
+    async expireLeases(input) {
+      return await expireDueLeases(input);
     },
 
     async reconcile(input) {
