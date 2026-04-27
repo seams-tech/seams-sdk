@@ -301,6 +301,14 @@ export async function unlock(
       await signingEngine.setLastUser(nearAccountId, signerSlot).catch(() => undefined);
       await signingEngine.updateLastLogin(nearAccountId).catch(() => undefined);
     };
+    const recoverNonceLanesAfterUnlock = async (): Promise<void> => {
+      await signingEngine
+        .getNonceCoordinator()
+        .recoverDurableLeases({ accountId: nearAccountId })
+        .catch((error: unknown) => {
+          console.warn('[login] nonce lane durable recovery after unlock failed', error);
+        });
+    };
 
     const session = options?.session;
     const wantsServerSession = session !== undefined;
@@ -482,6 +490,7 @@ export async function unlock(
           });
         }
         await persistSuccessfulLoginState(baseSignerSlot);
+        await recoverNonceLanesAfterUnlock();
         if (loginCredential) {
           void prewarmThresholdEd25519ClientBaseFromCredential({
             context,
@@ -551,6 +560,7 @@ export async function unlock(
     }
 
     await persistSuccessfulLoginState(baseSignerSlot);
+    await recoverNonceLanesAfterUnlock();
     if (loginCredential) {
       void prewarmThresholdEd25519ClientBaseFromCredential({
         context,

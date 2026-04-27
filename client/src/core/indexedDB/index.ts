@@ -1,6 +1,7 @@
 export { PasskeyClientDBManager, DBConstraintError } from './passkeyClientDB/manager';
 export { AccountKeyMaterialDBManager } from './accountKeyMaterialDB/manager';
 export { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
+export { createIndexedDBNonceLaneCoordinationStore } from './nonceLaneCoordinationStore';
 export { passkeyClientDB, accountKeyMaterialDB } from './singletons';
 
 export type {
@@ -44,6 +45,9 @@ export type {
   SignerMutationOptions,
   SignerOpOutboxRecord,
   ProfileRecoveryEmailRecord,
+  NonceLaneLeaseStoreRecord,
+  NonceLaneLeaseStoreRecordState,
+  NonceLaneLockStoreRecord,
   UpsertProfileInput,
   UpsertChainAccountInput,
   UpsertAccountSignerInput,

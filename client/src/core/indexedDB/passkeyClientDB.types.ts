@@ -221,3 +221,39 @@ export interface ProfileRecoveryEmailRecord {
   email: string;
   addedAt: number;
 }
+
+export type NonceLaneLeaseStoreRecordState = 'reserved' | 'signed' | 'broadcast_accepted';
+
+export interface NonceLaneLeaseStoreRecord {
+  v: 1;
+  leaseId: string;
+  laneKey: string;
+  family: 'evm' | 'near';
+  chain?: 'evm' | 'tempo';
+  networkKey: string;
+  chainId?: number;
+  sender?: `0x${string}` | string;
+  nonceKey?: string;
+  accountId?: string;
+  publicKey?: string;
+  nonce: string;
+  state: NonceLaneLeaseStoreRecordState;
+  operationId: string;
+  operationFingerprint: string;
+  reservedAtMs: number;
+  expiresAtMs: number;
+  updatedAtMs: number;
+  runtimeId?: string;
+  fencingToken?: string;
+  batchId?: string;
+  txIndex?: number;
+}
+
+export interface NonceLaneLockStoreRecord {
+  lockKey: string;
+  ownerId: string;
+  fencingToken: string;
+  acquiredAtMs: number;
+  expiresAtMs: number;
+  updatedAtMs: number;
+}

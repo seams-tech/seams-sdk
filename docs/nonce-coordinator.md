@@ -495,6 +495,10 @@ Remaining TODO:
    transitions for signed transactions carrying coordinator lease metadata.
 3. [ ] Add NEAR dropped/replaced reconciliation once a chain-specific detector is
    available.
+   - Status: blocked on a NEAR-specific detector. The coordinator already owns
+     NEAR release, signed, finalized, expiry, and startup-recovery paths; there
+     is not yet an equivalent to EVM pending-pool dropped/replaced detection for
+     NEAR transaction hashes.
 
 ### Phase 4. Wire Transaction Signing Through One Boundary
 
@@ -621,12 +625,15 @@ Remaining TODO:
 
 ### Phase 7. Observability And Runbooks
 
-1. [ ] Add redacted metrics for lease age, stale in-flight lanes, dropped txs,
+1. [x] Add redacted metrics for lease age, stale in-flight lanes, dropped txs,
    replacement detection, reconcile results, and release reasons.
    - [x] Coordinator traces now include signed-lease expiry, lane
      reconciliation, and lane-clear events.
    - [x] Add aggregate metric emission for lease age and stale in-flight lanes
      through `getDiagnostics({ emitMetrics: true })`.
+   - [x] Add redacted outcome counters for dropped/replaced detections,
+     reconcile reasons, release reasons, expiry reasons, and broadcast
+     rejections.
 2. [x] Add a developer diagnostic view that shows nonce lane state beside wallet
    signing-session budget state.
    - [x] `NonceCoordinator.getDiagnostics()` exposes redacted lease counts,
@@ -641,6 +648,192 @@ Remaining TODO:
    - [x] `NonceCoordinator` emits a redacted `nonce_lane_alert` trace and a
      `console.warn` when repeated dropped/replaced outcomes cross the configured
      threshold for one EVM-family lane.
+
+### Phase 8. Durable Same-Origin Coordination Hardening
+
+Phase 5 introduced same-origin coordination, but the current EVM-family durable
+lease mirror is still a `localStorage` implementation detail. Replace it with a
+wallet-iframe IndexedDB-backed coordination layer and extend the same layer to
+NEAR.
+
+The storage invariant for this phase is strict:
+
+1. Do not create a new IndexedDB database for nonce coordination.
+2. Store nonce lane coordination records in the existing wallet iframe
+   IndexedDB surface, behind `IndexedDBManager` / `UnifiedIndexedDBManager`.
+3. In wallet-iframe mode, app-origin IndexedDB remains disabled; nonce leases
+   are stored only in the wallet iframe origin.
+4. Do not use `localStorage` as the durable nonce lease store after the
+   migration.
+5. Do not persist signed transaction bytes, raw transaction payloads, OTP
+   material, PRF output, recovery keys, or threshold secret material.
+
+#### Phase 8.1. IndexedDB Same-Origin Lock/Store Abstraction
+
+1. [x] Add a coordinator storage port for same-origin nonce coordination:
+   `NonceLaneCoordinationStore`.
+   - Required operations:
+     - read active leases by `laneKey`;
+     - upsert a redacted lease record;
+     - remove one lease;
+     - clear leases by account;
+     - clear all leases;
+     - prune expired leases;
+     - acquire/release a lane-scoped durable lock with a fencing token.
+2. [x] Implement the port in the wallet iframe IndexedDB layer.
+   - Add a store to `PasskeyClientDB` rather than creating another database.
+   - Store names: `nonceLaneLeasesV1` and `nonceLaneLocksV1`.
+   - Suggested key: `leaseId`.
+   - Suggested indexes:
+     - `laneKey`;
+     - `accountId`;
+     - `state`;
+     - `expiresAtMs`;
+     - `lane_state`, e.g. `[laneKey, state]`;
+     - `account_expiresAt`, e.g. `[accountId, expiresAtMs]`.
+3. [x] Store only redacted lease metadata:
+   - `v`;
+   - `leaseId`;
+   - `laneKey`;
+   - `family`;
+   - `chain` for EVM-family lanes;
+   - `networkKey`;
+   - `chainId` for EVM-family lanes;
+   - sender address for EVM-family lanes;
+   - `nonceKey` when present;
+   - `accountId`;
+   - NEAR `publicKey` for NEAR lanes;
+   - `nonce`;
+   - `state`;
+   - `operationId`;
+   - `operationFingerprint`;
+   - `reservedAtMs`;
+   - `expiresAtMs`;
+   - `updatedAtMs`;
+   - `runtimeId`;
+   - `fencingToken`.
+4. [x] Keep `navigator.locks` as the preferred lock when available, but make
+   IndexedDB the durable fallback. If both are unavailable, the coordinator may
+   use the existing in-runtime lock, but it must emit a degradation warning.
+5. [x] Replace `NonceCoordinatorSameOriginLeaseStorePort`'s `localStorage`
+   implementation with the IndexedDB-backed store.
+6. [x] Remove the old `localStorage` durable lease path entirely.
+   - Development invariant: no legacy fallback, migration shim, or cleanup path
+     remains in the coordinator or nonce coordination storage code.
+7. [x] Add tests for:
+   - IndexedDB unavailable -> in-runtime lock only + degradation warning;
+   - Web Locks unavailable but IndexedDB available -> durable lock/store works;
+   - two coordinator instances in the same origin reserve distinct EVM nonces;
+   - expired IndexedDB records are pruned before reservation;
+   - account clear removes durable lease records.
+8. [x] Add static guard tests for the refactor:
+   - no `localStorage` usage in `NonceCoordinator` or nonce coordination
+     storage code;
+   - no new IndexedDB database name for nonce coordination;
+   - nonce durable store implementation must route through
+     `IndexedDBManager` / `UnifiedIndexedDBManager` / `PasskeyClientDB`;
+   - no transaction signing flow imports a durable nonce store directly;
+   - no chain adapter mutates nonce lease state directly.
+9. [x] Tighten those temporary static guards into stable ownership guards.
+   - The guard now asserts the stable invariant: transaction code talks to
+     `NonceCoordinator`; durable nonce persistence is hidden behind the
+     coordinator storage port; no `localStorage` durable lease store remains.
+
+#### Phase 8.2. Startup Recovery For EVM Signed/Broadcast Leases
+
+1. [x] Add a startup recovery method:
+   `NonceCoordinator.recoverDurableLeases({ accountId? })`.
+2. [x] Run recovery during wallet iframe startup/unlock after IndexedDB is
+   initialized and before the first transaction signing attempt.
+3. [x] Recovery rules for EVM-family durable leases:
+   - expired `reserved`: remove the lease and free the local lane;
+   - expired `signed`: remove the lease, force lane reconciliation, and log a
+     redacted recovery event;
+   - active `signed`: keep it protected until its signed-lease TTL expires;
+   - `broadcast_accepted`: reconcile the lane against pending nonce state;
+   - finalized or chain-advanced nonces: mark recovered/finalized and remove
+     active durable lease protection;
+   - disappeared pending tx hash, when known: mark dropped/replaced and
+     reconcile.
+4. [x] Keep recovery idempotent. Running it repeatedly must not issue new
+   nonces, spend wallet-session budget, or rebroadcast transactions.
+5. [x] Do not persist raw signed tx bytes in this phase. Recovery is nonce-lane
+   cleanup and reconciliation, not a rebroadcast queue.
+6. [x] Add tests for startup recovery:
+   - signed-but-not-broadcast lease expires and reconciles;
+   - broadcast-accepted lease survives restart and blocks duplicate nonce
+     reservation until reconcile;
+   - chain nonce advancement clears stale in-flight leases;
+   - recovery never mutates wallet-session budget.
+7. [x] Add static guard tests for the refactor:
+   - startup recovery is invoked only from wallet startup/unlock boundaries, not
+     from transaction signing hot paths;
+   - recovery code must not import wallet budget mutation APIs;
+   - recovery code must not persist, read, or rebroadcast raw signed
+     transactions.
+8. [x] Tighten those temporary guards after EVM startup recovery has settled.
+   - The stable guard now asserts the important invariant: recovery never spends
+     wallet-session budget and never rebroadcasts transactions.
+
+#### Phase 8.3. NEAR Same-Origin Durable Leases
+
+1. [x] Extend the IndexedDB same-origin lease store to support NEAR lanes using
+   the same record shape and lock abstraction.
+2. [x] Use lane keys of the form:
+   `near:<networkKey>:<accountId>:<publicKey>`.
+3. [x] Persist NEAR per-transaction child leases for batch reservations.
+   - One NEAR confirmation flow may reserve a batch.
+   - Each transaction nonce in that batch has its own lease id, state, nonce,
+     `batchId`, and `txIndex`.
+4. [x] On `reserveNearContext`, read active durable NEAR leases and skip those
+   nonces when computing the next batch.
+5. [x] On release/finalize/expiry, update both the in-runtime NEAR reservation
+   set and the durable IndexedDB lease record in one serialized lane operation.
+6. [x] On startup recovery, refresh the NEAR access-key nonce and prune durable
+   NEAR leases below or equal to the chain-visible access-key nonce.
+7. [x] Add tests for:
+   - two same-origin coordinators reserve non-overlapping NEAR batch nonces;
+   - release recomputes highest reserved nonce across in-runtime and durable
+     records;
+   - startup recovery prunes finalized NEAR durable leases;
+   - wallet/account clear removes NEAR durable records;
+   - delegate and NEP-413 confirmation contexts still do not reserve
+     transaction nonce leases.
+8. [x] Add static guard tests for the refactor:
+   - no NEAR transaction path writes durable lease records except through
+     `NonceCoordinator`;
+   - no separate NEAR nonce manager/helper owns reserved nonce sets outside the
+     coordinator;
+   - delegate and NEP-413 confirmation paths cannot call transaction nonce
+     reservation APIs.
+9. [x] Tighten those temporary guards after NEAR durable leases are fully
+   integrated.
+   - Keep only the stable ownership guard: NEAR transaction nonce allocation is
+     coordinator-owned, and non-transaction confirmation flows do not reserve
+     access-key transaction nonces.
+
+#### Phase 8.4. Degraded Coordination Warnings
+
+Do not add a vague diagnostics enum just to name implementation details. The
+runtime only needs to surface degradation when it changes the safety properties
+of nonce allocation.
+
+1. [x] Add a redacted `nonce_coordination_degraded` trace/warning when the
+   coordinator cannot acquire a same-origin lock or cannot access the durable
+   IndexedDB lease store.
+2. [x] Include only actionable fields:
+   - `reason`: `web_locks_unavailable`, `indexeddb_unavailable`,
+     `durable_lock_timeout`, or `durable_store_error`;
+   - `laneFamily`;
+   - `networkKey`;
+   - `accountId`, when known;
+   - whether the coordinator is falling back to in-runtime locking.
+3. [x] Show the warning in developer diagnostics only when degraded mode is
+   active or was observed during the current runtime.
+4. [x] Do not show normal implementation mode names such as `"web_locks"` or
+   `"indexeddb"` in user-facing status. Normal mode is not user-actionable.
+5. [x] Add tests that degraded warnings are emitted once per runtime/lane reason
+   and do not spam every reservation.
 
 ## Stuck Nonce Lane Recovery Runbook
 

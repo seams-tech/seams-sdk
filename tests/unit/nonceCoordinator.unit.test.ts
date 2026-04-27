@@ -8,6 +8,8 @@ import {
   reduceNonceLeaseState,
   type EvmNonceLane,
   type NearNonceLane,
+  type NonceLaneCoordinationRecord,
+  type NonceLaneCoordinationStore,
 } from '@/core/signingEngine/nonce/NonceCoordinator';
 import {
   SigningOperationIntent,
@@ -79,6 +81,88 @@ function createNearLane(): NearNonceLane {
     networkKey: 'near-testnet',
     accountId: 'nonce-coordinator.testnet',
     publicKey: 'ed25519:test-key',
+  };
+}
+
+function createMemoryNonceLaneCoordinationStore(
+  initial?: NonceLaneCoordinationRecord[],
+): { store: NonceLaneCoordinationStore; records: Map<string, NonceLaneCoordinationRecord> } {
+  const records = new Map<string, NonceLaneCoordinationRecord>();
+  for (const record of initial || []) {
+    records.set(`${record.laneKey}:${record.leaseId}`, { ...record });
+  }
+  let lockTail = Promise.resolve();
+  const store: NonceLaneCoordinationStore = {
+    readLane: async (laneKey) =>
+      Array.from(records.values()).filter((record) => record.laneKey === laneKey),
+    readAll: async (input) =>
+      Array.from(records.values()).filter(
+        (record) => !input?.accountId || record.accountId === input.accountId,
+      ),
+    upsert: async (record) => {
+      records.set(`${record.laneKey}:${record.leaseId}`, { ...record });
+    },
+    remove: async ({ laneKey, leaseId }) => {
+      records.delete(`${laneKey}:${leaseId}`);
+    },
+    clearForAccount: async (accountId) => {
+      for (const [key, record] of records.entries()) {
+        if (record.accountId === accountId) records.delete(key);
+      }
+    },
+    clearAll: async () => records.clear(),
+    pruneExpired: async (nowMs) => {
+      for (const [key, record] of records.entries()) {
+        if (record.expiresAtMs <= nowMs) records.delete(key);
+      }
+    },
+    withLock: async (_input, task) => {
+      const previous = lockTail;
+      let release!: () => void;
+      lockTail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        return await task();
+      } finally {
+        release();
+      }
+    },
+  };
+  return { store, records };
+}
+
+function createEvmCoordinationRecord(
+  overrides?: Partial<NonceLaneCoordinationRecord>,
+): NonceLaneCoordinationRecord {
+  const lane = createLane();
+  return {
+    v: 1,
+    leaseId: 'durable-lease-1',
+    laneKey: [
+      'evm',
+      lane.chain,
+      lane.networkKey,
+      String(lane.chainId),
+      lane.sender.toLowerCase(),
+      String(lane.nonceKey),
+    ].join(':'),
+    family: 'evm',
+    chain: lane.chain,
+    networkKey: lane.networkKey,
+    chainId: lane.chainId,
+    sender: lane.sender,
+    nonceKey: String(lane.nonceKey),
+    accountId: lane.accountId,
+    nonce: '7',
+    state: 'broadcast_accepted',
+    operationId: String(createOperation().operationId),
+    operationFingerprint: String(createOperation().operationFingerprint),
+    reservedAtMs: 1_000,
+    expiresAtMs: 10_000,
+    updatedAtMs: 1_000,
+    ...overrides,
   };
 }
 
@@ -531,20 +615,26 @@ test.describe('NonceCoordinator', () => {
     const callsB: unknown[] = [];
     const records = new Map<string, any>();
     const leaseStore = {
-      readLane: (laneKey: string) =>
+      readLane: async (laneKey: string) =>
         Array.from(records.values()).filter((record) => record.laneKey === laneKey),
-      upsert: (record: any) => {
+      readAll: async () => Array.from(records.values()),
+      upsert: async (record: any) => {
         records.set(`${record.laneKey}:${record.leaseId}`, { ...record });
       },
-      remove: ({ laneKey, leaseId }: { laneKey: string; leaseId: string }) => {
+      remove: async ({ laneKey, leaseId }: { laneKey: string; leaseId: string }) => {
         records.delete(`${laneKey}:${leaseId}`);
       },
-      clearForAccount: (accountId: string) => {
+      clearForAccount: async (accountId: string) => {
         for (const [key, record] of records.entries()) {
           if (record.accountId === accountId) records.delete(key);
         }
       },
-      clearAll: () => records.clear(),
+      clearAll: async () => records.clear(),
+      pruneExpired: async (nowMs: number) => {
+        for (const [key, record] of records.entries()) {
+          if (record.expiresAtMs <= nowMs) records.delete(key);
+        }
+      },
     };
     let lockTail = Promise.resolve();
     const sameOriginLock = {
@@ -565,13 +655,13 @@ test.describe('NonceCoordinator', () => {
     const coordinatorA = createNonceCoordinator({
       evmNonceBackend: createFakeEvmNonceBackend(callsA),
       sameOriginLock,
-      sameOriginLeaseStore: leaseStore,
+      nonceLaneCoordinationStore: leaseStore,
       now: () => 1_000,
     });
     const coordinatorB = createNonceCoordinator({
       evmNonceBackend: createFakeEvmNonceBackend(callsB),
       sameOriginLock,
-      sameOriginLeaseStore: leaseStore,
+      nonceLaneCoordinationStore: leaseStore,
       now: () => 1_010,
     });
     const lane = createLane();
@@ -590,6 +680,220 @@ test.describe('NonceCoordinator', () => {
     expect(records.size).toBe(2);
     expect(callsA).toHaveLength(1);
     expect(callsB).toHaveLength(1);
+  });
+
+  test('uses durable store locking when Web Locks are unavailable', async () => {
+    const callsA: unknown[] = [];
+    const callsB: unknown[] = [];
+    const { store, records } = createMemoryNonceLaneCoordinationStore();
+    const coordinatorA = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(callsA),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+      now: () => 1_000,
+    });
+    const coordinatorB = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(callsB),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+      now: () => 1_010,
+    });
+    const lane = createLane();
+
+    const [first, second] = await Promise.all([
+      coordinatorA.reserve({ lane, operation: createOperation() }),
+      coordinatorB.reserve({
+        lane,
+        operation: {
+          ...createOperation(),
+          operationId: SigningSessionIds.signingOperation('op-durable-lock-other-tab'),
+        },
+      }),
+    ]);
+
+    expect([String(first.nonce), String(second.nonce)].sort()).toEqual(['7', '8']);
+    expect(records.size).toBe(2);
+  });
+
+  test('prunes expired durable EVM records before reservation', async () => {
+    const calls: unknown[] = [];
+    const { store, records } = createMemoryNonceLaneCoordinationStore([
+      createEvmCoordinationRecord({
+        leaseId: 'expired-durable-lease',
+        nonce: '7',
+        state: 'reserved',
+        expiresAtMs: Date.now() - 1,
+      }),
+    ]);
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls, 7n),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+    });
+
+    const lease = await coordinator.reserve({ lane: createLane(), operation: createOperation() });
+
+    expect(lease.nonce.toString()).toBe('7');
+    expect(Array.from(records.values())).toHaveLength(1);
+    expect(Array.from(records.values())[0]?.leaseId).toBe(lease.leaseId);
+  });
+
+  test('startup recovery clears finalized EVM durable broadcast leases', async () => {
+    const calls: unknown[] = [];
+    const { store, records } = createMemoryNonceLaneCoordinationStore([
+      createEvmCoordinationRecord({
+        leaseId: 'durable-broadcast',
+        nonce: '7',
+        state: 'broadcast_accepted',
+      }),
+    ]);
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls, 8n),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+      now: () => 2_000,
+    });
+
+    await coordinator.recoverDurableLeases({ accountId: 'nonce-coordinator.testnet' });
+
+    expect(records.size).toBe(0);
+    expect(calls).toEqual([
+      expect.objectContaining({
+        fn: 'fetchChainNonce',
+      }),
+    ]);
+  });
+
+  test('same-origin durable NEAR leases prevent overlapping batch reservations', async () => {
+    const { store, records } = createMemoryNonceLaneCoordinationStore();
+    const lane = createNearLane();
+    const coordinatorA = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend([]),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+    });
+    const coordinatorB = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend([]),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+    });
+
+    const first = await coordinatorA.reserveNearContext({
+      lane,
+      operation: { ...createOperation(), chainFamily: 'near' as const },
+      count: 2,
+      fetchContext: async () => ({
+        nearPublicKeyStr: lane.publicKey,
+        accessKeyInfo: {
+          nonce: 30n,
+          permission: 'FullAccess',
+          block_height: 1,
+          block_hash: 'test-access-key-block',
+        },
+        nextNonce: '31',
+        txBlockHeight: '2000',
+        txBlockHash: 'h2000',
+      }),
+    });
+    const second = await coordinatorB.reserveNearContext({
+      lane,
+      operation: {
+        ...createOperation(),
+        operationId: SigningSessionIds.signingOperation('op-near-durable-other-tab'),
+        chainFamily: 'near' as const,
+      },
+      count: 1,
+      fetchContext: async () => ({
+        nearPublicKeyStr: lane.publicKey,
+        accessKeyInfo: {
+          nonce: 30n,
+          permission: 'FullAccess',
+          block_height: 1,
+          block_hash: 'test-access-key-block',
+        },
+        nextNonce: '31',
+        txBlockHeight: '2000',
+        txBlockHash: 'h2000',
+      }),
+    });
+
+    expect(first.leases.map((lease) => String(lease.nonce))).toEqual(['31', '32']);
+    expect(second.leases.map((lease) => String(lease.nonce))).toEqual(['33']);
+    expect(records.size).toBe(3);
+  });
+
+  test('account clear removes durable nonce lease records', async () => {
+    const calls: unknown[] = [];
+    const { store, records } = createMemoryNonceLaneCoordinationStore();
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: store,
+    });
+
+    await coordinator.reserve({ lane: createLane(), operation: createOperation() });
+    expect(records.size).toBe(1);
+
+    coordinator.clearForAccount('nonce-coordinator.testnet');
+    await Promise.resolve();
+
+    expect(records.size).toBe(0);
+  });
+
+  test('emits a degraded coordination warning when durable store access fails', async () => {
+    const calls: unknown[] = [];
+    const traces: unknown[] = [];
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args);
+    };
+    const failingStore: NonceLaneCoordinationStore = {
+      readLane: async () => {
+        throw new Error('indexeddb failed');
+      },
+      readAll: async () => [],
+      upsert: async () => {
+        throw new Error('indexeddb failed');
+      },
+      remove: async () => undefined,
+      clearForAccount: async () => undefined,
+      clearAll: async () => undefined,
+      pruneExpired: async () => undefined,
+      withLock: async (_input, task) => await task(),
+    };
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      sameOriginLock: null,
+      nonceLaneCoordinationStore: failingStore,
+      onTrace: (event) => traces.push(event),
+    });
+
+    try {
+      await coordinator.reserve({ lane: createLane(), operation: createOperation() });
+    } finally {
+      console.warn = originalWarn;
+    }
+
+    expect(traces).toContainEqual(
+      expect.objectContaining({
+        event: 'nonce_coordination_degraded',
+        degradation: expect.objectContaining({
+          reason: 'durable_store_error',
+          fallback: 'in_runtime_lock',
+        }),
+      }),
+    );
+    expect(warnings).toContainEqual([
+      '[NonceCoordinator] nonce coordination degraded',
+      expect.objectContaining({ reason: 'durable_store_error' }),
+    ]);
+    expect(coordinator.getDiagnostics().coordinationWarnings).toEqual([
+      expect.objectContaining({
+        reason: 'durable_store_error',
+        fallback: 'in_runtime_lock',
+      }),
+    ]);
   });
 
   test('emits an alert and console warning for repeated dropped/replaced EVM outcomes', async () => {
@@ -737,6 +1041,74 @@ test.describe('NonceCoordinator', () => {
       metrics: expect.objectContaining({
         staleInFlightLeaseCount: 1,
         staleInFlightLaneCount: 1,
+      }),
+    });
+  });
+
+  test('emits redacted outcome metrics for release, reconcile, and dropped lanes', async () => {
+    const calls: unknown[] = [];
+    const traces: unknown[] = [];
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls),
+      onTrace: (event) => traces.push(event),
+    });
+    const lane = createLane();
+    const releaseOperation = createOperation();
+    const releaseLease = await coordinator.reserve({
+      lane,
+      operation: releaseOperation,
+    });
+    await coordinator.release({
+      leaseId: releaseLease.leaseId,
+      operationId: releaseOperation.operationId,
+      reason: 'cancelled',
+    });
+
+    const droppedOperation = {
+      ...createOperation(),
+      operationId: SigningSessionIds.signingOperation('op-outcome-dropped'),
+    };
+    const droppedLease = await coordinator.reserve({
+      lane,
+      operation: droppedOperation,
+    });
+    await coordinator.markSigned({
+      leaseId: droppedLease.leaseId,
+      operationId: droppedOperation.operationId,
+    });
+    await coordinator.markBroadcastAccepted({
+      leaseId: droppedLease.leaseId,
+      operationId: droppedOperation.operationId,
+      txHash: `0x${'33'.repeat(32)}`,
+    });
+    await coordinator.markDroppedOrReplaced({
+      leaseId: droppedLease.leaseId,
+      operationId: droppedOperation.operationId,
+      reason: 'dropped',
+    });
+    await coordinator.reconcile({ lane });
+
+    const diagnostics = coordinator.getDiagnostics({
+      accountId: 'nonce-coordinator.testnet',
+      emitMetrics: true,
+    });
+
+    expect(diagnostics.metrics.outcomes).toMatchObject({
+      droppedCount: 1,
+      replacedCount: 0,
+      releasedCount: 1,
+      reconciledCount: 1,
+      releaseReasons: { cancelled: 1 },
+      reconcileReasons: { manual: 1 },
+    });
+    expect(traces.at(-1)).toMatchObject({
+      event: 'nonce_coordinator_metrics',
+      metrics: expect.objectContaining({
+        outcomes: expect.objectContaining({
+          droppedCount: 1,
+          releasedCount: 1,
+          reconciledCount: 1,
+        }),
       }),
     });
   });

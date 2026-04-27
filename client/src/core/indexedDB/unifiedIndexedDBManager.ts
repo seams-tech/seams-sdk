@@ -8,6 +8,7 @@ import type {
   ChainAccountRecord,
   EnqueueSignerOperationInput,
   LastProfileState,
+  NonceLaneLeaseStoreRecord,
   ProfileRecord,
   SignerMutationOptions,
   SignerOperationStatus,
@@ -147,6 +148,48 @@ export class UnifiedIndexedDBManager {
 
   async setLastProfileState(state: LastProfileState | null): Promise<void> {
     return this.clientDB.setLastProfileState(state);
+  }
+
+  async readNonceLaneLeaseRecords(laneKey: string): Promise<NonceLaneLeaseStoreRecord[]> {
+    return this.clientDB.readNonceLaneLeaseRecords(laneKey);
+  }
+
+  async listNonceLaneLeaseRecords(args?: {
+    accountId?: string;
+  }): Promise<NonceLaneLeaseStoreRecord[]> {
+    return this.clientDB.listNonceLaneLeaseRecords(args);
+  }
+
+  async upsertNonceLaneLeaseRecord(record: NonceLaneLeaseStoreRecord): Promise<void> {
+    return this.clientDB.upsertNonceLaneLeaseRecord(record);
+  }
+
+  async removeNonceLaneLeaseRecord(input: { leaseId: string }): Promise<void> {
+    return this.clientDB.removeNonceLaneLeaseRecord(input);
+  }
+
+  async clearNonceLaneLeaseRecordsForAccount(accountId: string): Promise<void> {
+    return this.clientDB.clearNonceLaneLeaseRecordsForAccount(accountId);
+  }
+
+  async clearAllNonceLaneLeaseRecords(): Promise<void> {
+    return this.clientDB.clearAllNonceLaneLeaseRecords();
+  }
+
+  async pruneExpiredNonceLaneLeaseRecords(nowMs: number): Promise<void> {
+    return this.clientDB.pruneExpiredNonceLaneLeaseRecords(nowMs);
+  }
+
+  async withNonceLaneCoordinationLock<T>(
+    input: {
+      lockKey: string;
+      ownerId: string;
+      ttlMs?: number;
+      waitTimeoutMs?: number;
+    },
+    task: () => Promise<T>,
+  ): Promise<T> {
+    return this.clientDB.withNonceLaneCoordinationLock(input, task);
   }
 
   // === profile/account/signer convenience ===

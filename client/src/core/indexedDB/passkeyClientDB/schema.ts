@@ -10,13 +10,15 @@ export interface PasskeyClientDBConfig {
   accountSignersStore: string;
   signerOpsOutboxStore: string;
   recoveryEmailStore: string;
+  nonceLaneLeasesStore: string;
+  nonceLaneLocksStore: string;
 }
 
 export const SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX = 'status_nextAttemptAt' as const;
 
 export const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 30,
+  dbVersion: 31,
   appStateStore: 'appState',
   profileAuthenticatorStore: 'profileAuthenticators',
   profilesStore: 'profiles',
@@ -24,6 +26,8 @@ export const DB_CONFIG: PasskeyClientDBConfig = {
   accountSignersStore: 'accountSigners',
   signerOpsOutboxStore: 'signerOpsOutbox',
   recoveryEmailStore: 'recoveryEmailsV2',
+  nonceLaneLeasesStore: 'nonceLaneLeasesV1',
+  nonceLaneLocksStore: 'nonceLaneLocksV1',
 } as const;
 
 export const LAST_PROFILE_STATE_APP_STATE_KEY = 'lastProfileState' as const;
@@ -155,6 +159,44 @@ export function upgradePasskeyClientDBSchema(
       : transaction.objectStore(DB_CONFIG.recoveryEmailStore);
     try {
       recoveryEmails.createIndex('profileId', 'profileId', { unique: false });
+    } catch {}
+  }
+
+  {
+    const nonceLaneLeases = !db.objectStoreNames.contains(DB_CONFIG.nonceLaneLeasesStore)
+      ? db.createObjectStore(DB_CONFIG.nonceLaneLeasesStore, { keyPath: 'leaseId' })
+      : transaction.objectStore(DB_CONFIG.nonceLaneLeasesStore);
+    try {
+      nonceLaneLeases.createIndex('laneKey', 'laneKey', { unique: false });
+    } catch {}
+    try {
+      nonceLaneLeases.createIndex('accountId', 'accountId', { unique: false });
+    } catch {}
+    try {
+      nonceLaneLeases.createIndex('state', 'state', { unique: false });
+    } catch {}
+    try {
+      nonceLaneLeases.createIndex('expiresAtMs', 'expiresAtMs', { unique: false });
+    } catch {}
+    try {
+      nonceLaneLeases.createIndex('lane_state', ['laneKey', 'state'], { unique: false });
+    } catch {}
+    try {
+      nonceLaneLeases.createIndex('account_expiresAt', ['accountId', 'expiresAtMs'], {
+        unique: false,
+      });
+    } catch {}
+  }
+
+  {
+    const nonceLaneLocks = !db.objectStoreNames.contains(DB_CONFIG.nonceLaneLocksStore)
+      ? db.createObjectStore(DB_CONFIG.nonceLaneLocksStore, { keyPath: 'lockKey' })
+      : transaction.objectStore(DB_CONFIG.nonceLaneLocksStore);
+    try {
+      nonceLaneLocks.createIndex('expiresAtMs', 'expiresAtMs', { unique: false });
+    } catch {}
+    try {
+      nonceLaneLocks.createIndex('ownerId', 'ownerId', { unique: false });
     } catch {}
   }
 }

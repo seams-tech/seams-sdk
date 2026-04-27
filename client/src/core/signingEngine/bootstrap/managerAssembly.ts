@@ -1,4 +1,7 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import {
+  IndexedDBManager,
+  createIndexedDBNonceLaneCoordinationStore,
+} from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { createEvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
 import {
@@ -41,9 +44,16 @@ export function createManagerAssembly(args: {
   const evmNonceBackend = createEvmNonceBackend({
     chains,
   });
+  const nonceLaneCoordinationStore = createIndexedDBNonceLaneCoordinationStore({
+    indexedDB: IndexedDBManager,
+  });
   const nonceCoordinator = createNonceCoordinator({
     evmNonceBackend,
     nearClient: args.nearClient,
+    nonceLaneCoordinationStore,
+  });
+  void nonceCoordinator.recoverDurableLeases().catch((error) => {
+    console.warn('[NonceCoordinator] startup durable lease recovery failed', error);
   });
   const nearExplorerUrl = resolvePrimaryExplorerUrl(chains, 'near');
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');

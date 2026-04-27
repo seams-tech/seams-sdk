@@ -15,6 +15,8 @@ import type {
   EnqueueSignerOperationInput,
   IndexedDBEvent,
   LastProfileState,
+  NonceLaneLeaseStoreRecord,
+  NonceLaneLockStoreRecord,
   ProfileAuthenticatorRecord,
   ProfileContinuitySnapshot,
   ProfileId,
@@ -91,6 +93,8 @@ export type {
   EnqueueSignerOperationInput,
   IndexedDBEvent,
   LastProfileState,
+  NonceLaneLeaseStoreRecord,
+  NonceLaneLockStoreRecord,
   ProfileAuthenticatorRecord,
   ProfileContinuitySnapshot,
   ProfileId,
@@ -121,6 +125,22 @@ export type {
 interface AppStateEntry<T = unknown> {
   key: string;
   value: T;
+}
+
+const DEFAULT_NONCE_LANE_LOCK_TTL_MS = 5_000;
+const DEFAULT_NONCE_LANE_LOCK_WAIT_TIMEOUT_MS = 3_000;
+const DEFAULT_NONCE_LANE_LOCK_POLL_MS = 25;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createRandomToken(prefix: string): string {
+  const cryptoObj = (globalThis as { crypto?: Crypto }).crypto;
+  if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
+    return `${prefix}-${cryptoObj.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
 export class DBConstraintError extends Error {
@@ -1057,6 +1077,150 @@ export class PasskeyClientDBManager {
   }): Promise<SignerOpOutboxRecord | null> {
     const db = await this.getDB();
     return setSignerOperationRecordStatus(db, DB_CONFIG.signerOpsOutboxStore, args);
+  }
+
+  async readNonceLaneLeaseRecords(laneKey: string): Promise<NonceLaneLeaseStoreRecord[]> {
+    const normalizedLaneKey = toTrimmedString(laneKey || '');
+    if (!normalizedLaneKey) return [];
+    const db = await this.getDB();
+    const tx = db.transaction(DB_CONFIG.nonceLaneLeasesStore, 'readonly');
+    const records = (await tx.store
+      .index('laneKey')
+      .getAll(normalizedLaneKey)) as NonceLaneLeaseStoreRecord[];
+    await tx.done;
+    return records || [];
+  }
+
+  async listNonceLaneLeaseRecords(args?: {
+    accountId?: string;
+  }): Promise<NonceLaneLeaseStoreRecord[]> {
+    const accountId = toTrimmedString(args?.accountId || '');
+    const db = await this.getDB();
+    const tx = db.transaction(DB_CONFIG.nonceLaneLeasesStore, 'readonly');
+    const records = accountId
+      ? ((await tx.store.index('accountId').getAll(accountId)) as NonceLaneLeaseStoreRecord[])
+      : ((await tx.store.getAll()) as NonceLaneLeaseStoreRecord[]);
+    await tx.done;
+    return records || [];
+  }
+
+  async upsertNonceLaneLeaseRecord(record: NonceLaneLeaseStoreRecord): Promise<void> {
+    const db = await this.getDB();
+    await db.put(DB_CONFIG.nonceLaneLeasesStore, record);
+  }
+
+  async removeNonceLaneLeaseRecord(input: { leaseId: string }): Promise<void> {
+    const leaseId = toTrimmedString(input.leaseId || '');
+    if (!leaseId) return;
+    const db = await this.getDB();
+    await db.delete(DB_CONFIG.nonceLaneLeasesStore, leaseId);
+  }
+
+  async clearNonceLaneLeaseRecordsForAccount(accountId: string): Promise<void> {
+    const normalizedAccountId = toTrimmedString(accountId || '');
+    if (!normalizedAccountId) return;
+    const db = await this.getDB();
+    const tx = db.transaction(DB_CONFIG.nonceLaneLeasesStore, 'readwrite');
+    const records = (await tx.store
+      .index('accountId')
+      .getAll(normalizedAccountId)) as NonceLaneLeaseStoreRecord[];
+    for (const record of records || []) {
+      await tx.store.delete(record.leaseId);
+    }
+    await tx.done;
+  }
+
+  async clearAllNonceLaneLeaseRecords(): Promise<void> {
+    const db = await this.getDB();
+    await db.clear(DB_CONFIG.nonceLaneLeasesStore);
+  }
+
+  async pruneExpiredNonceLaneLeaseRecords(nowMs: number): Promise<void> {
+    const normalizedNow = Math.floor(Number(nowMs));
+    if (!Number.isSafeInteger(normalizedNow)) return;
+    const db = await this.getDB();
+    const tx = db.transaction(DB_CONFIG.nonceLaneLeasesStore, 'readwrite');
+    const records = (await tx.store
+      .index('expiresAtMs')
+      .getAll(IDBKeyRange.upperBound(normalizedNow))) as NonceLaneLeaseStoreRecord[];
+    for (const record of records || []) {
+      await tx.store.delete(record.leaseId);
+    }
+    await tx.done;
+  }
+
+  async withNonceLaneCoordinationLock<T>(
+    input: {
+      lockKey: string;
+      ownerId: string;
+      ttlMs?: number;
+      waitTimeoutMs?: number;
+    },
+    task: () => Promise<T>,
+  ): Promise<T> {
+    const lockKey = toTrimmedString(input.lockKey || '');
+    const ownerId = toTrimmedString(input.ownerId || '');
+    if (!lockKey || !ownerId) {
+      throw new Error('[PasskeyClientDB] nonce lane lock requires lockKey and ownerId');
+    }
+    const ttlMs = Math.max(
+      1,
+      Math.floor(Number(input.ttlMs) || DEFAULT_NONCE_LANE_LOCK_TTL_MS),
+    );
+    const waitTimeoutMs = Math.max(
+      1,
+      Math.floor(Number(input.waitTimeoutMs) || DEFAULT_NONCE_LANE_LOCK_WAIT_TIMEOUT_MS),
+    );
+    const fencingToken = createRandomToken('nonce-lane-lock');
+    const deadlineMs = Date.now() + waitTimeoutMs;
+
+    const tryAcquire = async (): Promise<boolean> => {
+      const db = await this.getDB();
+      const tx = db.transaction(DB_CONFIG.nonceLaneLocksStore, 'readwrite');
+      const store = tx.store;
+      const nowMs = Date.now();
+      const existing = (await store.get(lockKey)) as NonceLaneLockStoreRecord | undefined;
+      if (existing && Number(existing.expiresAtMs) > nowMs) {
+        await tx.done;
+        return false;
+      }
+      const next: NonceLaneLockStoreRecord = {
+        lockKey,
+        ownerId,
+        fencingToken,
+        acquiredAtMs: nowMs,
+        expiresAtMs: nowMs + ttlMs,
+        updatedAtMs: nowMs,
+      };
+      await store.put(next);
+      await tx.done;
+      return true;
+    };
+
+    while (!(await tryAcquire())) {
+      if (Date.now() >= deadlineMs) {
+        const error = new Error('[PasskeyClientDB] durable nonce lane lock timed out') as Error & {
+          code?: string;
+        };
+        error.code = 'durable_lock_timeout';
+        throw error;
+      }
+      await sleep(DEFAULT_NONCE_LANE_LOCK_POLL_MS);
+    }
+
+    try {
+      return await task();
+    } finally {
+      try {
+        const db = await this.getDB();
+        const tx = db.transaction(DB_CONFIG.nonceLaneLocksStore, 'readwrite');
+        const existing = (await tx.store.get(lockKey)) as NonceLaneLockStoreRecord | undefined;
+        if (existing?.fencingToken === fencingToken) {
+          await tx.store.delete(lockKey);
+        }
+        await tx.done;
+      } catch {}
+    }
   }
 
   /**
