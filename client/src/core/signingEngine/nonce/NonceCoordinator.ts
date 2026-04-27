@@ -16,18 +16,106 @@ import type {
   SigningOperationId,
 } from '../session/signingSessionTypes';
 
-export type NonceLeaseState =
-  | 'reserved'
-  | 'released'
-  | 'expired'
-  | 'signed'
-  | 'signed_lease_expired'
-  | 'broadcast_accepted'
-  | 'broadcast_rejected'
-  | 'finalized'
-  | 'dropped'
-  | 'replaced'
-  | 'reconciled';
+export const NonceLeaseState = {
+  Reserved: 'reserved',
+  Released: 'released',
+  Expired: 'expired',
+  Signed: 'signed',
+  SignedLeaseExpired: 'signed_lease_expired',
+  BroadcastAccepted: 'broadcast_accepted',
+  BroadcastRejected: 'broadcast_rejected',
+  Finalized: 'finalized',
+  Dropped: 'dropped',
+  Replaced: 'replaced',
+  Reconciled: 'reconciled',
+} as const;
+
+export type NonceLeaseState = (typeof NonceLeaseState)[keyof typeof NonceLeaseState];
+
+export const NonceDurableLeaseState = {
+  Reserved: NonceLeaseState.Reserved,
+  Signed: NonceLeaseState.Signed,
+  BroadcastAccepted: NonceLeaseState.BroadcastAccepted,
+} as const;
+
+export type NonceDurableLeaseState =
+  (typeof NonceDurableLeaseState)[keyof typeof NonceDurableLeaseState];
+
+export const NonceCoordinatorTraceEventName = {
+  LeaseReserved: 'nonce_lease_reserved',
+  LeaseReleased: 'nonce_lease_released',
+  LeaseExpired: 'nonce_lease_expired',
+  LeaseSigned: 'nonce_lease_signed',
+  LeaseBroadcastAccepted: 'nonce_lease_broadcast_accepted',
+  LeaseBroadcastRejected: 'nonce_lease_broadcast_rejected',
+  LeaseFinalized: 'nonce_lease_finalized',
+  LeaseDropped: 'nonce_lease_dropped',
+  LeaseReplaced: 'nonce_lease_replaced',
+  Metrics: 'nonce_coordinator_metrics',
+  LaneAlert: 'nonce_lane_alert',
+  CoordinationDegraded: 'nonce_coordination_degraded',
+  LanesCleared: 'nonce_lanes_cleared',
+  LaneReconciled: 'nonce_lane_reconciled',
+} as const;
+
+export type NonceCoordinatorTraceEventName =
+  (typeof NonceCoordinatorTraceEventName)[keyof typeof NonceCoordinatorTraceEventName];
+
+export const EvmNonceOutcomeReason = {
+  Dropped: 'dropped',
+  Replaced: 'replaced',
+} as const;
+
+export type EvmNonceOutcomeReason =
+  (typeof EvmNonceOutcomeReason)[keyof typeof EvmNonceOutcomeReason];
+
+export const NonceLeaseReleaseReason = {
+  Cancelled: 'cancelled',
+  AuthFailed: 'auth_failed',
+  SigningFailed: 'signing_failed',
+  NonceFailed: 'nonce_failed',
+} as const;
+
+export type NonceLeaseReleaseReason =
+  (typeof NonceLeaseReleaseReason)[keyof typeof NonceLeaseReleaseReason];
+
+export const NonceCoordinatorDegradationReason = {
+  WebLocksUnavailable: 'web_locks_unavailable',
+  IndexedDBUnavailable: 'indexeddb_unavailable',
+  DurableLockTimeout: 'durable_lock_timeout',
+  DurableStoreError: 'durable_store_error',
+} as const;
+
+export type NonceCoordinatorDegradationReason =
+  (typeof NonceCoordinatorDegradationReason)[keyof typeof NonceCoordinatorDegradationReason];
+
+export const NonceCoordinatorFallback = {
+  InRuntimeLock: 'in_runtime_lock',
+  None: 'none',
+} as const;
+
+export type NonceCoordinatorFallback =
+  (typeof NonceCoordinatorFallback)[keyof typeof NonceCoordinatorFallback];
+
+export const NearNonceOutcomeKind = {
+  Finalized: 'finalized',
+  AcceptedNonfinal: 'accepted_nonfinal',
+  NonceAdvancedHashMissing: 'nonce_advanced_hash_missing',
+  ExpiredHashMissingNonceNotAdvanced: 'expired_hash_missing_nonce_not_advanced',
+  InvalidOrRejected: 'invalid_or_rejected',
+  Unknown: 'unknown',
+} as const;
+
+export type NearNonceOutcomeKind =
+  (typeof NearNonceOutcomeKind)[keyof typeof NearNonceOutcomeKind];
+
+export const NearNonceReconcileReason = {
+  NonceAdvancedHashMissing: 'near_nonce_advanced_hash_missing',
+  HashMissingNonceNotAdvanced: 'near_hash_missing_nonce_not_advanced',
+} as const;
+
+export type NearNonceReconcileReason =
+  (typeof NearNonceReconcileReason)[keyof typeof NearNonceReconcileReason];
 
 export type EvmNonceLane = {
   family: 'evm';
@@ -77,21 +165,7 @@ export type NonceLeaseRef = {
 };
 
 export type NonceCoordinatorTraceEvent = {
-  event:
-    | 'nonce_lease_reserved'
-    | 'nonce_lease_released'
-    | 'nonce_lease_expired'
-    | 'nonce_lease_signed'
-    | 'nonce_lease_broadcast_accepted'
-    | 'nonce_lease_broadcast_rejected'
-    | 'nonce_lease_finalized'
-    | 'nonce_lease_dropped'
-    | 'nonce_lease_replaced'
-    | 'nonce_coordinator_metrics'
-    | 'nonce_lane_alert'
-    | 'nonce_coordination_degraded'
-    | 'nonce_lanes_cleared'
-    | 'nonce_lane_reconciled';
+  event: NonceCoordinatorTraceEventName;
   lease?: NonceLease;
   lane?: NonceLane;
   metrics?: NonceCoordinatorAggregateMetrics;
@@ -108,7 +182,7 @@ export type NonceCoordinatorAlert = {
   kind: 'repeated_dropped_or_replaced';
   severity: 'warning';
   lane: NonceLane;
-  reason: 'dropped' | 'replaced';
+  reason: EvmNonceOutcomeReason;
   count: number;
   windowMs: number;
   firstSeenAtMs: number;
@@ -131,7 +205,7 @@ export type NonceLaneCoordinationRecord = {
   nonceKey?: string;
   publicKey?: string;
   nonce: string;
-  state: 'reserved' | 'signed' | 'broadcast_accepted';
+  state: NonceDurableLeaseState;
   operationId: string;
   operationFingerprint: string;
   reservedAtMs: number;
@@ -159,15 +233,11 @@ export type NonceLaneCoordinationStore = {
 };
 
 export type NonceCoordinatorDegradation = {
-  reason:
-    | 'web_locks_unavailable'
-    | 'indexeddb_unavailable'
-    | 'durable_lock_timeout'
-    | 'durable_store_error';
+  reason: NonceCoordinatorDegradationReason;
   laneFamily?: NonceLane['family'];
   networkKey?: string;
   accountId?: string;
-  fallback: 'in_runtime_lock' | 'none';
+  fallback: NonceCoordinatorFallback;
 };
 
 export type NonceCoordinatorDeps = {
@@ -299,13 +369,13 @@ export type NonceCoordinator = {
   markDroppedOrReplaced(input: {
     leaseId: string;
     operationId: SigningOperationId | string;
-    reason: 'dropped' | 'replaced';
+    reason: EvmNonceOutcomeReason;
     txHash?: `0x${string}` | string;
   }): Promise<void>;
   release(input: {
     leaseId: string;
     operationId: SigningOperationId | string;
-    reason: 'cancelled' | 'auth_failed' | 'signing_failed' | 'nonce_failed';
+    reason: NonceLeaseReleaseReason;
   }): Promise<void>;
   expireLeases(input?: { accountId?: string }): Promise<NonceLease[]>;
   recoverDurableLeases(input?: { accountId?: string }): Promise<void>;
@@ -326,19 +396,7 @@ const DEFAULT_DURABLE_LOCK_WAIT_TIMEOUT_MS = 3_000;
 const NEAR_NONCE_FRESHNESS_THRESHOLD_MS = 5_000;
 const NEAR_BLOCK_FRESHNESS_THRESHOLD_MS = 20_000;
 const NEAR_PREFETCH_DEBOUNCE_MS = 400;
-const NONCE_LEASE_STATES: readonly NonceLeaseState[] = [
-  'reserved',
-  'released',
-  'expired',
-  'signed',
-  'signed_lease_expired',
-  'broadcast_accepted',
-  'broadcast_rejected',
-  'finalized',
-  'dropped',
-  'replaced',
-  'reconciled',
-];
+const NONCE_LEASE_STATES: readonly NonceLeaseState[] = Object.values(NonceLeaseState);
 
 export function reduceNonceLeaseState(
   current: NonceLeaseState,
@@ -354,71 +412,81 @@ export function reduceNonceLeaseState(
     | 'reconcile',
 ): NonceLeaseState {
   if (transition === 'release') {
-    if (current === 'released') return current;
-    if (current === 'reserved') return 'released';
+    if (current === NonceLeaseState.Released) return current;
+    if (current === NonceLeaseState.Reserved) return NonceLeaseState.Released;
     throw createIllegalNonceTransitionError(current, transition);
   }
 
   if (transition === 'expire') {
-    if (current === 'reserved') return 'expired';
-    if (current === 'signed') return 'signed_lease_expired';
-    if (current === 'expired' || current === 'signed_lease_expired') return current;
+    if (current === NonceLeaseState.Reserved) return NonceLeaseState.Expired;
+    if (current === NonceLeaseState.Signed) return NonceLeaseState.SignedLeaseExpired;
+    if (current === NonceLeaseState.Expired || current === NonceLeaseState.SignedLeaseExpired) {
+      return current;
+    }
     throw createIllegalNonceTransitionError(current, transition);
   }
 
   if (transition === 'mark_signed') {
-    if (current === 'reserved' || current === 'signed') return 'signed';
+    if (current === NonceLeaseState.Reserved || current === NonceLeaseState.Signed) {
+      return NonceLeaseState.Signed;
+    }
     throw createIllegalNonceTransitionError(current, transition);
   }
 
   if (transition === 'broadcast_accepted') {
     if (
-      current === 'reserved' ||
-      current === 'signed' ||
-      current === 'broadcast_accepted'
+      current === NonceLeaseState.Reserved ||
+      current === NonceLeaseState.Signed ||
+      current === NonceLeaseState.BroadcastAccepted
     ) {
-      return 'broadcast_accepted';
+      return NonceLeaseState.BroadcastAccepted;
     }
     throw createIllegalNonceTransitionError(current, transition);
   }
 
   if (transition === 'broadcast_rejected') {
     if (
-      current === 'reserved' ||
-      current === 'signed' ||
-      current === 'broadcast_rejected'
+      current === NonceLeaseState.Reserved ||
+      current === NonceLeaseState.Signed ||
+      current === NonceLeaseState.BroadcastRejected
     ) {
-      return 'broadcast_rejected';
+      return NonceLeaseState.BroadcastRejected;
     }
     throw createIllegalNonceTransitionError(current, transition);
   }
 
   if (transition === 'finalize') {
-    if (current === 'broadcast_accepted' || current === 'finalized') return 'finalized';
+    if (current === NonceLeaseState.BroadcastAccepted || current === NonceLeaseState.Finalized) {
+      return NonceLeaseState.Finalized;
+    }
     throw createIllegalNonceTransitionError(current, transition);
   }
 
   if (transition === 'drop') {
-    if (current === 'broadcast_accepted' || current === 'dropped') return 'dropped';
+    if (current === NonceLeaseState.BroadcastAccepted || current === NonceLeaseState.Dropped) {
+      return NonceLeaseState.Dropped;
+    }
     throw createIllegalNonceTransitionError(current, transition);
   }
 
   if (transition === 'replace') {
-    if (current === 'broadcast_accepted' || current === 'replaced') return 'replaced';
+    if (current === NonceLeaseState.BroadcastAccepted || current === NonceLeaseState.Replaced) {
+      return NonceLeaseState.Replaced;
+    }
     throw createIllegalNonceTransitionError(current, transition);
   }
 
   if (transition === 'reconcile') {
     if (
-      current === 'released' ||
-      current === 'expired' ||
-      current === 'signed_lease_expired' ||
-      current === 'broadcast_rejected' ||
-      current === 'dropped' ||
-      current === 'replaced' ||
-      current === 'reconciled'
+      current === NonceLeaseState.Released ||
+      current === NonceLeaseState.Expired ||
+      current === NonceLeaseState.SignedLeaseExpired ||
+      current === NonceLeaseState.BroadcastRejected ||
+      current === NonceLeaseState.Dropped ||
+      current === NonceLeaseState.Replaced ||
+      current === NonceLeaseState.Reconciled
     ) {
-      return 'reconciled';
+      return NonceLeaseState.Reconciled;
     }
     throw createIllegalNonceTransitionError(current, transition);
   }
@@ -505,28 +573,28 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         reason,
       });
     };
-    if (event.event === 'nonce_lease_dropped') {
-      push('dropped', 'dropped');
+    if (event.event === NonceCoordinatorTraceEventName.LeaseDropped) {
+      push(EvmNonceOutcomeReason.Dropped, EvmNonceOutcomeReason.Dropped);
       return;
     }
-    if (event.event === 'nonce_lease_replaced') {
-      push('replaced', 'replaced');
+    if (event.event === NonceCoordinatorTraceEventName.LeaseReplaced) {
+      push(EvmNonceOutcomeReason.Replaced, EvmNonceOutcomeReason.Replaced);
       return;
     }
-    if (event.event === 'nonce_lane_reconciled') {
+    if (event.event === NonceCoordinatorTraceEventName.LaneReconciled) {
       push('reconciled', normalizeMetricReason(event.reason, 'manual'));
       return;
     }
-    if (event.event === 'nonce_lease_released') {
+    if (event.event === NonceCoordinatorTraceEventName.LeaseReleased) {
       push('released', normalizeMetricReason(event.reason, 'unspecified'));
       return;
     }
-    if (event.event === 'nonce_lease_expired') {
+    if (event.event === NonceCoordinatorTraceEventName.LeaseExpired) {
       push('expired', normalizeMetricReason(event.reason, 'lease_ttl_elapsed'));
       return;
     }
-    if (event.event === 'nonce_lease_broadcast_rejected') {
-      push('broadcast_rejected', 'broadcast_rejected');
+    if (event.event === NonceCoordinatorTraceEventName.LeaseBroadcastRejected) {
+      push(NonceLeaseState.BroadcastRejected, NonceLeaseState.BroadcastRejected);
     }
   };
 
@@ -542,7 +610,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     input?: { lane?: NonceLane; fallback?: NonceCoordinatorDegradation['fallback'] },
   ): void => {
     const lane = input?.lane;
-    const fallback = input?.fallback || 'in_runtime_lock';
+    const fallback = input?.fallback || NonceCoordinatorFallback.InRuntimeLock;
     const key = [
       reason,
       lane?.family || '',
@@ -559,7 +627,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     };
     observedCoordinationDegradations.set(key, degradation);
     emit({
-      event: 'nonce_coordination_degraded',
+      event: NonceCoordinatorTraceEventName.CoordinationDegraded,
       ...(lane ? { lane } : {}),
       degradation,
     });
@@ -635,19 +703,25 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   ): Promise<NonceLaneCoordinationRecord[]> => {
     if (!nonceLaneCoordinationStore) {
       if (shouldWarnOnMissingCoordinationStore) {
-        emitCoordinationDegradedOnce('indexeddb_unavailable', { lane });
+        emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.IndexedDBUnavailable, {
+          lane,
+        });
       }
       return [];
     }
     try {
       await nonceLaneCoordinationStore.pruneExpired(now());
     } catch {
-      emitCoordinationDegradedOnce('durable_store_error', { lane });
+      emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError, {
+        lane,
+      });
     }
     try {
       return await nonceLaneCoordinationStore.readLane(laneKey);
     } catch {
-      emitCoordinationDegradedOnce('durable_store_error', { lane });
+      emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError, {
+        lane,
+      });
       return [];
     }
   };
@@ -709,7 +783,9 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   ): Promise<void> => {
     if (!nonceLaneCoordinationStore) {
       if (shouldWarnOnMissingCoordinationStore) {
-        emitCoordinationDegradedOnce('indexeddb_unavailable', { lane: lease.lane });
+        emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.IndexedDBUnavailable, {
+          lane: lease.lane,
+        });
       }
       return;
     }
@@ -743,7 +819,9 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     try {
       await nonceLaneCoordinationStore.upsert(record);
     } catch {
-      emitCoordinationDegradedOnce('durable_store_error', { lane: lease.lane });
+      emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError, {
+        lane: lease.lane,
+      });
     }
   };
 
@@ -755,7 +833,9 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         leaseId: lease.leaseId,
       });
     } catch {
-      emitCoordinationDegradedOnce('durable_store_error', { lane: lease.lane });
+      emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError, {
+        lane: lease.lane,
+      });
     }
   };
 
@@ -895,13 +975,13 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       operationId: input.operation.operationId,
       operationFingerprint: input.operation.operationFingerprint,
       nonce: candidate,
-      state: 'reserved',
+      state: NonceLeaseState.Reserved,
       reservedAtMs,
       expiresAtMs: reservedAtMs + leaseTtlMs,
     };
     leases.set(lease.leaseId, lease);
-    await persistCoordinationLease(lease, 'reserved');
-    emit({ event: 'nonce_lease_reserved', lease });
+    await persistCoordinationLease(lease, NonceDurableLeaseState.Reserved);
+    emit({ event: NonceCoordinatorTraceEventName.LeaseReserved, lease });
     return { ...lease };
   };
 
@@ -945,7 +1025,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     if (state.nextCandidate == null || state.nextCandidate < minNext) {
       state.nextCandidate = minNext;
     }
-    await persistCoordinationLease(lease, 'broadcast_accepted', atMs + evmStaleInFlightThresholdMs);
+    await persistCoordinationLease(
+      lease,
+      NonceDurableLeaseState.BroadcastAccepted,
+      atMs + evmStaleInFlightThresholdMs,
+    );
   };
 
   const markEvmFinalized = async (
@@ -966,12 +1050,12 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
   const markEvmDroppedOrReplaced = async (
     lease: NonceLease & { lane: EvmNonceLane },
-    input: { reason: 'dropped' | 'replaced'; txHash?: string },
+    input: { reason: EvmNonceOutcomeReason; txHash?: string },
   ): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
     const state = getOrCreateEvmState(laneKey);
     const nonce = normalizeBigint(lease.nonce, 'nonce');
-    if (input.reason === 'dropped') {
+    if (input.reason === EvmNonceOutcomeReason.Dropped) {
       state.inFlight.delete(nonce.toString());
       if (state.chainNonce == null || state.chainNonce <= nonce) {
         state.nextCandidate =
@@ -1014,7 +1098,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
   const recordDroppedReplacedAlert = (args: {
     lane: EvmNonceLane;
-    reason: 'dropped' | 'replaced';
+    reason: EvmNonceOutcomeReason;
   }): void => {
     const atMs = now();
     const key = [nonceLaneKey(args.lane), args.reason].join('|');
@@ -1044,7 +1128,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       firstSeenAtMs: windowState.firstSeenAtMs,
       lastSeenAtMs: windowState.lastSeenAtMs,
     };
-    emit({ event: 'nonce_lane_alert', lane: args.lane, alert });
+    emit({ event: NonceCoordinatorTraceEventName.LaneAlert, lane: args.lane, alert });
     console.warn('[NonceCoordinator] repeated EVM-family dropped/replaced nonce outcomes', {
       chain: args.lane.chain,
       networkKey: args.lane.networkKey,
@@ -1405,7 +1489,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     await releaseBackendReservation(lease);
     if (lease.lane.family !== 'evm') return;
     await reconcileEvmLaneLocked(lease.lane);
-    emit({ event: 'nonce_lane_reconciled', lane: lease.lane });
+    emit({ event: NonceCoordinatorTraceEventName.LaneReconciled, lane: lease.lane });
   };
 
   const withLocalLaneLock = async <T>(
@@ -1451,14 +1535,18 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       } catch (error: unknown) {
         const code = isObject(error) ? String((error as { code?: unknown }).code || '') : '';
         emitCoordinationDegradedOnce(
-          code === 'durable_lock_timeout' ? 'durable_lock_timeout' : 'durable_store_error',
-          { lane, fallback: 'none' },
+          code === NonceCoordinatorDegradationReason.DurableLockTimeout
+            ? NonceCoordinatorDegradationReason.DurableLockTimeout
+            : NonceCoordinatorDegradationReason.DurableStoreError,
+          { lane, fallback: NonceCoordinatorFallback.None },
         );
         throw error;
       }
     }
     if (shouldWarnOnMissingCoordinationStore) {
-      emitCoordinationDegradedOnce('web_locks_unavailable', { lane });
+      emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.WebLocksUnavailable, {
+        lane,
+      });
     }
     return await runLocal();
   };
@@ -1470,8 +1558,10 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     for (const lease of Array.from(leases.values())) {
       if (accountId && lease.lane.accountId !== accountId) continue;
       if (lease.expiresAtMs > nowMs) continue;
-      if (lease.state !== 'reserved' && lease.state !== 'signed') continue;
-      if (lease.state === 'signed') {
+      if (lease.state !== NonceLeaseState.Reserved && lease.state !== NonceLeaseState.Signed) {
+        continue;
+      }
+      if (lease.state === NonceLeaseState.Signed) {
         await reconcileAfterSignedLeaseExpiry(lease);
       } else {
         await releaseBackendReservation(lease);
@@ -1479,8 +1569,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       transitionLease({
         lease,
         transition: 'expire',
-        event: 'nonce_lease_expired',
-        reason: lease.state === 'signed' ? 'signed_lease_ttl_elapsed' : 'lease_ttl_elapsed',
+        event: NonceCoordinatorTraceEventName.LeaseExpired,
+        reason:
+          lease.state === NonceLeaseState.Signed
+            ? 'signed_lease_ttl_elapsed'
+            : 'lease_ttl_elapsed',
       });
       expired.push({ ...lease });
     }
@@ -1490,7 +1583,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   const recoverDurableLeases = async (input?: { accountId?: string }): Promise<void> => {
     if (!nonceLaneCoordinationStore) {
       if (shouldWarnOnMissingCoordinationStore) {
-        emitCoordinationDegradedOnce('indexeddb_unavailable');
+        emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.IndexedDBUnavailable);
       }
       return;
     }
@@ -1498,7 +1591,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     try {
       records = await nonceLaneCoordinationStore.readAll(input);
     } catch {
-      emitCoordinationDegradedOnce('durable_store_error');
+      emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError);
       return;
     }
 
@@ -1508,7 +1601,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       await withLaneLock(lane, async () => {
         const recordNonce = normalizeBigint(record.nonce, 'nonce');
         const isExpired = record.expiresAtMs <= now();
-        if (isExpired && record.state !== 'broadcast_accepted') {
+        if (isExpired && record.state !== NonceDurableLeaseState.BroadcastAccepted) {
           await nonceLaneCoordinationStore.remove({
             laneKey: record.laneKey,
             leaseId: record.leaseId,
@@ -1516,14 +1609,18 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
           if (record.family === 'evm') {
             await reconcileEvmLaneLocked(lane as EvmNonceLane).catch(() => null);
           }
-          emit({ event: 'nonce_lane_reconciled', lane, reason: 'startup_recovery_expired_lease' });
+          emit({
+            event: NonceCoordinatorTraceEventName.LaneReconciled,
+            lane,
+            reason: 'startup_recovery_expired_lease',
+          });
           return;
         }
 
         if (record.family === 'evm') {
           const evmLane = lane as EvmNonceLane;
           const state = getOrCreateEvmState(record.laneKey);
-          if (record.state === 'broadcast_accepted') {
+          if (record.state === NonceDurableLeaseState.BroadcastAccepted) {
             state.inFlight.set(record.nonce, {
               nonce: recordNonce,
               status: 'accepted',
@@ -1538,7 +1635,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
               leaseId: record.leaseId,
             });
           }
-          emit({ event: 'nonce_lane_reconciled', lane: evmLane, reason: 'startup_recovery' });
+          emit({
+            event: NonceCoordinatorTraceEventName.LaneReconciled,
+            lane: evmLane,
+            reason: 'startup_recovery',
+          });
           return;
         }
 
@@ -1588,7 +1689,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       operationId: input.operation.operationId,
       operationFingerprint: input.operation.operationFingerprint,
       nonce,
-      state: 'reserved',
+      state: NonceLeaseState.Reserved,
       reservedAtMs,
       expiresAtMs: reservedAtMs + leaseTtlMs,
       batchId,
@@ -1596,8 +1697,8 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     }));
     for (const lease of batchLeases) {
       leases.set(lease.leaseId, lease);
-      await persistCoordinationLease(lease, 'reserved');
-      emit({ event: 'nonce_lease_reserved', lease });
+      await persistCoordinationLease(lease, NonceDurableLeaseState.Reserved);
+      emit({ event: NonceCoordinatorTraceEventName.LeaseReserved, lease });
     }
     return batchLeases.map((lease) => ({ ...lease }));
   };
@@ -1625,11 +1726,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
     for (const event of outcomeMetricEvents) {
       if (accountId && event.accountId !== accountId) continue;
-      if (event.kind === 'dropped') {
+      if (event.kind === EvmNonceOutcomeReason.Dropped) {
         metrics.droppedCount += 1;
         continue;
       }
-      if (event.kind === 'replaced') {
+      if (event.kind === EvmNonceOutcomeReason.Replaced) {
         metrics.replacedCount += 1;
         continue;
       }
@@ -1714,13 +1815,13 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       oldestInFlightLeaseAgeMs,
       staleInFlightLeaseCount,
       staleInFlightLaneCount: staleInFlightLaneKeys.size,
-      reservedLeaseCount: leasesByState.reserved,
-      signedLeaseCount: leasesByState.signed,
-      broadcastAcceptedLeaseCount: leasesByState.broadcast_accepted,
-      droppedLeaseCount: leasesByState.dropped,
-      replacedLeaseCount: leasesByState.replaced,
-      reconciledLeaseCount: leasesByState.reconciled,
-      releasedLeaseCount: leasesByState.released,
+      reservedLeaseCount: leasesByState[NonceLeaseState.Reserved],
+      signedLeaseCount: leasesByState[NonceLeaseState.Signed],
+      broadcastAcceptedLeaseCount: leasesByState[NonceLeaseState.BroadcastAccepted],
+      droppedLeaseCount: leasesByState[NonceLeaseState.Dropped],
+      replacedLeaseCount: leasesByState[NonceLeaseState.Replaced],
+      reconciledLeaseCount: leasesByState[NonceLeaseState.Reconciled],
+      releasedLeaseCount: leasesByState[NonceLeaseState.Released],
       outcomes: readOutcomeMetrics(accountId),
     };
 
@@ -1753,7 +1854,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
     if (input?.emitMetrics) {
       emit({
-        event: 'nonce_coordinator_metrics',
+        event: NonceCoordinatorTraceEventName.Metrics,
         metrics,
         ...(accountId ? { accountId } : {}),
       });
@@ -1875,11 +1976,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         transitionLease({
           lease: lockedLease,
           transition: 'mark_signed',
-          event: 'nonce_lease_signed',
+          event: NonceCoordinatorTraceEventName.LeaseSigned,
           expiresAtMs,
           ...(input.signedTxHash ? { txHash: input.signedTxHash } : {}),
         });
-        await persistCoordinationLease(lockedLease, 'signed', expiresAtMs);
+        await persistCoordinationLease(lockedLease, NonceDurableLeaseState.Signed, expiresAtMs);
       });
     },
 
@@ -1893,12 +1994,12 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
             input.txHash ? String(input.txHash) : undefined,
           );
         } else {
-          await persistCoordinationLease(lockedLease, 'broadcast_accepted');
+          await persistCoordinationLease(lockedLease, NonceDurableLeaseState.BroadcastAccepted);
         }
         transitionLease({
           lease: lockedLease,
           transition: 'broadcast_accepted',
-          event: 'nonce_lease_broadcast_accepted',
+          event: NonceCoordinatorTraceEventName.LeaseBroadcastAccepted,
           ...(input.txHash ? { txHash: String(input.txHash) } : {}),
         });
       });
@@ -1912,7 +2013,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         transitionLease({
           lease: lockedLease,
           transition: 'broadcast_rejected',
-          event: 'nonce_lease_broadcast_rejected',
+          event: NonceCoordinatorTraceEventName.LeaseBroadcastRejected,
           reason: input.error instanceof Error ? input.error.message : String(input.error || ''),
         });
       });
@@ -1935,7 +2036,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         transitionLease({
           lease: lockedLease,
           transition: 'finalize',
-          event: 'nonce_lease_finalized',
+          event: NonceCoordinatorTraceEventName.LeaseFinalized,
           ...(input.txHash ? { txHash: String(input.txHash) } : {}),
         });
       });
@@ -1953,9 +2054,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         });
         transitionLease({
           lease: lockedLease,
-          transition: input.reason === 'replaced' ? 'replace' : 'drop',
+          transition: input.reason === EvmNonceOutcomeReason.Replaced ? 'replace' : 'drop',
           event:
-            input.reason === 'replaced' ? 'nonce_lease_replaced' : 'nonce_lease_dropped',
+            input.reason === EvmNonceOutcomeReason.Replaced
+              ? NonceCoordinatorTraceEventName.LeaseReplaced
+              : NonceCoordinatorTraceEventName.LeaseDropped,
           reason: input.reason,
           ...(input.txHash ? { txHash: String(input.txHash) } : {}),
         });
@@ -1974,7 +2077,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         transitionLease({
           lease: lockedLease,
           transition: 'release',
-          event: 'nonce_lease_released',
+          event: NonceCoordinatorTraceEventName.LeaseReleased,
           reason: input.reason,
         });
       });
@@ -1995,7 +2098,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       const evmLane = input.lane;
       return await withLaneLock(evmLane, async () => {
         const status = await reconcileEvmLaneLocked(evmLane);
-        emit({ event: 'nonce_lane_reconciled', lane: evmLane });
+        emit({ event: NonceCoordinatorTraceEventName.LaneReconciled, lane: evmLane });
         return status;
       });
     },
@@ -2005,7 +2108,9 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       if (!normalizedAccountId) return;
       void nonceLaneCoordinationStore
         ?.clearForAccount(normalizedAccountId)
-        .catch(() => emitCoordinationDegradedOnce('durable_store_error'));
+        .catch(() =>
+          emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError),
+        );
       const evmLaneKeys = evmAccountLaneKeys.get(normalizedAccountId);
       if (evmLaneKeys) {
         for (const key of evmLaneKeys) {
@@ -2022,7 +2127,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         }
       }
       emit({
-        event: 'nonce_lanes_cleared',
+        event: NonceCoordinatorTraceEventName.LanesCleared,
         accountId: normalizedAccountId,
         reason: 'clear_for_account',
       });
@@ -2034,11 +2139,13 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       droppedReplacedAlerts.clear();
       void nonceLaneCoordinationStore
         ?.clearAll()
-        .catch(() => emitCoordinationDegradedOnce('durable_store_error'));
+        .catch(() =>
+          emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError),
+        );
       clearNearAccessKeyState();
       leases.clear();
       laneLocks.clear();
-      emit({ event: 'nonce_lanes_cleared', reason: 'clear_all' });
+      emit({ event: NonceCoordinatorTraceEventName.LanesCleared, reason: 'clear_all' });
     },
 
     getDiagnostics(input) {
@@ -2268,15 +2375,23 @@ function pruneReservedNearNonces(
 }
 
 function isInFlightNonceLeaseState(state: NonceLeaseState): boolean {
-  return state === 'reserved' || state === 'signed';
+  return state === NonceLeaseState.Reserved || state === NonceLeaseState.Signed;
 }
 
 function isActiveEvmLeaseState(state: NonceLeaseState): boolean {
-  return state === 'reserved' || state === 'signed' || state === 'broadcast_accepted';
+  return (
+    state === NonceLeaseState.Reserved ||
+    state === NonceLeaseState.Signed ||
+    state === NonceLeaseState.BroadcastAccepted
+  );
 }
 
 function isActiveNearLeaseState(state: NonceLeaseState): boolean {
-  return state === 'reserved' || state === 'signed' || state === 'broadcast_accepted';
+  return (
+    state === NonceLeaseState.Reserved ||
+    state === NonceLeaseState.Signed ||
+    state === NonceLeaseState.BroadcastAccepted
+  );
 }
 
 function isActiveCoordinationLeaseRecord(
@@ -2284,9 +2399,9 @@ function isActiveCoordinationLeaseRecord(
   nowMs: number,
 ): boolean {
   return (
-    (record.state === 'reserved' ||
-      record.state === 'signed' ||
-      record.state === 'broadcast_accepted') &&
+    (record.state === NonceDurableLeaseState.Reserved ||
+      record.state === NonceDurableLeaseState.Signed ||
+      record.state === NonceDurableLeaseState.BroadcastAccepted) &&
     record.expiresAtMs > nowMs
   );
 }

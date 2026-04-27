@@ -1,4 +1,5 @@
 import type { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
+import { NonceDurableLeaseState } from '../signingEngine/nonce/NonceCoordinator';
 import type {
   NonceLaneCoordinationRecord,
   NonceLaneCoordinationStore,
@@ -74,7 +75,9 @@ function toNonceLaneCoordinationRecord(value: unknown): NonceLaneCoordinationRec
     (family !== 'evm' && family !== 'near') ||
     !networkKey ||
     !/^\d+$/.test(nonce) ||
-    (state !== 'reserved' && state !== 'signed' && state !== 'broadcast_accepted') ||
+    (state !== NonceDurableLeaseState.Reserved &&
+      state !== NonceDurableLeaseState.Signed &&
+      state !== NonceDurableLeaseState.BroadcastAccepted) ||
     !operationId ||
     !operationFingerprint ||
     reservedAtMs == null ||
