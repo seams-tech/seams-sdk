@@ -5,17 +5,17 @@ import {
   planSigningSession,
   type SigningSessionReadiness,
 } from '@/core/signingEngine/session/signingSession/planner';
-import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/SigningBudgetSpendPlan';
+import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/signingSession/budget';
 import {
   SigningSessionIds,
   type SigningLaneContext,
   type SigningSessionPlan,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
   emitSigningLaneResolutionTrace,
-} from '@/core/signingEngine/session/SigningSessionTrace';
+} from '@/core/signingEngine/session/signingSession/trace';
 
 test.describe('SigningSessionPlanner', () => {
   test('plans core auth outcomes from the selected lane matrix', () => {

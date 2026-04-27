@@ -3,7 +3,7 @@ import { ActionType } from '@/core/types/actions';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import { WorkerResponseType } from '@/core/types/signer-worker';
 import { signTransactionsWithActions } from '@/core/signingEngine/api/nearSigning';
-import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSessionPersistence';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
 import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 
 class MemorySessionStorage implements Pick<

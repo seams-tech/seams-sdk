@@ -22,7 +22,7 @@ import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/orchestration/thresholdActivation';
-import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmSessionTypes';
+import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmSigning/types';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import {
   buildEd25519SessionPolicy,

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { EmailOtpThresholdSessionCoordinator } from '@/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
-import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSessionPersistence';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
 import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 
 function jsonB64u(value: unknown): string {

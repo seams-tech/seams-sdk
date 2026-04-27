@@ -14,7 +14,7 @@ import {
 import {
   SigningOperationIntent,
   SigningSessionIds,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 
 const TEST_SENDER = `0x${'22'.repeat(20)}` as const;
 

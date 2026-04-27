@@ -2,7 +2,7 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
   buildEvmTransactionSigningLane,
   buildTempoTransactionSigningLane,
-} from '../../session/SigningLaneBuilders';
+} from '../../session/signingSession/lanes';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
@@ -11,11 +11,11 @@ import type { EmailOtpAuthLane } from '../../emailOtp/authLane';
 import {
   createSigningCapabilityReader,
   type SigningCapabilityReadError,
-} from '../../session/SigningCapabilityReader';
+} from '../../session/signingSession/lanes';
 import {
   SigningSessionIds,
   type SigningLaneContext,
-} from '../../session/signingSessionTypes';
+} from '../../session/signingSession/types';
 import { toAccountId } from '@/core/types/accountIds';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EvmFamilyChain } from './types';

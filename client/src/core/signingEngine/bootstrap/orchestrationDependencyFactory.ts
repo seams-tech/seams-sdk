@@ -44,13 +44,13 @@ import {
 } from './workerResourceWarmup';
 import type { UserPreferencesManager } from '../api/userPreferences';
 import { prewarmTxConfirmerUi } from '../touchConfirm/ui/confirm-ui';
-import { createWarmSessionCapabilityReader } from '../session/WarmSessionCapabilityReader';
-import { createWarmSessionStatusReader } from '../session/WarmSessionStatusReader';
+import { createWarmSessionCapabilityReader } from '../session/warmSigning/capabilityReader';
+import { createWarmSessionStatusReader } from '../session/warmSigning/statusReader';
 import { clearThresholdEcdsaClientPresignaturesForLane } from '../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
-} from '../session/WarmSessionServiceTypes';
+} from '../session/warmSigning/types';
 import { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
 
 export type OrchestrationSignTempoInput = {

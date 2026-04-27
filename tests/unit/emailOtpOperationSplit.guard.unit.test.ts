@@ -160,11 +160,11 @@ test.describe('Email OTP operation split guard', () => {
     const emailOtpCoordinator = readRepoFile(
       'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
-    const walletCoordinator = readRepoFile(
-      'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
+    const signingSessionReadiness = readRepoFile(
+      'client/src/core/signingEngine/session/signingSession/readiness.ts',
     );
     const warmSessionStatusReader = readRepoFile(
-      'client/src/core/signingEngine/session/WarmSessionStatusReader.ts',
+      'client/src/core/signingEngine/session/warmSigning/statusReader.ts',
     );
 
     expect(store).toContain('getEmailOtpThresholdEcdsaSessionRecordForSigning');
@@ -183,7 +183,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(evmSigning).not.toContain('type EcdsaSigningLaneContext');
     expect(ecdsaSelection).toContain('export type EvmFamilyEcdsaSigningSelection');
     expect(authPlanning).toContain('export type ResolveEvmFamilyTransactionWalletAuthArgs');
-    expect(authPlanning).toContain('ecdsaSigningLane: SigningLaneContext');
+    expect(authPlanning).toContain('ecdsaSigningLane?: SigningLaneContext');
     expect(evmSigning).toContain('resolveEvmFamilyTransactionWalletAuth');
     expect(ecdsaLanes).toContain('requireEvmFamilyEcdsaSigningLane');
     expect(ecdsaSelection).toContain('source: SIGNER_AUTH_METHODS.emailOtp');
@@ -202,8 +202,8 @@ test.describe('Email OTP operation split guard', () => {
     expect(warmSessionStatusReader).toContain(
       'if (fallback && (!args.source || fallback.source === args.source))',
     );
-    expect(walletCoordinator).toContain("source: 'passkey' | 'email_otp'");
-    expect(walletCoordinator).toContain(
+    expect(signingSessionReadiness).toContain("source: 'passkey' | 'email_otp'");
+    expect(signingSessionReadiness).toContain(
       "record.source === 'email_otp' ? 'email_otp' : 'passkey'",
     );
   });

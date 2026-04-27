@@ -4,7 +4,7 @@ import type {
   WarmSessionEd25519CapabilityState,
   WarmSessionEnvelope,
   WarmSessionPrfClaim,
-} from './warmSessionTypes';
+} from './types';
 
 export type WarmSessionTransitionCapabilitySnapshot = {
   state: WarmSessionEd25519CapabilityState['state'] | WarmSessionEcdsaCapabilityState['state'];

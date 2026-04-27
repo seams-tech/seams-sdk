@@ -1,5 +1,5 @@
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import { createTransactionSigningBudgetFinalizer } from '../../session/TransactionSigningBudgetFinalizer';
+import { createTransactionSigningBudgetFinalizer } from '../../session/signingSession/budgetFinalizer';
 import type { WalletSigningBudgetReservation } from '../../session/signingSession/budget';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
@@ -7,7 +7,7 @@ import {
   type SigningLaneContext,
   type SigningOperationFingerprint,
   type SigningOperationContext,
-} from '../../session/signingSessionTypes';
+} from '../../session/signingSession/types';
 import { readSelectedEcdsaRecordForLane, type EvmFamilyEcdsaSessionReaderDeps } from './ecdsaLanes';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
 import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';

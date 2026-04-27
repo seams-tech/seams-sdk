@@ -35,7 +35,7 @@ import {
   type ThresholdEd25519SessionStoreSource,
 } from './thresholdLifecycle/thresholdSessionStore';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { WarmSessionSealedRestoreEvent } from '../session/WarmSessionSealedRefreshRestorer';
+import type { WarmSessionSealedRestoreEvent } from '../session/warmSigning/sealedRefreshRestorer';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import {
   buildEd25519SessionPolicy,
@@ -47,8 +47,8 @@ import {
   SigningSessionIds,
   type SigningLaneContext,
   type SigningOperationId,
-} from '../session/signingSessionTypes';
-import { buildNearTransactionSigningLane } from '../session/SigningLaneBuilders';
+} from '../session/signingSession/types';
+import { buildNearTransactionSigningLane } from '../session/signingSession/lanes';
 import {
   isWalletSigningBudgetExhaustedError,
   SigningSessionCoordinator,
@@ -60,7 +60,7 @@ import {
   emitSigningBoundaryTrace,
   emitSigningLaneResolutionTrace,
   emitSigningPlannerDecisionTrace,
-} from '../session/SigningSessionTrace';
+} from '../session/signingSession/trace';
 
 export type SignDelegateActionResult = {
   signedDelegate: WasmSignedDelegate;

@@ -27,37 +27,37 @@ import {
 import type { WarmSessionStatusResult } from '@/core/signingEngine/touchConfirm';
 import {
   createWarmSessionCapabilityReader,
-} from '@/core/signingEngine/session/WarmSessionCapabilityReader';
+} from '@/core/signingEngine/session/warmSigning/capabilityReader';
 import {
   ensureWarmEcdsaCapabilityReady,
   provisionWarmEcdsaCapability,
   tryReuseReadyWarmEcdsaBootstrap,
-} from '@/core/signingEngine/session/WarmSessionEcdsaProvisioner';
-import { provisionWarmEd25519Capability } from '@/core/signingEngine/session/WarmSessionEd25519Provisioner';
+} from '@/core/signingEngine/session/warmSigning/ecdsaProvisioner';
+import { provisionWarmEd25519Capability } from '@/core/signingEngine/session/warmSigning/ed25519Provisioner';
 import {
   applyWarmSessionEcdsaPostSignPolicy,
   assertWarmSessionEcdsaOperationAllowed,
-} from '@/core/signingEngine/session/WarmSessionPostSignPolicyAdapter';
+} from '@/core/signingEngine/session/warmSigning/postSignPolicyAdapter';
 import {
   createWarmSessionStatusReader as createCoreWarmSessionStatusReader,
-} from '@/core/signingEngine/session/WarmSessionStatusReader';
-import { resolveWarmEcdsaBootstrapRequestFromSession } from '@/core/signingEngine/session/WarmSessionEcdsaBootstrapRequest';
+} from '@/core/signingEngine/session/warmSigning/statusReader';
+import { resolveWarmEcdsaBootstrapRequestFromSession } from '@/core/signingEngine/session/warmSigning/ecdsaBootstrapRequest';
 import {
   claimWarmSessionPrfFirst,
   ensureEcdsaPrfSealPersisted,
-} from '@/core/signingEngine/session/warmSessionRuntime';
+} from '@/core/signingEngine/session/warmSigning/runtime';
 import type {
   EnsureWarmEcdsaCapabilityReadyResult,
   ProvisionWarmEcdsaCapabilityArgs,
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
-} from '@/core/signingEngine/session/WarmSessionServiceTypes';
+} from '@/core/signingEngine/session/warmSigning/types';
 import type {
   RehydrateEmailOtpEcdsaSigningSessionFromSealedRecord,
   WarmSessionSealedRestoreEvent,
   WarmSessionSealedStoreOverrides,
-} from '@/core/signingEngine/session/WarmSessionSealedRefreshRestorer';
-import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmSessionTransitions';
+} from '@/core/signingEngine/session/warmSigning/sealedRefreshRestorer';
+import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmSigning/transitions';
 
 type SessionStorageMock = {
   getItem: (key: string) => string | null;

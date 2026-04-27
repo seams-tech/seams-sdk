@@ -81,7 +81,7 @@ import {
   UserConfirmationType,
   type ExportPrivateKeyDisplayEntry,
 } from './touchConfirm/shared/confirmTypes';
-import { SigningOperationIntent } from './session/signingSessionTypes';
+import { SigningOperationIntent } from './session/signingSession/types';
 import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
 import type { EvmSigningRequest } from './chainAdaptors/evm/types';
@@ -198,21 +198,21 @@ import {
 import { initializeRuntimeBootstrap } from './bootstrap/runtimeBootstrap';
 import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
-import { createWarmSessionCapabilityReader } from './session/WarmSessionCapabilityReader';
-import { createWarmSessionStatusReader } from './session/WarmSessionStatusReader';
-import { provisionWarmEd25519Capability } from './session/WarmSessionEd25519Provisioner';
-import { provisionWarmEcdsaCapability } from './session/WarmSessionEcdsaProvisioner';
-import { assertWarmSessionEcdsaOperationAllowed } from './session/WarmSessionPostSignPolicyAdapter';
+import { createWarmSessionCapabilityReader } from './session/warmSigning/capabilityReader';
+import { createWarmSessionStatusReader } from './session/warmSigning/statusReader';
+import { provisionWarmEd25519Capability } from './session/warmSigning/ed25519Provisioner';
+import { provisionWarmEcdsaCapability } from './session/warmSigning/ecdsaProvisioner';
+import { assertWarmSessionEcdsaOperationAllowed } from './session/warmSigning/postSignPolicyAdapter';
 import {
   claimWarmSessionPrfFirst,
   ensureEcdsaPrfSealPersisted,
-} from './session/warmSessionRuntime';
-import type { WarmSessionEcdsaCapabilityState } from './session/warmSessionTypes';
+} from './session/warmSigning/runtime';
+import type { WarmSessionEcdsaCapabilityState } from './session/warmSigning/types';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
   WarmEcdsaSigningSessionStatus,
-} from './session/WarmSessionServiceTypes';
+} from './session/warmSigning/types';
 import {
   deriveThresholdEd25519HssClientInputsWasm,
   finalizeThresholdEcdsaHssClientRequestWasm,
@@ -236,7 +236,7 @@ import {
   type OrchestrationDependencyBundle,
 } from './bootstrap/orchestrationDependencyFactory';
 import { enrollEmailOtpWallet } from '../TatchiPasskey/emailOtp';
-import { persistWarmSessionEd25519Capability } from './session/warmSessionPersistence';
+import { persistWarmSessionEd25519Capability } from './session/warmSigning/persistence';
 import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,
@@ -3195,6 +3195,7 @@ export class SigningEngine {
     thresholdSessionId: string,
   ): Promise<WarmEcdsaSigningSessionStatus | null> {
     return (async () => {
+      await this.restoreEmailOtpSealedWarmSessionsForRead(nearAccountId);
       const status = await this.createWarmSessionStatusReader().getEcdsaSigningSessionStatus({
         nearAccountId,
         chain,
@@ -3214,6 +3215,7 @@ export class SigningEngine {
     chain: 'tempo' | 'evm',
   ): Promise<WarmEcdsaSigningSessionStatus[]> {
     return (async () => {
+      await this.restoreEmailOtpSealedWarmSessionsForRead(nearAccountId);
       const statuses = await this.createWarmSessionStatusReader().listEcdsaSigningSessionStatuses({
         nearAccountId,
         chain,
@@ -3228,6 +3230,14 @@ export class SigningEngine {
         }),
       );
     })();
+  }
+
+  private async restoreEmailOtpSealedWarmSessionsForRead(
+    nearAccountId: AccountId | string,
+  ): Promise<void> {
+    await this.createWarmSessionCapabilityReader()
+      .getWarmSession(nearAccountId)
+      .catch(() => undefined);
   }
 
   async scheduleThresholdEcdsaLoginPresignPrefill(args: {

@@ -3,13 +3,13 @@ import {
   emitWarmSessionTransition,
   summarizeWarmSessionTransition,
   type WarmSessionTransitionEvent,
-} from './warmSessionTransitions';
-import { toOptionalNonEmptyString } from './warmSessionEcdsaProvisioning';
-import type { WarmSessionEnvelope } from './warmSessionTypes';
+} from './transitions';
+import { toOptionalNonEmptyString } from './ecdsaProvisioner';
+import type { WarmSessionEnvelope } from './types';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
-} from './WarmSessionServiceTypes';
+} from './types';
 
 export type WarmSessionEd25519ProvisionerDeps = {
   getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;

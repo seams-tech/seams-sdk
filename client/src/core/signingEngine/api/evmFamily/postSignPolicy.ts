@@ -3,7 +3,7 @@ import {
   readSelectedEcdsaRecordForLane,
   type EvmFamilyEcdsaSessionReaderDeps,
 } from './ecdsaLanes';
-import type { SigningLaneContext } from '../../session/signingSessionTypes';
+import type { SigningLaneContext } from '../../session/signingSession/types';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,

@@ -4,7 +4,7 @@ import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
-import type { SigningOperationId } from '../session/signingSessionTypes';
+import type { SigningOperationId } from '../session/signingSession/types';
 import {
   reconcileEvmFamilyNonceLane,
   reportEvmFamilyBroadcastAccepted,

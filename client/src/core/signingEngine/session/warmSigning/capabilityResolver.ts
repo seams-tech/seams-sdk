@@ -1,12 +1,12 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
-import type { EmailOtpAuthLane } from '../emailOtp/authLane';
-import type { ThresholdSessionSealTransportAuthMaterial } from '../api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
+import type { EmailOtpAuthLane } from '../../emailOtp/authLane';
+import type { ThresholdSessionSealTransportAuthMaterial } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEcdsaRecordByThresholdSessionId,
   readWarmSessionEd25519RecordByThresholdSessionId,
-} from './WarmSessionStore';
+} from './store';
 import {
   deriveEcdsaCapabilityState,
   deriveEd25519CapabilityState,
@@ -15,17 +15,17 @@ import {
   resolveEcdsaSealTransport,
   resolveEd25519AuthMaterial,
   type WarmSessionReadPorts,
-} from './warmSessionReadModel';
-import { assertWarmSessionEnvelopeInvariant } from './warmSessionTypes';
+} from './readModel';
+import { assertWarmSessionEnvelopeInvariant } from './types';
 import type {
   WarmSessionEcdsaAuthMaterial,
   WarmSessionEcdsaCapabilityState,
   WarmSessionEd25519AuthMaterial,
   WarmSessionEd25519CapabilityState,
   WarmSessionEnvelope,
-} from './warmSessionTypes';
-import type { WarmSessionSealedRefreshRestorer } from './WarmSessionSealedRefreshRestorer';
-import type { WarmSessionStatusReader } from './WarmSessionStatusReader';
+} from './types';
+import type { WarmSessionSealedRefreshRestorer } from './sealedRefreshRestorer';
+import type { WarmSessionStatusReader } from './statusReader';
 
 export type WarmSessionCapabilityResolverDeps = {
   touchConfirm?: WarmSessionReadPorts;

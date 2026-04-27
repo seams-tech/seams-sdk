@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import { inferWalletSigningBudgetZeroSpendReason } from '@/core/signingEngine/session/WalletSigningBudgetFailureReason';
-import { buildTempoTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
-import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/SigningBudgetSpendPlan';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSessionTypes';
+import { inferWalletSigningBudgetZeroSpendReason } from '@/core/signingEngine/session/signingSession/budgetFinalizer';
+import { buildTempoTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
+import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/signingSession/budget';
+import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
 
 test.describe('WalletSigningBudgetLedger', () => {
   test('records one spend per successful operation id', async () => {

@@ -6,8 +6,8 @@ import {
   getPrimaryAndSecondaryEcdsaCapabilities,
   normalizeParticipantIds,
   toOptionalNonEmptyString,
-} from '@/core/signingEngine/session/warmSessionEcdsaProvisioning';
-import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmSessionTypes';
+} from '@/core/signingEngine/session/warmSigning/ecdsaProvisioner';
+import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmSigning/types';
 import { createThresholdEcdsaBootstrapFixture } from './helpers/warmSessionStore.fixtures';
 
 function createEnvelope(): WarmSessionEnvelope {

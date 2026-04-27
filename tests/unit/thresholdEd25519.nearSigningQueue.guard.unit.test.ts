@@ -53,7 +53,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'await tryRestoreEmailOtpSigningSessionForNearTransaction',
     );
     const authResolution = nearSigning.indexOf(
-      'const { walletAuthPlan, signingLane, emailOtpSigning } = await resolveNearTransactionWalletAuth',
+      'const { signingAuthPlan, signingLane, emailOtpSigning } = await resolveNearTransactionWalletAuth',
     );
 
     expect(restoreStart).toBeGreaterThanOrEqual(0);
@@ -72,7 +72,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const nearSigning = readNearSigningSource();
 
     expect(nearSigning).toContain('hasThresholdEd25519RouteAuth(args.record)');
-    expect(nearSigning).toContain('new SigningSessionCoordinator({');
+    expect(nearSigning).toContain('new SigningSessionCoordinator()');
     expect(nearSigning).toContain("emitSigningPlannerDecisionTrace('near', event)");
     expect(nearSigning).not.toContain('readSigningSessionSealedRecord');
   });
@@ -82,8 +82,8 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const transactionsFlow = readRepoSource(
       'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts',
     );
-    const walletCoordinator = readRepoSource(
-      'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
+    const signingSessionCoordinator = readRepoSource(
+      'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
     );
     const emailOtpCoordinator = readRepoSource(
       'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
@@ -97,8 +97,8 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(transactionsFlow).toContain('recordSuccessfulWalletSigningSessionSpend');
     expect(transactionsFlow).toContain('signingSessionCoordinator');
     expect(transactionsFlow).toContain('cachedXClientBaseB64u');
-    expect(walletCoordinator).toContain('createWalletSigningSessionCoordinator');
-    expect(walletCoordinator).toContain('consumeEmailOtpWarmSessionUses');
+    expect(signingSessionCoordinator).toContain('consumeWalletSigningSessionUse');
+    expect(signingSessionCoordinator).toContain('consumeEmailOtpWarmSessionUses');
     expect(emailOtpCoordinator).toContain('consumeWarmSessionUses');
     expect(emailOtpCoordinator).toContain('consumeEmailOtpWarmSessionUses');
     expect(worker).toContain('consumeEmailOtpWarmSessionUses');
@@ -115,21 +115,21 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const worker = readRepoSource(
       'client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
     );
-    const walletCoordinator = readRepoSource(
-      'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
+    const signingSessionReadiness = readRepoSource(
+      'client/src/core/signingEngine/session/signingSession/readiness.ts',
     );
 
     expect(orchestrationDeps).toContain('new SigningSessionCoordinator');
     expect(orchestrationDeps).toContain('signingSessionCoordinator');
     expect(orchestrationDeps).not.toContain('walletSigningBudgetLedger');
     expect(orchestrationDeps).not.toContain('consumeWalletSigningSessionUse');
-    expect(walletCoordinator).toContain('clientAdditiveShareHandle');
-    expect(walletCoordinator).toContain('walletSigningSessionId');
+    expect(signingSessionReadiness).toContain('clientAdditiveShareHandle');
+    expect(signingSessionReadiness).toContain('walletSigningSessionId');
     expect(touchConfirmTypes).toContain('WarmSessionMaterialConsumer');
     expect(touchConfirmManager).toContain('WARM_SESSION_MATERIAL_CONSUME');
     expect(worker).toContain('consumeWarmSessionMaterialEntry');
     expect(worker).toContain('WARM_SESSION_MATERIAL_CONSUME');
-    expect(walletCoordinator).toContain('consumeWarmSessionUses');
+    expect(signingSessionReadiness).toContain('consumeWarmSessionUses');
   });
 
   test('transaction signing does not consume worker warm-session budgets directly', () => {
@@ -138,10 +138,10 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     );
     const evmSigning = readRepoSource('client/src/core/signingEngine/api/evmSigning.ts');
 
-    expect(transactionsFlow).toContain('walletSigningBudgetLedger');
+    expect(transactionsFlow).toContain('signingSessionCoordinator');
     expect(transactionsFlow).not.toContain('consumeWalletSigningSessionUse');
     expect(transactionsFlow).not.toContain('consumeWarmSessionUses');
-    expect(evmSigning).toContain('walletSigningBudgetLedger');
+    expect(evmSigning).toContain('signingSessionCoordinator');
     expect(evmSigning).not.toContain('consumeWalletSigningSessionUse');
     expect(evmSigning).not.toContain('.consumeWarmSessionUses');
   });

@@ -3,10 +3,14 @@ import type { SigningSessionStatus } from '@/core/types/tatchi';
 import {
   normalizeWalletSigningSpendPlan,
   summarizeSigningLane,
+  type BackingMaterialSessionId,
+  type SigningLaneContext,
   type SigningLaneSummary,
+  type SigningOperationContext,
   type SigningOperationId,
+  type ThresholdSessionId,
   type WalletSigningSpendPlan,
-} from '../signingSessionTypes';
+} from './types';
 
 export type WalletSigningBudgetLedgerZeroSpendReason =
   | 'confirmation_cancelled'
@@ -222,4 +226,45 @@ export function normalizeRequired(value: unknown, label: string): string {
 export function normalizeStringList(values: readonly string[] | undefined): string[] | undefined {
   const normalized = (values || []).map((value) => String(value || '').trim()).filter(Boolean);
   return normalized.length ? normalized : undefined;
+}
+
+export function buildWalletSigningSpendPlan(
+  operation: SigningOperationContext,
+  lane: SigningLaneContext,
+  refs: {
+    thresholdSessionId?: ThresholdSessionId;
+    backingMaterialSessionId?: BackingMaterialSessionId;
+  } = {},
+): WalletSigningSpendPlan {
+  return {
+    operationId: operation.operationId,
+    ...(operation.operationFingerprint
+      ? { operationFingerprint: operation.operationFingerprint }
+      : {}),
+    nearAccountId: lane.accountId,
+    walletSigningSessionId: lane.walletSigningSessionId,
+    lane,
+    thresholdSessionIds: uniqueDefined([lane.thresholdSessionId, refs.thresholdSessionId]),
+    backingMaterialSessionIds: uniqueDefined([
+      lane.backingMaterialSessionId,
+      refs.backingMaterialSessionId,
+    ]),
+    uses: 1,
+    reason: operation.intent,
+  };
+}
+
+function uniqueDefined<TValue extends string>(values: readonly (TValue | undefined)[]): TValue[] {
+  const out: TValue[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    out.push(value);
+  }
+
+  return out;
 }

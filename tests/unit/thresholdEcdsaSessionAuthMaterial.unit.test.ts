@@ -5,7 +5,7 @@ const IMPORT_PATHS = {
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
   warmSessionCapabilityReader:
-    '/sdk/esm/core/signingEngine/session/WarmSessionCapabilityReader.js',
+    '/sdk/esm/core/signingEngine/session/warmSigning/capabilityReader.js',
 } as const;
 
 test.describe('threshold ECDSA warm-session auth material', () => {

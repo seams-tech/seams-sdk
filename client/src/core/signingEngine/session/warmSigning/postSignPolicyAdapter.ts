@@ -3,17 +3,16 @@ import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
-} from '../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
 import {
   getPrimaryAndSecondaryEcdsaCapabilities,
-  type WarmSessionEcdsaCapabilityRef,
-} from './warmSessionEcdsaProvisioning';
-import type { WarmSessionEnvelope } from './warmSessionTypes';
+} from './ecdsaProvisioner';
+import type { WarmSessionEcdsaCapabilityRef, WarmSessionEnvelope } from './types';
 import {
   applyEcdsaPostSignPolicy as applySigningEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed as assertSigningEcdsaOperationAllowed,
-} from './SigningPostSignPolicy';
+} from '../signingSession/postSignPolicy';
 
 export type WarmSessionPostSignPolicyAdapterDeps = {
   getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;

@@ -4,7 +4,7 @@ import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/api/thres
 import {
   applyEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed,
-} from '@/core/signingEngine/session/SigningPostSignPolicy';
+} from '@/core/signingEngine/session/signingSession/postSignPolicy';
 import { toAccountId } from '@/core/types/accountIds';
 
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');

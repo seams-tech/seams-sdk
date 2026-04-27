@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   claimWarmSessionPrfFirst,
   ensureEcdsaPrfSealPersisted,
-} from '@/core/signingEngine/session/warmSessionRuntime';
+} from '@/core/signingEngine/session/warmSigning/runtime';
 import {
   createThresholdEcdsaBootstrapFixture,
   createThresholdEcdsaStoreFixture,

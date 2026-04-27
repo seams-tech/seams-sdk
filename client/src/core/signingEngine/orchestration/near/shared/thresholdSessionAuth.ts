@@ -1,5 +1,5 @@
 import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
-import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/WarmSessionServiceTypes';
+import type { WarmSessionCapabilityReader } from '@/core/signingEngine/session/warmSigning/types';
 import { THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR } from './thresholdAuthMode';
 
 export type ResolvedThresholdEd25519SessionState = {

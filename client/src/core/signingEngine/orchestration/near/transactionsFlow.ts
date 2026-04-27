@@ -60,23 +60,22 @@ import {
 } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
-import { buildNearTransactionSigningLane } from '../../session/SigningLaneBuilders';
+import { buildNearTransactionSigningLane } from '../../session/signingSession/lanes';
 import {
   SigningOperationIntent,
   SigningSessionIds,
   type SigningLaneContext,
   type SigningOperationId,
-} from '../../session/signingSessionTypes';
+} from '../../session/signingSession/types';
 import type { NonceLeaseRef } from '../../nonce/NonceCoordinator';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
   emitSigningPlannerDecisionTrace,
-} from '../../session/SigningSessionTrace';
+} from '../../session/signingSession/trace';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { createTransactionSigningBudgetFinalizer } from '../../session/TransactionSigningBudgetFinalizer';
-import { computeSigningOperationFingerprint } from '../../session/SigningOperationFingerprint';
-import { bindCallerProvidedSigningOperationIdToFingerprint } from '../../session/SigningOperationIdPayloadBinding';
+import { createTransactionSigningBudgetFinalizer } from '../../session/signingSession/budgetFinalizer';
+import { computeSigningOperationFingerprint } from '../../session/signingSession/operationFingerprint';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -190,12 +189,6 @@ export async function signTransactionsWithActions({
       transactions,
     },
   });
-  if (callerProvidedSigningOperationId) {
-    bindCallerProvidedSigningOperationIdToFingerprint({
-      operationId: ensureSigningOperationId(),
-      operationFingerprint,
-    });
-  }
   const relayerUrl = ctx.relayerUrl;
   const ed25519WarmupPromise =
     ed25519Warmup?.isPending() === true
@@ -280,6 +273,12 @@ export async function signTransactionsWithActions({
   }
   const touchConfirm = ctx.touchConfirm;
   const signingSessionCoordinator = createNearSigningSessionCoordinator(touchConfirm);
+  if (callerProvidedSigningOperationId) {
+    (sessionCoordinator || new SigningSessionCoordinator()).bindCallerProvidedOperationIdToFingerprint({
+      operationId: ensureSigningOperationId(),
+      operationFingerprint,
+    });
+  }
   const usesNeeded = 1;
   const shouldUseEmailOtpReauth =
     providedSigningAuthPlan?.kind === SigningAuthPlanKind.EmailOtpReauth || !!emailOtpSigning;

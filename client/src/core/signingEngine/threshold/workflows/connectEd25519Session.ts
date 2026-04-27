@@ -12,7 +12,7 @@ import { buildEd25519SessionPolicy } from '../session/sessionPolicy';
 import type { ThresholdRuntimePolicyScope } from '../session/sessionPolicy';
 import { mintEd25519AuthSession } from '../session/ed25519AuthSession';
 import type { Ed25519SessionKind } from '../session/ed25519SessionTypes';
-import { persistWarmSessionEd25519Capability } from '../../session/warmSessionPersistence';
+import { persistWarmSessionEd25519Capability } from '../../session/warmSigning/persistence';
 import {
   createEmailOtpWalletAuthAdapter,
   createPasskeyWalletAuthAdapter,

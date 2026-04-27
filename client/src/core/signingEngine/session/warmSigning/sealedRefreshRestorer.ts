@@ -2,7 +2,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
-} from '../api/thresholdLifecycle/thresholdSessionStore';
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
 import {
   acquireSigningSessionRestoreLease,
   deleteSigningSessionSealedRecord,
@@ -10,13 +10,13 @@ import {
   releaseSigningSessionRestoreLease,
   type SigningSessionRestoreLeaseHandle,
   type SigningSessionSealedStoreRecord,
-} from '../api/session/signingSessionSealedStore';
+} from '../../api/session/signingSessionSealedStore';
 import type {
   ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
-} from '../orchestration/thresholdActivation';
-import type { WarmSessionStatusResult } from '../touchConfirm';
-import type { WarmSessionPrfClaim } from './warmSessionTypes';
+} from '../../orchestration/thresholdActivation';
+import type { WarmSessionStatusResult } from '../../touchConfirm';
+import type { WarmSessionPrfClaim } from './types';
 
 export type WarmSessionSealedRestoreEvent = {
   accountId: AccountId;

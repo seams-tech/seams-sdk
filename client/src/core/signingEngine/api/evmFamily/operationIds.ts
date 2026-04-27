@@ -2,8 +2,8 @@ import {
   SigningSessionIds,
   type SigningOperationFingerprint,
   type SigningOperationId,
-} from '../../session/signingSessionTypes';
-import { bindCallerProvidedSigningOperationIdToFingerprint } from '../../session/SigningOperationIdPayloadBinding';
+} from '../../session/signingSession/types';
+import type { SigningOperationIdFingerprintBinder } from '../../session/signingSession/operationIdBinding';
 
 export type EvmFamilySigningOperationIds = {
   planningOperationId: SigningOperationId;
@@ -47,9 +47,10 @@ export function ensureEvmFamilyConfirmationOperationId(
 export function bindEvmFamilyCallerProvidedOperationIdToFingerprint(
   operationIds: EvmFamilySigningOperationIds,
   operationFingerprint: SigningOperationFingerprint,
+  binder: SigningOperationIdFingerprintBinder,
 ): void {
   if (!operationIds.callerProvided) return;
-  bindCallerProvidedSigningOperationIdToFingerprint({
+  binder.bindCallerProvidedOperationIdToFingerprint({
     operationId: operationIds.planningOperationId,
     operationFingerprint,
   });

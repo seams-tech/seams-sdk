@@ -14,7 +14,7 @@ import type { SigningAuthPlan } from '../touchConfirm/shared/confirmTypes';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
-import type { SigningLaneContext, SigningOperationId } from '../session/signingSessionTypes';
+import type { SigningLaneContext, SigningOperationId } from '../session/signingSession/types';
 
 export type NearEmailOtpSigningHook = {
   prepare: () => Promise<{ challengeId: string; emailHint?: string }>;

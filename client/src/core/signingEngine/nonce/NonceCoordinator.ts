@@ -14,7 +14,7 @@ import type {
   SigningOperationContext,
   SigningOperationFingerprint,
   SigningOperationId,
-} from '../session/signingSessionTypes';
+} from '../session/signingSession/types';
 
 export const NonceLeaseState = {
   Reserved: 'reserved',

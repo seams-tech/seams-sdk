@@ -6,7 +6,7 @@ import {
   SigningSessionPlanKind,
   type SigningLaneContext,
   type SigningSessionPlan,
-} from '../../session/signingSessionTypes';
+} from '../../session/signingSession/types';
 import {
   SigningExecutionCommandKind,
   createSigningExecutionCommandTraceEvent,
@@ -15,7 +15,7 @@ import {
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
-} from '../../session/SigningSessionTrace';
+} from '../../session/signingSession/trace';
 import type { EvmFamilySigningDeps } from '../evmSigning';
 import { resolveThresholdEcdsaCommitQueueKey } from '../thresholdLifecycle/thresholdEcdsaCommitQueue';
 import {

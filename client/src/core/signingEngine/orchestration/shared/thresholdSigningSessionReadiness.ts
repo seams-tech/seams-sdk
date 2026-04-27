@@ -4,8 +4,8 @@ import {
   requireThresholdSigningSessionId,
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
-} from '@/core/signingEngine/session/WarmSessionStatusReader';
-import type { ThresholdWarmSessionStatusReader } from '@/core/signingEngine/session/WarmSessionServiceTypes';
+} from '@/core/signingEngine/session/warmSigning/statusReader';
+import type { ThresholdWarmSessionStatusReader } from '@/core/signingEngine/session/warmSigning/types';
 import type {
   WarmSessionStatusResult,
   WarmSessionStatusReader,

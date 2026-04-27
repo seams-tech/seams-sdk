@@ -1,6 +1,10 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/tatchi';
 import {
+  deleteSigningSessionSealedRecord,
+  updateSigningSessionSealedRecordPolicy,
+} from '../api/session/signingSessionSealedStore';
+import {
   createSigningPlannerDecisionTraceEvent,
   planSigningSession,
   type SigningPlannerDecisionTraceEvent,
@@ -29,6 +33,10 @@ import {
   type WalletSigningBudgetConsumer,
   type WalletSigningBudgetStatusReader,
 } from './signingSession/budget';
+import {
+  bindCallerProvidedSigningOperationIdToFingerprint,
+  type SigningOperationIdBindingState,
+} from './signingSession/operationIdBinding';
 
 export {
   WALLET_SIGNING_BUDGET_EXHAUSTED_ERROR,
@@ -36,14 +44,25 @@ export {
   type WalletSigningBudgetReservation,
 };
 import {
-  createWalletSigningSessionCoordinator,
-  type WalletSigningSessionConsumeUseArgs,
-  type WalletSigningSessionCoordinator,
-  type WalletSigningSessionCoordinatorDeps,
-  type WalletSigningSessionCoordinatorState,
-} from './WalletSigningSessionCoordinator';
-import { applyWalletBudgetStatusToSigningSessionReadiness } from './signingSession/readiness';
-import type { SigningLaneContext, SigningSessionPlan } from './signingSessionTypes';
+  applyWalletBudgetStatusToSigningSessionReadiness,
+  clearWalletSigningSession,
+  consumeWalletSigningSessionUse,
+  discoverLanesForAccount,
+  normalizeNonEmpty,
+  readClaimsForLanes,
+  statusFromClaim,
+  walletScopedClaimsForLanes,
+  type WalletSigningSessionReadinessDeps,
+  type WalletSigningSessionStatusOverride,
+} from './signingSession/readiness';
+import type {
+  SigningLaneContext,
+  SigningOperationFingerprint,
+  SigningOperationId,
+  SigningOperationIntent,
+  SigningSessionPlan,
+} from './signingSession/types';
+import type { WarmSessionPrfClaim } from './warmSigning/types';
 
 export type { SigningSessionReadiness };
 
@@ -67,7 +86,38 @@ export type ResolveSigningSessionAuthPlanFromReadinessResult = {
   remainingUses: number;
 };
 
-export type SigningSessionCoordinatorDeps = WalletSigningSessionCoordinatorDeps &
+export type WalletSigningSessionConsumeUseArgs = {
+  nearAccountId: AccountId | string;
+  walletSigningSessionId: string;
+  uses: number;
+  reason: SigningOperationIntent;
+  targetBackingMaterialSessionIds?: string[];
+  targetThresholdSessionIds?: string[];
+  alreadyConsumedBackingMaterialSessionIds?: string[];
+  alreadyConsumedThresholdSessionIds?: string[];
+};
+
+export type SigningSessionStatusPort = {
+  getStatus(args: {
+    nearAccountId: AccountId | string;
+    walletSigningSessionId?: string;
+    targetBackingMaterialSessionIds?: string[];
+    targetThresholdSessionIds?: string[];
+  }): Promise<SigningSessionStatus | null>;
+  getLaneClaimsForAccount(
+    nearAccountId: AccountId | string,
+  ): Promise<Map<string, WarmSessionPrfClaim | null>>;
+  consumeUse(args: WalletSigningSessionConsumeUseArgs): Promise<SigningSessionStatus>;
+  clear(args: { nearAccountId: AccountId | string; walletSigningSessionId: string }): Promise<void>;
+};
+
+export type SigningSessionStatusDeps = WalletSigningSessionReadinessDeps;
+
+export type SigningSessionStatusState = {
+  statusOverrides: Map<string, WalletSigningSessionStatusOverride>;
+};
+
+export type SigningSessionCoordinatorDeps = SigningSessionStatusDeps &
   WalletSigningBudgetLedgerDeps & {
   onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
   onWalletBudgetTrace?: WalletSigningBudgetLedgerDeps['onTrace'];
@@ -87,19 +137,27 @@ type SigningSessionCoordinatorBudgetState = {
 };
 
 export class SigningSessionCoordinator
-  implements WalletSigningSessionCoordinator, WalletSigningBudgetLedger
+  implements SigningSessionStatusPort, WalletSigningBudgetLedger
 {
   private readonly onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
   private readonly onWalletBudgetTrace?: WalletSigningBudgetLedgerDeps['onTrace'];
   private readonly walletBudgetStatusReader?: WalletSigningBudgetStatusReader;
   private readonly walletBudgetConsumer?: WalletSigningBudgetConsumer;
-  private readonly walletSessionState: WalletSigningSessionCoordinatorState;
+  private readonly walletSessionDeps: SigningSessionStatusDeps;
+  private readonly walletSessionState: SigningSessionStatusState;
   private readonly walletBudgetState: SigningSessionCoordinatorBudgetState;
-  private readonly walletSessionCoordinator: WalletSigningSessionCoordinator;
+  private readonly operationIdBindingState: SigningOperationIdBindingState;
 
   constructor(deps: SigningSessionCoordinatorDeps = {}) {
     this.onPlannerTrace = deps.onPlannerTrace;
     this.onWalletBudgetTrace = deps.onWalletBudgetTrace || deps.onTrace;
+    this.walletSessionDeps = {
+      ...deps,
+      updateSigningSessionSealedRecordPolicy:
+        deps.updateSigningSessionSealedRecordPolicy || updateSigningSessionSealedRecordPolicy,
+      deleteSigningSessionSealedRecord:
+        deps.deleteSigningSessionSealedRecord || deleteSigningSessionSealedRecord,
+    };
     this.walletSessionState = {
       statusOverrides: new Map(),
     };
@@ -111,10 +169,9 @@ export class SigningSessionCoordinator
       reservedUsesByWalletSessionId: new Map(),
       walletReservationQueues: new Map(),
     };
-    this.walletSessionCoordinator = createWalletSigningSessionCoordinator(
-      deps,
-      this.walletSessionState,
-    );
+    this.operationIdBindingState = {
+      callerProvidedOperationFingerprintsById: new Map(),
+    };
     const canReadWalletSessionStatus = hasWalletSigningSessionReadinessDeps(deps);
     const canConsumeWalletSessionUses = hasWalletSigningSessionConsumeDeps(deps);
     this.walletBudgetStatusReader = Object.prototype.hasOwnProperty.call(deps, 'getStatus')
@@ -160,27 +217,98 @@ export class SigningSessionCoordinator
   }
 
   async getStatus(
-    args: Parameters<WalletSigningSessionCoordinator['getStatus']>[0],
-  ): ReturnType<WalletSigningSessionCoordinator['getStatus']> {
-    return await this.walletSessionCoordinator.getStatus(args);
+    args: Parameters<SigningSessionStatusPort['getStatus']>[0],
+  ): ReturnType<SigningSessionStatusPort['getStatus']> {
+    const walletSigningSessionIdFilter = normalizeNonEmpty(args.walletSigningSessionId);
+    const lanes = discoverLanesForAccount(this.walletSessionDeps, args.nearAccountId).filter(
+      (lane) => !walletSigningSessionIdFilter || lane.walletSigningSessionId === walletSigningSessionIdFilter,
+    );
+    if (!lanes.length) return null;
+    const walletSigningSessionId = walletSigningSessionIdFilter || lanes[0].walletSigningSessionId;
+    const targetBacking = new Set(
+      (args.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
+    );
+    const targetThreshold = new Set(
+      (args.targetThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
+    );
+    const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
+    const statusLanes = hasExplicitTarget
+      ? lanes.filter(
+          (lane) =>
+            targetBacking.has(lane.backingMaterialSessionId) ||
+            targetThreshold.has(lane.thresholdSessionId),
+        )
+      : lanes;
+    if (hasExplicitTarget && !statusLanes.length) {
+      return {
+        sessionId: walletSigningSessionId,
+        status: 'not_found',
+      };
+    }
+    const rawClaims = await readClaimsForLanes({
+      deps: this.walletSessionDeps,
+      lanes: statusLanes,
+    });
+    const scopedClaims = walletScopedClaimsForLanes({
+      lanes: statusLanes,
+      claimsByThresholdSessionId: rawClaims,
+      statusOverrides: this.walletSessionState.statusOverrides,
+    });
+    const claims = statusLanes
+      .map((lane) => scopedClaims.get(lane.thresholdSessionId) || null)
+      .filter(Boolean);
+    const claim =
+      claims.find((candidate) => candidate?.state === 'expired') ||
+      claims.find((candidate) => candidate?.state === 'exhausted') ||
+      claims.find((candidate) => candidate?.state === 'unavailable') ||
+      claims.find((candidate) => candidate?.state === 'warm') ||
+      null;
+    return statusFromClaim({ walletSigningSessionId, lanes: statusLanes, claim });
   }
 
   async getLaneClaimsForAccount(
-    nearAccountId: Parameters<WalletSigningSessionCoordinator['getLaneClaimsForAccount']>[0],
-  ): ReturnType<WalletSigningSessionCoordinator['getLaneClaimsForAccount']> {
-    return await this.walletSessionCoordinator.getLaneClaimsForAccount(nearAccountId);
+    nearAccountId: Parameters<SigningSessionStatusPort['getLaneClaimsForAccount']>[0],
+  ): ReturnType<SigningSessionStatusPort['getLaneClaimsForAccount']> {
+    const lanes = discoverLanesForAccount(this.walletSessionDeps, nearAccountId);
+    const rawClaims = await readClaimsForLanes({ deps: this.walletSessionDeps, lanes });
+    return walletScopedClaimsForLanes({
+      lanes,
+      claimsByThresholdSessionId: rawClaims,
+      statusOverrides: this.walletSessionState.statusOverrides,
+    });
   }
 
   async consumeUse(
     args: WalletSigningSessionConsumeUseArgs,
-  ): ReturnType<WalletSigningSessionCoordinator['consumeUse']> {
-    return await this.walletSessionCoordinator.consumeUse(args);
+  ): ReturnType<SigningSessionStatusPort['consumeUse']> {
+    return await consumeWalletSigningSessionUse({
+      deps: this.walletSessionDeps,
+      statusOverrides: this.walletSessionState.statusOverrides,
+      readStatus: (statusArgs) => this.getStatus(statusArgs),
+      input: args,
+    });
   }
 
   async clear(
-    args: Parameters<WalletSigningSessionCoordinator['clear']>[0],
-  ): ReturnType<WalletSigningSessionCoordinator['clear']> {
-    await this.walletSessionCoordinator.clear(args);
+    args: Parameters<SigningSessionStatusPort['clear']>[0],
+  ): ReturnType<SigningSessionStatusPort['clear']> {
+    await clearWalletSigningSession({
+      deps: this.walletSessionDeps,
+      statusOverrides: this.walletSessionState.statusOverrides,
+      nearAccountId: args.nearAccountId,
+      walletSigningSessionId: args.walletSigningSessionId,
+    });
+  }
+
+  bindCallerProvidedOperationIdToFingerprint(args: {
+    operationId: SigningOperationId;
+    operationFingerprint: SigningOperationFingerprint;
+  }): void {
+    bindCallerProvidedSigningOperationIdToFingerprint({
+      state: this.operationIdBindingState,
+      operationId: args.operationId,
+      operationFingerprint: args.operationFingerprint,
+    });
   }
 
   async reserve(

@@ -9,11 +9,11 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfa
 import type {
   SigningOperationIntent,
   SigningSessionPlan,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 import {
   SigningKeyRefIntentKind,
   SigningSessionPlanKind,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 import {
   SigningEventPhase,
   type CreateSigningFlowEventInput,

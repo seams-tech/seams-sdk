@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test';
 import { signTransactionsWithActions } from '@/core/signingEngine/orchestration/near/transactionsFlow';
 import { connectEd25519Session } from '@/core/signingEngine/threshold/workflows/connectEd25519Session';
-import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSessionPersistence';
+import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordForAccount,
   markThresholdEd25519EmailOtpSessionConsumedForAccount,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSessionTypes';
-import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
+import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
+import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
 import { ActionType } from '@/core/types/actions';
 import { SigningEventPhase, type SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import { WorkerResponseType } from '@/core/types/signer-worker';

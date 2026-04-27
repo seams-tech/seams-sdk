@@ -19,7 +19,7 @@ import {
   type SigningLaneContext,
   type SigningOperationContext,
   type SigningSessionPlan,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 
 test.describe('SigningExecutionMachine', () => {
   test('keeps warm-session signing free of auth prompt commands', () => {

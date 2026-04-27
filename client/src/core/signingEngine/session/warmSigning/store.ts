@@ -6,8 +6,8 @@ import {
   getStoredThresholdSessionRecordForAccount,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
-} from '../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
 
 export type WarmSessionStoredCapabilityRecords = {
   ed25519: ThresholdEd25519SessionRecord | null;

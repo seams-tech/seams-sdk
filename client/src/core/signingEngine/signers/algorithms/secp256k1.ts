@@ -15,7 +15,7 @@ import {
 } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import { createWarmSessionCapabilityReader } from '../../session/WarmSessionCapabilityReader';
+import { createWarmSessionCapabilityReader } from '../../session/warmSigning/capabilityReader';
 import {
   deleteSigningSessionSealedRecord,
   updateSigningSessionSealedRecordPolicy,

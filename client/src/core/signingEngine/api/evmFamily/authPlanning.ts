@@ -22,15 +22,15 @@ import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
   emitSigningPlannerDecisionTrace,
-} from '../../session/SigningSessionTrace';
+} from '../../session/signingSession/trace';
 import type {
   SigningLaneContext,
   SigningSessionPlan,
-} from '../../session/signingSessionTypes';
+} from '../../session/signingSession/types';
 import {
   SigningOperationIntent,
   SigningSessionPlanKind,
-} from '../../session/signingSessionTypes';
+} from '../../session/signingSession/types';
 import { signingAuthPlanFromSigningSessionPlan } from '../../orchestration/shared/touchConfirmSigning';
 import type {
   ThresholdEcdsaSessionRecord,

@@ -3,14 +3,14 @@ import {
   buildEvmTransactionSigningLane,
   buildNearTransactionSigningLane,
   buildTempoTransactionSigningLane,
-} from '@/core/signingEngine/session/SigningLaneBuilders';
-import { createTransactionSigningBudgetFinalizer } from '@/core/signingEngine/session/TransactionSigningBudgetFinalizer';
+} from '@/core/signingEngine/session/signingSession/lanes';
+import { createTransactionSigningBudgetFinalizer } from '@/core/signingEngine/session/signingSession/budgetFinalizer';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import {
   SigningOperationIntent,
   SigningSessionIds,
   type SigningLaneContext,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 import { createNonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { toAccountId } from '@/core/types/accountIds';
 

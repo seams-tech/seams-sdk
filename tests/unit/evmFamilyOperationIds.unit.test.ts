@@ -3,8 +3,9 @@ import {
   bindEvmFamilyCallerProvidedOperationIdToFingerprint,
   createEvmFamilySigningOperationIds,
 } from '@/core/signingEngine/api/evmFamily/operationIds';
-import { computeSigningOperationFingerprint } from '@/core/signingEngine/session/SigningOperationFingerprint';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSessionTypes';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import { computeSigningOperationFingerprint } from '@/core/signingEngine/session/signingSession/operationFingerprint';
+import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
 
 test.describe('EVM-family signing operation ids', () => {
   test('binds caller-provided operation ids to the canonical operation fingerprint', async () => {
@@ -44,27 +45,32 @@ test.describe('EVM-family signing operation ids', () => {
         },
       },
     });
+    const signingSessionCoordinator = new SigningSessionCoordinator();
 
     bindEvmFamilyCallerProvidedOperationIdToFingerprint(
       createEvmFamilySigningOperationIds(operationId),
       firstFingerprint,
+      signingSessionCoordinator,
     );
     expect(() =>
       bindEvmFamilyCallerProvidedOperationIdToFingerprint(
         createEvmFamilySigningOperationIds(operationId),
         firstFingerprint,
+        signingSessionCoordinator,
       ),
     ).not.toThrow();
     expect(() =>
       bindEvmFamilyCallerProvidedOperationIdToFingerprint(
         createEvmFamilySigningOperationIds(operationId),
         secondFingerprint,
+        signingSessionCoordinator,
       ),
     ).toThrow('caller-provided signingOperationId reused for a different operation');
     expect(() =>
       bindEvmFamilyCallerProvidedOperationIdToFingerprint(
         createEvmFamilySigningOperationIds(operationId),
         crossChainFingerprint,
+        signingSessionCoordinator,
       ),
     ).toThrow('caller-provided signingOperationId reused for a different operation');
   });
@@ -72,17 +78,20 @@ test.describe('EVM-family signing operation ids', () => {
   test('does not bind internally generated operation ids across requests', async () => {
     const firstFingerprint = SigningSessionIds.signingOperationFingerprint('sha256:first');
     const secondFingerprint = SigningSessionIds.signingOperationFingerprint('sha256:second');
+    const signingSessionCoordinator = new SigningSessionCoordinator();
 
     expect(() =>
       bindEvmFamilyCallerProvidedOperationIdToFingerprint(
         createEvmFamilySigningOperationIds(),
         firstFingerprint,
+        signingSessionCoordinator,
       ),
     ).not.toThrow();
     expect(() =>
       bindEvmFamilyCallerProvidedOperationIdToFingerprint(
         createEvmFamilySigningOperationIds(),
         secondFingerprint,
+        signingSessionCoordinator,
       ),
     ).not.toThrow();
   });

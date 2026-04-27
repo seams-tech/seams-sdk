@@ -1,19 +1,19 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
-import type { WarmSessionStatusResult } from '../touchConfirm';
+import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
+import type { WarmSessionStatusResult } from '../../touchConfirm';
 import {
   createWarmSessionCapabilityResolver,
   type WarmSessionCapabilityResolverDeps,
-} from './WarmSessionCapabilityResolver';
+} from './capabilityResolver';
 import {
   createWarmSessionSealedRefreshRestorer,
   type WarmSessionSealedRefreshRestorerDeps,
-} from './WarmSessionSealedRefreshRestorer';
+} from './sealedRefreshRestorer';
 import {
   createWarmSessionStatusReader,
   type WarmSessionStatusReaderDeps,
-} from './WarmSessionStatusReader';
-import type { WarmSessionCapabilityReader } from './WarmSessionServiceTypes';
+} from './statusReader';
+import type { WarmSessionCapabilityReader } from './types';
 
 export type WarmSessionCapabilityReaderFactoryDeps = Pick<
   WarmSessionCapabilityResolverDeps,

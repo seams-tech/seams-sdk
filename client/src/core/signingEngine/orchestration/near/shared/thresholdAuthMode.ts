@@ -6,17 +6,17 @@ import {
   formatThresholdSigningSessionAvailabilityError,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
   THRESHOLD_SESSION_MISSING_ERROR,
-} from '@/core/signingEngine/session/WarmSessionStatusReader';
-import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/WarmSessionCapabilityReader';
-import { createWarmSessionStatusReader } from '@/core/signingEngine/session/WarmSessionStatusReader';
+} from '@/core/signingEngine/session/warmSigning/statusReader';
+import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/warmSigning/capabilityReader';
+import { createWarmSessionStatusReader } from '@/core/signingEngine/session/warmSigning/statusReader';
 import type {
   ThresholdWarmSessionStatusReader,
   WarmSessionCapabilityReader,
   WarmSessionProvisioner,
-} from '@/core/signingEngine/session/WarmSessionServiceTypes';
-import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/warmSessionRuntime';
+} from '@/core/signingEngine/session/warmSigning/types';
+import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/warmSigning/runtime';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/touchConfirm';
-import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
+import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
 import {
   type ResolveSigningSessionAuthPlanFromReadinessInput,
   type ResolveSigningSessionAuthPlanFromReadinessResult,
@@ -27,13 +27,13 @@ import {
   emitSigningBoundaryTrace,
   emitSigningLaneResolutionTrace,
   emitSigningPlannerDecisionTrace,
-} from '@/core/signingEngine/session/SigningSessionTrace';
+} from '@/core/signingEngine/session/signingSession/trace';
 import {
   SigningOperationIntent,
   SigningSessionPlanKind,
   SigningSessionIds,
   type SigningLaneContext,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 
 export type NearThresholdSigningAuthPlan = {
   sessionId: string;

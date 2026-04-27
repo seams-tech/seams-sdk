@@ -30,14 +30,14 @@ import {
   type SigningLaneContext,
   type SigningOperationFingerprint,
   type SigningOperationId,
-} from '../session/signingSessionTypes';
-import { computeSigningOperationFingerprint } from '../session/SigningOperationFingerprint';
+} from '../session/signingSession/types';
+import { computeSigningOperationFingerprint } from '../session/signingSession/operationFingerprint';
 import {
   isWalletSigningBudgetExhaustedError,
   type WalletSigningBudgetReservation,
 } from '../session/signingSession/budget';
-import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
-import { emitSigningLaneResolutionTrace } from '../session/SigningSessionTrace';
+import { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
+import { emitSigningLaneResolutionTrace } from '../session/signingSession/trace';
 import type { BootstrapEcdsaSessionArgs } from './thresholdLifecycle/thresholdSessionActivation';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpAuthLane } from '../emailOtp/authLane';
@@ -223,6 +223,8 @@ async function signEvmFamilyAttempt(
   let selectedEcdsaAuthMethod: EvmFamilyEcdsaAuthMethod | undefined;
   let selectedEcdsaSource: ThresholdEcdsaSessionStoreSource | undefined;
   let emailOtpReauthRecord: ThresholdEcdsaSessionRecord | undefined;
+  const signingSessionCoordinator =
+    attempt.signingSessionCoordinator || deps.signingSessionCoordinator || new SigningSessionCoordinator();
   const operationIds =
     attempt.operationIds || createEvmFamilySigningOperationIds(args.signingOperationId);
   const operationFingerprint: SigningOperationFingerprint =
@@ -233,7 +235,11 @@ async function signEvmFamilyAttempt(
         request: args.request,
       },
     });
-  bindEvmFamilyCallerProvidedOperationIdToFingerprint(operationIds, operationFingerprint);
+  bindEvmFamilyCallerProvidedOperationIdToFingerprint(
+    operationIds,
+    operationFingerprint,
+    signingSessionCoordinator,
+  );
   const ensureConfirmationOperationId = (): SigningOperationId =>
     ensureEvmFamilyConfirmationOperationId(operationIds);
   const createTransactionSigningOperation = (): EvmFamilyTransactionSigningOperationContext => ({
@@ -246,8 +252,6 @@ async function signEvmFamilyAttempt(
     confirmationDisplayed = true;
     return ensureConfirmationOperationId();
   };
-  const signingSessionCoordinator =
-    attempt.signingSessionCoordinator || deps.signingSessionCoordinator;
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps,

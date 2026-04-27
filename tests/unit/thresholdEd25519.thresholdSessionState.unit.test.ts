@@ -5,7 +5,7 @@ const IMPORT_PATHS = {
   thresholdSessionAuth:
     '/sdk/esm/core/signingEngine/orchestration/near/shared/thresholdSessionAuth.js',
   warmSessionCapabilityReader:
-    '/sdk/esm/core/signingEngine/session/WarmSessionCapabilityReader.js',
+    '/sdk/esm/core/signingEngine/session/warmSigning/capabilityReader.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
 } as const;

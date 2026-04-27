@@ -7,17 +7,17 @@ import type {
   WarmSessionStatusBatchReader,
   WarmSessionStatusReader,
   WarmSessionStatusResult,
-} from '../touchConfirm';
+} from '../../touchConfirm';
 import type {
   ThresholdSessionSealTransportAuthMaterial,
-} from '../api/thresholdLifecycle/thresholdSessionStore';
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
 import type {
   WarmSessionEd25519AuthMaterial,
   WarmSessionEcdsaAuthMaterial,
   WarmSessionEcdsaCapabilityState,
   WarmSessionEd25519CapabilityState,
   WarmSessionPrfClaim,
-} from './warmSessionTypes';
+} from './types';
 
 export type WarmSessionReadPorts =
   | Partial<Pick<WarmSessionStatusReader & WarmSessionStatusBatchReader, 'getWarmSessionStatus' | 'getWarmSessionStatuses'>>

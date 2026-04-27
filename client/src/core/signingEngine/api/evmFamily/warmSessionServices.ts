@@ -11,24 +11,24 @@ import type {
   WarmSessionStatusReader,
   WarmSessionStatusResult,
 } from '../../touchConfirm';
-import { createWarmSessionCapabilityReader } from '../../session/WarmSessionCapabilityReader';
+import { createWarmSessionCapabilityReader } from '../../session/warmSigning/capabilityReader';
 import {
   ensureWarmEcdsaCapabilityReady,
   provisionWarmEcdsaCapability,
-} from '../../session/WarmSessionEcdsaProvisioner';
+} from '../../session/warmSigning/ecdsaProvisioner';
 import {
   applyWarmSessionEcdsaPostSignPolicy,
   assertWarmSessionEcdsaOperationAllowed,
-} from '../../session/WarmSessionPostSignPolicyAdapter';
+} from '../../session/warmSigning/postSignPolicyAdapter';
 import type {
   ThresholdWarmSessionStatusReader,
   WarmSessionCapabilityReader,
   WarmSessionPostSignPolicy,
   WarmSessionProvisioner,
-} from '../../session/WarmSessionServiceTypes';
-import { createWarmSessionStatusReader } from '../../session/WarmSessionStatusReader';
-import { claimWarmSessionPrfFirst } from '../../session/warmSessionRuntime';
-import type { WarmSessionSealedRestoreEvent } from '../../session/WarmSessionSealedRefreshRestorer';
+} from '../../session/warmSigning/types';
+import { createWarmSessionStatusReader } from '../../session/warmSigning/statusReader';
+import { claimWarmSessionPrfFirst } from '../../session/warmSigning/runtime';
+import type { WarmSessionSealedRestoreEvent } from '../../session/warmSigning/sealedRefreshRestorer';
 import type { SigningSessionSealedStoreRecord } from '../session/signingSessionSealedStore';
 import type {
   ThresholdEcdsaSessionRecord,

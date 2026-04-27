@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { ensureEvmFamilyThresholdEcdsaKeyRefReady } from '@/core/signingEngine/api/evmFamily/ecdsaReadiness';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSessionTypes';
+import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import {

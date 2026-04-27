@@ -4,8 +4,8 @@ import {
   buildEvmTransactionSigningLane,
   buildNearTransactionSigningLane,
   buildTempoTransactionSigningLane,
-} from '@/core/signingEngine/session/SigningLaneBuilders';
-import { SigningSessionIds } from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/lanes';
+import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
 
 const baseInput = {
   accountId: toAccountId('lane-builder.testnet'),

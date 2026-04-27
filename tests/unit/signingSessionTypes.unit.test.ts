@@ -3,12 +3,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
-import { buildTempoTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
-import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/SigningBudgetSpendPlan';
+import { buildTempoTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
+import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/signingSession/budget';
 import {
   normalizeWalletSigningSpendPlan,
   SigningSessionIds,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 

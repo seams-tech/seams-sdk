@@ -8,7 +8,7 @@ import {
   resolveEd25519AuthMaterial,
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
-} from '@/core/signingEngine/session/warmSessionReadModel';
+} from '@/core/signingEngine/session/warmSigning/readModel';
 import {
   createThresholdEcdsaStoreFixture,
   createWarmSessionStatusReader,

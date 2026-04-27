@@ -18,7 +18,7 @@ import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   type ThresholdEd25519SessionStoreSource,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
-import { persistWarmSessionEd25519Capability } from '../../session/warmSessionPersistence';
+import { persistWarmSessionEd25519Capability } from '../../session/warmSigning/persistence';
 
 export type Ed25519AuthSession = {
   sessionKind: Ed25519SessionKind;

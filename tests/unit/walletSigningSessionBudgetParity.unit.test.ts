@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/SigningBudgetSpendPlan';
-import { buildEvmTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
+import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/signingSession/budget';
+import { buildEvmTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
 import {
   SigningOperationIntent,
   SigningSessionIds,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 import { upsertStoredThresholdEcdsaSessionRecord } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { toAccountId } from '@/core/types/accountIds';
 import {

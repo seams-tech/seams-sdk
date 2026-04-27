@@ -6,9 +6,9 @@ import {
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
-} from '../api/thresholdLifecycle/thresholdSessionStore';
-import { WalletAuthPolicyError } from '../auth';
-import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
+import { WalletAuthPolicyError } from '../../auth';
+import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
 
 export type EcdsaPostSignPolicyMaterialClearer = (args: {
   nearAccountId: AccountId;

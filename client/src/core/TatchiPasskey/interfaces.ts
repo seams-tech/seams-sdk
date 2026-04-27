@@ -6,7 +6,7 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '../signingEngine/SigningEngine';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
-import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmSessionTypes';
+import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmSigning/types';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { NearClient, SignedTransaction } from '../rpcClients/near/NearClient';
 import type {

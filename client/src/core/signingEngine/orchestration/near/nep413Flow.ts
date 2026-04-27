@@ -33,7 +33,7 @@ import {
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
 import { passkeySigningAuthPlan } from '../shared/touchConfirmSigning';
-import { emitSigningPlannerDecisionTrace } from '../../session/SigningSessionTrace';
+import { emitSigningPlannerDecisionTrace } from '../../session/signingSession/trace';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 
 /**

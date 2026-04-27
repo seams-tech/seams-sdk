@@ -1,14 +1,14 @@
-import type { ThresholdSessionSealTransportAuthMaterial } from '../api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdSessionSealTransportAuthMaterial } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import type {
   WarmSessionSealPersister,
   WarmSessionMaterialClaimer,
   WarmSessionStatusReader,
-} from '../touchConfirm';
+} from '../../touchConfirm';
 import {
   formatMissingWarmPrfMaterialError,
   formatWarmSessionClaimUnavailableError,
   reportWarmSessionAvailabilityFailure,
-} from './warmSessionReadModel';
+} from './readModel';
 
 export type WarmSessionRuntimePorts =
   | Partial<

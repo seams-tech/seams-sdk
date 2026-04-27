@@ -35,7 +35,7 @@ import {
   SigningSessionIds,
   type SigningOperationFingerprint,
   type SigningOperationId,
-} from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/types';
 import type {
   NonceLease,
   NonceOperationContext,

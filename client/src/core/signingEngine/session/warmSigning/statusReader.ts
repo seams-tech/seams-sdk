@@ -1,27 +1,27 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/tatchi';
-import type { WarmSessionStatusResult } from '../touchConfirm';
+import type { WarmSessionStatusResult } from '../../touchConfirm';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
-} from '../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
-import { SigningSessionCoordinator } from './SigningSessionCoordinator';
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
+import { SigningSessionCoordinator } from '../SigningSessionCoordinator';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
   readWarmSessionEcdsaRecordByThresholdSessionId,
-} from './WarmSessionStore';
+} from './store';
 import {
   readWarmSessionClaim,
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
-} from './warmSessionReadModel';
-import type { WarmSessionPrfClaim } from './warmSessionTypes';
+} from './readModel';
+import type { WarmSessionPrfClaim } from './types';
 import type {
   ThresholdWarmSessionStatusReader,
   WarmEcdsaSigningSessionStatus,
-} from './WarmSessionServiceTypes';
+} from './types';
 
 type WarmSessionEcdsaPolicyRecordHint = ThresholdEcdsaSessionRecord;
 

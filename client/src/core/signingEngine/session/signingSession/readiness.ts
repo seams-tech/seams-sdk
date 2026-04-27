@@ -16,14 +16,14 @@ import type {
   deleteSigningSessionSealedRecord,
   updateSigningSessionSealedRecordPolicy,
 } from '../../api/session/signingSessionSealedStore';
-import { readWarmSessionCapabilityRecordsForAccount } from '../WarmSessionStore';
+import { readWarmSessionCapabilityRecordsForAccount } from '../warmSigning/store';
 import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
-import type { WarmSessionPrfClaim } from '../warmSessionTypes';
+import type { WarmSessionPrfClaim } from '../warmSigning/types';
 import {
   readWarmSessionClaims,
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
-} from '../warmSessionReadModel';
+} from '../warmSigning/readModel';
 import type { SigningSessionReadiness } from './planner';
 
 export type SigningSessionLane = {
@@ -544,7 +544,7 @@ export function assertConsumeResult(args: {
   if (!result || result.ok || result.code === 'exhausted') return;
   if (!args.required && result.code === 'not_found') return;
   throw new Error(
-    `[WalletSigningSessionCoordinator] ${args.backing} signing-session consume returned ${result.code}`,
+    `[SigningSessionCoordinator] ${args.backing} signing-session consume returned ${result.code}`,
   );
 }
 
@@ -622,7 +622,7 @@ export async function consumeWalletSigningSessionUse(args: {
   const input = args.input;
   const walletSigningSessionId = normalizeNonEmpty(input.walletSigningSessionId);
   if (!walletSigningSessionId) {
-    throw new Error('[WalletSigningSessionCoordinator] walletSigningSessionId is required');
+    throw new Error('[SigningSessionCoordinator] walletSigningSessionId is required');
   }
   const uses = Math.max(1, Math.floor(Number(input.uses) || 1));
   const alreadyConsumedBacking = new Set(
@@ -646,7 +646,7 @@ export async function consumeWalletSigningSessionUse(args: {
   });
   if (!lanes.length) {
     throw new Error(
-      '[WalletSigningSessionCoordinator] wallet signing-session has no matching signing lanes for account',
+      '[SigningSessionCoordinator] wallet signing-session has no matching signing lanes for account',
     );
   }
   const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
@@ -659,7 +659,7 @@ export async function consumeWalletSigningSessionUse(args: {
     );
   if (!hasMatchingTarget) {
     throw new Error(
-      '[WalletSigningSessionCoordinator] wallet signing-session has no matching target signing lane for account',
+      '[SigningSessionCoordinator] wallet signing-session has no matching target signing lane for account',
     );
   }
   const consumedBacking = new Set<string>();

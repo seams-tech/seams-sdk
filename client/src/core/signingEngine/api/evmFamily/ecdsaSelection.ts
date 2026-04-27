@@ -2,7 +2,7 @@ import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
 import { resolveAccountAuthMetadataForSignerSource } from '@/core/signingEngine/auth';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import type { SigningLaneContext } from '../../session/signingSessionTypes';
+import type { SigningLaneContext } from '../../session/signingSession/types';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,

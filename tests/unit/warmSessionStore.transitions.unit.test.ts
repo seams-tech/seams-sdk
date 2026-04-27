@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmSessionTransitions';
+import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmSigning/transitions';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,

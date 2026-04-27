@@ -3,8 +3,8 @@ import type { SigningSessionRetention, WalletAuthMethod } from '@/core/types/tat
 import type {
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,
-} from '../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
 

@@ -3,12 +3,12 @@ import {
   getPrimaryAndSecondaryEcdsaCapabilities,
   normalizeParticipantIds,
   toOptionalNonEmptyString,
-} from './warmSessionEcdsaProvisioning';
+} from './ecdsaProvisioner';
 import type {
   ResolveWarmEcdsaBootstrapRequestArgs,
   WarmEcdsaBootstrapRequest,
-} from './WarmSessionServiceTypes';
-import type { WarmSessionEnvelope } from './warmSessionTypes';
+} from './types';
+import type { WarmSessionEnvelope } from './types';
 
 function cloneOptionalFixed32Bytes(value: Uint8Array | undefined): Uint8Array | undefined {
   if (!(value instanceof Uint8Array)) return undefined;

@@ -7,12 +7,12 @@ import {
   type ThresholdEd25519SessionStoreSource,
   type ThresholdEcdsaEmailOtpAuthContext,
   upsertStoredThresholdEd25519SessionRecord,
-} from '../api/thresholdLifecycle/thresholdSessionStore';
+} from '../../api/thresholdLifecycle/thresholdSessionStore';
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
   type ThresholdRuntimePolicyScope,
-} from '../threshold/session/sessionPolicy';
-import type { Ed25519SessionKind } from '../threshold/session/ed25519SessionTypes';
+} from '../../threshold/session/sessionPolicy';
+import type { Ed25519SessionKind } from '../../threshold/session/ed25519SessionTypes';
 
 export type PersistWarmSessionEd25519CapabilityArgs = {
   nearAccountId: AccountId | string;

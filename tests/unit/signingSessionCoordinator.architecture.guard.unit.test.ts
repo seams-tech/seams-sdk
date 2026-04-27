@@ -18,10 +18,36 @@ const transactionFlowFiles = [
 ] as const;
 
 const pureSigningSessionHelperFiles = [
+  'client/src/core/signingEngine/session/signingSession/types.ts',
+  'client/src/core/signingEngine/session/signingSession/lanes.ts',
   'client/src/core/signingEngine/session/signingSession/budget.ts',
+  'client/src/core/signingEngine/session/signingSession/budgetFinalizer.ts',
   'client/src/core/signingEngine/session/signingSession/readiness.ts',
   'client/src/core/signingEngine/session/signingSession/planner.ts',
   'client/src/core/signingEngine/session/signingSession/execution.ts',
+  'client/src/core/signingEngine/session/signingSession/trace.ts',
+  'client/src/core/signingEngine/session/signingSession/operationFingerprint.ts',
+  'client/src/core/signingEngine/session/signingSession/operationIdBinding.ts',
+  'client/src/core/signingEngine/session/signingSession/postSignPolicy.ts',
+] as const;
+
+const expectedSessionLayoutFiles = [
+  'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
+  ...pureSigningSessionHelperFiles,
+  'client/src/core/signingEngine/session/warmSigning/types.ts',
+  'client/src/core/signingEngine/session/warmSigning/store.ts',
+  'client/src/core/signingEngine/session/warmSigning/readModel.ts',
+  'client/src/core/signingEngine/session/warmSigning/runtime.ts',
+  'client/src/core/signingEngine/session/warmSigning/persistence.ts',
+  'client/src/core/signingEngine/session/warmSigning/transitions.ts',
+  'client/src/core/signingEngine/session/warmSigning/statusReader.ts',
+  'client/src/core/signingEngine/session/warmSigning/capabilityReader.ts',
+  'client/src/core/signingEngine/session/warmSigning/capabilityResolver.ts',
+  'client/src/core/signingEngine/session/warmSigning/ecdsaBootstrapRequest.ts',
+  'client/src/core/signingEngine/session/warmSigning/ecdsaProvisioner.ts',
+  'client/src/core/signingEngine/session/warmSigning/ed25519Provisioner.ts',
+  'client/src/core/signingEngine/session/warmSigning/sealedRefreshRestorer.ts',
+  'client/src/core/signingEngine/session/warmSigning/postSignPolicyAdapter.ts',
 ] as const;
 
 const productionFilesThatMayConstructLegacyCoordinatorHelpers = new Set([
@@ -67,6 +93,14 @@ function findModuleLevelMutableInitializers(source: string): string[] {
 }
 
 test.describe('SigningSessionCoordinator architecture guards', () => {
+  test('session modules use the grouped signingSession and warmSigning layout', () => {
+    const actualFiles = listProductionTypeScriptFiles(
+      path.join(repoRoot, 'client/src/core/signingEngine/session'),
+    ).sort();
+
+    expect(actualFiles).toEqual([...expectedSessionLayoutFiles].sort());
+  });
+
   test('transaction auth planning goes through SigningSessionCoordinator, not the pure planner', () => {
     for (const relativePath of transactionFlowFiles) {
       const source = readRepoSource(relativePath);
@@ -81,7 +115,8 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     for (const relativePath of transactionFlowFiles) {
       const source = readRepoSource(relativePath);
 
-      expect(source, relativePath).not.toContain('signingSession/budget');
+      expect(source, relativePath).not.toContain("signingSession/budget'");
+      expect(source, relativePath).not.toContain('signingSession/budget"');
       expect(source, relativePath).not.toContain('createWalletSigningBudgetLedgerState');
       expect(source, relativePath).not.toContain('createWalletSigningBudgetLedger(');
       expect(source, relativePath).not.toContain('reservedUsesByWalletSessionId');
@@ -95,7 +130,6 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     for (const relativePath of listProductionTypeScriptFiles(
       path.join(repoRoot, 'client/src/core/signingEngine'),
     )) {
-      if (relativePath.endsWith('/WalletSigningSessionCoordinator.ts')) continue;
       if (productionFilesThatMayConstructLegacyCoordinatorHelpers.has(relativePath)) continue;
       const source = readRepoSource(relativePath);
 
@@ -143,14 +177,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     ).toBe(false);
   });
 
-  test('legacy wallet session coordinator wrapper owns no mutable signing-session state', () => {
-    const source = readRepoSource(
-      'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
-    );
-
-    expect(findModuleLevelMutableInitializers(source)).toEqual([]);
-    expect(source).not.toContain('createWalletSigningSessionCoordinatorState');
-    expect(source).not.toContain('statusOverrides: new Map');
+  test('legacy wallet session coordinator wrapper has been deleted', () => {
+    expect(
+      fs.existsSync(
+        path.join(repoRoot, 'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts'),
+      ),
+    ).toBe(false);
   });
 
   test('only SigningSessionCoordinator owns signing-session mutable maps', () => {
@@ -161,6 +193,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       'reservedUsesByWalletSessionId: new Map',
       'walletReservationQueues: new Map',
       'statusOverrides: new Map',
+      'callerProvidedOperationFingerprintsById: new Map',
     ];
 
     for (const relativePath of listProductionTypeScriptFiles(

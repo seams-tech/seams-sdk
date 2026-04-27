@@ -2,7 +2,7 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
   SigningSessionPlanKind,
   type SigningSessionPlan,
-} from '../../session/signingSessionTypes';
+} from '../../session/signingSession/types';
 import {
   SigningExecutionCommandKind,
   buildSigningPostSignExecutionSteps,

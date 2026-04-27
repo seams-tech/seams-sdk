@@ -1,7 +1,7 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import { SigningOperationIntent, type SigningLaneContext } from '../../session/signingSessionTypes';
+import { SigningOperationIntent, type SigningLaneContext } from '../../session/signingSession/types';
 import {
   createEvmFamilyWarmSessionServices,
   type EvmFamilyWarmSessionServicesDeps,

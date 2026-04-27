@@ -3,13 +3,13 @@ import { toAccountId } from '@/core/types/accountIds';
 import {
   createSigningCapabilityReader,
   type SigningCapabilityReaderDeps,
-} from '@/core/signingEngine/session/SigningCapabilityReader';
+} from '@/core/signingEngine/session/signingSession/lanes';
 import {
   buildEvmTransactionSigningLane,
   buildNearTransactionSigningLane,
   buildTempoTransactionSigningLane,
-} from '@/core/signingEngine/session/SigningLaneBuilders';
-import { SigningSessionIds, type SigningLaneContext } from '@/core/signingEngine/session/signingSessionTypes';
+} from '@/core/signingEngine/session/signingSession/lanes';
+import { SigningSessionIds, type SigningLaneContext } from '@/core/signingEngine/session/signingSession/types';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
