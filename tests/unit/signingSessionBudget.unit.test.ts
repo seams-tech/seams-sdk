@@ -1,25 +1,25 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import { inferWalletSigningBudgetZeroSpendReason } from '@/core/signingEngine/session/signingSession/budgetFinalizer';
+import { inferSigningSessionBudgetZeroSpendReason } from '@/core/signingEngine/session/signingSession/budgetFinalizer';
 import { buildTempoTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
 import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/signingSession/budget';
 import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
 
-test.describe('WalletSigningBudgetLedger', () => {
+test.describe('SigningSessionBudget', () => {
   test('records one spend per successful operation id', async () => {
     const calls: unknown[] = [];
-    const operationId = SigningSessionIds.signingOperation('op-budget-ledger-once');
+    const operationId = SigningSessionIds.signingOperation('op-budget-once');
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       consumeUse: async (args) => {
         calls.push(args);
         return {
@@ -31,46 +31,46 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
     });
 
-    await ledger.recordSuccess({
+    await budget.recordSuccess({
       spend,
-      alreadyConsumedThresholdSessionIds: ['tsess-budget-ledger'],
+      alreadyConsumedThresholdSessionIds: ['tsess-budget'],
     });
-    await ledger.recordSuccess({
+    await budget.recordSuccess({
       spend,
-      alreadyConsumedThresholdSessionIds: ['tsess-budget-ledger'],
+      alreadyConsumedThresholdSessionIds: ['tsess-budget'],
     });
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
-      nearAccountId: 'budget-ledger.testnet',
-      walletSigningSessionId: 'wsess-budget-ledger',
+      nearAccountId: 'budget.testnet',
+      walletSigningSessionId: 'wsess-budget',
       uses: 1,
       reason: 'transaction_sign',
-      targetThresholdSessionIds: ['tsess-budget-ledger'],
-      alreadyConsumedThresholdSessionIds: ['tsess-budget-ledger'],
+      targetThresholdSessionIds: ['tsess-budget'],
+      alreadyConsumedThresholdSessionIds: ['tsess-budget'],
     });
-    expect(ledger.hasRecorded(operationId)).toBe(true);
+    expect(budget.hasRecorded(operationId)).toBe(true);
   });
 
   test('does not record failed spends as completed', async () => {
-    const operationId = SigningSessionIds.signingOperation('op-budget-ledger-retry');
+    const operationId = SigningSessionIds.signingOperation('op-budget-retry');
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'passkey',
       storageSource: 'login',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     let attempts = 0;
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       consumeUse: async () => {
         attempts += 1;
         if (attempts === 1) throw new Error('transient spend failure');
         return {
-          sessionId: 'wsess-budget-ledger',
+          sessionId: 'wsess-budget',
           status: 'active',
           remainingUses: 3,
           expiresAtMs: Date.now() + 60_000,
@@ -78,27 +78,27 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
     });
 
-    await expect(ledger.recordSuccess({ spend })).rejects.toThrow('transient spend failure');
-    expect(ledger.hasRecorded(operationId)).toBe(false);
-    await ledger.recordSuccess({ spend });
+    await expect(budget.recordSuccess({ spend })).rejects.toThrow('transient spend failure');
+    expect(budget.hasRecorded(operationId)).toBe(false);
+    await budget.recordSuccess({ spend });
 
     expect(attempts).toBe(2);
-    expect(ledger.hasRecorded(operationId)).toBe(true);
+    expect(budget.hasRecorded(operationId)).toBe(true);
   });
 
   test('does not record wrong wallet signing-session spends returned as not_found', async () => {
-    const operationId = SigningSessionIds.signingOperation('op-budget-ledger-wrong-wallet');
+    const operationId = SigningSessionIds.signingOperation('op-budget-wrong-wallet');
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'email_otp',
       walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-wrong-wallet'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     let attempts = 0;
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       consumeUse: async (args) => {
         attempts += 1;
         return {
@@ -108,11 +108,11 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
     });
 
-    await expect(ledger.recordSuccess({ spend })).rejects.toThrow(
+    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
       'wallet signing-session spend returned not_found',
     );
-    expect(ledger.hasRecorded(operationId)).toBe(false);
-    await expect(ledger.recordSuccess({ spend })).rejects.toThrow(
+    expect(budget.hasRecorded(operationId)).toBe(false);
+    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
       'wallet signing-session spend returned not_found',
     );
     expect(attempts).toBe(2);
@@ -120,12 +120,12 @@ test.describe('WalletSigningBudgetLedger', () => {
 
   test('rejects malformed spend plans before calling the coordinator', async () => {
     const calls: unknown[] = [];
-    const operationId = SigningSessionIds.signingOperation('op-budget-ledger-malformed-spend');
+    const operationId = SigningSessionIds.signingOperation('op-budget-malformed-spend');
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
@@ -133,7 +133,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       ...buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane),
       walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-other'),
     };
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       consumeUse: async (args) => {
         calls.push(args);
         return {
@@ -143,27 +143,27 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
     });
 
-    await expect(ledger.recordSuccess({ spend })).rejects.toThrow(
+    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
       'walletSigningSessionId does not match lane',
     );
-    expect(ledger.hasRecorded(operationId)).toBe(false);
+    expect(budget.hasRecorded(operationId)).toBe(false);
     expect(calls).toEqual([]);
   });
 
   test('fails closed when consumeUse returns no status', async () => {
     const calls: unknown[] = [];
     const traces: unknown[] = [];
-    const operationId = SigningSessionIds.signingOperation('op-budget-ledger-void-status');
+    const operationId = SigningSessionIds.signingOperation('op-budget-void-status');
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
       consumeUse: async (args) => {
         calls.push(args);
@@ -171,10 +171,10 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
     });
 
-    await expect(ledger.recordSuccess({ spend })).rejects.toThrow(
+    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
       'wallet signing-session spend returned no status',
     );
-    await expect(ledger.recordSuccess({ spend })).rejects.toThrow(
+    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
       'wallet signing-session spend returned no status',
     );
 
@@ -185,16 +185,16 @@ test.describe('WalletSigningBudgetLedger', () => {
       { event: 'wallet_signing_budget_spend_started' },
       { event: 'wallet_signing_budget_spend_failed' },
     ]);
-    expect(ledger.hasRecorded(operationId)).toBe(false);
+    expect(budget.hasRecorded(operationId)).toBe(false);
   });
 
   test('rejects the same operation id when the operation fingerprint changes', async () => {
     const operationId = SigningSessionIds.signingOperation('op-budget-fingerprint-reuse');
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
@@ -214,9 +214,9 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       lane,
     );
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       getStatus: async () => ({
-        sessionId: 'wsess-budget-ledger',
+        sessionId: 'wsess-budget',
         status: 'active',
         remainingUses: 2,
         expiresAtMs: Date.now() + 60_000,
@@ -229,12 +229,12 @@ test.describe('WalletSigningBudgetLedger', () => {
       }),
     });
 
-    await ledger.reserve({ spend: firstSpend });
-    await expect(ledger.reserve({ spend: secondSpend })).rejects.toThrow(
+    await budget.reserve({ spend: firstSpend });
+    await expect(budget.reserve({ spend: secondSpend })).rejects.toThrow(
       'signing operation id reused for a different operation',
     );
-    await ledger.recordSuccess({ spend: firstSpend });
-    await expect(ledger.recordSuccess({ spend: secondSpend })).rejects.toThrow(
+    await budget.recordSuccess({ spend: firstSpend });
+    await expect(budget.recordSuccess({ spend: secondSpend })).rejects.toThrow(
       'signing operation id reused for a different operation',
     );
   });
@@ -242,17 +242,17 @@ test.describe('WalletSigningBudgetLedger', () => {
   test('records zero-spend outcomes without consuming or completing the operation', async () => {
     const calls: unknown[] = [];
     const traces: unknown[] = [];
-    const operationId = SigningSessionIds.signingOperation('op-budget-ledger-zero-spend');
+    const operationId = SigningSessionIds.signingOperation('op-budget-zero-spend');
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
       consumeUse: async (args) => {
         calls.push(args);
@@ -265,18 +265,18 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
     });
 
-    ledger.recordZeroSpend({
+    budget.recordZeroSpend({
       spend,
       reason: 'email_otp_failed',
       error: new Error('user rejected OTP'),
     });
 
     expect(calls).toEqual([]);
-    expect(ledger.hasRecorded(operationId)).toBe(false);
+    expect(budget.hasRecorded(operationId)).toBe(false);
     expect(traces).toMatchObject([
       {
         event: 'wallet_signing_budget_zero_spend_recorded',
-        operationId: 'op-budget-ledger-zero-spend',
+        operationId: 'op-budget-zero-spend',
         zeroSpendReason: 'email_otp_failed',
         error: 'user rejected OTP',
         lane: {
@@ -288,24 +288,24 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
     ]);
 
-    await ledger.recordSuccess({ spend });
+    await budget.recordSuccess({ spend });
     expect(calls).toHaveLength(1);
-    expect(ledger.hasRecorded(operationId)).toBe(true);
+    expect(budget.hasRecorded(operationId)).toBe(true);
   });
 
   test('emits redacted budget-spend trace events', async () => {
     const traces: unknown[] = [];
-    const operationId = SigningSessionIds.signingOperation('op-budget-ledger-trace');
+    const operationId = SigningSessionIds.signingOperation('op-budget-trace');
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
       consumeUse: async (args) => ({
         sessionId: String(args.walletSigningSessionId),
@@ -315,14 +315,14 @@ test.describe('WalletSigningBudgetLedger', () => {
       }),
     });
 
-    await ledger.recordSuccess({ spend });
-    await ledger.recordSuccess({ spend });
+    await budget.recordSuccess({ spend });
+    await budget.recordSuccess({ spend });
 
     expect(traces).toMatchObject([
       {
         event: 'wallet_signing_budget_spend_started',
-        operationId: 'op-budget-ledger-trace',
-        nearAccountId: 'budget-ledger.testnet',
+        operationId: 'op-budget-trace',
+        nearAccountId: 'budget.testnet',
         reason: 'transaction_sign',
         uses: 1,
         thresholdSessionCount: 1,
@@ -337,7 +337,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       {
         event: 'wallet_signing_budget_spend_succeeded',
-        operationId: 'op-budget-ledger-trace',
+        operationId: 'op-budget-trace',
         status: {
           status: 'active',
           remainingUses: 2,
@@ -345,34 +345,34 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       {
         event: 'wallet_signing_budget_spend_deduped',
-        operationId: 'op-budget-ledger-trace',
+        operationId: 'op-budget-trace',
       },
     ]);
-    expect(JSON.stringify(traces)).not.toContain('wsess-budget-ledger');
-    expect(JSON.stringify(traces)).not.toContain('tsess-budget-ledger');
+    expect(JSON.stringify(traces)).not.toContain('wsess-budget');
+    expect(JSON.stringify(traces)).not.toContain('tsess-budget');
   });
 
   test('classifies zero-spend failure reasons from terminal signing errors', () => {
     expect(
-      inferWalletSigningBudgetZeroSpendReason({
+      inferSigningSessionBudgetZeroSpendReason({
         error: Object.assign(new Error('replacement transaction underpriced'), { code: -32000 }),
         authMethod: 'email_otp',
       }),
     ).toBe('nonce_preparation_failed');
     expect(
-      inferWalletSigningBudgetZeroSpendReason({
+      inferSigningSessionBudgetZeroSpendReason({
         error: Object.assign(new Error('Request cancelled'), { code: 'cancelled' }),
         authMethod: 'email_otp',
       }),
     ).toBe('confirmation_cancelled');
     expect(
-      inferWalletSigningBudgetZeroSpendReason({
+      inferSigningSessionBudgetZeroSpendReason({
         error: new Error('Fresh Email OTP verification is required'),
         authMethod: 'email_otp',
       }),
     ).toBe('email_otp_failed');
     expect(
-      inferWalletSigningBudgetZeroSpendReason({
+      inferSigningSessionBudgetZeroSpendReason({
         error: new Error('The operation either timed out or was not allowed'),
         authMethod: 'passkey',
       }),
@@ -381,10 +381,10 @@ test.describe('WalletSigningBudgetLedger', () => {
 
   test('blocks a second concurrent operation when remaining wallet budget is reserved', async () => {
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
@@ -402,9 +402,9 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       lane,
     );
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       getStatus: async () => ({
-        sessionId: 'wsess-budget-ledger',
+        sessionId: 'wsess-budget',
         status: 'active',
         remainingUses: 1,
         expiresAtMs: Date.now() + 60_000,
@@ -417,31 +417,31 @@ test.describe('WalletSigningBudgetLedger', () => {
       }),
     });
 
-    const reservation = await ledger.reserve({ spend: firstSpend });
-    await expect(ledger.reserve({ spend: secondSpend })).rejects.toThrow(
+    const reservation = await budget.reserve({ spend: firstSpend });
+    await expect(budget.reserve({ spend: secondSpend })).rejects.toThrow(
       'wallet signing-session budget is exhausted',
     );
     reservation?.release('confirmation_cancelled');
-    await ledger.reserve({ spend: secondSpend });
+    await budget.reserve({ spend: secondSpend });
   });
 
   test('dedupes reservation retries for the same operation id', async () => {
     const traces: unknown[] = [];
     const operationId = SigningSessionIds.signingOperation('op-budget-reserve-retry');
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'passkey',
       storageSource: 'login',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
       getStatus: async () => ({
-        sessionId: 'wsess-budget-ledger',
+        sessionId: 'wsess-budget',
         status: 'active',
         remainingUses: 1,
         expiresAtMs: Date.now() + 60_000,
@@ -454,10 +454,10 @@ test.describe('WalletSigningBudgetLedger', () => {
       }),
     });
 
-    await ledger.reserve({ spend });
-    await ledger.reserve({ spend });
-    await ledger.recordSuccess({ spend });
-    await ledger.reserve({ spend });
+    await budget.reserve({ spend });
+    await budget.reserve({ spend });
+    await budget.recordSuccess({ spend });
+    await budget.reserve({ spend });
 
     expect(traces).toMatchObject([
       { event: 'wallet_signing_budget_reservation_started' },
@@ -472,10 +472,10 @@ test.describe('WalletSigningBudgetLedger', () => {
 
   test('allows concurrent reservations up to remainingUses greater than one, then blocks the next operation', async () => {
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'email_otp',
-      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-ledger'),
-      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-ledger'),
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
       signingRootId: 'proj_budget:dev',
       signingRootVersion: 'default',
     });
@@ -488,16 +488,16 @@ test.describe('WalletSigningBudgetLedger', () => {
         lane,
       ),
     );
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       getStatus: async () => ({
-        sessionId: 'wsess-budget-ledger',
+        sessionId: 'wsess-budget',
         status: 'active',
         remainingUses: 2,
         expiresAtMs: Date.now() + 60_000,
       }),
     });
 
-    const results = await Promise.allSettled(spends.map((spend) => ledger.reserve({ spend })));
+    const results = await Promise.allSettled(spends.map((spend) => budget.reserve({ spend })));
 
     expect(results.map((result) => result.status)).toEqual(['fulfilled', 'fulfilled', 'rejected']);
     expect(results[2]).toMatchObject({
@@ -509,12 +509,12 @@ test.describe('WalletSigningBudgetLedger', () => {
 
     const firstReservation = results[0].status === 'fulfilled' ? results[0].value : null;
     firstReservation?.release('confirmation_cancelled');
-    await expect(ledger.reserve({ spend: spends[2]! })).resolves.toBeTruthy();
+    await expect(budget.reserve({ spend: spends[2]! })).resolves.toBeTruthy();
   });
 
   test('reports remaining budget net of in-flight reservations', async () => {
     const lane = buildTempoTransactionSigningLane({
-      accountId: toAccountId('budget-ledger.testnet'),
+      accountId: toAccountId('budget.testnet'),
       authMethod: 'passkey',
       storageSource: 'login',
       walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-available'),
@@ -536,7 +536,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       lane,
     );
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       getStatus: async (args) => ({
         sessionId: String(args.walletSigningSessionId),
         status: 'active',
@@ -546,24 +546,24 @@ test.describe('WalletSigningBudgetLedger', () => {
     });
 
     await expect(
-      ledger.getAvailableStatus({
-        nearAccountId: 'budget-ledger.testnet',
+      budget.getAvailableStatus({
+        nearAccountId: 'budget.testnet',
         walletSigningSessionId: 'wsess-budget-available',
       }),
     ).resolves.toMatchObject({ status: 'active', remainingUses: 2 });
 
-    const firstReservation = await ledger.reserve({ spend: firstSpend });
+    const firstReservation = await budget.reserve({ spend: firstSpend });
     await expect(
-      ledger.getAvailableStatus({
-        nearAccountId: 'budget-ledger.testnet',
+      budget.getAvailableStatus({
+        nearAccountId: 'budget.testnet',
         walletSigningSessionId: 'wsess-budget-available',
       }),
     ).resolves.toMatchObject({ status: 'active', remainingUses: 1 });
 
-    const secondReservation = await ledger.reserve({ spend: secondSpend });
+    const secondReservation = await budget.reserve({ spend: secondSpend });
     await expect(
-      ledger.getAvailableStatus({
-        nearAccountId: 'budget-ledger.testnet',
+      budget.getAvailableStatus({
+        nearAccountId: 'budget.testnet',
         walletSigningSessionId: 'wsess-budget-available',
       }),
     ).resolves.toMatchObject({ status: 'exhausted', remainingUses: 0 });
@@ -574,7 +574,7 @@ test.describe('WalletSigningBudgetLedger', () => {
 
   test('mixed Email OTP and passkey lanes sharing one wallet session compete for the same remaining-use budget', async () => {
     const walletSigningSessionId = SigningSessionIds.walletSigningSession('wsess-shared-budget');
-    const accountId = toAccountId('budget-ledger.testnet');
+    const accountId = toAccountId('budget.testnet');
     const emailOtpLane = buildTempoTransactionSigningLane({
       accountId,
       authMethod: 'email_otp',
@@ -613,7 +613,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       passkeyLane,
     );
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       getStatus: async () => ({
         sessionId: 'wsess-shared-budget',
         status: 'active',
@@ -623,9 +623,9 @@ test.describe('WalletSigningBudgetLedger', () => {
     });
 
     const results = await Promise.allSettled([
-      ledger.reserve({ spend: emailOtpSpend }),
-      ledger.reserve({ spend: passkeySpend }),
-      ledger.reserve({ spend: thirdPasskeySpend }),
+      budget.reserve({ spend: emailOtpSpend }),
+      budget.reserve({ spend: passkeySpend }),
+      budget.reserve({ spend: thirdPasskeySpend }),
     ]);
 
     expect(results.map((result) => result.status)).toEqual(['fulfilled', 'fulfilled', 'rejected']);
@@ -638,7 +638,7 @@ test.describe('WalletSigningBudgetLedger', () => {
   });
 
   test('mixed Email OTP and passkey lanes on different wallet sessions do not reserve against each other', async () => {
-    const accountId = toAccountId('budget-ledger.testnet');
+    const accountId = toAccountId('budget.testnet');
     const emailOtpLane = buildTempoTransactionSigningLane({
       accountId,
       authMethod: 'email_otp',
@@ -670,7 +670,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       passkeyLane,
     );
-    const ledger = new SigningSessionCoordinator({
+    const budget = new SigningSessionCoordinator({
       getStatus: async (args) => ({
         sessionId: String(args.walletSigningSessionId),
         status: 'active',
@@ -680,8 +680,8 @@ test.describe('WalletSigningBudgetLedger', () => {
     });
 
     const results = await Promise.allSettled([
-      ledger.reserve({ spend: emailOtpSpend }),
-      ledger.reserve({ spend: passkeySpend }),
+      budget.reserve({ spend: emailOtpSpend }),
+      budget.reserve({ spend: passkeySpend }),
     ]);
 
     expect(results.map((result) => result.status)).toEqual(['fulfilled', 'fulfilled']);

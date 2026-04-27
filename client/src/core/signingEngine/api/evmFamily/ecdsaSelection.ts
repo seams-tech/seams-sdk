@@ -11,8 +11,12 @@ import { resolveEvmFamilyTransactionAccountAuth, type EvmFamilyAccountMetadataDe
 import {
   buildEvmFamilyEcdsaSigningLaneContext,
   isSingleUseEmailOtpEcdsaRecord,
+  logEvmFamilyEcdsaLaneDiagnostic,
   readSelectedEcdsaKeyRefForLane,
   readSelectedEcdsaRecordForLane,
+  summarizeEvmFamilyEcdsaKeyRef,
+  summarizeEvmFamilyEcdsaLane,
+  summarizeEvmFamilyEcdsaSessionRecord,
   tryGetEmailOtpThresholdEcdsaKeyRefForSigning,
   tryGetEmailOtpThresholdEcdsaSessionRecordForSigning,
   tryGetPasskeyThresholdEcdsaKeyRefForSigning,
@@ -43,6 +47,35 @@ export type EvmFamilyEcdsaSigningSelection = {
   reauthRecord?: ThresholdEcdsaSessionRecord;
   lane?: SigningLaneContext;
 };
+
+function logMissingEcdsaSelectionLane(args: {
+  nearAccountId: string;
+  chain: EvmFamilyChain;
+  authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey;
+  source: ThresholdEcdsaSessionStoreSource;
+  emailOtpRecord?: ThresholdEcdsaSessionRecord;
+  emailOtpKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  passkeyRecord?: ThresholdEcdsaSessionRecord;
+  passkeyKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  selectedRecord?: ThresholdEcdsaSessionRecord;
+  selectedKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  lane?: SigningLaneContext;
+}): void {
+  if (args.lane) return;
+  logEvmFamilyEcdsaLaneDiagnostic('lane selection returned no selected lane', {
+    nearAccountId: args.nearAccountId,
+    chain: args.chain,
+    authMethod: args.authMethod,
+    source: args.source,
+    emailOtpRecord: summarizeEvmFamilyEcdsaSessionRecord(args.emailOtpRecord),
+    emailOtpKeyRef: summarizeEvmFamilyEcdsaKeyRef(args.emailOtpKeyRef),
+    passkeyRecord: summarizeEvmFamilyEcdsaSessionRecord(args.passkeyRecord),
+    passkeyKeyRef: summarizeEvmFamilyEcdsaKeyRef(args.passkeyKeyRef),
+    selectedRecord: summarizeEvmFamilyEcdsaSessionRecord(args.selectedRecord),
+    selectedKeyRef: summarizeEvmFamilyEcdsaKeyRef(args.selectedKeyRef),
+    lane: summarizeEvmFamilyEcdsaLane(args.lane),
+  });
+}
 
 function pickUnambiguousEcdsaAuthRecord(args: {
   emailOtpRecord?: ThresholdEcdsaSessionRecord;
@@ -160,6 +193,19 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       selectedRecord && !isSingleUseEmailOtpEcdsaRecord(selectedRecord)
         ? selectedRecord
         : undefined;
+    logMissingEcdsaSelectionLane({
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      source: SIGNER_AUTH_METHODS.emailOtp,
+      ...(emailOtpRecord ? { emailOtpRecord } : {}),
+      ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
+      ...(passkeyRecord ? { passkeyRecord } : {}),
+      ...(passkeyKeyRef ? { passkeyKeyRef } : {}),
+      ...(selectedRecord ? { selectedRecord } : {}),
+      ...(selectedKeyRef ? { selectedKeyRef } : {}),
+      ...(signingLane ? { lane: signingLane } : {}),
+    });
     return {
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
       accountAuth: resolveAccountAuthMetadataForSignerSource({
@@ -193,6 +239,19 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   const selectedPasskeyKeyRef =
     readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane: signingLane }) || fallbackPasskeyKeyRef;
   const selectedWarmRecord = selectedPasskeyRecord || warmRecord;
+  logMissingEcdsaSelectionLane({
+    nearAccountId: args.nearAccountId,
+    chain: args.chain,
+    authMethod: SIGNER_AUTH_METHODS.passkey,
+    source: passkeySource,
+    ...(emailOtpRecord ? { emailOtpRecord } : {}),
+    ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
+    ...(fallbackPasskeyRecord ? { passkeyRecord: fallbackPasskeyRecord } : {}),
+    ...(fallbackPasskeyKeyRef ? { passkeyKeyRef: fallbackPasskeyKeyRef } : {}),
+    ...(selectedPasskeyRecord ? { selectedRecord: selectedPasskeyRecord } : {}),
+    ...(selectedPasskeyKeyRef ? { selectedKeyRef: selectedPasskeyKeyRef } : {}),
+    ...(signingLane ? { lane: signingLane } : {}),
+  });
   return {
     authMethod: SIGNER_AUTH_METHODS.passkey,
     accountAuth,

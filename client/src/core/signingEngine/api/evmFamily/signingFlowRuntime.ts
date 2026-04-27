@@ -4,7 +4,6 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { assertThresholdSigningSessionReady } from '../../orchestration/shared/thresholdSigningSessionReadiness';
 import {
   SigningSessionPlanKind,
-  type SigningLaneContext,
   type SigningSessionPlan,
 } from '../../session/signingSession/types';
 import {
@@ -18,25 +17,17 @@ import {
 } from '../../session/signingSession/trace';
 import type { EvmFamilySigningDeps } from '../evmSigning';
 import { resolveThresholdEcdsaCommitQueueKey } from '../thresholdLifecycle/thresholdEcdsaCommitQueue';
-import {
-  emitEvmFamilySigningEvent,
-  emitEvmFamilySigningExecutionTrace,
-} from './events';
+import { emitEvmFamilySigningEvent, emitEvmFamilySigningExecutionTrace } from './events';
 import { throwIfEvmFamilySigningCancelled } from './errors';
-import type {
-  EvmFamilyLifecycleEventCallback,
-  EvmFamilySenderSignatureAlgorithm,
-} from './types';
-import {
-  loadSecp256k1EngineCtor,
-  loadWebAuthnP256EngineCtor,
-} from './signerLoader';
+import type { EvmFamilyLifecycleEventCallback, EvmFamilySenderSignatureAlgorithm } from './types';
+import { loadSecp256k1EngineCtor, loadWebAuthnP256EngineCtor } from './signerLoader';
 import { createEvmFamilyWarmSessionServices } from './warmSessionServices';
 import { ensureSmartAccountDeploymentReady } from './smartAccount';
 import { ensureEvmFamilyThresholdEcdsaKeyRefReady } from './ecdsaReadiness';
 import {
   readSelectedEcdsaKeyRefForLane,
   readSelectedEcdsaRecordForLane,
+  type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
@@ -142,7 +133,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   onEvent?: EvmFamilyLifecycleEventCallback;
   getThresholdEcdsaKeyRef: () => ThresholdEcdsaSecp256k1KeyRef | undefined;
   setThresholdEcdsaKeyRef: (keyRef: ThresholdEcdsaSecp256k1KeyRef) => void;
-  getEcdsaSigningLane: () => SigningLaneContext | undefined;
+  getResolvedEcdsaSigningLane: () => ResolvedEvmFamilyEcdsaSigningLane;
 }) {
   const [Secp256k1Engine, WebAuthnP256Engine] = await Promise.all([
     loadSecp256k1EngineCtor(),
@@ -159,10 +150,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
     if (args.senderSignatureAlgorithm !== 'secp256k1') return undefined;
     return {
       prepare: async ({ usesNeeded }: { usesNeeded: number }) => {
-        const lane = args.getEcdsaSigningLane();
-        if (!lane) {
-          throw new Error('[SigningEngine] missing ECDSA signing lane for passkey reconnect');
-        }
+        const lane = args.getResolvedEcdsaSigningLane();
         const keyRef =
           args.getThresholdEcdsaKeyRef() ||
           readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane });
@@ -191,28 +179,8 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             : keyRef?.participantIds?.length
               ? { participantIds: keyRef.participantIds }
               : {}),
-          ...(String(lane.thresholdSessionId || keyRef?.thresholdSessionId || record?.thresholdSessionId || '').trim()
-            ? {
-                sessionId: String(
-                  lane.thresholdSessionId || keyRef?.thresholdSessionId || record?.thresholdSessionId || '',
-                ).trim(),
-              }
-            : {}),
-          ...(String(
-            lane.walletSigningSessionId ||
-              keyRef?.walletSigningSessionId ||
-              record?.walletSigningSessionId ||
-              '',
-          ).trim()
-            ? {
-                walletSigningSessionId: String(
-                  lane.walletSigningSessionId ||
-                    keyRef?.walletSigningSessionId ||
-                    record?.walletSigningSessionId ||
-                    '',
-                ).trim(),
-              }
-            : {}),
+          sessionId: String(lane.thresholdSessionId),
+          walletSigningSessionId: String(lane.walletSigningSessionId),
           remainingUses,
         });
         return {
@@ -236,10 +204,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         if (!clientRootShare32B64u) {
           throw new Error('[SigningEngine] missing PRF.first for passkey ECDSA reconnect');
         }
-        const lane = args.getEcdsaSigningLane();
-        if (!lane) {
-          throw new Error('[SigningEngine] missing ECDSA signing lane for passkey reconnect');
-        }
+        const lane = args.getResolvedEcdsaSigningLane();
         const readyKeyRef = await executeEvmFamilyRuntimeCommand({
           signingSessionPlan: args.signingSessionPlan,
           commandKind: SigningExecutionCommandKind.ReconnectThreshold,
@@ -263,9 +228,9 @@ export async function createEvmFamilySigningFlowRuntime(args: {
     };
   };
   const emitConfirmedAuthSideEffectStarted = (sideEffect: EvmFamilyAuthSideEffect): void => {
-    let lane: SigningLaneContext | undefined;
+    let lane: ResolvedEvmFamilyEcdsaSigningLane | undefined;
     try {
-      lane = args.getEcdsaSigningLane();
+      lane = args.getResolvedEcdsaSigningLane();
     } catch {
       lane = undefined;
     }
@@ -382,7 +347,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               execute: async () =>
                 await ensureEvmFamilyThresholdEcdsaKeyRefReady({
                   deps: args.deps,
-                  lane: args.getEcdsaSigningLane()!,
+                  lane: args.getResolvedEcdsaSigningLane(),
                   keyRef: args.getThresholdEcdsaKeyRef(),
                   shouldAbort: args.shouldAbort,
                   onEvent: args.onEvent,

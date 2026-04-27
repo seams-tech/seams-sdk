@@ -12,26 +12,26 @@ import {
   type SigningSessionReadiness,
 } from './signingSession/planner';
 import {
-  applyWalletSigningBudgetReservationsToStatus,
-  assertWalletSigningBudgetReservationAvailable,
+  applySigningSessionBudgetReservationsToStatus,
+  assertSigningSessionBudgetReservationAvailable,
   assertWalletSigningOperationFingerprintMatches,
-  createWalletSigningBudgetLedgerTraceEvent,
-  isWalletSigningBudgetExhaustedError,
+  createSigningSessionBudgetTraceEvent,
+  isSigningSessionBudgetExhaustedError,
   normalizeRequired,
   normalizeStringList,
-  normalizeWalletSigningBudgetLedgerRecordSuccessInput,
+  normalizeSigningSessionBudgetRecordSuccessInput,
   resolveWalletSigningOperationFingerprint,
   summarizeWalletSigningSessionStatus,
-  WALLET_SIGNING_BUDGET_EXHAUSTED_ERROR,
-  type WalletSigningBudgetLedger,
-  type WalletSigningBudgetLedgerDeps,
-  type WalletSigningBudgetLedgerRecordSuccessInput,
-  type WalletSigningBudgetLedgerRecordZeroSpendInput,
-  type WalletSigningBudgetLedgerTraceEvent,
-  type WalletSigningBudgetLedgerZeroSpendReason,
-  type WalletSigningBudgetReservation,
-  type WalletSigningBudgetConsumer,
-  type WalletSigningBudgetStatusReader,
+  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+  type SigningSessionBudget,
+  type SigningSessionBudgetDeps,
+  type SigningSessionBudgetRecordSuccessInput,
+  type SigningSessionBudgetRecordZeroSpendInput,
+  type SigningSessionBudgetTraceEvent,
+  type SigningSessionBudgetZeroSpendReason,
+  type SigningSessionBudgetReservation,
+  type SigningSessionBudgetConsumer,
+  type SigningSessionBudgetStatusReader,
 } from './signingSession/budget';
 import {
   bindCallerProvidedSigningOperationIdToFingerprint,
@@ -39,9 +39,9 @@ import {
 } from './signingSession/operationIdBinding';
 
 export {
-  WALLET_SIGNING_BUDGET_EXHAUSTED_ERROR,
-  isWalletSigningBudgetExhaustedError,
-  type WalletSigningBudgetReservation,
+  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+  isSigningSessionBudgetExhaustedError,
+  type SigningSessionBudgetReservation,
 };
 import {
   applyWalletBudgetStatusToSigningSessionReadiness,
@@ -118,9 +118,9 @@ export type SigningSessionStatusState = {
 };
 
 export type SigningSessionCoordinatorDeps = SigningSessionStatusDeps &
-  WalletSigningBudgetLedgerDeps & {
+  SigningSessionBudgetDeps & {
   onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
-  onWalletBudgetTrace?: WalletSigningBudgetLedgerDeps['onTrace'];
+  onWalletBudgetTrace?: SigningSessionBudgetDeps['onTrace'];
 };
 
 type SigningSessionCoordinatorBudgetState = {
@@ -131,18 +131,18 @@ type SigningSessionCoordinatorBudgetState = {
       promise: Promise<SigningSessionStatus | null>;
     }
   >;
-  reservationsByOperationId: Map<string, WalletSigningBudgetLedgerRecordSuccessInput>;
+  reservationsByOperationId: Map<string, SigningSessionBudgetRecordSuccessInput>;
   reservedUsesByWalletSessionId: Map<string, number>;
   walletReservationQueues: Map<string, Promise<unknown>>;
 };
 
 export class SigningSessionCoordinator
-  implements SigningSessionStatusPort, WalletSigningBudgetLedger
+  implements SigningSessionStatusPort, SigningSessionBudget
 {
   private readonly onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
-  private readonly onWalletBudgetTrace?: WalletSigningBudgetLedgerDeps['onTrace'];
-  private readonly walletBudgetStatusReader?: WalletSigningBudgetStatusReader;
-  private readonly walletBudgetConsumer?: WalletSigningBudgetConsumer;
+  private readonly onWalletBudgetTrace?: SigningSessionBudgetDeps['onTrace'];
+  private readonly walletBudgetStatusReader?: SigningSessionBudgetStatusReader;
+  private readonly walletBudgetConsumer?: SigningSessionBudgetConsumer;
   private readonly walletSessionDeps: SigningSessionStatusDeps;
   private readonly walletSessionState: SigningSessionStatusState;
   private readonly walletBudgetState: SigningSessionCoordinatorBudgetState;
@@ -312,9 +312,9 @@ export class SigningSessionCoordinator
   }
 
   async reserve(
-    input: WalletSigningBudgetLedgerRecordSuccessInput,
-  ): ReturnType<WalletSigningBudgetLedger['reserve']> {
-    const normalizedInput = normalizeWalletSigningBudgetLedgerRecordSuccessInput(input);
+    input: SigningSessionBudgetRecordSuccessInput,
+  ): ReturnType<SigningSessionBudget['reserve']> {
+    const normalizedInput = normalizeSigningSessionBudgetRecordSuccessInput(input);
     const spend = normalizedInput.spend;
     const operationId = normalizeRequired(spend.operationId, 'operationId');
     const walletSigningSessionId = normalizeRequired(
@@ -359,7 +359,7 @@ export class SigningSessionCoordinator
 
       this.emitWalletBudgetTrace(normalizedInput, 'wallet_signing_budget_reservation_started');
       try {
-        await assertWalletSigningBudgetReservationAvailable({
+        await assertSigningSessionBudgetReservationAvailable({
           getStatus: this.walletBudgetStatusReader,
           input: normalizedInput,
           reservedUsesByWalletSessionId: this.walletBudgetState.reservedUsesByWalletSessionId,
@@ -385,8 +385,8 @@ export class SigningSessionCoordinator
   }
 
   async getAvailableStatus(
-    input: Parameters<WalletSigningBudgetLedger['getAvailableStatus']>[0],
-  ): ReturnType<WalletSigningBudgetLedger['getAvailableStatus']> {
+    input: Parameters<SigningSessionBudget['getAvailableStatus']>[0],
+  ): ReturnType<SigningSessionBudget['getAvailableStatus']> {
     const walletSigningSessionId = normalizeRequired(
       input.walletSigningSessionId,
       'walletSigningSessionId',
@@ -404,7 +404,7 @@ export class SigningSessionCoordinator
         status: 'not_found',
       };
     }
-    return applyWalletSigningBudgetReservationsToStatus({
+    return applySigningSessionBudgetReservationsToStatus({
       status,
       walletSigningSessionId,
       reservedUsesByWalletSessionId: this.walletBudgetState.reservedUsesByWalletSessionId,
@@ -412,9 +412,9 @@ export class SigningSessionCoordinator
   }
 
   async recordSuccess(
-    input: WalletSigningBudgetLedgerRecordSuccessInput,
-  ): ReturnType<WalletSigningBudgetLedger['recordSuccess']> {
-    const normalizedInput = normalizeWalletSigningBudgetLedgerRecordSuccessInput(input);
+    input: SigningSessionBudgetRecordSuccessInput,
+  ): ReturnType<SigningSessionBudget['recordSuccess']> {
+    const normalizedInput = normalizeSigningSessionBudgetRecordSuccessInput(input);
     const operationId = normalizeRequired(normalizedInput.spend.operationId, 'operationId');
     const { successfulSpendsByOperationId, reservationsByOperationId } = this.walletBudgetState;
     const existing = successfulSpendsByOperationId.get(operationId);
@@ -454,8 +454,8 @@ export class SigningSessionCoordinator
     return await spendPromise;
   }
 
-  recordZeroSpend(input: WalletSigningBudgetLedgerRecordZeroSpendInput): void {
-    const spend = normalizeWalletSigningBudgetLedgerRecordSuccessInput({
+  recordZeroSpend(input: SigningSessionBudgetRecordZeroSpendInput): void {
+    const spend = normalizeSigningSessionBudgetRecordSuccessInput({
       spend: input.spend,
     }).spend;
     this.releaseWalletBudgetReservation({ spend }, input.reason);
@@ -467,7 +467,7 @@ export class SigningSessionCoordinator
     });
   }
 
-  hasRecorded(operationId: Parameters<WalletSigningBudgetLedger['hasRecorded']>[0]): boolean {
+  hasRecorded(operationId: Parameters<SigningSessionBudget['hasRecorded']>[0]): boolean {
     return this.walletBudgetState.successfulSpendsByOperationId.has(String(operationId));
   }
 
@@ -519,9 +519,9 @@ export class SigningSessionCoordinator
   }
 
   private createWalletBudgetReservation(
-    operationId: WalletSigningBudgetReservation['operationId'],
-    release: (reason?: WalletSigningBudgetLedgerZeroSpendReason) => void,
-  ): WalletSigningBudgetReservation {
+    operationId: SigningSessionBudgetReservation['operationId'],
+    release: (reason?: SigningSessionBudgetZeroSpendReason) => void,
+  ): SigningSessionBudgetReservation {
     let released = false;
     return {
       operationId,
@@ -534,8 +534,8 @@ export class SigningSessionCoordinator
   }
 
   private releaseWalletBudgetReservation(
-    input: WalletSigningBudgetLedgerRecordSuccessInput,
-    reason?: WalletSigningBudgetLedgerZeroSpendReason,
+    input: SigningSessionBudgetRecordSuccessInput,
+    reason?: SigningSessionBudgetZeroSpendReason,
   ): void {
     const spend = input.spend;
     const operationId = normalizeRequired(spend.operationId, 'operationId');
@@ -567,11 +567,11 @@ export class SigningSessionCoordinator
   }
 
   private async recordWalletSigningSpend(
-    input: WalletSigningBudgetLedgerRecordSuccessInput,
+    input: SigningSessionBudgetRecordSuccessInput,
   ): Promise<SigningSessionStatus | null> {
     if (!this.walletBudgetConsumer) {
       throw new Error(
-        '[WalletSigningBudgetLedger] consumeUse is required to record wallet signing-session spend',
+        '[SigningSessionBudget] consumeUse is required to record wallet signing-session spend',
       );
     }
     const spend = input.spend;
@@ -596,10 +596,10 @@ export class SigningSessionCoordinator
       ),
     });
     if (!status) {
-      throw new Error('[WalletSigningBudgetLedger] wallet signing-session spend returned no status');
+      throw new Error('[SigningSessionBudget] wallet signing-session spend returned no status');
     }
     if (status.status === 'not_found') {
-      throw new Error('[WalletSigningBudgetLedger] wallet signing-session spend returned not_found');
+      throw new Error('[SigningSessionBudget] wallet signing-session spend returned not_found');
     }
     const statusSummary = status ? summarizeWalletSigningSessionStatus(status) : undefined;
     this.emitWalletBudgetTrace(
@@ -611,12 +611,12 @@ export class SigningSessionCoordinator
   }
 
   private emitWalletBudgetTrace(
-    input: WalletSigningBudgetLedgerRecordSuccessInput,
-    event: WalletSigningBudgetLedgerTraceEvent['event'],
-    extra: Pick<WalletSigningBudgetLedgerTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
+    input: SigningSessionBudgetRecordSuccessInput,
+    event: SigningSessionBudgetTraceEvent['event'],
+    extra: Pick<SigningSessionBudgetTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
   ): void {
     try {
-      this.onWalletBudgetTrace?.(createWalletSigningBudgetLedgerTraceEvent(input, event, extra));
+      this.onWalletBudgetTrace?.(createSigningSessionBudgetTraceEvent(input, event, extra));
     } catch {}
   }
 }

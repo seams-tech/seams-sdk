@@ -17,7 +17,7 @@ import {
   SigningAuthPlanKind,
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
-import type { WalletSigningBudgetReservation } from '../../session/signingSession/budget';
+import type { SigningSessionBudgetReservation } from '../../session/signingSession/budget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
@@ -87,7 +87,7 @@ export async function signEvmWithTouchConfirm(args: {
   }>;
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void | Promise<void>;
   onConfirmationDisplayed?: () => void;
-  reserveWalletSigningSessionBudget?: () => Promise<WalletSigningBudgetReservation | null>;
+  reserveWalletSigningSessionBudget?: () => Promise<SigningSessionBudgetReservation | null>;
   emailOtpSigning?: {
     prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
@@ -153,7 +153,7 @@ export async function signEvmWithTouchConfirm(args: {
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
   let thresholdSignatureCreated = false;
-  let walletBudgetReservation: WalletSigningBudgetReservation | null = null;
+  let walletBudgetReservation: SigningSessionBudgetReservation | null = null;
   let walletBudgetReservationAttempted = false;
   const reserveWalletSigningBudgetOnce = async (): Promise<void> => {
     if (walletBudgetReservationAttempted) return;

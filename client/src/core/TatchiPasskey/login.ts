@@ -16,12 +16,17 @@ import type {
 } from '../types/tatchi';
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
+import type { WebAuthnAuthenticationCredential } from '../types';
 import { getUserFriendlyErrorMessage, isUserCancellationError, toError } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { isObject } from '@shared/utils/validation';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import { IndexedDBManager } from '../indexedDB';
-import { getNearAccountProjection, resolveNearAccountProfileContinuity } from '../accountData/near/accountProjection';
+import {
+  getLastSelectedNearAccount,
+  getNearAccountProjection,
+  resolveNearAccountProfileContinuity,
+} from '../accountData/near/accountProjection';
 import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import type { ClientUserData } from '../accountData/near/types';
 import { exchangeSession, type SessionExchangeInput } from '../rpcClients/near/rpcCalls';
@@ -74,7 +79,7 @@ export async function unlock(
 ): Promise<LoginAndCreateSessionResult> {
   const { onEvent, onError, afterCall } = options || {};
   const { signingEngine } = context;
-  let loginCredential: import('../types').WebAuthnAuthenticationCredential | undefined;
+  let loginCredential: WebAuthnAuthenticationCredential | undefined;
 
   emitUnlockEvent(onEvent, nearAccountId, {
     phase: UnlockEventPhase.STEP_01_STARTED,
@@ -445,7 +450,7 @@ export async function unlock(
             },
           });
           const webauthnAuthentication =
-            walletAuthProof.webauthnAuthentication as import('../types').WebAuthnAuthenticationCredential;
+            walletAuthProof.webauthnAuthentication as WebAuthnAuthenticationCredential;
           loginCredential = webauthnAuthentication;
           const expectedOrigin = String(
             exchange.expectedOrigin ??
@@ -751,7 +756,7 @@ async function primeThresholdLoginWarmSigners(args: {
   ttlMs: number;
   remainingUses: number;
   canonicalEcdsaContext: CanonicalThresholdEcdsaWarmSessionContext;
-  credential?: import('../types').WebAuthnAuthenticationCredential;
+  credential?: WebAuthnAuthenticationCredential;
   managedRuntimeScopeBootstrap?: ManagedThresholdRuntimeScopeBootstrap;
   signersToWarm?: ThresholdLoginWarmSigner[];
   preferredEd25519SessionId?: string;
@@ -1220,7 +1225,12 @@ async function getLoginStateInternal(
   const { signingEngine } = context;
   try {
     const lastUser = await signingEngine.getLastUser().catch(() => null);
-    const targetAccountId = nearAccountId ?? lastUser?.nearAccountId ?? null;
+    const lastSelectedAccount =
+      nearAccountId || lastUser?.nearAccountId
+        ? null
+        : await getLastSelectedNearAccount(IndexedDBManager.clientDB).catch(() => null);
+    const targetAccountId =
+      nearAccountId ?? lastUser?.nearAccountId ?? lastSelectedAccount?.nearAccountId ?? null;
     if (!targetAccountId) {
       return {
         isLoggedIn: false,
@@ -1267,14 +1277,23 @@ async function getLoginStateInternal(
         ? userData.operationalPublicKey
         : null;
     const hasNearOperationalLogin = !!(userData && publicKey);
-    const isLoggedIn = hasNearOperationalLogin || hasThresholdEcdsaLogin;
+    const shouldResolveWarmStatusForLogin =
+      requiresWarmSession || thresholdSignerMode || hasThresholdEcdsaLogin || !publicKey;
+    const warmStatusForLogin = shouldResolveWarmStatusForLogin
+      ? await resolveWarmSigningSessionStatusForUi(context, resolvedNearAccountId, {
+          ed25519: ed25519WarmStatus,
+        }).catch(() => null)
+      : null;
+    const hasActiveWarmSigningSession = warmStatusForLogin?.status === 'active';
+    const isLoggedIn =
+      hasNearOperationalLogin || hasThresholdEcdsaLogin || hasActiveWarmSigningSession;
 
     if (isLoggedIn && (requiresWarmSession || !hasNearOperationalLogin)) {
-      const warmStatus = await resolveWarmSigningSessionStatusForUi(
-        context,
-        resolvedNearAccountId,
-        { ed25519: ed25519WarmStatus },
-      );
+      const warmStatus =
+        warmStatusForLogin ||
+        (await resolveWarmSigningSessionStatusForUi(context, resolvedNearAccountId, {
+          ed25519: ed25519WarmStatus,
+        }));
       if (!warmStatus || warmStatus.status !== 'active') {
         return {
           isLoggedIn: false,
@@ -1293,7 +1312,12 @@ async function getLoginStateInternal(
       nearAccountId: resolvedNearAccountId,
       publicKey,
       userData,
-      authMethod: isLoggedIn && publicKey ? 'passkey' : null,
+      authMethod:
+        isLoggedIn && publicKey
+          ? 'passkey'
+          : isLoggedIn
+            ? warmStatusForLogin?.authMethod || null
+            : null,
       thresholdEcdsaEthereumAddress: thresholdMetadata.ethereumAddress,
       thresholdEcdsaPublicKeyB64u: thresholdMetadata.thresholdEcdsaPublicKeyB64u,
     };

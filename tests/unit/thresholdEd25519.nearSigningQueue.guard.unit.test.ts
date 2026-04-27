@@ -121,7 +121,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
 
     expect(orchestrationDeps).toContain('new SigningSessionCoordinator');
     expect(orchestrationDeps).toContain('signingSessionCoordinator');
-    expect(orchestrationDeps).not.toContain('walletSigningBudgetLedger');
+    expect(orchestrationDeps).not.toContain('signingSessionBudget');
     expect(orchestrationDeps).not.toContain('consumeWalletSigningSessionUse');
     expect(signingSessionReadiness).toContain('clientAdditiveShareHandle');
     expect(signingSessionReadiness).toContain('walletSigningSessionId');
@@ -151,7 +151,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'client/src/core/signingEngine/api/recovery/privateKeyExportRecovery.ts',
     );
 
-    expect(recovery).not.toContain('WalletSigningSessionCoordinator');
+    expect(recovery).not.toContain('SigningSessionCoordinator');
     expect(recovery).not.toContain('consumeWalletSigningSessionUse');
     expect(recovery).not.toContain('consumeUse(');
   });

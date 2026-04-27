@@ -37,6 +37,9 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
     expect(schema).toContain("nonceLaneLeasesStore: 'nonceLaneLeasesV1'");
     expect(schema).toContain("nonceLaneLocksStore: 'nonceLaneLocksV1'");
+    const versionMatch = schema.match(/dbVersion:\s*(\d+)/);
+    expect(versionMatch?.[1]).toBeDefined();
+    expect(Number(versionMatch?.[1])).toBeGreaterThanOrEqual(32);
     expect(schema).not.toContain("dbName: 'Nonce");
     expect(store).toContain('UnifiedIndexedDBManager');
     expect(store).not.toContain('indexedDB.open');

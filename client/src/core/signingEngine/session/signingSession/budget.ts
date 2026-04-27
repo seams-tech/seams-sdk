@@ -12,14 +12,14 @@ import {
   type WalletSigningSpendPlan,
 } from './types';
 
-export type WalletSigningBudgetLedgerZeroSpendReason =
+export type SigningSessionBudgetZeroSpendReason =
   | 'confirmation_cancelled'
   | 'email_otp_failed'
   | 'passkey_failed'
   | 'nonce_preparation_failed'
   | 'signing_failed';
 
-export type WalletSigningBudgetLedgerTraceEvent = {
+export type SigningSessionBudgetTraceEvent = {
   event:
     | 'wallet_signing_budget_reservation_started'
     | 'wallet_signing_budget_reservation_succeeded'
@@ -40,34 +40,34 @@ export type WalletSigningBudgetLedgerTraceEvent = {
   backingMaterialSessionCount: number;
   status?: Pick<SigningSessionStatus, 'status' | 'remainingUses' | 'expiresAtMs'>;
   error?: string;
-  zeroSpendReason?: WalletSigningBudgetLedgerZeroSpendReason;
+  zeroSpendReason?: SigningSessionBudgetZeroSpendReason;
 };
 
-export type WalletSigningBudgetLedgerRecordSuccessInput = {
+export type SigningSessionBudgetRecordSuccessInput = {
   spend: WalletSigningSpendPlan;
   alreadyConsumedBackingMaterialSessionIds?: readonly string[];
   alreadyConsumedThresholdSessionIds?: readonly string[];
 };
 
-export type WalletSigningBudgetLedgerRecordZeroSpendInput = {
+export type SigningSessionBudgetRecordZeroSpendInput = {
   spend: WalletSigningSpendPlan;
-  reason: WalletSigningBudgetLedgerZeroSpendReason;
+  reason: SigningSessionBudgetZeroSpendReason;
   error?: unknown;
 };
 
-export type WalletSigningBudgetReservation = {
+export type SigningSessionBudgetReservation = {
   operationId: SigningOperationId;
-  release(reason?: WalletSigningBudgetLedgerZeroSpendReason): void;
+  release(reason?: SigningSessionBudgetZeroSpendReason): void;
 };
 
-export type WalletSigningBudgetStatusReader = (args: {
+export type SigningSessionBudgetStatusReader = (args: {
   nearAccountId: AccountId | string;
   walletSigningSessionId?: string;
   targetBackingMaterialSessionIds?: string[];
   targetThresholdSessionIds?: string[];
 }) => Promise<SigningSessionStatus | null>;
 
-export type WalletSigningBudgetConsumer = (args: {
+export type SigningSessionBudgetConsumer = (args: {
   nearAccountId: AccountId | string;
   walletSigningSessionId: string;
   uses: number;
@@ -78,16 +78,16 @@ export type WalletSigningBudgetConsumer = (args: {
   alreadyConsumedThresholdSessionIds?: string[];
 }) => Promise<SigningSessionStatus>;
 
-export type WalletSigningBudgetLedgerDeps = {
-  getStatus?: WalletSigningBudgetStatusReader;
-  consumeUse?: WalletSigningBudgetConsumer;
-  onTrace?: (event: WalletSigningBudgetLedgerTraceEvent) => void;
+export type SigningSessionBudgetDeps = {
+  getStatus?: SigningSessionBudgetStatusReader;
+  consumeUse?: SigningSessionBudgetConsumer;
+  onTrace?: (event: SigningSessionBudgetTraceEvent) => void;
 };
 
-export type WalletSigningBudgetLedger = {
+export type SigningSessionBudget = {
   reserve(
-    input: WalletSigningBudgetLedgerRecordSuccessInput,
-  ): Promise<WalletSigningBudgetReservation | null>;
+    input: SigningSessionBudgetRecordSuccessInput,
+  ): Promise<SigningSessionBudgetReservation | null>;
   getAvailableStatus(input: {
     nearAccountId: AccountId | string;
     walletSigningSessionId: string;
@@ -95,21 +95,21 @@ export type WalletSigningBudgetLedger = {
     targetThresholdSessionIds?: readonly string[];
   }): Promise<SigningSessionStatus | null>;
   recordSuccess(
-    input: WalletSigningBudgetLedgerRecordSuccessInput,
+    input: SigningSessionBudgetRecordSuccessInput,
   ): Promise<SigningSessionStatus | null>;
-  recordZeroSpend(input: WalletSigningBudgetLedgerRecordZeroSpendInput): void;
+  recordZeroSpend(input: SigningSessionBudgetRecordZeroSpendInput): void;
   hasRecorded(operationId: SigningOperationId): boolean;
 };
 
-export const WALLET_SIGNING_BUDGET_EXHAUSTED_ERROR =
-  '[WalletSigningBudgetLedger] wallet signing-session budget is exhausted';
+export const SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR =
+  '[SigningSessionBudget] wallet signing-session budget is exhausted';
 
-export function isWalletSigningBudgetExhaustedError(error: unknown): boolean {
+export function isSigningSessionBudgetExhaustedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
-  return message.includes(WALLET_SIGNING_BUDGET_EXHAUSTED_ERROR);
+  return message.includes(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
 }
 
-export function applyWalletSigningBudgetReservationsToStatus(args: {
+export function applySigningSessionBudgetReservationsToStatus(args: {
   status: SigningSessionStatus;
   walletSigningSessionId: string;
   reservedUsesByWalletSessionId: Map<string, number>;
@@ -134,9 +134,9 @@ export function applyWalletSigningBudgetReservationsToStatus(args: {
   };
 }
 
-export async function assertWalletSigningBudgetReservationAvailable(args: {
-  getStatus?: WalletSigningBudgetStatusReader;
-  input: WalletSigningBudgetLedgerRecordSuccessInput;
+export async function assertSigningSessionBudgetReservationAvailable(args: {
+  getStatus?: SigningSessionBudgetStatusReader;
+  input: SigningSessionBudgetRecordSuccessInput;
   reservedUsesByWalletSessionId: Map<string, number>;
 }): Promise<void> {
   const spend = args.input.spend;
@@ -148,23 +148,23 @@ export async function assertWalletSigningBudgetReservationAvailable(args: {
     targetThresholdSessionIds: normalizeStringList(spend.thresholdSessionIds),
   });
   if (!status || status.status === 'not_found') {
-    throw new Error('[WalletSigningBudgetLedger] wallet signing-session budget is not available');
+    throw new Error('[SigningSessionBudget] wallet signing-session budget is not available');
   }
   if (status.status !== 'active') {
     throw new Error(
-      `[WalletSigningBudgetLedger] wallet signing-session budget is ${status.status}`,
+      `[SigningSessionBudget] wallet signing-session budget is ${status.status}`,
     );
   }
   const remainingUses = Math.floor(Number(status.remainingUses) || 0);
   const reservedUses = args.reservedUsesByWalletSessionId.get(spend.walletSigningSessionId) || 0;
   if (remainingUses - reservedUses < spend.uses) {
-    throw new Error(WALLET_SIGNING_BUDGET_EXHAUSTED_ERROR);
+    throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
   }
 }
 
-export function normalizeWalletSigningBudgetLedgerRecordSuccessInput(
-  input: WalletSigningBudgetLedgerRecordSuccessInput,
-): WalletSigningBudgetLedgerRecordSuccessInput {
+export function normalizeSigningSessionBudgetRecordSuccessInput(
+  input: SigningSessionBudgetRecordSuccessInput,
+): SigningSessionBudgetRecordSuccessInput {
   return {
     ...input,
     spend: normalizeWalletSigningSpendPlan(input.spend),
@@ -182,13 +182,13 @@ export function assertWalletSigningOperationFingerprintMatches(args: {
 }): void {
   if (args.existingFingerprint === args.nextFingerprint) return;
   throw new Error(
-    `[WalletSigningBudgetLedger] signing operation id reused for a different operation: ${args.operationId}`,
+    `[SigningSessionBudget] signing operation id reused for a different operation: ${args.operationId}`,
   );
 }
 
 export function summarizeWalletSigningSessionStatus(
   status: SigningSessionStatus,
-): WalletSigningBudgetLedgerTraceEvent['status'] {
+): SigningSessionBudgetTraceEvent['status'] {
   return {
     status: status.status,
     remainingUses: status.remainingUses,
@@ -196,11 +196,11 @@ export function summarizeWalletSigningSessionStatus(
   };
 }
 
-export function createWalletSigningBudgetLedgerTraceEvent(
-  input: WalletSigningBudgetLedgerRecordSuccessInput,
-  event: WalletSigningBudgetLedgerTraceEvent['event'],
-  extra: Pick<WalletSigningBudgetLedgerTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
-): WalletSigningBudgetLedgerTraceEvent {
+export function createSigningSessionBudgetTraceEvent(
+  input: SigningSessionBudgetRecordSuccessInput,
+  event: SigningSessionBudgetTraceEvent['event'],
+  extra: Pick<SigningSessionBudgetTraceEvent, 'status' | 'error' | 'zeroSpendReason'> = {},
+): SigningSessionBudgetTraceEvent {
   const spend = input.spend;
   return {
     event,
@@ -218,7 +218,7 @@ export function createWalletSigningBudgetLedgerTraceEvent(
 export function normalizeRequired(value: unknown, label: string): string {
   const normalized = String(value || '').trim();
   if (!normalized) {
-    throw new Error(`[WalletSigningBudgetLedger] ${label} is required`);
+    throw new Error(`[SigningSessionBudget] ${label} is required`);
   }
   return normalized;
 }

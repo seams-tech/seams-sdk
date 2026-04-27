@@ -508,6 +508,8 @@ export class SigningEngine {
         this.emailOtpSessions.loginWithEcdsaCapabilityForSigning(args),
       rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (args) =>
         this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(args),
+      restoreEmailOtpSealedWarmSessionsForRead: (nearAccountId) =>
+        this.restoreEmailOtpSealedWarmSessionsForRead(nearAccountId),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args) =>
         this.markThresholdEcdsaEmailOtpSessionConsumedForAccount(args),
       markThresholdEd25519EmailOtpSessionConsumedForAccount: (args) =>
@@ -700,9 +702,12 @@ export class SigningEngine {
     }
   }
 
-  private createWarmSessionCapabilityReader() {
+  private createWarmSessionCapabilityReader(args?: { attemptSealedRestore?: boolean }) {
     return createWarmSessionCapabilityReader({
       touchConfirm: this.touchConfirm,
+      ...(typeof args?.attemptSealedRestore === 'boolean'
+        ? { attemptSealedRestore: args.attemptSealedRestore }
+        : {}),
       signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
       listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
         this.listThresholdEcdsaSessionRecordsForLookup({
@@ -759,10 +764,7 @@ export class SigningEngine {
       };
     }
     const statusRemainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
-    const budgetRemainingUses = Math.max(
-      0,
-      Math.floor(Number(budgetStatus.remainingUses) || 0),
-    );
+    const budgetRemainingUses = Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0));
     const statusExpiresAtMs = Math.floor(Number(status.expiresAtMs) || 0);
     const budgetExpiresAtMs = Math.floor(Number(budgetStatus.expiresAtMs) || 0);
     return {
@@ -1258,19 +1260,25 @@ export class SigningEngine {
         throw new Error('Missing rpId for threshold-ecdsa Email OTP export');
       }
       const exportSigningSessionAuthLane = currentRecord
-        ? {
-            kind: 'signing_session' as const,
-            jwt: requireThresholdSessionJwt(
-              String(currentRecord.thresholdSessionJwt || '').trim(),
-              'exportThresholdSessionJwt',
-            ),
-            thresholdSessionId: currentRecord.thresholdSessionId,
-            ...(currentRecord.walletSigningSessionId
-              ? { walletSigningSessionId: currentRecord.walletSigningSessionId }
-              : {}),
-            curve: 'ecdsa' as const,
-            chain: args.chain,
-          }
+        ? (() => {
+            const walletSigningSessionId = String(
+              currentRecord.walletSigningSessionId || '',
+            ).trim();
+            if (!walletSigningSessionId) {
+              throw new Error('Email OTP ECDSA export requires wallet signing-session identity');
+            }
+            return {
+              kind: 'signing_session' as const,
+              jwt: requireThresholdSessionJwt(
+                String(currentRecord.thresholdSessionJwt || '').trim(),
+                'exportThresholdSessionJwt',
+              ),
+              thresholdSessionId: currentRecord.thresholdSessionId,
+              walletSigningSessionId,
+              curve: 'ecdsa' as const,
+              chain: args.chain,
+            };
+          })()
         : undefined;
       const authorization = await this.emailOtpSessions.requestExportAuthorization({
         nearAccountId: args.nearAccountId,
@@ -2160,6 +2168,10 @@ export class SigningEngine {
 
     try {
       if (sessionRecord?.source === SIGNER_AUTH_METHODS.emailOtp) {
+        const walletSigningSessionId = String(sessionRecord.walletSigningSessionId || '').trim();
+        if (!walletSigningSessionId) {
+          throw new Error('Email OTP Ed25519 export requires wallet signing-session identity');
+        }
         const exportSigningSessionAuthLane = {
           kind: 'signing_session' as const,
           jwt: requireThresholdSessionJwt(
@@ -2167,9 +2179,7 @@ export class SigningEngine {
             'exportThresholdSessionJwt',
           ),
           thresholdSessionId,
-          ...(sessionRecord.walletSigningSessionId
-            ? { walletSigningSessionId: sessionRecord.walletSigningSessionId }
-            : {}),
+          walletSigningSessionId,
           curve: 'ed25519' as const,
         };
         const authorization = await this.emailOtpSessions.requestExportAuthorization({
@@ -2518,13 +2528,15 @@ export class SigningEngine {
     if (!jwt) {
       throw new Error('Email OTP signing-session refresh requires threshold-session auth');
     }
+    const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
+    if (!walletSigningSessionId) {
+      throw new Error('Email OTP signing-session refresh requires wallet signing-session identity');
+    }
     const authLane: EmailOtpAuthLane = {
       kind: 'signing_session',
       jwt,
       thresholdSessionId: record.thresholdSessionId,
-      ...(record.walletSigningSessionId
-        ? { walletSigningSessionId: record.walletSigningSessionId }
-        : {}),
+      walletSigningSessionId,
       curve: 'ecdsa',
       chain: args.chain,
     };
@@ -2754,9 +2766,9 @@ export class SigningEngine {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
   }): Promise<WarmSessionEcdsaCapabilityState> {
-    const warmSession = await this.createWarmSessionCapabilityReader().getWarmSession(
-      args.nearAccountId,
-    );
+    const warmSession = await this.createWarmSessionCapabilityReader({
+      attemptSealedRestore: false,
+    }).getWarmSession(args.nearAccountId);
     const capability = warmSession.capabilities.ecdsa[args.chain];
     if (capability.state !== 'ready') {
       throw new Error(
@@ -3176,9 +3188,8 @@ export class SigningEngine {
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
     return (async () => {
-      const status = await this.createWarmSessionStatusReader().getEd25519SigningSessionStatus(
-        nearAccountId,
-      );
+      const status =
+        await this.createWarmSessionStatusReader().getEd25519SigningSessionStatus(nearAccountId);
       const record = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
       const walletBudgetStatus = await this.getWalletSigningBudgetAvailableStatus({
         nearAccountId,
@@ -3235,9 +3246,14 @@ export class SigningEngine {
   private async restoreEmailOtpSealedWarmSessionsForRead(
     nearAccountId: AccountId | string,
   ): Promise<void> {
-    await this.createWarmSessionCapabilityReader()
-      .getWarmSession(nearAccountId)
-      .catch(() => undefined);
+    await this.emailOtpSessions
+      .restoreEcdsaWarmSessionsFromSealedRecordsForAccount(nearAccountId)
+      .catch((error) => {
+        console.warn('[SigningEngine][ecdsa] account-scoped Email OTP sealed restore failed', {
+          nearAccountId: String(nearAccountId || ''),
+          error: error instanceof Error ? error.message : String(error || 'unknown error'),
+        });
+      });
   }
 
   async scheduleThresholdEcdsaLoginPresignPrefill(args: {

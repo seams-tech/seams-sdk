@@ -14,7 +14,7 @@ import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
 import type { TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
-import type { WalletSigningBudgetReservation } from '../../session/signingSession/budget';
+import type { SigningSessionBudgetReservation } from '../../session/signingSession/budget';
 import {
   evmReserveNonceInputToLane,
   type NonceOperationContext,
@@ -109,7 +109,7 @@ async function executeEvmTransactionSigning(args: {
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   signingSessionPlan?: SigningSessionPlan;
   onConfirmationDisplayed: () => void;
-  reserveWalletSigningSessionBudget: () => Promise<WalletSigningBudgetReservation | null>;
+  reserveWalletSigningSessionBudget: () => Promise<SigningSessionBudgetReservation | null>;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
@@ -187,7 +187,7 @@ async function executeTempoTransactionSigning(args: {
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   signingSessionPlan?: SigningSessionPlan;
   onConfirmationDisplayed: () => void;
-  reserveWalletSigningSessionBudget: () => Promise<WalletSigningBudgetReservation | null>;
+  reserveWalletSigningSessionBudget: () => Promise<SigningSessionBudgetReservation | null>;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
@@ -253,7 +253,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   signingSessionPlan?: SigningSessionPlan;
   onConfirmationDisplayed: () => void;
-  reserveWalletSigningSessionBudget: () => Promise<WalletSigningBudgetReservation | null>;
+  reserveWalletSigningSessionBudget: () => Promise<SigningSessionBudgetReservation | null>;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;

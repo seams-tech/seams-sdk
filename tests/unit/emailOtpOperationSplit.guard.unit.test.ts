@@ -72,9 +72,7 @@ test.describe('Email OTP operation split guard', () => {
     const retryIndex = source.indexOf('const retryWithFreshEmailOtpAuth');
     const executorIndex = source.indexOf('return await executeEvmFamilyTransactionSigning');
     const evmSignIndex = executorSource.indexOf('const result = await signEvmWithTouchConfirm');
-    const tempoSignIndex = executorSource.indexOf(
-      'const result = await signTempoWithTouchConfirm',
-    );
+    const tempoSignIndex = executorSource.indexOf('const result = await signTempoWithTouchConfirm');
 
     expect(source).not.toContain('const assertEcdsaOperationAllowedForAttempt');
     expect(source).not.toContain('assertEcdsaOperationAllowedForSource');
@@ -90,9 +88,7 @@ test.describe('Email OTP operation split guard', () => {
     const accountAuthSource = readRepoFile(
       'client/src/core/signingEngine/api/evmFamily/accountAuth.ts',
     );
-    const lanesSource = readRepoFile(
-      'client/src/core/signingEngine/api/evmFamily/ecdsaLanes.ts',
-    );
+    const lanesSource = readRepoFile('client/src/core/signingEngine/api/evmFamily/ecdsaLanes.ts');
     const selectionModule = readRepoFile(
       'client/src/core/signingEngine/api/evmFamily/ecdsaSelection.ts',
     );
@@ -110,9 +106,7 @@ test.describe('Email OTP operation split guard', () => {
       'const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount',
       authResolver,
     );
-    const selectionResolver = source.indexOf(
-      'resolveEvmFamilyEcdsaSigningSelection',
-    );
+    const selectionResolver = source.indexOf('resolveEvmFamilyEcdsaSigningSelection');
     const selectionModuleResolver = selectionModule.indexOf(
       'export async function resolveEvmFamilyEcdsaSigningSelection',
     );
@@ -183,9 +177,9 @@ test.describe('Email OTP operation split guard', () => {
     expect(evmSigning).not.toContain('type EcdsaSigningLaneContext');
     expect(ecdsaSelection).toContain('export type EvmFamilyEcdsaSigningSelection');
     expect(authPlanning).toContain('export type ResolveEvmFamilyTransactionWalletAuthArgs');
-    expect(authPlanning).toContain('ecdsaSigningLane?: SigningLaneContext');
+    expect(authPlanning).toContain('ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane');
     expect(evmSigning).toContain('resolveEvmFamilyTransactionWalletAuth');
-    expect(ecdsaLanes).toContain('requireEvmFamilyEcdsaSigningLane');
+    expect(ecdsaLanes).toContain('requireResolvedEvmFamilyEcdsaSigningLane');
     expect(ecdsaSelection).toContain('source: SIGNER_AUTH_METHODS.emailOtp');
     expect(ecdsaSelection).toContain('PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY');
     expect(ecdsaSelection).toContain('listPasskeyEcdsaSigningCandidates');
@@ -193,9 +187,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(ecdsaSelection).toContain(
       "const passkeySource = passkeyCandidate?.source || 'manual-bootstrap'",
     );
-    expect(emailOtpCoordinator).toContain(
-      "chain: candidateChain,\n          source: 'email_otp'",
-    );
+    expect(emailOtpCoordinator).toContain("chain: candidateChain,\n          source: 'email_otp'");
     expect(warmSessionStatusReader).toContain(
       'if (args.source && candidate.source !== args.source) continue;',
     );
@@ -206,5 +198,25 @@ test.describe('Email OTP operation split guard', () => {
     expect(signingSessionReadiness).toContain(
       "record.source === 'email_otp' ? 'email_otp' : 'passkey'",
     );
+  });
+
+  test('EVM-family ECDSA signing restores Email OTP sealed sessions before lane selection', () => {
+    const evmSigning = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const depsStart = evmSigning.indexOf('export type EvmFamilySigningDeps');
+    const attemptStart = evmSigning.indexOf('async function signEvmFamilyAttempt');
+    const restoreCall = evmSigning.indexOf(
+      'await deps.restoreEmailOtpSealedWarmSessionsForRead(args.nearAccountId)',
+      attemptStart,
+    );
+    const selectionCall = evmSigning.indexOf(
+      'const selection = await resolveEvmFamilyEcdsaSigningSelection',
+      attemptStart,
+    );
+
+    expect(evmSigning.slice(depsStart, attemptStart)).toContain(
+      'restoreEmailOtpSealedWarmSessionsForRead?: (nearAccountId: string) => Promise<void>',
+    );
+    expect(restoreCall).toBeGreaterThan(attemptStart);
+    expect(selectionCall).toBeGreaterThan(restoreCall);
   });
 });

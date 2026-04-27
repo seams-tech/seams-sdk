@@ -15,6 +15,83 @@ test.describe('PasskeyClientDB repositories', () => {
     await setupBasicPasskeyTest(page);
   });
 
+  test('upgrades pre-nonce-store v31 databases with durable nonce stores', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { PasskeyClientDBManager } = await import(paths.clientDB);
+        const { DB_CONFIG } = await import(paths.schema);
+        const dbName = `PasskeyClientDBPreNonceStore-${crypto.randomUUID()}`;
+
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.open(dbName, 31);
+          request.onupgradeneeded = () => {
+            const db = request.result;
+            db.createObjectStore(DB_CONFIG.appStateStore, { keyPath: 'key' });
+          };
+          request.onerror = () => reject(request.error || new Error('open failed'));
+          request.onsuccess = () => {
+            request.result.close();
+            resolve();
+          };
+        });
+
+        const clientDB = new PasskeyClientDBManager({
+          ...DB_CONFIG,
+          dbName,
+        });
+        await clientDB.upsertNonceLaneLeaseRecord({
+          v: 1,
+          leaseId: 'lease-upgrade-test',
+          laneKey: 'evm:testnet:1:0x1111111111111111111111111111111111111111',
+          family: 'evm',
+          chain: 'evm',
+          networkKey: 'testnet',
+          chainId: 1,
+          sender: '0x1111111111111111111111111111111111111111',
+          nonce: '1',
+          state: 'reserved',
+          operationId: 'op-upgrade-test',
+          operationFingerprint: 'fp-upgrade-test',
+          reservedAtMs: 1,
+          expiresAtMs: Date.now() + 60_000,
+          updatedAtMs: Date.now(),
+          accountId: 'upgrade.testnet',
+        });
+        const leases = await clientDB.readNonceLaneLeaseRecords(
+          'evm:testnet:1:0x1111111111111111111111111111111111111111',
+        );
+        const lockResult = await clientDB.withNonceLaneCoordinationLock(
+          {
+            lockKey: 'nonce-coordinator:upgrade-test',
+            ownerId: 'upgrade-test-runtime',
+            ttlMs: 1_000,
+            waitTimeoutMs: 1_000,
+          },
+          async () => 'locked',
+        );
+        await new Promise<void>((resolve) => {
+          const request = indexedDB.deleteDatabase(dbName);
+          request.onsuccess = () => resolve();
+          request.onerror = () => resolve();
+          request.onblocked = () => resolve();
+        });
+
+        return {
+          dbVersion: DB_CONFIG.dbVersion,
+          leaseCount: leases.length,
+          lockResult,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      dbVersion: 32,
+      leaseCount: 1,
+      lockResult: 'locked',
+    });
+  });
+
   test('account signer repository writes, normalizes, and queries signer rows', async ({
     page,
   }) => {

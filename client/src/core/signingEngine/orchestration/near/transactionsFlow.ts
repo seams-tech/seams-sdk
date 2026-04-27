@@ -74,7 +74,7 @@ import {
   emitSigningPlannerDecisionTrace,
 } from '../../session/signingSession/trace';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { createTransactionSigningBudgetFinalizer } from '../../session/signingSession/budgetFinalizer';
+import { createSigningSessionBudgetFinalizer } from '../../session/signingSession/budgetFinalizer';
 import { computeSigningOperationFingerprint } from '../../session/signingSession/operationFingerprint';
 
 function emitNearSigningEvent(
@@ -617,8 +617,8 @@ export async function signTransactionsWithActions({
             ),
             storageSource: recordSource,
           });
-    return createTransactionSigningBudgetFinalizer({
-      walletSigningBudgetLedger: sessionCoordinator,
+    return createSigningSessionBudgetFinalizer({
+      signingSessionBudget: sessionCoordinator,
       operation: {
         operationId: confirmationOperationId,
         operationFingerprint,

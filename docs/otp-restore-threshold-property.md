@@ -556,6 +556,198 @@ Rules:
 4. Reload restore must not recover `S`, fetch recovery-wrapped escrows, or consume recovery keys.
 5. Recovery must not write or consume transaction signing-session sealed-refresh records.
 
+### Incident: OTP Reload Restored Ed25519 But Not ECDSA
+
+After the Email OTP recovery and signing-session refactors, the observed behavior
+was:
+
+1. Email OTP account unlock succeeded.
+2. Immediate page refresh auto-unlocked the wallet for Ed25519.
+3. NEAR Ed25519 signing succeeded.
+4. Tempo and ARC ECDSA signing failed with:
+
+```text
+Threshold ECDSA signing session is not ready. Refresh the signing session and retry.
+```
+
+Server logs also showed repeated `remove-server-seal` calls for the same ECDSA
+threshold session, often once per wallet-session poll. Browser logs showed
+purpose-mismatch warnings where an ECDSA-purpose sealed-record read was attempted
+against an Ed25519 threshold session id.
+
+The core problem was not one missing field. It was a broken ownership boundary:
+
+```text
+durable restore material:
+  IndexedDB signing_session_seals_v1
+
+volatile/runtime restore metadata:
+  warm-session session-record store
+  emailOtp worker memory
+  SigningEngine in-memory ECDSA lane map
+```
+
+The reload path treated the volatile session-record store as the entrypoint for
+finding ECDSA restore state. After page refresh, that store may be empty or may
+contain only the Ed25519 lane. The durable sealed ECDSA record still existed, but
+the account-scoped restore path did not enumerate durable sealed ECDSA records
+directly. As a result, ECDSA lane selection ran before ECDSA was rehydrated and
+failed without a selected signing lane.
+
+The bug persisted through several partial fixes because restore was also hidden
+inside generic read APIs:
+
+1. `getWalletSession` polled warm-session status every few seconds.
+2. The generic warm-session capability reader had a side effect: it could attempt
+   sealed refresh restore while merely reading status.
+3. Ed25519 status reads could call the Email OTP warm-session status helper with
+   an Ed25519 session id. When the worker returned `not_found`, the helper tried
+   ECDSA sealed restore with that Ed25519 id.
+4. The sealed store correctly rejected that read because the requested purpose
+   was `{ authMethod: email_otp, curve: ecdsa }`, but the candidate record was
+   Ed25519.
+5. Post-restore readiness verification called the same generic capability reader,
+   which could re-enter sealed restore immediately after a successful restore.
+6. Because the restore trigger was attached to polling/readiness reads, the app
+   repeatedly invoked `remove-server-seal` even when the user had not started an
+   ECDSA transaction.
+
+The corrected model is:
+
+```text
+account-scoped ECDSA reload restore:
+  list durable sealed records by account + authMethod=email_otp + curve=ecdsa
+  single-flight restore by account + walletSigningSessionId + ecdsaThresholdSessionId
+  rehydrate worker material
+  commit ECDSA session records
+  verify readiness with restore side effects disabled
+
+Ed25519 status reads:
+  read Ed25519 status only
+  never probe ECDSA sealed records
+
+ECDSA transaction signing:
+  run account-scoped ECDSA restore before lane selection
+  require a selected ECDSA lane before planning, signing, budget finalization, or cleanup
+```
+
+Important invariant:
+
+```text
+sealed-refresh restore is a write-side operation, not a read-side side effect
+```
+
+Status readers may report missing, unavailable, expired, or ready. They must not
+silently mutate restore state except through a narrow, explicit restore port.
+
+Architectural changes needed to make this class of bug impossible:
+
+1. Make `SigningSessionSealedStore` the durable source of truth for reload
+   restore discovery. Account-scoped restore must enumerate durable records by
+   account, auth method, and curve. It must not depend on warm-session records
+   already being present.
+2. Split read APIs from restore APIs. `getWarmSession`, status readers, wallet
+   session polling, and readiness assertions should be pure reads. Only
+   explicitly named restore commands should call `remove-server-seal` or
+   rehydrate worker memory.
+3. Require a resolved lane identity for every signing path:
+   `walletSigningSessionId`, `thresholdSessionId`, `authMethod`, `curve`, and
+   for ECDSA, `chain`. Draft objects may be optional; selected signing lanes may
+   not be.
+4. Keep sealed-record purpose mandatory at every storage boundary:
+   `{ authMethod, curve }` is part of the key, not a filter hint.
+5. Add single-flight and completion caching at the restore boundary, keyed by
+   account, wallet signing-session id, curve, and threshold session id.
+6. Remove companion-id probing from generic reads. If an Ed25519 record points to
+   an ECDSA companion, only the explicit ECDSA restore command may follow that
+   pointer.
+7. Make readiness verification after restore use a no-restore reader. Otherwise
+   the verification step can recursively trigger the operation it is verifying.
+8. Prefer one canonical session-identity object over parallel optional fields.
+   The same object should flow through planner, executor, budget, sealed restore,
+   and post-sign cleanup.
+
+### Hardening Plan: Session Identity And Restore Boundaries
+
+This section tracks the follow-up work for the bug class exposed by the OTP
+reload ECDSA failure. The goal is to make the type and module boundaries reject
+missing lane identity, wrong-purpose sealed reads, and restore side effects in
+read paths.
+
+Todo:
+
+1. [ ] Make ECDSA transaction auth planning require a resolved selected lane for
+   every auth method.
+   - Remove any Email OTP branch that can plan with `ecdsaSigningLane`
+     undefined.
+   - Treat missing lane identity as a pre-sign failure, not as a recoverable
+     planner hint.
+   - Required identity: `walletSigningSessionId`, `thresholdSessionId`,
+     `authMethod`, `curve: ecdsa`, and `chain`.
+
+2. [ ] Replace `EmailOtpAuthLane` with discriminated resolved-lane types.
+   - `EmailOtpEd25519SigningSessionAuthLane` requires
+     `thresholdSessionId`, `walletSigningSessionId`, and `curve: ed25519`.
+   - `EmailOtpEcdsaSigningSessionAuthLane` requires
+     `thresholdSessionId`, `walletSigningSessionId`, `curve: ecdsa`, and
+     `chain`.
+   - Draft/challenge-only Email OTP auth may stay separate, but must not be
+     assignable to signing-session auth.
+   - `resolveEmailOtpAuthLane(...)` must return `null` instead of constructing
+     a signing-session lane with missing identity.
+
+3. [ ] Introduce a canonical `ResolvedSigningSessionIdentity` object.
+   - Shape: wallet signing-session id, threshold session id, auth method,
+     curve, chain when ECDSA, source, retention, and signing-root scope.
+   - Pass this object through planner, executor, budget reservation, budget
+     finalization, sealed restore, and post-sign cleanup.
+   - Stop passing the same identity as parallel optional fields across modules.
+
+4. [ ] Split read ports from restore ports.
+   - Status readers, wallet-session polling, and readiness readers must be
+     pure reads.
+   - Only explicit restore commands may call `remove-server-seal`, rehydrate
+     worker memory, or mutate warm-session records.
+   - Add a no-restore reader mode for post-restore readiness verification.
+
+5. [ ] Make sealed-store access purpose-exact everywhere.
+   - Require `{ authMethod, curve }` for read, write, delete, lease, and policy
+     update operations.
+   - Include purpose in single-flight keys and restore leases.
+   - Reject generic threshold-session-id reads in production paths.
+
+6. [ ] Fix passkey sealed-refresh single-flight identity.
+   - Key passkey sealed-refresh persistence by operation, threshold session id,
+     wallet signing-session id, auth method, and curve.
+   - Do not let an Ed25519 persistence attempt suppress an ECDSA persistence
+     attempt, or vice versa.
+
+7. [ ] Make account-scoped OTP ECDSA restore the only reload restore entrypoint.
+   - Enumerate durable sealed ECDSA records by account, auth method, and curve.
+   - Do not depend on volatile warm-session records already existing.
+   - Single-flight by account, wallet signing-session id, curve, and ECDSA
+     threshold session id.
+
+8. [ ] Remove companion-id probing from generic readers.
+   - Ed25519 status reads must not attempt ECDSA sealed restore.
+   - If an Ed25519 record references an ECDSA companion id, only the explicit
+     ECDSA restore command may follow that link.
+
+9. [ ] Add static guards for this boundary.
+   - EVM-family signing modules cannot call source-less ECDSA lookup helpers.
+   - Read-model modules cannot call sealed restore or `remove-server-seal`.
+   - Budget, execution, and cleanup modules cannot accept draft or optional
+     lane types.
+
+10. [ ] Add regression coverage after the runtime fix is stable.
+    - OTP page refresh followed by Tempo and ARC ECDSA signing.
+    - Wallet-session polling does not call `remove-server-seal`.
+    - Ed25519 status read with a missing worker entry does not perform an ECDSA
+      sealed-store read.
+    - Post-restore readiness verification does not re-enter restore.
+    - ECDSA planning fails closed before signing when selected lane identity is
+      missing.
+
 ## Threat Model After Refactor
 
 Server-only compromise:

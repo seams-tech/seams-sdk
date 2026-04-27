@@ -16,7 +16,10 @@ import type {
   deleteSigningSessionSealedRecord,
   updateSigningSessionSealedRecordPolicy,
 } from '../../api/session/signingSessionSealedStore';
-import { readWarmSessionCapabilityRecordsForAccount } from '../warmSigning/store';
+import {
+  readWarmSessionCapabilityRecordsForAccount,
+  readWarmSessionEd25519RecordByThresholdSessionId,
+} from '../warmSigning/store';
 import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
 import type { WarmSessionPrfClaim } from '../warmSigning/types';
 import {
@@ -192,11 +195,26 @@ function toLaneSource(
   return record.source === 'email_otp' ? 'email_otp' : 'passkey';
 }
 
-function ecdsaWorkerSessionId(record: ThresholdEcdsaSessionRecord): string {
+export function resolveEmailOtpEcdsaWorkerSessionId(record: ThresholdEcdsaSessionRecord): string {
+  const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
   if (record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session') {
-    return normalizeNonEmpty(record.clientAdditiveShareHandle.sessionId);
+    const workerSessionId = normalizeNonEmpty(record.clientAdditiveShareHandle.sessionId);
+    const ed25519Companion =
+      workerSessionId && workerSessionId !== thresholdSessionId
+        ? readWarmSessionEd25519RecordByThresholdSessionId(workerSessionId)
+        : null;
+    if (ed25519Companion?.source === 'email_otp') {
+      // A stale cross-curve companion id here causes sealed restore to read the
+      // Ed25519 half of the seal as if it were the ECDSA lane.
+      console.warn('[SigningSessionCoordinator] ignoring mismatched Email OTP ECDSA worker session id', {
+        thresholdSessionId,
+        workerSessionId,
+      });
+    } else if (workerSessionId) {
+      return workerSessionId;
+    }
   }
-  return normalizeNonEmpty(record.thresholdSessionId);
+  return thresholdSessionId;
 }
 
 function addLane(
@@ -265,7 +283,7 @@ export function discoverLanesForAccount(
         walletSigningSessionId: resolveWalletSigningSessionId(record),
         backingMaterialSessionId:
           source === 'email_otp'
-            ? ecdsaWorkerSessionId(record)
+            ? resolveEmailOtpEcdsaWorkerSessionId(record)
             : normalizeNonEmpty(record.thresholdSessionId),
         backing: source === 'email_otp' ? 'email_otp_worker' : 'touch_confirm',
         record,
@@ -814,10 +832,16 @@ export async function syncSealedRefreshPolicyForLanes(args: {
   updatePolicy?: typeof updateSigningSessionSealedRecordPolicy;
   deleteRecord?: typeof deleteSigningSessionSealedRecord;
 }): Promise<void> {
-  const thresholdSessionIds = Array.from(
-    new Set(args.lanes.map((lane) => lane.thresholdSessionId).filter(Boolean)),
-  );
-  if (!thresholdSessionIds.length) return;
+  const seen = new Set<string>();
+  const sealedLanes = args.lanes
+    .filter((lane) => lane.thresholdSessionId)
+    .filter((lane) => {
+      const key = `${lane.source}:${lane.curve}:${lane.thresholdSessionId}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  if (!sealedLanes.length) return;
   const updatePolicy = args.updatePolicy;
   const deleteRecord = args.deleteRecord;
   if (!updatePolicy || !deleteRecord) return;
@@ -825,16 +849,23 @@ export async function syncSealedRefreshPolicyForLanes(args: {
   const expiresAtMs = Math.floor(Number(args.status.expiresAtMs) || 0);
   if (args.status.status !== 'active' || remainingUses <= 0 || expiresAtMs <= Date.now()) {
     await Promise.all(
-      thresholdSessionIds.map((thresholdSessionId) =>
-        deleteRecord(thresholdSessionId).catch(() => undefined),
+      sealedLanes.map((lane) =>
+        deleteRecord(lane.thresholdSessionId, {
+          authMethod: lane.source,
+          curve: lane.curve,
+        }).catch(() => undefined),
       ),
     );
     return;
   }
   await Promise.all(
-    thresholdSessionIds.map((thresholdSessionId) =>
+    sealedLanes.map((lane) =>
       updatePolicy({
-        thresholdSessionId,
+        thresholdSessionId: lane.thresholdSessionId,
+        filter: {
+          authMethod: lane.source,
+          curve: lane.curve,
+        },
         remainingUses,
         expiresAtMs,
         updatedAtMs: Date.now(),

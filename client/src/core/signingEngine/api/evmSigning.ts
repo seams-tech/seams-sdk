@@ -33,8 +33,8 @@ import {
 } from '../session/signingSession/types';
 import { computeSigningOperationFingerprint } from '../session/signingSession/operationFingerprint';
 import {
-  isWalletSigningBudgetExhaustedError,
-  type WalletSigningBudgetReservation,
+  isSigningSessionBudgetExhaustedError,
+  type SigningSessionBudgetReservation,
 } from '../session/signingSession/budget';
 import { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
 import { emitSigningLaneResolutionTrace } from '../session/signingSession/trace';
@@ -45,10 +45,14 @@ import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './evmFamil
 import { throwIfEvmFamilySigningCancelled } from './evmFamily/errors';
 import {
   requireEvmFamilyEcdsaAuthMethod,
-  requireEvmFamilyEcdsaSigningLane,
+  requireResolvedEvmFamilyEcdsaSigningLane,
+  summarizeEvmFamilyEcdsaKeyRef,
+  summarizeEvmFamilyEcdsaLane,
+  summarizeEvmFamilyEcdsaSessionRecord,
   type EcdsaSigningLookupArgs,
   type EvmFamilyEcdsaAuthMethod,
   type PasskeyEcdsaSigningLookupArgs,
+  type ResolvedEvmFamilyEcdsaSigningLane,
 } from './evmFamily/ecdsaLanes';
 import { resolveEvmFamilyEcdsaSigningSelection } from './evmFamily/ecdsaSelection';
 import { resolveEvmFamilyTransactionAccountAuth } from './evmFamily/accountAuth';
@@ -143,6 +147,7 @@ export type EvmFamilySigningDeps = {
     remainingUses: number;
     expiresAtMs: number;
   } | null>;
+  restoreEmailOtpSealedWarmSessionsForRead?: (nearAccountId: string) => Promise<void>;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: string;
@@ -223,8 +228,15 @@ async function signEvmFamilyAttempt(
   let selectedEcdsaAuthMethod: EvmFamilyEcdsaAuthMethod | undefined;
   let selectedEcdsaSource: ThresholdEcdsaSessionStoreSource | undefined;
   let emailOtpReauthRecord: ThresholdEcdsaSessionRecord | undefined;
+  const ecdsaAttemptDiagnostics: Record<string, unknown> = {
+    nearAccountId: args.nearAccountId,
+    chain: args.request.chain,
+    senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
+  };
   const signingSessionCoordinator =
-    attempt.signingSessionCoordinator || deps.signingSessionCoordinator || new SigningSessionCoordinator();
+    attempt.signingSessionCoordinator ||
+    deps.signingSessionCoordinator ||
+    new SigningSessionCoordinator();
   const operationIds =
     attempt.operationIds || createEvmFamilySigningOperationIds(args.signingOperationId);
   const operationFingerprint: SigningOperationFingerprint =
@@ -253,6 +265,43 @@ async function signEvmFamilyAttempt(
     return ensureConfirmationOperationId();
   };
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
+    // ECDSA lane selection reads the warm-session read model. After a page reload,
+    // Email OTP lanes may only exist as sealed refresh records until this restore runs.
+    if (typeof deps.restoreEmailOtpSealedWarmSessionsForRead === 'function') {
+      ecdsaAttemptDiagnostics.sealedRestoreBeforeSelection = {
+        attempted: true,
+        completed: false,
+      };
+      await deps.restoreEmailOtpSealedWarmSessionsForRead(args.nearAccountId).then(
+        () => {
+          ecdsaAttemptDiagnostics.sealedRestoreBeforeSelection = {
+            attempted: true,
+            completed: true,
+          };
+        },
+        (error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          ecdsaAttemptDiagnostics.sealedRestoreBeforeSelection = {
+            attempted: true,
+            completed: false,
+            error: message,
+          };
+          console.debug(
+            '[SigningEngine][ecdsa] Email OTP sealed restore before lane selection skipped',
+            {
+              nearAccountId: args.nearAccountId,
+              chain: args.request.chain,
+              message,
+            },
+          );
+        },
+      );
+    } else {
+      ecdsaAttemptDiagnostics.sealedRestoreBeforeSelection = {
+        attempted: false,
+        reason: 'dependency_missing',
+      };
+    }
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps,
       nearAccountId: args.nearAccountId,
@@ -269,6 +318,19 @@ async function signEvmFamilyAttempt(
     accountAuth = selection.accountAuth;
     thresholdEcdsaRecord = selection.warmRecord;
     thresholdEcdsaKeyRef = selection.warmKeyRef;
+    ecdsaAttemptDiagnostics.selection = {
+      authMethod: selectedEcdsaAuthMethod,
+      source: selectedEcdsaSource,
+      lane: summarizeEvmFamilyEcdsaLane(ecdsaSigningLane),
+      warmRecord: summarizeEvmFamilyEcdsaSessionRecord(thresholdEcdsaRecord),
+      warmKeyRef: summarizeEvmFamilyEcdsaKeyRef(thresholdEcdsaKeyRef),
+      reauthRecord: summarizeEvmFamilyEcdsaSessionRecord(emailOtpReauthRecord),
+    };
+    if (!ecdsaSigningLane) {
+      console.warn('[SigningEngine][ecdsa] EVM-family signing has no selected lane after selection', {
+        ...ecdsaAttemptDiagnostics,
+      });
+    }
   } else {
     accountAuth = await resolveEvmFamilyTransactionAccountAuth({
       deps,
@@ -309,12 +371,32 @@ async function signEvmFamilyAttempt(
     forceFreshAuth: attempt.forceFreshAuth === true,
     onEvent: args.onEvent,
   };
+  const getResolvedEcdsaSigningLane = (): ResolvedEvmFamilyEcdsaSigningLane =>
+    requireResolvedEvmFamilyEcdsaSigningLane({
+      lane: ecdsaSigningLane,
+      chain: args.request.chain,
+      thresholdSessionId:
+        thresholdEcdsaKeyRef?.thresholdSessionId || thresholdEcdsaRecord?.thresholdSessionId,
+      walletSigningSessionId:
+        thresholdEcdsaKeyRef?.walletSigningSessionId ||
+        thresholdEcdsaRecord?.walletSigningSessionId,
+      context: 'EVM-family signing flow',
+      diagnostics: {
+        ...ecdsaAttemptDiagnostics,
+        selectedAuthMethod: selectedEcdsaAuthMethod,
+        selectedSource: selectedEcdsaSource,
+        currentLane: summarizeEvmFamilyEcdsaLane(ecdsaSigningLane),
+        currentRecord: summarizeEvmFamilyEcdsaSessionRecord(thresholdEcdsaRecord),
+        currentKeyRef: summarizeEvmFamilyEcdsaKeyRef(thresholdEcdsaKeyRef),
+        emailOtpReauthRecord: summarizeEvmFamilyEcdsaSessionRecord(emailOtpReauthRecord),
+      },
+    });
   const { signingAuthPlan, signingSessionPlan, emailOtpSigning } =
     args.request.senderSignatureAlgorithm === 'secp256k1'
       ? await resolveEvmFamilyTransactionWalletAuth({
           ...walletAuthArgsBase,
           senderSignatureAlgorithm: 'secp256k1',
-          ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
+          ecdsaSigningLane: getResolvedEcdsaSigningLane(),
           ecdsaAuthMethod: requireEvmFamilyEcdsaAuthMethod(selectedEcdsaAuthMethod),
           ...(thresholdEcdsaRecord ? { ecdsaWarmRecord: thresholdEcdsaRecord } : {}),
           ...(thresholdEcdsaKeyRef ? { ecdsaWarmKeyRef: thresholdEcdsaKeyRef } : {}),
@@ -337,23 +419,26 @@ async function signEvmFamilyAttempt(
             ...(challengeId ? { challengeId } : {}),
           });
           thresholdEcdsaKeyRef = refreshed.keyRef;
+          if (refreshed.lane) {
+            ecdsaSigningLane = refreshed.lane;
+          }
           if (refreshed.record) {
             thresholdEcdsaRecord = refreshed.record;
             selectedEcdsaAuthMethod = SIGNER_AUTH_METHODS.emailOtp;
             selectedEcdsaSource = SIGNER_AUTH_METHODS.emailOtp;
             emailOtpReauthRecord = thresholdEcdsaRecord;
-            ecdsaSigningLane = refreshed.lane;
           } else {
             thresholdEcdsaRecord = undefined;
+          }
+          if (refreshed.lane || refreshed.record) {
+            selectedEcdsaAuthMethod = SIGNER_AUTH_METHODS.emailOtp;
+            selectedEcdsaSource = SIGNER_AUTH_METHODS.emailOtp;
           }
           return refreshed.keyRef;
         },
       }
     : undefined;
-  const {
-    flowArgs,
-    warmSessionServices,
-  } = await createEvmFamilySigningFlowRuntime({
+  const { flowArgs, warmSessionServices } = await createEvmFamilySigningFlowRuntime({
     deps,
     nearAccountId: args.nearAccountId,
     request: args.request,
@@ -368,7 +453,7 @@ async function signEvmFamilyAttempt(
     setThresholdEcdsaKeyRef: (keyRef) => {
       thresholdEcdsaKeyRef = keyRef;
     },
-    getEcdsaSigningLane: () => requireEvmFamilyEcdsaSigningLane(ecdsaSigningLane),
+    getResolvedEcdsaSigningLane,
   });
 
   const retryWithFreshEmailOtpAuth = async (
@@ -404,7 +489,7 @@ async function signEvmFamilyAttempt(
       // second Touch ID prompt for the same user operation instead of surfacing
       // the budget-lane bug that made the fresh session unusable.
       signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth ||
-      !isWalletSigningBudgetExhaustedError(error)
+      !isSigningSessionBudgetExhaustedError(error)
     ) {
       return null;
     }
@@ -429,25 +514,29 @@ async function signEvmFamilyAttempt(
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
       operation: createTransactionSigningOperation(),
-      ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
+      ...(args.request.senderSignatureAlgorithm === 'secp256k1'
+        ? { ecdsaSigningLane: getResolvedEcdsaSigningLane() }
+        : {}),
       ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
       ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
     });
   };
   const reserveWalletSigningSessionBudget =
-    async (): Promise<WalletSigningBudgetReservation | null> => {
-    return await reserveEvmFamilyWalletSigningSessionBudget({
-      deps,
-      signingSessionCoordinator,
-      senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
-      nearAccountId: args.nearAccountId,
-      chain: args.request.chain,
-      operation: createTransactionSigningOperation(),
-      ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
-      ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
-      ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
-    });
-  };
+    async (): Promise<SigningSessionBudgetReservation | null> => {
+      return await reserveEvmFamilyWalletSigningSessionBudget({
+        deps,
+        signingSessionCoordinator,
+        senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
+        nearAccountId: args.nearAccountId,
+        chain: args.request.chain,
+        operation: createTransactionSigningOperation(),
+        ...(args.request.senderSignatureAlgorithm === 'secp256k1'
+          ? { ecdsaSigningLane: getResolvedEcdsaSigningLane() }
+          : {}),
+        ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
+        ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
+      });
+    };
   const recordFailedWalletSigningSessionSpend = (error: unknown): void => {
     if (!confirmationDisplayed) return;
     recordFailedEvmFamilyWalletSigningSessionSpend({
@@ -458,7 +547,9 @@ async function signEvmFamilyAttempt(
       chain: args.request.chain,
       operation: createTransactionSigningOperation(),
       error,
-      ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
+      ...(args.request.senderSignatureAlgorithm === 'secp256k1'
+        ? { ecdsaSigningLane: getResolvedEcdsaSigningLane() }
+        : {}),
       ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
       ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),
     });
@@ -474,7 +565,9 @@ async function signEvmFamilyAttempt(
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       nearAccountId: args.nearAccountId,
       chain,
-      ...(ecdsaSigningLane ? { ecdsaSigningLane } : {}),
+      ...(args.request.senderSignatureAlgorithm === 'secp256k1'
+        ? { ecdsaSigningLane: getResolvedEcdsaSigningLane() }
+        : {}),
       ...(selectedSource ? { selectedEcdsaSource: selectedSource } : {}),
       ...(thresholdEcdsaRecord ? { thresholdEcdsaRecord } : {}),
       ...(thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef } : {}),

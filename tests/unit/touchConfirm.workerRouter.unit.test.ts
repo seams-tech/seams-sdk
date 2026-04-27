@@ -612,6 +612,8 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-rehydrate',
           walletSigningSessionId: 'wallet-session-rehydrate',
+          curve: 'ecdsa',
+          authMethod: 'passkey',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v2',
           expiresAtMs: Date.now() + 60_000,
@@ -622,6 +624,7 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
         (manager as any).resolveSealTransportInput = () => ({
+          curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-rehydrate',
           thresholdSessionJwt: 'jwt-session',
@@ -666,7 +669,10 @@ test.describe('UserConfirm worker router', () => {
         });
 
         const statusResult = await statusPromise;
-        const persisted = await sealedStoreMod.readSigningSessionSealedRecord('session-rehydrate');
+        const persisted = await sealedStoreMod.readSigningSessionSealedRecord(
+          'session-rehydrate',
+          { authMethod: 'passkey', curve: 'ecdsa' },
+        );
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
@@ -803,7 +809,10 @@ test.describe('UserConfirm worker router', () => {
           postedTypes: postedMessages.map((entry) => entry?.type),
           sealPayload: postedMessages[1]?.payload || null,
           persistedRecord:
-            await sealedStoreMod.readSigningSessionSealedRecord('session-from-record'),
+            await sealedStoreMod.readSigningSessionSealedRecord('session-from-record', {
+              authMethod: 'passkey',
+              curve: 'ed25519',
+            }),
         };
       },
       { paths: IMPORT_PATHS },
@@ -979,7 +988,10 @@ test.describe('UserConfirm worker router', () => {
           postedTypes: postedMessages.map((entry) => entry?.type),
           sealPayload: postedMessages[1]?.payload || null,
           persistedRecord:
-            await sealedStoreMod.readSigningSessionSealedRecord('session-ecdsa-record'),
+            await sealedStoreMod.readSigningSessionSealedRecord('session-ecdsa-record', {
+              authMethod: 'passkey',
+              curve: 'ecdsa',
+            }),
         };
       },
       { paths: IMPORT_PATHS },
@@ -1064,6 +1076,7 @@ test.describe('UserConfirm worker router', () => {
         const p1 = manager.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-single-flight-apply',
           transport: {
+            curve: 'ecdsa',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-single-flight-apply',
             thresholdSessionJwt: 'jwt-session',
@@ -1074,6 +1087,7 @@ test.describe('UserConfirm worker router', () => {
         const p2 = manager.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-single-flight-apply',
           transport: {
+            curve: 'ecdsa',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-single-flight-apply',
             thresholdSessionJwt: 'jwt-session',
@@ -1190,6 +1204,7 @@ test.describe('UserConfirm worker router', () => {
         const p1 = managerA.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-cross-manager-apply',
           transport: {
+            curve: 'ecdsa',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-cross-manager-apply',
             thresholdSessionJwt: 'jwt-session',
@@ -1200,6 +1215,7 @@ test.describe('UserConfirm worker router', () => {
         const p2 = managerB.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-cross-manager-apply',
           transport: {
+            curve: 'ecdsa',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-cross-manager-apply',
             thresholdSessionJwt: 'jwt-session',
@@ -1296,6 +1312,8 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-single-flight-remove',
           walletSigningSessionId: 'wallet-session-single-flight-remove',
+          curve: 'ecdsa',
+          authMethod: 'passkey',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v1',
           expiresAtMs: Date.now() + 60_000,
@@ -1306,6 +1324,7 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
         (manager as any).resolveSealTransportInput = () => ({
+          curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-single-flight-remove',
           thresholdSessionJwt: 'jwt-session',
@@ -1461,6 +1480,8 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-cross-manager-remove',
           walletSigningSessionId: 'wallet-session-cross-manager-remove',
+          curve: 'ecdsa',
+          authMethod: 'passkey',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v1',
           expiresAtMs: Date.now() + 60_000,
@@ -1471,6 +1492,7 @@ test.describe('UserConfirm worker router', () => {
         (managerA as any).worker = workerA;
         (managerA as any).attachWorkerRouter(workerA);
         (managerA as any).resolveSealTransportInput = () => ({
+          curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-cross-manager-remove',
           thresholdSessionJwt: 'jwt-session',
@@ -1480,6 +1502,7 @@ test.describe('UserConfirm worker router', () => {
         (managerB as any).worker = workerB;
         (managerB as any).attachWorkerRouter(workerB);
         (managerB as any).resolveSealTransportInput = () => ({
+          curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-cross-manager-remove',
           thresholdSessionJwt: 'jwt-session',
@@ -1620,6 +1643,8 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-no-rehydrate',
           walletSigningSessionId: 'wallet-session-no-rehydrate',
+          curve: 'ecdsa',
+          authMethod: 'passkey',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v2',
           expiresAtMs: Date.now() + 60_000,
@@ -1800,6 +1825,8 @@ test.describe('UserConfirm worker router', () => {
         await sealedStoreMod.writeSigningSessionSealedRecord({
           thresholdSessionId: 'session-expired',
           walletSigningSessionId: 'wallet-session-expired',
+          curve: 'ecdsa',
+          authMethod: 'passkey',
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v2',
           expiresAtMs: Date.now() - 1_000,
@@ -1810,6 +1837,7 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
         (manager as any).resolveSealTransportInput = () => ({
+          curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-expired',
           thresholdSessionJwt: 'jwt-session',
@@ -1830,7 +1858,10 @@ test.describe('UserConfirm worker router', () => {
         const statusResult = await statusPromise;
         await new Promise((resolve) => setTimeout(resolve, 5));
         const persistedAfter =
-          await sealedStoreMod.readSigningSessionSealedRecord('session-expired');
+          await sealedStoreMod.readSigningSessionSealedRecord('session-expired', {
+            authMethod: 'passkey',
+            curve: 'ecdsa',
+          });
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),

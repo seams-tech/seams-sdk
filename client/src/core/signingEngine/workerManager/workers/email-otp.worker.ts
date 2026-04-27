@@ -3049,6 +3049,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             msg.payload.chain === 'evm' || msg.payload.chain === 'tempo'
               ? msg.payload.chain
               : routePlan.authLane.kind === 'signing_session' &&
+                  routePlan.authLane.curve === 'ecdsa' &&
                   (routePlan.authLane.chain === 'evm' || routePlan.authLane.chain === 'tempo')
                 ? routePlan.authLane.chain
                 : 'tempo';

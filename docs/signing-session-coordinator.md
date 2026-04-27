@@ -84,34 +84,34 @@ server-side, where the authoritative wallet signing-session budget is consumed.
 Follow-on TODO:
 
 1. [x] Define the concurrency model for wallet signing-session budget:
-   reservation-before-sign in the local transaction signing ledger.
+       reservation-before-sign in the local transaction signing ledger.
 2. [x] Introduce an explicit budget reservation or atomic consume boundary for
-   transaction signing operations.
+       transaction signing operations.
 3. [x] Keep `operationId` idempotency for retries, but separate it from
-   concurrency protection across distinct operations.
+       concurrency protection across distinct operations.
 4. [x] Define failure semantics for reserved budget:
-   cancellation, OTP failure, passkey failure, nonce failure, signing failure,
-   timeout, and reconnect failure.
+       cancellation, OTP failure, passkey failure, nonce failure, signing failure,
+       timeout, and reconnect failure.
 5. [x] Decide whether reservation release is explicit, implicit by expiry, or
-   unnecessary because consume is atomic and late-bound.
+       unnecessary because consume is atomic and late-bound.
 6. [x] Add trace events for reservation started, reservation released, consume
-   succeeded, consume deduped, and consume failed.
+       succeeded, consume deduped, and consume failed.
 7. [x] Add the full matrix tests for two concurrent signing attempts against:
-   remaining uses `1`, `N > 1`, same operation retry, and mixed OTP/passkey lanes.
+       remaining uses `1`, `N > 1`, same operation retry, and mixed OTP/passkey lanes.
 8. [x] Ensure NEAR, Tempo, and EVM all use the same reservation/consume model.
 9. [x] Decide whether cross-tab/cross-device atomicity should move into
-   `WalletSigningSessionCoordinator` or the relayer: it belongs server-side.
+       `WalletSigningSessionCoordinator` or the relayer: it belongs server-side.
 
 Acceptance checks:
 
 1. [x] Two distinct concurrent operations sharing one budget ledger instance
-   cannot overspend the same wallet signing-session budget.
+       cannot overspend the same wallet signing-session budget.
 2. [x] A retry of the same operation still remains idempotent.
 3. [x] Failed or cancelled operations do not leak reserved budget indefinitely.
 4. [x] The reservation/consume boundary is visible in traces and easy to test.
 5. [x] Cross-tab/cross-device overspend protection is explicitly accepted as out
-   of scope for the client ledger and assigned to the server-side authoritative
-   budget consume path.
+       of scope for the client ledger and assigned to the server-side authoritative
+       budget consume path.
 
 ### 2. Execution Machine Direction
 
@@ -129,12 +129,12 @@ typed result-carrying execution machine?
 Follow-on TODO:
 
 1. [x] Write down the explicit decision criteria for keeping the current ordering
-   machine versus promoting it to a typed result-carrying machine.
+       machine versus promoting it to a typed result-carrying machine.
 2. [ ] Inventory which results are currently side-channel state in executors:
-   OTP result, passkey result, threshold reconnect result, nonce preparation
-   result, signature result, send result, cleanup result.
+       OTP result, passkey result, threshold reconnect result, nonce preparation
+       result, signature result, send result, cleanup result.
 3. [x] Decide whether those results need to become typed transition payloads, or
-   whether they should remain executor-local.
+       whether they should remain executor-local.
 
 Decision criteria:
 
@@ -146,21 +146,21 @@ Decision criteria:
 3. Do not move executor-local data into the machine only for observability; emit
    transition trace events instead.
 4. [ ] If the machine stays ordering-only, rename or document it more narrowly so
-   it does not read like a full execution state machine.
+       it does not read like a full execution state machine.
 5. [ ] If the machine becomes typed, define transition payload types and terminal
-   outcome types before changing implementation.
+       outcome types before changing implementation.
 6. [ ] Keep planner purity regardless of which machine direction is chosen.
 7. [ ] Keep no-auth-before-confirm as a hard invariant in either design.
 8. [ ] Add tests that assert the chosen ownership boundary:
-   planner, machine, executor, and finalizer.
+       planner, machine, executor, and finalizer.
 
 Acceptance checks:
 
 1. [ ] The execution model has one clear owner for ordering, side effects, and
-   post-sign finalization responsibilities.
+       post-sign finalization responsibilities.
 2. [ ] The code and docs use the same term for the machine’s actual role.
 3. [ ] New auth methods or signing flows can plug into the chosen model without
-   duplicating wrapper logic.
+       duplicating wrapper logic.
 
 ### 3. Signing Session Coordinator Cleanup
 
@@ -184,45 +184,45 @@ Implementation TODO:
 
 1. [x] Rename/remove `WarmSessionManager` facade naming and old log prefixes.
 2. [x] Replace transaction-signing `WalletAuthPlan` usage with planner-derived
-   TouchConfirm auth payloads.
+       TouchConfirm auth payloads.
    - [x] Add one conversion from `SigningSessionPlan` to TouchConfirm
-     `SigningAuthPlan`.
+         `SigningAuthPlan`.
    - [x] Route EVM, Tempo, and NEAR transaction confirmation through that
-     conversion.
+         conversion.
    - [x] Leave non-transaction `WalletAuthPlan` call sites alone until they have
-     their own planner path.
+         their own planner path.
 3. [x] Replace partial execution-machine trace lookup with a real command
-   runner or a narrow explicit trace helper.
+       runner or a narrow explicit trace helper.
    - [x] Remove `buildSigningExecutionSteps(plan).find(...)` from runtime code.
    - [x] If the machine stays ordering-only, expose a direct command trace helper
-     instead of treating the machine as a lookup table.
+         instead of treating the machine as a lookup table.
    - [x] If the machine becomes the runner, wire typed executors for confirmation,
-     auth, reconnect, nonce, budget reservation, signing, spend, and cleanup.
+         auth, reconnect, nonce, budget reservation, signing, spend, and cleanup.
 4. [x] Unify budget reserve/spend construction under one transaction
-   finalizer/executor.
+       finalizer/executor.
    - [x] Move NEAR inline spend-plan construction into a shared transaction
-     budget finalizer.
+         budget finalizer.
    - [x] Reuse the same finalizer from EVM and Tempo.
    - [x] Keep `WalletSigningBudgetLedger` as the idempotency and local
-     reservation primitive.
+         reservation primitive.
 5. [x] Remove leftover transaction-signing dependencies on old auth/facade
-   types.
+       types.
    - [x] Transaction signing modules should not import `WalletAuthPlan` once
-     planner-derived TouchConfirm auth is in place.
+         planner-derived TouchConfirm auth is in place.
    - [x] Transaction signing modules should use `SigningSessionCoordinator`
-     ports instead of warm-session facade bundles.
+         ports instead of warm-session facade bundles.
 
 Acceptance checks:
 
 1. [x] Transaction signing has one auth-plan source: `SigningSessionPlan`.
 2. [x] EVM, Tempo, and NEAR use the same conversion from planner output to
-   TouchConfirm auth payload.
+       TouchConfirm auth payload.
 3. [x] Execution-machine traces are emitted by an explicit runner/helper, not by
-   searching generated steps.
+       searching generated steps.
 4. [x] Budget reservation, success spend, zero-spend, and cleanup are finalized
-   by one transaction finalizer path.
+       by one transaction finalizer path.
 5. [x] No transaction-signing production code imports obsolete warm-session
-   facade names or transaction `WalletAuthPlan`.
+       facade names or transaction `WalletAuthPlan`.
 
 ### 4. Single Stateful Signing Session Coordinator
 
@@ -270,7 +270,9 @@ Proposed coordinator API:
 
 ```ts
 type SigningSessionCoordinator = {
-  resolveAuthPlan(input: ResolveSigningSessionAuthPlanInput): Promise<ResolvedSigningSessionAuthPlan>;
+  resolveAuthPlan(
+    input: ResolveSigningSessionAuthPlanInput,
+  ): Promise<ResolvedSigningSessionAuthPlan>;
   getAvailableStatus(input: SigningSessionStatusInput): Promise<SigningSessionStatus | null>;
   reserveBudget(input: SigningSessionBudgetInput): Promise<SigningSessionBudgetReservation | null>;
   recordSuccess(input: SigningSessionBudgetInput): Promise<SigningSessionStatus | null>;
@@ -1174,6 +1176,133 @@ Acceptance checks:
 1. [x] No transaction signing path can select a lane by newest persisted session.
 2. [x] No transaction signing path can inspect a secondary lane for active-lane policy.
 3. [x] No wrapper can throw fresh-auth errors before the planner and tx confirmer flow.
+
+### Phase 14: Make Session Identity Non-Optional
+
+Goal: remove optional security/session identity fields after the first
+normalization boundary. Optional fields are acceptable in draft inputs, callbacks,
+display metadata, and config knobs. They are not acceptable once code is choosing,
+restoring, spending, signing, or cleaning up a specific lane.
+
+The bug class to eliminate:
+
+```ts
+session?.sessionId || keyRef.thresholdSessionId || record?.thresholdSessionId;
+```
+
+Fallback chains like this hide identity ambiguity. They make it easy to pass an
+Ed25519 companion id into an ECDSA restore path, omit a selected signing lane, or
+spend wallet budget against a different session than the signer actually used.
+
+Design rule:
+
+1. Draft/bootstrap inputs may be partial.
+2. A named resolver normalizes draft inputs into a resolved identity object.
+3. Security/session code accepts only resolved identity objects.
+4. Missing identity is a typed failure at the boundary, not a fallback inside the
+   signing path.
+
+Target type shape:
+
+```ts
+type ResolvedSigningSessionPurpose = {
+  authMethod: 'email_otp' | 'passkey';
+  curve: 'ed25519' | 'ecdsa';
+  chain?: 'near' | 'tempo' | 'evm';
+};
+
+type ResolvedSigningLaneIdentity = ResolvedSigningSessionPurpose & {
+  walletSigningSessionId: WalletSigningSessionId;
+  thresholdSessionId: ThresholdSessionId;
+  backingMaterialSessionId: BackingMaterialSessionId;
+};
+
+type ResolvedEmailOtpEcdsaSession = ResolvedSigningLaneIdentity & {
+  authMethod: 'email_otp';
+  curve: 'ecdsa';
+  chain: 'tempo' | 'evm';
+  signingRootId: string;
+  relayerUrl: string;
+  shamirPrimeB64u: string;
+};
+```
+
+Implementation TODO:
+
+1. [ ] Inventory optional identity fields in OTP and signing-session paths.
+   - [ ] Classify each optional as draft/config/callback metadata or
+         security/session identity.
+   - [ ] Start with `authMethod?`, `curve?`, `chain?`,
+         `walletSigningSessionId?`, `thresholdSessionId?`,
+         `backingMaterialSessionId?`, `signingRootId?`, and `operationId?`.
+2. [ ] Introduce phase-specific Email OTP session types.
+   - [ ] `EmailOtpEcdsaBootstrapDraft` may keep optional server response fields.
+   - [ ] `ResolvedEmailOtpEcdsaSession` requires auth method, curve, chain,
+         wallet signing-session id, ECDSA threshold session id, signing root,
+         relayer URL, key version, and Shamir prime.
+   - [ ] `ResolvedEmailOtpEd25519Session` requires auth method, curve, wallet
+         signing-session id, Ed25519 threshold session id, relayer URL, and
+         participant ids.
+3. [ ] Split lane types by phase.
+   - [ ] Keep a draft lane only for discovery/planning.
+   - [ ] Add `ResolvedEd25519SigningLane` and `ResolvedEcdsaSigningLane`.
+   - [ ] Make budget reservation, budget finalization, execution, sealed-store
+         restore, and post-sign cleanup accept only resolved lanes.
+4. [ ] Replace identity fallback chains with named resolvers.
+   - [ ] Add `resolveEmailOtpEcdsaSessionIdentity(...)`.
+   - [ ] Add `resolveEmailOtpEd25519SessionIdentity(...)`.
+   - [ ] Add `resolveSelectedEcdsaSigningLaneIdentity(...)`.
+   - [ ] Make these return discriminated results: `{ ok: true, identity }` or
+         `{ ok: false, code, message }`.
+5. [x] Make sealed-session store ports purpose-required.
+   - [x] Require `{ authMethod, curve }` for every read, write, update, delete,
+         and lease operation.
+   - [x] Remove optional `authMethod?` and `curve?` from production sealed-store
+         write inputs.
+   - [x] Keep compatibility parsing only inside the store codec, not at callers.
+6. [ ] Replace optional dependency methods with required ports.
+   - [ ] Inject a required `SigningSessionSealedStorePort`.
+   - [ ] Inject required status/read/provision ports at service construction,
+         using no-op or unavailable adapters only where the feature is genuinely
+         disabled.
+   - [ ] Remove `readSigningSessionSealedRecord?` and similar optional method
+         checks from hot signing paths.
+7. [ ] Normalize collection inputs at boundaries.
+   - [ ] Convert optional budget arrays to required arrays before calling
+         coordinator internals.
+   - [ ] Internal budget/readiness functions should receive `[]`, not
+         `undefined`.
+8. [x] Tighten EVM-family ECDSA signing runtime inputs.
+   - [x] Replace `getEcdsaSigningLane(): SigningLaneContext | undefined` with
+         `getResolvedEcdsaSigningLane(): ResolvedEcdsaSigningLane`.
+   - [x] Remove budget finalizer fallback to key-ref or record ids except inside
+         the resolver that updates the resolved lane after successful reauth.
+9. [ ] Tighten OTP sealed-refresh restore.
+   - [ ] Treat Ed25519 companion resolution as an explicit resolver result.
+   - [ ] Require the resolved ECDSA threshold session id before worker
+         rehydration.
+   - [ ] Log only sanitized identity summaries: auth method, curve, chain, and
+         mismatch reason.
+10. [ ] Add static guards and regression tests.
+    - [x] Guard against `authMethod?:` and `curve?:` in resolved/session-store
+          production input types.
+    - [x] Guard against `thresholdSessionId?:` in resolved lane types.
+    - [ ] Guard against identity fallback chains outside resolver modules.
+    - [ ] Test Ed25519 companion restore resolving the ECDSA id before ECDSA
+          sealed reads.
+    - [x] Test ECDSA budget finalization cannot run without a resolved selected
+          lane.
+
+Acceptance checks:
+
+1. [ ] All signing, restore, budget, and cleanup paths receive a resolved
+       identity object before they touch worker material or wallet budget.
+2. [ ] Optional identity fields are confined to draft/bootstrap types and store
+       codecs.
+3. [ ] Missing identity fails at resolver boundaries with a clear typed error.
+4. [ ] No production signing path uses `a || b || c` to decide wallet session id,
+       threshold session id, auth method, curve, or chain.
+5. [ ] Static guards make this architecture hard to accidentally loosen.
 
 ## Final Acceptance Criteria
 

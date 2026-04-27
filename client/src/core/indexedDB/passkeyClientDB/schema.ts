@@ -18,7 +18,7 @@ export const SIGNER_OPS_OUTBOX_STATUS_NEXT_ATTEMPT_INDEX = 'status_nextAttemptAt
 
 export const DB_CONFIG: PasskeyClientDBConfig = {
   dbName: 'PasskeyClientDB',
-  dbVersion: 31,
+  dbVersion: 32,
   appStateStore: 'appState',
   profileAuthenticatorStore: 'profileAuthenticators',
   profilesStore: 'profiles',

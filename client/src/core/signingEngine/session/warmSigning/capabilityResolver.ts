@@ -29,6 +29,7 @@ import type { WarmSessionStatusReader } from './statusReader';
 
 export type WarmSessionCapabilityResolverDeps = {
   touchConfirm?: WarmSessionReadPorts;
+  attemptSealedRestore?: boolean;
   statusReader: Pick<
     WarmSessionStatusReader,
     'readWalletScopedClaimsForRecords' | 'readEcdsaWarmSessionClaimForRecord'
@@ -85,7 +86,10 @@ export function createWarmSessionCapabilityResolver(
 
     const { ed25519Claim, evmClaim, tempoClaim } =
       await deps.statusReader.readWalletScopedClaimsForRecords(accountId, records);
-    if (!sealedRestoreSuppressedAccounts.has(String(accountId))) {
+    if (
+      deps.attemptSealedRestore !== false &&
+      !sealedRestoreSuppressedAccounts.has(String(accountId))
+    ) {
       const evmRestoreRecord = records.ecdsa.evm;
       const tempoRestoreRecord = records.ecdsa.tempo;
       const [shouldRestoreEvm, shouldRestoreTempo] = await Promise.all([
@@ -227,29 +231,28 @@ export function createWarmSessionCapabilityResolver(
     if (args.curve === 'ed25519') {
       const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
       const jwt = String(record?.thresholdSessionJwt || '').trim();
-      if (record?.source !== 'email_otp' || !jwt) return null;
+      const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
+      if (record?.source !== 'email_otp' || !jwt || !walletSigningSessionId) return null;
       return {
         kind: 'signing_session',
         jwt,
         thresholdSessionId,
-        ...(record.walletSigningSessionId
-          ? { walletSigningSessionId: record.walletSigningSessionId }
-          : {}),
+        walletSigningSessionId,
         curve: 'ed25519',
       };
     }
     const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
     const jwt = String(record?.thresholdSessionJwt || '').trim();
-    if (record?.source !== 'email_otp' || !jwt) return null;
+    const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
+    const chain = args.chain || record?.chain;
+    if (record?.source !== 'email_otp' || !jwt || !walletSigningSessionId || !chain) return null;
     return {
       kind: 'signing_session',
       jwt,
       thresholdSessionId,
-      ...(record.walletSigningSessionId
-        ? { walletSigningSessionId: record.walletSigningSessionId }
-        : {}),
+      walletSigningSessionId,
       curve: 'ecdsa',
-      chain: args.chain || record.chain,
+      chain,
     };
   }
 
@@ -313,9 +316,7 @@ export function createWarmSessionCapabilityResolver(
         record.signingSessionSealKeyVersion || deps.signingSessionSeal?.keyVersion || '',
       ).trim(),
       shamirPrimeB64u: String(
-        record.signingSessionSealShamirPrimeB64u ||
-          deps.signingSessionSeal?.shamirPrimeB64u ||
-          '',
+        record.signingSessionSealShamirPrimeB64u || deps.signingSessionSeal?.shamirPrimeB64u || '',
       ).trim(),
     });
   }

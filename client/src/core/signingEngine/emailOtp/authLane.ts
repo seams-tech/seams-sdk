@@ -5,15 +5,25 @@ import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 
 export type EmailOtpAuthLane =
   | { kind: 'app_session'; jwt: string }
+  | EmailOtpSigningSessionAuthLane
+  | { kind: 'cookie' };
+
+export type EmailOtpSigningSessionAuthLane =
   | {
       kind: 'signing_session';
       jwt: string;
       thresholdSessionId: string;
-      walletSigningSessionId?: string;
-      curve?: 'ed25519' | 'ecdsa';
-      chain?: ThresholdEcdsaActivationChain;
+      walletSigningSessionId: string;
+      curve: 'ed25519';
     }
-  | { kind: 'cookie' };
+  | {
+      kind: 'signing_session';
+      jwt: string;
+      thresholdSessionId: string;
+      walletSigningSessionId: string;
+      curve: 'ecdsa';
+      chain: ThresholdEcdsaActivationChain;
+    };
 
 export type EmailOtpRouteFamily = 'login' | 'registration' | 'signing_session';
 
@@ -37,6 +47,54 @@ function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
 }
 
+function buildEmailOtpSigningSessionAuthLane(args: {
+  jwt: unknown;
+  thresholdSessionId: unknown;
+  walletSigningSessionId: unknown;
+  curve: unknown;
+  chain?: unknown;
+}): EmailOtpSigningSessionAuthLane | undefined {
+  const jwt = nonEmptyString(args.jwt);
+  const thresholdSessionId = nonEmptyString(args.thresholdSessionId);
+  const walletSigningSessionId = nonEmptyString(args.walletSigningSessionId);
+  if (!jwt || !thresholdSessionId || !walletSigningSessionId) {
+    console.warn('[EmailOtpAuthLane] rejected incomplete signing-session auth lane', {
+      hasJwt: !!jwt,
+      thresholdSessionId,
+      walletSigningSessionId,
+      curve: args.curve,
+      chain: args.chain,
+    });
+    return undefined;
+  }
+  if (args.curve === 'ed25519') {
+    return {
+      kind: 'signing_session',
+      jwt,
+      thresholdSessionId,
+      walletSigningSessionId,
+      curve: 'ed25519',
+    };
+  }
+  if (args.curve === 'ecdsa' && (args.chain === 'tempo' || args.chain === 'evm')) {
+    return {
+      kind: 'signing_session',
+      jwt,
+      thresholdSessionId,
+      walletSigningSessionId,
+      curve: 'ecdsa',
+      chain: args.chain,
+    };
+  }
+  console.warn('[EmailOtpAuthLane] rejected signing-session auth lane with invalid curve or chain', {
+    thresholdSessionId,
+    walletSigningSessionId,
+    curve: args.curve,
+    chain: args.chain,
+  });
+  return undefined;
+}
+
 export function resolveEmailOtpAuthLane(
   args: ResolveEmailOtpAuthLaneArgs,
 ): EmailOtpAuthLane | undefined {
@@ -48,18 +106,13 @@ export function resolveEmailOtpAuthLane(
   }
 
   if (args.routeAuth?.kind === 'threshold_session') {
-    const jwt = nonEmptyString(args.routeAuth.jwt);
-    if (!jwt) return undefined;
-    return {
-      kind: 'signing_session',
-      jwt,
-      thresholdSessionId: nonEmptyString(args.thresholdSessionId),
-      ...(nonEmptyString(args.walletSigningSessionId)
-        ? { walletSigningSessionId: nonEmptyString(args.walletSigningSessionId) }
-        : {}),
-      ...(args.curve ? { curve: args.curve } : {}),
-      ...(args.chain ? { chain: args.chain } : {}),
-    };
+    return buildEmailOtpSigningSessionAuthLane({
+      jwt: args.routeAuth.jwt,
+      thresholdSessionId: args.thresholdSessionId,
+      walletSigningSessionId: args.walletSigningSessionId,
+      curve: args.curve,
+      chain: args.chain,
+    });
   }
 
   const appSessionJwt = nonEmptyString(args.appSessionJwt);
@@ -157,23 +210,13 @@ export function normalizeEmailOtpRoutePlan(value: unknown): EmailOtpRoutePlan | 
     const jwt = nonEmptyString(input.authLane?.jwt);
     if (jwt) authLane = { kind: 'app_session', jwt };
   } else if (laneKind === 'signing_session') {
-    const jwt = nonEmptyString(input.authLane?.jwt);
-    if (jwt) {
-      authLane = {
-        kind: 'signing_session',
-        jwt,
-        thresholdSessionId: nonEmptyString(input.authLane?.thresholdSessionId),
-        ...(nonEmptyString(input.authLane?.walletSigningSessionId)
-          ? { walletSigningSessionId: nonEmptyString(input.authLane?.walletSigningSessionId) }
-          : {}),
-        ...(input.authLane?.curve === 'ed25519' || input.authLane?.curve === 'ecdsa'
-          ? { curve: input.authLane.curve }
-          : {}),
-        ...(input.authLane?.chain === 'tempo' || input.authLane?.chain === 'evm'
-          ? { chain: input.authLane.chain }
-          : {}),
-      };
-    }
+    authLane = buildEmailOtpSigningSessionAuthLane({
+      jwt: input.authLane?.jwt,
+      thresholdSessionId: input.authLane?.thresholdSessionId,
+      walletSigningSessionId: input.authLane?.walletSigningSessionId,
+      curve: input.authLane?.curve,
+      chain: input.authLane?.chain,
+    });
   }
   return buildEmailOtpRoutePlan({
     routeFamily: routeFamily as EmailOtpRouteFamily,

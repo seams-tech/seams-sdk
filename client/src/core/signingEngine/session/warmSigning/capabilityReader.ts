@@ -17,7 +17,7 @@ import type { WarmSessionCapabilityReader } from './types';
 
 export type WarmSessionCapabilityReaderFactoryDeps = Pick<
   WarmSessionCapabilityResolverDeps,
-  'touchConfirm' | 'signingSessionSeal'
+  'touchConfirm' | 'signingSessionSeal' | 'attemptSealedRestore'
 > &
   Omit<WarmSessionStatusReaderDeps, 'getEmailOtpWarmSessionStatus'> &
   Pick<
@@ -70,6 +70,7 @@ export function createWarmSessionCapabilityReader(
   });
   return createWarmSessionCapabilityResolver({
     touchConfirm: deps.touchConfirm,
+    attemptSealedRestore: deps.attemptSealedRestore,
     statusReader,
     sealedRefreshRestorer,
     signingSessionSeal: deps.signingSessionSeal,

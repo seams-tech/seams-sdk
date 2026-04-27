@@ -1,17 +1,17 @@
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
+  logEvmFamilyEcdsaLaneDiagnostic,
   readSelectedEcdsaRecordForLane,
+  summarizeEvmFamilyEcdsaKeyRef,
+  summarizeEvmFamilyEcdsaSessionRecord,
   type EvmFamilyEcdsaSessionReaderDeps,
+  type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
-import type { SigningLaneContext } from '../../session/signingSession/types';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
 } from '../thresholdLifecycle/thresholdSessionStore';
-import type {
-  EvmFamilyChain,
-  EvmFamilySenderSignatureAlgorithm,
-} from './types';
+import type { EvmFamilyChain, EvmFamilySenderSignatureAlgorithm } from './types';
 
 type EvmFamilyEcdsaPostSignPolicyRunner = {
   applyEcdsaPostSignPolicy: (args: {
@@ -24,14 +24,14 @@ type EvmFamilyEcdsaPostSignPolicyRunner = {
 
 function resolveCurrentEcdsaThresholdSessionId(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  ecdsaSigningLane: SigningLaneContext;
+  ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
   thresholdEcdsaRecord?: ThresholdEcdsaSessionRecord;
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
 }): string | undefined {
   const selectedSessionId = String(
-    args.ecdsaSigningLane.thresholdSessionId ||
+    args.thresholdEcdsaKeyRef?.thresholdSessionId ||
       args.thresholdEcdsaRecord?.thresholdSessionId ||
-      args.thresholdEcdsaKeyRef?.thresholdSessionId ||
+      args.ecdsaSigningLane.thresholdSessionId ||
       '',
   ).trim();
   if (selectedSessionId) return selectedSessionId;
@@ -52,17 +52,27 @@ export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   nearAccountId: string;
   chain: EvmFamilyChain;
-  ecdsaSigningLane?: SigningLaneContext;
+  ecdsaSigningLane?: ResolvedEvmFamilyEcdsaSigningLane;
   selectedEcdsaSource?: ThresholdEcdsaSessionStoreSource;
   thresholdEcdsaRecord?: ThresholdEcdsaSessionRecord;
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
 }): Promise<void> {
   if (args.senderSignatureAlgorithm !== 'secp256k1') return;
-  if (!args.ecdsaSigningLane) {
-    throw new Error('[SigningEngine] ECDSA signing lane is required for post-sign cleanup');
-  }
   if (!args.selectedEcdsaSource) {
     throw new Error('[SigningEngine] ECDSA signing source is required for post-sign cleanup');
+  }
+  // Post-sign cleanup is security-sensitive: it must operate on the exact
+  // lane used after any OTP/passkey reauth, not a generic threshold-session id.
+  const resolvedLane = args.ecdsaSigningLane;
+  if (!resolvedLane) {
+    logEvmFamilyEcdsaLaneDiagnostic('missing resolved signing lane for post-sign cleanup', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      selectedEcdsaSource: args.selectedEcdsaSource,
+      thresholdEcdsaRecord: summarizeEvmFamilyEcdsaSessionRecord(args.thresholdEcdsaRecord),
+      thresholdEcdsaKeyRef: summarizeEvmFamilyEcdsaKeyRef(args.thresholdEcdsaKeyRef),
+    });
+    throw new Error('[SigningEngine][ecdsa] missing resolved signing lane for post-sign cleanup');
   }
   const selectedEcdsaSource = args.selectedEcdsaSource;
   await args.postSignPolicy.applyEcdsaPostSignPolicy({
@@ -70,7 +80,7 @@ export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
     chain: args.chain,
     thresholdSessionId: resolveCurrentEcdsaThresholdSessionId({
       deps: args.deps,
-      ecdsaSigningLane: args.ecdsaSigningLane,
+      ecdsaSigningLane: resolvedLane,
       ...(args.thresholdEcdsaRecord ? { thresholdEcdsaRecord: args.thresholdEcdsaRecord } : {}),
       ...(args.thresholdEcdsaKeyRef ? { thresholdEcdsaKeyRef: args.thresholdEcdsaKeyRef } : {}),
     }),

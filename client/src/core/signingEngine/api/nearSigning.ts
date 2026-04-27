@@ -50,7 +50,7 @@ import {
 } from '../session/signingSession/types';
 import { buildNearTransactionSigningLane } from '../session/signingSession/lanes';
 import {
-  isWalletSigningBudgetExhaustedError,
+  isSigningSessionBudgetExhaustedError,
   SigningSessionCoordinator,
   type SigningSessionReadiness,
 } from '../session/SigningSessionCoordinator';
@@ -374,14 +374,15 @@ function emailOtpEd25519AuthLaneFromRecord(
 ): EmailOtpAuthLane | undefined {
   const jwt = String(record?.thresholdSessionJwt || '').trim();
   const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
-  if (record?.source !== 'email_otp' || !jwt || !thresholdSessionId) return undefined;
+  const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
+  if (record?.source !== 'email_otp' || !jwt || !thresholdSessionId || !walletSigningSessionId) {
+    return undefined;
+  }
   return {
     kind: 'signing_session',
     jwt,
     thresholdSessionId,
-    ...(record.walletSigningSessionId
-      ? { walletSigningSessionId: record.walletSigningSessionId }
-      : {}),
+    walletSigningSessionId,
     curve: 'ed25519',
   };
 }
@@ -630,7 +631,9 @@ async function resolveNearTransactionWalletAuth(args: {
       prepare: prepareEmailOtpChallenge,
       resend: prepareEmailOtpChallenge,
       complete: async (otpCode: string, challengeId?: string) => {
-        const resolvedChallengeId = String(challengeId || activeChallenge?.challengeId || '').trim();
+        const resolvedChallengeId = String(
+          challengeId || activeChallenge?.challengeId || '',
+        ).trim();
         if (!resolvedChallengeId) {
           throw new Error('[SigningEngine] Email OTP challenge must be prepared before completion');
         }
@@ -796,8 +799,7 @@ export async function signTransactionsWithActions(
                         participantIds: thresholdSessionRecord.participantIds,
                         ...(thresholdSessionRecord.walletSigningSessionId
                           ? {
-                              walletSigningSessionId:
-                                thresholdSessionRecord.walletSigningSessionId,
+                              walletSigningSessionId: thresholdSessionRecord.walletSigningSessionId,
                             }
                           : {}),
                         remainingUses,
@@ -838,7 +840,7 @@ export async function signTransactionsWithActions(
       !attempt.retryingFreshAuth &&
       !alreadyAttemptedFreshAuth &&
       thresholdSessionRecord &&
-      (isThresholdSessionAuthUnavailableError(error) || isWalletSigningBudgetExhaustedError(error))
+      (isThresholdSessionAuthUnavailableError(error) || isSigningSessionBudgetExhaustedError(error))
     ) {
       const isEmailOtpSession = thresholdSessionRecord.source === 'email_otp';
       emitNearSigningEvent(args.onEvent, nearAccountId, {
@@ -852,7 +854,7 @@ export async function signTransactionsWithActions(
         interaction: { kind: 'none', overlay: 'none' },
         data: {
           chain: 'near',
-          reason: isWalletSigningBudgetExhaustedError(error)
+          reason: isSigningSessionBudgetExhaustedError(error)
             ? 'wallet_signing_budget_reserved'
             : 'threshold_session_expired',
         },

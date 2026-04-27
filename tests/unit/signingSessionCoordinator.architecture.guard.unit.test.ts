@@ -17,6 +17,19 @@ const transactionFlowFiles = [
   'client/src/core/signingEngine/api/evmFamily/authPlanning.ts',
 ] as const;
 
+const evmFamilySecuritySessionFiles = [
+  'client/src/core/signingEngine/api/evmSigning.ts',
+  'client/src/core/signingEngine/api/tempoSigning.ts',
+  'client/src/core/signingEngine/api/evmFamily/authPlanning.ts',
+  'client/src/core/signingEngine/api/evmFamily/budgetSpending.ts',
+  'client/src/core/signingEngine/api/evmFamily/ecdsaSelection.ts',
+  'client/src/core/signingEngine/api/evmFamily/emailOtpRefresh.ts',
+  'client/src/core/signingEngine/api/evmFamily/postSignPolicy.ts',
+  'client/src/core/signingEngine/api/evmFamily/transactionExecutor.ts',
+  'client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts',
+  'client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts',
+] as const;
+
 const pureSigningSessionHelperFiles = [
   'client/src/core/signingEngine/session/signingSession/types.ts',
   'client/src/core/signingEngine/session/signingSession/lanes.ts',
@@ -117,8 +130,8 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
 
       expect(source, relativePath).not.toContain("signingSession/budget'");
       expect(source, relativePath).not.toContain('signingSession/budget"');
-      expect(source, relativePath).not.toContain('createWalletSigningBudgetLedgerState');
-      expect(source, relativePath).not.toContain('createWalletSigningBudgetLedger(');
+      expect(source, relativePath).not.toContain('createSigningSessionBudgetState');
+      expect(source, relativePath).not.toContain('createSigningSessionBudget(');
       expect(source, relativePath).not.toContain('reservedUsesByWalletSessionId');
       expect(source, relativePath).not.toContain('reservationsByOperationId');
       expect(source, relativePath).not.toContain('successfulSpendsByOperationId');
@@ -133,8 +146,8 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       if (productionFilesThatMayConstructLegacyCoordinatorHelpers.has(relativePath)) continue;
       const source = readRepoSource(relativePath);
 
-      expect(source, relativePath).not.toContain('createWalletSigningBudgetLedger(');
-      expect(source, relativePath).not.toContain('createWalletSigningSessionCoordinator(');
+      expect(source, relativePath).not.toContain('createSigningSessionBudget(');
+      expect(source, relativePath).not.toContain('createSigningSessionCoordinator(');
     }
   });
 
@@ -146,12 +159,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(source).toContain('new SigningSessionCoordinator({');
     expect(source).toContain('signingSessionCoordinator: SigningSessionCoordinator;');
     expect(source).toContain('signingSessionCoordinator,');
-    expect(source).not.toContain('walletSigningBudgetLedger: SigningSessionCoordinator;');
+    expect(source).not.toContain('signingSessionBudget: SigningSessionCoordinator;');
     expect(source).not.toContain('walletSigningSessionCoordinator: SigningSessionCoordinator;');
     expect(source).not.toContain('SigningSessionBudgetPort');
     expect(source).not.toContain('walletSigningSessionCoordinator:');
-    expect(source).not.toContain('createWalletSigningBudgetLedger(');
-    expect(source).not.toContain('createWalletSigningSessionCoordinator(');
+    expect(source).not.toContain('createSigningSessionBudget(');
+    expect(source).not.toContain('createSigningSessionCoordinator(');
   });
 
   test('EVM-family warm-session services do not use coordinator naming', () => {
@@ -169,6 +182,22 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     }
   });
 
+  test('EVM-family signing paths use selected-lane scoped session lookups', () => {
+    const forbiddenGenericLookups = [
+      'getThresholdEcdsaKeyRefForLookup',
+      'getThresholdEcdsaSessionRecordForLookup',
+      'getThresholdEcdsaSessionRecordByThresholdSessionId',
+      'readWarmSessionEcdsaRecordByThresholdSessionId',
+    ];
+
+    for (const relativePath of evmFamilySecuritySessionFiles) {
+      const source = readRepoSource(relativePath);
+      for (const lookup of forbiddenGenericLookups) {
+        expect(source, relativePath).not.toContain(lookup);
+      }
+    }
+  });
+
   test('legacy budget ledger wrapper has been deleted', () => {
     expect(
       fs.existsSync(
@@ -180,7 +209,10 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
   test('legacy wallet session coordinator wrapper has been deleted', () => {
     expect(
       fs.existsSync(
-        path.join(repoRoot, 'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts'),
+        path.join(
+          repoRoot,
+          'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
+        ),
       ),
     ).toBe(false);
   });
@@ -232,9 +264,84 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       expect(importPath).not.toContain('thresholdLifecycle');
       expect(importPath).not.toContain('emailOtp');
       expect(importPath).not.toContain('passkey');
-      expect(importPath).not.toContain('WalletSigningBudgetLedger');
+      expect(importPath).not.toContain('SigningSessionBudget');
       expect(importPath).not.toContain('signingSession/budget');
       expect(importPath).not.toContain('SigningSessionCoordinator');
     }
+  });
+
+  test('Phase 14 keeps ECDSA signing runtime on resolved lane identity', () => {
+    const runtime = readRepoSource(
+      'client/src/core/signingEngine/api/evmFamily/signingFlowRuntime.ts',
+    );
+    const authPlanning = readRepoSource(
+      'client/src/core/signingEngine/api/evmFamily/authPlanning.ts',
+    );
+    const budget = readRepoSource('client/src/core/signingEngine/api/evmFamily/budgetSpending.ts');
+    const postSign = readRepoSource(
+      'client/src/core/signingEngine/api/evmFamily/postSignPolicy.ts',
+    );
+    const ecdsaLanes = readRepoSource('client/src/core/signingEngine/api/evmFamily/ecdsaLanes.ts');
+    const resolvedLaneType = ecdsaLanes.slice(
+      ecdsaLanes.indexOf('export type ResolvedEvmFamilyEcdsaSigningLane'),
+      ecdsaLanes.indexOf('export function requireResolvedEvmFamilyEcdsaSigningLane'),
+    );
+
+    expect(runtime).toContain('getResolvedEcdsaSigningLane');
+    expect(runtime).not.toContain('getEcdsaSigningLane');
+    expect(runtime).not.toContain('SigningLaneContext | undefined');
+    expect(runtime).not.toContain('getResolvedEcdsaSigningLane()!');
+    expect(authPlanning).toContain('ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane');
+    expect(authPlanning).not.toContain('ecdsaSigningLane?: SigningLaneContext');
+    expect(authPlanning).not.toContain('args.ecdsaAuthMethod !== SIGNER_AUTH_METHODS.emailOtp');
+    expect(budget).toContain('ecdsaSigningLane?: ResolvedEvmFamilyEcdsaSigningLane');
+    expect(budget).not.toContain('ecdsaSigningLane?: SigningLaneContext');
+    expect(postSign).toContain('ecdsaSigningLane?: ResolvedEvmFamilyEcdsaSigningLane');
+    expect(postSign).not.toContain('ecdsaSigningLane?: SigningLaneContext');
+    expect(resolvedLaneType).toContain('walletSigningSessionId: WalletSigningSessionId;');
+    expect(resolvedLaneType).toContain('thresholdSessionId: ThresholdEcdsaSessionId;');
+    expect(resolvedLaneType).not.toContain('walletSigningSessionId?:');
+    expect(resolvedLaneType).not.toContain('thresholdSessionId?:');
+  });
+
+  test('Phase 14 keeps sealed-session purpose mandatory at write boundaries', () => {
+    const sealedStore = readRepoSource(
+      'client/src/core/signingEngine/api/session/signingSessionSealedStore.ts',
+    );
+    const touchConfirm = readRepoSource(
+      'client/src/core/signingEngine/touchConfirm/TouchConfirmManager.ts',
+    );
+
+    expect(sealedStore).toContain("authMethod: 'passkey' | 'email_otp';");
+    expect(sealedStore).not.toContain("authMethod?: 'passkey' | 'email_otp'");
+    expect(sealedStore).not.toContain("args.authMethod === 'email_otp' ? 'email_otp' : 'passkey'");
+    expect(touchConfirm).toContain("authMethod: 'passkey'");
+    expect(touchConfirm).toContain("authMethod?: 'passkey' | 'email_otp'");
+    expect(touchConfirm).toContain("curve?: 'ed25519' | 'ecdsa'");
+    expect(touchConfirm).toContain('walletSigningSessionId?: string');
+    expect(touchConfirm).toContain(
+      "authMethod: 'passkey',\n      curve,\n      walletSigningSessionId,",
+    );
+  });
+
+  test('Phase 14 keeps Email OTP signing-session lanes fully identified', () => {
+    const authLane = readRepoSource('client/src/core/signingEngine/emailOtp/authLane.ts');
+    const signingSessionType = authLane.slice(
+      authLane.indexOf('export type EmailOtpSigningSessionAuthLane'),
+      authLane.indexOf('export type EmailOtpRouteFamily'),
+    );
+    const capabilityResolver = readRepoSource(
+      'client/src/core/signingEngine/session/warmSigning/capabilityResolver.ts',
+    );
+
+    expect(signingSessionType).toContain('export type EmailOtpSigningSessionAuthLane');
+    expect(signingSessionType).toContain('walletSigningSessionId: string;');
+    expect(signingSessionType).toContain("curve: 'ed25519';");
+    expect(signingSessionType).toContain("curve: 'ecdsa';");
+    expect(signingSessionType).toContain('chain: ThresholdEcdsaActivationChain;');
+    expect(signingSessionType).not.toContain('?:');
+    expect(capabilityResolver).not.toContain(
+      '? { walletSigningSessionId: record.walletSigningSessionId }',
+    );
   });
 });

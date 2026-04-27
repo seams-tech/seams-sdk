@@ -153,6 +153,103 @@ test.describe('Email OTP wallet-session readiness', () => {
     expect(result.nonceDiagnostics?.metrics?.staleInFlightLaneCount).toBe(1);
   });
 
+  test('treats restored warm signing session as login before ECDSA metadata exists', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const loginMod = await import(paths.login);
+        const indexedDbMod = await import(paths.indexedDb);
+
+        const nearAccountId = 'email-otp-immediate-refresh.testnet';
+        const now = Date.now();
+        const clientDb = indexedDbMod.IndexedDBManager.clientDB as Record<string, unknown>;
+        const originalGetMostRecentNearAccountProjection =
+          clientDb.getMostRecentNearAccountProjection;
+        const originalGetLastProfileState = clientDb.getLastProfileState;
+        const originalListChainAccountsByProfile = clientDb.listChainAccountsByProfile;
+        const originalResolveNearAccountProfileContinuity =
+          clientDb.resolveNearAccountProfileContinuity;
+
+        clientDb.getMostRecentNearAccountProjection = async () => ({
+          nearAccountId,
+          signerSlot: 1,
+        });
+        clientDb.getLastProfileState = async () => ({
+          profileId: 'profile-email-otp-immediate-refresh',
+          activeSignerSlot: 1,
+        });
+        clientDb.listChainAccountsByProfile = async () => [
+          {
+            profileId: 'profile-email-otp-immediate-refresh',
+            chainIdKey: 'near:testnet',
+            accountAddress: nearAccountId,
+            accountModel: 'near-native',
+            isPrimary: true,
+          },
+        ];
+        clientDb.resolveNearAccountProfileContinuity = async () => ({
+          chainAccounts: [],
+        });
+
+        try {
+          const context = {
+            signingEngine: {
+              assertSealedRefreshStartupParity: async () => undefined,
+              getLastUser: async () => null,
+              getUserBySignerSlot: async () => null,
+              getWarmThresholdEd25519SessionStatus: async () => null,
+              listWarmThresholdEcdsaSessionStatuses: async (_accountId: string, chain: string) =>
+                chain === 'tempo'
+                  ? [
+                      {
+                        sessionId: 'email-otp-restored-ecdsa-session',
+                        status: 'active',
+                        authMethod: 'email_otp',
+                        retention: 'session',
+                        remainingUses: 8,
+                        expiresAtMs: now + 60_000,
+                        createdAtMs: now,
+                      },
+                    ]
+                  : [],
+              getThresholdEcdsaSessionRecordForLookup: () => {
+                throw new Error('metadata not available before first post-refresh sign');
+              },
+              getNonceCoordinator: () => ({
+                getDiagnostics: () => null,
+              }),
+            },
+            configs: {
+              signing: {
+                mode: { mode: 'threshold-signer' },
+              },
+            },
+          };
+
+          return await loginMod.getWalletSession(context);
+        } finally {
+          clientDb.getMostRecentNearAccountProjection = originalGetMostRecentNearAccountProjection;
+          clientDb.getLastProfileState = originalGetLastProfileState;
+          clientDb.listChainAccountsByProfile = originalListChainAccountsByProfile;
+          clientDb.resolveNearAccountProfileContinuity =
+            originalResolveNearAccountProfileContinuity;
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.login?.isLoggedIn).toBe(true);
+    expect(result.login?.nearAccountId).toBe('email-otp-immediate-refresh.testnet');
+    expect(result.login?.publicKey).toBeNull();
+    expect(result.login?.thresholdEcdsaEthereumAddress).toBeNull();
+    expect(result.login?.thresholdEcdsaPublicKeyB64u).toBeNull();
+    expect(result.login?.authMethod).toBe('email_otp');
+    expect(result.signingSession?.status).toBe('active');
+    expect(result.signingSession?.sessionId).toBe('email-otp-restored-ecdsa-session');
+    expect(result.authMethod).toBe('email_otp');
+  });
+
   test('does not expose a stale NEAR public key for ECDSA-only Email OTP sessions', async ({
     page,
   }) => {

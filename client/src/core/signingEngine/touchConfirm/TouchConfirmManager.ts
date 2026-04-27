@@ -29,6 +29,7 @@ import {
   releaseSigningSessionRestoreLease,
   updateSigningSessionSealedRecordPolicy,
   writeSigningSessionSealedRecord,
+  type SigningSessionSealedRecordFilter,
 } from '../api/session/signingSessionSealedStore';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
@@ -250,10 +251,19 @@ const signingSessionSealDeleteSingleFlight = new Map<string, Promise<void>>();
 function makeWarmSessionSingleFlightKey(args: {
   operation: 'rehydrate' | 'persist' | 'delete';
   thresholdSessionId: string;
+  authMethod?: 'passkey' | 'email_otp';
+  curve?: 'ed25519' | 'ecdsa';
+  walletSigningSessionId?: string;
 }): string {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return '';
-  return `${args.operation}|${thresholdSessionId}`;
+  return [
+    args.operation,
+    String(args.authMethod || '').trim(),
+    String(args.curve || '').trim(),
+    String(args.walletSigningSessionId || '').trim(),
+    thresholdSessionId,
+  ].join('|');
 }
 
 /**
@@ -310,6 +320,68 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     };
   }
 
+  private resolvePasskeySealedRecordPurpose(
+    thresholdSessionIdRaw: string,
+    explicitCurve?: 'ed25519' | 'ecdsa',
+  ): SigningSessionSealedRecordFilter | null {
+    const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+    if (!thresholdSessionId) return null;
+    const curve =
+      explicitCurve ||
+      (getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId)
+        ? 'ed25519'
+        : undefined) ||
+      (getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId)
+        ? 'ecdsa'
+        : undefined);
+    if (!curve) {
+      console.warn('[TouchConfirm] cannot resolve sealed refresh purpose for passkey session', {
+        thresholdSessionId,
+      });
+      return null;
+    }
+    return { authMethod: 'passkey', curve };
+  }
+
+  private async readPasskeySealedRecord(thresholdSessionId: string, curve?: 'ed25519' | 'ecdsa') {
+    const purpose = this.resolvePasskeySealedRecordPurpose(thresholdSessionId, curve);
+    if (!purpose) return null;
+    return await readSigningSessionSealedRecord(thresholdSessionId, purpose).catch((error) => {
+      console.warn('[TouchConfirm] failed to read passkey sealed refresh record', {
+        thresholdSessionId,
+        purpose,
+        error: error instanceof Error ? error.message : String(error || 'unknown error'),
+      });
+      return null;
+    });
+  }
+
+  private async deletePasskeySealedRecord(
+    thresholdSessionId: string,
+    curve?: 'ed25519' | 'ecdsa',
+  ): Promise<void> {
+    const purpose = this.resolvePasskeySealedRecordPurpose(thresholdSessionId, curve);
+    if (!purpose) return;
+    await deleteSigningSessionSealedRecord(thresholdSessionId, purpose).catch(() => undefined);
+  }
+
+  private async updatePasskeySealedRecordPolicy(args: {
+    thresholdSessionId: string;
+    curve?: 'ed25519' | 'ecdsa';
+    expiresAtMs: number;
+    remainingUses: number;
+  }): Promise<void> {
+    const purpose = this.resolvePasskeySealedRecordPurpose(args.thresholdSessionId, args.curve);
+    if (!purpose) return;
+    await updateSigningSessionSealedRecordPolicy({
+      thresholdSessionId: args.thresholdSessionId,
+      filter: purpose,
+      expiresAtMs: args.expiresAtMs,
+      remainingUses: args.remainingUses,
+      updatedAtMs: Date.now(),
+    });
+  }
+
   private async resolveSealTransportInput(
     thresholdSessionIdRaw: string,
     explicitTransport?: {
@@ -323,11 +395,15 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
   ): Promise<WarmSessionSealTransportInput | null> {
     const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
     if (!thresholdSessionId) return null;
-    const sealedRecord = await readSigningSessionSealedRecord(thresholdSessionId);
     const ed25519Record =
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId);
     const ecdsaRecord =
       getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+    const curve =
+      explicitTransport?.curve ||
+      (ed25519Record ? 'ed25519' : undefined) ||
+      (ecdsaRecord ? 'ecdsa' : undefined);
+    const sealedRecord = await this.readPasskeySealedRecord(thresholdSessionId, curve);
     const relayerUrl = String(
       explicitTransport?.relayerUrl ||
         sealedRecord?.relayerUrl ||
@@ -363,11 +439,6 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         this.config.signingSessionSealShamirPrimeB64u ||
         '',
     ).trim();
-    const curve =
-      explicitTransport?.curve ||
-      sealedRecord?.curve ||
-      (ed25519Record ? 'ed25519' : undefined) ||
-      (ecdsaRecord ? 'ecdsa' : undefined);
     return {
       ...(curve ? { curve } : {}),
       relayerUrl,
@@ -413,10 +484,13 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (inFlight) return await inFlight;
 
     const task = (async (): Promise<WarmSessionStatusResult | null> => {
-      const sealedRecord = await readSigningSessionSealedRecord(thresholdSessionId);
+      const transport = await this.resolveSealTransportInput(thresholdSessionId);
+      const purpose = this.resolvePasskeySealedRecordPurpose(thresholdSessionId, transport?.curve);
+      if (!purpose) return null;
+      const sealedRecord = await readSigningSessionSealedRecord(thresholdSessionId, purpose);
       if (!sealedRecord) return null;
       if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
-        await deleteSigningSessionSealedRecord(thresholdSessionId);
+        await this.deletePasskeySealedRecord(thresholdSessionId, purpose.curve);
         return {
           ok: false,
           code: 'expired',
@@ -424,10 +498,12 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         };
       }
 
-      const lease = await acquireSigningSessionRestoreLease({ thresholdSessionId });
+      const lease = await acquireSigningSessionRestoreLease({
+        thresholdSessionId,
+        ...purpose,
+      });
       if (!lease) return null;
       try {
-        const transport = await this.resolveSealTransportInput(thresholdSessionId);
         if (!transport) return null;
         const shamirPrimeB64u = String(
           sealedRecord.shamirPrimeB64u || transport.shamirPrimeB64u || '',
@@ -446,15 +522,15 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
           },
         });
         if (!rehydrated.ok) {
-          await deleteSigningSessionSealedRecord(thresholdSessionId);
+          await this.deletePasskeySealedRecord(thresholdSessionId, purpose.curve);
           return { ok: false, code: rehydrated.code, message: rehydrated.message };
         }
 
-        await updateSigningSessionSealedRecordPolicy({
+        await this.updatePasskeySealedRecordPolicy({
           thresholdSessionId,
+          curve: purpose.curve,
           expiresAtMs: rehydrated.expiresAtMs,
           remainingUses: rehydrated.remainingUses,
-          updatedAtMs: Date.now(),
         });
 
         const rehydratedPeek = await this.sendMessage({
@@ -586,7 +662,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     }
     if (parsed.code !== 'not_found') {
       if (parsed.code === 'expired' || parsed.code === 'exhausted') {
-        await deleteSigningSessionSealedRecord(args.sessionId);
+        await this.deletePasskeySealedRecord(args.sessionId);
       }
       return parsed;
     }
@@ -594,7 +670,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     const rehydrated = await this.tryRehydrateFromSealedRecord(args.sessionId);
     if (rehydrated) {
       if (!rehydrated.ok && (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')) {
-        await deleteSigningSessionSealedRecord(args.sessionId);
+        await this.deletePasskeySealedRecord(args.sessionId);
       }
       return rehydrated;
     }
@@ -639,7 +715,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         const rehydrated = await this.tryRehydrateFromSealedRecord(entry.sessionId);
         if (!rehydrated) return entry;
         if (!rehydrated.ok && (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')) {
-          await deleteSigningSessionSealedRecord(entry.sessionId);
+          await this.deletePasskeySealedRecord(entry.sessionId);
         }
         return { sessionId: entry.sessionId, result: rehydrated };
       }),
@@ -650,6 +726,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
   persistSigningSessionSealForThresholdSession = async (args: {
     sessionId: string;
     transport?: {
+      curve?: 'ed25519' | 'ecdsa';
       relayerUrl?: string;
       walletSigningSessionId?: string;
       thresholdSessionJwt?: string;
@@ -664,15 +741,49 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!thresholdSessionId) {
       return { ok: false, code: 'invalid_args', message: 'Missing threshold sessionId' };
     }
+    const inferredTransport =
+      (await this.resolveSealTransportInput(thresholdSessionId, args?.transport || null)) || null;
+    const curve = args?.transport?.curve || inferredTransport?.curve;
+    if (!curve) {
+      console.warn('[TouchConfirm] cannot persist sealed refresh without passkey curve', {
+        thresholdSessionId,
+      });
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Missing curve for signing-session seal persistence',
+      };
+    }
+    const walletSigningSessionId = String(
+      args?.transport?.walletSigningSessionId || inferredTransport?.walletSigningSessionId || '',
+    ).trim();
+    if (!walletSigningSessionId) {
+      return {
+        ok: false,
+        code: 'invalid_args',
+        message: 'Missing walletSigningSessionId for signing-session seal persistence',
+      };
+    }
     const singleFlightKey = makeWarmSessionSingleFlightKey({
       operation: 'persist',
       thresholdSessionId,
+      authMethod: 'passkey',
+      curve,
+      walletSigningSessionId,
     });
     const inFlight = signingSessionSealPersistSingleFlight.get(singleFlightKey);
-    if (inFlight) return await inFlight;
+    if (inFlight) {
+      console.debug('[TouchConfirm] joined in-flight passkey sealed refresh persistence', {
+        thresholdSessionId,
+        authMethod: 'passkey',
+        curve,
+        walletSigningSessionId,
+      });
+      return await inFlight;
+    }
 
     const task = (async (): Promise<WarmSessionSealAndPersistResult> => {
-      const existingRecord = await readSigningSessionSealedRecord(thresholdSessionId);
+      const existingRecord = await this.readPasskeySealedRecord(thresholdSessionId, curve);
       if (existingRecord) {
         return {
           ok: true,
@@ -682,14 +793,8 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
           expiresAtMs: existingRecord.expiresAtMs,
         };
       }
-
-      const inferredTransport =
-        (await this.resolveSealTransportInput(thresholdSessionId, args?.transport || null)) || null;
       const relayerUrl = String(
         args?.transport?.relayerUrl || inferredTransport?.relayerUrl || '',
-      ).trim();
-      const walletSigningSessionId = String(
-        args?.transport?.walletSigningSessionId || inferredTransport?.walletSigningSessionId || '',
       ).trim();
       const thresholdSessionJwt = String(
         args?.transport?.thresholdSessionJwt || inferredTransport?.thresholdSessionJwt || '',
@@ -714,13 +819,6 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
           message: 'Missing relayerUrl for signing-session seal persistence',
         };
       }
-      if (!walletSigningSessionId) {
-        return {
-          ok: false,
-          code: 'invalid_args',
-          message: 'Missing walletSigningSessionId for signing-session seal persistence',
-        };
-      }
       if (!shamirPrimeB64u) {
         return {
           ok: false,
@@ -732,6 +830,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       const sealed = await this.sealAndPersistWarmSessionMaterial({
         sessionId: thresholdSessionId,
         transport: {
+          curve,
           relayerUrl,
           walletSigningSessionId,
           ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
@@ -744,10 +843,11 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       await writeSigningSessionSealedRecord({
         thresholdSessionId,
         sealedSecretB64u: sealed.sealedSecretB64u,
-        curve: inferredTransport?.curve,
+        curve,
+        authMethod: 'passkey',
         walletSigningSessionId,
         thresholdSessionIds: {
-          ...(inferredTransport?.curve === 'ed25519'
+          ...(curve === 'ed25519'
             ? { ed25519: thresholdSessionId }
             : { ecdsa: thresholdSessionId }),
         },
@@ -758,7 +858,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         remainingUses: sealed.remainingUses,
         updatedAtMs: Date.now(),
       });
-      const persistedRecord = await readSigningSessionSealedRecord(thresholdSessionId);
+      const persistedRecord = await this.readPasskeySealedRecord(thresholdSessionId, curve);
       if (!persistedRecord) {
         return {
           ok: false,
@@ -816,23 +916,22 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         !rehydrated.ok &&
         (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')
       ) {
-        await deleteSigningSessionSealedRecord(args.sessionId);
+        await this.deletePasskeySealedRecord(args.sessionId);
       }
       return parsed;
     }
     if (parsed.ok) {
       if (parsed.remainingUses <= 0 || Date.now() >= parsed.expiresAtMs) {
-        await deleteSigningSessionSealedRecord(args.sessionId);
+        await this.deletePasskeySealedRecord(args.sessionId);
       } else {
-        await updateSigningSessionSealedRecordPolicy({
+        await this.updatePasskeySealedRecordPolicy({
           thresholdSessionId: args.sessionId,
           expiresAtMs: parsed.expiresAtMs,
           remainingUses: parsed.remainingUses,
-          updatedAtMs: Date.now(),
         });
       }
     } else if (parsed.code === 'expired' || parsed.code === 'exhausted') {
-      await deleteSigningSessionSealedRecord(args.sessionId);
+      await this.deletePasskeySealedRecord(args.sessionId);
     }
     return parsed;
   };
@@ -873,13 +972,12 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         }
         if (retryParsed.ok) {
           if (retryParsed.remainingUses <= 0 || Date.now() >= retryParsed.expiresAtMs) {
-            await deleteSigningSessionSealedRecord(args.sessionId);
+            await this.deletePasskeySealedRecord(args.sessionId);
           } else {
-            await updateSigningSessionSealedRecordPolicy({
+            await this.updatePasskeySealedRecordPolicy({
               thresholdSessionId: args.sessionId,
               expiresAtMs: retryParsed.expiresAtMs,
               remainingUses: retryParsed.remainingUses,
-              updatedAtMs: Date.now(),
             });
           }
         }
@@ -890,23 +988,22 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         !rehydrated.ok &&
         (rehydrated.code === 'expired' || rehydrated.code === 'exhausted')
       ) {
-        await deleteSigningSessionSealedRecord(args.sessionId);
+        await this.deletePasskeySealedRecord(args.sessionId);
       }
       return parsed;
     }
     if (parsed.ok) {
       if (parsed.remainingUses <= 0 || Date.now() >= parsed.expiresAtMs) {
-        await deleteSigningSessionSealedRecord(args.sessionId);
+        await this.deletePasskeySealedRecord(args.sessionId);
       } else {
-        await updateSigningSessionSealedRecordPolicy({
+        await this.updatePasskeySealedRecordPolicy({
           thresholdSessionId: args.sessionId,
           expiresAtMs: parsed.expiresAtMs,
           remainingUses: parsed.remainingUses,
-          updatedAtMs: Date.now(),
         });
       }
     } else if (parsed.code === 'expired' || parsed.code === 'exhausted') {
-      await deleteSigningSessionSealedRecord(args.sessionId);
+      await this.deletePasskeySealedRecord(args.sessionId);
     }
     return parsed;
   };
@@ -923,7 +1020,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         String(res?.error || 'Failed to clear warm-session material for threshold session'),
       );
     }
-    await deleteSigningSessionSealedRecord(args.sessionId);
+    await this.deletePasskeySealedRecord(args.sessionId);
   };
 
   deletePersistedWarmSessionMaterial = async (
@@ -933,7 +1030,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
     if (!thresholdSessionId) return;
 
     if (!this.isSealedRefreshModeEnabled()) {
-      await deleteSigningSessionSealedRecord(thresholdSessionId);
+      await this.deletePasskeySealedRecord(thresholdSessionId);
       return;
     }
     const singleFlightKey = makeWarmSessionSingleFlightKey({
@@ -961,7 +1058,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
             : 'Failed to delete persisted signing-session seal';
         throw new Error(message);
       }
-      await deleteSigningSessionSealedRecord(thresholdSessionId);
+      await this.deletePasskeySealedRecord(thresholdSessionId);
     })().finally(() => {
       signingSessionSealDeleteSingleFlight.delete(singleFlightKey);
     });

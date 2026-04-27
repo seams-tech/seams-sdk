@@ -70,7 +70,10 @@ async function claimEmailOtpWorkerEcdsaSigningShare(args: {
       result.code === 'exhausted' ||
       result.code === 'not_found'
     ) {
-      await deleteSigningSessionSealedRecord(sessionId).catch(() => undefined);
+      await deleteSigningSessionSealedRecord(sessionId, {
+        authMethod: 'email_otp',
+        curve: 'ecdsa',
+      }).catch(() => undefined);
     }
     throw new Error(
       result.message ||
@@ -98,11 +101,18 @@ async function updateEmailOtpSealedRecordPolicyAfterEcdsaClaim(args: {
   expiresAtMs: number;
 }): Promise<void> {
   if (args.remainingUses <= 0 || args.expiresAtMs <= Date.now()) {
-    await deleteSigningSessionSealedRecord(args.sessionId).catch(() => undefined);
+    await deleteSigningSessionSealedRecord(args.sessionId, {
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+    }).catch(() => undefined);
     return;
   }
   await updateSigningSessionSealedRecordPolicy({
     thresholdSessionId: args.sessionId,
+    filter: {
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+    },
     remainingUses: args.remainingUses,
     expiresAtMs: args.expiresAtMs,
     updatedAtMs: Date.now(),

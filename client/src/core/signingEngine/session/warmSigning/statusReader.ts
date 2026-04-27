@@ -7,6 +7,7 @@ import type {
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
 import { SigningSessionCoordinator } from '../SigningSessionCoordinator';
+import { resolveEmailOtpEcdsaWorkerSessionId } from '../signingSession/readiness';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
@@ -102,10 +103,7 @@ export function createWarmSessionStatusReader(
     const thresholdSessionId = String(record.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return null;
     const workerSessionId =
-      record.source === 'email_otp' &&
-      record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session'
-        ? String(record.clientAdditiveShareHandle.sessionId || '').trim()
-        : '';
+      record.source === 'email_otp' ? resolveEmailOtpEcdsaWorkerSessionId(record) : '';
     if (workerSessionId) {
       const status = await deps.getEmailOtpWarmSessionStatus(workerSessionId).catch(() => null);
       return status

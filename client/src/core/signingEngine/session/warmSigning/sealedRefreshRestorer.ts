@@ -8,6 +8,7 @@ import {
   deleteSigningSessionSealedRecord,
   readSigningSessionSealedRecord,
   releaseSigningSessionRestoreLease,
+  type SigningSessionSealedRecordFilter,
   type SigningSessionRestoreLeaseHandle,
   type SigningSessionSealedStoreRecord,
 } from '../../api/session/signingSessionSealedStore';
@@ -29,10 +30,18 @@ export type WarmSessionSealedRestoreEvent = {
 export type WarmSessionSealedRestoreResult = 'restored' | 'unavailable' | 'defer' | 'failed';
 
 export type WarmSessionSealedStoreOverrides = {
-  readRecord?: (thresholdSessionId: string) => Promise<SigningSessionSealedStoreRecord | null>;
-  deleteRecord?: (thresholdSessionId: string) => Promise<void>;
+  readRecord?: (
+    thresholdSessionId: string,
+    filter: SigningSessionSealedRecordFilter,
+  ) => Promise<SigningSessionSealedStoreRecord | null>;
+  deleteRecord?: (
+    thresholdSessionId: string,
+    filter: SigningSessionSealedRecordFilter,
+  ) => Promise<void>;
   acquireRestoreLease?: (args: {
     thresholdSessionId: string;
+    authMethod: 'passkey' | 'email_otp';
+    curve: 'ed25519' | 'ecdsa';
     ownerId?: string;
     nowMs?: number;
     ttlMs?: number;
@@ -104,7 +113,9 @@ export function createWarmSessionSealedRefreshRestorer(
   ): Promise<void> {
     const deleter =
       deps.signingSessionSealedStore?.deleteRecord || deleteSigningSessionSealedRecord;
-    await deleter(thresholdSessionId).catch(() => undefined);
+    await deleter(thresholdSessionId, { authMethod: 'email_otp', curve: 'ecdsa' }).catch(
+      () => undefined,
+    );
   }
 
   function emitSealedRestoreEvent(event: WarmSessionSealedRestoreEvent): void {
@@ -132,7 +143,10 @@ export function createWarmSessionSealedRefreshRestorer(
     }
 
     const reader = deps.signingSessionSealedStore?.readRecord || readSigningSessionSealedRecord;
-    const sealedRecord = await reader(thresholdSessionId).catch(() => null);
+    const sealedRecord = await reader(thresholdSessionId, {
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+    }).catch(() => null);
     if (!sealedRecord) {
       await deps.clearEcdsaEphemeralMaterial({
         nearAccountId: args.accountId,
@@ -186,7 +200,11 @@ export function createWarmSessionSealedRefreshRestorer(
       walletSigningSessionId: sealedRecord.walletSigningSessionId,
       status: 'started',
     });
-    const lease = await acquireLease({ thresholdSessionId }).catch(() => null);
+    const lease = await acquireLease({
+      thresholdSessionId,
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+    }).catch(() => null);
     if (!lease) {
       emitSealedRestoreEvent({
         accountId: args.accountId,

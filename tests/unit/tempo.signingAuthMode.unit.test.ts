@@ -1537,6 +1537,106 @@ test.describe('tempo signing auth-mode resolution', () => {
     ]);
   });
 
+  test('ECDSA budget finalization fails closed without a selected signing lane', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { reserveEvmFamilyWalletSigningSessionBudget } = await import(
+          paths.evmFamilyBudgetSpending
+        );
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
+        try {
+          await reserveEvmFamilyWalletSigningSessionBudget({
+            deps: {},
+            signingSessionCoordinator: new SigningSessionCoordinator({
+              getStatus: async () => {
+                throw new Error('budget status must not be read without a selected lane');
+              },
+            }),
+            senderSignatureAlgorithm: 'secp256k1',
+            nearAccountId: 'alice.testnet',
+            chain: 'tempo',
+            operation: {
+              operationId: 'op-missing-lane',
+              operationFingerprint: 'fingerprint-missing-lane',
+              intent: 'transaction_sign',
+            },
+            thresholdEcdsaKeyRef: {
+              type: 'threshold-ecdsa-secp256k1',
+              userId: 'alice.testnet',
+              relayerUrl: 'https://relayer.example',
+              ecdsaThresholdKeyId: 'ecdsa-key',
+              signingRootId: 'root',
+              walletSigningSessionId: 'wallet-refreshed',
+              thresholdSessionId: 'ecdsa-refreshed',
+            },
+          });
+          return { ok: true, message: '' };
+        } catch (error: any) {
+          return { ok: false, message: String(error?.message || error) };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('missing selected signing lane for budget finalizer');
+  });
+
+  test('ECDSA budget finalization requires resolved wallet and threshold session ids', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { recordSuccessfulEvmFamilyWalletSigningSessionSpend } = await import(
+          paths.evmFamilyBudgetSpending
+        );
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
+        const spendCalls: any[] = [];
+        const incompleteLane = {
+          accountId: 'alice.testnet',
+          authMethod: 'email_otp',
+          curve: 'ecdsa',
+          keyKind: 'threshold_ecdsa_secp256k1',
+          chainFamily: 'evm',
+          walletSigningSessionId: 'wallet-email-otp',
+          sessionOrigin: 'per_operation',
+          storageSource: 'email_otp',
+          retention: 'single_use',
+        };
+        try {
+          await recordSuccessfulEvmFamilyWalletSigningSessionSpend({
+            deps: {},
+            signingSessionCoordinator: new SigningSessionCoordinator({
+              consumeUse: async (args: any) => {
+                spendCalls.push(args);
+                return { status: 'active', remainingUses: 0, expiresAtMs: Date.now() + 120_000 };
+              },
+            }),
+            senderSignatureAlgorithm: 'secp256k1',
+            nearAccountId: 'alice.testnet',
+            chain: 'evm',
+            operation: {
+              operationId: 'op-missing-threshold',
+              operationFingerprint: 'fingerprint-missing-threshold',
+              intent: 'transaction_sign',
+            },
+            ecdsaSigningLane: incompleteLane,
+          });
+          return { ok: true, message: '', spendCalls };
+        } catch (error: any) {
+          return { ok: false, message: String(error?.message || error), spendCalls };
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('missing threshold session id for budget finalizer');
+    expect(result.spendCalls).toEqual([]);
+  });
+
   test('ignores confirmation behavior for auth-mode and still uses warmSession when cache is available (EVM)', async ({
     page,
   }) => {
@@ -2792,6 +2892,248 @@ test.describe('tempo signing auth-mode resolution', () => {
       ]);
     });
   }
+
+  test('core Tempo signing carries a fresh Email OTP lane when record read-back lags', async ({
+    page,
+  }) => {
+    await routeEvmFamilySigningFlowStubs(page);
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { signTempo } = await import(paths.tempoSigningApi);
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
+        const accountId = 'otp-tempo-lagging-record.testnet';
+        const now = Date.now();
+        const chainId = 11155111;
+        const walletSigningSessionId = 'wallet-email-otp-lagging-record';
+        const senderAddress = '0x' + '34'.repeat(20);
+        const spendCalls: any[] = [];
+
+        const initialRecord = {
+          nearAccountId: accountId,
+          chain: 'tempo',
+          relayerUrl: 'https://relayer.example',
+          ecdsaThresholdKeyId: 'ecdsa-email-tempo',
+          signingRootId: 'proj_test:dev',
+          relayerKeyId: 'rk-email-tempo',
+          clientVerifyingShareB64u: 'AQ',
+          clientAdditiveShareHandle: {
+            kind: 'email_otp_worker_session',
+            sessionId: 'worker-initial',
+          },
+          participantIds: [1, 2],
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'email-tempo-initial-session',
+          walletSigningSessionId,
+          thresholdSessionJwt: 'jwt:email-tempo-initial-session',
+          expiresAtMs: now + 120_000,
+          remainingUses: 0,
+          ethereumAddress: senderAddress,
+          emailOtpAuthContext: {
+            policy: 'per_operation',
+            retention: 'single_use',
+            reason: 'sign',
+            authMethod: 'email_otp',
+            consumedAtMs: now - 1,
+          },
+          updatedAtMs: now,
+          source: 'email_otp',
+        };
+        const freshKeyRef = {
+          type: 'threshold-ecdsa-secp256k1',
+          userId: accountId,
+          relayerUrl: initialRecord.relayerUrl,
+          ecdsaThresholdKeyId: initialRecord.ecdsaThresholdKeyId,
+          signingRootId: initialRecord.signingRootId,
+          backendBinding: {
+            relayerKeyId: initialRecord.relayerKeyId,
+            clientVerifyingShareB64u: initialRecord.clientVerifyingShareB64u,
+            clientAdditiveShareHandle: {
+              kind: 'email_otp_worker_session',
+              sessionId: 'worker-fresh',
+            },
+          },
+          participantIds: initialRecord.participantIds,
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'email-tempo-fresh-session',
+          thresholdSessionJwt: 'jwt:email-tempo-fresh-session',
+          walletSigningSessionId,
+          ethereumAddress: senderAddress,
+        };
+        let readBackFreshRecord = true;
+
+        const deps = {
+          indexedDB: {
+            clientDB: {
+              resolveProfileAccountContext: async () => ({
+                profileId: 'profile:tempo:lagging-record',
+                accountRef: { chainIdKey: 'near:testnet', accountAddress: accountId },
+              }),
+              getProfile: async () => ({
+                profileId: 'profile:tempo:lagging-record',
+                defaultSignerSlot: 1,
+              }),
+              listAccountSigners: async () => [
+                {
+                  signerSlot: 1,
+                  signerAuthMethod: 'email_otp',
+                  signerKind: 'threshold_ed25519',
+                  status: 'active',
+                },
+              ],
+              getLastProfileState: async () => ({
+                profileId: 'profile:tempo:lagging-record',
+                activeSignerSlot: 1,
+              }),
+              listChainAccountsByProfile: async () => [
+                {
+                  profileId: 'profile:tempo:lagging-record',
+                  chainIdKey: `tempo:${chainId}`,
+                  accountAddress: senderAddress,
+                  accountModel: 'tempo-native',
+                  isPrimary: true,
+                  deployed: true,
+                },
+              ],
+              listChainAccountsByProfileAndChain: async () => [],
+              upsertChainAccount: async (input: any) => input,
+            },
+          },
+          tatchiPasskeyConfigs: {
+            registration: { mode: 'manual' },
+            network: { chains: [{ network: 'tempo-testnet', chainId, rpcUrl: '' }] },
+            signing: {
+              thresholdEcdsa: { presignPool: { enabled: false } },
+              smartAccountDeployment: { mode: 'off' },
+            },
+          },
+          nonceCoordinator: {
+            reserve: async ({ lane, operation }: any) => ({
+              leaseId: 'nonce-lease-test',
+              lane,
+              operationId: operation.operationId,
+              operationFingerprint: operation.operationFingerprint,
+              nonce: 1n,
+              state: 'reserved',
+              reservedAtMs: 1,
+              expiresAtMs: 60_000,
+            }),
+            reconcile: async () => ({ blocked: false, chainNextNonce: 1n, unresolvedInFlightNonces: [] }),
+            release: async () => undefined,
+            markSigned: async () => undefined,
+            markBroadcastAccepted: async () => undefined,
+            markBroadcastRejected: async () => undefined,
+            markFinalized: async () => undefined,
+            markDroppedOrReplaced: async () => undefined,
+            clearForAccount: () => undefined,
+          },
+          getSignerWorkerContext: () => ({
+            requestWorkerOperation: async () => new Uint8Array([0x76, 0xaa]).buffer,
+          }),
+          withThresholdEcdsaCommitQueue: async ({ task }: any) => await task(),
+          getEmailOtpThresholdEcdsaSessionRecordForSigning: () => {
+            if (!readBackFreshRecord) throw new Error('fresh record not indexed yet');
+            return initialRecord;
+          },
+          getEmailOtpThresholdEcdsaKeyRefForSigning: () => {
+            throw new Error('exhausted Email OTP lane should require a fresh OTP');
+          },
+          getPasskeyThresholdEcdsaSessionRecordForSigning: () => {
+            throw new Error('passkey record is not configured');
+          },
+          getPasskeyThresholdEcdsaKeyRefForSigning: () => {
+            throw new Error('passkey key ref is not configured');
+          },
+          requestEmailOtpTransactionSigningChallenge: async () => ({
+            challengeId: 'challenge-lagging-record',
+            emailHint: 'o***p@example.com',
+          }),
+          loginWithEmailOtpEcdsaCapabilityForSigning: async () => {
+            readBackFreshRecord = false;
+            return freshKeyRef;
+          },
+          getEmailOtpWarmSessionStatus: async () => ({
+            ok: false,
+            code: 'exhausted',
+            message: 'exhausted',
+          }),
+          resolveEmailOtpSigningSessionAuthLane: () => null,
+          markThresholdEcdsaEmailOtpSessionConsumedForAccount: () => undefined,
+          signingSessionCoordinator: new SigningSessionCoordinator({
+            consumeUse: async (args: any) => {
+              spendCalls.push({
+                walletSigningSessionId: String(args.walletSigningSessionId || ''),
+                alreadyConsumedThresholdSessionIds: args.alreadyConsumedThresholdSessionIds || [],
+              });
+              return { status: 'active', remainingUses: 0, expiresAtMs: Date.now() + 120_000 };
+            },
+          }),
+          clearThresholdEcdsaSessionRecordForLane: () => undefined,
+          provisionThresholdEcdsaSession: async () => {
+            throw new Error('Email OTP refresh should not use passkey provisioning');
+          },
+          touchConfirm: {
+            getContext: () => ({ touchIdPrompt: { getRpId: () => 'localhost' } }),
+            getWarmSessionStatus: async () => ({
+              ok: false,
+              code: 'exhausted',
+              message: 'exhausted',
+            }),
+            orchestrateSigningConfirmation: async () => ({
+              sessionId: 'intent',
+              intentDigest: '0x' + '11'.repeat(32),
+              otpCode: '123456',
+            }),
+          },
+        };
+
+        try {
+          await signTempo(deps as any, {
+            nearAccountId: accountId,
+            request: {
+              chain: 'tempo',
+              kind: 'tempoTransaction',
+              senderSignatureAlgorithm: 'secp256k1',
+              tx: {
+                chainId,
+                maxPriorityFeePerGas: 1n,
+                maxFeePerGas: 2n,
+                gasLimit: 21_000n,
+                calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                accessList: [],
+                nonceKey: 1n,
+                nonce: 1n,
+                validBefore: null,
+                validAfter: null,
+                feePayerSignature: { kind: 'none' },
+              },
+            } as any,
+          });
+        } catch (error: any) {
+          return { ok: false, message: String(error?.message || error), spendCalls };
+        }
+
+        return {
+          ok: true,
+          spendCalls,
+          signedKeyRefs: (globalThis as any).__tatchiStubSignedKeyRefs || [],
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.spendCalls).toEqual([
+      {
+        walletSigningSessionId: 'wallet-email-otp-lagging-record',
+        alreadyConsumedThresholdSessionIds: ['email-tempo-fresh-session'],
+      },
+    ]);
+    expect(result.signedKeyRefs.at(-1)).toMatchObject({
+      chain: 'tempo',
+      thresholdSessionId: 'email-tempo-fresh-session',
+      walletSigningSessionId: 'wallet-email-otp-lagging-record',
+    });
+  });
 
   for (const chain of ['tempo', 'evm'] as const) {
     test(`core ${chain.toUpperCase()} signing spends once when the same ECDSA operation completes twice`, async ({

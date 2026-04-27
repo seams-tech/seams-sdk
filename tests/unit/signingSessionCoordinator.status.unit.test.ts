@@ -41,7 +41,7 @@ function createMutableTouchConfirmStatus(claimsBySessionId: Record<string, WarmC
   };
 }
 
-test.describe('WalletSigningSessionCoordinator', () => {
+test.describe('SigningSessionCoordinator', () => {
   test('reports one shared Email OTP budget across Ed25519 and ECDSA lanes', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

@@ -4,7 +4,7 @@ import {
   buildNearTransactionSigningLane,
   buildTempoTransactionSigningLane,
 } from '@/core/signingEngine/session/signingSession/lanes';
-import { createTransactionSigningBudgetFinalizer } from '@/core/signingEngine/session/signingSession/budgetFinalizer';
+import { createSigningSessionBudgetFinalizer } from '@/core/signingEngine/session/signingSession/budgetFinalizer';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import {
   SigningOperationIntent,
@@ -14,7 +14,7 @@ import {
 import { createNonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { toAccountId } from '@/core/types/accountIds';
 
-test.describe('TransactionSigningBudgetFinalizer', () => {
+test.describe('SigningSessionBudgetFinalizer', () => {
   test('fails closed after produced signatures when authoritative budget recording fails', async () => {
     const rows: Array<{ name: string; lane: SigningLaneContext }> = [
       {
@@ -66,8 +66,8 @@ test.describe('TransactionSigningBudgetFinalizer', () => {
 
     for (const row of rows) {
       const observedErrors: string[] = [];
-      const finalizer = createTransactionSigningBudgetFinalizer({
-        walletSigningBudgetLedger: {
+      const finalizer = createSigningSessionBudgetFinalizer({
+        signingSessionBudget: {
           reserve: async () => null,
           getAvailableStatus: async () => null,
           recordSuccess: async () => {
@@ -136,8 +136,8 @@ test.describe('TransactionSigningBudgetFinalizer', () => {
       },
       onTrace: (event) => budgetTraceEvents.push(event.event),
     });
-    const finalizer = createTransactionSigningBudgetFinalizer({
-      walletSigningBudgetLedger: ledger,
+    const finalizer = createSigningSessionBudgetFinalizer({
+      signingSessionBudget: ledger,
       operation: {
         operationId,
         operationFingerprint,
@@ -249,8 +249,8 @@ test.describe('TransactionSigningBudgetFinalizer', () => {
         };
       },
     });
-    const finalizer = createTransactionSigningBudgetFinalizer({
-      walletSigningBudgetLedger: ledger,
+    const finalizer = createSigningSessionBudgetFinalizer({
+      signingSessionBudget: ledger,
       operation: {
         operationId,
         operationFingerprint,
@@ -346,8 +346,8 @@ test.describe('TransactionSigningBudgetFinalizer', () => {
       }),
       onTrace: (event) => budgetTraces.push(event),
     });
-    const finalizer = createTransactionSigningBudgetFinalizer({
-      walletSigningBudgetLedger: ledger,
+    const finalizer = createSigningSessionBudgetFinalizer({
+      signingSessionBudget: ledger,
       operation: {
         operationId,
         operationFingerprint,

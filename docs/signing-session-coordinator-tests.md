@@ -231,6 +231,20 @@ Add or keep guards for these boundaries:
         `SigningSessionCoordinator` naming.
 16. [x] Legacy coordinator/ledger names do not appear in production dependency
         bundle types after migration.
+17. [ ] Resolved signing-session identity types do not expose optional
+        `authMethod`, `curve`, `walletSigningSessionId`, `thresholdSessionId`,
+        or `backingMaterialSessionId` fields.
+18. [x] Sealed-session store production call sites always pass an explicit
+        purpose: auth method plus curve.
+19. [ ] Identity fallback chains for wallet session id, threshold session id,
+        auth method, curve, or chain appear only inside named resolver modules.
+20. [x] EVM-family signing runtime deps expose
+        `getResolvedEcdsaSigningLane`, not an optional selected-lane getter.
+21. [ ] Budget reservation, budget finalization, signing execution, sealed
+        restore, and post-sign cleanup cannot accept draft lane types.
+22. [ ] Email OTP ECDSA sealed-refresh restore has coverage for an Ed25519
+        companion id resolving to the ECDSA threshold session id before any
+        ECDSA-purpose sealed read.
 
 ## Implementation Order
 
@@ -241,5 +255,7 @@ Add or keep guards for these boundaries:
 3. [x] Add lane-exact sealed restore tests before expanding restore behavior.
 4. [ ] Add cross-runtime/server atomic consume coverage when the authoritative
        budget endpoint is available.
-5. [ ] Keep this file as the open test backlog; move completed architecture
+5. [ ] Add optional-identity hardening guards before removing optional fields
+       from production types, so the migration cannot drift mid-refactor.
+6. [ ] Keep this file as the open test backlog; move completed architecture
        narrative to `docs/signing-session-architecture.md`.

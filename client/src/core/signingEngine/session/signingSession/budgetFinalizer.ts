@@ -1,8 +1,8 @@
 import type {
-  WalletSigningBudgetLedger,
-  WalletSigningBudgetLedgerRecordSuccessInput,
-  WalletSigningBudgetReservation,
-  WalletSigningBudgetLedgerZeroSpendReason,
+  SigningSessionBudget,
+  SigningSessionBudgetRecordSuccessInput,
+  SigningSessionBudgetReservation,
+  SigningSessionBudgetZeroSpendReason,
 } from './budget';
 import { buildWalletSigningSpendPlan } from './budget';
 import type {
@@ -14,39 +14,39 @@ import type {
   WalletSigningSpendPlan,
 } from './types';
 
-export type TransactionSigningBudgetFinalizer = {
+export type SigningSessionBudgetFinalizer = {
   spend?: WalletSigningSpendPlan;
-  reserve(): Promise<WalletSigningBudgetReservation | null>;
-  recordSuccess(input?: Omit<WalletSigningBudgetLedgerRecordSuccessInput, 'spend'>): Promise<void>;
+  reserve(): Promise<SigningSessionBudgetReservation | null>;
+  recordSuccess(input?: Omit<SigningSessionBudgetRecordSuccessInput, 'spend'>): Promise<void>;
   recordZeroSpend(error: unknown): void;
 };
 
-export function createTransactionSigningBudgetFinalizer(args: {
-  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
+export function createSigningSessionBudgetFinalizer(args: {
+  signingSessionBudget?: SigningSessionBudget;
   operation: SigningOperationContext;
   lane: SigningLaneContext;
   thresholdSessionId?: ThresholdSessionId;
   backingMaterialSessionId?: BackingMaterialSessionId;
   onRecordSuccessError?: (error: unknown, spend: WalletSigningSpendPlan) => void;
   onRecordZeroSpendError?: (error: unknown) => void;
-}): TransactionSigningBudgetFinalizer {
+}): SigningSessionBudgetFinalizer {
   const spend = buildWalletSigningSpendPlan(args.operation, args.lane, {
     ...(args.thresholdSessionId ? { thresholdSessionId: args.thresholdSessionId } : {}),
     ...(args.backingMaterialSessionId
       ? { backingMaterialSessionId: args.backingMaterialSessionId }
       : {}),
   });
-  const ledger = args.walletSigningBudgetLedger;
+  const budget = args.signingSessionBudget;
 
   return {
     spend,
     async reserve() {
-      if (!ledger) return null;
-      return await ledger.reserve({ spend });
+      if (!budget) return null;
+      return await budget.reserve({ spend });
     },
     async recordSuccess(input = {}) {
-      if (!ledger) return;
-      await ledger.recordSuccess({ ...input, spend }).catch((error) => {
+      if (!budget) return;
+      await budget.recordSuccess({ ...input, spend }).catch((error) => {
         args.onRecordSuccessError?.(error, spend);
         // Do not fail open here. A previous regression logged spend failures and
         // still reported signing success, leaving the next operation to hit
@@ -55,11 +55,11 @@ export function createTransactionSigningBudgetFinalizer(args: {
       });
     },
     recordZeroSpend(error) {
-      if (!ledger) return;
+      if (!budget) return;
       try {
-        ledger.recordZeroSpend({
+        budget.recordZeroSpend({
           spend,
-          reason: inferWalletSigningBudgetZeroSpendReason({
+          reason: inferSigningSessionBudgetZeroSpendReason({
             error,
             authMethod: spend.lane.authMethod,
           }),
@@ -72,10 +72,10 @@ export function createTransactionSigningBudgetFinalizer(args: {
   };
 }
 
-export function inferWalletSigningBudgetZeroSpendReason(args: {
+export function inferSigningSessionBudgetZeroSpendReason(args: {
   error: unknown;
   authMethod?: SigningAuthMethod;
-}): WalletSigningBudgetLedgerZeroSpendReason {
+}): SigningSessionBudgetZeroSpendReason {
   const code = extractErrorCode(args.error);
   const message = extractErrorMessage(args.error).toLowerCase();
   const haystack = `${code} ${message}`;

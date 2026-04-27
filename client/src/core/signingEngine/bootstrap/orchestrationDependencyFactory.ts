@@ -162,6 +162,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
     remainingUses: number;
     expiresAtMs: number;
   } | null>;
+  restoreEmailOtpSealedWarmSessionsForRead?: (nearAccountId: AccountId | string) => Promise<void>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
@@ -488,6 +489,8 @@ export function createOrchestrationDependencyBundle(
       rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
         args.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord?.(restoreArgs) ||
         Promise.reject(new Error('Email OTP sealed refresh restore is not configured')),
+      restoreEmailOtpSealedWarmSessionsForRead: (nearAccountId) =>
+        args.restoreEmailOtpSealedWarmSessionsForRead?.(nearAccountId) || Promise.resolve(),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({ nearAccountId, chain }) =>
         args.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({ nearAccountId, chain }),
       signingSessionCoordinator,

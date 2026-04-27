@@ -29,6 +29,7 @@ test.describe('shared signing-session seal specs', () => {
       runtimeSessionId: 'runtime-1',
       authMethod: 'email_otp',
       secretKind: SIGNING_SESSION_SECRET_KIND,
+      storeKey: 'wallet-session-1:email_otp:ecdsa',
       walletSigningSessionId: 'wallet-session-1',
       thresholdSessionIds: {
         ed25519: 'ed-session',
@@ -60,12 +61,8 @@ test.describe('shared signing-session seal specs', () => {
   test('freezes passkey PRF salts in shared code', () => {
     expect(PASSKEY_PRF_FIRST_SALT_V1).toHaveLength(32);
     expect(PASSKEY_PRF_SECOND_SALT_V1).toHaveLength(32);
-    expect(Array.from(PASSKEY_PRF_FIRST_SALT_V1.slice(0, 4))).toEqual([
-      0x40, 0x0c, 0x31, 0x8b,
-    ]);
-    expect(Array.from(PASSKEY_PRF_SECOND_SALT_V1.slice(0, 4))).toEqual([
-      0x26, 0xda, 0x50, 0xe5,
-    ]);
+    expect(Array.from(PASSKEY_PRF_FIRST_SALT_V1.slice(0, 4))).toEqual([0x40, 0x0c, 0x31, 0x8b]);
+    expect(Array.from(PASSKEY_PRF_SECOND_SALT_V1.slice(0, 4))).toEqual([0x26, 0xda, 0x50, 0xe5]);
   });
 
   test('freezes Email OTP signing-session HKDF salts and 32-bit length-prefixed info fields', () => {
@@ -107,21 +104,27 @@ test.describe('shared signing-session seal specs', () => {
         walletSigningSessionId: 'wallet-session',
       }),
     ).toEqual(['email_otp', 'alice.testnet', 'user-1', 'root', 'root-v1', 'wallet-session']);
-    expect(emailOtpThresholdEd25519HssInfoFields({
-      walletId: 'alice.testnet',
-      userId: 'user-1',
-    })).toEqual(['threshold-ed25519-hss-client-seed', 'alice.testnet', 'user-1']);
-    expect(emailOtpEcdsaRestoreInfoFields({
-      ecdsaThresholdSessionId: 'ecdsa-session',
-      ecdsaThresholdKeyId: 'ecdsa-key',
-      chain: 'evm',
-      participantIds: [1, 3],
-      relayerKeyId: 'relayer-key',
-    })).toEqual(['ecdsa-session', 'ecdsa-key', 'evm', 'evm-signing', '1,3', 'relayer-key']);
-    expect(emailOtpEd25519RestoreInfoFields({
-      ed25519ThresholdSessionId: 'ed-session',
-      participantIds: [1, 2],
-      relayerKeyId: 'relayer-key',
-    })).toEqual(['ed-session', 'relayer-key', '1,2']);
+    expect(
+      emailOtpThresholdEd25519HssInfoFields({
+        walletId: 'alice.testnet',
+        userId: 'user-1',
+      }),
+    ).toEqual(['threshold-ed25519-hss-client-seed', 'alice.testnet', 'user-1']);
+    expect(
+      emailOtpEcdsaRestoreInfoFields({
+        ecdsaThresholdSessionId: 'ecdsa-session',
+        ecdsaThresholdKeyId: 'ecdsa-key',
+        chain: 'evm',
+        participantIds: [1, 3],
+        relayerKeyId: 'relayer-key',
+      }),
+    ).toEqual(['ecdsa-session', 'ecdsa-key', 'evm', 'evm-signing', '1,3', 'relayer-key']);
+    expect(
+      emailOtpEd25519RestoreInfoFields({
+        ed25519ThresholdSessionId: 'ed-session',
+        participantIds: [1, 2],
+        relayerKeyId: 'relayer-key',
+      }),
+    ).toEqual(['ed-session', 'relayer-key', '1,2']);
   });
 });

@@ -4,7 +4,7 @@ export const SIGNING_SESSION_SEAL_STORAGE_SCOPE = 'iframe_origin_indexeddb' as c
 export const SIGNING_SESSION_SECRET_KIND = 'signing_session_secret32' as const;
 
 export const SIGNING_SESSION_SEAL_DB_NAME = 'tatchi_wallet_v1' as const;
-export const SIGNING_SESSION_SEAL_DB_VERSION = 2 as const;
+export const SIGNING_SESSION_SEAL_DB_VERSION = 3 as const;
 export const SIGNING_SESSION_SEAL_STORE_NAME = 'signing_session_seals_v1' as const;
 export const SIGNING_SESSION_RESTORE_LEASE_STORE_NAME =
   'signing_session_restore_leases_v1' as const;
@@ -32,6 +32,16 @@ export const EMAIL_OTP_HKDF_SALTS = {
 export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
 export type SigningSessionSealCurve = 'ed25519' | 'ecdsa';
 
+export type SealedSigningSessionEcdsaRestoreMetadata = {
+  chain: 'tempo' | 'evm';
+  thresholdSessionJwt?: string;
+  sessionKind: 'jwt' | 'cookie';
+  ecdsaThresholdKeyId: string;
+  relayerKeyId: string;
+  participantIds: number[];
+  runtimePolicyScope?: unknown;
+};
+
 export type SealedSigningSessionRecord = {
   v: typeof SIGNING_SESSION_SEALED_RECORD_VERSION;
   alg: typeof SIGNING_SESSION_SEAL_ALG;
@@ -39,13 +49,14 @@ export type SealedSigningSessionRecord = {
   runtimeSessionId: string;
   authMethod: SigningSessionSealAuthMethod;
   secretKind: typeof SIGNING_SESSION_SECRET_KIND;
+  storeKey: string;
   walletSigningSessionId: string;
   thresholdSessionIds: {
     ed25519?: string;
     ecdsa?: string;
   };
   sealedSecretB64u: string;
-  curve?: SigningSessionSealCurve;
+  curve: SigningSessionSealCurve;
   walletId?: string;
   userId?: string;
   signingRootId?: string;
@@ -53,6 +64,7 @@ export type SealedSigningSessionRecord = {
   relayerUrl?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
+  ecdsaRestore?: SealedSigningSessionEcdsaRestoreMetadata;
   issuedAtMs: number;
   expiresAtMs: number;
   remainingUses: number;
@@ -158,9 +170,7 @@ export function emailOtpEcdsaRestoreInfoFields(args: EmailOtpEcdsaRestoreInfoInp
   ];
 }
 
-export function emailOtpEd25519RestoreInfoFields(
-  args: EmailOtpEd25519RestoreInfoInput,
-): string[] {
+export function emailOtpEd25519RestoreInfoFields(args: EmailOtpEd25519RestoreInfoInput): string[] {
   return [
     trimString(args.ed25519ThresholdSessionId),
     trimString(args.relayerKeyId),
