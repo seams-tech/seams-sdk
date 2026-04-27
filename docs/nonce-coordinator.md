@@ -872,6 +872,75 @@ expected TTL.
    should be treated as chain/RPC or transaction-fee policy issues, not as wallet
    budget failures.
 
+## NEAR Dropped/Replaced Detector Design
+
+NEAR does not have an EVM-style pending pool replacement model. There is no
+account-local transaction nonce replacement rule where a later transaction with
+the same nonce and higher fee clearly supersedes the earlier transaction. A
+NEAR access-key nonce is consumed only when a transaction is accepted into a
+block. Before that point, a missing transaction hash can mean RPC propagation
+lag, block-finality lag, mempool eviction, invalid transaction rejection, or an
+RPC node that never observed the transaction.
+
+The coordinator should therefore avoid naming NEAR outcomes `dropped` or
+`replaced` until a detector can prove the distinction. The stable NEAR detector
+should classify outcomes as:
+
+1. `finalized`: the transaction hash is found in a final block, and the access
+   key nonce has advanced to at least the transaction nonce.
+2. `accepted_nonfinal`: the transaction hash is visible but not final yet. Keep
+   the durable lease protected and continue status polling.
+3. `nonce_advanced_hash_missing`: the access-key nonce has advanced past the
+   leased nonce, but the transaction hash is not found through the configured
+   RPC. Treat the lease as resolved and reconcile the lane. Do not call it
+   replaced; another transaction may have consumed the nonce, but NEAR does not
+   expose the EVM replacement semantics needed to prove that.
+4. `expired_hash_missing_nonce_not_advanced`: the lease TTL elapsed, the hash is
+   not found, and the access-key nonce is still below or equal to the leased
+   nonce. Treat this as a local lease expiry/release. The same nonce can be
+   retried after fresh chain context is fetched.
+5. `invalid_or_rejected`: RPC returns a deterministic transaction execution or
+   validation error for this hash. Release or finalize the lease according to
+   whether the access-key nonce advanced.
+6. `unknown`: RPC is unavailable or contradictory. Keep the durable lease until
+   TTL/recovery and surface a degraded diagnostic rather than allocating over
+   the possibly active nonce.
+
+Detector inputs:
+
+1. `accountId`, `publicKey`, `networkKey`, leased `nonce`, `txHash`, `batchId`,
+   `txIndex`, `reservedAtMs`, `signedAtMs`, and `broadcastAcceptedAtMs`.
+2. Current access-key nonce from `viewAccessKey(accountId, publicKey)`.
+3. Transaction status by hash and signer account from the configured NEAR RPC.
+4. The coordinator's durable lease state and signed/broadcast TTL policy.
+
+Coordinator transitions:
+
+1. `finalized` -> `markFinalized`, refresh the access-key nonce, remove the
+   durable lease.
+2. `accepted_nonfinal` -> keep `broadcast_accepted`, extend only within a
+   bounded polling window.
+3. `nonce_advanced_hash_missing` -> new NEAR-specific resolved transition, or
+   `markFinalized` with reason `near_nonce_advanced_hash_missing`; remove the
+   durable lease and emit a warning metric.
+4. `expired_hash_missing_nonce_not_advanced` -> release the lease with reason
+   `near_hash_missing_nonce_not_advanced`; force fresh context before retry.
+5. `invalid_or_rejected` -> release or finalize based on access-key nonce
+   advancement, and emit the RPC error class as a redacted reason.
+6. `unknown` -> no nonce allocation over the lease; emit
+   `nonce_coordination_degraded` or a NEAR lane warning.
+
+Implementation phases:
+
+1. Add a NEAR transaction-status port to `NonceCoordinator` rather than letting
+   signing flows query status and mutate leases directly.
+2. Persist `txHash` and `broadcastAcceptedAtMs` in the durable NEAR lease
+   record. Continue to avoid persisting signed transaction bytes.
+3. Add `reconcileNearLane({ lane })` that examines every active durable NEAR
+   lease for the lane under the lane lock.
+4. Add status tests for the six detector outcomes above using a fake NEAR RPC.
+5. Only after those semantics are covered, mark Phase 3 item 3 complete.
+
 ## Acceptance Checks
 
 1. A cancelled transaction cannot leak a nonce reservation indefinitely.
