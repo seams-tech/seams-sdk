@@ -7,7 +7,7 @@ import {
   getStoredThresholdEd25519SessionRecordForAccount,
   markThresholdEd25519EmailOtpSessionConsumedForAccount,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
-import { createWalletSigningBudgetLedger } from '@/core/signingEngine/session/WalletSigningBudgetLedger';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { SigningSessionIds } from '@/core/signingEngine/session/signingSessionTypes';
 import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
 import { ActionType } from '@/core/types/actions';
@@ -619,7 +619,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             return { sessionId: refreshedSessionId };
           },
         },
-        walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+        signingSessionCoordinator: new SigningSessionCoordinator({
           consumeUse: async ({ uses }) => {
             consumedUses = uses;
             markThresholdEd25519EmailOtpSessionConsumedForAccount({
@@ -1290,7 +1290,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       });
 
       const consumeCalls: any[] = [];
-      const walletSigningBudgetLedger = createWalletSigningBudgetLedger({
+      const signingSessionCoordinator = new SigningSessionCoordinator({
         consumeUse: async (input) => {
           consumeCalls.push(input);
           return {
@@ -1350,7 +1350,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           signerSlot: 1,
           sessionId: thresholdSessionId,
           signingOperationId,
-          walletSigningBudgetLedger,
+          signingSessionCoordinator,
         });
 
       await signOnce();
@@ -1442,7 +1442,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               return { sessionId: thresholdSessionId };
             },
           },
-          walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+          signingSessionCoordinator: new SigningSessionCoordinator({
             consumeUse: async (input) => {
               consumeCalls.push(input);
               return {
@@ -1594,7 +1594,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             return { sessionId: refreshedSessionId };
           },
         },
-        walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+        signingSessionCoordinator: new SigningSessionCoordinator({
           consumeUse: async (input) => {
             consumeCalls.push(input);
             markThresholdEd25519EmailOtpSessionConsumedForAccount({
@@ -1700,7 +1700,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
           signerSlot: 1,
           sessionId: thresholdSessionId,
-          walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+          signingSessionCoordinator: new SigningSessionCoordinator({
             consumeUse: async (input) => {
               consumeCalls.push(input);
               return {

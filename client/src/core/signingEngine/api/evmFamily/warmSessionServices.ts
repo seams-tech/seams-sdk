@@ -44,7 +44,7 @@ import {
 import { emitEvmFamilySigningEvent } from './events';
 import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
 
-export type EvmFamilySigningSessionCoordinatorDeps = EvmFamilyEcdsaSessionReaderDeps & {
+export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps & {
   touchConfirm: TouchConfirmContextPort &
     TouchConfirmSigningPort &
     TouchConfirmSecureConfirmationPort &
@@ -69,7 +69,7 @@ export type EvmFamilySigningSessionCoordinatorDeps = EvmFamilyEcdsaSessionReader
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
 };
 
-export type EvmFamilySigningSessionCoordinator = Pick<
+export type EvmFamilyWarmSessionServices = Pick<
   WarmSessionCapabilityReader,
   'getWarmSession' | 'resolveEcdsaSealTransportByThresholdSessionId'
 > &
@@ -80,10 +80,10 @@ export type EvmFamilySigningSessionCoordinator = Pick<
   Pick<WarmSessionProvisioner, 'ensureEcdsaCapabilityReady'> &
   Pick<WarmSessionPostSignPolicy, 'applyEcdsaPostSignPolicy' | 'assertEcdsaOperationAllowed'>;
 
-export function createEvmFamilySigningSessionCoordinator(
-  deps: EvmFamilySigningSessionCoordinatorDeps,
+export function createEvmFamilyWarmSessionServices(
+  deps: EvmFamilyWarmSessionServicesDeps,
   onEvent?: EvmFamilyLifecycleEventCallback,
-): EvmFamilySigningSessionCoordinator {
+): EvmFamilyWarmSessionServices {
   const reconnectInFlightByCapability = new Map<
     string,
     ReturnType<WarmSessionProvisioner['ensureEcdsaCapabilityReady']>

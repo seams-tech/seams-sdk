@@ -33,11 +33,10 @@ import {
 } from '../session/signingSessionTypes';
 import { computeSigningOperationFingerprint } from '../session/SigningOperationFingerprint';
 import {
-  createWalletSigningBudgetLedger,
   isWalletSigningBudgetExhaustedError,
-  type WalletSigningBudgetLedger,
   type WalletSigningBudgetReservation,
-} from '../session/WalletSigningBudgetLedger';
+} from '../session/signingSession/budget';
+import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
 import { emitSigningLaneResolutionTrace } from '../session/SigningSessionTrace';
 import type { BootstrapEcdsaSessionArgs } from './thresholdLifecycle/thresholdSessionActivation';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
@@ -149,7 +148,7 @@ export type EvmFamilySigningDeps = {
     nearAccountId: string;
     chain: EvmFamilyChain;
   }) => void;
-  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
+  signingSessionCoordinator?: SigningSessionCoordinator;
   provisionThresholdEcdsaSession: (
     args: BootstrapEcdsaSessionArgs,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -173,7 +172,7 @@ type SignEvmFamilyAttemptOptions = {
   forceFreshAuth?: boolean;
   operationIds?: EvmFamilySigningOperationIds;
   retryingFreshAuth?: boolean;
-  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
+  signingSessionCoordinator?: SigningSessionCoordinator;
 };
 
 function emitEvmFamilyFreshAuthRetryEvent(args: {
@@ -247,10 +246,8 @@ async function signEvmFamilyAttempt(
     confirmationDisplayed = true;
     return ensureConfirmationOperationId();
   };
-  const walletSigningBudgetLedger =
-    attempt.walletSigningBudgetLedger ||
-    deps.walletSigningBudgetLedger ||
-    createWalletSigningBudgetLedger({});
+  const signingSessionCoordinator =
+    attempt.signingSessionCoordinator || deps.signingSessionCoordinator;
   if (args.request.senderSignatureAlgorithm === 'secp256k1') {
     const selection = await resolveEvmFamilyEcdsaSigningSelection({
       deps,
@@ -299,7 +296,7 @@ async function signEvmFamilyAttempt(
   const walletAuthArgsBase = {
     deps: {
       ...deps,
-      walletSigningBudgetLedger,
+      signingSessionCoordinator,
     },
     confirmedDeps: deps,
     nearAccountId: args.nearAccountId,
@@ -349,7 +346,10 @@ async function signEvmFamilyAttempt(
         },
       }
     : undefined;
-  const { flowArgs, signingSessionCoordinator } = await createEvmFamilySigningFlowRuntime({
+  const {
+    flowArgs,
+    warmSessionServices,
+  } = await createEvmFamilySigningFlowRuntime({
     deps,
     nearAccountId: args.nearAccountId,
     request: args.request,
@@ -384,7 +384,7 @@ async function signEvmFamilyAttempt(
           forceFreshAuth: true,
           operationIds,
           retryingFreshAuth: true,
-          walletSigningBudgetLedger,
+          signingSessionCoordinator,
         }),
     });
   };
@@ -414,13 +414,13 @@ async function signEvmFamilyAttempt(
       forceFreshAuth: true,
       operationIds,
       retryingFreshAuth: true,
-      walletSigningBudgetLedger,
+      signingSessionCoordinator,
     });
   };
   const recordSuccessfulWalletSigningSessionSpend = async (): Promise<void> => {
     await recordSuccessfulEvmFamilyWalletSigningSessionSpend({
       deps,
-      walletSigningBudgetLedger,
+      signingSessionCoordinator,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
@@ -434,7 +434,7 @@ async function signEvmFamilyAttempt(
     async (): Promise<WalletSigningBudgetReservation | null> => {
     return await reserveEvmFamilyWalletSigningSessionBudget({
       deps,
-      walletSigningBudgetLedger,
+      signingSessionCoordinator,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
@@ -448,7 +448,7 @@ async function signEvmFamilyAttempt(
     if (!confirmationDisplayed) return;
     recordFailedEvmFamilyWalletSigningSessionSpend({
       deps,
-      walletSigningBudgetLedger,
+      signingSessionCoordinator,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       nearAccountId: args.nearAccountId,
       chain: args.request.chain,
@@ -466,7 +466,7 @@ async function signEvmFamilyAttempt(
     }
     await applySuccessfulEvmFamilyEcdsaPostSignPolicy({
       deps,
-      postSignPolicy: signingSessionCoordinator,
+      postSignPolicy: warmSessionServices,
       senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
       nearAccountId: args.nearAccountId,
       chain,

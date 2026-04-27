@@ -9,11 +9,11 @@ import {
   type SigningExecutionCommandExecutor,
   type SigningExecutionStateKind,
   type SigningExecutionTransitionEvent,
-} from '@/core/signingEngine/session/SigningExecutionMachine';
+} from '@/core/signingEngine/session/signingSession/execution';
 import {
   planSigningSession,
   type SigningSessionReadiness,
-} from '@/core/signingEngine/session/SigningSessionPlanner';
+} from '@/core/signingEngine/session/signingSession/planner';
 import {
   SigningSessionIds,
   type SigningLaneContext,

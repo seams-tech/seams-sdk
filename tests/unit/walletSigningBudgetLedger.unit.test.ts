@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
-import { createWalletSigningBudgetLedger } from '@/core/signingEngine/session/WalletSigningBudgetLedger';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { inferWalletSigningBudgetZeroSpendReason } from '@/core/signingEngine/session/WalletSigningBudgetFailureReason';
 import { buildTempoTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
 import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/SigningBudgetSpendPlan';
@@ -19,7 +19,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       consumeUse: async (args) => {
         calls.push(args);
         return {
@@ -65,7 +65,7 @@ test.describe('WalletSigningBudgetLedger', () => {
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     let attempts = 0;
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       consumeUse: async () => {
         attempts += 1;
         if (attempts === 1) throw new Error('transient spend failure');
@@ -98,7 +98,7 @@ test.describe('WalletSigningBudgetLedger', () => {
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     let attempts = 0;
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       consumeUse: async (args) => {
         attempts += 1;
         return {
@@ -133,7 +133,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       ...buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane),
       walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-other'),
     };
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       consumeUse: async (args) => {
         calls.push(args);
         return {
@@ -163,7 +163,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
       consumeUse: async (args) => {
         calls.push(args);
@@ -214,7 +214,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       lane,
     );
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: async () => ({
         sessionId: 'wsess-budget-ledger',
         status: 'active',
@@ -252,7 +252,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
       consumeUse: async (args) => {
         calls.push(args);
@@ -305,7 +305,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
       consumeUse: async (args) => ({
         sessionId: String(args.walletSigningSessionId),
@@ -402,7 +402,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       lane,
     );
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: async () => ({
         sessionId: 'wsess-budget-ledger',
         status: 'active',
@@ -438,7 +438,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       signingRootVersion: 'default',
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
       getStatus: async () => ({
         sessionId: 'wsess-budget-ledger',
@@ -488,7 +488,7 @@ test.describe('WalletSigningBudgetLedger', () => {
         lane,
       ),
     );
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: async () => ({
         sessionId: 'wsess-budget-ledger',
         status: 'active',
@@ -536,7 +536,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       lane,
     );
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: async (args) => ({
         sessionId: String(args.walletSigningSessionId),
         status: 'active',
@@ -613,7 +613,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       passkeyLane,
     );
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: async () => ({
         sessionId: 'wsess-shared-budget',
         status: 'active',
@@ -670,7 +670,7 @@ test.describe('WalletSigningBudgetLedger', () => {
       },
       passkeyLane,
     );
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: async (args) => ({
         sessionId: String(args.walletSigningSessionId),
         status: 'active',

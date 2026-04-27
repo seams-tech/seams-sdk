@@ -42,14 +42,17 @@ import {
 import { requireResolvedThresholdEd25519SessionState } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import {
+  buildNearThresholdSigningAuthPlan,
   createNearSigningSessionCoordinator,
-  resolveNearThresholdSigningAuthPlan,
+  resolveNearThresholdSigningAuthContext,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/thresholdAuthMode';
 import { SigningAuthPlanKind } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
 import { passkeySigningAuthPlan } from '../shared/touchConfirmSigning';
+import { emitSigningPlannerDecisionTrace } from '../../session/SigningSessionTrace';
+import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -149,12 +152,25 @@ export async function signDelegateAction({
   });
 
   const usesNeeded = 1;
-  const thresholdAuthPlan = signingContext.threshold
-    ? await resolveNearThresholdSigningAuthPlan({
-        signingSessionCoordinator,
+  const thresholdAuthContext = signingContext.threshold
+    ? await resolveNearThresholdSigningAuthContext({
+        warmSessionReader: signingSessionCoordinator,
         usesNeeded,
         nearAccountId,
         operationLabel: 'delegate signing',
+      })
+    : null;
+  const resolvedThresholdSigningSession = thresholdAuthContext
+    ? await new SigningSessionCoordinator().resolveAuthPlanFromReadiness(
+        thresholdAuthContext.coordinatorInput,
+        (event) =>
+          emitSigningPlannerDecisionTrace('near', event),
+      )
+    : null;
+  const thresholdAuthPlan = thresholdAuthContext
+    ? buildNearThresholdSigningAuthPlan({
+        context: thresholdAuthContext,
+        resolvedSigningSession: resolvedThresholdSigningSession!,
       })
     : null;
   emitNearSigningEvent(onEvent, nearAccountId, {

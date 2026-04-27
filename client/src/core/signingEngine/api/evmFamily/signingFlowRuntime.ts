@@ -11,7 +11,7 @@ import {
   SigningExecutionCommandKind,
   createSigningExecutionCommandTraceEvent,
   type SigningExecutionCommand,
-} from '../../session/SigningExecutionMachine';
+} from '../../session/signingSession/execution';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
@@ -31,7 +31,7 @@ import {
   loadSecp256k1EngineCtor,
   loadWebAuthnP256EngineCtor,
 } from './signerLoader';
-import { createEvmFamilySigningSessionCoordinator } from './signingSessionCoordinator';
+import { createEvmFamilyWarmSessionServices } from './warmSessionServices';
 import { ensureSmartAccountDeploymentReady } from './smartAccount';
 import { ensureEvmFamilyThresholdEcdsaKeyRefReady } from './ecdsaReadiness';
 import {
@@ -150,7 +150,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   ]);
   const signerWorkerCtx = args.deps.getSignerWorkerContext();
   const ctx = args.deps.touchConfirm.getContext();
-  const signingSessionCoordinator = createEvmFamilySigningSessionCoordinator(args.deps, args.onEvent);
+  const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps, args.onEvent);
   const emailOtpSigningForFlow = wrapEmailOtpSigningWithRuntimeCommands({
     signingSessionPlan: args.signingSessionPlan,
     emailOtpSigning: args.emailOtpSigningForFlow,
@@ -333,7 +333,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             task: async () => {
               throwIfEvmFamilySigningCancelled(queueArgs.shouldAbort);
               await assertThresholdSigningSessionReady({
-                signingSessionCoordinator,
+                signingSessionCoordinator: warmSessionServices,
                 nearAccountId: String(queueArgs.nearAccountId),
                 chain: args.request.chain,
                 sessionId: thresholdSessionId,
@@ -395,5 +395,5 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       : {}),
   };
 
-  return { flowArgs, signingSessionCoordinator };
+  return { flowArgs, warmSessionServices };
 }

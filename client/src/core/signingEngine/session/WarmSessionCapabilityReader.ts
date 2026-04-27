@@ -52,7 +52,7 @@ export function createWarmSessionCapabilityReader(
     });
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: deps.touchConfirm,
-    walletSigningSessionCoordinator: deps.walletSigningSessionCoordinator,
+    signingSessionCoordinator: deps.signingSessionCoordinator,
     getEmailOtpWarmSessionStatus,
     listThresholdEcdsaSessionRecordsForLookup: deps.listThresholdEcdsaSessionRecordsForLookup,
   });

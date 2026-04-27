@@ -2,10 +2,9 @@ import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import {
   createSigningPlannerDecisionTraceEvent,
-  createSigningSessionPlanner,
   planSigningSession,
   type SigningSessionReadiness,
-} from '@/core/signingEngine/session/SigningSessionPlanner';
+} from '@/core/signingEngine/session/signingSession/planner';
 import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/SigningBudgetSpendPlan';
 import {
   SigningSessionIds,
@@ -455,7 +454,7 @@ test.describe('SigningSessionPlanner', () => {
     expect(plan.reason).toBe('missing_session');
   });
 
-  test('emits redacted planner decision traces from the planner wrapper', () => {
+  test('builds redacted planner decision traces from the pure trace helper', () => {
     const lane = makeLane({
       authMethod: 'email_otp',
       chainFamily: 'evm',
@@ -463,19 +462,16 @@ test.describe('SigningSessionPlanner', () => {
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-secret-ish'),
       walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-secret-ish'),
     });
-    const traces: ReturnType<typeof createSigningPlannerDecisionTraceEvent>[] = [];
-    const planner = createSigningSessionPlanner({
-      onTrace: (event) => traces.push(event),
-    });
 
-    const plan = planner.plan({
+    const plannerInput = {
       lane,
       readiness: exhausted(lane),
-    });
+    };
+    const plan = planSigningSession(plannerInput);
+    const trace = createSigningPlannerDecisionTraceEvent(plannerInput, plan);
 
     expect(plan.kind).toBe('email_otp_reauth');
-    expect(traces).toHaveLength(1);
-    expect(traces[0]).toMatchObject({
+    expect(trace).toMatchObject({
       event: 'signing_planner_decision',
       readinessStatus: 'exhausted',
       forceFreshAuth: false,
@@ -490,7 +486,7 @@ test.describe('SigningSessionPlanner', () => {
       },
     });
 
-    const traceJson = JSON.stringify(traces[0]);
+    const traceJson = JSON.stringify(trace);
     expect(traceJson).not.toContain('tsess-secret-ish');
     expect(traceJson).not.toContain('wsess-secret-ish');
     expect(traceJson).not.toContain('signingRootId');

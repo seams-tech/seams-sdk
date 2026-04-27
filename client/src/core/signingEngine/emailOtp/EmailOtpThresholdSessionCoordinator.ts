@@ -14,6 +14,7 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import {
+  getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   upsertStoredThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
@@ -72,10 +73,13 @@ import { joinNormalizedUrl } from '@shared/utils/normalize';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '@/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import type { EmailOtpEnrollmentResult } from '@/core/TatchiPasskey/emailOtp';
 import {
+  acquireSigningSessionRestoreLease,
   deleteSigningSessionSealedRecord,
+  releaseSigningSessionRestoreLease,
   readSigningSessionSealedRecord,
   updateSigningSessionSealedRecordPolicy,
   writeSigningSessionSealedRecord,
+  type SigningSessionRestoreLeaseHandle,
   type SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/api/session/signingSessionSealedStore';
 import {
@@ -249,6 +253,9 @@ export type EmailOtpThresholdSessionCoordinatorDeps = {
     chain: ThresholdEcdsaActivationChain;
     source: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSecp256k1KeyRef | Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  getThresholdEcdsaSessionRecordByThresholdSessionId?: (
+    thresholdSessionId: string,
+  ) => ThresholdEcdsaSessionRecord | null;
   persistEmailOtpThresholdEd25519LocalMetadata: (args: {
     nearAccountId: AccountId;
     rpId: string;
@@ -289,6 +296,10 @@ export type EmailOtpThresholdSessionCoordinatorDeps = {
   }) => Promise<void>;
   writeSigningSessionSealedRecord?: typeof writeSigningSessionSealedRecord;
   readSigningSessionSealedRecord?: typeof readSigningSessionSealedRecord;
+  acquireSigningSessionRestoreLease?: typeof acquireSigningSessionRestoreLease;
+  releaseSigningSessionRestoreLease?: (
+    lease: SigningSessionRestoreLeaseHandle | null | undefined,
+  ) => Promise<void>;
 };
 
 export class EmailOtpThresholdSessionCoordinator {
@@ -298,20 +309,170 @@ export class EmailOtpThresholdSessionCoordinator {
 
   constructor(private readonly deps: EmailOtpThresholdSessionCoordinatorDeps) {}
 
+  private async recordWarmSessionPolicyFromStatus(
+    sessionId: string,
+    result: WarmSessionStatusResult | WarmSessionClaimResult,
+  ): Promise<void> {
+    if (result.ok) {
+      if (result.remainingUses <= 0 || Date.now() >= result.expiresAtMs) {
+        await deleteSigningSessionSealedRecord(sessionId).catch(() => undefined);
+        return;
+      }
+      await updateSigningSessionSealedRecordPolicy({
+        thresholdSessionId: sessionId,
+        expiresAtMs: result.expiresAtMs,
+        remainingUses: result.remainingUses,
+        updatedAtMs: Date.now(),
+      }).catch(() => undefined);
+      return;
+    }
+    if (result.code === 'expired' || result.code === 'exhausted') {
+      await deleteSigningSessionSealedRecord(sessionId).catch(() => undefined);
+    }
+  }
+
+  private async tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
+    sessionId: string,
+  ): Promise<WarmSessionStatusResult | null> {
+    if (this.deps.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return null;
+    const thresholdSessionId = String(sessionId || '').trim();
+    if (!thresholdSessionId) return null;
+    const reader = this.deps.readSigningSessionSealedRecord || readSigningSessionSealedRecord;
+    const sealedRecord = await reader(thresholdSessionId).catch(() => null);
+    if (!sealedRecord) return null;
+    if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
+      await deleteSigningSessionSealedRecord(thresholdSessionId).catch(() => undefined);
+      return {
+        ok: false,
+        code: sealedRecord.remainingUses <= 0 ? 'exhausted' : 'expired',
+        message: 'Email OTP sealed refresh material is no longer active',
+      };
+    }
+    if (
+      sealedRecord.authMethod !== 'email_otp' ||
+      sealedRecord.secretKind !== 'signing_session_secret32' ||
+      sealedRecord.thresholdSessionIds.ecdsa !== thresholdSessionId
+    ) {
+      await deleteSigningSessionSealedRecord(thresholdSessionId).catch(() => undefined);
+      return null;
+    }
+    const ecdsaRecord =
+      this.deps.getThresholdEcdsaSessionRecordByThresholdSessionId?.(thresholdSessionId) ||
+      getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+    if (
+      !ecdsaRecord ||
+      ecdsaRecord.source !== 'email_otp' ||
+      ecdsaRecord.emailOtpAuthContext?.retention !== 'session'
+    ) {
+      return null;
+    }
+    const sealedEd25519SessionId = String(sealedRecord.thresholdSessionIds.ed25519 || '').trim();
+    const ed25519Record = sealedEd25519SessionId
+      ? getStoredThresholdEd25519SessionRecordByThresholdSessionId(sealedEd25519SessionId)
+      : null;
+    if (
+      sealedEd25519SessionId &&
+      (!ed25519Record ||
+        ed25519Record.source !== 'email_otp' ||
+        ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
+        ed25519Record.walletSigningSessionId !== sealedRecord.walletSigningSessionId)
+    ) {
+      await deleteSigningSessionSealedRecord(thresholdSessionId).catch(() => undefined);
+      return null;
+    }
+
+    const acquireLease =
+      this.deps.acquireSigningSessionRestoreLease || acquireSigningSessionRestoreLease;
+    const releaseLease =
+      this.deps.releaseSigningSessionRestoreLease || releaseSigningSessionRestoreLease;
+    const lease = await acquireLease({ thresholdSessionId }).catch(() => null);
+    if (!lease) return null;
+    try {
+      const restored = await this.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord({
+        sealedRecord,
+        ecdsaRecord,
+        ...(ed25519Record ? { ed25519Record } : {}),
+      }).catch(() => null);
+      if (!restored) {
+        await deleteSigningSessionSealedRecord(thresholdSessionId).catch(() => undefined);
+        return null;
+      }
+      const result: WarmSessionStatusResult = {
+        ok: true,
+        remainingUses: restored.remainingUses,
+        expiresAtMs: restored.expiresAtMs,
+      };
+      await this.recordWarmSessionPolicyFromStatus(thresholdSessionId, result);
+      return result;
+    } finally {
+      await releaseLease(lease).catch(() => undefined);
+    }
+  }
+
+  private async readWarmSessionStatusFromWorker(sessionId: string): Promise<WarmSessionStatusResult> {
+    return await this.deps.signerWorkerManager.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'getEmailOtpWarmSessionStatus',
+        timeoutMs: 5_000,
+        payload: { sessionId },
+      },
+    });
+  }
+
+  private async claimWarmSessionMaterialFromWorker(args: {
+    sessionId: string;
+    uses?: number;
+  }): Promise<WarmSessionClaimResult> {
+    return await this.deps.signerWorkerManager.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'claimEmailOtpWarmSessionMaterial',
+        timeoutMs: 5_000,
+        payload: {
+          sessionId: args.sessionId,
+          ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+        },
+      },
+    });
+  }
+
+  private async consumeWarmSessionUsesFromWorker(args: {
+    sessionId: string;
+    uses?: number;
+  }): Promise<WarmSessionStatusResult> {
+    return await this.deps.signerWorkerManager.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'consumeEmailOtpWarmSessionUses',
+        timeoutMs: 5_000,
+        payload: {
+          sessionId: args.sessionId,
+          ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+        },
+      },
+    });
+  }
+
   async getWarmSessionStatus(sessionId: string): Promise<WarmSessionStatusResult> {
     const normalizedSessionId = String(sessionId || '').trim();
     if (!normalizedSessionId) {
       return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
     }
     try {
-      return await this.deps.signerWorkerManager.requestWorkerOperation({
-        kind: 'emailOtp',
-        request: {
-          type: 'getEmailOtpWarmSessionStatus',
-          timeoutMs: 5_000,
-          payload: { sessionId: normalizedSessionId },
-        },
-      });
+      const result = await this.readWarmSessionStatusFromWorker(normalizedSessionId);
+      if (result.ok) {
+        await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, result);
+        return result;
+      }
+      if (result.code === 'not_found') {
+        const restored = await this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
+          normalizedSessionId,
+        );
+        if (restored) return restored;
+      }
+      await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, result);
+      return result;
     } catch (error) {
       return {
         ok: false,
@@ -330,35 +491,28 @@ export class EmailOtpThresholdSessionCoordinator {
       return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
     }
     try {
-      const result = await this.deps.signerWorkerManager.requestWorkerOperation({
-        kind: 'emailOtp',
-        request: {
-          type: 'claimEmailOtpWarmSessionMaterial',
-          timeoutMs: 5_000,
-          payload: {
+      const result = await this.claimWarmSessionMaterialFromWorker({
+        sessionId: normalizedSessionId,
+        ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+      });
+      if (!result.ok && result.code === 'not_found') {
+        const restored = await this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
+          normalizedSessionId,
+        );
+        if (restored?.ok) {
+          const retry = await this.claimWarmSessionMaterialFromWorker({
             sessionId: normalizedSessionId,
             ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-          },
-        },
-      });
-      if (result.ok) {
-        if (result.remainingUses <= 0 || Date.now() >= result.expiresAtMs) {
-          await deleteSigningSessionSealedRecord(normalizedSessionId).catch(() => undefined);
-        } else {
-          await updateSigningSessionSealedRecordPolicy({
-            thresholdSessionId: normalizedSessionId,
-            expiresAtMs: result.expiresAtMs,
-            remainingUses: result.remainingUses,
-            updatedAtMs: Date.now(),
-          }).catch(() => undefined);
+          });
+          await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, retry);
+          return retry;
         }
-      } else if (
-        result.code === 'expired' ||
-        result.code === 'exhausted' ||
-        result.code === 'not_found'
-      ) {
-        await deleteSigningSessionSealedRecord(normalizedSessionId).catch(() => undefined);
+        if (restored) {
+          await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, restored);
+        }
+        return result;
       }
+      await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, result);
       return result;
     } catch (error) {
       return {
@@ -378,35 +532,28 @@ export class EmailOtpThresholdSessionCoordinator {
       return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
     }
     try {
-      const result = await this.deps.signerWorkerManager.requestWorkerOperation({
-        kind: 'emailOtp',
-        request: {
-          type: 'consumeEmailOtpWarmSessionUses',
-          timeoutMs: 5_000,
-          payload: {
+      const result = await this.consumeWarmSessionUsesFromWorker({
+        sessionId: normalizedSessionId,
+        ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+      });
+      if (!result.ok && result.code === 'not_found') {
+        const restored = await this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
+          normalizedSessionId,
+        );
+        if (restored?.ok) {
+          const retry = await this.consumeWarmSessionUsesFromWorker({
             sessionId: normalizedSessionId,
             ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
-          },
-        },
-      });
-      if (result.ok) {
-        if (result.remainingUses <= 0 || Date.now() >= result.expiresAtMs) {
-          await deleteSigningSessionSealedRecord(normalizedSessionId).catch(() => undefined);
-        } else {
-          await updateSigningSessionSealedRecordPolicy({
-            thresholdSessionId: normalizedSessionId,
-            expiresAtMs: result.expiresAtMs,
-            remainingUses: result.remainingUses,
-            updatedAtMs: Date.now(),
-          }).catch(() => undefined);
+          });
+          await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, retry);
+          return retry;
         }
-      } else if (
-        result.code === 'expired' ||
-        result.code === 'exhausted' ||
-        result.code === 'not_found'
-      ) {
-        await deleteSigningSessionSealedRecord(normalizedSessionId).catch(() => undefined);
+        if (restored) {
+          await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, restored);
+        }
+        return result;
       }
+      await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, result);
       return result;
     } catch (error) {
       return {
@@ -1222,7 +1369,12 @@ export class EmailOtpThresholdSessionCoordinator {
         ),
         ecdsaThresholdSessionId: this.thresholdSessionIdFromEcdsaBootstrap(bootstrap),
       };
-      if (args.ed25519ProvisioningMode === 'await') {
+      const shouldAwaitEd25519Provisioning =
+        args.ed25519ProvisioningMode === 'await' ||
+        (!args.ed25519ProvisioningMode && resolvedEmailOtpAuthContext.retention === 'session');
+      if (shouldAwaitEd25519Provisioning) {
+        // Session-mode OTP unlock should not report completion until both signing
+        // lanes are durable; otherwise a quick refresh can strand the wallet.
         ed25519Provisioning = await this.provisionEd25519Capability(ed25519ProvisioningArgs);
       } else if (args.ed25519ProvisioningMode !== 'skip') {
         this.scheduleEd25519CapabilityProvisioning(ed25519ProvisioningArgs);

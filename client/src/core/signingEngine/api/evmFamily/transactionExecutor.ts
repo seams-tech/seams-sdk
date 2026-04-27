@@ -8,13 +8,13 @@ import {
   buildSigningPostSignExecutionSteps,
   runSigningExecutionSteps,
   type SigningExecutionCommand,
-} from '../../session/SigningExecutionMachine';
+} from '../../session/signingSession/execution';
 import type { EvmSignedResult } from '../../chainAdaptors/evm/evmAdapter';
 import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
 import type { TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
-import type { WalletSigningBudgetReservation } from '../../session/WalletSigningBudgetLedger';
+import type { WalletSigningBudgetReservation } from '../../session/signingSession/budget';
 import {
   evmReserveNonceInputToLane,
   type NonceOperationContext,

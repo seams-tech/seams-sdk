@@ -17,7 +17,7 @@ import {
   SigningAuthPlanKind,
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
-import type { WalletSigningBudgetReservation } from '../../session/WalletSigningBudgetLedger';
+import type { WalletSigningBudgetReservation } from '../../session/signingSession/budget';
 import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { base64UrlEncode } from '@shared/utils/base64';

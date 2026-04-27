@@ -188,23 +188,53 @@ Acceptance checks:
 
 Add or keep guards for these boundaries:
 
-1. [ ] `SigningSessionPlanner` imports no storage, worker, OTP, passkey, ledger,
-       or threshold provisioner modules.
+1. [x] `signingSession/planner.ts` imports no storage, worker, OTP, passkey,
+       budget state, ledger, coordinator, or threshold provisioner modules.
 2. [ ] `WarmSessionStore` imports no planner, execution machine, transaction
        confirmation, or budget ledger modules.
-3. [x] Chain-facing composition stays in explicit chain-specific coordinators
-       and adapters (`createEvmFamilySigningSessionCoordinator`,
-       `createNearSigningSessionCoordinator`, and touch-confirm orchestration)
-       rather than a single concrete `SigningSessionCoordinator.ts` file.
-4. [ ] Transaction signing code cannot call generic source-less ECDSA lookup
+3. [x] Only `SigningSessionCoordinator.ts` owns mutable signing-session maps:
+       successful spends, reservations, reserved uses, wallet reservation
+       queues, and wallet status overrides.
+4. [x] No production code outside `SigningSessionCoordinator` constructs
+       budget ledger state or calls `createWalletSigningBudgetLedger`.
+   - [x] `WalletSigningBudgetLedger.ts` has been deleted; stateful budget
+         behavior lives on `SigningSessionCoordinator`.
+5. [x] No production code outside `SigningSessionCoordinator` constructs
+       `WalletSigningSessionCoordinator` or calls
+       `createWalletSigningSessionCoordinator`.
+   - [x] `WalletSigningSessionCoordinator.ts` owns no mutable wallet status
+         override map.
+6. [ ] Transaction signing code cannot call generic source-less ECDSA lookup
        helpers.
-5. [ ] No code path synthesizes wallet signing-session ids from threshold
+7. [ ] No code path synthesizes wallet signing-session ids from threshold
        session ids.
-6. [ ] No auth side effect can start before the confirmation-displayed boundary.
+8. [ ] No auth side effect can start before the confirmation-displayed boundary.
+9. [x] Chain transaction flows do not import `SigningSessionPlanner`,
+       `signingSession/planner.ts`, or `planSigningSession` directly.
+10. [x] Chain transaction flows do not import budget helper state directly.
+11. [ ] Chain transaction flows do not directly plan auth, merge budget status,
+        reserve budget, or spend wallet budget outside
+        `SigningSessionCoordinator`.
+12. [x] Runtime dependency bundles construct only `SigningSessionCoordinator` as
+        the signing-session stateful service and expose it through
+        `signingSessionCoordinator`.
+13. [ ] EVM-family, NEAR, Tempo, and ARC signing paths all reach auth planning
+        through `SigningSessionCoordinator.resolveAuthPlan(...)`.
+14. [x] `signingSession/budget.ts`, `signingSession/readiness.ts`,
+        `signingSession/planner.ts`, and `signingSession/execution.ts` contain
+        no module-level mutable state.
+    - [x] `signingSession/budget.ts`
+    - [x] `signingSession/readiness.ts`
+    - [x] `signingSession/planner.ts`
+    - [x] `signingSession/execution.ts`
+15. [x] EVM-family warm-session service adapters do not use
+        `SigningSessionCoordinator` naming.
+16. [x] Legacy coordinator/ledger names do not appear in production dependency
+        bundle types after migration.
 
 ## Implementation Order
 
-1. [ ] Add missing static guards first, because they catch architecture drift
+1. [x] Add missing static guards first, because they catch architecture drift
        cheaply.
 2. [x] Add stale-readiness and budget-release tests next, because they protect
        the highest-risk runtime failures.

@@ -6,10 +6,7 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../api/thresholdLifecycle/thresholdSessionStore';
 import type { ThresholdEcdsaActivationChain } from '../orchestration/thresholdActivation';
-import {
-  createWalletSigningSessionCoordinator,
-  type WalletSigningSessionCoordinator,
-} from './WalletSigningSessionCoordinator';
+import { SigningSessionCoordinator } from './SigningSessionCoordinator';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
@@ -61,7 +58,7 @@ export function normalizeUsesNeeded(usesNeededRaw: unknown): number {
 
 export type WarmSessionStatusReaderDeps = {
   touchConfirm?: Parameters<typeof readWarmSessionClaim>[0];
-  walletSigningSessionCoordinator?: WalletSigningSessionCoordinator;
+  signingSessionCoordinator?: Pick<SigningSessionCoordinator, 'getLaneClaimsForAccount'>;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
   listThresholdEcdsaSessionRecordsForLookup?: (args: {
     nearAccountId: AccountId | string;
@@ -91,9 +88,9 @@ export type WarmSessionStatusReader = ThresholdWarmSessionStatusReader & {
 export function createWarmSessionStatusReader(
   deps: WarmSessionStatusReaderDeps,
 ): WarmSessionStatusReader {
-  const walletSigningSessionCoordinator =
-    deps.walletSigningSessionCoordinator ||
-    createWalletSigningSessionCoordinator({
+  const signingSessionCoordinator =
+    deps.signingSessionCoordinator ||
+    new SigningSessionCoordinator({
       touchConfirm: deps.touchConfirm,
       getEmailOtpWarmSessionStatus: deps.getEmailOtpWarmSessionStatus,
       listThresholdEcdsaSessionRecordsForLookup: deps.listThresholdEcdsaSessionRecordsForLookup,
@@ -126,7 +123,7 @@ export function createWarmSessionStatusReader(
     evmClaim: WarmSessionPrfClaim | null;
     tempoClaim: WarmSessionPrfClaim | null;
   }> {
-    const walletScopedClaims = await walletSigningSessionCoordinator.getLaneClaimsForAccount(
+    const walletScopedClaims = await signingSessionCoordinator.getLaneClaimsForAccount(
       nearAccountId,
     );
     return {
@@ -333,7 +330,7 @@ export function createWarmSessionStatusReader(
     const records = listCurrentEcdsaRecords({ nearAccountId: accountId, chain: args.chain });
     if (!records.length) return [];
     const claimsByThresholdSessionId =
-      await walletSigningSessionCoordinator.getLaneClaimsForAccount(accountId);
+      await signingSessionCoordinator.getLaneClaimsForAccount(accountId);
     return records.map((record) =>
       toEcdsaSigningSessionStatus({
         record,
@@ -365,7 +362,7 @@ export function createWarmSessionStatusReader(
       };
     }
     const claimsByThresholdSessionId =
-      await walletSigningSessionCoordinator.getLaneClaimsForAccount(accountId);
+      await signingSessionCoordinator.getLaneClaimsForAccount(accountId);
     return toEcdsaSigningSessionStatus({
       record,
       claim:

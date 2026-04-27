@@ -4,7 +4,12 @@ import {
   THRESHOLD_SESSION_EXHAUSTED_ERROR,
   THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR,
 } from '@/core/signingEngine/session/WarmSessionStatusReader';
-import { resolveNearThresholdSigningAuthPlan } from '@/core/signingEngine/orchestration/near/shared/thresholdAuthMode';
+import {
+  buildNearThresholdSigningAuthPlan,
+  resolveNearThresholdSigningAuthContext,
+} from '@/core/signingEngine/orchestration/near/shared/thresholdAuthMode';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import { SigningAuthPlanKind } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import {
   createWarmSessionTestServices,
   createThresholdEcdsaBootstrapFixture,
@@ -14,6 +19,18 @@ import {
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
 } from './helpers/warmSessionStore.fixtures';
+
+async function resolveNearThresholdSigningAuthForTest(args: Parameters<
+  typeof resolveNearThresholdSigningAuthContext
+>[0] & {
+  signingSessionCoordinator?: SigningSessionCoordinator;
+}) {
+  const context = await resolveNearThresholdSigningAuthContext(args);
+  const resolvedSigningSession = await (
+    args.signingSessionCoordinator || new SigningSessionCoordinator()
+  ).resolveAuthPlanFromReadiness(context.coordinatorInput);
+  return buildNearThresholdSigningAuthPlan({ context, resolvedSigningSession });
+}
 
 test.describe('WarmSessionStore caller-facing error normalization', () => {
   test('normalizes missing warm PRF material for explicit threshold-ecdsa authorization bootstrap', async () => {
@@ -218,8 +235,8 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
 
     await expect(
-      resolveNearThresholdSigningAuthPlan({
-        signingSessionCoordinator: store,
+      resolveNearThresholdSigningAuthForTest({
+        warmSessionReader: store,
         nearAccountId: 'auth-unavailable.testnet',
         usesNeeded: 1,
         operationLabel: 'unit-test',
@@ -248,12 +265,54 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     });
 
     await expect(
-      resolveNearThresholdSigningAuthPlan({
-        signingSessionCoordinator: store,
+      resolveNearThresholdSigningAuthForTest({
+        warmSessionReader: store,
         nearAccountId: 'status-unavailable.testnet',
         usesNeeded: 1,
         operationLabel: 'unit-test',
       }),
     ).rejects.toThrow(`${THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR} (worker_error)`);
+  });
+
+  test('plans passkey reauth when wallet signing budget is exhausted but Ed25519 material is warm', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    seedEd25519WarmSessionRecord({
+      nearAccountId: 'wallet-budget-exhausted-ed25519.testnet',
+      thresholdSessionId: 'wallet-budget-exhausted-ed25519-session',
+      walletSigningSessionId: 'wallet-budget-exhausted-ed25519-wallet-session',
+      thresholdSessionJwt: 'jwt:wallet-budget-exhausted-ed25519-session',
+      remainingUses: 1,
+      expiresAtMs: Date.now() + 60_000,
+      source: 'login',
+    });
+
+    const store = createWarmSessionTestServices({
+      touchConfirm: {
+        getWarmSessionStatus: async () => ({
+          ok: true,
+          remainingUses: 1,
+          expiresAtMs: Date.now() + 60_000,
+        }),
+      },
+    });
+    const signingSessionCoordinator = new SigningSessionCoordinator({
+      getStatus: async () => ({
+        sessionId: 'wallet-budget-exhausted-ed25519-wallet-session',
+        status: 'exhausted',
+        remainingUses: 0,
+      }),
+    });
+
+    const plan = await resolveNearThresholdSigningAuthForTest({
+      warmSessionReader: store,
+      signingSessionCoordinator,
+      nearAccountId: 'wallet-budget-exhausted-ed25519.testnet',
+      usesNeeded: 1,
+      operationLabel: 'unit-test',
+    });
+
+    expect(plan.signingAuthPlan?.kind).toBe(SigningAuthPlanKind.PasskeyReauth);
+    expect(plan.warmSessionReady).toBe(false);
   });
 });

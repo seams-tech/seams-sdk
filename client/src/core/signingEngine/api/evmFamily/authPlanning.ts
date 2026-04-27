@@ -15,9 +15,9 @@ import type { EmailOtpAuthLane } from '../../emailOtp/authLane';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../touchConfirm';
 import {
-  createSigningSessionPlanner,
+  SigningSessionCoordinator,
   type SigningSessionReadiness,
-} from '../../session/SigningSessionPlanner';
+} from '../../session/SigningSessionCoordinator';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
@@ -27,7 +27,6 @@ import type {
   SigningLaneContext,
   SigningSessionPlan,
 } from '../../session/signingSessionTypes';
-import type { WalletSigningBudgetLedger } from '../../session/WalletSigningBudgetLedger';
 import {
   SigningOperationIntent,
   SigningSessionPlanKind,
@@ -51,7 +50,7 @@ import type {
 export type EvmFamilyPreConfirmSigningDeps = {
   touchConfirm: WarmSessionStatusReader;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
+  signingSessionCoordinator?: SigningSessionCoordinator;
 };
 export type EvmFamilyWarmSessionReadinessDeps = EvmFamilyPreConfirmSigningDeps;
 
@@ -111,7 +110,7 @@ export type ResolveEvmFamilyTransactionWalletAuthArgs =
 async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
   deps: Pick<
     EvmFamilyPreConfirmSigningDeps,
-    'touchConfirm' | 'getEmailOtpWarmSessionStatus' | 'walletSigningBudgetLedger'
+    'touchConfirm' | 'getEmailOtpWarmSessionStatus'
   >;
   lane: SigningLaneContext;
   record?: ThresholdEcdsaSessionRecord;
@@ -142,29 +141,18 @@ async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
   const signingRootId = record.runtimePolicyScope
     ? signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope).signingRootId
     : undefined;
-  const walletBudgetStatus = await readEvmFamilyWalletBudgetStatus({
-    deps: args.deps,
-    lane: args.lane,
+  const buildBackingReadiness = (input: { expiresAtMs: number; remainingUses: number }) => ({
+    readiness: {
+      status: 'ready' as const,
+      thresholdSessionId,
+      ...(args.lane.backingMaterialSessionId
+        ? { backingMaterialSessionId: args.lane.backingMaterialSessionId }
+        : {}),
+    },
+    expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
+    remainingUses: Math.floor(Number(input.remainingUses) || 0),
+    ...(signingRootId ? { signingRootId } : {}),
   });
-  const buildBudgetAwareReadiness = (input: {
-    expiresAtMs: number;
-    remainingUses: number;
-  }) => {
-    const budget = applyEvmFamilyWalletBudgetStatus({
-      walletBudgetStatus,
-      expiresAtMs: input.expiresAtMs,
-      remainingUses: input.remainingUses,
-    });
-    return {
-      readiness: {
-        status: budget.status,
-        ...base,
-      },
-      expiresAtMs: budget.expiresAtMs,
-      remainingUses: budget.remainingUses,
-      ...(signingRootId ? { signingRootId } : {}),
-    };
-  };
 
   if (isEmailOtpThresholdEcdsaSigningContext({ record, keyRef: args.keyRef })) {
     const emailOtpWorkerSessionId =
@@ -184,7 +172,7 @@ async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     let status = await readEmailOtpStatus();
     const statusExpiresAtMs = status?.ok ? status.expiresAtMs : 0;
     const statusRemainingUses = status?.ok ? status.remainingUses : 0;
-    return buildBudgetAwareReadiness({
+    return buildBackingReadiness({
       expiresAtMs: Math.floor(Number(statusExpiresAtMs) || 0),
       remainingUses: Math.floor(Number(statusRemainingUses) || 0),
     });
@@ -192,84 +180,7 @@ async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
 
   const expiresAtMs = record.expiresAtMs;
   const remainingUses = record.remainingUses;
-  return buildBudgetAwareReadiness({ expiresAtMs, remainingUses });
-}
-
-async function readEvmFamilyWalletBudgetStatus(args: {
-  deps: Pick<EvmFamilyPreConfirmSigningDeps, 'walletSigningBudgetLedger'>;
-  lane: SigningLaneContext;
-}) {
-  const walletSigningSessionId = String(args.lane.walletSigningSessionId || '').trim();
-  if (!walletSigningSessionId || !args.deps.walletSigningBudgetLedger) return null;
-  try {
-    return await args.deps.walletSigningBudgetLedger.getAvailableStatus({
-      nearAccountId: args.lane.accountId,
-      walletSigningSessionId,
-      ...(args.lane.backingMaterialSessionId
-        ? { targetBackingMaterialSessionIds: [args.lane.backingMaterialSessionId] }
-        : {}),
-      ...(args.lane.thresholdSessionId
-        ? { targetThresholdSessionIds: [args.lane.thresholdSessionId] }
-        : {}),
-    });
-  } catch {
-    return {
-      sessionId: walletSigningSessionId,
-      status: 'unavailable' as const,
-    };
-  }
-}
-
-function applyEvmFamilyWalletBudgetStatus(args: {
-  walletBudgetStatus: Awaited<ReturnType<typeof readEvmFamilyWalletBudgetStatus>>;
-  expiresAtMs: number;
-  remainingUses: number;
-}): {
-  status: SigningSessionReadiness['status'];
-  expiresAtMs: number;
-  remainingUses: number;
-} {
-  let expiresAtMs = Math.floor(Number(args.expiresAtMs) || 0);
-  let remainingUses = Math.max(0, Math.floor(Number(args.remainingUses) || 0));
-  const walletBudgetStatus = args.walletBudgetStatus;
-  if (walletBudgetStatus) {
-    if (walletBudgetStatus.status === 'not_found') {
-      return { status: 'missing_session', expiresAtMs: 0, remainingUses: 0 };
-    }
-    if (walletBudgetStatus.status === 'unavailable') {
-      return { status: 'status_unavailable', expiresAtMs: 0, remainingUses: 0 };
-    }
-    if (walletBudgetStatus.status === 'expired') {
-      return { status: 'expired', expiresAtMs: 0, remainingUses: 0 };
-    }
-    if (walletBudgetStatus.status === 'exhausted') {
-      return { status: 'exhausted', expiresAtMs, remainingUses: 0 };
-    }
-    const budgetRemainingUses = Math.max(
-      0,
-      Math.floor(Number(walletBudgetStatus.remainingUses) || 0),
-    );
-    const budgetExpiresAtMs = Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0);
-    remainingUses = Math.min(remainingUses, budgetRemainingUses);
-    if (budgetExpiresAtMs > 0) expiresAtMs = Math.min(expiresAtMs, budgetExpiresAtMs);
-  }
-  return {
-    status: readinessStatusFromBudget(expiresAtMs, remainingUses),
-    expiresAtMs,
-    remainingUses,
-  };
-}
-
-function readinessStatusFromBudget(
-  expiresAtMs: unknown,
-  remainingUses: unknown,
-): SigningSessionReadiness['status'] {
-  const normalizedExpiresAtMs = Math.floor(Number(expiresAtMs) || 0);
-  const normalizedRemainingUses = Math.floor(Number(remainingUses) || 0);
-  if (normalizedExpiresAtMs <= 0) return 'missing_session';
-  if (normalizedExpiresAtMs <= Date.now()) return 'expired';
-  if (normalizedRemainingUses <= 0) return 'exhausted';
-  return 'ready';
+  return buildBackingReadiness({ expiresAtMs, remainingUses });
 }
 
 export async function resolveEvmFamilyTransactionWalletAuth(
@@ -428,13 +339,21 @@ export async function resolveEvmFamilyTransactionWalletAuth(
           phase: 'pre_confirm',
         }),
       );
-      const signingSessionPlan = createSigningSessionPlanner({
-        onTrace: (event) => emitSigningPlannerDecisionTrace('evm-family', event),
-      }).plan({
+      const coordinatorInput = {
         lane: ecdsaSigningLane,
         readiness: readiness.readiness,
+        expiresAtMs: readiness.expiresAtMs,
+        remainingUses: readiness.remainingUses,
         forceFreshAuth: args.forceFreshAuth,
-      });
+        missingWhenExpiresAtMissing: true,
+      };
+      const signingSessionCoordinator =
+        args.deps.signingSessionCoordinator || new SigningSessionCoordinator();
+      const resolvedSigningSession = await signingSessionCoordinator.resolveAuthPlanFromReadiness(
+        coordinatorInput,
+        (event) => emitSigningPlannerDecisionTrace('evm-family', event),
+      );
+      const signingSessionPlan = resolvedSigningSession.signingSessionPlan;
       plannedSigningSessionPlan = signingSessionPlan;
       if (signingSessionPlan.kind === SigningSessionPlanKind.WarmSession) {
         plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
@@ -443,8 +362,8 @@ export async function resolveEvmFamilyTransactionWalletAuth(
           intent: SigningOperationIntent.TransactionSign,
           ...(authInput.curve ? { curve: authInput.curve } : {}),
           ...(readiness.signingRootId ? { signingRootId: readiness.signingRootId } : {}),
-          expiresAtMs: readiness.expiresAtMs,
-          remainingUses: readiness.remainingUses,
+          expiresAtMs: resolvedSigningSession.expiresAtMs,
+          remainingUses: resolvedSigningSession.remainingUses,
         });
       } else if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
         plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({

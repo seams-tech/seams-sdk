@@ -224,6 +224,176 @@ Acceptance checks:
 5. [x] No transaction-signing production code imports obsolete warm-session
    facade names or transaction `WalletAuthPlan`.
 
+### 4. Single Stateful Signing Session Coordinator
+
+Goal: collapse the remaining almost-coordinators into one stateful
+`SigningSessionCoordinator` so every chain and curve uses the same wallet-budget,
+readiness, planning, reservation, execution, and cleanup boundary.
+
+Current problem:
+
+1. `WalletSigningSessionCoordinator`, `WalletSigningBudgetLedger`, and
+   `SigningSessionPlanner` all sound like session-policy owners.
+2. The real state is split across wallet budget maps, wallet status overrides,
+   local backing-session reads, and chain-specific planning helpers.
+3. Chain flows can still accidentally call a lower-level helper and bypass the
+   authoritative wallet-budget readiness merge.
+
+Target module shape:
+
+```txt
+client/src/core/signingEngine/session/
+  SigningSessionCoordinator.ts
+  signingSession/
+    readiness.ts
+    budget.ts
+    planner.ts
+    execution.ts
+```
+
+Target ownership:
+
+1. `SigningSessionCoordinator.ts` is the only stateful signing-session object
+   passed through runtime dependency bundles.
+2. `signingSession/readiness.ts` contains stateless backing-status reads and
+   wallet-budget/readiness merging helpers.
+3. `signingSession/budget.ts` contains stateless budget normalization,
+   fingerprint binding, reservation math, trace-event construction, and spend
+   result helpers.
+4. `signingSession/planner.ts` contains the pure `planSigningSession(...)`
+   function. There is no independently constructed `SigningSessionPlanner`
+   service.
+5. `signingSession/execution.ts` contains pure execution-step construction,
+   command ordering, and runner helpers.
+
+Proposed coordinator API:
+
+```ts
+type SigningSessionCoordinator = {
+  resolveAuthPlan(input: ResolveSigningSessionAuthPlanInput): Promise<ResolvedSigningSessionAuthPlan>;
+  getAvailableStatus(input: SigningSessionStatusInput): Promise<SigningSessionStatus | null>;
+  reserveBudget(input: SigningSessionBudgetInput): Promise<SigningSessionBudgetReservation | null>;
+  recordSuccess(input: SigningSessionBudgetInput): Promise<SigningSessionStatus | null>;
+  recordZeroSpend(input: SigningSessionZeroSpendInput): void;
+  clear(input: SigningSessionClearInput): Promise<void>;
+};
+```
+
+State to move into `SigningSessionCoordinator`:
+
+1. Successful spends by operation id.
+2. Reservations by operation id.
+3. Reserved uses by wallet signing-session id.
+4. Per-wallet reservation queues.
+5. Wallet signing-session status overrides.
+
+Implementation TODO:
+
+1. [x] Create `session/signingSession/` and move the pure planner function to
+       `signingSession/planner.ts`.
+   - [x] Delete the `createSigningSessionPlanner(...)` service wrapper after
+         all callers use the coordinator.
+   - [x] Keep planner inputs and outputs pure and free of storage, worker,
+         OTP, passkey, and budget imports.
+2. [x] Create `signingSession/budget.ts` and move the stateless pieces of
+       `WalletSigningBudgetLedger` into it.
+   - [x] Move spend-plan normalization and operation-fingerprint matching.
+   - [x] Move reservation availability math and reserved-use projection.
+   - [x] Move trace-event construction into pure helpers.
+   - [x] Keep only state mutation and dependency calls in
+         `SigningSessionCoordinator`.
+3. [x] Create `signingSession/readiness.ts` and move the stateless pieces of
+       `WalletSigningSessionCoordinator` into it.
+   - [x] Create `signingSession/readiness.ts`.
+   - [x] Move lane discovery and backing-session claim reads behind explicit
+         dependency parameters.
+   - [x] Move wallet-scoped claim merging and status override application.
+   - [x] Move wallet-budget-aware readiness merging used by Ed25519 and ECDSA.
+   - [x] Keep backing-session consume and clear as stateless helpers with
+         explicit deps; they must not retain maps or hidden state.
+4. [x] Move `SigningExecutionMachine` step construction and command runner to
+       `signingSession/execution.ts`.
+   - [x] Preserve the current ordering-machine behavior.
+   - [x] Keep command executors outside the pure execution module.
+5. [x] Implement the new stateful `SigningSessionCoordinator`.
+   - [x] Own all runtime budget maps and wallet status override maps.
+   - [x] Expose one `resolveAuthPlanFromReadiness(...)` path that receives
+         chain-specific backing readiness, merges wallet-budget status, applies policy, and calls
+         `planSigningSession(...)`.
+   - [x] Expose one reserve/success/zero-spend/clear boundary for all lanes.
+6. [x] Migrate NEAR Ed25519 transaction signing first.
+   - [x] Replace direct NEAR wallet-budget readiness merging and planner calls
+         with `SigningSessionCoordinator.resolveAuthPlanFromReadiness(...)`.
+   - [x] Replace the old NEAR threshold auth-plan wrapper with a direct
+         `SigningSessionCoordinator` call at each remaining caller.
+   - [x] Leave NEAR-specific code responsible only for lane construction,
+         confirmation display data, nonce handling, signer execution, and
+         result shaping.
+   - [x] Delete the old wrapper in the same change that migrates its last
+         caller.
+7. [x] Migrate EVM-family ECDSA transaction signing.
+   - [x] Replace EVM/Tempo local wallet-budget readiness merge and planner call
+         with `SigningSessionCoordinator.resolveAuthPlanFromReadiness(...)`.
+   - [x] Keep EVM-family lane selection and reconnect executors as adapters.
+   - [x] Rename the EVM-family warm-session service adapter so only the
+         stateful facade uses `SigningSessionCoordinator` naming.
+8. [ ] Migrate ARC and any remaining signing lanes to the same coordinator API.
+   - [ ] Chain-specific code may build `SigningLaneContext`.
+   - [ ] Chain-specific code may execute signing and nonces.
+   - [ ] Chain-specific code may not directly plan auth, merge budget status,
+         reserve budget, or spend wallet budget.
+9. [x] Update dependency bundles so only `SigningSessionCoordinator` is passed
+       around as the signing-session stateful service.
+   - [x] Remove direct `WalletSigningBudgetLedger` injection from chain deps.
+   - [x] Remove direct `WalletSigningSessionCoordinator` construction from
+         status readers and chain flows.
+   - [x] Wire the orchestration dependency bundle around a single
+         `SigningSessionCoordinator` facade instance.
+10. [x] Add static guards for the new architecture.
+    - [x] No chain transaction flow imports `SigningSessionPlanner` or
+          `signingSession/planner.ts` directly.
+    - [x] No chain transaction flow imports budget helper state directly.
+    - [x] No production code outside `SigningSessionCoordinator` constructs
+          `WalletSigningBudgetLedger`.
+    - [x] No production code outside `SigningSessionCoordinator` constructs
+          `WalletSigningSessionCoordinator`.
+    - [x] Legacy `WalletSigningBudgetLedger.ts` has been deleted; budget state
+          and public behavior live on `SigningSessionCoordinator`.
+    - [x] Legacy `WalletSigningSessionCoordinator.ts` owns no mutable wallet
+          status override map.
+    - [x] Only `SigningSessionCoordinator.ts` owns mutable signing-session
+          maps.
+    - [x] EVM-family warm-session service adapters do not use
+          `SigningSessionCoordinator` naming.
+11. [ ] Add regression tests for the unified helper path.
+    - [ ] NEAR Ed25519 exhausted passkey budget plans passkey reauth.
+    - [ ] Tempo ECDSA exhausted passkey budget plans passkey reauth.
+    - [ ] EVM ECDSA exhausted passkey budget plans passkey reauth.
+    - [ ] Email OTP exhausted budget plans Email OTP reauth for every chain.
+    - [ ] Mixed Ed25519/ECDSA lanes sharing one wallet budget cannot diverge in
+          readiness after any sibling lane spends the last use.
+12. [ ] Delete or rename legacy files after migration.
+    - [x] Delete `WalletSigningBudgetLedger.ts` after its state and public API
+          move into `SigningSessionCoordinator`.
+    - [ ] Delete `WalletSigningSessionCoordinator.ts` after its stateless
+          helpers move under `signingSession/readiness.ts`.
+    - [ ] Delete the `SigningSessionPlanner` service wrapper after callers use
+          the pure planner through the coordinator.
+
+Acceptance checks:
+
+1. [x] There is one stateful owner for signing-session readiness, budget
+       reservation, budget consume, wallet status overrides, and cleanup:
+       `SigningSessionCoordinator`.
+2. [ ] Every transaction signer reaches auth planning through the same
+       `resolveAuthPlan(...)` helper path.
+3. [ ] Ed25519, ECDSA, Tempo, EVM, and ARC cannot bypass wallet-budget-aware
+       readiness.
+4. [ ] Planner and execution logic stay pure and easy to test, even though they
+       are no longer separate service objects.
+5. [ ] No legacy coordinator/ledger names remain in production dependency
+       bundles.
+
 ## Large File Refactor Targets
 
 This refactor should shrink the two most confusing files as part of the main work, not
@@ -306,7 +476,7 @@ client/src/core/signingEngine/api/
     postSignPolicy.ts
     signerLoader.ts
     signingFlowRuntime.ts
-    signingSessionCoordinator.ts
+    warmSessionServices.ts
     smartAccount.ts
     transactionExecutor.ts
     types.ts
@@ -424,7 +594,7 @@ Completed in the current checkpoint:
 33. [x] Extracted EVM-family active account auth resolution to `evmFamily/accountAuth.ts`.
 34. [x] Moved EVM-family ECDSA lane-context construction and lane require helpers to `evmFamily/ecdsaLanes.ts`.
 35. [x] Extracted EVM-family ECDSA signing-selection policy to `evmFamily/ecdsaSelection.ts`.
-36. [x] Extracted the EVM-family signing-session composition layer to `evmFamily/signingSessionCoordinator.ts`.
+36. [x] Extracted the EVM-family warm-session service adapter to `evmFamily/warmSessionServices.ts`.
 37. [x] Extracted EVM-family transaction auth planning and ECDSA planner-readiness to `evmFamily/authPlanning.ts`.
 38. [x] Extracted EVM-family wallet signing-session budget-spend assembly to `evmFamily/budgetSpending.ts`.
 39. [x] Extracted EVM-family ECDSA post-sign cleanup dispatch to `evmFamily/postSignPolicy.ts`.
@@ -530,7 +700,7 @@ Completed in the current checkpoint:
 139. [x] Removed temporary WarmSession `*ForSource` facade methods; EVM-family callers now use the normal narrow interfaces and pass the selected source explicitly.
 140. [x] Added boundary coverage that keeps WarmSession provisioners/restorers out of transaction prompt policy and direct auth-prompt dependencies.
 141. [x] Added EVM-family transaction-module boundary coverage against raw ECDSA store functions, WebAuthn prompt APIs, and direct wallet-budget mutation.
-142. [x] Verified remaining Ed25519 warm-session transaction auth callers route through `resolveNearThresholdSigningAuthPlan`, which builds `SigningLaneContext` and delegates readiness decisions to `SigningSessionPlanner`.
+142. [x] Verified remaining Ed25519 warm-session transaction auth callers build `SigningLaneContext` and call `SigningSessionCoordinator.resolveAuthPlanFromReadiness(...)` directly.
 143. [x] Migrated status-only `SigningEngine`, NEAR signing-dependency, and manager-convenience call sites from full `WarmSessionManager` construction to `createWarmSessionStatusReader`.
 144. [x] Migrated bootstrap factory capability/auth-lane reads from full `WarmSessionManager` construction to `createWarmSessionCapabilityReader`.
 145. [x] Removed production signing-code construction of `WarmSessionManager`; `SigningEngine`, NEAR flows, the secp256k1 signer, and EVM-family adapters now compose the extracted readers/provisioners/policy adapters directly.

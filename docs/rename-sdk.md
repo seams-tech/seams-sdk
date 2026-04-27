@@ -90,7 +90,7 @@ The current scan shows Tatchi references in these major areas:
   `SigningExecutionMachine.ts`, `SigningCapabilityReader.ts`,
   `SigningLaneBuilders.ts`, `SigningPostSignPolicy.ts`,
   `WalletSigningBudgetLedger.ts`, and
-  `client/src/core/signingEngine/api/evmFamily/signingSessionCoordinator.ts`.
+  `client/src/core/signingEngine/api/evmFamily/warmSessionServices.ts`.
 - Server package and relayer examples:
   `server/src`, `examples/relay-server`, `examples/relay-cloudflare-worker`,
   and `examples/self-host-cloudflare-worker`.

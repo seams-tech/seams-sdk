@@ -3,9 +3,9 @@ import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { SigningOperationIntent, type SigningLaneContext } from '../../session/signingSessionTypes';
 import {
-  createEvmFamilySigningSessionCoordinator,
-  type EvmFamilySigningSessionCoordinatorDeps,
-} from './signingSessionCoordinator';
+  createEvmFamilyWarmSessionServices,
+  type EvmFamilyWarmSessionServicesDeps,
+} from './warmSessionServices';
 import {
   readSelectedEcdsaKeyRefForLane,
 } from './ecdsaLanes';
@@ -15,7 +15,7 @@ import { throwIfEvmFamilySigningCancelled } from './errors';
 import type { ThresholdEcdsaSessionStoreSource } from '../thresholdLifecycle/thresholdSessionStore';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
-export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilySigningSessionCoordinatorDeps & {
+export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilyWarmSessionServicesDeps & {
   tatchiPasskeyConfigs: TatchiConfigsReadonly;
 };
 
@@ -67,7 +67,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   const chain = requireEvmFamilyEcdsaChain(args.lane);
   const source = requireEcdsaStoreSource(args.lane);
   const nearAccountId = String(args.lane.accountId);
-  const signingSessionCoordinator = createEvmFamilySigningSessionCoordinator(args.deps, args.onEvent);
+  const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps, args.onEvent);
   const resolvedKeyRef =
     args.keyRef ||
     readSelectedEcdsaKeyRefForLane({
@@ -75,7 +75,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
       lane: args.lane,
     });
 
-  const readyCapability = await signingSessionCoordinator.ensureEcdsaCapabilityReady({
+  const readyCapability = await warmSessionServices.ensureEcdsaCapabilityReady({
     nearAccountId,
     chain,
     keyRef: resolvedKeyRef,

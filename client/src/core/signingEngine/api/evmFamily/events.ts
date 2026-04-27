@@ -1,6 +1,6 @@
 import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
 import { createSigningFlowEvent } from '@/core/types/sdkSentEvents';
-import type { SigningExecutionTransitionEvent } from '../../session/SigningExecutionMachine';
+import type { SigningExecutionTransitionEvent } from '../../session/signingSession/execution';
 import { emitNonceLifecycleMetric } from './nonceMetrics';
 import type {
   EvmFamilyLifecycleEvent,

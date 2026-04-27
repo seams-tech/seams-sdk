@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createWalletSigningSessionCoordinator } from '@/core/signingEngine/session/WalletSigningSessionCoordinator';
-import { createWalletSigningBudgetLedger } from '@/core/signingEngine/session/WalletSigningBudgetLedger';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/SigningBudgetSpendPlan';
 import { buildEvmTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
 import {
@@ -101,7 +100,7 @@ test.describe('wallet signing-session budget parity', () => {
       };
     };
 
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm: {
         getWarmSessionStatus: async ({ sessionId }) => {
           expect(sessionId).toBe(ED25519_THRESHOLD_SESSION_ID);
@@ -272,7 +271,7 @@ test.describe('wallet signing-session budget parity', () => {
       }),
     });
 
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm: {
         getWarmSessionStatus: async ({ sessionId }) => readStatus(String(sessionId)),
         getWarmSessionStatuses: async ({ sessionIds }) => ({
@@ -311,7 +310,7 @@ test.describe('wallet signing-session budget parity', () => {
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         [...ecdsaStore.recordsByLane.values()].filter((record) => record.chain === chain),
     });
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: (args) => coordinator.getStatus(args),
       consumeUse: (args) => coordinator.consumeUse(args),
     });

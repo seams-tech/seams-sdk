@@ -5,7 +5,7 @@ const IMPORT_PATHS = {
   tempoSigningApi: '/sdk/esm/core/signingEngine/api/tempoSigning.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
-  walletSigningBudgetLedger: '/sdk/esm/core/signingEngine/session/WalletSigningBudgetLedger.js',
+  signingSessionCoordinator: '/sdk/esm/core/signingEngine/session/SigningSessionCoordinator.js',
   signEvmWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/evm/evmSigningFlow.js',
   signTempoWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/tempo/tempoSigningFlow.js',
   evmFamilyAuthPlanning: '/sdk/esm/core/signingEngine/api/evmFamily/authPlanning.js',
@@ -222,7 +222,42 @@ test.describe('tempo signing auth-mode resolution', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { resolveEvmFamilyTransactionWalletAuth } = await import(paths.evmFamilyAuthPlanning);
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
         const expiresAtMs = Date.now() + 60_000;
+        const signingSessionCoordinator = new SigningSessionCoordinator({
+          getStatus: async () => ({
+            sessionId: 'wallet-budget-inflight',
+            status: 'active',
+            remainingUses: 1,
+            expiresAtMs,
+          }),
+        });
+        await signingSessionCoordinator.reserve({
+          spend: {
+            operationId: 'operation-budget-inflight',
+            operationFingerprint: 'operation-budget-inflight:fingerprint',
+            nearAccountId: 'budget-planning.testnet',
+            walletSigningSessionId: 'wallet-budget-inflight',
+            uses: 1,
+            reason: 'transaction_sign',
+            thresholdSessionIds: ['threshold-budget-inflight'],
+            backingMaterialSessionIds: [],
+            lane: {
+              accountId: 'budget-planning.testnet',
+              authMethod: 'passkey',
+              curve: 'ecdsa',
+              keyKind: 'threshold_ecdsa_secp256k1',
+              chainFamily: 'tempo',
+              walletSigningSessionId: 'wallet-budget-inflight',
+              thresholdSessionId: 'threshold-budget-inflight',
+              sessionOrigin: 'login',
+              storageSource: 'login',
+              retention: 'session',
+              signingRootId: 'proj_budget:dev',
+              signingRootVersion: 'default',
+            },
+          },
+        });
 
         const plan = await resolveEvmFamilyTransactionWalletAuth({
           deps: {
@@ -231,14 +266,7 @@ test.describe('tempo signing auth-mode resolution', () => {
                 throw new Error('passkey ECDSA readiness should use the wallet budget ledger');
               },
             },
-            walletSigningBudgetLedger: {
-              getAvailableStatus: async () => ({
-                sessionId: 'wallet-budget-inflight',
-                status: 'active',
-                remainingUses: 0,
-                expiresAtMs,
-              }),
-            },
+            signingSessionCoordinator,
           } as any,
           confirmedDeps: {},
           nearAccountId: 'budget-planning.testnet',
@@ -1440,9 +1468,9 @@ test.describe('tempo signing auth-mode resolution', () => {
         const { reserveEvmFamilyWalletSigningSessionBudget } = await import(
           paths.evmFamilyBudgetSpending
         );
-        const { createWalletSigningBudgetLedger } = await import(paths.walletSigningBudgetLedger);
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
         const statusReads: any[] = [];
-        const walletSigningBudgetLedger = createWalletSigningBudgetLedger({
+        const signingSessionCoordinator = new SigningSessionCoordinator({
           getStatus: async (args: any) => {
             statusReads.push(args);
             return {
@@ -1467,7 +1495,7 @@ test.describe('tempo signing auth-mode resolution', () => {
 
         await reserveEvmFamilyWalletSigningSessionBudget({
           deps: {},
-          walletSigningBudgetLedger,
+          signingSessionCoordinator,
           senderSignatureAlgorithm: 'secp256k1',
           nearAccountId: 'alice.testnet',
           chain: 'tempo',
@@ -2367,7 +2395,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         async ({ paths, chain }) => {
           const { signTempo } = await import(paths.tempoSigningApi);
           const store = await import(paths.thresholdSessionStore);
-          const { createWalletSigningBudgetLedger } = await import(paths.walletSigningBudgetLedger);
+          const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
           const accountId = `otp-${chain}-two-tx.testnet`;
           const now = Date.now();
           const chainId = 11155111;
@@ -2641,7 +2669,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args: any) => {
               markConsumedCalls.push(args);
             },
-            walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+            signingSessionCoordinator: new SigningSessionCoordinator({
               consumeUse: async (args: any) => {
                 spendCalls.push({
                   nearAccountId: String(args.nearAccountId || ''),
@@ -2774,7 +2802,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         async ({ paths, chain }) => {
           const { signTempo } = await import(paths.tempoSigningApi);
           const store = await import(paths.thresholdSessionStore);
-          const { createWalletSigningBudgetLedger } = await import(paths.walletSigningBudgetLedger);
+          const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
           const accountId = `otp-${chain}-duplicate-budget.testnet`;
           const now = Date.now();
           const chainId = 11155111;
@@ -2905,7 +2933,13 @@ test.describe('tempo signing auth-mode resolution', () => {
                     accessList: [],
                   },
                 } as any);
-          const walletSigningBudgetLedger = createWalletSigningBudgetLedger({
+          const signingSessionCoordinator = new SigningSessionCoordinator({
+            getStatus: async () => ({
+              sessionId: walletSigningSessionId,
+              status: 'active',
+              remainingUses: 5,
+              expiresAtMs: now + 120_000,
+            }),
             onTrace: (event: any) => ledgerTrace.push(event),
             consumeUse: async (args: any) => {
               spendCalls.push({
@@ -3015,7 +3049,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             }),
             resolveEmailOtpSigningSessionAuthLane: () => null,
             markThresholdEcdsaEmailOtpSessionConsumedForAccount: () => undefined,
-            walletSigningBudgetLedger,
+            signingSessionCoordinator,
             clearThresholdEcdsaSessionRecordForLane: () => undefined,
             provisionThresholdEcdsaSession: async () => {
               throw new Error('warm Email OTP lane should not use passkey reconnect');
@@ -3112,7 +3146,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         async ({ paths, chain }) => {
           const { signTempo } = await import(paths.tempoSigningApi);
           const store = await import(paths.thresholdSessionStore);
-          const { createWalletSigningBudgetLedger } = await import(paths.walletSigningBudgetLedger);
+          const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
           const accountId = `otp-${chain}-cancelled.testnet`;
           const now = Date.now();
           const chainId = 11155111;
@@ -3333,7 +3367,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args: any) => {
               markConsumedCalls.push(args);
             },
-            walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+            signingSessionCoordinator: new SigningSessionCoordinator({
               consumeUse: async (args: any) => {
                 spendCalls.push(args);
                 return {
@@ -3419,7 +3453,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       async ({ paths }) => {
         const { signTempo } = await import(paths.tempoSigningApi);
         const store = await import(paths.thresholdSessionStore);
-        const { createWalletSigningBudgetLedger } = await import(paths.walletSigningBudgetLedger);
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
         const chains = ['tempo', 'evm'] as const;
         const now = Date.now();
         const accountId = 'dual-auth-passkey.testnet';
@@ -3663,7 +3697,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             message: 'exhausted',
           }),
           resolveEmailOtpSigningSessionAuthLane: () => null,
-          walletSigningBudgetLedger: createWalletSigningBudgetLedger({
+          signingSessionCoordinator: new SigningSessionCoordinator({
             consumeUse: async (args: any) => {
               spendCalls.push({
                 nearAccountId: String(args.nearAccountId || ''),

@@ -51,14 +51,7 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '../session/WarmSessionServiceTypes';
-import {
-  createWalletSigningSessionCoordinator,
-  type WalletSigningSessionCoordinator,
-} from '../session/WalletSigningSessionCoordinator';
-import {
-  createWalletSigningBudgetLedger,
-  type WalletSigningBudgetLedger,
-} from '../session/WalletSigningBudgetLedger';
+import { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
 
 export type OrchestrationSignTempoInput = {
   nearAccountId: string;
@@ -227,8 +220,7 @@ export type OrchestrationDependencyBundle = {
     nearAccountId: AccountId | string,
     chain: 'tempo' | 'evm',
   ) => string | null;
-  walletSigningSessionCoordinator: WalletSigningSessionCoordinator;
-  walletSigningBudgetLedger: WalletSigningBudgetLedger;
+  signingSessionCoordinator: SigningSessionCoordinator;
   getWorkerResourceWarmupDeps: () => WorkerResourceWarmupDeps;
   getManagerConvenienceDeps: () => ManagerConvenienceDeps;
 };
@@ -267,7 +259,7 @@ export function createOrchestrationDependencyBundle(
         message: 'Email OTP warm-session status reader is unavailable',
       };
     });
-  const walletSigningSessionCoordinator = createWalletSigningSessionCoordinator({
+  const signingSessionCoordinator = new SigningSessionCoordinator({
     touchConfirm: args.touchConfirm,
     listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
       args.listThresholdEcdsaSessionRecordsForLookup({
@@ -284,10 +276,6 @@ export function createOrchestrationDependencyBundle(
       }),
     markThresholdEd25519EmailOtpSessionConsumedForAccount:
       args.markThresholdEd25519EmailOtpSessionConsumedForAccount,
-  });
-  const walletSigningBudgetLedger = createWalletSigningBudgetLedger({
-    getStatus: (statusArgs) => walletSigningSessionCoordinator.getStatus(statusArgs),
-    consumeUse: (consumeArgs) => walletSigningSessionCoordinator.consumeUse(consumeArgs),
   });
 
   const nearSigningDeps: NearSigningApiDeps = {
@@ -366,7 +354,7 @@ export function createOrchestrationDependencyBundle(
       }
       return { sessionId: provisioned.sessionId };
     },
-    walletSigningBudgetLedger,
+    signingSessionCoordinator,
     restoreEmailOtpEcdsaSigningSessionForNearTransaction: async ({
       nearAccountId,
       onSealedRestore,
@@ -419,7 +407,7 @@ export function createOrchestrationDependencyBundle(
             nearAccountId,
             chain,
           }),
-        walletSigningSessionCoordinator,
+        signingSessionCoordinator,
         getEmailOtpWarmSessionStatus,
       }).getEd25519SigningSessionStatusForSession({ nearAccountId, thresholdSessionId }),
     withThresholdEd25519CommitQueue: (queueArgs) => args.withThresholdEd25519CommitQueue(queueArgs),
@@ -502,7 +490,7 @@ export function createOrchestrationDependencyBundle(
         Promise.reject(new Error('Email OTP sealed refresh restore is not configured')),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({ nearAccountId, chain }) =>
         args.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({ nearAccountId, chain }),
-      walletSigningBudgetLedger,
+      signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
       provisionThresholdEcdsaSession: (provisionArgs) =>
         args.provisionThresholdEcdsaSession(provisionArgs),
@@ -543,8 +531,7 @@ export function createOrchestrationDependencyBundle(
       signingKeyOps: args.signerWorkerManager.nearKeyOps,
     },
     resolveCanonicalThresholdEcdsaSessionIdForChain,
-    walletSigningSessionCoordinator,
-    walletSigningBudgetLedger,
+    signingSessionCoordinator,
     getWorkerResourceWarmupDeps: getWorkerResourceWarmupDeps,
     getManagerConvenienceDeps: (): ManagerConvenienceDeps => ({
       signTempo: args.signTempo,
@@ -559,7 +546,7 @@ export function createOrchestrationDependencyBundle(
               nearAccountId,
               chain,
             }),
-          walletSigningSessionCoordinator,
+          signingSessionCoordinator,
           getEmailOtpWarmSessionStatus,
         }).getEd25519SigningSessionStatus(nearAccountId),
     }),

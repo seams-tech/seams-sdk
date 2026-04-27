@@ -13,7 +13,7 @@ import type { SigningRuntimeDeps } from './runtime';
 import type { SigningAuthPlan } from '../touchConfirm/shared/confirmTypes';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
-import type { WalletSigningBudgetLedger } from '../session/WalletSigningBudgetLedger';
+import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
 import type { SigningLaneContext, SigningOperationId } from '../session/signingSessionTypes';
 
 export type NearEmailOtpSigningHook = {
@@ -53,7 +53,7 @@ export type NearTransactionsWithActionsPayload = {
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
   signingOperationId?: SigningOperationId;
-  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
+  signingSessionCoordinator?: SigningSessionCoordinator;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
   signingAuthPlan?: SigningAuthPlan;

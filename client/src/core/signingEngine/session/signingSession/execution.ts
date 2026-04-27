@@ -1,14 +1,14 @@
 import type {
   SigningOperationContext,
   SigningSessionPlan,
-} from './signingSessionTypes';
+} from '../signingSessionTypes';
 import {
   SigningSessionPlanKind,
   summarizeSigningLane,
   summarizeSigningSessionPlan,
   type SigningLaneSummary,
   type SigningPlanSummary,
-} from './signingSessionTypes';
+} from '../signingSessionTypes';
 
 export const SigningExecutionStateKind = {
   Planned: 'planned',

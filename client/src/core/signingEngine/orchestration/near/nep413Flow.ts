@@ -25,13 +25,16 @@ import {
 import { requireResolvedThresholdEd25519SessionState } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import {
+  buildNearThresholdSigningAuthPlan,
   createNearSigningSessionCoordinator,
-  resolveNearThresholdSigningAuthPlan,
+  resolveNearThresholdSigningAuthContext,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
 import { passkeySigningAuthPlan } from '../shared/touchConfirmSigning';
+import { emitSigningPlannerDecisionTrace } from '../../session/SigningSessionTrace';
+import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 
 /**
  * Sign a NEP-413 message using the user's passkey-derived private key
@@ -88,12 +91,24 @@ export async function signNep413Message({
     });
 
     const usesNeeded = 1;
-    const thresholdAuthPlan = signingContext.threshold
-      ? await resolveNearThresholdSigningAuthPlan({
-          signingSessionCoordinator,
+    const thresholdAuthContext = signingContext.threshold
+      ? await resolveNearThresholdSigningAuthContext({
+          warmSessionReader: signingSessionCoordinator,
           usesNeeded,
           nearAccountId,
           operationLabel: 'NEP-413 signing',
+        })
+      : null;
+    const resolvedThresholdSigningSession = thresholdAuthContext
+      ? await new SigningSessionCoordinator().resolveAuthPlanFromReadiness(
+          thresholdAuthContext.coordinatorInput,
+          (event) => emitSigningPlannerDecisionTrace('near', event),
+        )
+      : null;
+    const thresholdAuthPlan = thresholdAuthContext
+      ? buildNearThresholdSigningAuthPlan({
+          context: thresholdAuthContext,
+          resolvedSigningSession: resolvedThresholdSigningSession!,
         })
       : null;
     const confirmation = await touchConfirm.orchestrateSigningConfirmation({

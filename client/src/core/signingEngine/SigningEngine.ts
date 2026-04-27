@@ -113,6 +113,7 @@ import {
   getPasskeyThresholdEcdsaSessionRecordForSigning as getPasskeyThresholdEcdsaSessionRecordForSigningValue,
   getThresholdEcdsaKeyRefForLookup as getThresholdEcdsaKeyRefForLookupValue,
   getThresholdEcdsaSessionRecordForLookup as getThresholdEcdsaSessionRecordForLookupValue,
+  getStoredThresholdEcdsaSessionRecordByThresholdSessionId as getStoredThresholdEcdsaSessionRecordByThresholdSessionIdValue,
   getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
   listThresholdEcdsaKeyRefsForLookup as listThresholdEcdsaKeyRefsForLookupValue,
   listThresholdEcdsaSessionRecordsForLookup as listThresholdEcdsaSessionRecordsForLookupValue,
@@ -450,6 +451,8 @@ export class SigningEngine {
       commitWorkerProvisionedThresholdEcdsaSessions: (args) =>
         this.commitWorkerProvisionedThresholdEcdsaSessions(args),
       getThresholdEcdsaKeyRefForLookup: (args) => this.getThresholdEcdsaKeyRefForLookup(args),
+      getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
+        this.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
       persistEmailOtpThresholdEd25519LocalMetadata: (args) =>
         this.persistEmailOtpThresholdEd25519LocalMetadata(args),
       persistWarmSessionEd25519Capability: (args) => persistWarmSessionEd25519Capability(args),
@@ -723,7 +726,7 @@ export class SigningEngine {
           nearAccountId,
           chain,
         }),
-      walletSigningSessionCoordinator: this.orchestrationDeps.walletSigningSessionCoordinator,
+      signingSessionCoordinator: this.orchestrationDeps.signingSessionCoordinator,
       getEmailOtpWarmSessionStatus: (sessionId) =>
         this.emailOtpSessions.getWarmSessionStatus(sessionId),
     });
@@ -735,7 +738,7 @@ export class SigningEngine {
   }): Promise<SigningSessionStatus | null> {
     const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
     if (!walletSigningSessionId) return null;
-    return await this.orchestrationDeps.walletSigningBudgetLedger
+    return await this.orchestrationDeps.signingSessionCoordinator
       .getAvailableStatus({
         nearAccountId: args.nearAccountId,
         walletSigningSessionId,
@@ -2989,6 +2992,19 @@ export class SigningEngine {
       },
       args,
     );
+  }
+
+  getThresholdEcdsaSessionRecordByThresholdSessionId(
+    thresholdSessionIdRaw: string,
+  ): ThresholdEcdsaSessionRecord | null {
+    const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
+    if (!thresholdSessionId) return null;
+    for (const record of this.thresholdEcdsaSessionByLane.values()) {
+      if (String(record.thresholdSessionId || '').trim() === thresholdSessionId) {
+        return record;
+      }
+    }
+    return getStoredThresholdEcdsaSessionRecordByThresholdSessionIdValue(thresholdSessionId);
   }
 
   listThresholdEcdsaKeyRefsForLookup(args: {

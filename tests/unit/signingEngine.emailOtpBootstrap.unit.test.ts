@@ -25,10 +25,12 @@ function expectSignerLifecycleError(fn: () => unknown, code: string): void {
 function makeWorkerBootstrap(args?: {
   walletId?: string;
   sessionId?: string;
+  walletSigningSessionId?: string;
   remainingUses?: number;
 }) {
   const walletId = args?.walletId || 'alice.testnet';
   const sessionId = args?.sessionId || 'ecdsa-session-worker';
+  const walletSigningSessionId = args?.walletSigningSessionId || '';
   const clientAdditiveShareHandle = {
     kind: 'email_otp_worker_session' as const,
     sessionId,
@@ -47,7 +49,10 @@ function makeWorkerBootstrap(args?: {
       participantIds: [1, 2],
       thresholdSessionKind: 'jwt' as const,
       thresholdSessionId: sessionId,
+      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       thresholdSessionJwt: 'jwt-worker',
+      signingRootId: 'signing-root-worker',
+      signingRootVersion: 'v1',
     },
     keygen: {
       ok: true,
@@ -61,6 +66,7 @@ function makeWorkerBootstrap(args?: {
     session: {
       ok: true,
       sessionId,
+      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       jwt: 'jwt-worker',
       remainingUses: args?.remainingUses ?? 7,
       expiresAtMs: Date.now() + 60_000,
@@ -102,6 +108,11 @@ function makeBareSigningEngine(): SigningEngine {
   };
   engineAny.thresholdEcdsaSessionByLane = new Map();
   engineAny.thresholdEcdsaExportArtifactByLane = new Map();
+  engineAny.orchestrationDeps = {
+    signingSessionCoordinator: {
+      getAvailableStatus: async () => null,
+    },
+  };
   return engine;
 }
 
@@ -114,6 +125,10 @@ function installEmailOtpSessionsFixture(
       emailHint?: string;
       appSessionJwt?: string;
     }>;
+    writeSigningSessionSealedRecord?: (input: Record<string, any>) => Promise<void>;
+    readSigningSessionSealedRecord?: (thresholdSessionId: string) => Promise<any>;
+    acquireSigningSessionRestoreLease?: (input: Record<string, any>) => Promise<any>;
+    releaseSigningSessionRestoreLease?: (input: any) => Promise<void>;
     loginWithEcdsaCapabilityForSigning?: (input: Record<string, unknown>) => Promise<any> | any;
     loginWithEd25519CapabilityForSigning?: (input: Record<string, unknown>) => Promise<any> | any;
   },
@@ -149,9 +164,26 @@ function installEmailOtpSessionsFixture(
       ),
     getThresholdEcdsaKeyRefForLookup: (callArgs: any) =>
       engineAny.getThresholdEcdsaKeyRefForLookup(callArgs),
+    getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId: string) =>
+      (SigningEngine.prototype as any).getThresholdEcdsaSessionRecordByThresholdSessionId.call(
+        engineAny,
+        thresholdSessionId,
+      ),
     persistEmailOtpThresholdEd25519LocalMetadata: async () => undefined,
     persistWarmSessionEd25519Capability,
     hydrateSigningSession: async () => undefined,
+    ...(args?.writeSigningSessionSealedRecord
+      ? { writeSigningSessionSealedRecord: args.writeSigningSessionSealedRecord }
+      : {}),
+    ...(args?.readSigningSessionSealedRecord
+      ? { readSigningSessionSealedRecord: args.readSigningSessionSealedRecord }
+      : {}),
+    ...(args?.acquireSigningSessionRestoreLease
+      ? { acquireSigningSessionRestoreLease: args.acquireSigningSessionRestoreLease as any }
+      : {}),
+    ...(args?.releaseSigningSessionRestoreLease
+      ? { releaseSigningSessionRestoreLease: args.releaseSigningSessionRestoreLease }
+      : {}),
   }) as any;
   if (args?.requestTransactionSigningChallenge) {
     coordinator.requestTransactionSigningChallenge = args.requestTransactionSigningChallenge;
@@ -172,6 +204,12 @@ function makeEngine(args: {
   rpId?: string;
   warmReady?: boolean;
   touchConfirm?: Record<string, unknown>;
+  writeSigningSessionSealedRecord?: (input: Record<string, any>) => Promise<void>;
+  readSigningSessionSealedRecord?: (
+    thresholdSessionId: string,
+  ) => Promise<Record<string, any> | null>;
+  acquireSigningSessionRestoreLease?: (input: Record<string, any>) => Promise<any>;
+  releaseSigningSessionRestoreLease?: (input: any) => Promise<void>;
 }) {
   const engine = makeBareSigningEngine();
   const engineAny = engine as any;
@@ -202,6 +240,9 @@ function makeEngine(args: {
   engineAny.thresholdEcdsaBootstrapQueueByAccount = new Map();
   engineAny.ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap = async () => undefined;
   engineAny.orchestrationDeps = {
+    signingSessionCoordinator: {
+      getAvailableStatus: async () => null,
+    },
     thresholdSessionActivationDeps: {
       getSignerWorkerContext: () => ({
         requestWorkerOperation: args.requestWorkerOperation,
@@ -287,6 +328,10 @@ function makeEngine(args: {
   };
   const emailOtpSessions = installEmailOtpSessionsFixture(engineAny, {
     requestWorkerOperation: args.requestWorkerOperation,
+    writeSigningSessionSealedRecord: args.writeSigningSessionSealedRecord,
+    readSigningSessionSealedRecord: args.readSigningSessionSealedRecord,
+    acquireSigningSessionRestoreLease: args.acquireSigningSessionRestoreLease,
+    releaseSigningSessionRestoreLease: args.releaseSigningSessionRestoreLease,
   });
   emailOtpSessions.provisionEd25519Capability =
     engineAny.provisionEmailOtpThresholdEd25519Capability;
@@ -749,6 +794,136 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     expect('clientRootShare32B64u' in result.recovery).toBe(false);
     expect(result.bootstrap.thresholdEcdsaKeyRef.thresholdSessionId).toBe('ecdsa-session-worker');
     expect(result.warmCapability.state).toBe('ready');
+  });
+
+  test('Email OTP warm-session status restores sealed ECDSA material after worker reload', async () => {
+    const walletId = 'sealed-status.testnet';
+    const ecdsaSessionId = 'ecdsa-sealed-status-session';
+    const walletSigningSessionId = 'wallet-signing-sealed-status-session';
+    const workerRequests: string[] = [];
+    const sealedRecords = new Map<string, Record<string, any>>();
+    let workerMaterialAvailable = false;
+    const bootstrap = makeWorkerBootstrap({
+      walletId,
+      sessionId: ecdsaSessionId,
+      walletSigningSessionId,
+      remainingUses: 9,
+    });
+    const { engine } = makeEngine({
+      requestWorkerOperation: async ({ request }) => {
+        workerRequests.push(request.type);
+        if (request.type === 'loginWithEmailOtpAndBootstrapEcdsaSession') {
+          workerMaterialAvailable = true;
+          return {
+            recovery: {
+              challengeId: 'challenge-worker',
+              enrollmentSealKeyVersion: 'email-otp-kv-worker',
+              unlockChallengeId: 'unlock-worker',
+              unlockChallengeB64u: 'unlock-b64u',
+              clientUnlockPublicKeyB64u: 'unlock-pub',
+              unlockSignatureB64u: 'unlock-sig',
+              thresholdEd25519PrfFirstB64u: 'email-otp-ed25519-prf-worker',
+            },
+            bootstrap,
+          };
+        }
+        if (request.type === 'sealEmailOtpWarmSessionMaterial') {
+          return {
+            ok: true,
+            sealedSecretB64u: 'sealed-session-secret-status',
+            keyVersion: 'seal-kv-status',
+            remainingUses: 9,
+            expiresAtMs: Date.now() + 60_000,
+          };
+        }
+        if (request.type === 'getEmailOtpWarmSessionStatus') {
+          return workerMaterialAvailable
+            ? { ok: true, remainingUses: 8, expiresAtMs: Date.now() + 60_000 }
+            : {
+                ok: false,
+                code: 'not_found',
+                message: 'Email OTP worker was reloaded',
+              };
+        }
+        if (request.type === 'rehydrateEmailOtpEcdsaWarmSessionMaterial') {
+          workerMaterialAvailable = true;
+          return {
+            ok: true,
+            bootstrap,
+            remainingUses: 8,
+            expiresAtMs: Date.now() + 60_000,
+          };
+        }
+        throw new Error(`unexpected worker request: ${request.type}`);
+      },
+      writeSigningSessionSealedRecord: async (record) => {
+        sealedRecords.set(record.thresholdSessionId, {
+          v: 1,
+          alg: 'shamir3pass-v1',
+          storageScope: 'iframe_origin_indexeddb',
+          runtimeSessionId: 'runtime-sealed-status',
+          authMethod: record.authMethod || 'email_otp',
+          secretKind: 'signing_session_secret32',
+          walletSigningSessionId: record.walletSigningSessionId,
+          thresholdSessionIds: record.thresholdSessionIds,
+          sealedSecretB64u: record.sealedSecretB64u,
+          curve: record.curve,
+          walletId: record.walletId,
+          userId: record.userId,
+          signingRootId: record.signingRootId,
+          signingRootVersion: record.signingRootVersion,
+          relayerUrl: record.relayerUrl,
+          keyVersion: record.keyVersion,
+          shamirPrimeB64u: record.shamirPrimeB64u,
+          issuedAtMs: Date.now(),
+          expiresAtMs: record.expiresAtMs,
+          remainingUses: record.remainingUses,
+          updatedAtMs: record.updatedAtMs || Date.now(),
+        });
+      },
+      readSigningSessionSealedRecord: async (thresholdSessionId) =>
+        sealedRecords.get(thresholdSessionId) || null,
+      acquireSigningSessionRestoreLease: async ({ thresholdSessionId }) => ({
+        v: 1,
+        thresholdSessionId,
+        walletSigningSessionId,
+        ownerId: 'unit-test',
+        attemptId: 'unit-test-attempt',
+        startedAtMs: Date.now(),
+        expiresAtMs: Date.now() + 15_000,
+      }),
+      releaseSigningSessionRestoreLease: async () => undefined,
+    });
+    (engine as any).tatchiPasskeyConfigs.signing.sessionPersistenceMode = 'sealed_refresh_v1';
+
+    await engine.loginWithEmailOtpEcdsaCapabilityInternal({
+      nearAccountId: walletId,
+      chain: 'tempo',
+      challengeId: 'challenge-worker',
+      otpCode: '123456',
+      routeAuth: { kind: 'app_session', jwt: 'bootstrap-auth-jwt' },
+      sessionId: ecdsaSessionId,
+      walletSigningSessionId,
+    } as any);
+    (SigningEngine.prototype as any).upsertThresholdEcdsaSessionFromBootstrap.call(engine as any, {
+      nearAccountId: walletId,
+      chain: 'tempo',
+      bootstrap,
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
+    });
+
+    workerMaterialAvailable = false;
+    const status = await (engine as any).emailOtpSessions.getWarmSessionStatus(ecdsaSessionId);
+
+    expect(status).toMatchObject({ ok: true, remainingUses: 8 });
+    expect(workerRequests).toContain('sealEmailOtpWarmSessionMaterial');
+    expect(workerRequests).toContain('rehydrateEmailOtpEcdsaWarmSessionMaterial');
   });
 
   test('transaction-specific ECDSA Email OTP bootstrap forwards operation to worker verify', async () => {

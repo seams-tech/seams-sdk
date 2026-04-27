@@ -18,9 +18,10 @@ import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/warmSessi
 import type { WarmSessionStatusResult } from '@/core/signingEngine/touchConfirm';
 import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/SigningLaneBuilders';
 import {
-  createSigningSessionPlanner,
+  type ResolveSigningSessionAuthPlanFromReadinessInput,
+  type ResolveSigningSessionAuthPlanFromReadinessResult,
   type SigningSessionReadiness,
-} from '@/core/signingEngine/session/SigningSessionPlanner';
+} from '@/core/signingEngine/session/SigningSessionCoordinator';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
@@ -40,6 +41,12 @@ export type NearThresholdSigningAuthPlan = {
   signingAuthPlan?: SigningAuthPlan;
   touchConfirmAuthPayload: { signingAuthPlan: SigningAuthPlan };
   warmSessionReady: boolean;
+};
+export type NearThresholdSigningAuthContext = {
+  sessionId: string;
+  accountId: string;
+  lane: SigningLaneContext;
+  coordinatorInput: ResolveSigningSessionAuthPlanFromReadinessInput;
 };
 export { THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR };
 
@@ -87,14 +94,14 @@ export function createNearSigningSessionCoordinator(
   };
 }
 
-export async function resolveNearThresholdSigningAuthPlan(args: {
-  signingSessionCoordinator: WarmSessionCapabilityReader & ThresholdWarmSessionStatusReader;
+export async function resolveNearThresholdSigningAuthContext(args: {
+  warmSessionReader: WarmSessionCapabilityReader & ThresholdWarmSessionStatusReader;
   nearAccountId: string;
   operationLabel: string;
   usesNeeded?: number;
-}): Promise<NearThresholdSigningAuthPlan> {
+}): Promise<NearThresholdSigningAuthContext> {
   const accountId = String(args.nearAccountId || '').trim();
-  const warmSession = await args.signingSessionCoordinator.getWarmSession(accountId);
+  const warmSession = await args.warmSessionReader.getWarmSession(accountId);
   const capability = warmSession.capabilities.ed25519;
   const record = capability.record;
   const sessionId = String(record?.thresholdSessionId || '').trim();
@@ -130,7 +137,7 @@ export async function resolveNearThresholdSigningAuthPlan(args: {
   });
 
   const readiness = await resolvePlannerReadinessForEd25519({
-    signingSessionCoordinator: args.signingSessionCoordinator,
+    warmSessionReader: args.warmSessionReader,
     nearAccountId: accountId,
     capability,
     sessionId,
@@ -146,17 +153,33 @@ export async function resolveNearThresholdSigningAuthPlan(args: {
       phase: 'pre_confirm',
     }),
   );
-  const plan = createSigningSessionPlanner({
-    onTrace: (event) => emitSigningPlannerDecisionTrace('near', event),
-  }).plan({
+  const coordinatorInput = {
     lane,
     readiness: readiness.readiness,
+    expiresAtMs: readiness.expiresAtMs,
+    remainingUses: readiness.remainingUses,
+    usesNeeded: args.usesNeeded,
     forceFreshAuth:
       isEmailOtpSession &&
       capability.state === 'ready' &&
       capability.prfClaim?.state !== 'warm' &&
       !String(record?.xClientBaseB64u || '').trim(),
-  });
+  };
+  return {
+    sessionId,
+    accountId,
+    lane,
+    coordinatorInput,
+  };
+}
+
+export function buildNearThresholdSigningAuthPlan(args: {
+  context: NearThresholdSigningAuthContext;
+  resolvedSigningSession: ResolveSigningSessionAuthPlanFromReadinessResult;
+}): NearThresholdSigningAuthPlan {
+  const { sessionId, accountId, lane } = args.context;
+  const resolvedSigningSession = args.resolvedSigningSession;
+  const plan = resolvedSigningSession.signingSessionPlan;
 
   if (plan.kind === SigningSessionPlanKind.WarmSession) {
     const signingAuthPlan: SigningAuthPlan = {
@@ -167,8 +190,8 @@ export async function resolveNearThresholdSigningAuthPlan(args: {
       curve: 'ed25519',
       sessionId,
       retention: lane.retention,
-      expiresAtMs: readiness.expiresAtMs,
-      remainingUses: readiness.remainingUses,
+      expiresAtMs: resolvedSigningSession.expiresAtMs,
+      remainingUses: resolvedSigningSession.remainingUses,
     };
     return {
       sessionId,
@@ -208,7 +231,7 @@ export async function resolveNearThresholdSigningAuthPlan(args: {
 }
 
 async function resolvePlannerReadinessForEd25519(args: {
-  signingSessionCoordinator: WarmSessionCapabilityReader & ThresholdWarmSessionStatusReader;
+  warmSessionReader: WarmSessionCapabilityReader & ThresholdWarmSessionStatusReader;
   nearAccountId: string;
   capability: Awaited<
     ReturnType<WarmSessionCapabilityReader['getWarmSession']>
@@ -236,25 +259,30 @@ async function resolvePlannerReadinessForEd25519(args: {
           0,
       ),
     );
-  const buildReadiness = (
-    status: SigningSessionReadiness['status'],
-    remainingUses = resolveRemainingUses(),
-  ) => ({
-    readiness: {
-      status,
-      thresholdSessionId,
-    },
-    expiresAtMs: resolveExpiresAtMs(),
-    remainingUses,
-  });
+  const buildReadiness = (input: {
+    status: SigningSessionReadiness['status'];
+    expiresAtMs?: number;
+    remainingUses?: number;
+  }) => {
+    return {
+      readiness: {
+        status: input.status,
+        thresholdSessionId,
+      },
+      expiresAtMs: input.expiresAtMs ?? resolveExpiresAtMs(),
+      remainingUses: input.remainingUses ?? resolveRemainingUses(),
+    };
+  };
 
   if (args.capability.state === 'auth_missing') {
     return isEmailOtpSession
-      ? buildReadiness('missing_session', 0)
-      : buildReadiness('auth_unavailable', 0);
+      ? buildReadiness({ status: 'missing_session', remainingUses: 0 })
+      : buildReadiness({ status: 'auth_unavailable', remainingUses: 0 });
   }
   if (args.capability.state === 'prf_unavailable') {
-    if (isEmailOtpSession) return buildReadiness('missing_session', 0);
+    if (isEmailOtpSession) {
+      return buildReadiness({ status: 'missing_session', remainingUses: 0 });
+    }
     throw new Error(formatThresholdSigningSessionAvailabilityError(args.capability.prfClaim?.code));
   }
   if (args.capability.state === 'ready') {
@@ -266,35 +294,44 @@ async function resolvePlannerReadinessForEd25519(args: {
       ) || 0,
     );
     if (remainingUses < normalizeUsesNeeded(args.usesNeeded)) {
-      return buildReadiness('exhausted', remainingUses);
+      return buildReadiness({ status: 'exhausted', remainingUses });
     }
-    return buildReadiness('ready', remainingUses);
+    return buildReadiness({ status: 'ready', remainingUses });
   }
 
-  const status = await args.signingSessionCoordinator.getEd25519SigningSessionStatusForSession({
+  const status = await args.warmSessionReader.getEd25519SigningSessionStatusForSession({
     nearAccountId: args.nearAccountId,
     thresholdSessionId: args.sessionId,
   });
   if (status?.status === 'unavailable') {
-    if (isEmailOtpSession) return buildReadiness('missing_session', 0);
+    if (isEmailOtpSession) {
+      return buildReadiness({ status: 'missing_session', remainingUses: 0 });
+    }
     throw new Error(formatThresholdSigningSessionAvailabilityError(status.statusCode));
   }
   if (status?.status === 'expired') {
-    return buildReadiness('expired', 0);
+    return buildReadiness({ status: 'expired', remainingUses: 0 });
   }
   if (status?.status === 'exhausted') {
-    return buildReadiness('exhausted', 0);
+    return buildReadiness({ status: 'exhausted', remainingUses: 0 });
   }
   if (status?.status === 'active') {
-    if (isEmailOtpSession) return buildReadiness('missing_session', 0);
-    return buildReadiness('missing_session', Math.floor(Number(status.remainingUses) || 0));
+    if (isEmailOtpSession) {
+      return buildReadiness({ status: 'missing_session', remainingUses: 0 });
+    }
+    return buildReadiness({
+      status: 'missing_session',
+      remainingUses: Math.floor(Number(status.remainingUses) || 0),
+    });
   }
   if (args.capability.state === 'missing') {
-    if (isEmailOtpSession) return buildReadiness('missing_session', 0);
+    if (isEmailOtpSession) {
+      return buildReadiness({ status: 'missing_session', remainingUses: 0 });
+    }
     throw new Error(THRESHOLD_SESSION_MISSING_ERROR);
   }
   if (isEmailOtpSession) {
-    return buildReadiness('missing_session', 0);
+    return buildReadiness({ status: 'missing_session', remainingUses: 0 });
   }
 
   if (args.operationLabel) {
@@ -307,7 +344,7 @@ async function resolvePlannerReadinessForEd25519(args: {
       },
     );
   }
-  return buildReadiness('missing_session', 0);
+  return buildReadiness({ status: 'missing_session', remainingUses: 0 });
 }
 
 function normalizeUsesNeeded(usesNeededRaw: unknown): number {

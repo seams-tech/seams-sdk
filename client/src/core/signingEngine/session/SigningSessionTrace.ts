@@ -1,6 +1,6 @@
 import type { SigningLaneContext, SigningLaneSummary } from './signingSessionTypes';
 import { summarizeSigningLane } from './signingSessionTypes';
-import type { SigningPlannerDecisionTraceEvent } from './SigningSessionPlanner';
+import type { SigningPlannerDecisionTraceEvent } from './signingSession/planner';
 
 export type SigningSessionTraceScope = 'evm-family' | 'near';
 

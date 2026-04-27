@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createWalletSigningSessionCoordinator } from '@/core/signingEngine/session/WalletSigningSessionCoordinator';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { upsertStoredThresholdEcdsaSessionRecord } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import {
   createThresholdEcdsaBootstrapFixture,
@@ -94,7 +94,7 @@ test.describe('WalletSigningSessionCoordinator', () => {
     const { touchConfirm } = createMutableTouchConfirmStatus({
       'ed-email-status': { state: 'warm', remainingUses: 5, expiresAtMs },
     });
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm,
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         chain === 'evm' ? [...ecdsaStore.recordsByLane.values()] : [],
@@ -148,7 +148,7 @@ test.describe('WalletSigningSessionCoordinator', () => {
     const { touchConfirm } = createMutableTouchConfirmStatus({
       [record.thresholdSessionId]: { state: 'warm', remainingUses: 5, expiresAtMs },
     });
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm,
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         chain === 'tempo' ? [...ecdsaStore.recordsByLane.values()] : [],
@@ -183,7 +183,7 @@ test.describe('WalletSigningSessionCoordinator', () => {
     const { touchConfirm, consumeCalls } = createMutableTouchConfirmStatus({
       [record.thresholdSessionId]: { state: 'warm', remainingUses: 5, expiresAtMs },
     });
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm,
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         chain === 'tempo' ? [...ecdsaStore.recordsByLane.values()] : [],
@@ -255,7 +255,7 @@ test.describe('WalletSigningSessionCoordinator', () => {
     });
     const emailOtpConsumeCalls: Array<{ sessionId: string; uses?: number }> = [];
     const markCalls: Array<{ thresholdSessionId?: string; uses?: number }> = [];
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm,
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         chain === 'evm' ? [...ecdsaStore.recordsByLane.values()] : [],
@@ -326,7 +326,7 @@ test.describe('WalletSigningSessionCoordinator', () => {
       'ecdsa-cross-chain-tempo': { state: 'warm', remainingUses: 5, expiresAtMs },
       'ecdsa-cross-chain-evm': { state: 'warm', remainingUses: 5, expiresAtMs },
     });
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm,
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         [...ecdsaStore.recordsByLane.values()].filter((record) => record.chain === chain),
@@ -387,7 +387,7 @@ test.describe('WalletSigningSessionCoordinator', () => {
       'ed-passkey-sibling-exhaustion': { state: 'warm', remainingUses: 1, expiresAtMs },
       'ecdsa-passkey-sibling-exhaustion': { state: 'warm', remainingUses: 1, expiresAtMs },
     });
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm,
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         chain === 'tempo' ? [...ecdsaStore.recordsByLane.values()] : [],
@@ -462,7 +462,7 @@ test.describe('WalletSigningSessionCoordinator', () => {
     });
 
     const emailOtpConsumeCalls: Array<{ sessionId: string; uses?: number }> = [];
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         chain === 'tempo' ? [...ecdsaStore.recordsByLane.values()] : [],
       getEmailOtpWarmSessionStatus: async () => ({
@@ -553,7 +553,7 @@ test.describe('WalletSigningSessionCoordinator', () => {
       remainingUses?: number;
       expiresAtMs?: number;
     }> = [];
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm,
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         chain === 'evm' ? [...ecdsaStore.recordsByLane.values()] : [],
@@ -625,7 +625,7 @@ test.describe('WalletSigningSessionCoordinator', () => {
       'ed-passkey-shared': { state: 'warm', remainingUses: 5, expiresAtMs },
       'ecdsa-passkey-shared': { state: 'warm', remainingUses: 5, expiresAtMs },
     });
-    const coordinator = createWalletSigningSessionCoordinator({
+    const coordinator = new SigningSessionCoordinator({
       touchConfirm,
       listThresholdEcdsaSessionRecordsForLookup: ({ chain }) =>
         chain === 'evm' ? [...ecdsaStore.recordsByLane.values()] : [],

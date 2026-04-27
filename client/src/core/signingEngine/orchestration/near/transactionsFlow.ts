@@ -53,8 +53,9 @@ import {
 import { requireResolvedThresholdEd25519SessionState } from './shared/thresholdSessionAuth';
 import { buildNearWorkerSigningEnvelope } from './shared/workerRequestAssembly';
 import {
+  buildNearThresholdSigningAuthPlan,
   createNearSigningSessionCoordinator,
-  resolveNearThresholdSigningAuthPlan,
+  resolveNearThresholdSigningAuthContext,
   THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
@@ -70,8 +71,9 @@ import type { NonceLeaseRef } from '../../nonce/NonceCoordinator';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
+  emitSigningPlannerDecisionTrace,
 } from '../../session/SigningSessionTrace';
-import type { WalletSigningBudgetLedger } from '../../session/WalletSigningBudgetLedger';
+import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { createTransactionSigningBudgetFinalizer } from '../../session/TransactionSigningBudgetFinalizer';
 import { computeSigningOperationFingerprint } from '../../session/SigningOperationFingerprint';
 import { bindCallerProvidedSigningOperationIdToFingerprint } from '../../session/SigningOperationIdPayloadBinding';
@@ -143,7 +145,7 @@ export async function signTransactionsWithActions({
   signerSlot,
   emailOtpSigning,
   signingOperationId: providedSigningOperationId,
-  walletSigningBudgetLedger,
+  signingSessionCoordinator: sessionCoordinator,
   ed25519Warmup,
   passkeyEd25519Reconnect,
   signingAuthPlan: providedSigningAuthPlan,
@@ -161,7 +163,7 @@ export async function signTransactionsWithActions({
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
   signingOperationId?: SigningOperationId;
-  walletSigningBudgetLedger?: WalletSigningBudgetLedger;
+  signingSessionCoordinator?: SigningSessionCoordinator;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
   signingAuthPlan?: SigningAuthPlan;
@@ -281,15 +283,28 @@ export async function signTransactionsWithActions({
   const usesNeeded = 1;
   const shouldUseEmailOtpReauth =
     providedSigningAuthPlan?.kind === SigningAuthPlanKind.EmailOtpReauth || !!emailOtpSigning;
-  const thresholdAuthPlan =
+  const thresholdAuthContext =
     signingContext.threshold && !shouldUseEmailOtpReauth
-      ? await resolveNearThresholdSigningAuthPlan({
-          signingSessionCoordinator,
+      ? await resolveNearThresholdSigningAuthContext({
+          warmSessionReader: signingSessionCoordinator,
           usesNeeded,
           nearAccountId,
           operationLabel: 'transaction signing',
         })
       : null;
+  const resolvedThresholdSigningSession = thresholdAuthContext
+    ? await (sessionCoordinator || new SigningSessionCoordinator()).resolveAuthPlanFromReadiness(
+        thresholdAuthContext.coordinatorInput,
+        (event) =>
+          emitSigningPlannerDecisionTrace('near', event),
+      )
+    : null;
+  const thresholdAuthPlan = thresholdAuthContext
+    ? buildNearThresholdSigningAuthPlan({
+        context: thresholdAuthContext,
+        resolvedSigningSession: resolvedThresholdSigningSession!,
+      })
+    : null;
   const activeSigningLane = signingLane || thresholdAuthPlan?.lane;
   type NearAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
   const authSideEffectsStarted = new Set<NearAuthSideEffect>();
@@ -569,7 +584,7 @@ export async function signTransactionsWithActions({
     durationMs: Math.round(performance.now() - signingStartedAt),
   });
   const createNearBudgetFinalizer = () => {
-    if (!signingContext.threshold || !walletSigningBudgetLedger) return;
+    if (!signingContext.threshold || !sessionCoordinator) return;
     const walletSigningSessionId = String(
       thresholdSessionState.record.walletSigningSessionId || '',
     ).trim();
@@ -604,7 +619,7 @@ export async function signTransactionsWithActions({
             storageSource: recordSource,
           });
     return createTransactionSigningBudgetFinalizer({
-      walletSigningBudgetLedger,
+      walletSigningBudgetLedger: sessionCoordinator,
       operation: {
         operationId: confirmationOperationId,
         operationFingerprint,

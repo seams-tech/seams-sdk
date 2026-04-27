@@ -17,7 +17,7 @@ import {
   SigningAuthPlanKind,
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
-import type { WalletSigningBudgetReservation } from '../../session/WalletSigningBudgetLedger';
+import type { WalletSigningBudgetReservation } from '../../session/signingSession/budget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';

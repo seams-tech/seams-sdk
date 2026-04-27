@@ -4,7 +4,7 @@ import type {
   WalletSigningBudgetLedger,
   WalletSigningBudgetLedgerRecordSuccessInput,
   WalletSigningBudgetReservation,
-} from './WalletSigningBudgetLedger';
+} from './signingSession/budget';
 import type {
   BackingMaterialSessionId,
   SigningLaneContext,

@@ -1,5 +1,5 @@
 import type { SigningAuthMethod } from './signingSessionTypes';
-import type { WalletSigningBudgetLedgerZeroSpendReason } from './WalletSigningBudgetLedger';
+import type { WalletSigningBudgetLedgerZeroSpendReason } from './signingSession/budget';
 
 export function inferWalletSigningBudgetZeroSpendReason(args: {
   error: unknown;

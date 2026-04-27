@@ -72,7 +72,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const nearSigning = readNearSigningSource();
 
     expect(nearSigning).toContain('hasThresholdEd25519RouteAuth(args.record)');
-    expect(nearSigning).toContain('createSigningSessionPlanner({');
+    expect(nearSigning).toContain('new SigningSessionCoordinator({');
     expect(nearSigning).toContain("emitSigningPlannerDecisionTrace('near', event)");
     expect(nearSigning).not.toContain('readSigningSessionSealedRecord');
   });
@@ -92,10 +92,10 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
     );
 
-    expect(nearSigning).toContain('walletSigningBudgetLedger');
+    expect(nearSigning).toContain('signingSessionCoordinator');
     expect(nearSigning).not.toContain('consumeWalletSigningSessionUse');
     expect(transactionsFlow).toContain('recordSuccessfulWalletSigningSessionSpend');
-    expect(transactionsFlow).toContain('walletSigningBudgetLedger');
+    expect(transactionsFlow).toContain('signingSessionCoordinator');
     expect(transactionsFlow).toContain('cachedXClientBaseB64u');
     expect(walletCoordinator).toContain('createWalletSigningSessionCoordinator');
     expect(walletCoordinator).toContain('consumeEmailOtpWarmSessionUses');
@@ -119,8 +119,9 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
       'client/src/core/signingEngine/session/WalletSigningSessionCoordinator.ts',
     );
 
-    expect(orchestrationDeps).toContain('createWalletSigningBudgetLedger');
-    expect(orchestrationDeps).toContain('walletSigningBudgetLedger');
+    expect(orchestrationDeps).toContain('new SigningSessionCoordinator');
+    expect(orchestrationDeps).toContain('signingSessionCoordinator');
+    expect(orchestrationDeps).not.toContain('walletSigningBudgetLedger');
     expect(orchestrationDeps).not.toContain('consumeWalletSigningSessionUse');
     expect(walletCoordinator).toContain('clientAdditiveShareHandle');
     expect(walletCoordinator).toContain('walletSigningSessionId');

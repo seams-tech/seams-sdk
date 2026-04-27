@@ -7,13 +7,13 @@ import type {
   SigningSessionNotReadyReason,
   SigningSessionPlan,
   ThresholdSessionId,
-} from './signingSessionTypes';
+} from '../signingSessionTypes';
 import {
   SigningKeyRefIntentKind,
   SigningSessionPlanKind,
   summarizeSigningLane,
   summarizeSigningSessionPlan,
-} from './signingSessionTypes';
+} from '../signingSessionTypes';
 
 type ReauthableNotReadyReason = Extract<
   SigningSessionNotReadyReason,
@@ -53,22 +53,6 @@ export type SigningPlannerDecisionTraceEvent = {
   lane: SigningLaneSummary;
   reason?: SigningSessionNotReadyReason;
 };
-
-export type SigningSessionPlanner = {
-  plan(input: SigningSessionPlannerInput): SigningSessionPlan;
-};
-
-export function createSigningSessionPlanner(args: {
-  onTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
-} = {}): SigningSessionPlanner {
-  return {
-    plan(input) {
-      const plan = planSigningSession(input);
-      args.onTrace?.(createSigningPlannerDecisionTraceEvent(input, plan));
-      return plan;
-    },
-  };
-}
 
 export function planSigningSession(input: SigningSessionPlannerInput): SigningSessionPlan {
   const { lane, readiness } = input;

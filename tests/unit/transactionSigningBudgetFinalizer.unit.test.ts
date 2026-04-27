@@ -5,7 +5,7 @@ import {
   buildTempoTransactionSigningLane,
 } from '@/core/signingEngine/session/SigningLaneBuilders';
 import { createTransactionSigningBudgetFinalizer } from '@/core/signingEngine/session/TransactionSigningBudgetFinalizer';
-import { createWalletSigningBudgetLedger } from '@/core/signingEngine/session/WalletSigningBudgetLedger';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import {
   SigningOperationIntent,
   SigningSessionIds,
@@ -118,7 +118,7 @@ test.describe('TransactionSigningBudgetFinalizer', () => {
     });
     let consumeCalls = 0;
     const budgetTraceEvents: string[] = [];
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: async () => ({
         sessionId: walletSigningSessionId,
         status: 'active',
@@ -231,7 +231,7 @@ test.describe('TransactionSigningBudgetFinalizer', () => {
     let consumeCalls = 0;
     let sessionRemainingUses = 1;
     const nonceTraces: string[] = [];
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: async () => ({
         sessionId: walletSigningSessionId,
         status: sessionRemainingUses > 0 ? 'active' : 'exhausted',
@@ -331,7 +331,7 @@ test.describe('TransactionSigningBudgetFinalizer', () => {
     });
     const budgetTraces: unknown[] = [];
     const nonceTraces: unknown[] = [];
-    const ledger = createWalletSigningBudgetLedger({
+    const ledger = new SigningSessionCoordinator({
       getStatus: async () => ({
         sessionId: walletSigningSessionId,
         status: 'active',
