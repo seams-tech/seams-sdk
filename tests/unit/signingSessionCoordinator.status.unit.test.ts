@@ -567,7 +567,7 @@ test.describe('SigningSessionCoordinator', () => {
         remainingUses: 4,
         expiresAtMs,
       }),
-      updateSigningSessionSealedRecordPolicy: async (args) => {
+      updateExactSealedSessionPolicy: async (args) => {
         sealedPolicyUpdates.push({
           thresholdSessionId: args.thresholdSessionId,
           remainingUses: args.remainingUses,

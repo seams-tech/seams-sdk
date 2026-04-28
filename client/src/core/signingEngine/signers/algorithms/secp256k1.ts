@@ -17,9 +17,9 @@ import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../..
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { createWarmSessionCapabilityReader } from '../../session/warmSigning/capabilityReader';
 import {
-  deleteSigningSessionSealedRecord,
-  updateSigningSessionSealedRecordPolicy,
-} from '../../api/session/signingSessionSealedStore';
+  deleteExactSealedSession,
+  updateExactSealedSessionPolicy,
+} from '../../session/sealedSessionStore';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 type EcdsaSessionChain = 'tempo' | 'evm';
@@ -49,6 +49,7 @@ function inferThresholdEcdsaSessionChainFromLabel(labelRaw: unknown): EcdsaSessi
 async function claimEmailOtpWorkerEcdsaSigningShare(args: {
   workerCtx: WorkerOperationContext;
   sessionId: string;
+  chain: EcdsaSessionChain;
 }): Promise<{ clientSigningShare32: Uint8Array; remainingUses: number; expiresAtMs: number }> {
   const sessionId = String(args.sessionId || '').trim();
   if (!sessionId) {
@@ -70,9 +71,10 @@ async function claimEmailOtpWorkerEcdsaSigningShare(args: {
       result.code === 'exhausted' ||
       result.code === 'not_found'
     ) {
-      await deleteSigningSessionSealedRecord(sessionId, {
+      await deleteExactSealedSession(sessionId, {
         authMethod: 'email_otp',
         curve: 'ecdsa',
+        chain: args.chain,
       }).catch(() => undefined);
     }
     throw new Error(
@@ -97,21 +99,24 @@ async function claimEmailOtpWorkerEcdsaSigningShare(args: {
 
 async function updateEmailOtpSealedRecordPolicyAfterEcdsaClaim(args: {
   sessionId: string;
+  chain: EcdsaSessionChain;
   remainingUses: number;
   expiresAtMs: number;
 }): Promise<void> {
   if (args.remainingUses <= 0 || args.expiresAtMs <= Date.now()) {
-    await deleteSigningSessionSealedRecord(args.sessionId, {
+    await deleteExactSealedSession(args.sessionId, {
       authMethod: 'email_otp',
       curve: 'ecdsa',
+      chain: args.chain,
     }).catch(() => undefined);
     return;
   }
-  await updateSigningSessionSealedRecordPolicy({
+  await updateExactSealedSessionPolicy({
     thresholdSessionId: args.sessionId,
     filter: {
       authMethod: 'email_otp',
       curve: 'ecdsa',
+      chain: args.chain,
     },
     remainingUses: args.remainingUses,
     expiresAtMs: args.expiresAtMs,
@@ -325,6 +330,7 @@ export class Secp256k1Engine implements Signer {
         );
       }
       const emailOtpWorkerShareSessionId = resolveEmailOtpShareHandleSessionId(keyRef);
+      const emailOtpWorkerShareChain = requestChain || canonicalRecord?.chain || null;
       const isSingleUseEmailOtpSession =
         canonicalRecordMatchesKeyRefLane &&
         canonicalRecord?.source === 'email_otp' &&
@@ -340,13 +346,20 @@ export class Secp256k1Engine implements Signer {
         let clientSigningShare32: Uint8Array | null = null;
         try {
           if (emailOtpWorkerShareSessionId) {
+            if (!emailOtpWorkerShareChain) {
+              throw new Error(
+                '[multichain] Missing Email OTP ECDSA chain for signing-session policy update',
+              );
+            }
             const claimedShare = await claimEmailOtpWorkerEcdsaSigningShare({
               workerCtx: this.workerCtx,
               sessionId: emailOtpWorkerShareSessionId,
+              chain: emailOtpWorkerShareChain,
             });
             clientSigningShare32 = claimedShare.clientSigningShare32;
             await updateEmailOtpSealedRecordPolicyAfterEcdsaClaim({
               sessionId: emailOtpWorkerShareSessionId,
+              chain: emailOtpWorkerShareChain,
               remainingUses: claimedShare.remainingUses,
               expiresAtMs: claimedShare.expiresAtMs,
             });

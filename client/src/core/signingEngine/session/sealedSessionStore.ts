@@ -1,5 +1,5 @@
 import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
-import { isIndexedDBPersistenceDisabled } from '../../../indexedDB';
+import { isIndexedDBPersistenceDisabled } from '../../indexedDB';
 import {
   SIGNING_SESSION_RESTORE_LEASE_STORE_NAME,
   SIGNING_SESSION_RUNTIME_SESSION_ID_KEY,
@@ -18,6 +18,7 @@ type SessionStoragePort = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 export type SigningSessionRestoreLease = {
   v: 1;
+  leaseKey: string;
   walletSigningSessionId: string;
   ownerId: string;
   attemptId: string;
@@ -35,10 +36,60 @@ export type SigningSessionSealedStoreRecord = SealedSigningSessionRecord & {
 };
 // Sealed records are indexed by threshold session id, but that id can appear
 // on more than one lane. Every read/delete/lease must name the intended lane.
-export type SigningSessionSealedRecordFilter = {
-  authMethod: 'passkey' | 'email_otp';
-  curve: 'ed25519' | 'ecdsa';
-};
+export type SigningSessionSealedRecordFilter =
+  | {
+      authMethod: 'passkey' | 'email_otp';
+      curve: 'ed25519';
+    }
+  | {
+      authMethod: 'passkey' | 'email_otp';
+      curve: 'ecdsa';
+      chain: 'tempo' | 'evm';
+    };
+
+export type ListExactSigningSessionSealedRecordsForAccountFilter =
+  SigningSessionSealedRecordFilter;
+
+export type ResolvedSigningSessionIdentity =
+  | {
+      walletId: string;
+      authMethod: 'passkey' | 'email_otp';
+      curve: 'ed25519';
+      chain: 'near';
+      walletSigningSessionId: string;
+      thresholdSessionId: string;
+      updatedAtMs: number;
+    }
+  | {
+      walletId: string;
+      authMethod: 'passkey' | 'email_otp';
+      curve: 'ecdsa';
+      chain: 'tempo' | 'evm';
+      walletSigningSessionId: string;
+      thresholdSessionId: string;
+      updatedAtMs: number;
+    };
+
+export type PublishResolvedIdentityInput =
+  | (Omit<Extract<ResolvedSigningSessionIdentity, { curve: 'ed25519' }>, 'updatedAtMs'> & {
+      updatedAtMs?: number;
+    })
+  | (Omit<Extract<ResolvedSigningSessionIdentity, { curve: 'ecdsa' }>, 'updatedAtMs'> & {
+      updatedAtMs?: number;
+    });
+
+export type ListResolvedIdentitiesForAccountInput =
+  | {
+      walletId: string;
+      authMethod?: 'passkey' | 'email_otp';
+      curve: 'ed25519';
+    }
+  | {
+      walletId: string;
+      authMethod?: 'passkey' | 'email_otp';
+      curve: 'ecdsa';
+      chain: 'tempo' | 'evm';
+    };
 
 const DB_NAME = SIGNING_SESSION_SEAL_DB_NAME;
 const DB_VERSION = SIGNING_SESSION_SEAL_DB_VERSION;
@@ -47,6 +98,9 @@ const LEASE_STORE_NAME = SIGNING_SESSION_RESTORE_LEASE_STORE_NAME;
 const RUNTIME_SESSION_ID_KEY = SIGNING_SESSION_RUNTIME_SESSION_ID_KEY;
 const DEFAULT_RESTORE_LEASE_TTL_MS = 15_000;
 const SEALED_RECORD_STORE_KEY_PATH = 'storeKey';
+const SEALED_RECORD_PURPOSE_MISS_LOG_INTERVAL_MS = 60_000;
+const sealedRecordPurposeMissLogAtMsByKey = new Map<string, number>();
+const resolvedIdentitiesByPurposeKey = new Map<string, ResolvedSigningSessionIdentity>();
 
 function getSessionStorageSafe(): SessionStoragePort | null {
   const globalObj = globalThis as {
@@ -137,7 +191,19 @@ function createStoreIndexes(store: IDBObjectStore): void {
   }
 }
 
-function ensureSigningSessionSealStores(db: IDBDatabase, tx?: IDBTransaction | null): void {
+function ensureSigningSessionSealStores(
+  db: IDBDatabase,
+  tx?: IDBTransaction | null,
+  opts?: { resetStores?: boolean },
+): void {
+  if (opts?.resetStores) {
+    if (db.objectStoreNames.contains(STORE_NAME)) {
+      db.deleteObjectStore(STORE_NAME);
+    }
+    if (db.objectStoreNames.contains(LEASE_STORE_NAME)) {
+      db.deleteObjectStore(LEASE_STORE_NAME);
+    }
+  }
   let sealStore: IDBObjectStore | undefined;
   if (!db.objectStoreNames.contains(STORE_NAME)) {
     sealStore = db.createObjectStore(STORE_NAME, { keyPath: SEALED_RECORD_STORE_KEY_PATH });
@@ -154,7 +220,7 @@ function ensureSigningSessionSealStores(db: IDBDatabase, tx?: IDBTransaction | n
   }
   if (sealStore) createStoreIndexes(sealStore);
   if (!db.objectStoreNames.contains(LEASE_STORE_NAME)) {
-    db.createObjectStore(LEASE_STORE_NAME, { keyPath: 'walletSigningSessionId' });
+    db.createObjectStore(LEASE_STORE_NAME, { keyPath: 'leaseKey' });
   }
 }
 
@@ -169,8 +235,14 @@ function openSigningSessionSealsDb(): Promise<IDBDatabase | null> {
       resolve(null);
       return;
     }
-    request.onupgradeneeded = () => {
-      ensureSigningSessionSealStores(request.result, request.transaction);
+    request.onupgradeneeded = (event) => {
+      // v4 makes ECDSA chain part of durable identity. Old v3 records used
+      // chain-less primary keys, so the clean migration is to drop local seals
+      // and require a fresh explicit restore/auth path.
+      const oldVersion = Math.floor(Number(event.oldVersion) || 0);
+      ensureSigningSessionSealStores(request.result, request.transaction, {
+        resetStores: oldVersion > 0 && oldVersion < 4,
+      });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => resolve(null);
@@ -250,8 +322,176 @@ function makeSealedRecordStoreKey(args: {
   walletSigningSessionId: string;
   authMethod: 'passkey' | 'email_otp';
   curve: 'ed25519' | 'ecdsa';
+  chain?: 'tempo' | 'evm';
 }): string {
+  if (args.curve === 'ecdsa') {
+    return [args.walletSigningSessionId, args.authMethod, args.curve, args.chain || ''].join(':');
+  }
   return [args.walletSigningSessionId, args.authMethod, args.curve].join(':');
+}
+
+function makeResolvedIdentityKey(identity: ResolvedSigningSessionIdentity): string {
+  return [
+    identity.walletId,
+    identity.authMethod,
+    identity.curve,
+    identity.chain,
+    identity.walletSigningSessionId,
+    identity.thresholdSessionId,
+  ].join(':');
+}
+
+function cloneResolvedIdentity(
+  identity: ResolvedSigningSessionIdentity,
+): ResolvedSigningSessionIdentity {
+  return { ...identity } as ResolvedSigningSessionIdentity;
+}
+
+function normalizeAuthMethod(value: unknown): 'passkey' | 'email_otp' | undefined {
+  const authMethod = String(value || '').trim();
+  return authMethod === 'passkey' || authMethod === 'email_otp' ? authMethod : undefined;
+}
+
+function normalizeEcdsaChain(value: unknown): 'tempo' | 'evm' | undefined {
+  const chain = String(value || '').trim();
+  return chain === 'tempo' || chain === 'evm' ? chain : undefined;
+}
+
+function normalizeResolvedIdentity(
+  value: PublishResolvedIdentityInput,
+): ResolvedSigningSessionIdentity | null {
+  const walletId = normalizeOptionalNonEmptyString(value.walletId);
+  const authMethod = normalizeAuthMethod(value.authMethod);
+  const curve = normalizeCurve(value.curve);
+  const walletSigningSessionId = normalizeOptionalNonEmptyString(value.walletSigningSessionId);
+  const thresholdSessionId = normalizeOptionalNonEmptyString(value.thresholdSessionId);
+  const updatedAtMs = normalizeInteger(value.updatedAtMs ?? Date.now());
+  if (
+    !walletId ||
+    !authMethod ||
+    !curve ||
+    !walletSigningSessionId ||
+    !thresholdSessionId ||
+    updatedAtMs == null ||
+    updatedAtMs <= 0
+  ) {
+    return null;
+  }
+  if (curve === 'ed25519') {
+    return {
+      walletId,
+      authMethod,
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId,
+      thresholdSessionId,
+      updatedAtMs,
+    };
+  }
+  const chain = normalizeEcdsaChain(value.chain);
+  if (!chain) return null;
+  return {
+    walletId,
+    authMethod,
+    curve: 'ecdsa',
+    chain,
+    walletSigningSessionId,
+    thresholdSessionId,
+    updatedAtMs,
+  };
+}
+
+function resolvedIdentitiesForSealedRecord(
+  record: SigningSessionSealedStoreRecord,
+): PublishResolvedIdentityInput[] {
+  const walletId = normalizeOptionalNonEmptyString(record.walletId || record.userId);
+  if (!walletId) return [];
+  const identities: PublishResolvedIdentityInput[] = [];
+  const ecdsaThresholdSessionId = normalizeOptionalNonEmptyString(record.thresholdSessionIds.ecdsa);
+  const ecdsaChain = normalizeEcdsaChain(record.ecdsaRestore?.chain);
+  if (ecdsaThresholdSessionId && ecdsaChain) {
+    identities.push({
+      walletId,
+      authMethod: record.authMethod,
+      curve: 'ecdsa',
+      chain: ecdsaChain,
+      walletSigningSessionId: record.walletSigningSessionId,
+      thresholdSessionId: ecdsaThresholdSessionId,
+      updatedAtMs: record.updatedAtMs,
+    });
+  }
+  const ed25519ThresholdSessionId = normalizeOptionalNonEmptyString(
+    record.thresholdSessionIds.ed25519,
+  );
+  if (ed25519ThresholdSessionId) {
+    identities.push({
+      walletId,
+      authMethod: record.authMethod,
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId: record.walletSigningSessionId,
+      thresholdSessionId: ed25519ThresholdSessionId,
+      updatedAtMs: record.updatedAtMs,
+    });
+  }
+  return identities;
+}
+
+function publishResolvedIdentityForSealedRecord(record: SigningSessionSealedStoreRecord): void {
+  // A durable seal can carry both the ECDSA lane and its Ed25519 companion.
+  // The sealed store is the single local owner for publishing those runtime
+  // identities so snapshot reads do not reconstruct them from volatile records.
+  for (const identity of resolvedIdentitiesForSealedRecord(record)) {
+    publishResolvedIdentity(identity);
+  }
+}
+
+function deleteResolvedIdentityForSealedRecord(record: SigningSessionSealedStoreRecord): void {
+  for (const identity of resolvedIdentitiesForSealedRecord(record)) {
+    deleteResolvedIdentity(identity);
+  }
+}
+
+export function publishResolvedIdentity(
+  input: PublishResolvedIdentityInput,
+): ResolvedSigningSessionIdentity | null {
+  const identity = normalizeResolvedIdentity(input);
+  if (!identity) return null;
+  resolvedIdentitiesByPurposeKey.set(makeResolvedIdentityKey(identity), identity);
+  return cloneResolvedIdentity(identity);
+}
+
+export function readResolvedIdentity(
+  input: PublishResolvedIdentityInput,
+): ResolvedSigningSessionIdentity | null {
+  const identity = normalizeResolvedIdentity(input);
+  if (!identity) return null;
+  const stored = resolvedIdentitiesByPurposeKey.get(makeResolvedIdentityKey(identity));
+  return stored ? cloneResolvedIdentity(stored) : null;
+}
+
+export function listResolvedIdentitiesForAccount(
+  input: ListResolvedIdentitiesForAccountInput,
+): ResolvedSigningSessionIdentity[] {
+  const walletId = normalizeOptionalNonEmptyString(input.walletId);
+  if (!walletId) return [];
+  const authMethod = normalizeAuthMethod(input.authMethod);
+  return [...resolvedIdentitiesByPurposeKey.values()]
+    .filter((identity) => {
+      if (identity.walletId !== walletId) return false;
+      if (authMethod && identity.authMethod !== authMethod) return false;
+      if (identity.curve !== input.curve) return false;
+      if (input.curve === 'ecdsa' && identity.chain !== input.chain) return false;
+      return true;
+    })
+    .sort((a, b) => b.updatedAtMs - a.updatedAtMs)
+    .map(cloneResolvedIdentity);
+}
+
+export function deleteResolvedIdentity(input: PublishResolvedIdentityInput): void {
+  const identity = normalizeResolvedIdentity(input);
+  if (!identity) return;
+  resolvedIdentitiesByPurposeKey.delete(makeResolvedIdentityKey(identity));
 }
 
 function normalizeSigningSessionSealedStoreRecord(
@@ -291,17 +531,19 @@ function normalizeSigningSessionSealedStoreRecord(
   if (!thresholdSessionIds.ed25519 && !thresholdSessionIds.ecdsa) return null;
   const recordCurve = resolveSealedRecordCurve({ curve, thresholdSessionIds });
   if (!recordCurve) return null;
+  if (recordCurve === 'ecdsa' && !ecdsaRestore?.chain) return null;
   if (issuedAtMs == null || issuedAtMs <= 0) return null;
   if (expiresAtMs == null || expiresAtMs <= 0) return null;
   if (remainingUses == null || remainingUses < 0) return null;
   if (updatedAtMs == null || updatedAtMs <= 0) return null;
-  const storeKey =
-    normalizeOptionalNonEmptyString(obj.storeKey) ||
-    makeSealedRecordStoreKey({
-      walletSigningSessionId,
-      authMethod,
-      curve: recordCurve,
-    });
+  const storeKey = makeSealedRecordStoreKey({
+    walletSigningSessionId,
+    authMethod,
+    curve: recordCurve,
+    ...(recordCurve === 'ecdsa' && ecdsaRestore?.chain ? { chain: ecdsaRestore.chain } : {}),
+  });
+  const providedStoreKey = normalizeOptionalNonEmptyString(obj.storeKey);
+  if (providedStoreKey && providedStoreKey !== storeKey) return null;
 
   return {
     v: SIGNING_SESSION_SEALED_RECORD_VERSION,
@@ -337,16 +579,18 @@ function normalizeSigningSessionRestoreLease(value: unknown): SigningSessionRest
       : null;
   if (!obj) return null;
   if (Number(obj.v) !== 1) return null;
+  const leaseKey = normalizeOptionalNonEmptyString(obj.leaseKey);
   const walletSigningSessionId = normalizeOptionalNonEmptyString(obj.walletSigningSessionId);
   const ownerId = normalizeOptionalNonEmptyString(obj.ownerId);
   const attemptId = normalizeOptionalNonEmptyString(obj.attemptId);
   const startedAtMs = normalizeInteger(obj.startedAtMs);
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
-  if (!walletSigningSessionId || !ownerId || !attemptId) return null;
+  if (!leaseKey || !walletSigningSessionId || !ownerId || !attemptId) return null;
   if (startedAtMs == null || startedAtMs <= 0) return null;
   if (expiresAtMs == null || expiresAtMs <= startedAtMs) return null;
   return {
     v: 1,
+    leaseKey,
     walletSigningSessionId,
     ownerId,
     attemptId,
@@ -356,6 +600,7 @@ function normalizeSigningSessionRestoreLease(value: unknown): SigningSessionRest
 }
 
 function makeSigningSessionRestoreLease(args: {
+  leaseKey: string;
   walletSigningSessionId: string;
   ownerId: string;
   nowMs: number;
@@ -363,6 +608,7 @@ function makeSigningSessionRestoreLease(args: {
 }): SigningSessionRestoreLease {
   return {
     v: 1,
+    leaseKey: args.leaseKey,
     walletSigningSessionId: args.walletSigningSessionId,
     ownerId: args.ownerId,
     attemptId: createRandomId('restore-attempt'),
@@ -396,6 +642,7 @@ function recordMatchesFilter(
   // Some Email OTP seals bind a single secret to both ECDSA and Ed25519 lane ids.
   // The requested curve is enforced by the thresholdSessionIds map below.
   if (record.thresholdSessionIds[filter.curve] !== thresholdSessionId) return false;
+  if (filter.curve === 'ecdsa' && record.ecdsaRestore?.chain !== filter.chain) return false;
   return true;
 }
 
@@ -403,23 +650,51 @@ function requireSealedRecordPurpose(
   filter: SigningSessionSealedRecordFilter | undefined,
   operation: string,
 ): SigningSessionSealedRecordFilter {
-  if (filter?.authMethod && filter.curve) return filter;
+  if (filter?.authMethod && filter.curve === 'ed25519') return filter;
+  if (
+    filter?.authMethod &&
+    filter.curve === 'ecdsa' &&
+    (filter.chain === 'tempo' || filter.chain === 'evm')
+  ) {
+    return filter;
+  }
   console.warn('[SigningSessionSealedStore] rejected ambiguous sealed record access', {
     operation,
   });
   throw new Error(
-    `[SigningSessionSealedStore] ${operation} requires an explicit authMethod and curve`,
+    `[SigningSessionSealedStore] ${operation} requires an explicit authMethod, curve, and ECDSA chain`,
   );
 }
 
-function warnSealedRecordPurposeMiss(args: {
+function shouldLogSealedRecordPurposeMiss(args: {
+  operation: string;
+  thresholdSessionId: string;
+  filter: SigningSessionSealedRecordFilter;
+  nowMs?: number;
+}): boolean {
+  const key = [
+    args.operation,
+    args.thresholdSessionId,
+    args.filter.authMethod,
+    args.filter.curve,
+    args.filter.curve === 'ecdsa' ? args.filter.chain : '',
+  ].join(':');
+  const nowMs = args.nowMs || Date.now();
+  const lastLoggedAtMs = sealedRecordPurposeMissLogAtMsByKey.get(key) || 0;
+  if (nowMs - lastLoggedAtMs < SEALED_RECORD_PURPOSE_MISS_LOG_INTERVAL_MS) return false;
+  sealedRecordPurposeMissLogAtMsByKey.set(key, nowMs);
+  return true;
+}
+
+function logSealedRecordPurposeMiss(args: {
   operation: string;
   thresholdSessionId: string;
   filter: SigningSessionSealedRecordFilter;
   candidates: SigningSessionSealedStoreRecord[];
 }): void {
   if (!args.candidates.length) return;
-  console.warn('[SigningSessionSealedStore] sealed record purpose mismatch', {
+  if (!shouldLogSealedRecordPurposeMiss(args)) return;
+  console.debug('[SigningSessionSealedStore] sealed record purpose mismatch', {
     operation: args.operation,
     thresholdSessionId: args.thresholdSessionId,
     expected: args.filter,
@@ -427,6 +702,7 @@ function warnSealedRecordPurposeMiss(args: {
       storeKey: record.storeKey,
       authMethod: record.authMethod,
       curve: record.curve,
+      ecdsaChain: record.ecdsaRestore?.chain,
       walletSigningSessionId: record.walletSigningSessionId,
       thresholdSessionIds: record.thresholdSessionIds,
     })),
@@ -465,7 +741,7 @@ async function readRecordByThresholdSessionId(
   const record =
     records.find((candidate) => recordMatchesFilter(candidate, thresholdSessionId, filter)) || null;
   if (!record) {
-    warnSealedRecordPurposeMiss({ operation, thresholdSessionId, filter, candidates: records });
+    logSealedRecordPurposeMiss({ operation, thresholdSessionId, filter, candidates: records });
   }
   return record;
 }
@@ -509,15 +785,17 @@ async function deleteSameScopeRecords(
         existing.walletId === record.walletId &&
         existing.signingRootId === record.signingRootId &&
         existing.authMethod === record.authMethod &&
-        existing.curve === record.curve
+        existing.curve === record.curve &&
+        (record.curve !== 'ecdsa' || existing.ecdsaRestore?.chain === record.ecdsaRestore?.chain)
       ) {
+        deleteResolvedIdentityForSealedRecord(existing);
         store.delete(existing.storeKey);
       }
     }
   } catch {}
 }
 
-export async function readSigningSessionSealedRecord(
+export async function readExactSealedSession(
   thresholdSessionIdRaw: string,
   filter: SigningSessionSealedRecordFilter,
 ): Promise<SigningSessionSealedStoreRecord | null> {
@@ -531,7 +809,9 @@ export async function readSigningSessionSealedRecord(
     const record = await readRecordByThresholdSessionId(db, thresholdSessionId, purpose, 'read');
     if (!record) return null;
     if (!runtimeSessionId || record.runtimeSessionId !== runtimeSessionId) {
-      await deleteRecordByThresholdSessionId(db, thresholdSessionId, purpose);
+      // The runtime marker is volatile browser-session state. Its absence means
+      // "not currently restorable from this read", not "the durable seal is
+      // invalid"; cleanup must be driven by explicit lifecycle decisions.
       return null;
     }
     return record;
@@ -542,14 +822,14 @@ export async function readSigningSessionSealedRecord(
   }
 }
 
-export async function listSigningSessionSealedRecordsForAccount(args: {
+export async function listExactSealedSessionsForAccount(args: {
   accountId: string;
-  filter?: Partial<SigningSessionSealedRecordFilter>;
+  filter: ListExactSigningSessionSealedRecordsForAccountFilter;
 }): Promise<SigningSessionSealedStoreRecord[]> {
   const accountId = normalizeOptionalNonEmptyString(args.accountId);
   if (!accountId) return [];
-  const runtimeSessionId = readRuntimeSessionId();
-  if (!runtimeSessionId) return [];
+  const purpose = requireSealedRecordPurpose(args.filter, 'list exact account records');
+  const chain = args.filter.curve === 'ecdsa' ? args.filter.chain : undefined;
   const db = await openSigningSessionSealsDb();
   if (!db) return [];
   try {
@@ -561,10 +841,9 @@ export async function listSigningSessionSealedRecordsForAccount(args: {
     for (const value of values) {
       const record = normalizeSigningSessionSealedStoreRecord(value);
       if (!record) continue;
-      if (record.runtimeSessionId !== runtimeSessionId) continue;
       if (record.walletId !== accountId && record.userId !== accountId) continue;
-      if (args.filter?.authMethod && record.authMethod !== args.filter.authMethod) continue;
-      if (args.filter?.curve && record.curve !== args.filter.curve) continue;
+      if (record.authMethod !== purpose.authMethod || record.curve !== purpose.curve) continue;
+      if (chain && record.ecdsaRestore?.chain !== chain) continue;
       if (seen.has(record.storeKey)) continue;
       seen.add(record.storeKey);
       records.push(record);
@@ -577,7 +856,7 @@ export async function listSigningSessionSealedRecordsForAccount(args: {
   }
 }
 
-export async function writeSigningSessionSealedRecord(args: {
+export async function writeExactSealedSession(args: {
   thresholdSessionId: string;
   sealedSecretB64u: string;
   curve: 'ed25519' | 'ecdsa';
@@ -637,6 +916,13 @@ export async function writeSigningSessionSealedRecord(args: {
   if (remainingUses == null || remainingUses < 0) return;
   if (updatedAtMs == null || updatedAtMs <= 0) return;
   const ecdsaRestore = normalizeEcdsaRestoreMetadata(args.ecdsaRestore);
+  if (curve === 'ecdsa' && !ecdsaRestore?.chain) {
+    console.warn('[SigningSessionSealedStore] rejected ECDSA sealed record write without chain', {
+      thresholdSessionId,
+      authMethod,
+    });
+    return;
+  }
 
   const record = normalizeSigningSessionSealedStoreRecord({
     v: SIGNING_SESSION_SEALED_RECORD_VERSION,
@@ -686,6 +972,7 @@ export async function writeSigningSessionSealedRecord(args: {
     await deleteSameScopeRecords(store, record);
     store.put(record);
     await transactionDone(tx).catch(() => undefined);
+    publishResolvedIdentityForSealedRecord(record);
   } finally {
     try {
       db.close();
@@ -693,7 +980,7 @@ export async function writeSigningSessionSealedRecord(args: {
   }
 }
 
-export async function updateSigningSessionSealedRecordPolicy(args: {
+export async function updateExactSealedSessionPolicy(args: {
   thresholdSessionId: string;
   filter: SigningSessionSealedRecordFilter;
   expiresAtMs?: number;
@@ -703,7 +990,7 @@ export async function updateSigningSessionSealedRecordPolicy(args: {
   const purpose = requireSealedRecordPurpose(args.filter, 'update policy');
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return;
-  const existing = await readSigningSessionSealedRecord(thresholdSessionId, purpose);
+  const existing = await readExactSealedSession(thresholdSessionId, purpose);
   if (!existing) return;
   const expiresAtMs = normalizeInteger(args.expiresAtMs ?? existing.expiresAtMs);
   const remainingUses = normalizeInteger(args.remainingUses ?? existing.remainingUses);
@@ -711,7 +998,7 @@ export async function updateSigningSessionSealedRecordPolicy(args: {
   if (expiresAtMs == null || expiresAtMs <= 0) return;
   if (remainingUses == null || remainingUses < 0) return;
   if (updatedAtMs == null || updatedAtMs <= 0) return;
-  await writeSigningSessionSealedRecord({
+  await writeExactSealedSession({
     thresholdSessionId,
     sealedSecretB64u: existing.sealedSecretB64u,
     curve: existing.curve || purpose.curve,
@@ -733,7 +1020,7 @@ export async function updateSigningSessionSealedRecordPolicy(args: {
   });
 }
 
-export async function deleteSigningSessionSealedRecord(
+export async function deleteExactSealedSession(
   thresholdSessionIdRaw: string,
   filter: SigningSessionSealedRecordFilter,
 ): Promise<void> {
@@ -746,8 +1033,9 @@ export async function deleteSigningSessionSealedRecord(
     const record = await readRecordByThresholdSessionId(db, thresholdSessionId, purpose, 'delete');
     await deleteRecordByThresholdSessionId(db, thresholdSessionId, purpose);
     if (record?.walletSigningSessionId) {
+      deleteResolvedIdentityForSealedRecord(record);
       const tx = db.transaction(LEASE_STORE_NAME, 'readwrite');
-      tx.objectStore(LEASE_STORE_NAME).delete(record.walletSigningSessionId);
+      tx.objectStore(LEASE_STORE_NAME).delete(record.storeKey);
       await transactionDone(tx).catch(() => undefined);
     }
   } finally {
@@ -757,14 +1045,14 @@ export async function deleteSigningSessionSealedRecord(
   }
 }
 
-export async function acquireSigningSessionRestoreLease(args: {
-  thresholdSessionId: string;
-  authMethod: 'passkey' | 'email_otp';
-  curve: 'ed25519' | 'ecdsa';
-  ownerId?: string;
-  nowMs?: number;
-  ttlMs?: number;
-}): Promise<SigningSessionRestoreLeaseHandle | null> {
+export async function acquireSigningSessionRestoreLease(
+  args: {
+    thresholdSessionId: string;
+    ownerId?: string;
+    nowMs?: number;
+    ttlMs?: number;
+  } & SigningSessionSealedRecordFilter,
+): Promise<SigningSessionRestoreLeaseHandle | null> {
   const purpose = requireSealedRecordPurpose(args, 'acquire restore lease');
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return null;
@@ -802,7 +1090,7 @@ export async function acquireSigningSessionRestoreLease(args: {
       records.find((candidate) => recordMatchesFilter(candidate, thresholdSessionId, purpose)) ||
       null;
     if (!record) {
-      warnSealedRecordPurposeMiss({
+      logSealedRecordPurposeMiss({
         operation: 'acquire restore lease',
         thresholdSessionId,
         filter: purpose,
@@ -816,7 +1104,7 @@ export async function acquireSigningSessionRestoreLease(args: {
 
     const leaseStore = tx.objectStore(LEASE_STORE_NAME);
     const existing = normalizeSigningSessionRestoreLease(
-      await requestToPromise(leaseStore.get(record.walletSigningSessionId)),
+      await requestToPromise(leaseStore.get(record.storeKey)),
     );
     if (existing && existing.expiresAtMs > nowMs && existing.ownerId !== ownerId) {
       tx.abort();
@@ -824,6 +1112,7 @@ export async function acquireSigningSessionRestoreLease(args: {
     }
 
     const lease = makeSigningSessionRestoreLease({
+      leaseKey: record.storeKey,
       walletSigningSessionId: record.walletSigningSessionId,
       ownerId,
       nowMs,
@@ -854,10 +1143,10 @@ export async function releaseSigningSessionRestoreLease(
     const tx = db.transaction(LEASE_STORE_NAME, 'readwrite');
     const store = tx.objectStore(LEASE_STORE_NAME);
     const existing = normalizeSigningSessionRestoreLease(
-      await requestToPromise(store.get(lease.walletSigningSessionId)),
+      await requestToPromise(store.get(lease.leaseKey)),
     );
     if (existing?.ownerId === lease.ownerId && existing.attemptId === lease.attemptId) {
-      store.delete(lease.walletSigningSessionId);
+      store.delete(lease.leaseKey);
     }
     await transactionDone(tx).catch(() => undefined);
   } finally {
@@ -867,7 +1156,8 @@ export async function releaseSigningSessionRestoreLease(
   }
 }
 
-export async function clearAllSigningSessionSealedRecords(): Promise<void> {
+export async function clearAllSealedSessions(): Promise<void> {
+  resolvedIdentitiesByPurposeKey.clear();
   const db = await openSigningSessionSealsDb();
   if (!db) return;
   try {

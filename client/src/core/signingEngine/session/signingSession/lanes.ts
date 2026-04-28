@@ -53,14 +53,14 @@ export type Ed25519EmailOtpSigningLaneInput = BaseSigningLaneInput & {
 
 export type EcdsaPasskeySigningLaneInput = BaseSigningLaneInput & {
   chainFamily: ThresholdEcdsaActivationChain;
-  thresholdSessionId?: ThresholdEcdsaSessionId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
   storageSource: EcdsaPasskeySigningLaneSource;
   sessionOrigin?: SigningSessionOrigin;
 };
 
 export type EcdsaEmailOtpSigningLaneInput = BaseSigningLaneInput & {
   chainFamily: ThresholdEcdsaActivationChain;
-  thresholdSessionId?: ThresholdEcdsaSessionId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
   sessionOrigin?: SigningSessionOrigin;
 };
 

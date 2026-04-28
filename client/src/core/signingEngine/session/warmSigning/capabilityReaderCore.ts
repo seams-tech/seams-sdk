@@ -24,24 +24,21 @@ import type {
   WarmSessionEd25519CapabilityState,
   WarmSessionEnvelope,
 } from './types';
-import type { WarmSessionSealedRefreshRestorer } from './sealedRefreshRestorer';
 import type { WarmSessionStatusReader } from './statusReader';
 
-export type WarmSessionCapabilityResolverDeps = {
+export type WarmSessionCapabilityReaderCoreDeps = {
   touchConfirm?: WarmSessionReadPorts;
-  attemptSealedRestore?: boolean;
   statusReader: Pick<
     WarmSessionStatusReader,
     'readWalletScopedClaimsForRecords' | 'readEcdsaWarmSessionClaimForRecord'
   >;
-  sealedRefreshRestorer: WarmSessionSealedRefreshRestorer;
   signingSessionSeal?: {
     keyVersion?: string;
     shamirPrimeB64u?: string;
   };
 };
 
-export type WarmSessionCapabilityResolver = {
+export type WarmSessionCapabilityReaderCore = {
   getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
   resolveEd25519RecordByThresholdSessionId: (
     thresholdSessionId: string,
@@ -71,11 +68,9 @@ export type WarmSessionCapabilityResolver = {
   ) => ThresholdSessionSealTransportAuthMaterial | null;
 };
 
-export function createWarmSessionCapabilityResolver(
-  deps: WarmSessionCapabilityResolverDeps,
-): WarmSessionCapabilityResolver {
-  const sealedRestoreSuppressedAccounts = new Set<string>();
-
+export function createWarmSessionCapabilityReaderCore(
+  deps: WarmSessionCapabilityReaderCoreDeps,
+): WarmSessionCapabilityReaderCore {
   async function getWarmSession(nearAccountId: AccountId | string): Promise<WarmSessionEnvelope> {
     const accountId = toAccountId(nearAccountId);
     const records = readWarmSessionCapabilityRecordsForAccount(accountId);
@@ -86,56 +81,6 @@ export function createWarmSessionCapabilityResolver(
 
     const { ed25519Claim, evmClaim, tempoClaim } =
       await deps.statusReader.readWalletScopedClaimsForRecords(accountId, records);
-    if (
-      deps.attemptSealedRestore !== false &&
-      !sealedRestoreSuppressedAccounts.has(String(accountId))
-    ) {
-      const evmRestoreRecord = records.ecdsa.evm;
-      const tempoRestoreRecord = records.ecdsa.tempo;
-      const [shouldRestoreEvm, shouldRestoreTempo] = await Promise.all([
-        deps.sealedRefreshRestorer.shouldAttemptEmailOtpSealedRestore({
-          record: evmRestoreRecord,
-          prfClaim: evmClaim,
-        }),
-        deps.sealedRefreshRestorer.shouldAttemptEmailOtpSealedRestore({
-          record: tempoRestoreRecord,
-          prfClaim: tempoClaim,
-        }),
-      ]);
-      const [evmRestore, tempoRestore] = await Promise.all([
-        evmRestoreRecord && shouldRestoreEvm
-          ? deps.sealedRefreshRestorer.tryRestoreEmailOtpEcdsaCapabilityFromSealedRecord({
-              accountId,
-              chain: 'evm',
-              record: evmRestoreRecord,
-              ed25519Record: records.ed25519,
-            })
-          : Promise.resolve<'unavailable'>('unavailable'),
-        tempoRestoreRecord && shouldRestoreTempo
-          ? deps.sealedRefreshRestorer.tryRestoreEmailOtpEcdsaCapabilityFromSealedRecord({
-              accountId,
-              chain: 'tempo',
-              record: tempoRestoreRecord,
-              ed25519Record: records.ed25519,
-            })
-          : Promise.resolve<'unavailable'>('unavailable'),
-      ]);
-      if (
-        evmRestore === 'restored' ||
-        tempoRestore === 'restored' ||
-        evmRestore === 'failed' ||
-        tempoRestore === 'failed' ||
-        (shouldRestoreEvm && evmRestore === 'unavailable') ||
-        (shouldRestoreTempo && tempoRestore === 'unavailable')
-      ) {
-        sealedRestoreSuppressedAccounts.add(String(accountId));
-        try {
-          return await getWarmSession(accountId);
-        } finally {
-          sealedRestoreSuppressedAccounts.delete(String(accountId));
-        }
-      }
-    }
 
     return assertWarmSessionEnvelopeInvariant({
       accountId,

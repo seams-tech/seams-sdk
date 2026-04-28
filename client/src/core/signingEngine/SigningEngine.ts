@@ -200,6 +200,7 @@ import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
 import { createWarmSessionCapabilityReader } from './session/warmSigning/capabilityReader';
 import { createWarmSessionStatusReader } from './session/warmSigning/statusReader';
+import { SigningSessionCoordinator } from './session/SigningSessionCoordinator';
 import { provisionWarmEd25519Capability } from './session/warmSigning/ed25519Provisioner';
 import { provisionWarmEcdsaCapability } from './session/warmSigning/ecdsaProvisioner';
 import { assertWarmSessionEcdsaOperationAllowed } from './session/warmSigning/postSignPolicyAdapter';
@@ -252,6 +253,14 @@ import {
   EmailOtpThresholdSessionCoordinator,
   type EmailOtpBootstrapRecovery,
 } from './emailOtp/EmailOtpThresholdSessionCoordinator';
+import type {
+  RestorePersistedSessionsForAccountInput,
+  RestorePersistedSessionsForAccountResult,
+} from './session/restoreCoordinator';
+import type {
+  ReadSigningSessionSnapshotInput,
+  SigningSessionSnapshot,
+} from './session/snapshotReader';
 
 export type {
   ThresholdEcdsaActivationChain,
@@ -386,6 +395,13 @@ function mapProfileAuthenticatorToClient(
   };
 }
 
+type WarmSessionStatusOnlyTouchConfirmPort = TouchConfirmRuntimeBridgePort & {
+  readWarmSessionStatusOnly?: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
+  readWarmSessionStatusesOnly?: (args: {
+    sessionIds: string[];
+  }) => Promise<WarmSessionStatusBatchResult>;
+};
+
 /**
  * SigningEngine is the signing composition root:
  * - owns bootstrap/lifecycle for worker managers
@@ -468,7 +484,7 @@ export class SigningEngine {
       nonceCoordinator: assembly.nonceCoordinator,
       touchConfirm: this.touchConfirm,
       getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.getWarmSessionStatus(sessionId),
+        this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
       consumeEmailOtpWarmSessionUses: (args) => this.emailOtpSessions.consumeWarmSessionUses(args),
       signerWorkerManager: this.signerWorkerManager,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
@@ -506,10 +522,10 @@ export class SigningEngine {
       provisionThresholdEd25519Session: (args) => this.provisionThresholdEd25519Session(args),
       loginWithEmailOtpEcdsaCapabilityForSigning: (args) =>
         this.emailOtpSessions.loginWithEcdsaCapabilityForSigning(args),
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (args) =>
-        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(args),
-      restoreEmailOtpSealedWarmSessionsForRead: (nearAccountId) =>
-        this.restoreEmailOtpSealedWarmSessionsForRead(nearAccountId),
+      restorePersistedSessionForSigning: (args) =>
+        this.emailOtpSessions.restorePersistedSessionForSigning(args),
+      readSigningSessionSnapshotForSigning: (args) =>
+        this.emailOtpSessions.readPersistedSessionSnapshot(args),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args) =>
         this.markThresholdEcdsaEmailOtpSessionConsumedForAccount(args),
       markThresholdEd25519EmailOtpSessionConsumedForAccount: (args) =>
@@ -540,7 +556,7 @@ export class SigningEngine {
     const getWarmSessionStatus = async (args: {
       sessionId: string;
     }): Promise<WarmSessionStatusResult> => {
-      const secondary = await this.emailOtpSessions.getWarmSessionStatus(args.sessionId);
+      const secondary = await this.emailOtpSessions.readWarmSessionStatusOnly(args.sessionId);
       if (secondary.ok || (secondary.code !== 'not_found' && secondary.code !== 'worker_error')) {
         return secondary;
       }
@@ -553,7 +569,7 @@ export class SigningEngine {
       const secondaryResults = await Promise.all(
         args.sessionIds.map(async (sessionId) => ({
           sessionId,
-          result: await this.emailOtpSessions.getWarmSessionStatus(sessionId),
+          result: await this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
         })),
       );
       const unresolvedSessionIds = secondaryResults
@@ -619,6 +635,106 @@ export class SigningEngine {
     }) as TouchConfirmRuntimeBridgePort;
   }
 
+  private createWarmSessionStatusOnlyTouchConfirm(
+    base: TouchConfirmRuntimeBridgePort,
+  ): TouchConfirmRuntimeBridgePort {
+    const primary = base as WarmSessionStatusOnlyTouchConfirmPort;
+    const readPrimaryWarmSessionStatusOnly = async (args: {
+      sessionId: string;
+    }): Promise<WarmSessionStatusResult> => {
+      if (typeof primary.readWarmSessionStatusOnly !== 'function') {
+        return {
+          ok: false,
+          code: 'status_reader_unavailable',
+          message: 'Warm-session status-only reader is unavailable',
+        };
+      }
+      return await primary.readWarmSessionStatusOnly({ sessionId: args.sessionId });
+    };
+    const readCombinedWarmSessionStatusOnly = async (args: {
+      sessionId: string;
+    }): Promise<WarmSessionStatusResult> => {
+      const secondary = await this.emailOtpSessions.readWarmSessionStatusOnly(args.sessionId);
+      if (secondary.ok || (secondary.code !== 'not_found' && secondary.code !== 'worker_error')) {
+        return secondary;
+      }
+      return await readPrimaryWarmSessionStatusOnly(args);
+    };
+    const readCombinedWarmSessionStatusesOnly = async (args: {
+      sessionIds: string[];
+    }): Promise<WarmSessionStatusBatchResult> => {
+      const normalizedSessionIds = Array.from(
+        new Set(
+          (Array.isArray(args.sessionIds) ? args.sessionIds : [])
+            .map((sessionId) => String(sessionId || '').trim())
+            .filter(Boolean),
+        ),
+      );
+      const secondaryResults = await Promise.all(
+        normalizedSessionIds.map(async (sessionId) => ({
+          sessionId,
+          result: await this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
+        })),
+      );
+      const unresolvedSessionIds = secondaryResults
+        .filter(
+          (entry) =>
+            !entry.result.ok &&
+            (entry.result.code === 'not_found' || entry.result.code === 'worker_error'),
+        )
+        .map((entry) => entry.sessionId);
+      const primaryResults =
+        unresolvedSessionIds.length === 0
+          ? { results: [] }
+          : typeof primary.readWarmSessionStatusesOnly === 'function'
+            ? await primary.readWarmSessionStatusesOnly({ sessionIds: unresolvedSessionIds })
+            : {
+                results: await Promise.all(
+                  unresolvedSessionIds.map(async (sessionId) => ({
+                    sessionId,
+                    result: await readPrimaryWarmSessionStatusOnly({ sessionId }),
+                  })),
+                ),
+              };
+      const primaryBySessionId = new Map(
+        primaryResults.results.map((entry) => [entry.sessionId, entry.result]),
+      );
+      return {
+        results: secondaryResults.map((entry) =>
+          entry.result.ok ||
+          (entry.result.code !== 'not_found' && entry.result.code !== 'worker_error')
+            ? entry
+            : {
+                sessionId: entry.sessionId,
+                result: primaryBySessionId.get(entry.sessionId) || entry.result,
+              },
+        ),
+      };
+    };
+
+    return new Proxy(base, {
+      get: (target, prop, receiver) => {
+        if (prop === 'getWarmSessionStatus') return readCombinedWarmSessionStatusOnly;
+        if (prop === 'getWarmSessionStatuses') return readCombinedWarmSessionStatusesOnly;
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as TouchConfirmRuntimeBridgePort;
+  }
+
+  private createSigningSessionStatusOnlyCoordinator(): SigningSessionCoordinator {
+    return new SigningSessionCoordinator({
+      touchConfirm: this.createWarmSessionStatusOnlyTouchConfirm(this.touchConfirm),
+      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
+        this.listThresholdEcdsaSessionRecordsForLookup({
+          nearAccountId,
+          chain,
+        }),
+      getEmailOtpWarmSessionStatus: (sessionId) =>
+        this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
+    });
+  }
+
   private async ensureSealedRefreshStartupParity(): Promise<void> {
     await this.sealedRefreshStartupParityPromise;
     if (this.sealedRefreshStartupParityError) {
@@ -628,6 +744,52 @@ export class SigningEngine {
 
   async assertSealedRefreshStartupParity(): Promise<void> {
     await this.ensureSealedRefreshStartupParity();
+  }
+
+  async restorePersistedSessionsForAccount(
+    args: RestorePersistedSessionsForAccountInput,
+  ): Promise<RestorePersistedSessionsForAccountResult> {
+    const walletId = String(toAccountId(args.walletId) || '').trim();
+    const empty = { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
+    if (!walletId) return empty;
+    const targets = args.authMethod
+      ? [args.authMethod]
+      : (['email_otp', 'passkey'] as const);
+    const results = await Promise.all(
+      targets.map(async (authMethod) => {
+        if (authMethod === 'email_otp') {
+          return await this.emailOtpSessions.restorePersistedSessionsForAccount({
+            ...args,
+            walletId,
+            authMethod,
+          });
+        }
+        return (
+          (await this.touchConfirm.restorePersistedSessionsForAccount?.({
+            ...args,
+            walletId,
+            authMethod,
+          })) ?? empty
+        );
+      }),
+    );
+    return results.reduce<RestorePersistedSessionsForAccountResult>(
+      (acc, result) => ({
+        listed: acc.listed + result.listed,
+        attempted: acc.attempted + result.attempted,
+        restored: acc.restored + result.restored,
+        deferred: acc.deferred + result.deferred,
+        skipped: acc.skipped + result.skipped,
+        truncated: acc.truncated + result.truncated,
+      }),
+      empty,
+    );
+  }
+
+  async readPersistedSigningSessionSnapshot(
+    args: ReadSigningSessionSnapshotInput,
+  ): Promise<SigningSessionSnapshot> {
+    return await this.emailOtpSessions.readPersistedSessionSnapshot(args);
   }
 
   private async ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(
@@ -702,38 +864,32 @@ export class SigningEngine {
     }
   }
 
-  private createWarmSessionCapabilityReader(args?: { attemptSealedRestore?: boolean }) {
+  private createWarmSessionCapabilityReader() {
     return createWarmSessionCapabilityReader({
       touchConfirm: this.touchConfirm,
-      ...(typeof args?.attemptSealedRestore === 'boolean'
-        ? { attemptSealedRestore: args.attemptSealedRestore }
-        : {}),
       signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
       listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
         this.listThresholdEcdsaSessionRecordsForLookup({
           nearAccountId,
           chain,
         }),
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: (restoreArgs) =>
-        this.emailOtpSessions.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(restoreArgs),
       getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.getWarmSessionStatus(sessionId),
-      clearEcdsaEphemeralMaterial: (clearArgs) =>
-        this.clearEcdsaEphemeralMaterialForWarmSession(clearArgs),
+        this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
     });
   }
 
   private createWarmSessionStatusReader() {
+    const signingSessionCoordinator = this.createSigningSessionStatusOnlyCoordinator();
     return createWarmSessionStatusReader({
-      touchConfirm: this.touchConfirm,
+      touchConfirm: this.createWarmSessionStatusOnlyTouchConfirm(this.touchConfirm),
       listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
         this.listThresholdEcdsaSessionRecordsForLookup({
           nearAccountId,
           chain,
         }),
-      signingSessionCoordinator: this.orchestrationDeps.signingSessionCoordinator,
+      signingSessionCoordinator,
       getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.getWarmSessionStatus(sessionId),
+        this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
     });
   }
 
@@ -743,7 +899,7 @@ export class SigningEngine {
   }): Promise<SigningSessionStatus | null> {
     const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
     if (!walletSigningSessionId) return null;
-    return await this.orchestrationDeps.signingSessionCoordinator
+    return await this.createSigningSessionStatusOnlyCoordinator()
       .getAvailableStatus({
         nearAccountId: args.nearAccountId,
         walletSigningSessionId,
@@ -1125,6 +1281,10 @@ export class SigningEngine {
     }
 
     const exportChain = args.options.chain === 'tempo' ? 'tempo' : 'evm';
+    await this.restoreEmailOtpEcdsaSessionForExportBestEffort({
+      nearAccountId: args.nearAccountId,
+      chain: exportChain,
+    });
     let thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
     const keyRefCandidates = this.listThresholdEcdsaKeyRefsForLookup({
       nearAccountId: args.nearAccountId,
@@ -1163,6 +1323,27 @@ export class SigningEngine {
       flowId: args.flowId,
       onEvent: args.onEvent,
     });
+  }
+
+  private async restoreEmailOtpEcdsaSessionForExportBestEffort(args: {
+    nearAccountId: AccountId;
+    chain: 'evm' | 'tempo';
+  }): Promise<void> {
+    try {
+      await this.emailOtpSessions.restorePersistedSessionForSigning({
+        walletId: args.nearAccountId,
+        authMethod: 'email_otp',
+        curve: 'ecdsa',
+        chain: args.chain,
+        reason: 'export',
+      });
+    } catch (error: unknown) {
+      console.debug('[SigningEngine][ecdsa-export] persisted session restore skipped', {
+        nearAccountId: String(args.nearAccountId),
+        chain: args.chain,
+        message: error instanceof Error ? error.message : String(error || 'unknown error'),
+      });
+    }
   }
 
   private async resolveEmailOtpEcdsaExportTargetFromLocalMetadata(args: {
@@ -2414,6 +2595,22 @@ export class SigningEngine {
             thresholdSessionId: claimArgs.thresholdSessionId,
             errorContext: claimArgs.errorContext,
             uses: claimArgs.uses,
+            restoreBeforeClaim: async () => {
+              if (claimArgs.authMethod !== 'passkey') return;
+              const walletSigningSessionId = String(
+                claimArgs.walletSigningSessionId || args.walletSigningSessionId || '',
+              ).trim();
+              if (!walletSigningSessionId) return;
+              await this.touchConfirm.restorePersistedSessionForSigning({
+                walletId: nearAccountId,
+                authMethod: 'passkey',
+                curve: 'ecdsa',
+                chain,
+                walletSigningSessionId,
+                thresholdSessionId: claimArgs.thresholdSessionId,
+                reason: 'transaction',
+              });
+            },
           }),
         provisionThresholdEcdsaSession: async (provisionArgs) =>
           await this.provisionThresholdEcdsaSession({
@@ -2766,9 +2963,9 @@ export class SigningEngine {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
   }): Promise<WarmSessionEcdsaCapabilityState> {
-    const warmSession = await this.createWarmSessionCapabilityReader({
-      attemptSealedRestore: false,
-    }).getWarmSession(args.nearAccountId);
+    const warmSession = await this.createWarmSessionCapabilityReader().getWarmSession(
+      args.nearAccountId,
+    );
     const capability = warmSession.capabilities.ecdsa[args.chain];
     if (capability.state !== 'ready') {
       throw new Error(
@@ -3206,7 +3403,6 @@ export class SigningEngine {
     thresholdSessionId: string,
   ): Promise<WarmEcdsaSigningSessionStatus | null> {
     return (async () => {
-      await this.restoreEmailOtpSealedWarmSessionsForRead(nearAccountId);
       const status = await this.createWarmSessionStatusReader().getEcdsaSigningSessionStatus({
         nearAccountId,
         chain,
@@ -3226,7 +3422,6 @@ export class SigningEngine {
     chain: 'tempo' | 'evm',
   ): Promise<WarmEcdsaSigningSessionStatus[]> {
     return (async () => {
-      await this.restoreEmailOtpSealedWarmSessionsForRead(nearAccountId);
       const statuses = await this.createWarmSessionStatusReader().listEcdsaSigningSessionStatuses({
         nearAccountId,
         chain,
@@ -3241,19 +3436,6 @@ export class SigningEngine {
         }),
       );
     })();
-  }
-
-  private async restoreEmailOtpSealedWarmSessionsForRead(
-    nearAccountId: AccountId | string,
-  ): Promise<void> {
-    await this.emailOtpSessions
-      .restoreEcdsaWarmSessionsFromSealedRecordsForAccount(nearAccountId)
-      .catch((error) => {
-        console.warn('[SigningEngine][ecdsa] account-scoped Email OTP sealed restore failed', {
-          nearAccountId: String(nearAccountId || ''),
-          error: error instanceof Error ? error.message : String(error || 'unknown error'),
-        });
-      });
   }
 
   async scheduleThresholdEcdsaLoginPresignPrefill(args: {
@@ -3508,6 +3690,8 @@ export type SigningEnginePublic = Pick<
   | 'getNonceCoordinator'
   | 'warmCriticalResources'
   | 'assertSealedRefreshStartupParity'
+  | 'restorePersistedSessionsForAccount'
+  | 'readPersistedSigningSessionSnapshot'
   | 'signNear'
   | 'signTempo'
   | 'reportTempoBroadcastAccepted'

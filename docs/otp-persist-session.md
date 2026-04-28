@@ -59,7 +59,7 @@ Current flow:
 4. the worker creates an ephemeral `shamir3pass` client lock over `PRF.first`
 5. the server applies its signing-session seal through `/threshold/signing-session-seal/apply-server-seal`
 6. the worker removes its client lock and returns `E_session_s(PRF.first)`
-7. the main thread stores a `signingSessionSealedStore` record in wallet-origin IndexedDB
+7. the main thread stores a `sealedSessionStore` record in wallet-origin IndexedDB
 8. after a page refresh, `TouchConfirmManager` sees the worker warm session is missing, reads the sealed record, and asks the worker to rehydrate
 9. the worker adds a fresh client lock to `E_session_s(PRF.first)`, calls `/threshold/signing-session-seal/remove-server-seal`, removes the client lock, and restores `PRF.first` into memory
 10. threshold signing can continue without a new WebAuthn prompt while the threshold-session TTL and `remainingUses` budget remain valid
@@ -327,7 +327,7 @@ Do not use these names in the new steady-state API:
 
 Breaking rename target:
 
-1. `prfSessionSealedStore` -> `signingSessionSealedStore`
+1. `prfSessionSealedStore` -> `sealedSessionStore`
 2. `sealedPrfFirstB64u` -> `sealedSecretB64u`
 3. `prfFirstB64u` at generic boundaries -> `signingSessionSecretB64u` or `secretSourceB64u`
 4. `/threshold-ecdsa/prf-seal/*` -> `/threshold/signing-session-seal/*`
@@ -936,7 +936,7 @@ Plan improvements:
 
 ### Phase 2: Generic Passkey Migration
 
-1. [x] Rename `prfSessionSealedStore` to `signingSessionSealedStore`.
+1. [x] Rename `prfSessionSealedStore` to `sealedSessionStore`.
 2. [x] Move storage from passkey-only `sessionStorage` adapter to iframe-origin IndexedDB.
 3. [x] Rename `sealedPrfFirstB64u` to `sealedSecretB64u`.
 4. [x] Rename PRF-specific worker messages to signing-session-secret messages.

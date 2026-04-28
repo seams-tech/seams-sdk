@@ -96,6 +96,36 @@ Acceptance checks:
        method, curve, chain/source, and retention.
 2. [ ] No transaction path can restore or sign from a secondary lane.
 
+### 3.1 Restore Boundary Static Guards
+
+Risk:
+
+The reload bug class comes back if query modules regain restore side effects or
+transaction code can resolve lanes without first running the explicit restore
+command.
+
+Tests to add:
+
+1. [ ] Static guard that status/snapshot modules cannot import restore
+       coordinators or sealed-refresh unseal helpers.
+2. [ ] Static guard that status/snapshot modules cannot call server seal
+       endpoints.
+3. [ ] Static guard that planner modules cannot import sealed-store modules,
+       worker clients, OTP coordinators, passkey managers, or server seal
+       clients.
+4. [ ] Static guard that execution modules receive a resolved lane and cannot
+       resolve lanes ad hoc.
+5. [ ] Static guard that query APIs cannot call `remove-server-seal`,
+       bootstrap workers, or mutate durable sealed records.
+6. [ ] Static guard that transaction entrypoints use `prepareSigning` or
+       `sign`, not public read-only lane resolution.
+
+Acceptance checks:
+
+1. [ ] A future change that reintroduces read-side restore fails tests.
+2. [ ] A future change that lets transaction signing bypass the explicit
+       restore boundary fails tests.
+
 ### 4. Cleanup Idempotency
 
 Risk:
@@ -218,7 +248,7 @@ Add or keep guards for these boundaries:
 12. [x] Runtime dependency bundles construct only `SigningSessionCoordinator` as
         the signing-session stateful service and expose it through
         `signingSessionCoordinator`.
-13. [ ] EVM-family, NEAR, Tempo, and ARC signing paths all reach auth planning
+13. [x] EVM-family, NEAR, Tempo, and ARC signing paths all reach auth planning
         through `SigningSessionCoordinator.resolveAuthPlan(...)`.
 14. [x] `signingSession/budget.ts`, `signingSession/readiness.ts`,
         `signingSession/planner.ts`, and `signingSession/execution.ts` contain
@@ -231,16 +261,16 @@ Add or keep guards for these boundaries:
         `SigningSessionCoordinator` naming.
 16. [x] Legacy coordinator/ledger names do not appear in production dependency
         bundle types after migration.
-17. [ ] Resolved signing-session identity types do not expose optional
+17. [x] Resolved signing-session identity types do not expose optional
         `authMethod`, `curve`, `walletSigningSessionId`, `thresholdSessionId`,
         or `backingMaterialSessionId` fields.
 18. [x] Sealed-session store production call sites always pass an explicit
         purpose: auth method plus curve.
-19. [ ] Identity fallback chains for wallet session id, threshold session id,
+19. [x] Identity fallback chains for wallet session id, threshold session id,
         auth method, curve, or chain appear only inside named resolver modules.
 20. [x] EVM-family signing runtime deps expose
         `getResolvedEcdsaSigningLane`, not an optional selected-lane getter.
-21. [ ] Budget reservation, budget finalization, signing execution, sealed
+21. [x] Budget reservation, budget finalization, signing execution, sealed
         restore, and post-sign cleanup cannot accept draft lane types.
 22. [ ] Email OTP ECDSA sealed-refresh restore has coverage for an Ed25519
         companion id resolving to the ECDSA threshold session id before any
@@ -255,7 +285,7 @@ Add or keep guards for these boundaries:
 3. [x] Add lane-exact sealed restore tests before expanding restore behavior.
 4. [ ] Add cross-runtime/server atomic consume coverage when the authoritative
        budget endpoint is available.
-5. [ ] Add optional-identity hardening guards before removing optional fields
+5. [x] Add optional-identity hardening guards before removing optional fields
        from production types, so the migration cannot drift mid-refactor.
-6. [ ] Keep this file as the open test backlog; move completed architecture
+6. [x] Keep this file as the open test backlog; move completed architecture
        narrative to `docs/signing-session-architecture.md`.

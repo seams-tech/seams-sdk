@@ -17,134 +17,13 @@ import {
 } from './helpers/warmSessionStore.fixtures';
 
 test.describe('WarmSessionStore Email OTP policy enforcement', () => {
-  test('restores session-retained Email OTP ECDSA capability from sealed refresh before clearing it', async () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const bootstrap = createThresholdEcdsaBootstrapFixture({
-      nearAccountId: 'sealed-restore.testnet',
-      chain: 'evm',
-      sessionId: 'ecdsa-sealed-restore-session',
-      sessionJwt: 'jwt:ecdsa-sealed-restore-session',
-      walletSigningSessionId: 'wallet-signing-session-sealed-restore',
-    });
-    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'sealed-restore.testnet',
-      chain: 'evm',
-      source: 'email_otp',
-      emailOtpAuthContext: {
-        policy: 'session',
-        retention: 'session',
-        reason: 'login',
-        authMethod: 'email_otp',
-      },
-      bootstrap,
-    });
-    const claimsBySessionId: Record<string, WarmClaimFixture> = {
-      [record.thresholdSessionId]: { state: 'missing' as const },
-    };
-    const clears: string[] = [];
-    const restoreCalls: string[] = [];
-    const restoreEvents: string[] = [];
-    const store = createWarmSessionTestServices({
-      touchConfirm: {
-        ...createWarmSessionStatusReader(claimsBySessionId),
-        clearWarmSessionMaterial: async ({ sessionId }) => {
-          clears.push(`warm:${sessionId}`);
-        },
-      },
-      clearThresholdEcdsaSigningArtifactsForLane: ({ nearAccountId, chain }) => {
-        clears.push(`presign:${String(nearAccountId)}:${chain}`);
-      },
-      clearThresholdEcdsaSessionRecordForLane: (args) => {
-        clears.push(`lane:${String(args.nearAccountId)}:${args.chain}`);
-        clearThresholdEcdsaSessionRecordForLane(ecdsaStore, args);
-      },
-      signingSessionSealedStore: {
-        readRecord: async () => ({
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          runtimeSessionId: 'runtime-sealed-restore',
-          authMethod: 'email_otp',
-          secretKind: 'signing_session_secret32',
-          storeKey: 'wallet-signing-session-sealed-restore:email_otp:ecdsa',
-          walletSigningSessionId: 'wallet-signing-session-sealed-restore',
-          thresholdSessionIds: { ecdsa: record.thresholdSessionId },
-          sealedSecretB64u: 'sealed-session-secret',
-          curve: 'ecdsa',
-          walletId: 'sealed-restore.testnet',
-          userId: 'sealed-restore.testnet',
-          signingRootId: record.signingRootId,
-          relayerUrl: record.relayerUrl,
-          keyVersion: 'kv-test',
-          shamirPrimeB64u: 'prime-test',
-          issuedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 120_000,
-          remainingUses: 4,
-          updatedAtMs: Date.now(),
-        }),
-        acquireRestoreLease: async ({ thresholdSessionId }) => ({
-          v: 1,
-          walletSigningSessionId: 'wallet-signing-session-sealed-restore',
-          thresholdSessionId,
-          ownerId: 'owner-test',
-          attemptId: 'attempt-test',
-          startedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 15_000,
-        }),
-        releaseRestoreLease: async (lease) => {
-          restoreCalls.push(`release:${lease?.thresholdSessionId}`);
-        },
-      },
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: async ({
-        sealedRecord,
-        ecdsaRecord,
-      }) => {
-        restoreCalls.push(
-          `restore:${sealedRecord.walletSigningSessionId}:${ecdsaRecord.thresholdSessionId}`,
-        );
-        claimsBySessionId[record.thresholdSessionId] = {
-          state: 'warm',
-          remainingUses: 4,
-          expiresAtMs: Date.now() + 120_000,
-        };
-        return {
-          bootstrap,
-          remainingUses: 4,
-          expiresAtMs: Date.now() + 120_000,
-        };
-      },
-      onSealedRestore: (event) => {
-        restoreEvents.push(`${event.status}:${event.chain}:${event.thresholdSessionId}`);
-      },
-    });
-
-    const warmSession = await store.getWarmSession('sealed-restore.testnet');
-
-    expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
-    expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
-      state: 'warm',
-      remainingUses: 4,
-    });
-    expect(clears).toEqual([]);
-    expect(restoreCalls).toEqual([
-      'restore:wallet-signing-session-sealed-restore:ecdsa-sealed-restore-session',
-      'release:ecdsa-sealed-restore-session',
-    ]);
-    expect(restoreEvents).toEqual([
-      'started:evm:ecdsa-sealed-restore-session',
-      'restored:evm:ecdsa-sealed-restore-session',
-    ]);
-  });
-
-  test('deletes failed Email OTP sealed refresh while preserving signing-session route auth', async () => {
+  test('warm-session reads do not restore or delete durable sealed Email OTP ECDSA records', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
     const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'sealed-fail.testnet',
-      chain: 'tempo',
+      nearAccountId: 'sealed-read-side.testnet',
+      chain: 'evm',
       source: 'email_otp',
       emailOtpAuthContext: {
         policy: 'session',
@@ -153,16 +32,14 @@ test.describe('WarmSessionStore Email OTP policy enforcement', () => {
         authMethod: 'email_otp',
       },
       bootstrap: createThresholdEcdsaBootstrapFixture({
-        nearAccountId: 'sealed-fail.testnet',
-        chain: 'tempo',
-        sessionId: 'ecdsa-sealed-fail-session',
-        sessionJwt: 'jwt:ecdsa-sealed-fail-session',
-        walletSigningSessionId: 'wallet-signing-session-sealed-fail',
+        nearAccountId: 'sealed-read-side.testnet',
+        chain: 'evm',
+        sessionId: 'ecdsa-sealed-read-side-session',
+        sessionJwt: 'jwt:ecdsa-sealed-read-side-session',
+        walletSigningSessionId: 'wallet-signing-session-sealed-read-side',
       }),
     });
     const clears: string[] = [];
-    const sealedStoreEvents: string[] = [];
-    const restoreEvents: string[] = [];
     const store = createWarmSessionTestServices({
       touchConfirm: {
         ...createWarmSessionStatusReader({
@@ -179,330 +56,30 @@ test.describe('WarmSessionStore Email OTP policy enforcement', () => {
         clears.push(`lane:${String(args.nearAccountId)}:${args.chain}`);
         clearThresholdEcdsaSessionRecordForLane(ecdsaStore, args);
       },
-      signingSessionSealedStore: {
-        readRecord: async () => ({
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          runtimeSessionId: 'runtime-sealed-fail',
-          authMethod: 'email_otp',
-          secretKind: 'signing_session_secret32',
-          storeKey: 'wallet-signing-session-sealed-fail:email_otp:ecdsa',
-          walletSigningSessionId: 'wallet-signing-session-sealed-fail',
-          thresholdSessionIds: { ecdsa: record.thresholdSessionId },
-          sealedSecretB64u: 'sealed-session-secret',
-          curve: 'ecdsa',
-          issuedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 120_000,
-          remainingUses: 4,
-          updatedAtMs: Date.now(),
-        }),
-        deleteRecord: async (thresholdSessionId) => {
-          sealedStoreEvents.push(`delete:${thresholdSessionId}`);
-        },
-        acquireRestoreLease: async ({ thresholdSessionId }) => ({
-          v: 1,
-          walletSigningSessionId: 'wallet-signing-session-sealed-fail',
-          thresholdSessionId,
-          ownerId: 'owner-test',
-          attemptId: 'attempt-test',
-          startedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 15_000,
-        }),
-        releaseRestoreLease: async (lease) => {
-          sealedStoreEvents.push(`release:${lease?.thresholdSessionId}`);
-        },
-      },
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: async () => {
-        throw new Error('remove-server-seal rejected');
-      },
-      onSealedRestore: (event) => {
-        restoreEvents.push(`${event.status}:${event.chain}:${event.thresholdSessionId}`);
-      },
     });
 
-    const warmSession = await store.getWarmSession('sealed-fail.testnet');
+    const warmSession = await store.getWarmSession('sealed-read-side.testnet');
 
-    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('prf_missing');
-    expect(sealedStoreEvents).toEqual([
-      'delete:ecdsa-sealed-fail-session',
-      'release:ecdsa-sealed-fail-session',
-    ]);
-    expect(clears).toEqual(['presign:sealed-fail.testnet:tempo', 'warm:ecdsa-sealed-fail-session']);
+    expect(warmSession.capabilities.ecdsa.evm.state).toBe('prf_missing');
+    expect(clears).toEqual([]);
     expect(ecdsaStore.recordsByLane.size).toBe(1);
     expect(
       store.resolveEmailOtpSigningSessionAuthLane({
         thresholdSessionId: record.thresholdSessionId,
         curve: 'ecdsa',
-        chain: 'tempo',
+        chain: 'evm',
       }),
     ).toMatchObject({
       kind: 'signing_session',
-      jwt: 'jwt:ecdsa-sealed-fail-session',
+      jwt: 'jwt:ecdsa-sealed-read-side-session',
       thresholdSessionId: record.thresholdSessionId,
-      walletSigningSessionId: 'wallet-signing-session-sealed-fail',
+      walletSigningSessionId: 'wallet-signing-session-sealed-read-side',
       curve: 'ecdsa',
-      chain: 'tempo',
-    });
-    expect(restoreEvents).toEqual([
-      'started:tempo:ecdsa-sealed-fail-session',
-      'failed:tempo:ecdsa-sealed-fail-session',
-    ]);
-  });
-
-  test('rejects sealed restore when recorded Ed25519 session is missing from same wallet signing session', async () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'all-curves.testnet',
       chain: 'evm',
-      source: 'email_otp',
-      emailOtpAuthContext: {
-        policy: 'session',
-        retention: 'session',
-        reason: 'login',
-        authMethod: 'email_otp',
-      },
-      bootstrap: createThresholdEcdsaBootstrapFixture({
-        nearAccountId: 'all-curves.testnet',
-        chain: 'evm',
-        sessionId: 'ecdsa-all-curves-session',
-        sessionJwt: 'jwt:ecdsa-all-curves-session',
-        walletSigningSessionId: 'wallet-signing-session-all-curves',
-      }),
-    });
-    const sealedStoreEvents: string[] = [];
-    const restoreCalls: string[] = [];
-    const store = createWarmSessionTestServices({
-      touchConfirm: createWarmSessionStatusReader({
-        [record.thresholdSessionId]: { state: 'missing' },
-      }),
-      clearThresholdEcdsaSessionRecordForLane: (args) => {
-        clearThresholdEcdsaSessionRecordForLane(ecdsaStore, args);
-      },
-      signingSessionSealedStore: {
-        readRecord: async () => ({
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          runtimeSessionId: 'runtime-all-curves',
-          authMethod: 'email_otp',
-          secretKind: 'signing_session_secret32',
-          storeKey: 'wallet-signing-session-all-curves:email_otp:ecdsa',
-          walletSigningSessionId: 'wallet-signing-session-all-curves',
-          thresholdSessionIds: {
-            ecdsa: record.thresholdSessionId,
-            ed25519: 'ed25519-all-curves-session',
-          },
-          sealedSecretB64u: 'sealed-session-secret',
-          curve: 'ecdsa',
-          issuedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 120_000,
-          remainingUses: 4,
-          updatedAtMs: Date.now(),
-        }),
-        deleteRecord: async (thresholdSessionId) => {
-          sealedStoreEvents.push(`delete:${thresholdSessionId}`);
-        },
-      },
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: async () => {
-        restoreCalls.push('restore');
-        return null;
-      },
-    });
-
-    const warmSession = await store.getWarmSession('all-curves.testnet');
-
-    expect(warmSession.capabilities.ecdsa.evm.state).toBe('prf_missing');
-    expect(sealedStoreEvents).toEqual(['delete:ecdsa-all-curves-session']);
-    expect(restoreCalls).toEqual([]);
-    expect(ecdsaStore.recordsByLane.size).toBe(1);
-    expect(
-      store.resolveEmailOtpSigningSessionAuthLane({
-        thresholdSessionId: record.thresholdSessionId,
-        curve: 'ecdsa',
-        chain: 'evm',
-      }),
-    ).toMatchObject({
-      kind: 'signing_session',
-      jwt: 'jwt:ecdsa-all-curves-session',
-      thresholdSessionId: record.thresholdSessionId,
-      walletSigningSessionId: 'wallet-signing-session-all-curves',
     });
   });
 
-  test('rejects sealed restore when auth method does not match Email OTP', async () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'auth-mismatch.testnet',
-      chain: 'tempo',
-      source: 'email_otp',
-      emailOtpAuthContext: {
-        policy: 'session',
-        retention: 'session',
-        reason: 'login',
-        authMethod: 'email_otp',
-      },
-      bootstrap: createThresholdEcdsaBootstrapFixture({
-        nearAccountId: 'auth-mismatch.testnet',
-        chain: 'tempo',
-        sessionId: 'ecdsa-auth-mismatch-session',
-        sessionJwt: 'jwt:ecdsa-auth-mismatch-session',
-        walletSigningSessionId: 'wallet-signing-session-auth-mismatch',
-      }),
-    });
-    const sealedStoreEvents: string[] = [];
-    const restoreCalls: string[] = [];
-    const store = createWarmSessionTestServices({
-      touchConfirm: createWarmSessionStatusReader({
-        [record.thresholdSessionId]: { state: 'missing' },
-      }),
-      clearThresholdEcdsaSessionRecordForLane: (args) => {
-        clearThresholdEcdsaSessionRecordForLane(ecdsaStore, args);
-      },
-      signingSessionSealedStore: {
-        readRecord: async () => ({
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          runtimeSessionId: 'runtime-auth-mismatch',
-          authMethod: 'passkey',
-          secretKind: 'signing_session_secret32',
-          storeKey: 'wallet-signing-session-auth-mismatch:passkey:ecdsa',
-          walletSigningSessionId: 'wallet-signing-session-auth-mismatch',
-          thresholdSessionIds: { ecdsa: record.thresholdSessionId },
-          sealedSecretB64u: 'sealed-session-secret',
-          curve: 'ecdsa',
-          issuedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 120_000,
-          remainingUses: 4,
-          updatedAtMs: Date.now(),
-        }),
-        deleteRecord: async (thresholdSessionId) => {
-          sealedStoreEvents.push(`delete:${thresholdSessionId}`);
-        },
-      },
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: async () => {
-        restoreCalls.push('restore');
-        return null;
-      },
-    });
-
-    const warmSession = await store.getWarmSession('auth-mismatch.testnet');
-
-    expect(warmSession.capabilities.ecdsa.tempo.state).toBe('prf_missing');
-    expect(sealedStoreEvents).toEqual(['delete:ecdsa-auth-mismatch-session']);
-    expect(restoreCalls).toEqual([]);
-    expect(ecdsaStore.recordsByLane.size).toBe(1);
-    expect(
-      store.resolveEmailOtpSigningSessionAuthLane({
-        thresholdSessionId: record.thresholdSessionId,
-        curve: 'ecdsa',
-        chain: 'tempo',
-      }),
-    ).toMatchObject({
-      kind: 'signing_session',
-      jwt: 'jwt:ecdsa-auth-mismatch-session',
-      thresholdSessionId: record.thresholdSessionId,
-      walletSigningSessionId: 'wallet-signing-session-auth-mismatch',
-    });
-  });
-
-  test('deletes exhausted sealed restore records while preserving signing-session route auth', async () => {
-    const ecdsaStore = createThresholdEcdsaStoreFixture();
-    resetWarmSessionFixtureState(ecdsaStore);
-
-    const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
-      nearAccountId: 'sealed-exhausted.testnet',
-      chain: 'evm',
-      source: 'email_otp',
-      emailOtpAuthContext: {
-        policy: 'session',
-        retention: 'session',
-        reason: 'login',
-        authMethod: 'email_otp',
-      },
-      bootstrap: createThresholdEcdsaBootstrapFixture({
-        nearAccountId: 'sealed-exhausted.testnet',
-        chain: 'evm',
-        sessionId: 'ecdsa-sealed-exhausted-session',
-        sessionJwt: 'jwt:ecdsa-sealed-exhausted-session',
-        walletSigningSessionId: 'wallet-signing-session-sealed-exhausted',
-      }),
-    });
-    const sealedStoreEvents: string[] = [];
-    const store = createWarmSessionTestServices({
-      touchConfirm: createWarmSessionStatusReader({
-        [record.thresholdSessionId]: { state: 'exhausted' },
-      }),
-      clearThresholdEcdsaSessionRecordForLane: (args) => {
-        clearThresholdEcdsaSessionRecordForLane(ecdsaStore, args);
-      },
-      signingSessionSealedStore: {
-        readRecord: async () => ({
-          v: 1,
-          alg: 'shamir3pass-v1',
-          storageScope: 'iframe_origin_indexeddb',
-          runtimeSessionId: 'runtime-sealed-exhausted',
-          authMethod: 'email_otp',
-          secretKind: 'signing_session_secret32',
-          storeKey: 'wallet-signing-session-sealed-exhausted:email_otp:ecdsa',
-          walletSigningSessionId: 'wallet-signing-session-sealed-exhausted',
-          thresholdSessionIds: { ecdsa: record.thresholdSessionId },
-          sealedSecretB64u: 'sealed-session-secret',
-          curve: 'ecdsa',
-          issuedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 120_000,
-          remainingUses: 0,
-          updatedAtMs: Date.now(),
-        }),
-        deleteRecord: async (thresholdSessionId) => {
-          sealedStoreEvents.push(`delete:${thresholdSessionId}`);
-        },
-        acquireRestoreLease: async ({ thresholdSessionId }) => ({
-          v: 1,
-          walletSigningSessionId: 'wallet-signing-session-sealed-exhausted',
-          thresholdSessionId,
-          ownerId: 'owner-test',
-          attemptId: 'attempt-test',
-          startedAtMs: Date.now(),
-          expiresAtMs: Date.now() + 15_000,
-        }),
-        releaseRestoreLease: async (lease) => {
-          sealedStoreEvents.push(`release:${lease?.thresholdSessionId}`);
-        },
-      },
-      rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: async () => {
-        throw new Error('Email OTP signing-session seal exhausted');
-      },
-    });
-
-    const warmSession = await store.getWarmSession('sealed-exhausted.testnet');
-
-    expect(warmSession.capabilities.ecdsa.evm.state).toBe('prf_missing');
-    expect(sealedStoreEvents).toEqual([
-      'delete:ecdsa-sealed-exhausted-session',
-      'release:ecdsa-sealed-exhausted-session',
-    ]);
-    expect(ecdsaStore.recordsByLane.size).toBe(1);
-    expect(
-      store.resolveEmailOtpSigningSessionAuthLane({
-        thresholdSessionId: record.thresholdSessionId,
-        curve: 'ecdsa',
-        chain: 'evm',
-      }),
-    ).toMatchObject({
-      kind: 'signing_session',
-      jwt: 'jwt:ecdsa-sealed-exhausted-session',
-      thresholdSessionId: record.thresholdSessionId,
-      walletSigningSessionId: 'wallet-signing-session-sealed-exhausted',
-    });
-  });
-
-  test('invalidates expired Email OTP local material while preserving signing-session route auth', async () => {
+  test('reports expired Email OTP local material without read-side cleanup', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -559,7 +136,7 @@ test.describe('WarmSessionStore Email OTP policy enforcement', () => {
     });
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('prf_missing');
     expect(ecdsaStore.recordsByLane.size).toBe(1);
-    expect(clears).toEqual(['presign:alice.testnet:evm', 'warm:ecdsa-expired-session']);
+    expect(clears).toEqual([]);
     expect(
       store.resolveEmailOtpSigningSessionAuthLane({
         thresholdSessionId: record.thresholdSessionId,

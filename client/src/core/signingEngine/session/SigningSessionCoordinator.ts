@@ -1,9 +1,9 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/tatchi';
 import {
-  deleteSigningSessionSealedRecord,
-  updateSigningSessionSealedRecordPolicy,
-} from '../api/session/signingSessionSealedStore';
+  deleteExactSealedSession,
+  updateExactSealedSessionPolicy,
+} from './sealedSessionStore';
 import {
   createSigningPlannerDecisionTraceEvent,
   planSigningSession,
@@ -153,10 +153,10 @@ export class SigningSessionCoordinator
     this.onWalletBudgetTrace = deps.onWalletBudgetTrace || deps.onTrace;
     this.walletSessionDeps = {
       ...deps,
-      updateSigningSessionSealedRecordPolicy:
-        deps.updateSigningSessionSealedRecordPolicy || updateSigningSessionSealedRecordPolicy,
-      deleteSigningSessionSealedRecord:
-        deps.deleteSigningSessionSealedRecord || deleteSigningSessionSealedRecord,
+      updateExactSealedSessionPolicy:
+        deps.updateExactSealedSessionPolicy || updateExactSealedSessionPolicy,
+      deleteExactSealedSession:
+        deps.deleteExactSealedSession || deleteExactSealedSession,
     };
     this.walletSessionState = {
       statusOverrides: new Map(),

@@ -13,9 +13,10 @@ import {
   ThresholdEd25519SessionRecord,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import type {
-  deleteSigningSessionSealedRecord,
-  updateSigningSessionSealedRecordPolicy,
-} from '../../api/session/signingSessionSealedStore';
+  SigningSessionSealedRecordFilter,
+  deleteExactSealedSession,
+  updateExactSealedSessionPolicy,
+} from '../sealedSessionStore';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
@@ -80,8 +81,8 @@ export type WalletSigningSessionReadinessDeps = {
     chain: ThresholdEcdsaActivationChain;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => void;
-  updateSigningSessionSealedRecordPolicy?: typeof updateSigningSessionSealedRecordPolicy;
-  deleteSigningSessionSealedRecord?: typeof deleteSigningSessionSealedRecord;
+  updateExactSealedSessionPolicy?: typeof updateExactSealedSessionPolicy;
+  deleteExactSealedSession?: typeof deleteExactSealedSession;
   markThresholdEd25519EmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: AccountId | string;
     thresholdSessionId?: string;
@@ -765,8 +766,8 @@ export async function consumeWalletSigningSessionUse(args: {
   await syncSealedRefreshPolicyForLanes({
     lanes,
     status: resolvedStatus,
-    updatePolicy: args.deps.updateSigningSessionSealedRecordPolicy,
-    deleteRecord: args.deps.deleteSigningSessionSealedRecord,
+    updatePolicy: args.deps.updateExactSealedSessionPolicy,
+    deleteRecord: args.deps.deleteExactSealedSession,
   });
   return resolvedStatus;
 }
@@ -829,14 +830,24 @@ export async function clearWalletSigningSession(args: {
 export async function syncSealedRefreshPolicyForLanes(args: {
   lanes: DiscoveredSigningSessionLane[];
   status: SigningSessionStatus;
-  updatePolicy?: typeof updateSigningSessionSealedRecordPolicy;
-  deleteRecord?: typeof deleteSigningSessionSealedRecord;
+  updatePolicy?: typeof updateExactSealedSessionPolicy;
+  deleteRecord?: typeof deleteExactSealedSession;
 }): Promise<void> {
   const seen = new Set<string>();
+  const filterForLane = (
+    lane: DiscoveredSigningSessionLane,
+  ): SigningSessionSealedRecordFilter | null => {
+    if (lane.curve === 'ecdsa') {
+      if (lane.chain !== 'tempo' && lane.chain !== 'evm') return null;
+      return { authMethod: lane.source, curve: 'ecdsa', chain: lane.chain };
+    }
+    return { authMethod: lane.source, curve: 'ed25519' };
+  };
   const sealedLanes = args.lanes
     .filter((lane) => lane.thresholdSessionId)
+    .filter((lane) => Boolean(filterForLane(lane)))
     .filter((lane) => {
-      const key = `${lane.source}:${lane.curve}:${lane.thresholdSessionId}`;
+      const key = `${lane.source}:${lane.curve}:${lane.chain || 'near'}:${lane.thresholdSessionId}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -850,10 +861,7 @@ export async function syncSealedRefreshPolicyForLanes(args: {
   if (args.status.status !== 'active' || remainingUses <= 0 || expiresAtMs <= Date.now()) {
     await Promise.all(
       sealedLanes.map((lane) =>
-        deleteRecord(lane.thresholdSessionId, {
-          authMethod: lane.source,
-          curve: lane.curve,
-        }).catch(() => undefined),
+        deleteRecord(lane.thresholdSessionId, filterForLane(lane)!).catch(() => undefined),
       ),
     );
     return;
@@ -862,10 +870,7 @@ export async function syncSealedRefreshPolicyForLanes(args: {
     sealedLanes.map((lane) =>
       updatePolicy({
         thresholdSessionId: lane.thresholdSessionId,
-        filter: {
-          authMethod: lane.source,
-          curve: lane.curve,
-        },
+        filter: filterForLane(lane)!,
         remainingUses,
         expiresAtMs,
         updatedAtMs: Date.now(),

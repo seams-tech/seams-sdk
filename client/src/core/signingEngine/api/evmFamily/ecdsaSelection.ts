@@ -21,6 +21,8 @@ import {
   tryGetEmailOtpThresholdEcdsaSessionRecordForSigning,
   tryGetPasskeyThresholdEcdsaKeyRefForSigning,
   tryGetPasskeyThresholdEcdsaSessionRecordForSigning,
+  validateSelectedEcdsaKeyRefCandidateForLane,
+  validateSelectedEcdsaRecordCandidateForLane,
   type EvmFamilyEcdsaSessionReaderDeps,
   type PasskeyEcdsaSessionStoreSource,
 } from './ecdsaLanes';
@@ -185,10 +187,20 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       ...(emailOtpRecord ? { record: emailOtpRecord } : {}),
       ...(emailOtpKeyRef ? { keyRef: emailOtpKeyRef } : {}),
     });
-    const selectedRecord =
-      readSelectedEcdsaRecordForLane({ deps: args.deps, lane: signingLane }) || emailOtpRecord;
-    const selectedKeyRef =
-      readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane: signingLane }) || emailOtpKeyRef;
+    const selectedRecord = emailOtpRecord
+      ? validateSelectedEcdsaRecordCandidateForLane({
+          lane: signingLane,
+          record: emailOtpRecord,
+          context: 'Email OTP ECDSA selection',
+        })
+      : readSelectedEcdsaRecordForLane({ deps: args.deps, lane: signingLane });
+    const selectedKeyRef = emailOtpKeyRef
+      ? validateSelectedEcdsaKeyRefCandidateForLane({
+          lane: signingLane,
+          keyRef: emailOtpKeyRef,
+          context: 'Email OTP ECDSA selection',
+        })
+      : readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane: signingLane });
     const warmRecord =
       selectedRecord && !isSingleUseEmailOtpEcdsaRecord(selectedRecord)
         ? selectedRecord
@@ -219,26 +231,39 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     };
   }
 
-  const fallbackPasskeyRecord = passkeyRecord;
-  const fallbackPasskeyKeyRef = passkeyKeyRef;
-  const warmRecord =
-    fallbackPasskeyRecord && !isSingleUseEmailOtpEcdsaRecord(fallbackPasskeyRecord)
-      ? fallbackPasskeyRecord
-      : undefined;
   const passkeySource = passkeyCandidate?.source || 'manual-bootstrap';
   const signingLane = buildEvmFamilyEcdsaSigningLaneContext({
     nearAccountId: args.nearAccountId,
     chain: args.chain,
     authMethod: SIGNER_AUTH_METHODS.passkey,
     source: passkeySource,
-    ...(fallbackPasskeyRecord ? { record: fallbackPasskeyRecord } : {}),
-    ...(fallbackPasskeyKeyRef ? { keyRef: fallbackPasskeyKeyRef } : {}),
+    ...(passkeyRecord ? { record: passkeyRecord } : {}),
+    ...(passkeyKeyRef ? { keyRef: passkeyKeyRef } : {}),
   });
-  const selectedPasskeyRecord =
-    readSelectedEcdsaRecordForLane({ deps: args.deps, lane: signingLane }) || fallbackPasskeyRecord;
-  const selectedPasskeyKeyRef =
-    readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane: signingLane }) || fallbackPasskeyKeyRef;
-  const selectedWarmRecord = selectedPasskeyRecord || warmRecord;
+  const selectedPasskeyRecord = passkeyRecord
+    ? validateSelectedEcdsaRecordCandidateForLane({
+        lane: signingLane,
+        record: passkeyRecord,
+        context: 'passkey ECDSA selection',
+      })
+    : readSelectedEcdsaRecordForLane({
+        deps: args.deps,
+        lane: signingLane,
+      });
+  const selectedPasskeyKeyRef = passkeyKeyRef
+    ? validateSelectedEcdsaKeyRefCandidateForLane({
+        lane: signingLane,
+        keyRef: passkeyKeyRef,
+        context: 'passkey ECDSA selection',
+      })
+    : readSelectedEcdsaKeyRefForLane({
+        deps: args.deps,
+        lane: signingLane,
+      });
+  const selectedWarmRecord =
+    selectedPasskeyRecord && !isSingleUseEmailOtpEcdsaRecord(selectedPasskeyRecord)
+      ? selectedPasskeyRecord
+      : undefined;
   logMissingEcdsaSelectionLane({
     nearAccountId: args.nearAccountId,
     chain: args.chain,
@@ -246,8 +271,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     source: passkeySource,
     ...(emailOtpRecord ? { emailOtpRecord } : {}),
     ...(emailOtpKeyRef ? { emailOtpKeyRef } : {}),
-    ...(fallbackPasskeyRecord ? { passkeyRecord: fallbackPasskeyRecord } : {}),
-    ...(fallbackPasskeyKeyRef ? { passkeyKeyRef: fallbackPasskeyKeyRef } : {}),
+    ...(passkeyRecord ? { passkeyRecord } : {}),
+    ...(passkeyKeyRef ? { passkeyKeyRef } : {}),
     ...(selectedPasskeyRecord ? { selectedRecord: selectedPasskeyRecord } : {}),
     ...(selectedPasskeyKeyRef ? { selectedKeyRef: selectedPasskeyKeyRef } : {}),
     ...(signingLane ? { lane: signingLane } : {}),

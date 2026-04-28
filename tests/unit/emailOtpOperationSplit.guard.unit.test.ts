@@ -85,6 +85,9 @@ test.describe('Email OTP operation split guard', () => {
 
   test('ECDSA transaction signing selects an auth lane before choosing a lane record', () => {
     const source = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const preparedSigningSource = readRepoFile(
+      'client/src/core/signingEngine/api/evmFamily/preparedSigning.ts',
+    );
     const accountAuthSource = readRepoFile(
       'client/src/core/signingEngine/api/evmFamily/accountAuth.ts',
     );
@@ -106,7 +109,9 @@ test.describe('Email OTP operation split guard', () => {
       'const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount',
       authResolver,
     );
-    const selectionResolver = source.indexOf('resolveEvmFamilyEcdsaSigningSelection');
+    const selectionResolver = preparedSigningSource.indexOf(
+      'resolveEvmFamilyEcdsaSigningSelection({',
+    );
     const selectionModuleResolver = selectionModule.indexOf(
       'export async function resolveEvmFamilyEcdsaSigningSelection',
     );
@@ -134,6 +139,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(selectionSource).not.toContain('genericKeyRef');
     expect(profileLookup).toBeGreaterThan(authResolver);
     expect(ed25519Fallback).toBeGreaterThan(profileLookup);
+    expect(source).toContain('prepareEvmFamilyEcdsaSigningSession({');
     expect(selectionResolver).toBeGreaterThanOrEqual(0);
     expect(accountAuthResolution).toBeGreaterThan(selectionModuleResolver);
     expect(emailOtpBranch).toBeGreaterThan(accountAuthResolution);
@@ -202,21 +208,31 @@ test.describe('Email OTP operation split guard', () => {
 
   test('EVM-family ECDSA signing restores Email OTP sealed sessions before lane selection', () => {
     const evmSigning = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
+    const preparedSigning = readRepoFile(
+      'client/src/core/signingEngine/api/evmFamily/preparedSigning.ts',
+    );
     const depsStart = evmSigning.indexOf('export type EvmFamilySigningDeps');
     const attemptStart = evmSigning.indexOf('async function signEvmFamilyAttempt');
-    const restoreCall = evmSigning.indexOf(
-      'await deps.restoreEmailOtpSealedWarmSessionsForRead(args.nearAccountId)',
-      attemptStart,
+    const preparedStart = preparedSigning.indexOf(
+      'export async function prepareEvmFamilyEcdsaSigningSession',
     );
-    const selectionCall = evmSigning.indexOf(
+    const restoreCall = preparedSigning.indexOf(
+      '.restorePersistedSessionForSigning({',
+      preparedStart,
+    );
+    const selectionCall = preparedSigning.indexOf(
       'const selection = await resolveEvmFamilyEcdsaSigningSelection',
-      attemptStart,
+      preparedStart,
     );
 
     expect(evmSigning.slice(depsStart, attemptStart)).toContain(
-      'restoreEmailOtpSealedWarmSessionsForRead?: (nearAccountId: string) => Promise<void>',
+      "restorePersistedSessionForSigning: (args: {\n    walletId: string;\n    authMethod: 'email_otp';\n    curve: 'ecdsa';",
     );
-    expect(restoreCall).toBeGreaterThan(attemptStart);
+    expect(evmSigning.slice(depsStart, attemptStart)).not.toContain(
+      'restorePersistedEmailOtpSessionsForRead',
+    );
+    expect(evmSigning).toContain('prepareEvmFamilyEcdsaSigningSession({');
+    expect(restoreCall).toBeGreaterThan(preparedStart);
     expect(selectionCall).toBeGreaterThan(restoreCall);
   });
 });

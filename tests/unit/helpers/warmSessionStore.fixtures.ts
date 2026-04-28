@@ -52,11 +52,6 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '@/core/signingEngine/session/warmSigning/types';
-import type {
-  RehydrateEmailOtpEcdsaSigningSessionFromSealedRecord,
-  WarmSessionSealedRestoreEvent,
-  WarmSessionSealedStoreOverrides,
-} from '@/core/signingEngine/session/warmSigning/sealedRefreshRestorer';
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmSigning/transitions';
 
 type SessionStorageMock = {
@@ -479,8 +474,6 @@ type WarmSessionTestServicesDeps = {
     keyVersion?: string;
     shamirPrimeB64u?: string;
   };
-  signingSessionSealedStore?: WarmSessionSealedStoreOverrides;
-  rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord?: RehydrateEmailOtpEcdsaSigningSessionFromSealedRecord;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   listThresholdEcdsaKeyRefsForLookup?: (args: {
     nearAccountId: AccountId | string;
@@ -498,7 +491,6 @@ type WarmSessionTestServicesDeps = {
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
   onTransition?: (event: WarmSessionTransitionEvent) => void | Promise<void>;
-  onSealedRestore?: (event: WarmSessionSealedRestoreEvent) => void | Promise<void>;
 };
 
 export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps = {}) {
@@ -549,13 +541,8 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: deps.touchConfirm,
     signingSessionSeal: deps.signingSessionSeal,
-    signingSessionSealedStore: deps.signingSessionSealedStore,
-    rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord:
-      deps.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord,
     getEmailOtpWarmSessionStatus,
     listThresholdEcdsaSessionRecordsForLookup: deps.listThresholdEcdsaSessionRecordsForLookup,
-    clearEcdsaEphemeralMaterial,
-    onSealedRestore: deps.onSealedRestore,
   });
   const getWarmSession = (nearAccountId: AccountId | string) =>
     capabilityReader.getWarmSession(nearAccountId);

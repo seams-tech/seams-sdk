@@ -1,16 +1,17 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import { SigningOperationIntent, type SigningLaneContext } from '../../session/signingSession/types';
+import { SigningOperationIntent } from '../../session/signingSession/types';
 import {
   createEvmFamilyWarmSessionServices,
   type EvmFamilyWarmSessionServicesDeps,
 } from './warmSessionServices';
 import {
   readSelectedEcdsaKeyRefForLane,
+  type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import { emitEvmFamilySigningEvent } from './events';
-import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
+import type { EvmFamilyLifecycleEventCallback } from './types';
 import { throwIfEvmFamilySigningCancelled } from './errors';
 import type { ThresholdEcdsaSessionStoreSource } from '../thresholdLifecycle/thresholdSessionStore';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
@@ -30,15 +31,9 @@ function resolveManagedRuntimeScopeBootstrap(
   return { environmentId, publishableKey };
 }
 
-function requireEvmFamilyEcdsaChain(lane: SigningLaneContext): EvmFamilyChain {
-  if (lane.curve !== 'ecdsa' || lane.keyKind !== 'threshold_ecdsa_secp256k1') {
-    throw new Error('[SigningEngine] ECDSA key-ref readiness requires an ECDSA signing lane');
-  }
-  if (lane.chainFamily === 'evm' || lane.chainFamily === 'tempo') return lane.chainFamily;
-  throw new Error('[SigningEngine] ECDSA key-ref readiness requires an EVM-family chain lane');
-}
-
-function requireEcdsaStoreSource(lane: SigningLaneContext): ThresholdEcdsaSessionStoreSource {
+function requireEcdsaStoreSource(
+  lane: ResolvedEvmFamilyEcdsaSigningLane,
+): ThresholdEcdsaSessionStoreSource {
   switch (lane.storageSource) {
     case 'login':
     case 'registration':
@@ -52,10 +47,8 @@ function requireEcdsaStoreSource(lane: SigningLaneContext): ThresholdEcdsaSessio
 
 export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   deps: EvmFamilyThresholdEcdsaReadinessDeps;
-  lane: SigningLaneContext;
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
   keyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
-  sessionId?: string;
-  walletSigningSessionId?: string;
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
   remainingUses?: number;
@@ -64,10 +57,12 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
 }): Promise<ThresholdEcdsaSecp256k1KeyRef> {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
-  const chain = requireEvmFamilyEcdsaChain(args.lane);
+  const chain = args.lane.chainFamily;
   const source = requireEcdsaStoreSource(args.lane);
   const nearAccountId = String(args.lane.accountId);
-  const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps, args.onEvent);
+  const thresholdSessionId = String(args.lane.thresholdSessionId);
+  const walletSigningSessionId = String(args.lane.walletSigningSessionId);
+  const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
   const resolvedKeyRef =
     args.keyRef ||
     readSelectedEcdsaKeyRefForLane({
@@ -83,8 +78,8 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
     runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.tatchiPasskeyConfigs),
     usesNeeded: Math.max(1, Math.floor(Number(args.remainingUses) || 1)),
     operationIntent: SigningOperationIntent.TransactionSign,
-    ...(args.sessionId ? { sessionId: args.sessionId } : {}),
-    ...(args.walletSigningSessionId ? { walletSigningSessionId: args.walletSigningSessionId } : {}),
+    sessionId: thresholdSessionId,
+    walletSigningSessionId,
     ...(args.clientRootShare32B64u ? { clientRootShare32B64u: args.clientRootShare32B64u } : {}),
     ...(args.webauthnAuthentication ? { webauthnAuthentication: args.webauthnAuthentication } : {}),
     beforeReconnect: async () => {

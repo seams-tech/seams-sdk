@@ -215,10 +215,7 @@ type NonceLease = {
 };
 
 type NonceCoordinator = {
-  reserve(input: {
-    lane: NonceLane;
-    operation: NonceOperationContext;
-  }): Promise<NonceLease>;
+  reserve(input: { lane: NonceLane; operation: NonceOperationContext }): Promise<NonceLease>;
 
   reserveBatch(input: {
     lane: NearNonceLane;
@@ -374,80 +371,80 @@ leases with those budget reservations, but it must not decrement or refill
 
 ### Budget And Nonce Failure Matrix
 
-| Phase | Signature exists? | Budget action | Nonce action |
-| --- | --- | --- | --- |
-| User cancels confirmation | No | Release or zero-spend | Release lease |
-| OTP/passkey fails | No | Release or zero-spend | Release lease |
-| Nonce reservation fails | No | Release or zero-spend | No lease |
-| Threshold reconnect fails | No | Release or zero-spend | Release lease |
-| Threshold signing fails before signature | No | Release or zero-spend | Release lease |
-| Signature succeeds, broadcast not attempted | Yes | Consume once | Mark signed, retry or expire and reconcile |
-| Broadcast rejected | Yes | Consume once | Mark rejected and reconcile |
-| Broadcast accepted | Yes | Consume once | Mark in flight |
-| Tx finalized | Yes | Already consumed | Mark finalized |
-| Tx dropped or replaced | Yes | Already consumed | Mark dropped/replaced and reconcile |
+| Phase                                       | Signature exists? | Budget action         | Nonce action                               |
+| ------------------------------------------- | ----------------- | --------------------- | ------------------------------------------ |
+| User cancels confirmation                   | No                | Release or zero-spend | Release lease                              |
+| OTP/passkey fails                           | No                | Release or zero-spend | Release lease                              |
+| Nonce reservation fails                     | No                | Release or zero-spend | No lease                                   |
+| Threshold reconnect fails                   | No                | Release or zero-spend | Release lease                              |
+| Threshold signing fails before signature    | No                | Release or zero-spend | Release lease                              |
+| Signature succeeds, broadcast not attempted | Yes               | Consume once          | Mark signed, retry or expire and reconcile |
+| Broadcast rejected                          | Yes               | Consume once          | Mark rejected and reconcile                |
+| Broadcast accepted                          | Yes               | Consume once          | Mark in flight                             |
+| Tx finalized                                | Yes               | Already consumed      | Mark finalized                             |
+| Tx dropped or replaced                      | Yes               | Already consumed      | Mark dropped/replaced and reconcile        |
 
 ## Phased TODO
 
 ### Phase 0. Freeze Invariants And Regression Tests
 
 1. [x] Add tests for the five known nonce review findings:
-   reserved EVM nonce expiry, locked rejection cleanup, fail-closed chain
-   parsing, mandatory managed nonce metadata, and NEAR reservation recompute.
+       reserved EVM nonce expiry, locked rejection cleanup, fail-closed chain
+       parsing, mandatory managed nonce metadata, and NEAR reservation recompute.
    - [x] EVM reserved nonce expiry is covered in
-     `tests/unit/nonceCoordinator.unit.test.ts`.
+         `tests/unit/nonceCoordinator.unit.test.ts`.
    - [x] EVM rejection cleanup is async and runs through the lane lock.
    - [x] Managed nonce chain parsing fails closed for non-`evm`/`tempo`
-     snapshots.
+         snapshots.
    - [x] Missing managed nonce metadata fails closed in EVM-family lifecycle
-     tests.
+         tests.
    - [x] NEAR release recomputes highest reserved nonce in
-     `tests/unit/nonceCoordinator.nearContext.test.ts`.
+         `tests/unit/nonceCoordinator.nearContext.test.ts`.
 2. [x] Add tests that signing-session budget reservations and nonce leases are
-   both released on cancellation before signature creation.
+       both released on cancellation before signature creation.
    - [x] TouchConfirm signing and registration cancellation tests assert nonce
-     lease release through the coordinator.
+         lease release through the coordinator.
    - [x] Add the paired wallet-session budget reservation assertions for
-     signing-session-backed transaction paths.
+         signing-session-backed transaction paths.
 3. [x] Add tests that a signature-created-but-broadcast-failed operation consumes
-   budget exactly once and reconciles nonce state.
+       budget exactly once and reconciles nonce state.
    - [x] `tests/unit/transactionSigningBudgetFinalizer.unit.test.ts` covers a
-     signed EVM operation whose broadcast is rejected, records one successful
-     budget spend, and reconciles the nonce lane.
+         signed EVM operation whose broadcast is rejected, records one successful
+         budget spend, and reconciles the nonce lane.
 4. [x] Add tests that two in-flight wallet-session reservations exhaust local
-   availability for the third transaction.
+       availability for the third transaction.
    - [x] `tests/unit/walletSigningBudgetLedger.unit.test.ts` covers concurrent
-     reservations up to `remainingUses`, rejection of the next operation, and
-     available-status reporting net of in-flight reservations.
+         reservations up to `remainingUses`, rejection of the next operation, and
+         available-status reporting net of in-flight reservations.
 5. [x] Add trace assertions that every transaction operation emits one
-   `operationId`, one budget reservation, and one nonce lease id.
+       `operationId`, one budget reservation, and one nonce lease id.
    - [x] `tests/unit/transactionSigningBudgetFinalizer.unit.test.ts` asserts a
-     transaction operation emits a wallet budget reservation trace and a nonce
-     lease trace sharing the same `operationId` and operation fingerprint.
+         transaction operation emits a wallet budget reservation trace and a nonce
+         lease trace sharing the same `operationId` and operation fingerprint.
 
 ### Phase 1. Define Coordinator Types And State Machine
 
 1. [x] Add `NonceLane`, `NonceOperationContext`, `NonceLease`, and
-   `NonceCoordinator` types.
+       `NonceCoordinator` types.
 2. [x] Implement a pure transition reducer for nonce lease states.
 3. [x] Make illegal transitions fail closed with typed errors.
 4. [x] Bind every transition to `operationId` and operation fingerprint.
 5. [x] Add redacted trace events for reserve, release, signed, accepted,
-   rejected, finalized, dropped, replaced, expired, and reconciled.
+       rejected, finalized, dropped, replaced, expired, and reconciled.
    - [x] Added trace events for reserve, release, signed, accepted, rejected,
-     finalized, dropped, replaced, and lane reconciliation.
+         finalized, dropped, replaced, and lane reconciliation.
    - [x] Add explicit lease expiry transitions and trace events.
    - [x] Add lane-clear trace events for account-scoped and full coordinator
-     reset paths.
+         reset paths.
 
 ### Phase 2. Implement EVM-Family Coordinator Backend
 
 Progress:
 
 1. [x] Route EVM-family nonce reservation and lifecycle calls through
-   `NonceCoordinator`.
+       `NonceCoordinator`.
 2. [x] Keep the current EVM nonce backend as the coordinator backend while the
-   transaction-facing boundary migrates.
+       transaction-facing boundary migrates.
 3. [x] Carry nonce lease metadata through managed nonce snapshots.
 4. [x] Fail closed when managed signing results are missing nonce lease metadata.
 
@@ -455,21 +452,21 @@ Remaining TODO:
 
 1. [x] Move current EVM nonce lane state fully into the coordinator backend.
    - [x] `NonceCoordinator` owns EVM-family `chainNonce`, `nextCandidate`,
-     in-flight nonces, TTL refresh, stale in-flight blocking, and
-     dropped/replaced alert windows.
+         in-flight nonces, TTL refresh, stale in-flight blocking, and
+         dropped/replaced alert windows.
    - [x] `EvmNonceBackend` is now a fetch-only RPC port with static guard
-     coverage preventing stateful reserve/release/reconcile methods from
-     returning.
+         coverage preventing stateful reserve/release/reconcile methods from
+         returning.
 2. [x] Keep one serialized lock per EVM-family nonce lane.
 3. [x] Store reserved nonces with `reservedAtMs` and `expiresAtMs`.
 4. [x] Validate managed nonce snapshots strictly; accept only `evm` and
-   `tempo`.
+       `tempo`.
 5. [x] Treat missing managed nonce metadata as an invariant failure in managed
-   signing results.
+       signing results.
 6. [x] Reconcile on dropped, replaced, stale in-flight, and rejected nonce
-   errors.
+       errors.
 7. [x] Remove direct lifecycle mutation calls from EVM/Tempo/Arc flows once they
-   route through the coordinator.
+       route through the coordinator.
 
 ### Phase 3. Integrate NEAR Access-Key Nonces
 
@@ -477,24 +474,24 @@ Progress:
 
 1. [x] Model NEAR account/public-key as a nonce lane.
 2. [x] Support atomic NEAR batch reservation that returns one lease per signed
-   transaction.
+       transaction.
 3. [x] Wire TouchConfirm NEAR reservation/cancel cleanup through
-   `NonceCoordinator`.
+       `NonceCoordinator`.
 4. [x] Recompute the highest reserved NEAR nonce after every release in
-   coordinator-owned NEAR nonce state.
+       coordinator-owned NEAR nonce state.
 5. [x] Carry TouchConfirm NEAR nonce lease handles into the signing worker and
-   mark the lease signed after threshold signature creation.
+       mark the lease signed after threshold signature creation.
 6. [x] Attach per-transaction NEAR lease metadata to each
-   `SignTransactionResult` and `SignedTransaction`.
+       `SignTransactionResult` and `SignedTransaction`.
 
 Remaining TODO:
 
 1. [x] Refresh block hash, block height, and access-key nonce through the same
-   lane lock.
+       lane lock.
 2. [x] Route NEAR signing cleanup through coordinator release/signed/finalized
-   transitions for signed transactions carrying coordinator lease metadata.
+       transitions for signed transactions carrying coordinator lease metadata.
 3. [ ] Add NEAR dropped/replaced reconciliation once a chain-specific detector is
-   available.
+       available.
    - Status: blocked on a NEAR-specific detector. The coordinator already owns
      NEAR release, signed, finalized, expiry, and startup-recovery paths; there
      is not yet an equivalent to EVM pending-pool dropped/replaced detection for
@@ -503,151 +500,151 @@ Remaining TODO:
 ### Phase 4. Wire Transaction Signing Through One Boundary
 
 1. [x] Make EVM-family and TouchConfirm NEAR transaction flows request nonce
-   leases through the `NonceCoordinator` instead of chain-specific helpers.
+       leases through the `NonceCoordinator` instead of chain-specific helpers.
 2. [x] Keep signing-session coordinator and wallet-budget paths nonce-agnostic;
-   nonce lease creation belongs only at transaction signing boundaries and in
-   `NonceCoordinator`.
+       nonce lease creation belongs only at transaction signing boundaries and in
+       `NonceCoordinator`.
    - [x] NEAR transaction/delegate/NEP-413 orchestration no longer
-     pre-initializes NEAR nonce state outside the coordinator before
-     TouchConfirm.
+         pre-initializes NEAR nonce state outside the coordinator before
+         TouchConfirm.
    - [x] Delegate and NEP-413 confirmation contexts do not reserve NEAR
-     access-key nonce leases, because those flows do not spend transaction
-     nonces at confirmation time.
+         access-key nonce leases, because those flows do not spend transaction
+         nonces at confirmation time.
    - [x] Added a static guard that prevents session, threshold, and
-     signing-session coordinator modules from importing or mutating nonce
-     coordinator state directly.
+         signing-session coordinator modules from importing or mutating nonce
+         coordinator state directly.
 3. [x] Use the same `SigningOperationContext` for budget reservation and nonce
-   lease creation.
+       lease creation.
    - [x] `NonceOperationContext` now extends `SigningOperationContext` and
-     requires the same canonical operation fingerprint used for budget
-     accounting.
+         requires the same canonical operation fingerprint used for budget
+         accounting.
    - [x] EVM-family budget helpers accept a transaction operation context
-     directly instead of separate `confirmationOperationId` and fingerprint
-     arguments.
+         directly instead of separate `confirmationOperationId` and fingerprint
+         arguments.
    - [x] Added a static guard that prevents the EVM-family budget helper from
-     reintroducing separate operation-id arguments.
+         reintroducing separate operation-id arguments.
 4. [x] Reserve wallet-session budget before threshold signing and release it on
-   every no-signature outcome.
+       every no-signature outcome.
    - [x] NEAR transaction signing releases coordinator nonce leases and records
-     zero spend when no threshold signature was created.
+         zero spend when no threshold signature was created.
    - [x] NEAR transaction signing records successful wallet-session spend when a
-     threshold signature exists, even if later cleanup fails.
+         threshold signature exists, even if later cleanup fails.
    - [x] EVM-family touch-confirm flows reserve wallet-session budget before
-     `executeSigningIntent` and release the reservation if no threshold
-     signature was created.
+         `executeSigningIntent` and release the reservation if no threshold
+         signature was created.
    - [x] EVM-family cancellation tests cover the no-signature path for both
-     Tempo and EVM Email OTP reauth without spending wallet budget.
+         Tempo and EVM Email OTP reauth without spending wallet budget.
 5. [x] Mark nonce leases signed immediately after threshold signature creation.
    - [x] NEAR transaction signing marks the TouchConfirm lease signed after the
-     threshold signer returns.
+         threshold signer returns.
    - [x] EVM-family signing records the same explicit signed transition instead
-     of jumping directly from reserved to broadcast lifecycle events.
+         of jumping directly from reserved to broadcast lifecycle events.
 6. [x] Update TouchConfirm success/defensive tests to attach `NonceCoordinator`
-   explicitly and require `SigningAuthPlan` on signing confirmation requests.
+       explicitly and require `SigningAuthPlan` on signing confirmation requests.
 7. [x] Ensure post-sign finalization consumes wallet-session budget before
-   broadcast status polling can hide errors.
+       broadcast status polling can hide errors.
    - [x] EVM-family touch-confirm flows return signed raw transactions only;
-     `transactionExecutor` consumes wallet-session budget before returning the
-     signed result to dispatch/finality polling callers.
+         `transactionExecutor` consumes wallet-session budget before returning the
+         signed result to dispatch/finality polling callers.
    - [x] Existing budget/nonce tests cover the post-sign broadcast-rejection
-     case: once a signature exists, budget is consumed exactly once and nonce
-     cleanup reconciles independently.
+         case: once a signature exists, budget is consumed exactly once and nonce
+         cleanup reconciles independently.
 8. [x] Make retry paths reuse the same operation id only when the operation
-   fingerprint matches.
+       fingerprint matches.
    - [x] Caller-provided operation ids are bound to canonical operation
-     fingerprints for NEAR and EVM-family signing requests.
+         fingerprints for NEAR and EVM-family signing requests.
    - [x] Added regression coverage for reusing the same operation id with the
-     same fingerprint and rejecting reuse with a different transaction payload.
+         same fingerprint and rejecting reuse with a different transaction payload.
 
 ### Phase 5. Browser Runtime Coordination
 
 1. [x] Use a same-origin coordination primitive for multi-tab nonce lanes
-   (`navigator.locks`, SharedWorker, or IndexedDB lease records).
+       (`navigator.locks`, SharedWorker, or IndexedDB lease records).
    - [x] `NonceCoordinator` uses `navigator.locks` when available and falls
-     back to the in-runtime lane lock when same-origin locks are unavailable.
+         back to the in-runtime lane lock when same-origin locks are unavailable.
 2. [x] Persist only redacted lease metadata required for recovery and
-   reconciliation. Do not persist signed transaction bytes unless a deliberate
-   retry queue is added.
+       reconciliation. Do not persist signed transaction bytes unless a deliberate
+       retry queue is added.
    - [x] EVM-family lanes persist only lane key, lease id, nonce, active lease
-     state, timestamps, and account id in same-origin storage. This lets a
-     second tab skip active reserved/signed/broadcast nonces without persisting
-     transaction bytes or secrets.
+         state, timestamps, and account id in same-origin storage. This lets a
+         second tab skip active reserved/signed/broadcast nonces without persisting
+         transaction bytes or secrets.
 3. [x] Expire abandoned reserved leases after a short TTL.
 4. [x] Expire signed-but-not-broadcast leases after a separate short TTL and
-   force lane reconciliation.
+       force lane reconciliation.
    - [x] `markSigned` now switches a lease to the shorter post-sign TTL.
    - [x] Signed EVM-family leases release their backend reservation and force
-     lane reconciliation when they expire before broadcast acceptance.
+         lane reconciliation when they expire before broadcast acceptance.
    - [x] Signed NEAR leases release local reservation state when they expire;
-     NEAR dropped/replaced detection remains chain-detector dependent.
+         NEAR dropped/replaced detection remains chain-detector dependent.
 5. [x] Clear all lane leases for an account on wallet lock, account switch, or
-   signer reset.
+       signer reset.
    - [x] Account-scoped reset clears EVM backend lanes, active NEAR access-key
-     context, and coordinator leases for that account.
+         context, and coordinator leases for that account.
    - [x] Wallet lock and `SigningEngine.destroy()` now call coordinator
-     `clearAll()` so EVM and NEAR lane state are reset together.
+         `clearAll()` so EVM and NEAR lane state are reset together.
 
 ### Phase 6. Remove Old Nonce Paths
 
 1. [x] Delete direct calls to EVM and NEAR nonce helpers from transaction
-   signing flows.
+       signing flows.
    - [x] Removed direct NEAR nonce pre-initialization from transaction,
-     delegate, and NEP-413 orchestration paths.
+         delegate, and NEP-413 orchestration paths.
    - [x] Removed direct no-lease NEAR transaction lifecycle cleanup fallbacks
-     from `sendTransaction`; coordinator-backed results now report coordinator
-     lifecycle, and externally managed results do not mutate local reservations.
+         from `sendTransaction`; coordinator-backed results now report coordinator
+         lifecycle, and externally managed results do not mutate local reservations.
    - [x] TouchConfirm NEAR context fetch now goes through coordinator
-     `fetchNearContext` / `reserveNearContext` methods.
+         `fetchNearContext` / `reserveNearContext` methods.
    - [x] Resource prewarm, wallet lock/reset, and registration lifecycle now
-     call coordinator NEAR access-key methods instead of the backend directly.
+         call coordinator NEAR access-key methods instead of the backend directly.
 2. [x] Keep chain-specific RPC fetchers as coordinator ports, not independent
-   nonce owners.
+       nonce owners.
    - [x] Coordinator deps now treat EVM nonce code as a fetch-only backend
-     port for chain-visible pending nonce reads.
+         port for chain-visible pending nonce reads.
    - [x] Rename the EVM coordinator port and implementation from manager
-     terminology to `EvmNonceBackend`.
+         terminology to `EvmNonceBackend`.
    - [x] Collapse the NEAR backend implementation into coordinator-local
-     context fetch, prewarm, reservation, release, and finalized-refresh
-     functions.
+         context fetch, prewarm, reservation, release, and finalized-refresh
+         functions.
    - [x] Replace dedicated NEAR backend tests with coordinator behavior tests.
 3. [x] Remove duplicate lifecycle helpers once coordinator transitions cover
-   accepted, rejected, finalized, dropped, and replaced outcomes.
+       accepted, rejected, finalized, dropped, and replaced outcomes.
    - [x] EVM-family helper code now remains only as the event/metric adapter
-     around coordinator transitions; transaction-facing nonce mutation is owned
-     by `NonceCoordinator`.
+         around coordinator transitions; transaction-facing nonce mutation is owned
+         by `NonceCoordinator`.
    - [x] Renamed the EVM-family lifecycle boundary to
-     `nonceLifecycleAdapter` and added a static guard that prevents EVM-family
-     signing code from calling lifecycle transitions outside the adapter or
-     coordinator.
+         `nonceLifecycleAdapter` and added a static guard that prevents EVM-family
+         signing code from calling lifecycle transitions outside the adapter or
+         coordinator.
 4. [x] Add static guards that transaction signing code cannot bypass
-   `NonceCoordinator` for managed nonce lanes.
+       `NonceCoordinator` for managed nonce lanes.
 5. [x] Update tests and docs to use "nonce coordinator" terminology.
 
 ### Phase 7. Observability And Runbooks
 
 1. [x] Add redacted metrics for lease age, stale in-flight lanes, dropped txs,
-   replacement detection, reconcile results, and release reasons.
+       replacement detection, reconcile results, and release reasons.
    - [x] Coordinator traces now include signed-lease expiry, lane
-     reconciliation, and lane-clear events.
+         reconciliation, and lane-clear events.
    - [x] Add aggregate metric emission for lease age and stale in-flight lanes
-     through `getDiagnostics({ emitMetrics: true })`.
+         through `getDiagnostics({ emitMetrics: true })`.
    - [x] Add redacted outcome counters for dropped/replaced detections,
-     reconcile reasons, release reasons, expiry reasons, and broadcast
-     rejections.
+         reconcile reasons, release reasons, expiry reasons, and broadcast
+         rejections.
 2. [x] Add a developer diagnostic view that shows nonce lane state beside wallet
-   signing-session budget state.
+       signing-session budget state.
    - [x] `NonceCoordinator.getDiagnostics()` exposes redacted lease counts,
-     lane counts, per-state counts, and active NEAR context state for a future
-     UI/debug panel.
+         lane counts, per-state counts, and active NEAR context state for a future
+         UI/debug panel.
    - [x] Wire diagnostics into the developer panel beside wallet-session budget
-     through `getWalletSession().nonceDiagnostics`.
+         through `getWalletSession().nonceDiagnostics`.
 3. [x] Document recovery steps for a stuck nonce lane:
-   reconcile lane, clear expired reserved leases, and retry signing.
+       reconcile lane, clear expired reserved leases, and retry signing.
    - [x] Added the recovery runbook below.
 4. [x] Add alerts for repeated dropped/replaced outcomes by chain and sender.
    - [x] `NonceCoordinator` emits a redacted `nonce_lane_alert` trace and a
-     `console.warn` when repeated dropped/replaced outcomes cross the configured
-     threshold for one EVM-family lane.
+         `console.warn` when repeated dropped/replaced outcomes cross the configured
+         threshold for one EVM-family lane.
 
 ### Phase 8. Durable Same-Origin Coordination Hardening
 
@@ -671,7 +668,7 @@ The storage invariant for this phase is strict:
 #### Phase 8.1. IndexedDB Same-Origin Lock/Store Abstraction
 
 1. [x] Add a coordinator storage port for same-origin nonce coordination:
-   `NonceLaneCoordinationStore`.
+       `NonceLaneCoordinationStore`.
    - Required operations:
      - read active leases by `laneKey`;
      - upsert a redacted lease record;
@@ -713,10 +710,10 @@ The storage invariant for this phase is strict:
    - `runtimeId`;
    - `fencingToken`.
 4. [x] Keep `navigator.locks` as the preferred lock when available, but make
-   IndexedDB the durable fallback. If both are unavailable, the coordinator may
-   use the existing in-runtime lock, but it must emit a degradation warning.
+       IndexedDB the durable fallback. If both are unavailable, the coordinator may
+       use the existing in-runtime lock, but it must emit a degradation warning.
 5. [x] Replace `NonceCoordinatorSameOriginLeaseStorePort`'s `localStorage`
-   implementation with the IndexedDB-backed store.
+       implementation with the IndexedDB-backed store.
 6. [x] Remove the old `localStorage` durable lease path entirely.
    - Development invariant: no legacy fallback, migration shim, or cleanup path
      remains in the coordinator or nonce coordination storage code.
@@ -742,9 +739,9 @@ The storage invariant for this phase is strict:
 #### Phase 8.2. Startup Recovery For EVM Signed/Broadcast Leases
 
 1. [x] Add a startup recovery method:
-   `NonceCoordinator.recoverDurableLeases({ accountId? })`.
+       `NonceCoordinator.recoverDurableLeases({ accountId? })`.
 2. [x] Run recovery during wallet iframe startup/unlock after IndexedDB is
-   initialized and before the first transaction signing attempt.
+       initialized and before the first transaction signing attempt.
 3. [x] Recovery rules for EVM-family durable leases:
    - expired `reserved`: remove the lease and free the local lane;
    - expired `signed`: remove the lease, force lane reconciliation, and log a
@@ -756,9 +753,9 @@ The storage invariant for this phase is strict:
    - disappeared pending tx hash, when known: mark dropped/replaced and
      reconcile.
 4. [x] Keep recovery idempotent. Running it repeatedly must not issue new
-   nonces, spend wallet-session budget, or rebroadcast transactions.
+       nonces, spend wallet-session budget, or rebroadcast transactions.
 5. [x] Do not persist raw signed tx bytes in this phase. Recovery is nonce-lane
-   cleanup and reconciliation, not a rebroadcast queue.
+       cleanup and reconciliation, not a rebroadcast queue.
 6. [x] Add tests for startup recovery:
    - signed-but-not-broadcast lease expires and reconciles;
    - broadcast-accepted lease survives restart and blocks duplicate nonce
@@ -778,19 +775,19 @@ The storage invariant for this phase is strict:
 #### Phase 8.3. NEAR Same-Origin Durable Leases
 
 1. [x] Extend the IndexedDB same-origin lease store to support NEAR lanes using
-   the same record shape and lock abstraction.
+       the same record shape and lock abstraction.
 2. [x] Use lane keys of the form:
-   `near:<networkKey>:<accountId>:<publicKey>`.
+       `near:<networkKey>:<accountId>:<publicKey>`.
 3. [x] Persist NEAR per-transaction child leases for batch reservations.
    - One NEAR confirmation flow may reserve a batch.
    - Each transaction nonce in that batch has its own lease id, state, nonce,
      `batchId`, and `txIndex`.
 4. [x] On `reserveNearContext`, read active durable NEAR leases and skip those
-   nonces when computing the next batch.
+       nonces when computing the next batch.
 5. [x] On release/finalize/expiry, update both the in-runtime NEAR reservation
-   set and the durable IndexedDB lease record in one serialized lane operation.
+       set and the durable IndexedDB lease record in one serialized lane operation.
 6. [x] On startup recovery, refresh the NEAR access-key nonce and prune durable
-   NEAR leases below or equal to the chain-visible access-key nonce.
+       NEAR leases below or equal to the chain-visible access-key nonce.
 7. [x] Add tests for:
    - two same-origin coordinators reserve non-overlapping NEAR batch nonces;
    - release recomputes highest reserved nonce across in-runtime and durable
@@ -807,7 +804,7 @@ The storage invariant for this phase is strict:
    - delegate and NEP-413 confirmation paths cannot call transaction nonce
      reservation APIs.
 9. [x] Tighten those temporary guards after NEAR durable leases are fully
-   integrated.
+       integrated.
    - Keep only the stable ownership guard: NEAR transaction nonce allocation is
      coordinator-owned, and non-transaction confirmation flows do not reserve
      access-key transaction nonces.
@@ -819,8 +816,8 @@ runtime only needs to surface degradation when it changes the safety properties
 of nonce allocation.
 
 1. [x] Add a redacted `nonce_coordination_degraded` trace/warning when the
-   coordinator cannot acquire a same-origin lock or cannot access the durable
-   IndexedDB lease store.
+       coordinator cannot acquire a same-origin lock or cannot access the durable
+       IndexedDB lease store.
 2. [x] Include only actionable fields:
    - `reason`: `web_locks_unavailable`, `indexeddb_unavailable`,
      `durable_lock_timeout`, or `durable_store_error`;
@@ -829,11 +826,11 @@ of nonce allocation.
    - `accountId`, when known;
    - whether the coordinator is falling back to in-runtime locking.
 3. [x] Show the warning in developer diagnostics only when degraded mode is
-   active or was observed during the current runtime.
+       active or was observed during the current runtime.
 4. [x] Do not show normal implementation mode names such as `"web_locks"` or
-   `"indexeddb"` in user-facing status. Normal mode is not user-actionable.
+       `"indexeddb"` in user-facing status. Normal mode is not user-actionable.
 5. [x] Add tests that degraded warnings are emitted once per runtime/lane reason
-   and do not spam every reservation.
+       and do not spam every reservation.
 
 ## Stuck Nonce Lane Recovery Runbook
 
@@ -940,6 +937,102 @@ Implementation phases:
    lease for the lane under the lane lock.
 4. Add status tests for the six detector outcomes above using a fake NEAR RPC.
 5. Only after those semantics are covered, mark Phase 3 item 3 complete.
+
+## Phase 9. Split The Coordinator File Without Splitting Ownership
+
+`NonceCoordinator.ts` has become the single source of truth for nonce state, but
+the file now mixes public types, state-machine transitions, EVM lane behavior,
+NEAR lane behavior, durable storage, diagnostics, and alerting. Refactor the
+file into smaller modules while preserving the architecture invariant:
+transaction flows still talk to one `NonceCoordinator` boundary, and no
+chain-specific helper owns nonce state independently.
+
+This is a file-organization refactor, not a new nonce architecture. Do not
+reintroduce `EvmNonceManager`, `NearNonceManager`, or parallel classes. Use
+plain functions and small state structs owned by `createNonceCoordinator()`.
+
+The split must also stay compatible with the signing-session restore refactor.
+Nonce code may consume pure prepared operation identity types such as
+`SigningOperationContext`, `SigningOperationId`, and operation fingerprints, but
+it must not restore signing sessions, resolve signing lanes, read signing
+snapshots, or spend wallet-session budget. Once the signing-session plan's
+`prepareSigning(...)` boundary lands, transaction flows reserve nonce leases
+only after `prepareSigning(...)` has produced the prepared operation identity.
+Nonce reservation must use that prepared identity and must not trigger lane
+resolution, snapshot reads, sealed-session restore, or wallet-budget mutation.
+
+Public imports remain through one nonce boundary. Keep `NonceCoordinator.ts` as
+the public facade, or introduce a single `nonce/index.ts` facade, but do not make
+transaction/app code import split implementation modules directly. Split files
+are internal unless explicitly re-exported by that facade.
+
+### Phase 9 TODO
+
+1. [ ] Move public nonce types and high-impact `as const` objects into
+       `nonceTypes.ts`.
+   - Include lease states, durable lease states, trace event names,
+     dropped/replaced reasons, release reasons, degradation reasons, fallback
+     values, and NEAR detector outcome/reconcile reason names.
+   - Keep exported names stable so existing callers can continue importing from
+     the nonce package boundary.
+   - Do not make `nonceTypes.ts` the default public import target for app or
+     transaction code unless it is re-exported through the nonce facade.
+2. [ ] Move the lease reducer and active-state predicates into
+       `nonceLeaseState.ts`.
+   - Include `reduceNonceLeaseState`.
+   - Include predicates such as in-flight, active EVM lease, active NEAR lease,
+     and active durable coordination record.
+   - Keep illegal transitions fail-closed.
+3. [ ] Move lane key, lease id, batch id, managed-reservation conversion, and
+       lane normalization helpers into `nonceLaneKeys.ts`.
+   - Include EVM `ReserveNonceInput` to lane conversion.
+   - Include lease-to-managed-reservation conversion.
+   - Keep operation-id and operation-fingerprint binding unchanged.
+4. [ ] Move EVM-family lane behavior into `evmNonceLane.ts`.
+   - Include reserve, release, broadcast accepted, finalized,
+     dropped/replaced, reconcile, blocked-lane detection, and chain refresh
+     helpers.
+   - Keep `createNonceCoordinator()` as the owner of the EVM lane state map,
+     lane locks, durable lease writes, and lifecycle policy.
+   - Treat `evmNonceLane.ts` as reducer/port helpers that receive state and
+     ports from the coordinator.
+   - Do not let transaction flows import EVM lane helpers directly.
+5. [ ] Move NEAR lane behavior into `nearNonceLane.ts`.
+   - Include access-key context fetch/prefetch, batch reservation,
+     release/finalize cleanup, startup recovery pruning, and active-key state
+     helpers.
+   - Keep `createNonceCoordinator()` as the owner of NEAR active-key state, lane
+     locks, durable lease writes, and startup recovery state.
+   - Treat `nearNonceLane.ts` as reducer/port helpers that receive state and
+     ports from the coordinator.
+   - Keep delegate and NEP-413 confirmation paths out of transaction nonce
+     reservation APIs.
+6. [ ] Move diagnostics, metrics, degradation warnings, and dropped/replaced
+       alert helpers into `nonceDiagnostics.ts`.
+   - Keep emitted trace names and diagnostic shape stable.
+   - Keep normal implementation details out of user-facing diagnostics; surface
+     only degraded safety properties.
+7. [ ] Add or update static guards so transaction flows still cannot bypass
+       `NonceCoordinator`.
+   - Guards should reject transaction-flow imports of durable nonce storage,
+     EVM/NEAR lane helper internals, or direct nonce lease mutation helpers.
+   - Guards should reject app/transaction imports of split implementation
+     modules such as `evmNonceLane.ts`, `nearNonceLane.ts`,
+     `nonceLeaseState.ts`, and durable lease stores. Transaction code may use
+     only the nonce facade.
+   - Guards should reject nonce helper imports of signing-session restore,
+     snapshot-reader, sealed-session store, lane-resolution, or wallet-budget
+     mutation modules. The nonce package may import pure operation identity
+     types only.
+   - Guards should explicitly fail if nonce internals import
+     `session/restoreCoordinator`, `session/snapshotReader`,
+     `session/signingSession/budget`, sealed-session store mutation APIs, or
+     signing-session lane resolution helpers.
+   - Guards should reject nonce reservation paths that perform signing-session
+     restore, snapshot reads, lane resolution, or budget spending instead of
+     using an already prepared operation identity.
+   - Guards should allow `NonceCoordinator.ts` to compose the helper modules.
+   - Remove temporary guard exceptions once the split is complete.
 
 ## Acceptance Checks
 

@@ -23,6 +23,25 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/orchestration/thresholdActivation';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmSigning/types';
+import {
+  createSigningSessionRestoreCache,
+  restorePersistedSessionsForAccountCommand,
+  restorePersistedSessionForSigningCommand,
+  type RestorePersistedSessionsForAccountInput,
+  type RestorePersistedSessionsForAccountResult,
+  type RestorePersistedSessionForSigningInput,
+  type RestorePersistedSessionForSigningResult,
+  type RestoreSealedRecordForAccountResult,
+} from '@/core/signingEngine/session/restoreCoordinator';
+import {
+  readSigningSessionSnapshot,
+  warmStatusToSigningSessionSnapshotRuntimeClaim,
+  type ReadSigningSessionSnapshotInput,
+  type SigningSessionSnapshot,
+  type SigningSessionSnapshotRuntimeClaim,
+  type SigningSessionSnapshotRuntimeEd25519Record,
+  type SigningSessionSnapshotRuntimeEcdsaRecord,
+} from '@/core/signingEngine/session/snapshotReader';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import {
   buildEd25519SessionPolicy,
@@ -74,15 +93,18 @@ import type { ThresholdEcdsaSmartAccountBootstrapInput } from '@/core/signingEng
 import type { EmailOtpEnrollmentResult } from '@/core/TatchiPasskey/emailOtp';
 import {
   acquireSigningSessionRestoreLease,
-  deleteSigningSessionSealedRecord,
-  listSigningSessionSealedRecordsForAccount,
+  deleteExactSealedSession,
+  listExactSealedSessionsForAccount,
+  listResolvedIdentitiesForAccount,
+  publishResolvedIdentity,
   releaseSigningSessionRestoreLease,
-  readSigningSessionSealedRecord,
-  updateSigningSessionSealedRecordPolicy,
-  writeSigningSessionSealedRecord,
+  readExactSealedSession,
+  updateExactSealedSessionPolicy,
+  writeExactSealedSession,
+  type SigningSessionSealedRecordFilter,
   type SigningSessionRestoreLeaseHandle,
   type SigningSessionSealedStoreRecord,
-} from '@/core/signingEngine/api/session/signingSessionSealedStore';
+} from '@/core/signingEngine/session/sealedSessionStore';
 import {
   authLaneAppSessionJwt,
   authLaneToRouteAuth,
@@ -295,9 +317,9 @@ export type EmailOtpThresholdSessionCoordinatorDeps = {
       shamirPrimeB64u?: string;
     };
   }) => Promise<void>;
-  writeSigningSessionSealedRecord?: typeof writeSigningSessionSealedRecord;
-  readSigningSessionSealedRecord?: typeof readSigningSessionSealedRecord;
-  listSigningSessionSealedRecordsForAccount?: typeof listSigningSessionSealedRecordsForAccount;
+  writeExactSealedSession?: typeof writeExactSealedSession;
+  readExactSealedSession?: typeof readExactSealedSession;
+  listExactSealedSessionsForAccount?: typeof listExactSealedSessionsForAccount;
   acquireSigningSessionRestoreLease?: typeof acquireSigningSessionRestoreLease;
   releaseSigningSessionRestoreLease?: (
     lease: SigningSessionRestoreLeaseHandle | null | undefined,
@@ -311,8 +333,15 @@ export class EmailOtpThresholdSessionCoordinator {
   private sealedRefreshDiagnosticLogAtMsByKey: Map<string, number> = new Map();
   private ecdsaAccountSealedRestoreInFlightByKey: Map<string, Promise<void>> = new Map();
   private ecdsaAccountSealedRestoreCompletedKeys: Set<string> = new Set();
+  private ecdsaSigningRestoreCache = createSigningSessionRestoreCache();
 
   constructor(private readonly deps: EmailOtpThresholdSessionCoordinatorDeps) {}
+
+  private clearEcdsaRestoreCaches(): void {
+    this.ecdsaSigningRestoreCache.clear();
+    this.ecdsaAccountSealedRestoreCompletedKeys.clear();
+    this.ecdsaAccountSealedRestoreInFlightByKey.clear();
+  }
 
   private shouldLogSealedRefreshDiagnostic(key: string, nowMs = Date.now()): boolean {
     const normalizedKey = String(key || '').trim();
@@ -323,36 +352,97 @@ export class EmailOtpThresholdSessionCoordinator {
     return true;
   }
 
-  private async recordWarmSessionPolicyFromStatus(
+  private resolveEmailOtpEcdsaSealedRecordFilter(
     sessionId: string,
-    result: WarmSessionStatusResult | WarmSessionClaimResult,
-  ): Promise<void> {
+    explicitChain?: ThresholdEcdsaActivationChain,
+  ): SigningSessionSealedRecordFilter | null {
+    const chain =
+      explicitChain || getStoredThresholdEcdsaSessionRecordByThresholdSessionId(sessionId)?.chain;
+    if (chain !== 'tempo' && chain !== 'evm') return null;
+    return { authMethod: 'email_otp', curve: 'ecdsa', chain };
+  }
+
+  private async cleanupSigningSession(args: {
+    sessionId: string;
+    chain?: ThresholdEcdsaActivationChain;
+    reason:
+      | 'explicit_clear'
+      | 'expired'
+      | 'exhausted'
+      | 'invalid_persisted_record';
+  }): Promise<void> {
+    const sessionId = String(args.sessionId || '').trim();
+    if (!sessionId) return;
+    const filter = this.resolveEmailOtpEcdsaSealedRecordFilter(sessionId, args.chain);
+    if (filter) {
+      await deleteExactSealedSession(sessionId, filter).catch(() => undefined);
+    }
+    this.clearEcdsaRestoreCaches();
+  }
+
+  private async recordSessionPolicyResult(args: {
+    sessionId: string;
+    result: WarmSessionStatusResult | WarmSessionClaimResult;
+  }): Promise<void> {
+    const sessionId = String(args.sessionId || '').trim();
+    if (!sessionId) return;
+    const result = args.result;
     if (result.ok) {
       if (result.remainingUses <= 0 || Date.now() >= result.expiresAtMs) {
-        await deleteSigningSessionSealedRecord(sessionId, {
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-        }).catch(() => undefined);
+        await this.cleanupSigningSession({
+          sessionId,
+          reason: result.remainingUses <= 0 ? 'exhausted' : 'expired',
+        });
         return;
       }
-      await updateSigningSessionSealedRecordPolicy({
-        thresholdSessionId: sessionId,
-        filter: {
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-        },
-        expiresAtMs: result.expiresAtMs,
-        remainingUses: result.remainingUses,
-        updatedAtMs: Date.now(),
-      }).catch(() => undefined);
+      const filter = this.resolveEmailOtpEcdsaSealedRecordFilter(sessionId);
+      if (filter) {
+        await updateExactSealedSessionPolicy({
+          thresholdSessionId: sessionId,
+          filter,
+          expiresAtMs: result.expiresAtMs,
+          remainingUses: result.remainingUses,
+          updatedAtMs: Date.now(),
+        }).catch(() => undefined);
+      }
+      this.clearEcdsaRestoreCaches();
       return;
     }
     if (result.code === 'expired' || result.code === 'exhausted') {
-      await deleteSigningSessionSealedRecord(sessionId, {
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
-      }).catch(() => undefined);
+      await this.cleanupSigningSession({
+        sessionId,
+        reason: result.code,
+      });
     }
+  }
+
+  private async recordSessionMaterialClaimed(
+    sessionId: string,
+    result: WarmSessionClaimResult,
+  ): Promise<void> {
+    await this.recordSessionPolicyResult({ sessionId, result });
+  }
+
+  private async recordSessionUseConsumed(
+    sessionId: string,
+    result: WarmSessionStatusResult,
+  ): Promise<void> {
+    await this.recordSessionPolicyResult({ sessionId, result });
+  }
+
+  private async recordSessionMaterialRestored(
+    sessionId: string,
+    result: WarmSessionStatusResult,
+  ): Promise<void> {
+    await this.recordSessionPolicyResult({ sessionId, result });
+  }
+
+  private async registerSigningSession(
+    record: Parameters<typeof writeExactSealedSession>[0],
+  ): Promise<void> {
+    const writer = this.deps.writeExactSealedSession || writeExactSealedSession;
+    await writer(record);
+    this.clearEcdsaRestoreCaches();
   }
 
   private async tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
@@ -361,20 +451,27 @@ export class EmailOtpThresholdSessionCoordinator {
     if (this.deps.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return null;
     const requestedSessionId = String(sessionId || '').trim();
     if (!requestedSessionId) return null;
-    const reader = this.deps.readSigningSessionSealedRecord || readSigningSessionSealedRecord;
+    const reader = this.deps.readExactSealedSession || readExactSealedSession;
     const readEcdsaSealedRecord = async (
       thresholdSessionId: string,
-    ): Promise<SigningSessionSealedStoreRecord | null> =>
-      await reader(thresholdSessionId, {
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
-      }).catch((error) => {
-        console.warn('[EmailOtpSession] sealed refresh ECDSA read failed', {
-          thresholdSessionId,
-          error: error instanceof Error ? error.message : String(error || 'unknown error'),
+    ): Promise<SigningSessionSealedStoreRecord | null> => {
+      for (const chain of ['tempo', 'evm'] as const) {
+        const record = await reader(thresholdSessionId, {
+          authMethod: 'email_otp',
+          curve: 'ecdsa',
+          chain,
+        }).catch((error) => {
+          console.warn('[EmailOtpSession] sealed refresh ECDSA read failed', {
+            thresholdSessionId,
+            chain,
+            error: error instanceof Error ? error.message : String(error || 'unknown error'),
+          });
+          return null;
         });
-        return null;
-      });
+        if (record) return record;
+      }
+      return null;
+    };
     const readEd25519CompanionSealedRecord = async (
       thresholdSessionId: string,
     ): Promise<SigningSessionSealedStoreRecord | null> =>
@@ -418,31 +515,19 @@ export class EmailOtpThresholdSessionCoordinator {
     }
     if (!sealedRecord) return null;
     if (sealedRecord.remainingUses <= 0 || Date.now() >= sealedRecord.expiresAtMs) {
-      await deleteSigningSessionSealedRecord(thresholdSessionId, {
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
-      }).catch(() => undefined);
-      console.warn('[EmailOtpSession] sealed refresh record is no longer active', {
+      console.debug('[EmailOtpSession] sealed refresh restore deferred by durable policy hint', {
         thresholdSessionId,
         remainingUses: sealedRecord.remainingUses,
         expiresAtMs: sealedRecord.expiresAtMs,
       });
-      return {
-        ok: false,
-        code: sealedRecord.remainingUses <= 0 ? 'exhausted' : 'expired',
-        message: 'Email OTP sealed refresh material is no longer active',
-      };
+      return null;
     }
     if (
       sealedRecord.authMethod !== 'email_otp' ||
       sealedRecord.secretKind !== 'signing_session_secret32' ||
       sealedRecord.thresholdSessionIds.ecdsa !== thresholdSessionId
     ) {
-      await deleteSigningSessionSealedRecord(thresholdSessionId, {
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
-      }).catch(() => undefined);
-      console.warn('[EmailOtpSession] sealed refresh record metadata mismatch', {
+      console.warn('[EmailOtpSession] sealed refresh restore deferred by store metadata mismatch', {
         thresholdSessionId,
         authMethod: sealedRecord.authMethod,
         secretKind: sealedRecord.secretKind,
@@ -479,19 +564,20 @@ export class EmailOtpThresholdSessionCoordinator {
         ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
         ed25519Record.walletSigningSessionId !== sealedRecord.walletSigningSessionId)
     ) {
-      await deleteSigningSessionSealedRecord(thresholdSessionId, {
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
-      }).catch(() => undefined);
-      console.warn('[EmailOtpSession] sealed refresh Ed25519 companion metadata mismatch', {
-        thresholdSessionId,
-        sealedEd25519SessionId,
-        ed25519Source: ed25519Record?.source,
-        ed25519Retention: ed25519Record?.emailOtpAuthContext?.retention,
-        ed25519WalletSigningSessionId: ed25519Record?.walletSigningSessionId,
-        walletSigningSessionId: sealedRecord.walletSigningSessionId,
-      });
-      return null;
+      const diagnosticKey = `missing-ed25519-companion:${thresholdSessionId}:${sealedEd25519SessionId}`;
+      if (this.shouldLogSealedRefreshDiagnostic(diagnosticKey)) {
+        console.debug(
+          '[EmailOtpSession] sealed refresh restoring ECDSA without Ed25519 companion',
+          {
+            thresholdSessionId,
+            sealedEd25519SessionId,
+            ed25519Source: ed25519Record?.source,
+            ed25519Retention: ed25519Record?.emailOtpAuthContext?.retention,
+            ed25519WalletSigningSessionId: ed25519Record?.walletSigningSessionId,
+            walletSigningSessionId: sealedRecord.walletSigningSessionId,
+          },
+        );
+      }
     }
 
     const acquireLease =
@@ -502,6 +588,7 @@ export class EmailOtpThresholdSessionCoordinator {
       thresholdSessionId,
       authMethod: 'email_otp',
       curve: 'ecdsa',
+      chain: sealedRecord.ecdsaRestore?.chain as 'tempo' | 'evm',
     }).catch(() => null);
     if (!lease) {
       const diagnosticKey = `lease-unavailable:${thresholdSessionId}`;
@@ -513,11 +600,11 @@ export class EmailOtpThresholdSessionCoordinator {
       return null;
     }
     try {
-      console.info('[EmailOtpSession] sealed refresh restore started', {
+      console.debug('[EmailOtpSession] sealed refresh restore started', {
         thresholdSessionId,
         walletSigningSessionId: sealedRecord.walletSigningSessionId,
       });
-      const restored = await this.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord({
+      const restored = await this.restoreEcdsaSigningSessionMaterialFromSealedRecord({
         sealedRecord,
         ecdsaRecord,
         ...(ed25519Record ? { ed25519Record } : {}),
@@ -529,13 +616,9 @@ export class EmailOtpThresholdSessionCoordinator {
         return null;
       });
       if (!restored) {
-        await deleteSigningSessionSealedRecord(thresholdSessionId, {
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-        }).catch(() => undefined);
         return null;
       }
-      console.info('[EmailOtpSession] sealed refresh restore succeeded', {
+      console.debug('[EmailOtpSession] sealed refresh restore succeeded', {
         thresholdSessionId,
         remainingUses: restored.remainingUses,
         expiresAtMs: restored.expiresAtMs,
@@ -545,35 +628,23 @@ export class EmailOtpThresholdSessionCoordinator {
         remainingUses: restored.remainingUses,
         expiresAtMs: restored.expiresAtMs,
       };
-      await this.recordWarmSessionPolicyFromStatus(thresholdSessionId, result);
+      const chain = sealedRecord.ecdsaRestore?.chain;
+      const walletId = String(sealedRecord.walletId || sealedRecord.userId || '').trim();
+      if (walletId && (chain === 'tempo' || chain === 'evm')) {
+        publishResolvedIdentity({
+          walletId,
+          authMethod: 'email_otp',
+          curve: 'ecdsa',
+          chain,
+          walletSigningSessionId: sealedRecord.walletSigningSessionId,
+          thresholdSessionId,
+        });
+      }
+      await this.recordSessionMaterialRestored(thresholdSessionId, result);
       return result;
     } finally {
       await releaseLease(lease).catch(() => undefined);
     }
-  }
-
-  private async tryRestoreAfterWorkerStatusFailure(args: {
-    sessionId: string;
-    error: unknown;
-  }): Promise<WarmSessionStatusResult | null> {
-    if (this.deps.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return null;
-    if (!this.shouldAttemptEcdsaSealedRestoreForSessionId(args.sessionId)) return null;
-    console.warn('[EmailOtpSession] worker status read failed; attempting sealed refresh restore', {
-      thresholdSessionId: args.sessionId,
-      error: args.error instanceof Error ? args.error.message : String(args.error || 'unknown error'),
-    });
-    return await this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(args.sessionId).catch(
-      (restoreError) => {
-        console.warn('[EmailOtpSession] sealed refresh restore after worker failure threw', {
-          thresholdSessionId: args.sessionId,
-          error:
-            restoreError instanceof Error
-              ? restoreError.message
-              : String(restoreError || 'unknown error'),
-        });
-        return null;
-      },
-    );
   }
 
   private shouldAttemptEcdsaSealedRestoreForSessionId(sessionIdRaw: string): boolean {
@@ -590,78 +661,255 @@ export class EmailOtpThresholdSessionCoordinator {
     return true;
   }
 
-  async restoreEcdsaWarmSessionsFromSealedRecordsForAccount(
-    nearAccountId: AccountId | string,
-  ): Promise<void> {
-    if (this.deps.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return;
-    const accountId = String(toAccountId(nearAccountId) || '').trim();
-    if (!accountId) return;
+  async restorePersistedSessionsForAccount(
+    args: RestorePersistedSessionsForAccountInput,
+  ): Promise<RestorePersistedSessionsForAccountResult> {
+    if (this.deps.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') {
+      return { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
+    }
+    const accountId = String(toAccountId(args.walletId) || '').trim();
+    if (!accountId) {
+      return { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
+    }
     const listRecords =
-      this.deps.listSigningSessionSealedRecordsForAccount ||
-      listSigningSessionSealedRecordsForAccount;
-    const records = await listRecords({
-      accountId,
-      filter: {
-        authMethod: 'email_otp',
-        curve: 'ecdsa',
+      this.deps.listExactSealedSessionsForAccount ||
+      listExactSealedSessionsForAccount;
+
+    const result = await restorePersistedSessionsForAccountCommand(
+      {
+        ...args,
+        walletId: accountId,
       },
-    }).catch((error) => {
-      console.warn('[EmailOtpSession] account-scoped sealed ECDSA restore list failed', {
-        accountId,
-        error: error instanceof Error ? error.message : String(error || 'unknown error'),
-      });
-      return [];
-    });
-    if (!records.length) {
+      {
+        listExactSealedSessionsForAccount: ({ walletId: recordAccountId, ...filter }) =>
+          listRecords({
+            accountId: recordAccountId,
+            filter,
+          }),
+        restoreSealedRecordForAccount: (restoreArgs) =>
+          this.restoreEcdsaSealedRecordForAccount(restoreArgs),
+        cache: this.ecdsaSigningRestoreCache,
+        onListError: ({ accountId: failedAccountId, error }) => {
+          console.warn('[EmailOtpSession] account-scoped sealed ECDSA restore list failed', {
+            accountId: failedAccountId,
+            error: error instanceof Error ? error.message : String(error || 'unknown error'),
+          });
+        },
+      },
+    );
+    if (!result.listed) {
       const diagnosticKey = `account-sealed-ecdsa-empty:${accountId}`;
       if (this.shouldLogSealedRefreshDiagnostic(diagnosticKey)) {
         console.debug('[EmailOtpSession] no durable sealed ECDSA records for account restore', {
           accountId,
         });
       }
-      return;
     }
+    return result;
+  }
 
-    await Promise.all(
-      records.map(async (record) => {
-        const thresholdSessionId = String(record.thresholdSessionIds.ecdsa || '').trim();
-        if (!thresholdSessionId) return;
-        const restoreKey = `${accountId}:${record.walletSigningSessionId}:${thresholdSessionId}`;
-        if (this.ecdsaAccountSealedRestoreCompletedKeys.has(restoreKey)) return;
-        const existing =
-          this.deps.getThresholdEcdsaSessionRecordByThresholdSessionId?.(thresholdSessionId) ||
-          getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
-        if (existing?.source === 'email_otp') {
-          this.ecdsaAccountSealedRestoreCompletedKeys.add(restoreKey);
-          return;
-        }
-        const inFlight = this.ecdsaAccountSealedRestoreInFlightByKey.get(restoreKey);
-        if (inFlight) {
-          await inFlight;
-          return;
-        }
-        const task = this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(thresholdSessionId)
-          .then((restored) => {
-            if (restored?.ok) this.ecdsaAccountSealedRestoreCompletedKeys.add(restoreKey);
-          })
-          .catch((error) => {
-            console.warn('[EmailOtpSession] account-scoped sealed ECDSA restore failed', {
-              accountId,
-              thresholdSessionId,
-              walletSigningSessionId: record.walletSigningSessionId,
-              error: error instanceof Error ? error.message : String(error || 'unknown error'),
-            });
-          })
-          .finally(() => {
-            this.ecdsaAccountSealedRestoreInFlightByKey.delete(restoreKey);
+  async restorePersistedSessionForSigning(
+    args: RestorePersistedSessionForSigningInput,
+  ): Promise<RestorePersistedSessionForSigningResult> {
+    if (this.deps.configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') {
+      return { attempted: 0, restored: 0, deferred: 0 };
+    }
+    const accountId = String(toAccountId(args.walletId) || '').trim();
+    if (!accountId) return { attempted: 0, restored: 0, deferred: 0 };
+    const listRecords =
+      this.deps.listExactSealedSessionsForAccount ||
+      listExactSealedSessionsForAccount;
+
+    return await restorePersistedSessionForSigningCommand(
+      {
+        ...args,
+        walletId: accountId,
+      },
+      {
+        listExactSealedSessionsForAccount: ({ walletId: recordAccountId, ...filter }) => {
+          if (filter.curve === 'ecdsa' && (filter.chain !== 'tempo' && filter.chain !== 'evm')) {
+            return Promise.resolve([]);
+          }
+          return listRecords({
+            accountId: recordAccountId,
+            filter:
+              filter.curve === 'ecdsa'
+                ? { authMethod: filter.authMethod, curve: 'ecdsa', chain: filter.chain }
+                : { authMethod: filter.authMethod, curve: 'ed25519' },
           });
-        this.ecdsaAccountSealedRestoreInFlightByKey.set(restoreKey, task);
-        await task;
-      }),
+        },
+        restoreSealedRecordForAccount: (restoreArgs) =>
+          this.restoreEcdsaSealedRecordForAccount(restoreArgs),
+        cache: this.ecdsaSigningRestoreCache,
+        onListError: ({ accountId: failedAccountId, chain, reason, error }) => {
+          console.warn('[EmailOtpSession] signing-intent sealed ECDSA restore list failed', {
+            accountId: failedAccountId,
+            chain,
+            reason,
+            error: error instanceof Error ? error.message : String(error || 'unknown error'),
+          });
+        },
+      },
     );
   }
 
-  private async readWarmSessionStatusFromWorker(sessionId: string): Promise<WarmSessionStatusResult> {
+  async readPersistedSessionSnapshot(
+    args: ReadSigningSessionSnapshotInput,
+  ): Promise<SigningSessionSnapshot> {
+    const accountId = String(toAccountId(args.walletId) || '').trim();
+    const listRecords =
+      this.deps.configs.signing.sessionPersistenceMode === 'sealed_refresh_v1'
+        ? this.deps.listExactSealedSessionsForAccount ||
+          listExactSealedSessionsForAccount
+        : async () => [];
+
+    return await readSigningSessionSnapshot(
+      {
+        ...args,
+        walletId: accountId,
+      },
+      {
+        listSealedRecordsForAccount: async ({ accountId: recordAccountId, filter }) => {
+          const listByAuthMethod = async (authMethod: 'email_otp' | 'passkey') => {
+            if (filter.curve === 'ecdsa') {
+              return await listRecords({
+                accountId: recordAccountId,
+                filter: { authMethod, curve: 'ecdsa', chain: filter.chain },
+              });
+            }
+            return await listRecords({
+              accountId: recordAccountId,
+              filter: { authMethod, curve: 'ed25519' },
+            });
+          };
+          if (filter.authMethod) {
+            return await listByAuthMethod(filter.authMethod);
+          }
+          const [emailOtpRecords, passkeyRecords] = await Promise.all([
+            listByAuthMethod('email_otp'),
+            listByAuthMethod('passkey'),
+          ]);
+          return [...emailOtpRecords, ...passkeyRecords];
+        },
+        listRuntimeEcdsaRecordsForAccount: async ({ accountId: recordAccountId }) => {
+          const runtimeRecords: SigningSessionSnapshotRuntimeEcdsaRecord[] = [];
+          const seen = new Set<string>();
+          for (const chain of ['tempo', 'evm'] as const) {
+            for (const identity of listResolvedIdentitiesForAccount({
+              walletId: recordAccountId,
+              authMethod: 'email_otp',
+              curve: 'ecdsa',
+              chain,
+            })) {
+              const thresholdSessionId = String(identity.thresholdSessionId || '').trim();
+              if (!thresholdSessionId || seen.has(thresholdSessionId)) continue;
+              seen.add(thresholdSessionId);
+              runtimeRecords.push({
+                authMethod: 'email_otp',
+                curve: 'ecdsa',
+                chain,
+                thresholdSessionId,
+                walletSigningSessionId: identity.walletSigningSessionId,
+              });
+            }
+          }
+          return runtimeRecords;
+        },
+        listRuntimeEd25519RecordsForAccount: async ({ accountId: recordAccountId }) => {
+          const identity = listResolvedIdentitiesForAccount({
+            walletId: recordAccountId,
+            authMethod: 'email_otp',
+            curve: 'ed25519',
+          })[0];
+          if (identity) {
+            return [
+              {
+                authMethod: 'email_otp',
+                curve: 'ed25519',
+                chain: 'near',
+                thresholdSessionId: identity.thresholdSessionId,
+                walletSigningSessionId: identity.walletSigningSessionId,
+              },
+            ];
+          }
+          return [];
+        },
+        readRuntimeClaimsForSessions: async (sessionIds) => {
+          const claims = new Map<string, SigningSessionSnapshotRuntimeClaim | null>();
+          await Promise.all(
+            sessionIds.map(async (sessionId) => {
+              const status = await this.readWarmSessionStatusOnly(sessionId);
+              claims.set(
+                sessionId,
+                warmStatusToSigningSessionSnapshotRuntimeClaim({ sessionId, status }),
+              );
+            }),
+          );
+          return claims;
+        },
+      },
+    );
+  }
+
+  private async restoreEcdsaSealedRecordForAccount(args: {
+    accountId: string;
+    record: SigningSessionSealedStoreRecord;
+  }): Promise<RestoreSealedRecordForAccountResult> {
+    const thresholdSessionId = String(args.record.thresholdSessionIds.ecdsa || '').trim();
+    if (!thresholdSessionId) return 'deferred';
+    const restoreKey = [
+      args.accountId,
+      args.record.authMethod,
+      args.record.curve,
+      args.record.ecdsaRestore?.chain || 'unknown-chain',
+      args.record.walletSigningSessionId,
+      thresholdSessionId,
+    ].join(':');
+    if (this.ecdsaAccountSealedRestoreCompletedKeys.has(restoreKey)) return 'ready';
+    const existing =
+      this.deps.getThresholdEcdsaSessionRecordByThresholdSessionId?.(thresholdSessionId) ||
+      getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+    if (existing?.source === 'email_otp') {
+      const workerStatus = await this.readWarmSessionStatusFromWorker(thresholdSessionId).catch(
+        () => null,
+      );
+      if (workerStatus?.ok) {
+        this.ecdsaAccountSealedRestoreCompletedKeys.add(restoreKey);
+        return 'ready';
+      }
+    }
+    const inFlight = this.ecdsaAccountSealedRestoreInFlightByKey.get(restoreKey);
+    if (inFlight) {
+      await inFlight;
+      return this.ecdsaAccountSealedRestoreCompletedKeys.has(restoreKey) ? 'ready' : 'deferred';
+    }
+    let restoreResult: 'restored' | 'deferred' = 'deferred';
+    const task = this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(thresholdSessionId)
+      .then((restoredStatus) => {
+        if (restoredStatus?.ok) {
+          this.ecdsaAccountSealedRestoreCompletedKeys.add(restoreKey);
+          restoreResult = 'restored';
+        }
+      })
+      .catch((error) => {
+        console.warn('[EmailOtpSession] account-scoped sealed ECDSA restore failed', {
+          accountId: args.accountId,
+          thresholdSessionId,
+          walletSigningSessionId: args.record.walletSigningSessionId,
+          error: error instanceof Error ? error.message : String(error || 'unknown error'),
+        });
+      })
+      .finally(() => {
+        this.ecdsaAccountSealedRestoreInFlightByKey.delete(restoreKey);
+      });
+    this.ecdsaAccountSealedRestoreInFlightByKey.set(restoreKey, task);
+    await task;
+    return restoreResult;
+  }
+
+  private async readWarmSessionStatusFromWorker(
+    sessionId: string,
+  ): Promise<WarmSessionStatusResult> {
     return await this.deps.signerWorkerManager.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
@@ -670,6 +918,18 @@ export class EmailOtpThresholdSessionCoordinator {
         payload: { sessionId },
       },
     });
+  }
+
+  async readWarmSessionStatusOnly(sessionId: string): Promise<WarmSessionStatusResult> {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) {
+      return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
+    }
+    return await this.readWarmSessionStatusFromWorker(normalizedSessionId).catch((error) => ({
+      ok: false as const,
+      code: 'worker_error',
+      message: error instanceof Error ? error.message : String(error || 'Email OTP worker error'),
+    }));
   }
 
   private async claimWarmSessionMaterialFromWorker(args: {
@@ -706,42 +966,6 @@ export class EmailOtpThresholdSessionCoordinator {
     });
   }
 
-  async getWarmSessionStatus(sessionId: string): Promise<WarmSessionStatusResult> {
-    const normalizedSessionId = String(sessionId || '').trim();
-    if (!normalizedSessionId) {
-      return { ok: false, code: 'invalid_args', message: 'Missing sessionId' };
-    }
-    try {
-      const result = await this.readWarmSessionStatusFromWorker(normalizedSessionId);
-      if (result.ok) {
-        await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, result);
-        return result;
-      }
-      if (
-        result.code === 'not_found' &&
-        this.shouldAttemptEcdsaSealedRestoreForSessionId(normalizedSessionId)
-      ) {
-        const restored = await this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
-          normalizedSessionId,
-        );
-        if (restored) return restored;
-      }
-      await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, result);
-      return result;
-    } catch (error) {
-      const restored = await this.tryRestoreAfterWorkerStatusFailure({
-        sessionId: normalizedSessionId,
-        error,
-      });
-      if (restored) return restored;
-      return {
-        ok: false,
-        code: 'worker_error',
-        message: error instanceof Error ? error.message : String(error || 'Email OTP worker error'),
-      };
-    }
-  }
-
   async claimWarmSessionMaterial(args: {
     sessionId: string;
     uses?: number;
@@ -760,23 +984,22 @@ export class EmailOtpThresholdSessionCoordinator {
         result.code === 'not_found' &&
         this.shouldAttemptEcdsaSealedRestoreForSessionId(normalizedSessionId)
       ) {
-        const restored = await this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
-          normalizedSessionId,
-        );
+        const restored =
+          await this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(normalizedSessionId);
         if (restored?.ok) {
           const retry = await this.claimWarmSessionMaterialFromWorker({
             sessionId: normalizedSessionId,
             ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
           });
-          await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, retry);
+          await this.recordSessionMaterialClaimed(normalizedSessionId, retry);
           return retry;
         }
         if (restored) {
-          await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, restored);
+          await this.recordSessionMaterialRestored(normalizedSessionId, restored);
         }
         return result;
       }
-      await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, result);
+      await this.recordSessionMaterialClaimed(normalizedSessionId, result);
       return result;
     } catch (error) {
       return {
@@ -805,23 +1028,22 @@ export class EmailOtpThresholdSessionCoordinator {
         result.code === 'not_found' &&
         this.shouldAttemptEcdsaSealedRestoreForSessionId(normalizedSessionId)
       ) {
-        const restored = await this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(
-          normalizedSessionId,
-        );
+        const restored =
+          await this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(normalizedSessionId);
         if (restored?.ok) {
           const retry = await this.consumeWarmSessionUsesFromWorker({
             sessionId: normalizedSessionId,
             ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
           });
-          await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, retry);
+          await this.recordSessionUseConsumed(normalizedSessionId, retry);
           return retry;
         }
         if (restored) {
-          await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, restored);
+          await this.recordSessionMaterialRestored(normalizedSessionId, restored);
         }
         return result;
       }
-      await this.recordWarmSessionPolicyFromStatus(normalizedSessionId, result);
+      await this.recordSessionUseConsumed(normalizedSessionId, result);
       return result;
     } catch (error) {
       return {
@@ -845,10 +1067,10 @@ export class EmailOtpThresholdSessionCoordinator {
         },
       })
       .catch(() => undefined);
-    await deleteSigningSessionSealedRecord(normalizedSessionId, {
-      authMethod: 'email_otp',
-      curve: 'ecdsa',
-    }).catch(() => undefined);
+    await this.cleanupSigningSession({
+      sessionId: normalizedSessionId,
+      reason: 'explicit_clear',
+    });
   }
 
   rememberAppSessionJwt(args: { nearAccountId: AccountId | string; appSessionJwt?: string }): void {
@@ -1546,6 +1768,7 @@ export class EmailOtpThresholdSessionCoordinator {
         routeAuth: args.routeAuth,
         appSessionJwt: args.appSessionJwt,
         sessionKind,
+        thresholdSessionId: args.sessionId,
         walletSigningSessionId,
         curve: 'ecdsa',
         chain,
@@ -1881,8 +2104,7 @@ export class EmailOtpThresholdSessionCoordinator {
       throw new Error('Email OTP sealed refresh seal returned invalid persistence metadata');
     }
 
-    const writer = this.deps.writeSigningSessionSealedRecord || writeSigningSessionSealedRecord;
-    await writer({
+    await this.registerSigningSession({
       thresholdSessionId,
       sealedSecretB64u,
       curve: 'ecdsa',
@@ -1912,11 +2134,11 @@ export class EmailOtpThresholdSessionCoordinator {
       remainingUses,
       updatedAtMs: Date.now(),
     });
-
-    const reader = this.deps.readSigningSessionSealedRecord || readSigningSessionSealedRecord;
+    const reader = this.deps.readExactSealedSession || readExactSealedSession;
     const persisted = await reader(thresholdSessionId, {
       authMethod: 'email_otp',
       curve: 'ecdsa',
+      chain: args.chain,
     }).catch((error) => {
       const message = error instanceof Error ? error.message : String(error || 'unknown error');
       throw new Error(`Email OTP sealed refresh read-back failed: ${message}`);
@@ -1943,11 +2165,16 @@ export class EmailOtpThresholdSessionCoordinator {
     const ecdsaThresholdSessionId = String(args.ecdsaThresholdSessionId || '').trim();
     const ed25519ThresholdSessionId = String(args.ed25519ThresholdSessionId || '').trim();
     if (!ecdsaThresholdSessionId || !ed25519ThresholdSessionId) return;
-    const reader = this.deps.readSigningSessionSealedRecord || readSigningSessionSealedRecord;
-    const existing = await reader(ecdsaThresholdSessionId, {
-      authMethod: 'email_otp',
-      curve: 'ecdsa',
-    }).catch(() => null);
+    const reader = this.deps.readExactSealedSession || readExactSealedSession;
+    let existing: SigningSessionSealedStoreRecord | null = null;
+    for (const chain of ['tempo', 'evm'] as const) {
+      existing = await reader(ecdsaThresholdSessionId, {
+        authMethod: 'email_otp',
+        curve: 'ecdsa',
+        chain,
+      }).catch(() => null);
+      if (existing) break;
+    }
     if (!existing || existing.authMethod !== 'email_otp') return;
     const ed25519Record =
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(ed25519ThresholdSessionId);
@@ -1959,8 +2186,7 @@ export class EmailOtpThresholdSessionCoordinator {
     ) {
       return;
     }
-    const writer = this.deps.writeSigningSessionSealedRecord || writeSigningSessionSealedRecord;
-    await writer({
+    await this.registerSigningSession({
       thresholdSessionId: ecdsaThresholdSessionId,
       sealedSecretB64u: existing.sealedSecretB64u,
       curve: existing.curve || 'ecdsa',
@@ -1985,7 +2211,7 @@ export class EmailOtpThresholdSessionCoordinator {
     });
   }
 
-  async rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord(args: {
+  private async restoreEcdsaSigningSessionMaterialFromSealedRecord(args: {
     sealedRecord: SigningSessionSealedStoreRecord;
     ecdsaRecord?: ThresholdEcdsaSessionRecord | null;
     ed25519Record?: ThresholdEd25519SessionRecord | null;
@@ -2004,7 +2230,8 @@ export class EmailOtpThresholdSessionCoordinator {
     }
     if (ecdsaRecord && ecdsaRecord.source !== 'email_otp') return null;
     const emailOtpAuthContext =
-      ecdsaRecord?.emailOtpAuthContext || ({
+      ecdsaRecord?.emailOtpAuthContext ||
+      ({
         policy: 'session',
         retention: 'session',
         reason: 'login',

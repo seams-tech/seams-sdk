@@ -948,6 +948,48 @@ const THRESHOLD_ECDSA_LOGIN_METADATA_CHAINS: ReadonlyArray<'tempo' | 'evm'> = [
   'tempo',
   'evm',
 ];
+const walletSessionInitRestoreByAccount = new Map<string, Promise<void>>();
+
+async function restorePersistedSessionsForWalletSessionInit(
+  context: PasskeyManagerContext,
+  nearAccountId: AccountId | string,
+): Promise<void> {
+  const accountId = String(nearAccountId || '').trim();
+  if (!accountId) return;
+  const existing = walletSessionInitRestoreByAccount.get(accountId);
+  if (existing) {
+    await existing;
+    return;
+  }
+  const restorePromise = (async () => {
+    const signingEngine = context.signingEngine as typeof context.signingEngine & {
+      restorePersistedSessionsForAccount?: typeof context.signingEngine.restorePersistedSessionsForAccount;
+      readPersistedSigningSessionSnapshot?: typeof context.signingEngine.readPersistedSigningSessionSnapshot;
+    };
+    if (
+      typeof signingEngine.restorePersistedSessionsForAccount !== 'function' ||
+      typeof signingEngine.readPersistedSigningSessionSnapshot !== 'function'
+    ) {
+      return;
+    }
+    // Startup/session polling is a command boundary: restore durable material once,
+    // then consume the side-effect-free snapshot path before status readers run.
+    await signingEngine.restorePersistedSessionsForAccount({
+      walletId: accountId,
+      maxRecords: 12,
+    });
+    await signingEngine.readPersistedSigningSessionSnapshot({
+      walletId: accountId,
+    });
+  })().catch((error: unknown) => {
+    console.warn('[WalletSession] persisted signing-session init restore failed', {
+      accountId,
+      error: error instanceof Error ? error.message : String(error || 'unknown error'),
+    });
+  });
+  walletSessionInitRestoreByAccount.set(accountId, restorePromise);
+  await restorePromise;
+}
 const THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES: readonly ThresholdEcdsaSessionStoreSource[] = [
   'email_otp',
   'login',
@@ -1242,6 +1284,8 @@ async function getLoginStateInternal(
         thresholdEcdsaPublicKeyB64u: null,
       };
     }
+
+    await restorePersistedSessionsForWalletSessionInit(context, targetAccountId);
 
     const latestByAccount =
       lastUser && lastUser.nearAccountId === targetAccountId

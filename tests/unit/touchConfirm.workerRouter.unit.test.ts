@@ -5,7 +5,7 @@ const IMPORT_PATHS = {
   touchConfirmManager: '/sdk/esm/core/signingEngine/touchConfirm/TouchConfirmManager.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
-  signingSessionSealedStore: '/sdk/esm/core/signingEngine/api/session/signingSessionSealedStore.js',
+  sealedSessionStore: '/sdk/esm/core/signingEngine/session/sealedSessionStore.js',
 } as const;
 
 test.describe('UserConfirm worker router', () => {
@@ -434,7 +434,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -482,7 +482,7 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.clearAllSealedSessions();
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
@@ -556,11 +556,11 @@ test.describe('UserConfirm worker router', () => {
     });
   });
 
-  test('sealed mode status read rehydrates on worker cache miss', async ({ page }) => {
+  test('sealed mode restores only through explicit signing restore command', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -608,12 +608,21 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
-        await sealedStoreMod.writeSigningSessionSealedRecord({
+        await sealedStoreMod.clearAllSealedSessions();
+        await sealedStoreMod.writeExactSealedSession({
+          walletId: 'account.testnet',
           thresholdSessionId: 'session-rehydrate',
           walletSigningSessionId: 'wallet-session-rehydrate',
           curve: 'ecdsa',
           authMethod: 'passkey',
+          ecdsaRestore: {
+            chain: 'tempo',
+            thresholdSessionJwt: 'jwt-session',
+            sessionKind: 'jwt',
+            ecdsaThresholdKeyId: 'ecdsa-key',
+            relayerKeyId: 'relayer-key',
+            participantIds: [1, 2, 3],
+          },
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v2',
           expiresAtMs: Date.now() + 60_000,
@@ -631,22 +640,17 @@ test.describe('UserConfirm worker router', () => {
           shamirPrimeB64u: 'AQAB',
         });
 
-        const statusPromise = manager.getWarmSessionStatus({
-          sessionId: 'session-rehydrate',
+        const restorePromise = manager.restorePersistedSessionForSigning({
+          walletId: 'account.testnet',
+          authMethod: 'passkey',
+          curve: 'ecdsa',
+          chain: 'tempo',
+          walletSigningSessionId: 'wallet-session-rehydrate',
+          thresholdSessionId: 'session-rehydrate',
+          reason: 'transaction',
         });
 
-        const firstStatusRead = await waitForPosted(0);
-        emitMessage({
-          id: firstStatusRead?.id,
-          success: true,
-          data: {
-            ok: false,
-            code: 'not_found',
-            message: 'Warm-session material is not available for threshold session',
-          },
-        });
-
-        const rehydrate = await waitForPosted(1);
+        const rehydrate = await waitForPosted(0);
         emitMessage({
           id: rehydrate?.id,
           success: true,
@@ -657,9 +661,9 @@ test.describe('UserConfirm worker router', () => {
           },
         });
 
-        const secondStatusRead = await waitForPosted(2);
+        const restoredStatusRead = await waitForPosted(1);
         emitMessage({
-          id: secondStatusRead?.id,
+          id: restoredStatusRead?.id,
           success: true,
           data: {
             ok: true,
@@ -668,14 +672,29 @@ test.describe('UserConfirm worker router', () => {
           },
         });
 
+        const restoreResult = await restorePromise;
+        const statusPromise = manager.getWarmSessionStatus({
+          sessionId: 'session-rehydrate',
+        });
+        const statusRead = await waitForPosted(2);
+        emitMessage({
+          id: statusRead?.id,
+          success: true,
+          data: {
+            ok: true,
+            remainingUses: 8,
+            expiresAtMs: Date.now() + 45_000,
+          },
+        });
         const statusResult = await statusPromise;
-        const persisted = await sealedStoreMod.readSigningSessionSealedRecord(
+        const persisted = await sealedStoreMod.readExactSealedSession(
           'session-rehydrate',
-          { authMethod: 'passkey', curve: 'ecdsa' },
+          { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' },
         );
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
+          restoreResult,
           statusResult,
           persistedPolicy: {
             remainingUses: persisted?.remainingUses,
@@ -686,10 +705,11 @@ test.describe('UserConfirm worker router', () => {
     );
 
     expect(result.postedTypes).toEqual([
-      'WARM_SESSION_STATUS_READ',
       'WARM_SESSION_REHYDRATE',
       'WARM_SESSION_STATUS_READ',
+      'WARM_SESSION_STATUS_READ',
     ]);
+    expect(result.restoreResult).toEqual({ attempted: 1, restored: 1, deferred: 0 });
     expect(result.statusResult.ok).toBe(true);
     expect(result.statusResult.remainingUses).toBe(8);
     expect(result.persistedPolicy.remainingUses).toBe(8);
@@ -702,7 +722,7 @@ test.describe('UserConfirm worker router', () => {
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -733,7 +753,7 @@ test.describe('UserConfirm worker router', () => {
           updatedAtMs: Date.now(),
           source: 'login',
         });
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.clearAllSealedSessions();
 
         const listeners: Record<'message' | 'error', Array<(event: any) => void>> = {
           message: [],
@@ -809,7 +829,7 @@ test.describe('UserConfirm worker router', () => {
           postedTypes: postedMessages.map((entry) => entry?.type),
           sealPayload: postedMessages[1]?.payload || null,
           persistedRecord:
-            await sealedStoreMod.readSigningSessionSealedRecord('session-from-record', {
+            await sealedStoreMod.readExactSealedSession('session-from-record', {
               authMethod: 'passkey',
               curve: 'ed25519',
             }),
@@ -843,13 +863,13 @@ test.describe('UserConfirm worker router', () => {
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
         const sessionStoreMod = await import(paths.thresholdSessionStore);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const deps = {
           recordsByLane: new Map<string, unknown>(),
           exportArtifactsByLane: new Map<string, unknown>(),
         };
         sessionStoreMod.clearAllThresholdEcdsaSessionRecords(deps);
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.clearAllSealedSessions();
         sessionStoreMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
           nearAccountId: 'alice.testnet',
           chain: 'evm',
@@ -988,9 +1008,10 @@ test.describe('UserConfirm worker router', () => {
           postedTypes: postedMessages.map((entry) => entry?.type),
           sealPayload: postedMessages[1]?.payload || null,
           persistedRecord:
-            await sealedStoreMod.readSigningSessionSealedRecord('session-ecdsa-record', {
+            await sealedStoreMod.readExactSealedSession('session-ecdsa-record', {
               authMethod: 'passkey',
               curve: 'ecdsa',
+              chain: 'evm',
             }),
         };
       },
@@ -1021,7 +1042,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -1072,11 +1093,11 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).worker = fakeWorker;
         (manager as any).attachWorkerRouter(fakeWorker);
 
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.clearAllSealedSessions();
         const p1 = manager.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-single-flight-apply',
           transport: {
-            curve: 'ecdsa',
+            curve: 'ed25519',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-single-flight-apply',
             thresholdSessionJwt: 'jwt-session',
@@ -1087,7 +1108,7 @@ test.describe('UserConfirm worker router', () => {
         const p2 = manager.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-single-flight-apply',
           transport: {
-            curve: 'ecdsa',
+            curve: 'ed25519',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-single-flight-apply',
             thresholdSessionJwt: 'jwt-session',
@@ -1130,7 +1151,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const baseConfig = {
           signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
         };
@@ -1195,7 +1216,7 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
+        await sealedStoreMod.clearAllSealedSessions();
         (managerA as any).worker = workerA;
         (managerA as any).attachWorkerRouter(workerA);
         (managerB as any).worker = workerB;
@@ -1204,7 +1225,7 @@ test.describe('UserConfirm worker router', () => {
         const p1 = managerA.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-cross-manager-apply',
           transport: {
-            curve: 'ecdsa',
+            curve: 'ed25519',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-cross-manager-apply',
             thresholdSessionJwt: 'jwt-session',
@@ -1215,7 +1236,7 @@ test.describe('UserConfirm worker router', () => {
         const p2 = managerB.persistSigningSessionSealForThresholdSession({
           sessionId: 'session-cross-manager-apply',
           transport: {
-            curve: 'ecdsa',
+            curve: 'ed25519',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-cross-manager-apply',
             thresholdSessionJwt: 'jwt-session',
@@ -1254,13 +1275,13 @@ test.describe('UserConfirm worker router', () => {
     expect(result.r1.ok).toBe(true);
   });
 
-  test('sealed mode dedupes concurrent rehydrate on cache miss (remove-server-seal single-flight)', async ({
+  test('sealed mode dedupes concurrent explicit restores (remove-server-seal single-flight)', async ({
     page,
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -1308,12 +1329,21 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
-        await sealedStoreMod.writeSigningSessionSealedRecord({
+        await sealedStoreMod.clearAllSealedSessions();
+        await sealedStoreMod.writeExactSealedSession({
+          walletId: 'account.testnet',
           thresholdSessionId: 'session-single-flight-remove',
           walletSigningSessionId: 'wallet-session-single-flight-remove',
           curve: 'ecdsa',
           authMethod: 'passkey',
+          ecdsaRestore: {
+            chain: 'tempo',
+            thresholdSessionJwt: 'jwt-session',
+            sessionKind: 'jwt',
+            ecdsaThresholdKeyId: 'ecdsa-key',
+            relayerKeyId: 'relayer-key',
+            participantIds: [1, 2, 3],
+          },
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v1',
           expiresAtMs: Date.now() + 60_000,
@@ -1332,36 +1362,23 @@ test.describe('UserConfirm worker router', () => {
           keyVersion: 'kek-v1',
         });
 
-        const p1 = manager.getWarmSessionStatus({
-          sessionId: 'session-single-flight-remove',
+        const restoreInput = {
+          walletId: 'account.testnet',
+          authMethod: 'passkey' as const,
+          curve: 'ecdsa' as const,
+          chain: 'tempo' as const,
+          walletSigningSessionId: 'wallet-session-single-flight-remove',
+          thresholdSessionId: 'session-single-flight-remove',
+          reason: 'transaction' as const,
+        };
+        const p1 = manager.restorePersistedSessionForSigning({
+          ...restoreInput,
         });
-        const p2 = manager.getWarmSessionStatus({
-          sessionId: 'session-single-flight-remove',
-        });
-
-        const firstStatusRead = await waitForPosted(0);
-        const secondStatusRead = await waitForPosted(1);
-
-        emitMessage({
-          id: firstStatusRead?.id,
-          success: true,
-          data: {
-            ok: false,
-            code: 'not_found',
-            message: 'Warm-session material is not available for threshold session',
-          },
-        });
-        emitMessage({
-          id: secondStatusRead?.id,
-          success: true,
-          data: {
-            ok: false,
-            code: 'not_found',
-            message: 'Warm-session material is not available for threshold session',
-          },
+        const p2 = manager.restorePersistedSessionForSigning({
+          ...restoreInput,
         });
 
-        const rehydrate = await waitForPosted(2);
+        const rehydrate = await waitForPosted(0);
         emitMessage({
           id: rehydrate?.id,
           success: true,
@@ -1372,7 +1389,7 @@ test.describe('UserConfirm worker router', () => {
           },
         });
 
-        const finalPeek = await waitForPosted(3);
+        const finalPeek = await waitForPosted(1);
         emitMessage({
           id: finalPeek?.id,
           success: true,
@@ -1397,21 +1414,18 @@ test.describe('UserConfirm worker router', () => {
     );
 
     expect(result.rehydrateMessageCount).toBe(1);
-    expect(result.postedTypes).toEqual([
-      'WARM_SESSION_STATUS_READ',
-      'WARM_SESSION_STATUS_READ',
-      'WARM_SESSION_REHYDRATE',
-      'WARM_SESSION_STATUS_READ',
-    ]);
-    expect(result.r1).toEqual(result.r2);
-    expect(result.r1.ok).toBe(true);
+    expect(result.postedTypes).toEqual(['WARM_SESSION_REHYDRATE', 'WARM_SESSION_STATUS_READ']);
+    expect(result.r1.restored + result.r2.restored).toBe(1);
+    expect(result.r1.deferred + result.r2.deferred).toBe(0);
   });
 
-  test('sealed mode dedupes concurrent rehydrate across manager instances', async ({ page }) => {
+  test('sealed mode dedupes concurrent explicit restores across manager instances', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const baseConfig = {
           signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
         };
@@ -1476,12 +1490,21 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
-        await sealedStoreMod.writeSigningSessionSealedRecord({
+        await sealedStoreMod.clearAllSealedSessions();
+        await sealedStoreMod.writeExactSealedSession({
+          walletId: 'account.testnet',
           thresholdSessionId: 'session-cross-manager-remove',
           walletSigningSessionId: 'wallet-session-cross-manager-remove',
           curve: 'ecdsa',
           authMethod: 'passkey',
+          ecdsaRestore: {
+            chain: 'tempo',
+            thresholdSessionJwt: 'jwt-session',
+            sessionKind: 'jwt',
+            ecdsaThresholdKeyId: 'ecdsa-key',
+            relayerKeyId: 'relayer-key',
+            participantIds: [1, 2, 3],
+          },
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v1',
           expiresAtMs: Date.now() + 60_000,
@@ -1510,35 +1533,23 @@ test.describe('UserConfirm worker router', () => {
           keyVersion: 'kek-v1',
         });
 
-        const p1 = managerA.getWarmSessionStatus({
-          sessionId: 'session-cross-manager-remove',
+        const restoreInput = {
+          walletId: 'account.testnet',
+          authMethod: 'passkey' as const,
+          curve: 'ecdsa' as const,
+          chain: 'tempo' as const,
+          walletSigningSessionId: 'wallet-session-cross-manager-remove',
+          thresholdSessionId: 'session-cross-manager-remove',
+          reason: 'transaction' as const,
+        };
+        const p1 = managerA.restorePersistedSessionForSigning({
+          ...restoreInput,
         });
-        const p2 = managerB.getWarmSessionStatus({
-          sessionId: 'session-cross-manager-remove',
-        });
-
-        const firstStatusReadA = await waitForPosted(postedA, 0);
-        const firstStatusReadB = await waitForPosted(postedB, 0);
-        emitMessage(listenersA, workerA, {
-          id: firstStatusReadA?.id,
-          success: true,
-          data: {
-            ok: false,
-            code: 'not_found',
-            message: 'Warm-session material is not available for threshold session',
-          },
-        });
-        emitMessage(listenersB, workerB, {
-          id: firstStatusReadB?.id,
-          success: true,
-          data: {
-            ok: false,
-            code: 'not_found',
-            message: 'Warm-session material is not available for threshold session',
-          },
+        const p2 = managerB.restorePersistedSessionForSigning({
+          ...restoreInput,
         });
 
-        const rehydrateA = await waitForPosted(postedA, 1);
+        const rehydrateA = await waitForPosted(postedA, 0);
         emitMessage(listenersA, workerA, {
           id: rehydrateA?.id,
           success: true,
@@ -1549,7 +1560,7 @@ test.describe('UserConfirm worker router', () => {
           },
         });
 
-        const finalPeekA = await waitForPosted(postedA, 2);
+        const finalPeekA = await waitForPosted(postedA, 1);
         emitMessage(listenersA, workerA, {
           id: finalPeekA?.id,
           success: true,
@@ -1574,15 +1585,11 @@ test.describe('UserConfirm worker router', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.postedTypesA).toEqual([
-      'WARM_SESSION_STATUS_READ',
-      'WARM_SESSION_REHYDRATE',
-      'WARM_SESSION_STATUS_READ',
-    ]);
-    expect(result.postedTypesB).toEqual(['WARM_SESSION_STATUS_READ']);
+    expect(result.postedTypesA).toEqual(['WARM_SESSION_REHYDRATE', 'WARM_SESSION_STATUS_READ']);
+    expect(result.postedTypesB).toEqual([]);
     expect(result.totalRehydrateCount).toBe(1);
-    expect(result.r1).toEqual(result.r2);
-    expect(result.r1.ok).toBe(true);
+    expect(result.r1.restored + result.r2.restored).toBe(1);
+    expect(result.r1.deferred + result.r2.deferred).toBe(0);
   });
 
   test('non-sealed mode does not rehydrate from persisted record on cache miss', async ({
@@ -1591,7 +1598,7 @@ test.describe('UserConfirm worker router', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'none',
@@ -1639,12 +1646,20 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
-        await sealedStoreMod.writeSigningSessionSealedRecord({
+        await sealedStoreMod.clearAllSealedSessions();
+        await sealedStoreMod.writeExactSealedSession({
           thresholdSessionId: 'session-no-rehydrate',
           walletSigningSessionId: 'wallet-session-no-rehydrate',
           curve: 'ecdsa',
           authMethod: 'passkey',
+          ecdsaRestore: {
+            chain: 'tempo',
+            thresholdSessionJwt: 'jwt-session',
+            sessionKind: 'jwt',
+            ecdsaThresholdKeyId: 'ecdsa-key',
+            relayerKeyId: 'relayer-key',
+            participantIds: [1, 2, 3],
+          },
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v2',
           expiresAtMs: Date.now() + 60_000,
@@ -1769,11 +1784,13 @@ test.describe('UserConfirm worker router', () => {
     expect(result.postedTypes).toEqual([]);
   });
 
-  test('sealed mode fail-closes expired persisted record and deletes it', async ({ page }) => {
+  test('sealed mode deletes persisted record only after worker reports expired restore', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.touchConfirmManager);
-        const sealedStoreMod = await import(paths.signingSessionSealedStore);
+        const sealedStoreMod = await import(paths.sealedSessionStore);
         const manager = mod.createTouchConfirmManager(
           {
             signingSessionPersistenceMode: 'sealed_refresh_v1',
@@ -1821,12 +1838,21 @@ test.describe('UserConfirm worker router', () => {
           throw new Error(`No worker message posted at index ${index}`);
         };
 
-        await sealedStoreMod.clearAllSigningSessionSealedRecords();
-        await sealedStoreMod.writeSigningSessionSealedRecord({
+        await sealedStoreMod.clearAllSealedSessions();
+        await sealedStoreMod.writeExactSealedSession({
+          walletId: 'account.testnet',
           thresholdSessionId: 'session-expired',
           walletSigningSessionId: 'wallet-session-expired',
           curve: 'ecdsa',
           authMethod: 'passkey',
+          ecdsaRestore: {
+            chain: 'tempo',
+            thresholdSessionJwt: 'jwt-session',
+            sessionKind: 'jwt',
+            ecdsaThresholdKeyId: 'ecdsa-key',
+            relayerKeyId: 'relayer-key',
+            participantIds: [1, 2, 3],
+          },
           sealedSecretB64u: 'sealed-prf',
           keyVersion: 'kek-v2',
           expiresAtMs: Date.now() - 1_000,
@@ -1844,40 +1870,45 @@ test.describe('UserConfirm worker router', () => {
           shamirPrimeB64u: 'AQAB',
         });
 
-        const statusPromise = manager.getWarmSessionStatus({ sessionId: 'session-expired' });
-        const firstStatusRead = await waitForPosted(0);
+        const restorePromise = manager.restorePersistedSessionForSigning({
+          walletId: 'account.testnet',
+          authMethod: 'passkey',
+          curve: 'ecdsa',
+          chain: 'tempo',
+          walletSigningSessionId: 'wallet-session-expired',
+          thresholdSessionId: 'session-expired',
+          reason: 'transaction',
+        });
+        const rehydrate = await waitForPosted(0);
         emitMessage({
-          id: firstStatusRead?.id,
+          id: rehydrate?.id,
           success: true,
           data: {
             ok: false,
-            code: 'not_found',
-            message: 'Warm-session material is not available for threshold session',
+            code: 'expired',
+            message: 'Warm-session material expired for threshold session',
           },
         });
-        const statusResult = await statusPromise;
+        const restoreResult = await restorePromise;
         await new Promise((resolve) => setTimeout(resolve, 5));
         const persistedAfter =
-          await sealedStoreMod.readSigningSessionSealedRecord('session-expired', {
+          await sealedStoreMod.readExactSealedSession('session-expired', {
             authMethod: 'passkey',
             curve: 'ecdsa',
+            chain: 'tempo',
           });
 
         return {
           postedTypes: postedMessages.map((entry) => entry?.type),
-          statusResult,
+          restoreResult,
           persistedAfter,
         };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.postedTypes).toEqual(['WARM_SESSION_STATUS_READ']);
-    expect(result.statusResult).toEqual({
-      ok: false,
-      code: 'expired',
-      message: 'Warm-session material expired for threshold session',
-    });
+    expect(result.postedTypes).toEqual(['WARM_SESSION_REHYDRATE']);
+    expect(result.restoreResult).toEqual({ attempted: 1, restored: 0, deferred: 1 });
     expect(result.persistedAfter).toBeNull();
   });
 

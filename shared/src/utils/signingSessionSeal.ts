@@ -4,7 +4,7 @@ export const SIGNING_SESSION_SEAL_STORAGE_SCOPE = 'iframe_origin_indexeddb' as c
 export const SIGNING_SESSION_SECRET_KIND = 'signing_session_secret32' as const;
 
 export const SIGNING_SESSION_SEAL_DB_NAME = 'tatchi_wallet_v1' as const;
-export const SIGNING_SESSION_SEAL_DB_VERSION = 3 as const;
+export const SIGNING_SESSION_SEAL_DB_VERSION = 4 as const;
 export const SIGNING_SESSION_SEAL_STORE_NAME = 'signing_session_seals_v1' as const;
 export const SIGNING_SESSION_RESTORE_LEASE_STORE_NAME =
   'signing_session_restore_leases_v1' as const;

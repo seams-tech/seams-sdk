@@ -24,6 +24,7 @@ export async function claimWarmSessionPrfFirst(args: {
   thresholdSessionId: string;
   errorContext: string;
   uses?: number;
+  restoreBeforeClaim?: () => Promise<void>;
 }): Promise<string> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   const errorContext = String(args.errorContext || 'threshold session operation').trim();
@@ -36,10 +37,14 @@ export async function claimWarmSessionPrfFirst(args: {
 
   const readDiagnosticClaimCode = async (): Promise<string | undefined> => {
     if (typeof args.touchConfirm?.getWarmSessionStatus !== 'function') return undefined;
-    const status = await args.touchConfirm.getWarmSessionStatus({ sessionId: thresholdSessionId }).catch(() => null);
+    const status = await args.touchConfirm
+      .getWarmSessionStatus({ sessionId: thresholdSessionId })
+      .catch(() => null);
     if (!status || status.ok) return undefined;
     return status.code === 'not_found' ? 'missing' : String(status.code || '').trim() || undefined;
   };
+
+  await args.restoreBeforeClaim?.();
 
   const claimedMaterial = await args.touchConfirm.claimWarmSessionMaterial({
     sessionId: thresholdSessionId,
@@ -131,10 +136,6 @@ export async function ensureEcdsaPrfSealPersisted(args: {
           );
         }
         if (persisted.ok) return;
-      }
-
-      if (typeof args.touchConfirm?.getWarmSessionStatus === 'function') {
-        await args.touchConfirm.getWarmSessionStatus({ sessionId: thresholdSessionId }).catch(() => undefined);
       }
     })();
     args.sealPersistInFlightBySessionId.set(thresholdSessionId, persistPromise);

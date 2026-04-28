@@ -240,6 +240,11 @@ export async function signDelegateAction({
           thresholdSessionId: thresholdAuthPlan.sessionId,
           uses: usesNeeded,
           errorContext: 'threshold-ed25519 delegate signing',
+          walletId: nearAccountId,
+          authMethod: thresholdAuthPlan.lane.authMethod,
+          curve: 'ed25519',
+          chain: 'near',
+          walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
         })
       : requirePrfFirstFromCredential(credentialWithPrf)
     : requirePrfFirstFromCredential(credentialWithPrf);

@@ -1,14 +1,8 @@
-import type { AccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
 import type { WarmSessionStatusResult } from '../../touchConfirm';
 import {
-  createWarmSessionCapabilityResolver,
-  type WarmSessionCapabilityResolverDeps,
-} from './capabilityResolver';
-import {
-  createWarmSessionSealedRefreshRestorer,
-  type WarmSessionSealedRefreshRestorerDeps,
-} from './sealedRefreshRestorer';
+  createWarmSessionCapabilityReaderCore,
+  type WarmSessionCapabilityReaderCoreDeps,
+} from './capabilityReaderCore';
 import {
   createWarmSessionStatusReader,
   type WarmSessionStatusReaderDeps,
@@ -16,23 +10,11 @@ import {
 import type { WarmSessionCapabilityReader } from './types';
 
 export type WarmSessionCapabilityReaderFactoryDeps = Pick<
-  WarmSessionCapabilityResolverDeps,
-  'touchConfirm' | 'signingSessionSeal' | 'attemptSealedRestore'
+  WarmSessionCapabilityReaderCoreDeps,
+  'touchConfirm' | 'signingSessionSeal'
 > &
-  Omit<WarmSessionStatusReaderDeps, 'getEmailOtpWarmSessionStatus'> &
-  Pick<
-    WarmSessionSealedRefreshRestorerDeps,
-    | 'signingSessionSealedStore'
-    | 'rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord'
-    | 'onSealedRestore'
-  > & {
+  Omit<WarmSessionStatusReaderDeps, 'getEmailOtpWarmSessionStatus'> & {
     getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-    clearEcdsaEphemeralMaterial?: (args: {
-      nearAccountId: AccountId;
-      chain: ThresholdEcdsaActivationChain;
-      thresholdSessionId?: string;
-      source?: 'email_otp';
-    }) => Promise<void>;
   };
 
 export function createWarmSessionCapabilityReader(
@@ -56,23 +38,9 @@ export function createWarmSessionCapabilityReader(
     getEmailOtpWarmSessionStatus,
     listThresholdEcdsaSessionRecordsForLookup: deps.listThresholdEcdsaSessionRecordsForLookup,
   });
-  const sealedRefreshRestorer = createWarmSessionSealedRefreshRestorer({
-    signingSessionSealedStore: deps.signingSessionSealedStore,
-    rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord:
-      deps.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord,
-    getEmailOtpWarmSessionStatus,
-    clearEcdsaEphemeralMaterial:
-      deps.clearEcdsaEphemeralMaterial ||
-      (async () => {
-        return;
-      }),
-    onSealedRestore: deps.onSealedRestore,
-  });
-  return createWarmSessionCapabilityResolver({
+  return createWarmSessionCapabilityReaderCore({
     touchConfirm: deps.touchConfirm,
-    attemptSealedRestore: deps.attemptSealedRestore,
     statusReader,
-    sealedRefreshRestorer,
     signingSessionSeal: deps.signingSessionSeal,
   });
 }

@@ -14,39 +14,67 @@ The architecture should make these invariants explicit:
 3. Operation identity is separate from lane identity.
 4. No auth side effect starts before the tx confirmer owns the flow.
 5. Budget accounting uses the confirmed operation id, not a pre-confirm planner artifact.
+6. Sealed-refresh restore is a write-side operation, not a read-side side
+   effect. Status, snapshot, capability, budget, and lane-resolution reads must
+   not unseal, bootstrap, call server seal endpoints, or mutate durable restore
+   state.
+
+The restore refactor plan lives in
+[`docs/signing-session-restore-refactor.md`](signing-session-restore-refactor.md).
+It is now archival. The restore migration is complete; this document is the
+current architecture spec for signing-session restore and transaction lane
+selection.
 
 ## Current Flow
 
-`SigningSessionCoordinator` is the chain-facing transaction signing boundary. It
-resolves or receives the selected lane, reads warm-session readiness, calls the
-pure planner, drives the execution machine, delegates side effects to executors,
-and finalizes budget plus cleanup.
+Transaction signing uses prepared identity boundaries. Each command-side flow
+restores durable sealed material before lane selection, reads a side-effect-free
+snapshot, resolves one concrete lane, and carries that prepared identity through
+auth, budget, signing, finalization, and cleanup.
+
+The lane-resolution entrypoints are:
+
+1. Tempo and ARC/EVM ECDSA transaction signing:
+   `prepareEvmFamilyEcdsaSigningSession(...)`.
+2. NEAR Ed25519 transaction signing:
+   `prepareNearEd25519TransactionSigningSession(...)`.
+3. ECDSA key export:
+   exact-purpose restore with `reason: 'export'` before local metadata
+   selection.
+
+There is no read-side restore path. Wallet-session status polling, snapshot
+composition, budget reads, and capability reads cannot unseal, call server-seal
+endpoints, or mutate durable restore state.
 
 ```ts
-const laneResult = await signingSessionCoordinator.resolveLane(operationRequest);
-if (laneResult.kind === 'blocked') return laneResult;
+const prepared = await prepareEvmFamilyEcdsaSigningSession({
+  deps,
+  nearAccountId,
+  chain,
+  diagnostics,
+});
 
-const readiness = await signingSessionCoordinator.readWarmSessionReadiness(laneResult.lane);
-const plan = signingSessionCoordinator.plan({
-  lane: laneResult.lane,
+const readiness = await readReadinessForPreparedLane(prepared.signingLane);
+const { signingSessionPlan } = await signingSessionCoordinator.resolveAuthPlanFromReadiness({
+  lane: prepared.signingLane,
   readiness,
   forceFreshAuth,
-  sensitiveOperationPolicy,
 });
 
 const machine = signingSessionCoordinator.createExecutionMachine({
-  plan,
+  plan: signingSessionPlan,
   operation: operationContext,
 });
 
-const result = await signingSessionCoordinator.execute({
-  machine,
-  operationContext,
+const result = await executeSigning({
+  plan: signingSessionPlan,
+  operation: operationContext,
+  prepared,
 });
 
 await signingSessionCoordinator.finalize({
-  lane: laneResult.lane,
-  plan,
+  lane: prepared.signingLane,
+  plan: signingSessionPlan,
   result,
   operationContext,
 });
@@ -81,7 +109,7 @@ type SigningLaneContext = {
   keyKind: 'threshold_ed25519' | 'threshold_ecdsa_secp256k1' | 'webauthn_p256';
   chainFamily: 'near' | 'tempo' | 'evm';
   walletSigningSessionId: WalletSigningSessionId;
-  thresholdSessionId?: ThresholdSessionId;
+  thresholdSessionId: ThresholdSessionId;
   backingMaterialSessionId?: BackingMaterialSessionId;
   sessionOrigin:
     | 'login'
@@ -158,8 +186,16 @@ rebind the selected lane:
 ```ts
 type SigningExecutionCommand =
   | { kind: 'showConfirmation'; plan: SigningSessionPlan; operation?: SigningOperationContext }
-  | { kind: 'requestOtp'; plan: Extract<SigningSessionPlan, { kind: 'email_otp_reauth' }>; operation?: SigningOperationContext }
-  | { kind: 'requestPasskey'; plan: Extract<SigningSessionPlan, { kind: 'passkey_reauth' }>; operation?: SigningOperationContext }
+  | {
+      kind: 'requestOtp';
+      plan: Extract<SigningSessionPlan, { kind: 'email_otp_reauth' }>;
+      operation?: SigningOperationContext;
+    }
+  | {
+      kind: 'requestPasskey';
+      plan: Extract<SigningSessionPlan, { kind: 'passkey_reauth' }>;
+      operation?: SigningOperationContext;
+    }
   | { kind: 'reconnectThreshold'; plan: SigningSessionPlan; operation?: SigningOperationContext }
   | { kind: 'prepareNonce'; plan: SigningSessionPlan; operation?: SigningOperationContext }
   | { kind: 'reserveBudget'; plan: SigningSessionPlan; operation?: SigningOperationContext }

@@ -382,16 +382,32 @@ Failure behavior:
 
 Implementation tasks:
 
-1. [ ] Add a recovery-key rotation challenge action and route parser.
-2. [ ] Add `POST /wallet/email-otp/recovery-key/rotate` with atomic replace semantics.
-3. [ ] Add AuthService support to revoke/supersede active records and insert exactly 10 replacement records in one transaction where durable storage supports it.
-4. [ ] Add worker operation to read local `enc_s(S)`, generate 10 new keys, wrap `enc_s(S)`, and upload only `C_i` records.
-5. [ ] Add UI prompt after recovery when `activeRecoveryWrappedEnrollmentEscrowCount < 10`.
-6. [ ] Add account/security-settings entry point for explicit rotation.
-7. [ ] Add tests proving old active recovery keys fail after successful rotation.
-8. [ ] Add tests proving failed rotation leaves the previous active set unchanged.
-9. [ ] Add static guards that rotation payloads cannot include plaintext recovery keys, KEKs, `enc_s(S)`, or `S`.
-10. [ ] Add E2E coverage for recovery, immediate rotation, and recovery with one of the replacement keys.
+1. [ ] Add one AuthService recovery-key lifecycle API that backs status,
+       revoke, and rotate operations from the same active-enrollment view.
+2. [ ] Add `GET /wallet/email-otp/recovery-key/status`, returning active,
+       consumed, and revoked counts plus non-secret key metadata.
+3. [ ] Add `POST /wallet/email-otp/recovery-key/revoke` for explicit
+       user-requested revocation of one active recovery key.
+4. [ ] Add a recovery-key rotation challenge action and route parser.
+5. [ ] Add `POST /wallet/email-otp/recovery-key/rotate` with atomic replace
+       semantics.
+6. [ ] Make rotate atomically revoke or supersede the active set and insert
+       exactly 10 replacement records in one transaction where durable storage
+       supports it.
+7. [ ] Add worker operation to read local `enc_s(S)`, generate 10 new keys,
+       wrap `enc_s(S)`, and upload only `C_i` records.
+8. [ ] Add UI prompt after recovery when
+       `activeRecoveryWrappedEnrollmentEscrowCount < 10`, after the server
+       status/revoke/rotate routes exist.
+9. [ ] Add account/security-settings entry point for explicit rotation.
+10. [ ] Add tests proving old active recovery keys fail after successful
+        rotation.
+11. [ ] Add tests proving failed rotation leaves the previous active set
+        unchanged.
+12. [ ] Add static guards that rotation payloads cannot include plaintext
+        recovery keys, KEKs, `enc_s(S)`, or `S`.
+13. [ ] Add E2E coverage for recovery, immediate rotation, and recovery with
+        one of the replacement keys.
 
 ## Device Link Flow
 
@@ -544,6 +560,14 @@ Development migration target:
 
 If a one-time local migration is needed for test fixtures, keep it outside production request paths and delete it after fixtures are updated.
 
+Device-local escrow schema drift decision:
+
+1. [ ] Audit the current `email_otp_device_enrollment_escrows_v1` IndexedDB
+       record shape against this spec.
+2. [ ] Either update this spec to bless the current device-local record shape or
+       perform a one-time development migration to the target shape.
+3. [ ] Do not keep dual legacy device-local escrow schemas in production code.
+
 ## Interaction With Sealed Refresh
 
 This refactor is about long-lived enrollment escrow, not short-lived signing-session persistence.
@@ -676,8 +700,8 @@ read paths.
 
 Todo:
 
-1. [ ] Make ECDSA transaction auth planning require a resolved selected lane for
-   every auth method.
+1. [x] Make ECDSA transaction auth planning require a resolved selected lane for
+       every auth method.
    - Remove any Email OTP branch that can plan with `ecdsaSigningLane`
      undefined.
    - Treat missing lane identity as a pre-sign failure, not as a recoverable
@@ -685,7 +709,7 @@ Todo:
    - Required identity: `walletSigningSessionId`, `thresholdSessionId`,
      `authMethod`, `curve: ecdsa`, and `chain`.
 
-2. [ ] Replace `EmailOtpAuthLane` with discriminated resolved-lane types.
+2. [x] Replace `EmailOtpAuthLane` with discriminated resolved-lane types.
    - `EmailOtpEd25519SigningSessionAuthLane` requires
      `thresholdSessionId`, `walletSigningSessionId`, and `curve: ed25519`.
    - `EmailOtpEcdsaSigningSessionAuthLane` requires
@@ -710,13 +734,13 @@ Todo:
      worker memory, or mutate warm-session records.
    - Add a no-restore reader mode for post-restore readiness verification.
 
-5. [ ] Make sealed-store access purpose-exact everywhere.
+5. [x] Make sealed-store access purpose-exact everywhere.
    - Require `{ authMethod, curve }` for read, write, delete, lease, and policy
      update operations.
    - Include purpose in single-flight keys and restore leases.
    - Reject generic threshold-session-id reads in production paths.
 
-6. [ ] Fix passkey sealed-refresh single-flight identity.
+6. [x] Fix passkey sealed-refresh single-flight identity.
    - Key passkey sealed-refresh persistence by operation, threshold session id,
      wallet signing-session id, auth method, and curve.
    - Do not let an Ed25519 persistence attempt suppress an ECDSA persistence
@@ -728,18 +752,18 @@ Todo:
    - Single-flight by account, wallet signing-session id, curve, and ECDSA
      threshold session id.
 
-8. [ ] Remove companion-id probing from generic readers.
+8. [x] Remove companion-id probing from generic readers.
    - Ed25519 status reads must not attempt ECDSA sealed restore.
    - If an Ed25519 record references an ECDSA companion id, only the explicit
      ECDSA restore command may follow that link.
 
-9. [ ] Add static guards for this boundary.
+9. [x] Add static guards for this boundary.
    - EVM-family signing modules cannot call source-less ECDSA lookup helpers.
    - Read-model modules cannot call sealed restore or `remove-server-seal`.
    - Budget, execution, and cleanup modules cannot accept draft or optional
      lane types.
 
-10. [ ] Add regression coverage after the runtime fix is stable.
+10. [x] Add regression coverage after the runtime fix is stable.
     - OTP page refresh followed by Tempo and ARC ECDSA signing.
     - Wallet-session polling does not call `remove-server-seal`.
     - Ed25519 status read with a missing worker entry does not perform an ECDSA
@@ -802,19 +826,19 @@ the same active enrollment scope.
 Todo:
 
 1. [x] Reject duplicate `recoveryKeyId` values in
-   `verifyEmailOtpEnrollment(...)` before any enrollment state is written.
+       `verifyEmailOtpEnrollment(...)` before any enrollment state is written.
 2. [x] Reject duplicate recovery ciphertext nonces within the same enrollment
-   upload.
+       upload.
 3. [x] Verify every uploaded record has the same wallet id, user id,
-   auth subject id, enrollment id, enrollment version, enrollment seal key
-   version, signing root id, and signing root version.
+       auth subject id, enrollment id, enrollment version, enrollment seal key
+       version, signing root id, and signing root version.
 4. [x] Recompute or otherwise validate `aadHashB64u` server-side from the
-   submitted metadata so a malformed record cannot advertise a false binding.
+       submitted metadata so a malformed record cannot advertise a false binding.
 5. [x] After persistence, read active recovery-wrapped escrows back and require
-   the active count for the enrollment scope to be exactly 10.
+       the active count for the enrollment scope to be exactly 10.
 6. [x] Add unit and route tests for duplicate recovery key ids, duplicate
-   nonces, mismatched enrollment metadata, mismatched signing-root metadata, and
-   active-count collapse through store upsert.
+       nonces, mismatched enrollment metadata, mismatched signing-root metadata, and
+       active-count collapse through store upsert.
 
 ### 2. Active Enrollment Scope
 
@@ -828,16 +852,16 @@ root version.
 Todo:
 
 1. [x] Add `enrollmentId`, `enrollmentVersion`, `signingRootId`, and
-   `signingRootVersion` to the active Email OTP enrollment record, or add an
-   equivalent authoritative server-side enrollment-scope record.
+       `signingRootVersion` to the active Email OTP enrollment record, or add an
+       equivalent authoritative server-side enrollment-scope record.
 2. [x] Populate those fields during enrollment finalization from the same
-   metadata used to produce recovery-wrapped escrows.
+       metadata used to produce recovery-wrapped escrows.
 3. [x] Filter `/wallet/email-otp/recovery-wrapped-escrows` by the full active
-   enrollment scope.
+       enrollment scope.
 4. [x] Validate `/wallet/email-otp/recovery-key/consume` against the full active
-   enrollment scope.
+       enrollment scope.
 5. [x] Add tests proving ciphertext swapping across enrollment id, enrollment
-   version, signing root id, and signing root version fails closed.
+       version, signing root id, and signing root version fails closed.
 
 ### 3. Durable Device-Local Escrow Before Enrollment Success
 
@@ -851,17 +875,17 @@ on recovery.
 Todo:
 
 1. [x] Make `writeEmailOtpDeviceEnrollmentEscrowRecord(...)` fail closed:
-   invalid records, unavailable IndexedDB, blocked opens, and transaction
-   failures must throw instead of returning silently.
+       invalid records, unavailable IndexedDB, blocked opens, and transaction
+       failures must throw instead of returning silently.
 2. [x] During enrollment, write and read back device-local `enc_s(S)` before
-   reporting enrollment success to the caller.
+       reporting enrollment success to the caller.
 3. [x] Prefer writing local escrow before server finalization where feasible.
-   If server finalization must remain first, add an explicit recovery path for
-   "server finalized but local persistence failed" and make that state visible.
+       If server finalization must remain first, add an explicit recovery path for
+       "server finalized but local persistence failed" and make that state visible.
 4. [x] Add tests for missing IndexedDB, malformed local escrow records, blocked
-   IndexedDB open, transaction abort, and post-write readback mismatch.
+       IndexedDB open, transaction abort, and post-write readback mismatch.
 5. [x] Ensure logout and wallet-lock flows still preserve device-local
-   enrollment escrow unless the user explicitly removes this device.
+       enrollment escrow unless the user explicitly removes this device.
 
 ### 4. Failed Recovery-Key Attempt Accounting
 
@@ -875,16 +899,16 @@ server.
 Todo:
 
 1. [x] Add a recovery-key attempt route that records failed unwrap attempts
-   without receiving the recovery key, derived KEK, plaintext `S`, or
-   `enc_s(S)`.
+       without receiving the recovery key, derived KEK, plaintext `S`, or
+       `enc_s(S)`.
 2. [x] Bind failed-attempt reports to the recovery challenge, wallet id,
-   user id, app-session version, and active enrollment scope.
+       user id, app-session version, and active enrollment scope.
 3. [x] Rate-limit failed recovery-key attempts server-side separately from OTP
-   failures.
+       failures.
 4. [x] Make the worker report one failed unwrap attempt for a submitted
-   recovery key before returning failure.
+       recovery key before returning failure.
 5. [x] Add tests that repeated wrong recovery-key attempts are rate-limited and
-   that successful recovery still consumes exactly one active key.
+       that successful recovery still consumes exactly one active key.
 
 ### 5. Wallet Signing Budget Consume Boundary
 
@@ -898,16 +922,16 @@ unknown or failed.
 Todo:
 
 1. [x] Decide and document the fail-closed rule for successful signing when
-   `WalletSigningBudgetLedger.recordSuccess(...)` fails.
+       `WalletSigningBudgetLedger.recordSuccess(...)` fails.
 2. [x] Make transaction signing return failure or a clearly recoverable
-   "signature produced but budget finalization failed" state instead of silently
-   succeeding.
+       "signature produced but budget finalization failed" state instead of silently
+       succeeding.
 3. [x] Add NEAR, EVM, and Tempo tests where budget consume fails after a
-   signature is produced.
+       signature is produced.
 4. [x] Add retry semantics for transient budget consume failure that remain
-   idempotent by operation id and do not double-consume.
+       idempotent by operation id and do not double-consume.
 5. [x] Ensure trace output exposes budget-finalization failure without logging
-   secret material.
+       secret material.
 
 ### 6. Operation Id Scope And Payload Binding
 
@@ -920,15 +944,15 @@ mask a required budget consume or confuse signing-session accounting.
 Todo:
 
 1. [x] Define the canonical transaction identity included in operation id scope
-   for NEAR, EVM, and Tempo.
+       for NEAR, EVM, and Tempo.
 2. [x] Store or compute an operation fingerprint for caller-provided operation
-   ids before confirmation.
+       ids before confirmation.
 3. [x] Reject reuse of the same caller-provided operation id with a different
-   operation fingerprint.
+       operation fingerprint.
 4. [x] Keep internally generated operation ids unique without requiring payload
-   fingerprint storage.
+       fingerprint storage.
 5. [x] Add tests for same-payload retry, different-payload same operation id,
-   and cross-chain operation id reuse.
+       and cross-chain operation id reuse.
 
 ## Acceptance Criteria
 

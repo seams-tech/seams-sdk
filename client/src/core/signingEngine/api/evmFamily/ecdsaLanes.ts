@@ -15,6 +15,7 @@ import {
 import {
   SigningSessionIds,
   summarizeSigningLane,
+  type ResolvedEcdsaSigningSessionIdentity,
   type ThresholdEcdsaSessionId,
   type SigningLaneContext,
   type WalletSigningSessionId,
@@ -62,7 +63,7 @@ export type ResolvedEvmFamilyEcdsaSigningLane = SigningLaneContext & {
   chainFamily: EvmFamilyChain;
   walletSigningSessionId: WalletSigningSessionId;
   thresholdSessionId: ThresholdEcdsaSessionId;
-};
+} & ResolvedEcdsaSigningSessionIdentity;
 
 export function summarizeEvmFamilyEcdsaSessionRecord(
   record: ThresholdEcdsaSessionRecord | undefined,
@@ -124,21 +125,14 @@ export function logEvmFamilyEcdsaLaneDiagnostic(
 export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
   lane: SigningLaneContext | undefined;
   chain: EvmFamilyChain;
-  thresholdSessionId?: string;
-  walletSigningSessionId?: string;
   context: string;
   diagnostics?: Record<string, unknown>;
 }): ResolvedEvmFamilyEcdsaSigningLane {
-  // ECDSA auth may refresh the threshold session after pre-confirm planning.
-  // Callers pass the fresh ids here so downstream budget/cleanup code never
-  // falls back to a generic account lookup or a stale selected lane.
   const lane = args.lane;
   if (!lane) {
     logEvmFamilyEcdsaLaneDiagnostic('missing selected signing lane', {
       context: args.context,
       chain: args.chain,
-      thresholdSessionId: args.thresholdSessionId,
-      walletSigningSessionId: args.walletSigningSessionId,
       ...args.diagnostics,
     });
     throw new Error(`[SigningEngine][ecdsa] missing selected signing lane for ${args.context}`);
@@ -174,22 +168,17 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     throw new Error(`[SigningEngine][ecdsa] ${args.context} chain does not match selected lane`);
   }
 
-  const walletSigningSessionId = String(
-    args.walletSigningSessionId || lane.walletSigningSessionId || '',
-  ).trim();
+  const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
   if (!walletSigningSessionId) {
     logEvmFamilyEcdsaLaneDiagnostic('selected signing lane missing wallet session id', {
       context: args.context,
       expectedChain: args.chain,
       lane: summarizeEvmFamilyEcdsaLane(lane),
-      thresholdSessionId: args.thresholdSessionId,
       ...args.diagnostics,
     });
     throw new Error(`[SigningEngine][ecdsa] missing wallet signing session id for ${args.context}`);
   }
-  const thresholdSessionId = String(
-    args.thresholdSessionId || lane.thresholdSessionId || '',
-  ).trim();
+  const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
   if (!thresholdSessionId) {
     logEvmFamilyEcdsaLaneDiagnostic('selected signing lane missing threshold session id', {
       context: args.context,
@@ -212,6 +201,40 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
   };
 }
 
+export function updateResolvedEvmFamilyEcdsaSigningLaneIdentity(args: {
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  chain: EvmFamilyChain;
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  context: string;
+  diagnostics?: Record<string, unknown>;
+}): ResolvedEvmFamilyEcdsaSigningLane {
+  const lane = requireResolvedEvmFamilyEcdsaSigningLane({
+    lane: args.lane,
+    chain: args.chain,
+    context: args.context,
+    diagnostics: args.diagnostics,
+  });
+  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
+  const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  if (!walletSigningSessionId || !thresholdSessionId) {
+    logEvmFamilyEcdsaLaneDiagnostic('updated ECDSA lane identity is incomplete', {
+      context: args.context,
+      expectedChain: args.chain,
+      lane: summarizeEvmFamilyEcdsaLane(lane),
+      thresholdSessionId,
+      walletSigningSessionId,
+      ...args.diagnostics,
+    });
+    throw new Error(`[SigningEngine][ecdsa] incomplete updated signing lane identity for ${args.context}`);
+  }
+  return {
+    ...lane,
+    walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId),
+  };
+}
+
 export function requireEvmFamilyEcdsaAuthMethod(
   authMethod: EvmFamilyEcdsaAuthMethod | undefined,
 ): EvmFamilyEcdsaAuthMethod {
@@ -229,8 +252,72 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
   record?: ThresholdEcdsaSessionRecord;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
 }): SigningLaneContext | undefined {
+  const recordThresholdSessionId = String(args.record?.thresholdSessionId || '').trim();
+  const keyRefThresholdSessionId = String(args.keyRef?.thresholdSessionId || '').trim();
+  const recordWalletSigningSessionId = String(args.record?.walletSigningSessionId || '').trim();
+  const keyRefWalletSigningSessionId = String(args.keyRef?.walletSigningSessionId || '').trim();
+  const recordSigningRootId = String(args.record?.signingRootId || '').trim();
+  const keyRefSigningRootId = String(args.keyRef?.signingRootId || '').trim();
+  const recordSigningRootVersion = String(args.record?.signingRootVersion || '').trim();
+  const keyRefSigningRootVersion = String(args.keyRef?.signingRootVersion || '').trim();
+  if (
+    recordThresholdSessionId &&
+    keyRefThresholdSessionId &&
+    recordThresholdSessionId !== keyRefThresholdSessionId
+  ) {
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef threshold ids', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      authMethod: args.authMethod,
+      source: args.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+      keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
+    });
+    return undefined;
+  }
+  if (
+    recordWalletSigningSessionId &&
+    keyRefWalletSigningSessionId &&
+    recordWalletSigningSessionId !== keyRefWalletSigningSessionId
+  ) {
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef wallet session ids', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      authMethod: args.authMethod,
+      source: args.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+      keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
+    });
+    return undefined;
+  }
+  if (recordSigningRootId && keyRefSigningRootId && recordSigningRootId !== keyRefSigningRootId) {
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef signing roots', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      authMethod: args.authMethod,
+      source: args.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+      keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
+    });
+    return undefined;
+  }
+  if (
+    recordSigningRootVersion &&
+    keyRefSigningRootVersion &&
+    recordSigningRootVersion !== keyRefSigningRootVersion
+  ) {
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef signing root versions', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      authMethod: args.authMethod,
+      source: args.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+      keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
+    });
+    return undefined;
+  }
   const walletSigningSessionId = String(
-    args.record?.walletSigningSessionId || args.keyRef?.walletSigningSessionId || '',
+    recordWalletSigningSessionId || keyRefWalletSigningSessionId,
   ).trim();
   if (!walletSigningSessionId) {
     logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane without wallet session id', {
@@ -245,22 +332,31 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
   }
 
   const thresholdSessionId = String(
-    args.record?.thresholdSessionId || args.keyRef?.thresholdSessionId || '',
+    recordThresholdSessionId || keyRefThresholdSessionId,
   ).trim();
+  if (!thresholdSessionId) {
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane without threshold session id', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      authMethod: args.authMethod,
+      source: args.source,
+      walletSigningSessionId,
+      record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+      keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
+    });
+    return undefined;
+  }
+
   const base = {
     accountId: toAccountId(args.nearAccountId),
     walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
-    ...(thresholdSessionId
-      ? { thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId) }
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId),
+    ...(recordSigningRootId || keyRefSigningRootId
+      ? { signingRootId: recordSigningRootId || keyRefSigningRootId }
       : {}),
-    ...(args.record?.signingRootId || args.keyRef?.signingRootId
-      ? { signingRootId: String(args.record?.signingRootId || args.keyRef?.signingRootId) }
-      : {}),
-    ...(args.record?.signingRootVersion || args.keyRef?.signingRootVersion
+    ...(recordSigningRootVersion || keyRefSigningRootVersion
       ? {
-          signingRootVersion: String(
-            args.record?.signingRootVersion || args.keyRef?.signingRootVersion,
-          ),
+          signingRootVersion: recordSigningRootVersion || keyRefSigningRootVersion,
         }
       : {}),
   };
@@ -550,6 +646,27 @@ export function readSelectedEcdsaRecordForLane(args: {
   return throwForSigningCapabilityReadError(result);
 }
 
+export function validateSelectedEcdsaRecordCandidateForLane(args: {
+  lane?: SigningLaneContext;
+  record?: ThresholdEcdsaSessionRecord;
+  context: string;
+}): ThresholdEcdsaSessionRecord | undefined {
+  if (!args.lane || !args.record) return undefined;
+  const lane = args.lane;
+  const record = args.record;
+  const mismatchReason = getSelectedEcdsaRecordLaneMismatchReason({ lane, record });
+  if (!mismatchReason) return record;
+  logEvmFamilyEcdsaLaneDiagnostic('selected ECDSA record candidate does not match resolved lane', {
+    context: args.context,
+    reason: mismatchReason,
+    lane: summarizeEvmFamilyEcdsaLane(lane),
+    record: summarizeEvmFamilyEcdsaSessionRecord(record),
+  });
+  throw new Error(
+    `[SigningEngine][ecdsa] selected ECDSA record candidate does not match resolved lane for ${args.context}`,
+  );
+}
+
 export function readSelectedEcdsaKeyRefForLane(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
   lane?: SigningLaneContext;
@@ -561,4 +678,115 @@ export function readSelectedEcdsaKeyRefForLane(args: {
     return undefined;
   }
   return throwForSigningCapabilityReadError(result);
+}
+
+export function validateSelectedEcdsaKeyRefCandidateForLane(args: {
+  lane?: SigningLaneContext;
+  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  context: string;
+}): ThresholdEcdsaSecp256k1KeyRef | undefined {
+  if (!args.lane || !args.keyRef) return undefined;
+  const lane = args.lane;
+  const keyRef = args.keyRef;
+  const mismatchReason = getSelectedEcdsaKeyRefLaneMismatchReason({ lane, keyRef });
+  if (!mismatchReason) return keyRef;
+  logEvmFamilyEcdsaLaneDiagnostic('selected ECDSA keyRef candidate does not match resolved lane', {
+    context: args.context,
+    reason: mismatchReason,
+    lane: summarizeEvmFamilyEcdsaLane(lane),
+    keyRef: summarizeEvmFamilyEcdsaKeyRef(keyRef),
+  });
+  throw new Error(
+    `[SigningEngine][ecdsa] selected ECDSA keyRef candidate does not match resolved lane for ${args.context}`,
+  );
+}
+
+function getSelectedEcdsaRecordLaneMismatchReason(args: {
+  lane: SigningLaneContext;
+  record: ThresholdEcdsaSessionRecord;
+}): string | null {
+  const { lane, record } = args;
+  if (lane.curve !== 'ecdsa' || lane.keyKind !== 'threshold_ecdsa_secp256k1') {
+    return 'lane is not an ECDSA transaction lane';
+  }
+  if (lane.chainFamily !== 'tempo' && lane.chainFamily !== 'evm') {
+    return 'lane chain is not an EVM-family chain';
+  }
+  if (String(record.nearAccountId || '') !== String(lane.accountId)) {
+    return 'account id mismatch';
+  }
+  if (record.source !== lane.storageSource) {
+    return 'storage source mismatch';
+  }
+  if (
+    lane.thresholdSessionId &&
+    String(record.thresholdSessionId || '') !== String(lane.thresholdSessionId)
+  ) {
+    return 'threshold session id mismatch';
+  }
+  if (
+    lane.walletSigningSessionId &&
+    String(record.walletSigningSessionId || '') !== String(lane.walletSigningSessionId)
+  ) {
+    return 'wallet signing session id mismatch';
+  }
+  if (record.chain !== lane.chainFamily) {
+    return 'chain mismatch';
+  }
+  if (
+    lane.signingRootId &&
+    String(record.signingRootId || '') !== String(lane.signingRootId)
+  ) {
+    return 'signing root id mismatch';
+  }
+  if (
+    normalizedOptionalString(lane.signingRootVersion) !==
+    normalizedOptionalString(record.signingRootVersion)
+  ) {
+    return 'signing root version mismatch';
+  }
+  return null;
+}
+
+function getSelectedEcdsaKeyRefLaneMismatchReason(args: {
+  lane: SigningLaneContext;
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+}): string | null {
+  const { lane, keyRef } = args;
+  if (lane.curve !== 'ecdsa' || lane.keyKind !== 'threshold_ecdsa_secp256k1') {
+    return 'lane is not an ECDSA transaction lane';
+  }
+  if (String(keyRef.userId || '') !== String(lane.accountId)) {
+    return 'account id mismatch';
+  }
+  if (
+    lane.thresholdSessionId &&
+    String(keyRef.thresholdSessionId || '') !== String(lane.thresholdSessionId)
+  ) {
+    return 'threshold session id mismatch';
+  }
+  if (
+    lane.walletSigningSessionId &&
+    String(keyRef.walletSigningSessionId || '') !== String(lane.walletSigningSessionId)
+  ) {
+    return 'wallet signing session id mismatch';
+  }
+  if (
+    lane.signingRootId &&
+    String(keyRef.signingRootId || '') !== String(lane.signingRootId)
+  ) {
+    return 'signing root id mismatch';
+  }
+  if (
+    normalizedOptionalString(lane.signingRootVersion) !==
+    normalizedOptionalString(keyRef.signingRootVersion)
+  ) {
+    return 'signing root version mismatch';
+  }
+  return null;
+}
+
+function normalizedOptionalString(value: unknown): string | undefined {
+  const normalized = String(value || '').trim();
+  return normalized || undefined;
 }

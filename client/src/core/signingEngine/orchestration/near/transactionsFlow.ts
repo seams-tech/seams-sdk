@@ -65,6 +65,7 @@ import {
   SigningOperationIntent,
   SigningSessionIds,
   type SigningLaneContext,
+  type SelectedSigningLaneContext,
   type SigningOperationId,
 } from '../../session/signingSession/types';
 import type { NonceLeaseRef } from '../../nonce/NonceCoordinator';
@@ -91,6 +92,13 @@ function emitNearSigningEvent(
       }),
     );
   } catch {}
+}
+
+function requireSelectedNearSigningLane(lane: SigningLaneContext): SelectedSigningLaneContext {
+  if (!lane.walletSigningSessionId || !lane.thresholdSessionId) {
+    throw new Error('[SigningEngine][near] signing lane is missing resolved session identity');
+  }
+  return lane as SelectedSigningLaneContext;
 }
 
 function createNearTransactionSigningOperationId(): SigningOperationId {
@@ -518,6 +526,11 @@ export async function signTransactionsWithActions({
               thresholdSessionId: thresholdAuthPlan.sessionId,
               uses: usesNeeded,
               errorContext: 'threshold-ed25519 transaction signing',
+              walletId: nearAccountId,
+              authMethod: thresholdAuthPlan.lane.authMethod,
+              curve: 'ed25519',
+              chain: 'near',
+              walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
             });
             ed25519WarmSessionBudgetClaimed = true;
             return prfFirst;
@@ -593,7 +606,7 @@ export async function signTransactionsWithActions({
       );
     }
     const recordSource = thresholdSessionState.record.source;
-    const spendLane =
+    const spendLane = requireSelectedNearSigningLane(
       recordSource === 'email_otp'
         ? buildNearTransactionSigningLane({
             accountId: nearAccountId,
@@ -616,7 +629,8 @@ export async function signTransactionsWithActions({
               canonicalThresholdSessionId,
             ),
             storageSource: recordSource,
-          });
+          }),
+    );
     return createSigningSessionBudgetFinalizer({
       signingSessionBudget: sessionCoordinator,
       operation: {
@@ -625,7 +639,6 @@ export async function signTransactionsWithActions({
         intent: SigningOperationIntent.TransactionSign,
       },
       lane: spendLane,
-      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(canonicalThresholdSessionId),
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][near] failed to update wallet signing-session budget', {
           nearAccountId,
@@ -775,6 +788,11 @@ export async function signTransactionsWithActions({
                   thresholdSessionId: thresholdAuthPlan.sessionId,
                   uses: usesNeeded,
                   errorContext: 'threshold-ed25519 transaction signing repair',
+                  walletId: nearAccountId,
+                  authMethod: thresholdAuthPlan.lane.authMethod,
+                  curve: 'ed25519',
+                  chain: 'near',
+                  walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
                 });
                 ed25519WarmSessionBudgetClaimed = true;
                 return prfFirst;

@@ -363,6 +363,11 @@ export type ClaimWarmSessionPrfArgs = {
   thresholdSessionId: string;
   errorContext: string;
   uses?: number;
+  walletId?: string;
+  authMethod?: 'passkey' | 'email_otp';
+  curve?: 'ed25519' | 'ecdsa';
+  chain?: 'near' | ThresholdEcdsaActivationChain;
+  walletSigningSessionId?: string;
 };
 
 export type WarmEcdsaSigningSessionStatus = SigningSessionStatus & {

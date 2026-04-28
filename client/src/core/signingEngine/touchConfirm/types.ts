@@ -30,6 +30,11 @@ import type {
   WarmSessionSealAndPersistPayload,
   WarmSessionSealAndPersistResult,
 } from '@/core/types/secure-confirm-worker';
+import type {
+  RestorePersistedSessionsForAccountInput,
+  RestorePersistedSessionsForAccountResult,
+  RestorePersistedSessionForSigningInput,
+} from '../session/restoreCoordinator';
 
 export type RequestUserConfirmationOptions = {
   onProgress?: (progress: UserConfirmProgressEvent) => void;
@@ -129,6 +134,23 @@ export interface WarmSessionRehydrator {
   ): Promise<WarmSessionRehydrateResult>;
 }
 
+export interface WarmSessionPersistedRestorer {
+  restorePersistedSessionsForAccount?(
+    args: {
+      authMethod?: 'passkey';
+    } & RestorePersistedSessionsForAccountInput,
+  ): Promise<RestorePersistedSessionsForAccountResult>;
+  restorePersistedSessionForSigning(
+    args: {
+      authMethod: 'passkey';
+    } & RestorePersistedSessionForSigningInput,
+  ): Promise<{
+    attempted: number;
+    restored: number;
+    deferred: number;
+  }>;
+}
+
 export interface WarmSessionPersistedRecordDeleter {
   deletePersistedWarmSessionMaterial(
     args: WarmSessionDeletePersistedPayload,
@@ -143,6 +165,7 @@ export type WarmSessionMaterialPort = WarmSessionMaterialWriter &
   WarmSessionMaterialClearer &
   WarmSessionSealPersister &
   WarmSessionRehydrator &
+  WarmSessionPersistedRestorer &
   WarmSessionPersistedRecordDeleter;
 
 export type TouchConfirmSigningSessionPort = TouchConfirmSigningPort &

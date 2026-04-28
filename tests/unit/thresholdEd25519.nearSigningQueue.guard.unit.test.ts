@@ -44,28 +44,13 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(signingFlow).toContain('loading: isConfirmationLoading()');
   });
 
-  test('Email OTP NEAR transaction signing attempts sealed restore before OTP fallback', () => {
+  test('Email OTP NEAR transaction signing does not perform ECDSA sealed restore as a read side effect', () => {
     const nearSigning = readNearSigningSource();
-    const restoreStart = nearSigning.indexOf(
-      'async function tryRestoreEmailOtpSigningSessionForNearTransaction',
-    );
-    const restoreCall = nearSigning.indexOf(
-      'await tryRestoreEmailOtpSigningSessionForNearTransaction',
-    );
-    const authResolution = nearSigning.indexOf(
-      'const { signingAuthPlan, signingLane, emailOtpSigning } = await resolveNearTransactionWalletAuth',
-    );
 
-    expect(restoreStart).toBeGreaterThanOrEqual(0);
-    expect(nearSigning).toContain('Restoring signing session...');
-    expect(nearSigning).toContain(
-      "interaction: { kind: 'transaction_confirmation', overlay: 'show' }",
-    );
-    expect(nearSigning).toContain('restoreEmailOtpEcdsaSigningSessionForNearTransaction');
+    expect(nearSigning).not.toContain('tryRestoreEmailOtpSigningSessionForNearTransaction');
+    expect(nearSigning).not.toContain('restoreEmailOtpEcdsaSigningSessionForNearTransaction');
     expect(nearSigning).not.toContain('listThresholdEcdsaSessionRecordsForLookup');
     expect(nearSigning).not.toContain('rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord');
-    expect(restoreCall).toBeGreaterThan(restoreStart);
-    expect(authResolution).toBeGreaterThan(restoreCall);
   });
 
   test('Email OTP NEAR warm-session planning does not treat sealed records as spendable auth', () => {
@@ -74,7 +59,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(nearSigning).toContain('hasThresholdEd25519RouteAuth(args.record)');
     expect(nearSigning).toContain('new SigningSessionCoordinator()');
     expect(nearSigning).toContain("emitSigningPlannerDecisionTrace('near', event)");
-    expect(nearSigning).not.toContain('readSigningSessionSealedRecord');
+    expect(nearSigning).not.toContain('readExactSealedSession');
   });
 
   test('Email OTP NEAR cached client-base signing records wallet-session budget spend', () => {

@@ -55,6 +55,50 @@ export type SigningLaneContext = {
   signingRootVersion?: string;
 };
 
+export type SigningSessionRequestIdentity = {
+  accountId: AccountId;
+  authMethod: SigningAuthMethod;
+  curve: SigningCurve;
+  chainFamily: SigningChainFamily;
+  walletSigningSessionId?: WalletSigningSessionId;
+  thresholdSessionId?: ThresholdSessionId;
+};
+
+export type SelectedSigningLaneIdentity = {
+  accountId: AccountId;
+  authMethod: SigningAuthMethod;
+  curve: SigningCurve;
+  chainFamily: SigningChainFamily;
+  walletSigningSessionId: WalletSigningSessionId;
+  thresholdSessionId: ThresholdSessionId;
+};
+
+export type SelectedSigningLaneContext = SigningLaneContext & SelectedSigningLaneIdentity;
+
+export type ResolvedSigningSessionIdentity = SelectedSigningLaneIdentity & {
+  keyKind: SigningKeyKind;
+  sessionOrigin: SigningSessionOrigin;
+  storageSource: SigningSessionStorageSource;
+  retention: SigningSessionRetention;
+  backingMaterialSessionId?: BackingMaterialSessionId;
+  signingRootId?: string;
+  signingRootVersion?: string;
+};
+
+export type ResolvedEd25519SigningSessionIdentity = ResolvedSigningSessionIdentity & {
+  curve: 'ed25519';
+  keyKind: 'threshold_ed25519';
+  chainFamily: 'near';
+  thresholdSessionId: ThresholdEd25519SessionId;
+};
+
+export type ResolvedEcdsaSigningSessionIdentity = ResolvedSigningSessionIdentity & {
+  curve: 'ecdsa';
+  keyKind: 'threshold_ecdsa_secp256k1';
+  chainFamily: ThresholdEcdsaActivationChain;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+};
+
 export type SigningOperationContext = {
   operationId: SigningOperationId;
   intent: SigningOperationIntent;

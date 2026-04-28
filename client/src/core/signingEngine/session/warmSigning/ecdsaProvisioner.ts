@@ -225,6 +225,11 @@ export async function provisionWarmEcdsaCapability(
       thresholdSessionId: resolvedBootstrapRequest.sessionId,
       errorContext: 'threshold-ecdsa authorization bootstrap',
       uses: 1,
+      walletId: nearAccountId,
+      authMethod: args.source === 'email_otp' ? 'email_otp' : 'passkey',
+      curve: 'ecdsa',
+      chain: args.chain,
+      walletSigningSessionId: args.walletSigningSessionId,
     });
   }
 

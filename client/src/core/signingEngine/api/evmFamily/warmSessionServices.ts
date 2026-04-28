@@ -1,4 +1,3 @@
-import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { AccountId } from '@/core/types/accountIds';
 import type { BootstrapEcdsaSessionArgs } from '../thresholdLifecycle/thresholdSessionActivation';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../orchestration/thresholdActivation';
@@ -8,6 +7,7 @@ import type {
   TouchConfirmSecureConfirmationPort,
   TouchConfirmSigningPort,
   WarmSessionMaterialClearer,
+  WarmSessionPersistedRestorer,
   WarmSessionStatusReader,
   WarmSessionStatusResult,
 } from '../../touchConfirm';
@@ -28,11 +28,8 @@ import type {
 } from '../../session/warmSigning/types';
 import { createWarmSessionStatusReader } from '../../session/warmSigning/statusReader';
 import { claimWarmSessionPrfFirst } from '../../session/warmSigning/runtime';
-import type { WarmSessionSealedRestoreEvent } from '../../session/warmSigning/sealedRefreshRestorer';
-import type { SigningSessionSealedStoreRecord } from '../session/signingSessionSealedStore';
 import type {
   ThresholdEcdsaSessionRecord,
-  ThresholdEd25519SessionRecord,
   ThresholdEcdsaSessionStoreSource,
 } from '../thresholdLifecycle/thresholdSessionStore';
 import { THRESHOLD_ECDSA_SESSION_STORE_SOURCES } from '../thresholdLifecycle/thresholdSessionStore';
@@ -41,14 +38,14 @@ import {
   getThresholdEcdsaSessionRecordForLane,
   type EvmFamilyEcdsaSessionReaderDeps,
 } from './ecdsaLanes';
-import { emitEvmFamilySigningEvent } from './events';
-import type { EvmFamilyChain, EvmFamilyLifecycleEventCallback } from './types';
+import type { EvmFamilyChain } from './types';
 
 export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps & {
   touchConfirm: TouchConfirmContextPort &
     TouchConfirmSigningPort &
     TouchConfirmSecureConfirmationPort &
     WarmSessionStatusReader &
+    Partial<WarmSessionPersistedRestorer> &
     Partial<WarmSessionMaterialClearer>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: string;
@@ -57,15 +54,6 @@ export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps &
   provisionThresholdEcdsaSession: (
     args: BootstrapEcdsaSessionArgs,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
-  rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord?: (args: {
-    sealedRecord: SigningSessionSealedStoreRecord;
-    ecdsaRecord: ThresholdEcdsaSessionRecord;
-    ed25519Record?: ThresholdEd25519SessionRecord | null;
-  }) => Promise<{
-    bootstrap: ThresholdEcdsaSessionBootstrapResult;
-    remainingUses: number;
-    expiresAtMs: number;
-  } | null>;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
 };
 
@@ -82,7 +70,6 @@ export type EvmFamilyWarmSessionServices = Pick<
 
 export function createEvmFamilyWarmSessionServices(
   deps: EvmFamilyWarmSessionServicesDeps,
-  onEvent?: EvmFamilyLifecycleEventCallback,
 ): EvmFamilyWarmSessionServices {
   const reconnectInFlightByCapability = new Map<
     string,
@@ -172,50 +159,10 @@ export function createEvmFamilyWarmSessionServices(
     }
     return keyRefs;
   };
-  const onSealedRestore = (event: WarmSessionSealedRestoreEvent): void => {
-    const chain = event.chain === 'evm' ? 'evm' : 'tempo';
-    if (event.status === 'started') {
-      emitEvmFamilySigningEvent(onEvent, {
-        phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
-        status: 'waiting_for_user',
-        accountId: String(event.accountId),
-        message: 'Restoring signing session...',
-        interaction: { kind: 'transaction_confirmation', overlay: 'show' },
-        data: {
-          chain,
-          thresholdSessionId: event.thresholdSessionId,
-          ...(event.walletSigningSessionId
-            ? { walletSigningSessionId: event.walletSigningSessionId }
-            : {}),
-        },
-      });
-      return;
-    }
-    if (event.status === 'restored') {
-      emitEvmFamilySigningEvent(onEvent, {
-        phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
-        status: 'succeeded',
-        accountId: String(event.accountId),
-        message: 'Signing session restored',
-        interaction: { kind: 'none', overlay: 'none' },
-        data: {
-          chain,
-          thresholdSessionId: event.thresholdSessionId,
-          ...(event.walletSigningSessionId
-            ? { walletSigningSessionId: event.walletSigningSessionId }
-            : {}),
-        },
-      });
-    }
-  };
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: deps.touchConfirm,
-    clearEcdsaEphemeralMaterial,
     listThresholdEcdsaSessionRecordsForLookup,
-    rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord:
-      deps.rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord,
     getEmailOtpWarmSessionStatus,
-    onSealedRestore,
   });
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: deps.touchConfirm,
@@ -236,6 +183,28 @@ export function createEvmFamilyWarmSessionServices(
             thresholdSessionId: claimArgs.thresholdSessionId,
             errorContext: claimArgs.errorContext,
             uses: claimArgs.uses,
+            restoreBeforeClaim: async () => {
+              if (claimArgs.authMethod !== 'passkey') return;
+              if (typeof deps.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
+              const walletId = String(claimArgs.walletId || '').trim();
+              const walletSigningSessionId = String(
+                claimArgs.walletSigningSessionId || '',
+              ).trim();
+              const thresholdSessionId = String(claimArgs.thresholdSessionId || '').trim();
+              if (!walletId || !walletSigningSessionId || !thresholdSessionId) return;
+              await deps.touchConfirm.restorePersistedSessionForSigning({
+                walletId,
+                authMethod: 'passkey',
+                curve: 'ecdsa',
+                chain:
+                  claimArgs.chain === 'tempo' || claimArgs.chain === 'evm'
+                    ? claimArgs.chain
+                    : provisionArgs.chain,
+                walletSigningSessionId,
+                thresholdSessionId,
+                reason: 'transaction',
+              });
+            },
           }),
       },
       provisionArgs,

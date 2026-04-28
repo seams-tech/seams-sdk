@@ -136,6 +136,11 @@ export async function signNep413Message({
             thresholdSessionId: thresholdAuthPlan.sessionId,
             uses: usesNeeded,
             errorContext: 'threshold-ed25519 nep413 signing',
+            walletId: nearAccountId,
+            authMethod: thresholdAuthPlan.lane.authMethod,
+            curve: 'ed25519',
+            chain: 'near',
+            walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
           })
         : requirePrfFirstFromCredential(credentialWithPrf)
       : requirePrfFirstFromCredential(credentialWithPrf);

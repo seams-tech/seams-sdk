@@ -132,6 +132,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
+
   test('EVM-family auth planning does not execute Email OTP side effects before confirmation', async ({
     page,
   }) => {
@@ -158,7 +159,6 @@ test.describe('tempo signing auth-mode resolution', () => {
             requestEmailOtpTransactionSigningChallenge: failPreConfirmSideEffect,
             loginWithEmailOtpEcdsaCapabilityForSigning: failPreConfirmSideEffect,
             provisionThresholdEcdsaSession: failPreConfirmSideEffect,
-            rehydrateEmailOtpEcdsaSigningSessionFromSealedRecord: failPreConfirmSideEffect,
           } as any,
           confirmedDeps: {
             requestEmailOtpTransactionSigningChallenge: async () => {
@@ -1460,7 +1460,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     expect(result.authSideEffects).toEqual(['threshold_reconnect']);
   });
 
-  test('budget reservation follows refreshed ECDSA keyRef after passkey reconnect', async ({
+  test('budget reservation follows refreshed prepared ECDSA lane after passkey reconnect', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -1480,23 +1480,21 @@ test.describe('tempo signing auth-mode resolution', () => {
             };
           },
         });
-        const oldLane = {
+        const refreshedLane = {
           accountId: 'alice.testnet',
           authMethod: 'passkey',
           curve: 'ecdsa',
           keyKind: 'threshold_ecdsa_secp256k1',
           chainFamily: 'tempo',
-          walletSigningSessionId: 'wallet-old-exhausted',
-          thresholdSessionId: 'ecdsa-old-exhausted',
+          walletSigningSessionId: 'wallet-refreshed',
+          thresholdSessionId: 'ecdsa-refreshed',
           sessionOrigin: 'login',
           storageSource: 'login',
           retention: 'session',
         };
 
         await reserveEvmFamilyWalletSigningSessionBudget({
-          deps: {},
           signingSessionCoordinator,
-          senderSignatureAlgorithm: 'secp256k1',
           nearAccountId: 'alice.testnet',
           chain: 'tempo',
           operation: {
@@ -1504,23 +1502,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             operationFingerprint: 'fingerprint-refreshed-keyref',
             intent: 'transaction_sign',
           },
-          ecdsaSigningLane: oldLane,
-          thresholdEcdsaRecord: {
-            nearAccountId: 'alice.testnet',
-            chain: 'tempo',
-            walletSigningSessionId: 'wallet-old-exhausted',
-            thresholdSessionId: 'ecdsa-old-exhausted',
-            source: 'login',
-          },
-          thresholdEcdsaKeyRef: {
-            type: 'threshold-ecdsa-secp256k1',
-            userId: 'alice.testnet',
-            relayerUrl: 'https://relayer.example',
-            ecdsaThresholdKeyId: 'ecdsa-key',
-            signingRootId: 'root',
-            walletSigningSessionId: 'wallet-refreshed',
-            thresholdSessionId: 'ecdsa-refreshed',
-          },
+          ecdsaSigningLane: refreshedLane,
         });
 
         return { statusReads };
@@ -2052,6 +2034,22 @@ test.describe('tempo signing auth-mode resolution', () => {
         let capturedPasskeyPrompt = false;
 
         const deps = {
+          restorePersistedSessionForSigning: async () => ({
+            attempted: 0,
+            restored: 0,
+            deferred: 0,
+          }),
+          readSigningSessionSnapshotForSigning: async ({ walletId }: any) => ({
+            walletId,
+            generation: 1,
+            lanes: {
+              ed25519: { near: { curve: 'ed25519', chain: 'near', state: 'missing' } },
+              ecdsa: {
+                tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
+                evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+              },
+            },
+          }),
           indexedDB: {
             clientDB: {
               resolveProfileAccountContext: async () => ({
@@ -2329,6 +2327,22 @@ test.describe('tempo signing auth-mode resolution', () => {
         let challengeCalls = 0;
 
         const deps = {
+          restorePersistedSessionForSigning: async () => ({
+            attempted: 0,
+            restored: 0,
+            deferred: 0,
+          }),
+          readSigningSessionSnapshotForSigning: async ({ walletId }: any) => ({
+            walletId,
+            generation: 1,
+            lanes: {
+              ed25519: { near: { curve: 'ed25519', chain: 'near', state: 'missing' } },
+              ecdsa: {
+                tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
+                evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+              },
+            },
+          }),
           indexedDB: {
             clientDB: {
               resolveProfileAccountContext: async () => ({
@@ -2660,6 +2674,22 @@ test.describe('tempo signing auth-mode resolution', () => {
                 } as any);
 
           const deps = {
+            restorePersistedSessionForSigning: async () => ({
+              attempted: 0,
+              restored: 0,
+              deferred: 0,
+            }),
+            readSigningSessionSnapshotForSigning: async ({ walletId }: any) => ({
+              walletId,
+              generation: 1,
+              lanes: {
+                ed25519: { near: { curve: 'ed25519', chain: 'near', state: 'missing' } },
+                ecdsa: {
+                  tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
+                  evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+                },
+              },
+            }),
             indexedDB: {
               clientDB: {
                 resolveProfileAccountContext: async () => ({
@@ -2962,6 +2992,22 @@ test.describe('tempo signing auth-mode resolution', () => {
         let readBackFreshRecord = true;
 
         const deps = {
+          restorePersistedSessionForSigning: async () => ({
+            attempted: 0,
+            restored: 0,
+            deferred: 0,
+          }),
+          readSigningSessionSnapshotForSigning: async ({ walletId }: any) => ({
+            walletId,
+            generation: 1,
+            lanes: {
+              ed25519: { near: { curve: 'ed25519', chain: 'near', state: 'missing' } },
+              ecdsa: {
+                tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
+                evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+              },
+            },
+          }),
           indexedDB: {
             clientDB: {
               resolveProfileAccountContext: async () => ({
@@ -3299,6 +3345,22 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           });
           const deps = {
+            restorePersistedSessionForSigning: async () => ({
+              attempted: 0,
+              restored: 0,
+              deferred: 0,
+            }),
+            readSigningSessionSnapshotForSigning: async ({ walletId }: any) => ({
+              walletId,
+              generation: 1,
+              lanes: {
+                ed25519: { near: { curve: 'ed25519', chain: 'near', state: 'missing' } },
+                ecdsa: {
+                  tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
+                  evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+                },
+              },
+            }),
             indexedDB: {
               clientDB: {
                 resolveProfileAccountContext: async () => ({
@@ -3603,6 +3665,22 @@ test.describe('tempo signing auth-mode resolution', () => {
                 } as any);
 
           const deps = {
+            restorePersistedSessionForSigning: async () => ({
+              attempted: 0,
+              restored: 0,
+              deferred: 0,
+            }),
+            readSigningSessionSnapshotForSigning: async ({ walletId }: any) => ({
+              walletId,
+              generation: 1,
+              lanes: {
+                ed25519: { near: { curve: 'ed25519', chain: 'near', state: 'missing' } },
+                ecdsa: {
+                  tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
+                  evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+                },
+              },
+            }),
             indexedDB: {
               clientDB: {
                 resolveProfileAccountContext: async () => ({
@@ -3939,6 +4017,22 @@ test.describe('tempo signing auth-mode resolution', () => {
                 },
               } as any);
         const deps = {
+          restorePersistedSessionForSigning: async () => ({
+            attempted: 0,
+            restored: 0,
+            deferred: 0,
+          }),
+          readSigningSessionSnapshotForSigning: async ({ walletId }: any) => ({
+            walletId,
+            generation: 1,
+            lanes: {
+              ed25519: { near: { curve: 'ed25519', chain: 'near', state: 'missing' } },
+              ecdsa: {
+                tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
+                evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+              },
+            },
+          }),
           indexedDB: {
             clientDB: {
               resolveProfileAccountContext: async () => ({

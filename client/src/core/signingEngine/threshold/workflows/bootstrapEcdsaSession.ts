@@ -474,6 +474,9 @@ export async function bootstrapEcdsaSession(args: {
         transport: {
           curve: 'ecdsa',
           relayerUrl: args.relayerUrl,
+          ...(resolvedWalletSigningSessionId
+            ? { walletSigningSessionId: resolvedWalletSigningSessionId }
+            : {}),
           ...(typeof bootstrap.jwt === 'string' && bootstrap.jwt.trim()
             ? { thresholdSessionJwt: bootstrap.jwt.trim() }
             : {}),

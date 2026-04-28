@@ -8,9 +8,8 @@ import { buildWalletSigningSpendPlan } from './budget';
 import type {
   BackingMaterialSessionId,
   SigningAuthMethod,
-  SigningLaneContext,
   SigningOperationContext,
-  ThresholdSessionId,
+  SelectedSigningLaneContext,
   WalletSigningSpendPlan,
 } from './types';
 
@@ -24,14 +23,12 @@ export type SigningSessionBudgetFinalizer = {
 export function createSigningSessionBudgetFinalizer(args: {
   signingSessionBudget?: SigningSessionBudget;
   operation: SigningOperationContext;
-  lane: SigningLaneContext;
-  thresholdSessionId?: ThresholdSessionId;
+  lane: SelectedSigningLaneContext;
   backingMaterialSessionId?: BackingMaterialSessionId;
   onRecordSuccessError?: (error: unknown, spend: WalletSigningSpendPlan) => void;
   onRecordZeroSpendError?: (error: unknown) => void;
 }): SigningSessionBudgetFinalizer {
   const spend = buildWalletSigningSpendPlan(args.operation, args.lane, {
-    ...(args.thresholdSessionId ? { thresholdSessionId: args.thresholdSessionId } : {}),
     ...(args.backingMaterialSessionId
       ? { backingMaterialSessionId: args.backingMaterialSessionId }
       : {}),

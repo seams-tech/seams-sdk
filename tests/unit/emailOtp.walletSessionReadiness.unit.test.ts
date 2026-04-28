@@ -153,6 +153,76 @@ test.describe('Email OTP wallet-session readiness', () => {
     expect(result.nonceDiagnostics?.metrics?.staleInFlightLaneCount).toBe(1);
   });
 
+  test('runs startup restore and snapshot before warm-session status reads', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const loginMod = await import(paths.login);
+        const nearAccountId = 'startup-restore.testnet';
+        const now = Date.now();
+        const events: string[] = [];
+        const context = {
+          signingEngine: {
+            assertSealedRefreshStartupParity: async () => undefined,
+            restorePersistedSessionsForAccount: async (args: { walletId: string }) => {
+              events.push(`restore:${args.walletId}`);
+              return { listed: 1, attempted: 1, restored: 1, deferred: 0, skipped: 0, truncated: 0 };
+            },
+            readPersistedSigningSessionSnapshot: async (args: { walletId: string }) => {
+              events.push(`snapshot:${args.walletId}`);
+              return { walletId: args.walletId, lanes: {} };
+            },
+            getLastUser: async () => null,
+            getUserBySignerSlot: async () => null,
+            getWarmThresholdEd25519SessionStatus: async () => {
+              events.push('ed25519-status');
+              return null;
+            },
+            listWarmThresholdEcdsaSessionStatuses: async (_accountId: string, chain: string) => {
+              events.push(`ecdsa-status:${chain}`);
+              return chain === 'tempo'
+                ? [
+                    {
+                      sessionId: 'startup-restore-ecdsa',
+                      status: 'active',
+                      authMethod: 'email_otp',
+                      retention: 'session',
+                      remainingUses: 3,
+                      expiresAtMs: now + 60_000,
+                      createdAtMs: now,
+                    },
+                  ]
+                : [];
+            },
+            getThresholdEcdsaSessionRecordForLookup: () => ({
+              thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
+            }),
+            getNonceCoordinator: () => ({
+              getDiagnostics: () => null,
+            }),
+          },
+          configs: {
+            signing: {
+              mode: { mode: 'threshold-signer' },
+            },
+          },
+        };
+
+        const walletSession = await loginMod.getWalletSession(context, nearAccountId);
+        return { walletSession, events };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.walletSession.login?.isLoggedIn).toBe(true);
+    expect(result.events.slice(0, 2)).toEqual([
+      'restore:startup-restore.testnet',
+      'snapshot:startup-restore.testnet',
+    ]);
+    expect(result.events.indexOf('restore:startup-restore.testnet')).toBeLessThan(
+      result.events.indexOf('ed25519-status'),
+    );
+  });
+
   test('treats restored warm signing session as login before ECDSA metadata exists', async ({
     page,
   }) => {

@@ -15,7 +15,10 @@ import type {
   WarmSessionProvisioner,
 } from '@/core/signingEngine/session/warmSigning/types';
 import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/warmSigning/runtime';
-import type { WarmSessionStatusResult } from '@/core/signingEngine/touchConfirm';
+import type {
+  WarmSessionPersistedRestorer,
+  WarmSessionStatusResult,
+} from '@/core/signingEngine/touchConfirm';
 import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
 import {
   type ResolveSigningSessionAuthPlanFromReadinessInput,
@@ -50,13 +53,56 @@ export type NearThresholdSigningAuthContext = {
 };
 export { THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR };
 
-type NearSigningSessionCoordinatorPort = Parameters<
-  typeof createWarmSessionCapabilityReader
->[0] extends infer FactoryDeps
-  ? NonNullable<FactoryDeps> extends { touchConfirm?: infer TouchConfirm }
-    ? TouchConfirm
-    : never
-  : never;
+type NearSigningSessionCoordinatorPort =
+  Parameters<typeof createWarmSessionCapabilityReader>[0] extends infer FactoryDeps
+    ? NonNullable<FactoryDeps> extends { touchConfirm?: infer TouchConfirm }
+      ? TouchConfirm & Partial<WarmSessionPersistedRestorer>
+      : never
+    : never;
+
+async function restorePasskeySessionBeforeClaim(args: {
+  touchConfirm: NearSigningSessionCoordinatorPort;
+  claim: {
+    walletId?: string;
+    authMethod?: 'passkey' | 'email_otp';
+    curve?: 'ed25519' | 'ecdsa';
+    chain?: 'near' | 'tempo' | 'evm';
+    walletSigningSessionId?: string;
+    thresholdSessionId: string;
+  };
+}): Promise<void> {
+  if (args.claim.authMethod !== 'passkey') return;
+  if (typeof args.touchConfirm?.restorePersistedSessionForSigning !== 'function') return;
+  const walletId = String(args.claim.walletId || '').trim();
+  const walletSigningSessionId = String(args.claim.walletSigningSessionId || '').trim();
+  const thresholdSessionId = String(args.claim.thresholdSessionId || '').trim();
+  if (!walletId || !walletSigningSessionId || !thresholdSessionId) return;
+  const curve = args.claim.curve;
+  const chain = args.claim.chain;
+  if (curve === 'ed25519') {
+    if (chain !== 'near') return;
+    await args.touchConfirm.restorePersistedSessionForSigning({
+      walletId,
+      authMethod: 'passkey',
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId,
+      thresholdSessionId,
+      reason: 'transaction',
+    });
+    return;
+  }
+  if (curve !== 'ecdsa' || (chain !== 'tempo' && chain !== 'evm')) return;
+  await args.touchConfirm.restorePersistedSessionForSigning({
+    walletId,
+    authMethod: 'passkey',
+    curve: 'ecdsa',
+    chain,
+    walletSigningSessionId,
+    thresholdSessionId,
+    reason: 'transaction',
+  });
+}
 
 export function createNearSigningSessionCoordinator(
   touchConfirm: NearSigningSessionCoordinatorPort,
@@ -90,6 +136,8 @@ export function createNearSigningSessionCoordinator(
         thresholdSessionId: claimArgs.thresholdSessionId,
         errorContext: claimArgs.errorContext,
         uses: claimArgs.uses,
+        restoreBeforeClaim: () =>
+          restorePasskeySessionBeforeClaim({ touchConfirm, claim: claimArgs }),
       }),
   };
 }

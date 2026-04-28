@@ -120,6 +120,28 @@ function wrapEmailOtpSigningWithRuntimeCommands(args: {
   };
 }
 
+function assertPasskeyReconnectPolicyMatchesLane(args: {
+  lane: ResolvedEvmFamilyEcdsaSigningLane;
+  sessionId?: string;
+  walletSigningSessionId?: string;
+}): void {
+  const expectedSessionId = String(args.lane.thresholdSessionId);
+  const expectedWalletSigningSessionId = String(args.lane.walletSigningSessionId);
+  const actualSessionId = String(args.sessionId || '').trim();
+  const actualWalletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  if (actualSessionId && actualSessionId !== expectedSessionId) {
+    throw new Error('[SigningEngine][ecdsa] passkey reconnect session id does not match prepared lane');
+  }
+  if (
+    actualWalletSigningSessionId &&
+    actualWalletSigningSessionId !== expectedWalletSigningSessionId
+  ) {
+    throw new Error(
+      '[SigningEngine][ecdsa] passkey reconnect wallet session id does not match prepared lane',
+    );
+  }
+}
+
 export async function createEvmFamilySigningFlowRuntime(args: {
   deps: EvmFamilySigningDeps;
   nearAccountId: string;
@@ -141,7 +163,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   ]);
   const signerWorkerCtx = args.deps.getSignerWorkerContext();
   const ctx = args.deps.touchConfirm.getContext();
-  const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps, args.onEvent);
+  const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
   const emailOtpSigningForFlow = wrapEmailOtpSigningWithRuntimeCommands({
     signingSessionPlan: args.signingSessionPlan,
     emailOtpSigning: args.emailOtpSigningForFlow,
@@ -205,6 +227,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           throw new Error('[SigningEngine] missing PRF.first for passkey ECDSA reconnect');
         }
         const lane = args.getResolvedEcdsaSigningLane();
+        assertPasskeyReconnectPolicyMatchesLane({ lane, sessionId, walletSigningSessionId });
         const readyKeyRef = await executeEvmFamilyRuntimeCommand({
           signingSessionPlan: args.signingSessionPlan,
           commandKind: SigningExecutionCommandKind.ReconnectThreshold,
@@ -213,8 +236,6 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               deps: args.deps,
               lane,
               keyRef: args.getThresholdEcdsaKeyRef(),
-              ...(sessionId ? { sessionId } : {}),
-              ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
               clientRootShare32B64u,
               webauthnAuthentication: credential,
               remainingUses: Math.max(1, Math.floor(Number(usesNeeded) || 1)),

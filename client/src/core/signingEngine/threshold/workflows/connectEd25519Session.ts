@@ -271,6 +271,14 @@ export async function connectEd25519Session(args: {
       prfFirstB64u,
       expiresAtMs,
       remainingUses,
+      transport: {
+        curve: 'ed25519',
+        relayerUrl: args.relayerUrl,
+        ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+        ...(typeof minted.jwt === 'string' && minted.jwt.trim()
+          ? { thresholdSessionJwt: minted.jwt.trim() }
+          : {}),
+      },
     });
   }
 
