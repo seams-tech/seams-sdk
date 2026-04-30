@@ -1,308 +1,195 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   type EmailOtpEcdsaTempoHarness,
+  type ReloadSignKind,
   runEmailOtpEcdsaTempoFlow,
+  runEmailOtpReloadPhase,
   setupEmailOtpEcdsaTempoHarness,
 } from '../helpers/emailOtpEcdsaTempoFlow';
 
-type ReloadSignKind = 'near' | 'tempo' | 'evm' | 'exportNear' | 'exportEcdsa';
+async function readEmailOtpOutbox(args: {
+  harness: EmailOtpEcdsaTempoHarness;
+  accountId: string;
+  challengeId: string;
+  appSessionJwt: string;
+}): Promise<string> {
+  const response = await fetch(
+    `${args.harness.baseUrl}/wallet/email-otp/dev/otp-outbox?challengeId=${encodeURIComponent(args.challengeId)}&walletId=${encodeURIComponent(args.accountId)}`,
+    {
+      headers: {
+        Authorization: `Bearer ${args.appSessionJwt}`,
+      },
+    },
+  );
+  const json = (await response.json().catch(() => null)) as { otpCode?: unknown } | null;
+  const otpCode = String(json?.otpCode || '').trim();
+  if (!otpCode) {
+    throw new Error(`missing Email OTP outbox code for ${args.challengeId}`);
+  }
+  return otpCode;
+}
 
-async function runEmailOtpReloadPhase(
-  page: import('@playwright/test').Page,
+async function mountVisibleEmailOtpUnlockPrompt(
+  page: Page,
   args: {
     harness: EmailOtpEcdsaTempoHarness;
     accountId: string;
     appSessionJwt: string;
-    signKinds: ReloadSignKind[];
-    signAfterExports?: 'tempo' | 'evm';
-    rememberAppSessionJwt?: boolean;
+    ecdsaThresholdKeyId: string;
+    participantIds: number[];
   },
-): Promise<{
-  ok: boolean;
-  sessionStatus?: string;
-  results?: Array<{ kind: string; ok: boolean; chain?: string; error?: string }>;
-  emailOtpPromptCount?: number;
-  webauthnGetCount?: number;
-  promptCountBeforeExports?: number;
-  promptCountAfterExports?: number;
-  promptCountAfterFinalSign?: number;
-  error?: string;
-}> {
-  return await page.evaluate(
+): Promise<void> {
+  await page.evaluate(
     async ({
       relayerUrl,
       shamirPrimeB64u,
       signingSessionSealKeyVersion,
       accountId,
       appSessionJwt,
-      signKinds,
-      signAfterExports,
-      rememberAppSessionJwt,
+      ecdsaThresholdKeyId,
+      participantIds,
     }) => {
+      await new Promise<void>((resolve, reject) => {
+        if (document.querySelector('link[data-email-otp-ui-style="1"]')) {
+          resolve();
+          return;
+        }
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '/sdk/esm/react/styles/styles.css';
+        link.dataset.emailOtpUiStyle = '1';
+        link.addEventListener('load', () => resolve());
+        link.addEventListener('error', () => reject(new Error('Failed to load SDK React styles')));
+        document.head.appendChild(link);
+      });
+
+      const mountId = 'email-otp-visible-unlock-mount';
+      document.getElementById(mountId)?.remove();
+      const mount = document.createElement('div');
+      mount.id = mountId;
+      document.body.appendChild(mount);
+
+      const React = await import('react');
+      const ReactDOMClient = await import('react-dom/client');
+      const ReactDOM = await import('react-dom');
       const sdkMod = await import('/sdk/esm/index.js');
-      const actionsMod = await import('/sdk/esm/core/types/actions.js');
+      const providerMod: any = await import('/sdk/esm/react/context/TatchiPasskeyProvider.js');
+      const menuMod: any =
+        await import('/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js');
+
       const { TatchiPasskey } = sdkMod as any;
-      const { ActionType } = actionsMod as any;
-
-      const joinUrl = (base: string, path: string): string =>
-        `${String(base || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
-      const readEmailOtpOutbox = async (challengeIdRaw: string): Promise<string> => {
-        const challengeId = String(challengeIdRaw || '').trim();
-        if (!challengeId) throw new Error('missing Email OTP challengeId for reload phase');
-        const outbox = await fetch(
-          `${joinUrl(relayerUrl, '/wallet/email-otp/dev/otp-outbox')}?challengeId=${encodeURIComponent(challengeId)}&walletId=${encodeURIComponent(accountId)}`,
-          {
-            headers: appSessionJwt ? { Authorization: `Bearer ${appSessionJwt}` } : undefined,
-          },
-        );
-        const outboxJson = await outbox.json().catch(() => ({}));
-        const otpCode = String(outboxJson?.otpCode || '').trim();
-        if (!otpCode) throw new Error(`missing Email OTP test outbox entry for ${challengeId}`);
-        return otpCode;
-      };
-
-      const confirmationConfig = {
-        uiMode: 'none' as const,
-        behavior: 'skipClick' as const,
-        autoProceedDelay: 0,
-      };
+      const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+      const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
+      const AuthMenuMode = menuMod.AuthMenuMode;
       const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
-      const webauthnState = { getCount: 0 };
-      const originalCredentialsGet = globalThis.navigator?.credentials?.get?.bind(
-        globalThis.navigator.credentials,
-      );
-      if (globalThis.navigator?.credentials && originalCredentialsGet) {
-        globalThis.navigator.credentials.get = (async (...credentialArgs: unknown[]) => {
-          webauthnState.getCount += 1;
-          return await originalCredentialsGet(...(credentialArgs as [CredentialRequestOptions]));
-        }) as CredentialsContainer['get'];
-      }
+      const sdkConfig = {
+        nearNetwork: 'testnet',
+        nearRpcUrl: 'https://test.rpc.fastnear.com',
+        relayerAccount: 'web3-authn-v4.testnet',
+        relayer: {
+          url: relayerUrl,
+          smartAccountDeploymentMode: 'observe',
+        },
+        emailOtpAuthPolicy: 'session',
+        signingSessionPersistenceMode: 'sealed_refresh_v1',
+        signingSessionSeal: {
+          keyVersion: signingSessionSealKeyVersion,
+          shamirPrimeB64u,
+        },
+        ...(managedRegistration
+          ? {
+              registration: {
+                mode: 'managed',
+                environmentId: String(managedRegistration.environmentId || ''),
+                publishableKey: String(managedRegistration.publishableKey || ''),
+              },
+            }
+          : {}),
+        iframeWallet: {
+          walletOrigin: '',
+          walletServicePath: '/wallet-service',
+          sdkBasePath: '/sdk',
+          rpIdOverride: 'example.localhost',
+        },
+      };
+      const pm = new TatchiPasskey(sdkConfig);
+      await pm
+        .getContext()
+        .signingEngine.clearWarmSigningSessions(accountId)
+        .catch(() => undefined);
 
-      try {
-        const pm = new TatchiPasskey({
-          nearNetwork: 'testnet',
-          nearRpcUrl: 'https://test.rpc.fastnear.com',
-          relayerAccount: 'web3-authn-v4.testnet',
-          relayer: {
-            url: relayerUrl,
-            smartAccountDeploymentMode: 'observe',
-          },
-          ...(managedRegistration
-            ? {
-                registration: {
-                  mode: 'managed' as const,
-                  environmentId: String(managedRegistration.environmentId || ''),
-                  publishableKey: String(managedRegistration.publishableKey || ''),
+      (window as any).__emailOtpVisibleUnlock = {
+        challengeId: '',
+        submittedCode: '',
+        loginSucceeded: false,
+        loginWarmState: '',
+        error: '',
+      };
+
+      const root = ReactDOMClient.createRoot(mount);
+      ReactDOM.flushSync(() => {
+        root.render(
+          React.createElement(
+            Provider,
+            { config: sdkConfig },
+            React.createElement(PasskeyAuthMenu, {
+              defaultMode: AuthMenuMode.Login,
+              socialLogin: {
+                google: async () => {
+                  const challenge = await pm.auth.requestEmailOtpChallenge({
+                    nearAccountId: accountId,
+                    relayUrl: relayerUrl,
+                    appSessionJwt,
+                  });
+                  (window as any).__emailOtpVisibleUnlock.challengeId = String(
+                    challenge.challengeId || '',
+                  );
+                  const emailHint = String(challenge.emailHint || 'alice@example.com');
+                  return {
+                    username: accountId,
+                    otpPrompt: {
+                      title: 'Check your email to unlock your wallet',
+                      description: `Enter the 6-digit code we sent to ${emailHint}.`,
+                      emailHint,
+                      accountId,
+                      submitLabel: 'Unlock wallet',
+                      helperText:
+                        'Google keeps you signed in. The email code unlocks wallet signing for this session.',
+                      onSubmit: async (otpCode: string) => {
+                        (window as any).__emailOtpVisibleUnlock.submittedCode = otpCode;
+                        try {
+                          const loginResult = await pm.auth.loginWithEmailOtpEcdsaCapability({
+                            nearAccountId: accountId,
+                            chain: 'tempo',
+                            emailOtpAuthPolicy: 'session',
+                            challengeId: String(challenge.challengeId || ''),
+                            otpCode,
+                            appSessionJwt,
+                            routeAuth: { kind: 'app_session', jwt: appSessionJwt },
+                            ecdsaThresholdKeyId,
+                            participantIds,
+                            sessionKind: 'jwt',
+                          });
+                          (window as any).__emailOtpVisibleUnlock.loginSucceeded = true;
+                          (window as any).__emailOtpVisibleUnlock.loginWarmState = String(
+                            loginResult?.warmCapability?.state || loginResult?.state || 'ready',
+                          );
+                        } catch (error: unknown) {
+                          (window as any).__emailOtpVisibleUnlock.error =
+                            error && typeof error === 'object' && 'message' in error
+                              ? String((error as { message?: unknown }).message || '')
+                              : String(error || 'Email OTP UI unlock failed');
+                          throw error;
+                        }
+                      },
+                    },
+                  };
                 },
-              }
-            : {}),
-          emailOtpAuthPolicy: 'session' as const,
-          signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
-          signingSessionSeal: {
-            keyVersion: signingSessionSealKeyVersion,
-            shamirPrimeB64u,
-          },
-          iframeWallet: {
-            walletOrigin: '',
-            walletServicePath: '/wallet-service',
-            sdkBasePath: '/sdk',
-            rpIdOverride: 'example.localhost',
-          },
-        });
-        pm.setConfirmationConfig(confirmationConfig as any);
-
-        const signingEngine = pm.getContext().signingEngine as any;
-        if (
-          rememberAppSessionJwt !== false &&
-          appSessionJwt &&
-          typeof signingEngine?.emailOtpSessions?.rememberAppSessionJwt === 'function'
-        ) {
-          signingEngine.emailOtpSessions.rememberAppSessionJwt({
-            nearAccountId: accountId,
-            appSessionJwt,
-          });
-        }
-        const originalRequestUserConfirmation =
-          typeof signingEngine?.touchConfirm?.requestUserConfirmation === 'function'
-            ? signingEngine.touchConfirm.requestUserConfirmation.bind(signingEngine.touchConfirm)
-            : null;
-        let emailOtpPromptCount = 0;
-        if (originalRequestUserConfirmation) {
-          signingEngine.touchConfirm.requestUserConfirmation = async (
-            request: Record<string, any>,
-            requestOptions?: Record<string, any>,
-          ) => {
-            const requestType = String(request?.type || '');
-            if (requestType === 'showSecurePrivateKeyUi') {
-              return { confirmed: true };
-            }
-            const prompt =
-              request?.payload?.signingAuthPlan?.emailOtpPrompt || request?.payload?.emailOtpPrompt;
-            if (prompt) {
-              emailOtpPromptCount += 1;
-              const challengeId = String(prompt.challengeId || '').trim();
-              const otpCode = await readEmailOtpOutbox(challengeId);
-              return {
-                requestId: String(request?.requestId || ''),
-                confirmed: true,
-                otpCode,
-                emailOtpChallengeId: challengeId,
-                ...(request?.intentDigest ? { intentDigest: request.intentDigest } : {}),
-              };
-            }
-            return await originalRequestUserConfirmation(request as any, requestOptions as any);
-          };
-        }
-
-        const tempoRequest = (tag: string) => ({
-          chain: 'tempo' as const,
-          kind: 'tempoTransaction' as const,
-          senderSignatureAlgorithm: 'secp256k1' as const,
-          tx: {
-            chainId: 42431,
-            maxPriorityFeePerGas: 1n,
-            maxFeePerGas: 2n,
-            gasLimit: 21_000n,
-            calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: `0x${tag}` }],
-            accessList: [],
-            nonceKey: 0n,
-            validBefore: null,
-            validAfter: null,
-            feePayerSignature: { kind: 'none' as const },
-            aaAuthorizationList: [],
-          },
-        });
-        const evmRequest = (tag: string) => ({
-          chain: 'evm' as const,
-          kind: 'eip1559' as const,
-          senderSignatureAlgorithm: 'secp256k1' as const,
-          tx: {
-            chainId: 11155111,
-            maxPriorityFeePerGas: 1_500_000_000n,
-            maxFeePerGas: 3_000_000_000n,
-            gasLimit: 21_000n,
-            to: '0x' + '22'.repeat(20),
-            value: BigInt(`1234${tag.length}`),
-            data: `0x${tag}`,
-            accessList: [],
-          },
-        });
-
-        const results: Array<{ kind: string; ok: boolean; chain?: string; error?: string }> = [];
-        const signOne = async (kind: ReloadSignKind, tag: string) => {
-          try {
-            if (kind === 'near') {
-              const signed = await pm.near.signTransactionsWithActions({
-                nearAccountId: accountId,
-                transactions: [
-                  {
-                    receiverId: 'w3a-v1.testnet',
-                    actions: [{ type: ActionType.Transfer, amount: '1' }],
-                  },
-                ],
-                options: { confirmationConfig },
-              });
-              results.push({
-                kind,
-                ok: Array.isArray(signed) && signed.length === 1,
-                chain: 'near',
-              });
-              return;
-            }
-            if (kind === 'tempo') {
-              const signed = await pm.tempo.signTempo({
-                nearAccountId: accountId,
-                request: tempoRequest(tag),
-                options: { confirmationConfig },
-              });
-              results.push({ kind, ok: signed?.kind === 'tempoTransaction', chain: signed?.chain });
-              return;
-            }
-            if (kind === 'evm') {
-              const signed = await pm.tempo.signTempo({
-                nearAccountId: accountId,
-                request: evmRequest(tag),
-                options: { confirmationConfig },
-              });
-              results.push({ kind, ok: signed?.kind === 'eip1559', chain: signed?.chain });
-              return;
-            }
-            if (kind === 'exportNear') {
-              const exported = await pm.keys.exportKeypairWithUI(accountId, {
-                chain: 'near',
-                variant: 'drawer',
-              });
-              results.push({
-                kind,
-                ok: Array.isArray(exported?.exportedSchemes)
-                  ? exported.exportedSchemes.includes('ed25519')
-                  : true,
-                chain: 'near',
-              });
-              return;
-            }
-            if (kind === 'exportEcdsa') {
-              const exported = await pm.keys.exportKeypairWithUI(accountId, {
-                chain: 'tempo',
-                variant: 'drawer',
-              });
-              results.push({
-                kind,
-                ok: Array.isArray(exported?.exportedSchemes)
-                  ? exported.exportedSchemes.includes('secp256k1')
-                  : true,
-                chain: 'tempo',
-              });
-            }
-          } catch (error: unknown) {
-            results.push({
-              kind,
-              ok: false,
-              error:
-                error && typeof error === 'object' && 'message' in error
-                  ? String((error as { message?: unknown }).message || '')
-                  : String(error || `${kind} failed`),
-            });
-          }
-        };
-
-        let promptCountBeforeExports: number | null = null;
-        for (const [index, kind] of signKinds.entries()) {
-          if (
-            promptCountBeforeExports == null &&
-            (kind === 'exportNear' || kind === 'exportEcdsa')
-          ) {
-            promptCountBeforeExports = emailOtpPromptCount;
-          }
-          await signOne(kind as ReloadSignKind, `a${index + 1}`);
-        }
-        const promptCountAfterExports = emailOtpPromptCount;
-        if (signAfterExports === 'tempo') {
-          await signOne('tempo', 'af');
-        } else if (signAfterExports === 'evm') {
-          await signOne('evm', 'af');
-        }
-
-        const session = await pm.auth.getWalletSession(accountId);
-        return {
-          ok: results.every((result) => result.ok),
-          sessionStatus: String(session?.signingSession?.status || ''),
-          results,
-          emailOtpPromptCount,
-          webauthnGetCount: webauthnState.getCount,
-          promptCountBeforeExports: promptCountBeforeExports ?? emailOtpPromptCount,
-          promptCountAfterExports,
-          promptCountAfterFinalSign: emailOtpPromptCount,
-        };
-      } catch (error: unknown) {
-        return {
-          ok: false,
-          error:
-            error && typeof error === 'object' && 'message' in error
-              ? String((error as { message?: unknown }).message || '')
-              : String(error || 'reload phase failed'),
-        };
-      }
+              },
+            }),
+          ),
+        );
+      });
     },
     {
       relayerUrl: args.harness.baseUrl,
@@ -310,9 +197,8 @@ async function runEmailOtpReloadPhase(
       signingSessionSealKeyVersion: args.harness.signingSessionSealKeyVersion,
       accountId: args.accountId,
       appSessionJwt: args.appSessionJwt,
-      signKinds: args.signKinds,
-      signAfterExports: args.signAfterExports,
-      rememberAppSessionJwt: args.rememberAppSessionJwt,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+      participantIds: args.participantIds,
     },
   );
 }
@@ -379,6 +265,92 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
     }
   });
 
+  test('visible Email OTP unlock prompt accepts the dev outbox code and unlocks signing', async ({
+    page,
+  }) => {
+    const harness = await setupEmailOtpEcdsaTempoHarness(page);
+    const accountId = `emailotpvisibleui${Date.now()}.w3a-v1.testnet`;
+    try {
+      const appSessionJwt = await harness.mintAppSessionJwt({
+        userId: accountId,
+        email: 'visible-email-otp@example.com',
+        deviceId: 'email-otp-visible-ui-device',
+      });
+
+      const setupPhase = await runEmailOtpEcdsaTempoFlow(page, {
+        relayerUrl: harness.baseUrl,
+        shamirPrimeB64u: harness.shamirPrimeB64u,
+        accountId,
+        enrollAppSessionJwt: appSessionJwt,
+        loginAppSessionJwt: appSessionJwt,
+        clientSecretB64u: harness.defaultClientSecretB64u,
+        emailOtpAuthPolicy: 'session',
+        signTwice: false,
+      });
+
+      expect(setupPhase.ok, `${setupPhase.error || ''}\n${JSON.stringify(setupPhase)}`).toBe(true);
+      expect(setupPhase.ecdsaKeyBinding?.ecdsaThresholdKeyId).toBeTruthy();
+      expect(setupPhase.ecdsaKeyBinding?.participantIds).toEqual([1, 2]);
+
+      await mountVisibleEmailOtpUnlockPrompt(page, {
+        harness,
+        accountId,
+        appSessionJwt,
+        ecdsaThresholdKeyId: setupPhase.ecdsaKeyBinding?.ecdsaThresholdKeyId || '',
+        participantIds: setupPhase.ecdsaKeyBinding?.participantIds || [],
+      });
+
+      const mount = page.locator('#email-otp-visible-unlock-mount');
+      await mount.locator('.w3a-signup-menu-root:not(.w3a-skeleton)').waitFor({
+        state: 'attached',
+      });
+      await mount.getByRole('button', { name: 'Sign in with Google SSO' }).click();
+      await expect(mount.getByText('Check your email to unlock your wallet')).toBeVisible();
+      await expect(mount.getByText(accountId)).toBeVisible();
+
+      await expect
+        .poll(async () =>
+          page.evaluate(() => String((window as any).__emailOtpVisibleUnlock?.challengeId || '')),
+        )
+        .not.toBe('');
+      const challengeId = await page.evaluate(() =>
+        String((window as any).__emailOtpVisibleUnlock?.challengeId || ''),
+      );
+      const otpCode = await readEmailOtpOutbox({
+        harness,
+        accountId,
+        appSessionJwt,
+        challengeId,
+      });
+
+      await mount.getByLabel('Email code').fill(otpCode);
+      await expect
+        .poll(async () =>
+          page.evaluate(() => String((window as any).__emailOtpVisibleUnlock?.submittedCode || '')),
+        )
+        .toBe(otpCode);
+      await expect
+        .poll(
+          async () =>
+            page.evaluate(() => Boolean((window as any).__emailOtpVisibleUnlock?.loginSucceeded)),
+          { timeout: 30_000 },
+        )
+        .toBe(true);
+      expect(
+        await page.evaluate(() =>
+          String((window as any).__emailOtpVisibleUnlock?.loginWarmState || ''),
+        ),
+      ).toBe('ready');
+      await expect
+        .poll(async () =>
+          page.evaluate(() => String((window as any).__emailOtpVisibleUnlock?.error || '')),
+        )
+        .toBe('');
+    } finally {
+      await harness.close();
+    }
+  });
+
   test('session-mode Email OTP reload signs NEAR and Tempo without another OTP, while export stays fresh-OTP scoped', async ({
     page,
   }) => {
@@ -398,6 +370,7 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         loginAppSessionJwt: appSessionJwt,
         clientSecretB64u: harness.defaultClientSecretB64u,
         emailOtpAuthPolicy: 'session',
+        signingSessionRemainingUses: 8,
         signTwice: false,
         signNearAfterLogin: true,
       });
@@ -422,6 +395,8 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(reloadPhase.ok, `${reloadPhase.error || ''}\n${JSON.stringify(reloadPhase)}`).toBe(
         true,
       );
+      // Export prompts are fresh-auth scoped; they must not force the restored
+      // transaction signing session into a false exhausted state.
       expect(reloadPhase.sessionStatus).toBe('active');
       expect(reloadPhase.results?.map((result) => [result.kind, result.ok, result.chain])).toEqual([
         ['near', true, 'near'],
@@ -433,6 +408,16 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(reloadPhase.promptCountBeforeExports).toBe(0);
       expect(reloadPhase.promptCountAfterExports).toBeGreaterThan(0);
       expect(reloadPhase.promptCountAfterFinalSign).toBe(reloadPhase.promptCountAfterExports);
+      expect(
+        reloadPhase.authPromptEvents
+          ?.filter((event) => event.hasEmailOtpPrompt)
+          .map((event) => event.method),
+        JSON.stringify(reloadPhase.authPromptEvents || []),
+      ).toEqual(['email_otp', 'email_otp']);
+      expect(
+        reloadPhase.authPromptEvents?.some((event) => event.method === 'passkey'),
+        JSON.stringify(reloadPhase.authPromptEvents || []),
+      ).toBe(false);
       expect(reloadPhase.webauthnGetCount).toBe(0);
     } finally {
       await harness.close();
@@ -485,7 +470,9 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
         true,
       );
       expect(reloadPhase.sessionStatus).toBe('active');
-      expect(reloadPhase.results).toEqual([{ kind: 'evm', ok: true, chain: 'evm' }]);
+      expect(reloadPhase.results?.map((result) => [result.kind, result.ok, result.chain])).toEqual([
+        ['evm', true, 'evm'],
+      ]);
       expect(reloadPhase.emailOtpPromptCount).toBe(0);
       expect(reloadPhase.webauthnGetCount).toBe(0);
     } finally {
@@ -537,6 +524,101 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       ]);
       expect(reloadPhase.emailOtpPromptCount).toBeGreaterThan(0);
       expect(reloadPhase.webauthnGetCount).toBe(0);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('Email OTP lifecycle restores each signing curve after reload and prompts after exhaustion', async ({
+    page,
+  }) => {
+    const harness = await setupEmailOtpEcdsaTempoHarness(page);
+    try {
+      const cases: Array<{
+        label: 'near' | 'tempo';
+        signKinds: ReloadSignKind[];
+        signNearAfterLogin: boolean;
+      }> = [
+        {
+          label: 'near',
+          signKinds: ['near', 'near', 'near', 'near'],
+          signNearAfterLogin: true,
+        },
+        {
+          label: 'tempo',
+          signKinds: ['tempo', 'tempo', 'tempo', 'tempo'],
+          signNearAfterLogin: false,
+        },
+      ];
+
+      for (const lifecycleCase of cases) {
+        const accountId = `emailotplifecycle${lifecycleCase.label}${Date.now()}.w3a-v1.testnet`;
+        const remainingUses = 4;
+        const appSessionJwt = await harness.mintAppSessionJwt({
+          userId: accountId,
+          deviceId: `email-otp-lifecycle-${lifecycleCase.label}-device`,
+        });
+
+        const firstPhase = await runEmailOtpEcdsaTempoFlow(page, {
+          relayerUrl: harness.baseUrl,
+          shamirPrimeB64u: harness.shamirPrimeB64u,
+          accountId,
+          enrollAppSessionJwt: appSessionJwt,
+          loginAppSessionJwt: appSessionJwt,
+          clientSecretB64u: harness.defaultClientSecretB64u,
+          emailOtpAuthPolicy: 'session',
+          signingSessionRemainingUses: remainingUses,
+          signTwice: false,
+          signNearAfterLogin: lifecycleCase.signNearAfterLogin,
+        });
+
+        expect(
+          firstPhase.ok,
+          `${lifecycleCase.label}: ${firstPhase.error || ''}\n${JSON.stringify(firstPhase)}`,
+        ).toBe(true);
+        expect(firstPhase.firstSign?.ok, firstPhase.firstSign?.error || '').toBe(true);
+        if (lifecycleCase.signNearAfterLogin) {
+          expect(firstPhase.nearSign?.ok, firstPhase.nearSign?.error || '').toBe(true);
+        }
+
+        await page.reload();
+        await page.waitForTimeout(300);
+
+        const reloadPhase = await runEmailOtpReloadPhase(page, {
+          harness,
+          accountId,
+          appSessionJwt,
+          signKinds: lifecycleCase.signKinds,
+        });
+
+        expect(
+          reloadPhase.ok,
+          `${lifecycleCase.label}: ${reloadPhase.error || ''}\n${JSON.stringify(reloadPhase)}`,
+        ).toBe(true);
+        expect(reloadPhase.webauthnGetCount).toBe(0);
+
+        const [firstRestoredSign, ...postRestoredSigns] = reloadPhase.results || [];
+        expect(firstRestoredSign?.ok).toBe(true);
+        expect(firstRestoredSign?.kind).toBe(lifecycleCase.label);
+        expect(firstRestoredSign?.promptCountBefore).toBe(0);
+        expect(firstRestoredSign?.promptCountAfter).toBe(0);
+        expect(
+          postRestoredSigns.some(
+            (result) =>
+              result.ok &&
+              Number(result.promptCountAfter || 0) > Number(result.promptCountBefore || 0),
+          ),
+          `${lifecycleCase.label}: expected an Email OTP prompt after restored session exhaustion\n${JSON.stringify(reloadPhase)}`,
+        ).toBe(true);
+        expect(
+          reloadPhase.authPromptEvents
+            ?.filter((event) => event.hasEmailOtpPrompt)
+            .every((event) => event.method === 'email_otp'),
+          `${lifecycleCase.label}: expected Email OTP, not passkey, after exhaustion\n${JSON.stringify(
+            reloadPhase.authPromptEvents || [],
+          )}`,
+        ).toBe(true);
+      }
     } finally {
       await harness.close();
     }
@@ -692,7 +774,7 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
     }
   });
 
-  test('per_operation Email OTP login signs once and then requires fresh OTP before the next sign', async ({
+  test('per_operation Email OTP login prompts for fresh OTP before each Tempo sign', async ({
     page,
   }) => {
     const harness = await setupEmailOtpEcdsaTempoHarness(page);
@@ -726,15 +808,15 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(result.emailOtpLogin?.warmState).toBe('ready');
       expect(result.otpCounters?.enrollChallengeCount).toBe(1);
       expect(result.otpCounters?.loginChallengeCount).toBe(1);
+      expect(result.otpCounters?.signingChallengeCount).toBe(2);
       expect(result.webauthnCounters?.createCount).toBe(0);
       expect(result.webauthnCounters?.getCount).toBe(0);
       expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
       expect(result.firstSign?.chain).toBe('tempo');
       expect(result.firstSign?.kind).toBe('tempoTransaction');
-      expect(result.secondSign?.ok, JSON.stringify(result)).toBe(false);
-      expect(String(result.secondSign?.error || '')).toContain(
-        'requires fresh Email OTP verification with per_operation policy',
-      );
+      expect(result.secondSign?.ok, result.secondSign?.error || '').toBe(true);
+      expect(result.secondSign?.chain).toBe('tempo');
+      expect(result.secondSign?.kind).toBe('tempoTransaction');
     } finally {
       await harness.close();
     }
@@ -787,7 +869,7 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
     }
   });
 
-  test('per_operation Email OTP also forces a fresh OTP before a second EVM eip1559 sign', async ({
+  test('per_operation Email OTP also prompts for fresh OTP before each EVM eip1559 sign', async ({
     page,
   }) => {
     const harness = await setupEmailOtpEcdsaTempoHarness(page);
@@ -819,15 +901,15 @@ test.describe('Email OTP threshold-ecdsa tempo signing', () => {
       expect(result.ok, `${result.error || ''}\n${JSON.stringify(failureContext)}`).toBe(true);
       expect(result.emailOtpLogin?.policy).toBe('per_operation');
       expect(result.emailOtpLogin?.retention).toBe('single_use');
+      expect(result.otpCounters?.signingChallengeCount).toBe(2);
       expect(result.webauthnCounters?.createCount).toBe(0);
       expect(result.webauthnCounters?.getCount).toBe(0);
       expect(result.firstSign?.ok, result.firstSign?.error || '').toBe(true);
       expect(result.firstSign?.chain).toBe('evm');
       expect(result.firstSign?.kind).toBe('eip1559');
-      expect(result.secondSign?.ok).toBe(false);
-      expect(String(result.secondSign?.error || '')).toContain(
-        'requires fresh Email OTP verification with per_operation policy',
-      );
+      expect(result.secondSign?.ok, result.secondSign?.error || '').toBe(true);
+      expect(result.secondSign?.chain).toBe('evm');
+      expect(result.secondSign?.kind).toBe('eip1559');
     } finally {
       await harness.close();
     }

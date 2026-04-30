@@ -11,7 +11,7 @@ test.describe('threshold Ed25519 auth-session rehydrate', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
-  test('stores canonical Ed25519 session records in sessionStorage for wallet host mode', async ({
+  test('keeps canonical Ed25519 session records out of sessionStorage for wallet host mode', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -34,7 +34,11 @@ test.describe('threshold Ed25519 auth-session rehydrate', () => {
             remainingUses: 3,
             source: 'login',
           });
+          const record = storeMod.getStoredThresholdEd25519SessionRecordForAccount(
+            'alice.testnet',
+          );
           return {
+            record,
             localRecord: localStorage.getItem('tatchi:threshold-ed25519-session:v1:alice.testnet'),
             localIndex: localStorage.getItem('tatchi:threshold-ed25519-session:v1:index'),
             localSessionIndex: localStorage.getItem(
@@ -62,8 +66,9 @@ test.describe('threshold Ed25519 auth-session rehydrate', () => {
     expect(result.localRecord).toBeNull();
     expect(result.localIndex).toBeNull();
     expect(result.localSessionIndex).toBeNull();
-    expect(result.sessionRecord).not.toBeNull();
-    expect(result.sessionIndex).toBe(JSON.stringify(['alice.testnet']));
-    expect(result.sessionSessionIndex).toContain('tsess-host-mode');
+    expect(result.sessionRecord).toBeNull();
+    expect(result.sessionIndex).toBeNull();
+    expect(result.sessionSessionIndex).toBeNull();
+    expect(result.record?.thresholdSessionId).toBe('tsess-host-mode');
   });
 });

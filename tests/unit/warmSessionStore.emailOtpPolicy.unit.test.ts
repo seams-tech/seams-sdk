@@ -150,6 +150,45 @@ test.describe('WarmSessionStore Email OTP policy enforcement', () => {
     });
   });
 
+  test('treats exhausted Email OTP Ed25519 worker material as a local cache miss', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+
+    const record = seedEd25519WarmSessionRecord({
+      nearAccountId: 'otp-ed25519-cache-race.testnet',
+      source: 'email_otp',
+      thresholdSessionId: 'otp-ed25519-cache-race-session',
+      thresholdSessionJwt: 'jwt:otp-ed25519-cache-race-session',
+      walletSigningSessionId: 'wallet-otp-ed25519-cache-race',
+      xClientBaseB64u: 'x-client-base-cache-race',
+      remainingUses: 1,
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
+    });
+
+    const store = createWarmSessionTestServices({
+      touchConfirm: createWarmSessionStatusReader({
+        [record.thresholdSessionId]: { state: 'exhausted' },
+      }),
+    });
+
+    await expect(
+      store.getEd25519SigningSessionStatusForSession({
+        nearAccountId: 'otp-ed25519-cache-race.testnet',
+        thresholdSessionId: record.thresholdSessionId,
+      }),
+    ).resolves.toMatchObject({
+      sessionId: record.thresholdSessionId,
+      status: 'active',
+      authMethod: 'email_otp',
+      remainingUses: 1,
+    });
+  });
+
   test('resolves readiness from shared wallet signing-session budget before curve readiness', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);

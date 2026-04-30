@@ -107,19 +107,22 @@ export function makeAuthServiceForThreshold(
       ) => Promise<{ success: boolean; verified: boolean }>;
     }
   ).verifyWebAuthnAuthenticationLite = async (_req: unknown) => ({ success: true, verified: true });
-  (svc as unknown as { createAccount: (request: AccountCreationRequest) => Promise<AccountCreationResult> })
-    .createAccount = async (request: AccountCreationRequest) => {
-      const publicKey = String(request.publicKey || '').trim();
-      const recoveryPublicKey = String(request.recoveryPublicKey || '').trim();
-      if (publicKey) keysOnChain.add(publicKey);
-      if (recoveryPublicKey) keysOnChain.add(recoveryPublicKey);
-      return {
-        success: true,
-        transactionHash: `mock-create-account-${Date.now()}`,
-        accountId: request.accountId,
-        message: `Mock account ${request.accountId} created`,
-      };
+  (
+    svc as unknown as {
+      createAccount: (request: AccountCreationRequest) => Promise<AccountCreationResult>;
+    }
+  ).createAccount = async (request: AccountCreationRequest) => {
+    const publicKey = String(request.publicKey || '').trim();
+    const recoveryPublicKey = String(request.recoveryPublicKey || '').trim();
+    if (publicKey) keysOnChain.add(publicKey);
+    if (recoveryPublicKey) keysOnChain.add(recoveryPublicKey);
+    return {
+      success: true,
+      transactionHash: `mock-create-account-${Date.now()}`,
+      accountId: request.accountId,
+      message: `Mock account ${request.accountId} created`,
     };
+  };
 
   keysOnChain.add(TEST_RELAYER_PUBLIC_KEY);
   const blockHash = bs58.encode(Buffer.alloc(32, 7));
@@ -318,6 +321,7 @@ export async function setupManagedThresholdRegistrationHarness(args: {
     orgId: string;
     projectId: string;
     envId: string;
+    signingRootVersion: string;
   };
   close: () => Promise<void>;
 }> {
@@ -406,6 +410,7 @@ export async function setupManagedThresholdRegistrationHarness(args: {
       orgId,
       projectId,
       envId,
+      signingRootVersion: 'default',
     },
     close: server.close,
   };

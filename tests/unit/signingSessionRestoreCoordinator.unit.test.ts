@@ -11,6 +11,10 @@ function makeSealedRecord(args: {
   chain?: 'tempo' | 'evm';
   curve?: 'ed25519' | 'ecdsa';
   thresholdSessionId?: string;
+  thresholdSessionIds?: {
+    ed25519?: string;
+    ecdsa?: string;
+  };
   walletSigningSessionId?: string;
   updatedAtMs?: number;
 }): SigningSessionSealedStoreRecord {
@@ -27,7 +31,8 @@ function makeSealedRecord(args: {
     storeKey: `${authMethod}:${curve}:${args.chain || 'near'}:${thresholdSessionId}`,
     walletSigningSessionId: args.walletSigningSessionId || 'wsess-restore',
     thresholdSessionIds:
-      curve === 'ecdsa' ? { ecdsa: thresholdSessionId } : { ed25519: thresholdSessionId },
+      args.thresholdSessionIds ||
+      (curve === 'ecdsa' ? { ecdsa: thresholdSessionId } : { ed25519: thresholdSessionId }),
     sealedSecretB64u: 'sealed-secret',
     curve,
     walletId: 'restore.testnet',
@@ -220,6 +225,93 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
     expect(restoreCalls).toBe(2);
   });
+
+  test('restores Ed25519 intent from an ECDSA-primary companion sealed record', async () => {
+    let restoreCalls = 0;
+    let restoredRecord: SigningSessionSealedStoreRecord | null = null;
+    const companionRecord: SigningSessionSealedStoreRecord = {
+      ...makeSealedRecord({
+        chain: 'tempo',
+        thresholdSessionId: 'tsess-ecdsa-companion',
+        walletSigningSessionId: 'wsess-companion',
+      }),
+      thresholdSessionIds: {
+        ecdsa: 'tsess-ecdsa-companion',
+        ed25519: 'tsess-ed25519-companion',
+      },
+    };
+
+    const result = await restorePersistedSessionForSigningCommand(
+      {
+        walletId: 'restore.testnet',
+        authMethod: 'email_otp',
+        curve: 'ed25519',
+        chain: 'near',
+        thresholdSessionId: 'tsess-ed25519-companion',
+        walletSigningSessionId: 'wsess-companion',
+        reason: 'transaction',
+      },
+      {
+        listExactSealedSessionsForAccount: async ({ curve }) =>
+          curve === 'ed25519' ? [companionRecord] : [],
+        restoreSealedRecordForAccount: async ({ record }) => {
+          restoreCalls += 1;
+          restoredRecord = record;
+          return 'restored';
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ attempted: 1, restored: 1, deferred: 0 });
+    expect(restoreCalls).toBe(1);
+    expect(restoredRecord?.thresholdSessionIds.ed25519).toBe('tsess-ed25519-companion');
+    expect(restoredRecord?.thresholdSessionIds.ecdsa).toBe('tsess-ecdsa-companion');
+  });
+
+  test('passes Ed25519 purpose through to the restore port for an ECDSA-primary companion record', async () => {
+    const companionRecord = makeSealedRecord({
+      curve: 'ecdsa',
+      chain: 'tempo',
+      thresholdSessionId: 'tsess-ecdsa-primary',
+      walletSigningSessionId: 'wsess-companion-purpose',
+      thresholdSessionIds: {
+        ecdsa: 'tsess-ecdsa-primary',
+        ed25519: 'tsess-ed25519-purpose',
+      },
+    });
+    const restoredPurposes: unknown[] = [];
+
+    const result = await restorePersistedSessionForSigningCommand(
+      {
+        walletId: 'restore.testnet',
+        authMethod: 'email_otp',
+        curve: 'ed25519',
+        chain: 'near',
+        reason: 'transaction',
+      },
+      {
+        listExactSealedSessionsForAccount: async (filter) =>
+          filter.curve === 'ed25519' ? [companionRecord] : [],
+        restoreSealedRecordForAccount: async ({ purpose }) => {
+          restoredPurposes.push(purpose);
+          return 'restored';
+        },
+      },
+    );
+
+    expect(result).toMatchObject({ attempted: 1, restored: 1, deferred: 0 });
+    expect(restoredPurposes).toEqual([
+      {
+        walletId: 'restore.testnet',
+        authMethod: 'email_otp',
+        curve: 'ed25519',
+        chain: 'near',
+        walletSigningSessionId: 'wsess-companion-purpose',
+        thresholdSessionId: 'tsess-ed25519-purpose',
+        reason: 'transaction',
+      },
+    ]);
+  });
 });
 
 test.describe('restorePersistedSessionsForAccountCommand', () => {
@@ -365,6 +457,62 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
           chain: 'tempo',
           thresholdSessionId: 'tsess-passkey-tempo',
         },
+      ]),
+    );
+  });
+
+  test('emits separate account restore work items for a multi-curve sealed record', async () => {
+    const companionRecord = makeSealedRecord({
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+      chain: 'tempo',
+      thresholdSessionId: 'tsess-ecdsa-account',
+      walletSigningSessionId: 'wsess-account-companion',
+      thresholdSessionIds: {
+        ecdsa: 'tsess-ecdsa-account',
+        ed25519: 'tsess-ed25519-account',
+      },
+    });
+    const restoredPurposes: unknown[] = [];
+
+    const result = await restorePersistedSessionsForAccountCommand(
+      {
+        walletId: 'restore.testnet',
+        authMethod: 'email_otp',
+        maxRecords: 10,
+      },
+      {
+        listExactSealedSessionsForAccount: async (filter) => {
+          if (filter.curve === 'ed25519') return [companionRecord];
+          if (filter.curve === 'ecdsa' && filter.chain === 'tempo') return [companionRecord];
+          return [];
+        },
+        restoreSealedRecordForAccount: async ({ purpose }) => {
+          restoredPurposes.push(purpose);
+          return 'restored';
+        },
+      },
+    );
+
+    expect(result).toMatchObject({
+      attempted: 2,
+      restored: 2,
+      deferred: 0,
+      skipped: 0,
+      truncated: 0,
+    });
+    expect(restoredPurposes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          curve: 'ecdsa',
+          chain: 'tempo',
+          thresholdSessionId: 'tsess-ecdsa-account',
+        }),
+        expect.objectContaining({
+          curve: 'ed25519',
+          chain: 'near',
+          thresholdSessionId: 'tsess-ed25519-account',
+        }),
       ]),
     );
   });

@@ -103,6 +103,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
     orgId: bootstrapAdminCtx.orgId,
     projectId: bootstrapProjectId,
     envId: 'dev',
+    signingRootVersion: 'default',
   } as const;
   const managedRegistrationEnvironmentId = `${bootstrapProjectId}:dev`;
   await orgProjectEnv.upsertOrganization(bootstrapAdminCtx, {

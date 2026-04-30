@@ -8,7 +8,14 @@ const WALLET_SERVICE_ROUTE = '**://wallet.example.localhost/wallet-service*';
 const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
   window.__emailOtpMessages = [];
   const walletMetadataKey = 'test-email-otp-wallet-account-id';
-  let warmCapabilityActive = false;
+  const warmCapabilityKey = 'test-email-otp-warm-capability-active';
+  let warmCapabilityActive = (() => {
+    try {
+      return localStorage.getItem(warmCapabilityKey) === '1';
+    } catch {
+      return false;
+    }
+  })();
 
   const sanitizePayload = (payload) => {
     if (Array.isArray(payload)) return payload.map((entry) => sanitizePayload(entry));
@@ -30,6 +37,13 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
     if (!nearAccountId) return;
     try {
       localStorage.setItem(walletMetadataKey, nearAccountId);
+    } catch {}
+  };
+
+  const setWarmCapabilityActive = (active) => {
+    warmCapabilityActive = active === true;
+    try {
+      localStorage.setItem(warmCapabilityKey, warmCapabilityActive ? '1' : '0');
     } catch {}
   };
 
@@ -198,12 +212,12 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
           return;
         }
         rememberAccount(data.payload?.nearAccountId || '');
-        warmCapabilityActive = true;
+        setWarmCapabilityActive(true);
         respond({ recovery: loginRecovery, bootstrap: bootstrapResult, warmCapability });
       }
       if (data.type === 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY') {
         rememberAccount(data.payload?.nearAccountId || '');
-        warmCapabilityActive = true;
+        setWarmCapabilityActive(true);
         respond({
           enrollment: {
             thresholdEcdsaClientVerifyingShareB64u: 'threshold-verifier-b64u',
@@ -722,7 +736,7 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
     });
   });
 
-  test('reload restores nonsecret account metadata but requires fresh OTP for signing', async ({
+  test('reload restores nonsecret account metadata and sealed signing session for signing', async ({
     page,
   }) => {
     const firstLoad = await page.evaluate(
@@ -804,14 +818,19 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
             accessList: [],
           },
         };
-        const signError = await pm.tempo
+        const signResult = await pm.tempo
           .signTempo({
             nearAccountId,
             request: signRequest,
             options: { confirmationConfig: { uiMode: 'modal' } },
           })
-          .then(() => null)
+          .then((result: unknown) => ({
+            ok: true,
+            chain: String((result as { chain?: unknown })?.chain || ''),
+            kind: String((result as { kind?: unknown })?.kind || ''),
+          }))
           .catch((error: unknown) => ({
+            ok: false,
             code: String((error as { code?: unknown })?.code || ''),
             message: String((error as Error)?.message || error),
           }));
@@ -819,7 +838,7 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
           loggedIn: !!session.login?.isLoggedIn,
           nearAccountId: session.login?.nearAccountId || null,
           signingSession: session.signingSession || null,
-          signError,
+          signResult,
         };
       },
       { walletOrigin: WALLET_ORIGIN },
@@ -827,9 +846,11 @@ test.describe('TatchiPasskey Email OTP wallet iframe ownership', () => {
 
     expect(afterReload.loggedIn).toBe(true);
     expect(afterReload.nearAccountId).toBe('alice.testnet');
-    expect(afterReload.signingSession).toBeNull();
-    expect(afterReload.signError?.message || '').toContain(
-      'Threshold ECDSA signing session is not ready',
-    );
+    expect(afterReload.signingSession?.status).toBe('active');
+    expect(afterReload.signResult).toMatchObject({
+      ok: true,
+      chain: 'evm',
+      kind: 'eip1559',
+    });
   });
 });

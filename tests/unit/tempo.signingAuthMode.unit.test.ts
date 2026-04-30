@@ -10,6 +10,9 @@ const IMPORT_PATHS = {
   signTempoWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/tempo/tempoSigningFlow.js',
   evmFamilyAuthPlanning: '/sdk/esm/core/signingEngine/api/evmFamily/authPlanning.js',
   evmFamilyBudgetSpending: '/sdk/esm/core/signingEngine/api/evmFamily/budgetSpending.js',
+  evmFamilyPreparedSigning: '/sdk/esm/core/signingEngine/api/evmFamily/preparedSigning.js',
+  preparedThresholdOperation:
+    '/sdk/esm/core/signingEngine/session/signingSession/preparedOperation.js',
 } as const;
 
 async function routeEvmFamilySigningFlowStubs(page: Page): Promise<void> {
@@ -132,6 +135,236 @@ test.describe('tempo signing auth-mode resolution', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
+  test('EVM-family prepare selects the intended auth candidate when linked OTP and passkey lanes exist', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { prepareEvmFamilyEcdsaSigningSession } = await import(
+          paths.evmFamilyPreparedSigning
+        );
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
+        const accountId = 'linked-auth-candidates.testnet';
+        const now = Date.now();
+        const emailRecord = {
+          nearAccountId: accountId,
+          chain: 'evm',
+          relayerUrl: 'https://relayer.example',
+          ecdsaThresholdKeyId: 'ecdsa-email',
+          signingRootId: 'proj_test:dev',
+          relayerKeyId: 'rk-email',
+          clientVerifyingShareB64u: 'AQ',
+          clientAdditiveShareHandle: {
+            kind: 'email_otp_worker_session',
+            sessionId: 'email-worker-session',
+          },
+          participantIds: [1, 2],
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'threshold-email-selected',
+          walletSigningSessionId: 'wallet-email-selected',
+          thresholdSessionJwt: 'jwt:email',
+          expiresAtMs: now + 120_000,
+          remainingUses: 3,
+          emailOtpAuthContext: {
+            policy: 'session',
+            retention: 'session',
+            reason: 'login',
+            authMethod: 'email_otp',
+          },
+          updatedAtMs: now,
+          source: 'email_otp',
+        };
+        const passkeyRecord = {
+          nearAccountId: accountId,
+          chain: 'evm',
+          relayerUrl: 'https://relayer.example',
+          ecdsaThresholdKeyId: 'ecdsa-passkey',
+          signingRootId: 'proj_test:dev',
+          relayerKeyId: 'rk-passkey',
+          clientVerifyingShareB64u: 'AQ',
+          clientAdditiveShare32B64u: 'Ag',
+          participantIds: [1, 2],
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'threshold-passkey-collapsed',
+          walletSigningSessionId: 'wallet-passkey-collapsed',
+          thresholdSessionJwt: 'jwt:passkey',
+          expiresAtMs: now + 120_000,
+          remainingUses: 3,
+          updatedAtMs: now + 1,
+          source: 'login',
+        };
+        const toKeyRef = (record: any) => ({
+          type: 'threshold-ecdsa-secp256k1',
+          userId: accountId,
+          relayerUrl: record.relayerUrl,
+          ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+          signingRootId: record.signingRootId,
+          backendBinding: {
+            relayerKeyId: record.relayerKeyId,
+            clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+            ...(record.clientAdditiveShare32B64u
+              ? { clientAdditiveShare32B64u: record.clientAdditiveShare32B64u }
+              : {}),
+            ...(record.clientAdditiveShareHandle
+              ? { clientAdditiveShareHandle: record.clientAdditiveShareHandle }
+              : {}),
+          },
+          participantIds: record.participantIds,
+          thresholdSessionKind: record.thresholdSessionKind,
+          thresholdSessionId: record.thresholdSessionId,
+          thresholdSessionJwt: record.thresholdSessionJwt,
+          walletSigningSessionId: record.walletSigningSessionId,
+        });
+        const restoreCalls: any[] = [];
+        const signingSessionCoordinator = new SigningSessionCoordinator({
+          getStatus: async ({ sessionId }: any) => ({
+            sessionId,
+            status: 'active',
+            remainingUses: 3,
+            expiresAtMs: now + 120_000,
+          }),
+        });
+        const deps = {
+          signingSessionCoordinator,
+          restorePersistedSessionForSigning: async (restoreArgs: any) => {
+            restoreCalls.push(restoreArgs);
+            return { attempted: 1, restored: 1, deferred: 0 };
+          },
+          readSigningSessionSnapshotForSigning: async ({ walletId }: any) => ({
+            walletId,
+            generation: 2,
+            lanes: {
+              ed25519: { near: { curve: 'ed25519', chain: 'near', state: 'missing' } },
+              ecdsa: {
+                tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
+                // This intentionally says passkey to prove candidate policy, not
+                // collapsed lane order, chooses the transaction auth method.
+                evm: {
+                  authMethod: 'passkey',
+                  curve: 'ecdsa',
+                  chain: 'evm',
+                  state: 'restorable',
+                  source: 'durable_sealed_record',
+                  thresholdSessionId: passkeyRecord.thresholdSessionId,
+                  walletSigningSessionId: passkeyRecord.walletSigningSessionId,
+                },
+              },
+            },
+            candidates: {
+              ecdsa: {
+                tempo: [],
+                evm: [
+                  {
+                    authMethod: 'email_otp',
+                    curve: 'ecdsa',
+                    chain: 'evm',
+                    state: 'restorable',
+                    source: 'durable_sealed_record',
+                    thresholdSessionId: emailRecord.thresholdSessionId,
+                    walletSigningSessionId: emailRecord.walletSigningSessionId,
+                  },
+                  {
+                    authMethod: 'passkey',
+                    curve: 'ecdsa',
+                    chain: 'evm',
+                    state: 'restorable',
+                    source: 'durable_sealed_record',
+                    thresholdSessionId: passkeyRecord.thresholdSessionId,
+                    walletSigningSessionId: passkeyRecord.walletSigningSessionId,
+                  },
+                ],
+              },
+            },
+          }),
+          indexedDB: {
+            clientDB: {
+              resolveProfileAccountContext: async () => ({
+                profileId: 'profile:linked-auth-candidates',
+                accountRef: { chainIdKey: 'near:testnet', accountAddress: accountId },
+              }),
+              getProfile: async () => ({
+                profileId: 'profile:linked-auth-candidates',
+                defaultSignerSlot: 2,
+              }),
+              listAccountSigners: async () => [
+                {
+                  signerSlot: 1,
+                  signerAuthMethod: 'passkey',
+                  signerKind: 'threshold_ed25519',
+                  status: 'active',
+                },
+                {
+                  signerSlot: 2,
+                  signerAuthMethod: 'email_otp',
+                  signerKind: 'threshold_ed25519',
+                  status: 'active',
+                },
+              ],
+              getLastProfileState: async () => ({
+                profileId: 'profile:linked-auth-candidates',
+                activeSignerSlot: 2,
+              }),
+              listChainAccountsByProfile: async () => [
+                {
+                  profileId: 'profile:linked-auth-candidates',
+                  chainIdKey: 'eip155:11155111',
+                  accountAddress: '0x' + '12'.repeat(20),
+                  accountModel: 'erc4337',
+                  isPrimary: true,
+                },
+              ],
+            },
+          },
+          touchConfirm: {
+            getWarmSessionStatus: async ({ sessionId }: any) => ({
+              ok: true,
+              sessionId,
+              remainingUses: 3,
+              expiresAtMs: now + 120_000,
+            }),
+          },
+          getEmailOtpWarmSessionStatus: async (sessionId: string) => ({
+            ok: true,
+            sessionId,
+            remainingUses: 3,
+            expiresAtMs: now + 120_000,
+          }),
+          getEmailOtpThresholdEcdsaSessionRecordForSigning: () => emailRecord,
+          getEmailOtpThresholdEcdsaKeyRefForSigning: () => toKeyRef(emailRecord),
+          getPasskeyThresholdEcdsaSessionRecordForSigning: () => passkeyRecord,
+          getPasskeyThresholdEcdsaKeyRefForSigning: () => toKeyRef(passkeyRecord),
+        };
+
+        const prepared = await prepareEvmFamilyEcdsaSigningSession({
+          deps,
+          nearAccountId: accountId,
+          chain: 'evm',
+          diagnostics: {},
+          signingSessionCoordinator,
+        });
+
+        return {
+          restoreCalls,
+          preparedAuthMethod: prepared.authMethod,
+          thresholdSessionId: String(prepared.signingLane.thresholdSessionId),
+          walletSigningSessionId: String(prepared.signingLane.walletSigningSessionId),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.restoreCalls).toMatchObject([
+      {
+        authMethod: 'email_otp',
+        walletSigningSessionId: 'wallet-email-selected',
+        thresholdSessionId: 'threshold-email-selected',
+      },
+    ]);
+    expect(result.preparedAuthMethod).toBe('email_otp');
+    expect(result.thresholdSessionId).toBe('threshold-email-selected');
+    expect(result.walletSigningSessionId).toBe('wallet-email-selected');
+  });
+
 
   test('EVM-family auth planning does not execute Email OTP side effects before confirmation', async ({
     page,
@@ -139,6 +372,8 @@ test.describe('tempo signing auth-mode resolution', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { resolveEvmFamilyTransactionWalletAuth } = await import(paths.evmFamilyAuthPlanning);
+        const { prepareThresholdSigningOperation } = await import(paths.preparedThresholdOperation);
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
         let challengeCalls = 0;
         let completeCalls = 0;
         let preConfirmSideEffectCalls = 0;
@@ -146,6 +381,48 @@ test.describe('tempo signing auth-mode resolution', () => {
           preConfirmSideEffectCalls += 1;
           throw new Error('pre-confirm deps must not expose or execute auth side effects');
         };
+
+        const signingSessionCoordinator = new SigningSessionCoordinator({
+          getStatus: async () => null,
+        });
+        const ecdsaSigningLane = {
+          operationId: 'op-otp-planning-boundary',
+          accountId: 'otp-planning-boundary.testnet',
+          authMethod: 'email_otp',
+          curve: 'ecdsa',
+          keyKind: 'threshold_ecdsa_secp256k1',
+          chainFamily: 'tempo',
+          walletSigningSessionId: 'wallet-otp-planning-boundary',
+          thresholdSessionId: 'threshold-otp-planning-boundary',
+          sessionOrigin: 'per_operation',
+          storageSource: 'email_otp',
+          retention: 'single_use',
+        };
+        const preparedOperation = await prepareThresholdSigningOperation({
+          intent: {
+            kind: 'transaction_sign',
+            chain: 'tempo',
+            curve: 'ecdsa',
+            walletId: 'otp-planning-boundary.testnet',
+            reason: 'transaction',
+          },
+          coordinator: signingSessionCoordinator,
+          missingWhenExpiresAtMissing: true,
+          lifecycleAdapter: {
+            prepare: async () => ({
+              lane: ecdsaSigningLane,
+              readiness: {
+                readiness: {
+                  status: 'missing_session',
+                  thresholdSessionId: 'threshold-otp-planning-boundary',
+                },
+                expiresAtMs: 0,
+                remainingUses: 0,
+              },
+              metadata: {},
+            }),
+          },
+        });
 
         const plan = await resolveEvmFamilyTransactionWalletAuth({
           deps: {
@@ -159,6 +436,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             requestEmailOtpTransactionSigningChallenge: failPreConfirmSideEffect,
             loginWithEmailOtpEcdsaCapabilityForSigning: failPreConfirmSideEffect,
             provisionThresholdEcdsaSession: failPreConfirmSideEffect,
+            signingSessionCoordinator,
           } as any,
           confirmedDeps: {
             requestEmailOtpTransactionSigningChallenge: async () => {
@@ -177,20 +455,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             linkedAuthMethods: ['email_otp'],
           },
           senderSignatureAlgorithm: 'secp256k1',
-          ecdsaAuthMethod: 'email_otp',
-          ecdsaSigningLane: {
-            operationId: 'op-otp-planning-boundary',
-            accountId: 'otp-planning-boundary.testnet',
-            authMethod: 'email_otp',
-            curve: 'ecdsa',
-            keyKind: 'threshold_ecdsa_secp256k1',
-            chainFamily: 'tempo',
-            walletSigningSessionId: 'wallet-otp-planning-boundary',
-            thresholdSessionId: 'threshold-otp-planning-boundary',
-            sessionOrigin: 'per_operation',
-            storageSource: 'email_otp',
-            retention: 'single_use',
-          },
+          preparedOperation,
         });
 
         const afterPlanning = { challengeCalls, completeCalls };
@@ -222,6 +487,7 @@ test.describe('tempo signing auth-mode resolution', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const { resolveEvmFamilyTransactionWalletAuth } = await import(paths.evmFamilyAuthPlanning);
+        const { prepareThresholdSigningOperation } = await import(paths.preparedThresholdOperation);
         const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
         const expiresAtMs = Date.now() + 60_000;
         const signingSessionCoordinator = new SigningSessionCoordinator({
@@ -231,6 +497,24 @@ test.describe('tempo signing auth-mode resolution', () => {
             remainingUses: 1,
             expiresAtMs,
           }),
+        });
+        const budgetLane = {
+          accountId: 'budget-planning.testnet',
+          authMethod: 'passkey',
+          curve: 'ecdsa',
+          keyKind: 'threshold_ecdsa_secp256k1',
+          chainFamily: 'tempo',
+          walletSigningSessionId: 'wallet-budget-inflight',
+          thresholdSessionId: 'threshold-budget-inflight',
+          sessionOrigin: 'login',
+          storageSource: 'login',
+          retention: 'session',
+          signingRootId: 'proj_budget:dev',
+          signingRootVersion: 'default',
+        };
+        const budgetIdentity = await signingSessionCoordinator.prepareBudgetIdentity({
+          nearAccountId: 'budget-planning.testnet',
+          lane: budgetLane,
         });
         await signingSessionCoordinator.reserve({
           spend: {
@@ -242,20 +526,33 @@ test.describe('tempo signing auth-mode resolution', () => {
             reason: 'transaction_sign',
             thresholdSessionIds: ['threshold-budget-inflight'],
             backingMaterialSessionIds: [],
-            lane: {
-              accountId: 'budget-planning.testnet',
-              authMethod: 'passkey',
-              curve: 'ecdsa',
-              keyKind: 'threshold_ecdsa_secp256k1',
-              chainFamily: 'tempo',
-              walletSigningSessionId: 'wallet-budget-inflight',
-              thresholdSessionId: 'threshold-budget-inflight',
-              sessionOrigin: 'login',
-              storageSource: 'login',
-              retention: 'session',
-              signingRootId: 'proj_budget:dev',
-              signingRootVersion: 'default',
-            },
+            lane: budgetLane,
+          },
+          expectedBudgetProjectionVersion: budgetIdentity.projectionVersion,
+        });
+        const preparedOperation = await prepareThresholdSigningOperation({
+          intent: {
+            kind: 'transaction_sign',
+            chain: 'tempo',
+            curve: 'ecdsa',
+            walletId: 'budget-planning.testnet',
+            reason: 'transaction',
+          },
+          coordinator: signingSessionCoordinator,
+          missingWhenExpiresAtMissing: true,
+          lifecycleAdapter: {
+            prepare: async () => ({
+              lane: budgetLane,
+              readiness: {
+                readiness: {
+                  status: 'ready',
+                  thresholdSessionId: 'threshold-budget-inflight',
+                },
+                expiresAtMs,
+                remainingUses: 2,
+              },
+              metadata: {},
+            }),
           },
         });
 
@@ -276,28 +573,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             linkedAuthMethods: ['passkey'],
           },
           senderSignatureAlgorithm: 'secp256k1',
-          ecdsaAuthMethod: 'passkey',
-          ecdsaSigningLane: {
-            accountId: 'budget-planning.testnet',
-            authMethod: 'passkey',
-            curve: 'ecdsa',
-            keyKind: 'threshold_ecdsa_secp256k1',
-            chainFamily: 'tempo',
-            walletSigningSessionId: 'wallet-budget-inflight',
-            thresholdSessionId: 'threshold-budget-inflight',
-            sessionOrigin: 'login',
-            storageSource: 'login',
-            retention: 'session',
-            signingRootId: 'proj_budget:dev',
-            signingRootVersion: 'default',
-          },
-          ecdsaWarmRecord: {
-            source: 'login',
-            thresholdSessionId: 'threshold-budget-inflight',
-            walletSigningSessionId: 'wallet-budget-inflight',
-            expiresAtMs,
-            remainingUses: 2,
-          },
+          preparedOperation,
         });
 
         return {
@@ -427,7 +703,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.message).toBe(true);
     expect(result.confirmCalls).toBe(1);
     expect(result.capturedAuthMode).toBe('');
     expect(result.capturedAuthPlanKind).toBe('passkeyReauth');
@@ -1470,13 +1746,16 @@ test.describe('tempo signing auth-mode resolution', () => {
         );
         const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
         const statusReads: any[] = [];
+        const budgetExpiresAtMs = Date.now() + 120_000;
         const signingSessionCoordinator = new SigningSessionCoordinator({
           getStatus: async (args: any) => {
             statusReads.push(args);
             return {
+              sessionId: String(args.walletSigningSessionId || ''),
               status: 'active',
               remainingUses: 5,
-              expiresAtMs: Date.now() + 120_000,
+              expiresAtMs: budgetExpiresAtMs,
+              projectionVersion: 'test-budget-projection:wallet-refreshed',
             };
           },
         });
@@ -1493,6 +1772,11 @@ test.describe('tempo signing auth-mode resolution', () => {
           retention: 'session',
         };
 
+        const budgetIdentity = await signingSessionCoordinator.prepareBudgetIdentity({
+          nearAccountId: 'alice.testnet',
+          lane: refreshedLane,
+        });
+
         await reserveEvmFamilyWalletSigningSessionBudget({
           signingSessionCoordinator,
           nearAccountId: 'alice.testnet',
@@ -1503,6 +1787,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             intent: 'transaction_sign',
           },
           ecdsaSigningLane: refreshedLane,
+          budgetIdentity,
         });
 
         return { statusReads };
@@ -1511,6 +1796,11 @@ test.describe('tempo signing auth-mode resolution', () => {
     );
 
     expect(result.statusReads).toMatchObject([
+      {
+        nearAccountId: 'alice.testnet',
+        walletSigningSessionId: 'wallet-refreshed',
+        targetThresholdSessionIds: ['ecdsa-refreshed'],
+      },
       {
         nearAccountId: 'alice.testnet',
         walletSigningSessionId: 'wallet-refreshed',
@@ -1809,7 +2099,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.message).toBe(true);
     expect(result.confirmCalls).toBe(1);
   });
 
@@ -1930,6 +2220,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       async ({ paths }) => {
         const { signTempo } = await import(paths.tempoSigningApi);
         const store = await import(paths.thresholdSessionStore);
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
         const accountId = 'otp-tempo.testnet';
         const chain = 'tempo';
         const now = Date.now();
@@ -2141,6 +2432,15 @@ test.describe('tempo signing auth-mode resolution', () => {
             message: 'exhausted',
           }),
           resolveEmailOtpSigningSessionAuthLane: () => null,
+          signingSessionCoordinator: new SigningSessionCoordinator({
+            getStatus: async (args: any) => ({
+              sessionId: String(args.walletSigningSessionId || ''),
+              status: 'exhausted',
+              remainingUses: 0,
+              expiresAtMs: now + 120_000,
+              projectionVersion: `test-budget-projection:${String(args.walletSigningSessionId || '')}`,
+            }),
+          }),
           clearThresholdEcdsaSessionRecordForLane: () => undefined,
           provisionThresholdEcdsaSession: async () => {
             throw new Error('passkey ECDSA provisioning should not run');
@@ -2209,7 +2509,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.message).toBe(true);
     expect(result.capturedAuthPlanKind).toBe('emailOtpReauth');
     expect(result.capturedEmailOtpChallengeId).toBe('email-otp-challenge');
     expect(result.capturedPasskeyPrompt).toBe(false);
@@ -2224,6 +2524,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       async ({ paths }) => {
         const { signTempo } = await import(paths.tempoSigningApi);
         const store = await import(paths.thresholdSessionStore);
+        const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
         const accountId = 'otp-tempo-stale-counter.testnet';
         const chain = 'tempo';
         const now = Date.now();
@@ -2429,6 +2730,15 @@ test.describe('tempo signing auth-mode resolution', () => {
             expiresAtMs: now + 120_000,
           }),
           resolveEmailOtpSigningSessionAuthLane: () => null,
+          signingSessionCoordinator: new SigningSessionCoordinator({
+            getStatus: async (args: any) => ({
+              sessionId: String(args.walletSigningSessionId || ''),
+              status: 'active',
+              remainingUses: 5,
+              expiresAtMs: now + 120_000,
+              projectionVersion: `test-budget-projection:${String(args.walletSigningSessionId || '')}`,
+            }),
+          }),
           clearThresholdEcdsaSessionRecordForLane: () => undefined,
           provisionThresholdEcdsaSession: async () => {
             throw new Error('warm Email OTP ECDSA should not reconnect');
@@ -2494,7 +2804,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.message).toBe(true);
     expect(result.capturedAuthPlanKind).toBe('warmSession');
     expect(result.capturedPasskeyPrompt).toBe(false);
     expect(result.challengeCalls).toBe(0);
@@ -2800,6 +3110,13 @@ test.describe('tempo signing auth-mode resolution', () => {
               markConsumedCalls.push(args);
             },
             signingSessionCoordinator: new SigningSessionCoordinator({
+              getStatus: async (args: any) => ({
+                sessionId: String(args.walletSigningSessionId || ''),
+                status: 'active',
+                remainingUses: 1,
+                expiresAtMs: Date.now() + 120_000,
+                projectionVersion: `test-budget-projection:${String(args.walletSigningSessionId || '')}`,
+              }),
               consumeUse: async (args: any) => {
                 spendCalls.push({
                   nearAccountId: String(args.nearAccountId || ''),
@@ -3105,6 +3422,13 @@ test.describe('tempo signing auth-mode resolution', () => {
           resolveEmailOtpSigningSessionAuthLane: () => null,
           markThresholdEcdsaEmailOtpSessionConsumedForAccount: () => undefined,
           signingSessionCoordinator: new SigningSessionCoordinator({
+            getStatus: async (args: any) => ({
+              sessionId: String(args.walletSigningSessionId || ''),
+              status: 'active',
+              remainingUses: 1,
+              expiresAtMs: Date.now() + 120_000,
+              projectionVersion: `test-budget-projection:${String(args.walletSigningSessionId || '')}`,
+            }),
             consumeUse: async (args: any) => {
               spendCalls.push({
                 walletSigningSessionId: String(args.walletSigningSessionId || ''),
@@ -3167,7 +3491,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.message).toBe(true);
     expect(result.spendCalls).toEqual([
       {
         walletSigningSessionId: 'wallet-email-otp-lagging-record',
@@ -3788,6 +4112,13 @@ test.describe('tempo signing auth-mode resolution', () => {
               markConsumedCalls.push(args);
             },
             signingSessionCoordinator: new SigningSessionCoordinator({
+              getStatus: async (args: any) => ({
+                sessionId: String(args.walletSigningSessionId || ''),
+                status: 'active',
+                remainingUses: 1,
+                expiresAtMs: Date.now() + 120_000,
+                projectionVersion: `test-budget-projection:${String(args.walletSigningSessionId || '')}`,
+              }),
               consumeUse: async (args: any) => {
                 spendCalls.push(args);
                 return {
@@ -3883,6 +4214,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         const emailChallengeCalls: string[] = [];
         const spendCalls: any[] = [];
         const results: any[] = [];
+        const reconnectedWalletSigningSessionIds = new Set<string>();
 
         store.clearAllStoredThresholdEd25519SessionRecords();
 
@@ -4134,6 +4466,19 @@ test.describe('tempo signing auth-mode resolution', () => {
           }),
           resolveEmailOtpSigningSessionAuthLane: () => null,
           signingSessionCoordinator: new SigningSessionCoordinator({
+            getStatus: async (args: any) => ({
+              sessionId: String(args.walletSigningSessionId || ''),
+              status: reconnectedWalletSigningSessionIds.has(String(args.walletSigningSessionId || ''))
+                ? 'active'
+                : 'exhausted',
+              remainingUses: reconnectedWalletSigningSessionIds.has(
+                String(args.walletSigningSessionId || ''),
+              )
+                ? 1
+                : 0,
+              expiresAtMs: Date.now() + 120_000,
+              projectionVersion: `test-budget-projection:${String(args.walletSigningSessionId || '')}`,
+            }),
             consumeUse: async (args: any) => {
               spendCalls.push({
                 nearAccountId: String(args.nearAccountId || ''),
@@ -4150,11 +4495,14 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           }),
           clearThresholdEcdsaSessionRecordForLane: () => undefined,
-          provisionThresholdEcdsaSession: async ({ chain }: any) => ({
-            ok: true,
-            sessionId: `passkey-${chain}-refreshed-session`,
-            thresholdEcdsaKeyRef: toKeyRef(passkeyRecords[chain as 'tempo' | 'evm']),
-          }),
+          provisionThresholdEcdsaSession: async ({ chain }: any) => {
+            reconnectedWalletSigningSessionIds.add(`wallet-passkey-${chain}`);
+            return {
+              ok: true,
+              sessionId: `passkey-${chain}-refreshed-session`,
+              thresholdEcdsaKeyRef: toKeyRef(passkeyRecords[chain as 'tempo' | 'evm']),
+            };
+          },
           touchConfirm: {
             getContext: () => ({ touchIdPrompt: { getRpId: () => 'localhost' } }),
             getWarmSessionStatus: async () => ({
@@ -4164,6 +4512,9 @@ test.describe('tempo signing auth-mode resolution', () => {
             }),
             orchestrateSigningConfirmation: async (params: any) => {
               authPlanKinds.push(String(params?.signingAuthPlan?.kind || ''));
+              reconnectedWalletSigningSessionIds.add(
+                `wallet-passkey-${chains[authPlanKinds.length - 1]}`,
+              );
               return {
                 sessionId: 'intent',
                 intentDigest: '0x' + '11'.repeat(32),
@@ -4204,7 +4555,7 @@ test.describe('tempo signing auth-mode resolution', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.ok).toBe(true);
+    expect(result.ok, result.message).toBe(true);
     expect(result.resultChains).toEqual(['tempo', 'evm']);
     expect(result.authPlanKinds).toEqual(['passkeyReauth', 'passkeyReauth']);
     expect(result.emailChallengeCalls).toEqual([]);
@@ -4214,14 +4565,14 @@ test.describe('tempo signing auth-mode resolution', () => {
         walletSigningSessionId: 'wallet-passkey-tempo',
         uses: 1,
         reason: 'transaction_sign',
-        alreadyConsumedThresholdSessionIds: [],
+        alreadyConsumedThresholdSessionIds: ['passkey-tempo-exhausted-session'],
       },
       {
         nearAccountId: 'dual-auth-passkey.testnet',
         walletSigningSessionId: 'wallet-passkey-evm',
         uses: 1,
         reason: 'transaction_sign',
-        alreadyConsumedThresholdSessionIds: [],
+        alreadyConsumedThresholdSessionIds: ['passkey-evm-exhausted-session'],
       },
     ]);
   });

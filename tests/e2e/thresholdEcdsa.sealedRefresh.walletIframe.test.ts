@@ -1,602 +1,15 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
-import {
-  createInMemoryConsoleApiKeyService,
-  createInMemoryConsoleBootstrapTokenService,
-  createInMemoryConsoleOrgProjectEnvService,
-  createRelayBootstrapGrantBroker,
-  createRelayPublishableKeyAuthAdapter,
-  createRelayRouter,
-} from '@server/router/express-adaptor';
-import { deriveThresholdEd25519RegistrationMaterialFromHssFinalize } from '@server/core/ThresholdService/ed25519HssWasm';
-import {
-  createSigningSessionSealPolicyFromThresholdAuthSessionStores,
-  createSigningSessionSealRoutesOptions,
-  createSigningSessionSealShamir3PassCipherAdapter,
-} from '@server/threshold/session/signingSessionSeal';
-import { startExpressRouter } from '../relayer/helpers';
-import { DEFAULT_TEST_CONFIG } from '../setup/config';
-import {
-  corsHeadersForRoute,
-  createInMemoryJwtSessionAdapter,
-  installFastNearRpcMock,
-  makeAuthServiceForThreshold,
-  setupThresholdE2ePage,
-} from './thresholdEd25519.testUtils';
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
-import { installRelayServerProxyShim } from '../setup/cross-origin-headers';
+import {
+  readWalletIframeThresholdPersistence,
+  readWebAuthnGetCallCount,
+  runPasskeySigningSessionLifecyclePhase,
+  setupThresholdEcdsaSealedRefreshHarness,
+  TEST_KEY_VERSION,
+  TEST_SHAMIR_PRIME_B64U,
+} from '../helpers/thresholdEcdsaSealedRefreshHarness';
 
-const TEST_KEY_VERSION = 'kek-s-2026-02';
-const TEST_SHAMIR_PRIME_B64U = '_____________________________________v___C8';
-const TEST_SERVER_ENCRYPT_EXPONENT_B64U = 'AQAB';
-const TEST_SERVER_DECRYPT_EXPONENT_B64U = '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXSv___Ic';
-const TEST_WEBAUTHN_GET_COUNTER_KEY = '__w3a_test_webauthn_get_calls';
-
-type SealedRefreshHarness = {
-  baseUrl: string;
-  relayerUrl: string;
-  managedRegistration: {
-    environmentId: string;
-    publishableKey: string;
-  };
-  signingSessionSealRouteCounts: {
-    applyServerSealCalls: number;
-    removeServerSealCalls: number;
-  };
-  attachPage: (page: Page) => Promise<void>;
-  close: () => Promise<void>;
-};
-
-async function installThresholdRegistrationBootstrapMock(
-  page: Page,
-  input: {
-    relayerBaseUrl: string;
-    threshold: unknown;
-    session: { signJwt: (sub: string, extra?: Record<string, unknown>) => Promise<string> };
-    runtimePolicyScope: {
-      orgId: string;
-      projectId: string;
-      envId: string;
-    };
-    onNewPublicKey: (publicKey: string) => void;
-    onNewAccountId?: (accountId: string) => void;
-  },
-): Promise<void> {
-  const threshold = input.threshold as {
-    bootstrapEcdsaFromRegistrationMaterial?: (request: {
-      userId: string;
-      rpId: string;
-      clientRootShare32B64u: string;
-      sessionPolicy: Record<string, unknown>;
-    }) => Promise<Record<string, unknown>>;
-  };
-  if (typeof threshold.bootstrapEcdsaFromRegistrationMaterial !== 'function') {
-    throw new Error('Missing threshold-ecdsa staged bootstrap hook');
-  }
-
-  const positiveInt = (value: unknown, fallback: number): number => {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-  };
-  const asParticipantIds = (value: unknown, fallback: number[]): number[] => {
-    if (!Array.isArray(value)) return [...fallback];
-    const normalized = value
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id) && id > 0)
-      .map((id) => Math.floor(id));
-    return normalized.length >= 2 ? normalized : [...fallback];
-  };
-
-  await page.route(`${input.relayerBaseUrl}/registration/bootstrap`, async (route) => {
-    const req = route.request();
-    const method = req.method().toUpperCase();
-    if (method === 'OPTIONS') {
-      await route.fallback();
-      return;
-    }
-
-    const corsHeaders = corsHeadersForRoute(route);
-    const payload = JSON.parse(req.postData() || '{}');
-    const accountId = String(payload?.new_account_id || '').trim();
-    const rpId = String(payload?.rp_id || '').trim() || 'example.localhost';
-    const nowMs = Date.now();
-
-    if (accountId) input.onNewAccountId?.(accountId);
-
-    const resolveRuntimePolicyScope = (policy: Record<string, unknown>): typeof input.runtimePolicyScope => {
-      const scope =
-        policy.runtimePolicyScope && typeof policy.runtimePolicyScope === 'object'
-          ? (policy.runtimePolicyScope as Partial<typeof input.runtimePolicyScope>)
-          : {};
-      const orgId = String(scope.orgId || input.runtimePolicyScope.orgId || '').trim();
-      const projectId = String(scope.projectId || input.runtimePolicyScope.projectId || '').trim();
-      const envId = String(scope.envId || input.runtimePolicyScope.envId || '').trim();
-      return { orgId, projectId, envId };
-    };
-
-    const signThresholdSessionJwt = async (args: {
-      kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
-      sessionId: string;
-      relayerKeyId: string;
-      participantIds: number[];
-      expiresAtMs: number;
-      runtimePolicyScope: typeof input.runtimePolicyScope;
-    }): Promise<string> => {
-      const nowSec = Math.floor(nowMs / 1000);
-      const expSec = Math.floor(args.expiresAtMs / 1000);
-      return await input.session.signJwt(accountId, {
-        kind: args.kind,
-        walletId: accountId,
-        sessionId: args.sessionId,
-        relayerKeyId: args.relayerKeyId,
-        rpId,
-        participantIds: args.participantIds,
-        thresholdExpiresAtMs: args.expiresAtMs,
-        runtimePolicyScope: args.runtimePolicyScope,
-        iat: nowSec,
-        exp: expSec,
-      });
-    };
-
-    const thresholdEd = payload?.threshold_ed25519 || null;
-    const thresholdEdPublicKey = String(thresholdEd?.public_key || '').trim();
-    const thresholdEdKeyVersion = String(thresholdEd?.key_version || '').trim();
-    // The finalized threshold Ed25519 record is keyed by the derived public key.
-    // Keep the mocked registration/bootstrap response on that same seam.
-    const thresholdEdRelayerKeyId = thresholdEdPublicKey;
-    const thresholdEdRecoveryExportCapable = thresholdEd?.recovery_export_capable === true;
-    let thresholdEdResponse: Record<string, unknown> | undefined;
-    if (thresholdEdPublicKey && thresholdEdKeyVersion && thresholdEdRecoveryExportCapable) {
-      if (thresholdEdPublicKey) input.onNewPublicKey(thresholdEdPublicKey);
-
-      const policy = thresholdEd?.session_policy || {};
-      const sessionId = String(policy?.sessionId || policy?.session_id || `ed-session-${nowMs}`);
-      const ttlMs = positiveInt(policy?.ttlMs || policy?.ttl_ms, 60_000);
-      const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
-      const expiresAtMs = nowMs + ttlMs;
-      const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
-      const runtimePolicyScope = resolveRuntimePolicyScope(policy);
-      const jwt = await signThresholdSessionJwt({
-        kind: 'threshold_ed25519_session_v1',
-        sessionId,
-        relayerKeyId: thresholdEdRelayerKeyId,
-        participantIds,
-        expiresAtMs,
-        runtimePolicyScope,
-      });
-      thresholdEdResponse = {
-        keyVersion: thresholdEdKeyVersion,
-        recoveryExportCapable: true,
-        publicKey: thresholdEdPublicKey,
-        relayerKeyId: thresholdEdRelayerKeyId,
-        clientParticipantId: 1,
-        relayerParticipantId: 2,
-        participantIds,
-        session: {
-          sessionKind: 'jwt',
-          sessionId,
-          expiresAtMs,
-          participantIds,
-          remainingUses,
-          runtimePolicyScope,
-          jwt,
-        },
-      };
-    }
-
-    const thresholdEcdsa = payload?.threshold_ecdsa || null;
-    const thresholdEcdsaClientRootShare32B64u = String(
-      thresholdEcdsa?.client_root_share32_b64u || '',
-    ).trim();
-    let thresholdEcdsaResponse: Record<string, unknown> | undefined;
-    if (thresholdEcdsaClientRootShare32B64u) {
-      const bootstrapEcdsaFromRegistrationMaterial =
-        threshold.bootstrapEcdsaFromRegistrationMaterial;
-      if (!bootstrapEcdsaFromRegistrationMaterial) {
-        throw new Error('Missing staged ECDSA bootstrap helper');
-      }
-      const policy = thresholdEcdsa?.session_policy || {};
-      const sessionId = String(policy?.sessionId || policy?.session_id || `ecdsa-session-${nowMs}`);
-      const ttlMs = positiveInt(policy?.ttlMs || policy?.ttl_ms, 60_000);
-      const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
-      const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
-      const runtimePolicyScope = resolveRuntimePolicyScope(policy);
-      const bootstrap = (await bootstrapEcdsaFromRegistrationMaterial({
-        userId: accountId,
-        rpId,
-        clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
-        sessionPolicy: {
-          version: 'threshold_session_v1',
-          userId: accountId,
-          rpId,
-          sessionId,
-          ttlMs,
-          remainingUses,
-          participantIds,
-          runtimePolicyScope,
-        },
-      })) as Record<string, unknown>;
-      if (!bootstrap?.ok) {
-        await route.fulfill({
-          status: 400,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders },
-          body: JSON.stringify({
-            success: false,
-            error: String(bootstrap?.message || 'ecdsa bootstrap'),
-          }),
-        });
-        return;
-      }
-
-      thresholdEcdsaResponse = {
-        ecdsaThresholdKeyId: String(bootstrap.ecdsaThresholdKeyId || ''),
-        relayerKeyId: String(bootstrap.relayerKeyId || ''),
-        thresholdEcdsaPublicKeyB64u: String(bootstrap.thresholdEcdsaPublicKeyB64u || ''),
-        ethereumAddress: String(bootstrap.ethereumAddress || ''),
-        relayerVerifyingShareB64u: String(bootstrap.relayerVerifyingShareB64u || ''),
-        participantIds: Array.isArray(bootstrap.participantIds)
-          ? bootstrap.participantIds
-          : participantIds,
-        session: {
-          sessionKind: 'jwt',
-          sessionId: String(bootstrap.sessionId || sessionId),
-          expiresAtMs: Number(bootstrap.expiresAtMs || nowMs + ttlMs),
-          participantIds: Array.isArray(bootstrap.participantIds)
-            ? bootstrap.participantIds
-            : participantIds,
-          remainingUses: Number(bootstrap.remainingUses || remainingUses),
-          runtimePolicyScope,
-          jwt: String(bootstrap.jwt || ''),
-        },
-      };
-    }
-
-    await route.fulfill({
-      status: 200,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders },
-      body: JSON.stringify({
-        success: true,
-        transactionHash: `mock_atomic_tx_${Date.now()}`,
-        ...(thresholdEdResponse ? { thresholdEd25519: thresholdEdResponse } : {}),
-        ...(thresholdEcdsaResponse ? { thresholdEcdsa: thresholdEcdsaResponse } : {}),
-      }),
-    });
-  });
-}
-
-async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
-  page: Page,
-  input: {
-    relayerBaseUrl: string;
-    relayUpstreamBaseUrl: string;
-    threshold: unknown;
-  },
-): Promise<void> {
-  await page.route(`${input.relayerBaseUrl}/registration/threshold-ed25519/hss/finalize`, async (route) => {
-    const req = route.request();
-    const method = req.method().toUpperCase();
-    if (method === 'OPTIONS') {
-      await route.fallback();
-      return;
-    }
-    if (method !== 'POST') {
-      await route.fallback();
-      return;
-    }
-
-    const upstreamUrl = req.url().replace(input.relayerBaseUrl, input.relayUpstreamBaseUrl);
-    const upstreamResponse = await fetch(upstreamUrl, {
-      method,
-      headers: req.headers(),
-      body: req.postData(),
-    });
-    const upstreamText = await upstreamResponse.text();
-    const payload = JSON.parse(req.postData() || '{}');
-    const responseJson = JSON.parse(upstreamText || '{}');
-
-    if (
-      upstreamResponse.ok &&
-      responseJson?.ok === true &&
-      responseJson?.finalizedReport &&
-      responseJson?.serverOutput
-    ) {
-      const preparedSession = payload?.preparedSession;
-      const finalizedReport = responseJson.finalizedReport;
-      const registrationMaterial = await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
-        preparedSession,
-        keyVersion: String(responseJson?.keyVersion || TEST_KEY_VERSION).trim(),
-        finalizedReport,
-        serverOutput: responseJson.serverOutput,
-      });
-      const keyStore = (
-        input.threshold as {
-          keyStore?: {
-            put: (
-              relayerKeyId: string,
-              record: {
-                nearAccountId: string;
-                rpId: string;
-                publicKey: string;
-                relayerSigningShareB64u: string;
-                relayerVerifyingShareB64u: string;
-                keyVersion: string;
-                recoveryExportCapable: true;
-              },
-            ) => Promise<void>;
-          };
-        }
-      ).keyStore;
-      if (keyStore?.put) {
-        await keyStore.put(registrationMaterial.relayerKeyId, {
-          nearAccountId: String(payload?.new_account_id || '').trim(),
-          rpId: String(payload?.rp_id || '').trim(),
-          publicKey: registrationMaterial.publicKey,
-          relayerSigningShareB64u: registrationMaterial.relayerSigningShareB64u,
-          relayerVerifyingShareB64u: registrationMaterial.relayerVerifyingShareB64u,
-          keyVersion: registrationMaterial.keyVersion,
-          recoveryExportCapable: true,
-        });
-      }
-    }
-
-    await route.fulfill({
-      status: upstreamResponse.status,
-      headers: {
-        ...corsHeadersForRoute(route),
-        ...Object.fromEntries(upstreamResponse.headers.entries()),
-      },
-      body: upstreamText,
-    });
-  });
-}
-
-async function setupThresholdEcdsaSealedRefreshHarness(page: Page): Promise<SealedRefreshHarness> {
-  const keysOnChain = new Set<string>();
-  const nonceByPublicKey = new Map<string, number>();
-  const accountsOnChain = new Set<string>(
-    [DEFAULT_TEST_CONFIG.relayerAccount].filter((value): value is string => !!value),
-  );
-  const signingSessionSealRouteCounts = {
-    applyServerSealCalls: 0,
-    removeServerSealCalls: 0,
-  };
-
-  const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
-  await service.getRelayerAccount();
-  const bootstrapTokenStore = createInMemoryConsoleBootstrapTokenService();
-  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-  const apiKeys = createInMemoryConsoleApiKeyService();
-  const bootstrapAdminCtx = {
-    orgId: 'org_threshold_sealed_refresh',
-    actorUserId: 'user_threshold_sealed_refresh',
-    roles: ['admin'],
-  } as const;
-  const bootstrapProjectId = 'proj_threshold_sealed_refresh';
-  const bootstrapEnvId = 'dev';
-  const runtimePolicyScope = {
-    orgId: bootstrapAdminCtx.orgId,
-    projectId: bootstrapProjectId,
-    envId: bootstrapEnvId,
-  } as const;
-  const managedRegistrationEnvironmentId = `${bootstrapProjectId}:${bootstrapEnvId}`;
-  await orgProjectEnv.upsertOrganization(bootstrapAdminCtx, {
-    name: 'Threshold Sealed Refresh Org',
-    slug: 'threshold-sealed-refresh-org',
-  });
-  await orgProjectEnv.createProject(bootstrapAdminCtx, {
-    id: bootstrapProjectId,
-    name: 'Threshold Sealed Refresh Project',
-    liveEnvironmentsEnabled: true,
-  });
-  const frontendOrigin = new URL(DEFAULT_TEST_CONFIG.frontendUrl).origin;
-  const createdPublishableKey = await apiKeys.createApiKey(bootstrapAdminCtx, {
-    kind: 'publishable_key',
-    name: 'threshold-sealed-refresh-browser',
-    environmentId: managedRegistrationEnvironmentId,
-    allowedOrigins: [
-      frontendOrigin,
-      'https://example.localhost',
-      'https://wallet.example.localhost',
-    ],
-    rateLimitBucket: 'default_web_v1',
-    quotaBucket: 'free_registrations_v1',
-  });
-  const managedRegistration = {
-    environmentId: managedRegistrationEnvironmentId,
-    publishableKey: createdPublishableKey.secret,
-  } as const;
-
-  const session = createInMemoryJwtSessionAdapter();
-  const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
-  const thresholdAuthStores = threshold as unknown as {
-    authSessionStore?: unknown;
-    ecdsaAuthSessionStore?: unknown;
-  };
-  if (!thresholdAuthStores.authSessionStore || !thresholdAuthStores.ecdsaAuthSessionStore) {
-    throw new Error('Missing threshold auth session stores for signing-session seal policy');
-  }
-
-  const router = createRelayRouter(service, {
-    corsOrigins: [frontendOrigin, 'https://example.localhost', 'https://wallet.example.localhost'],
-    threshold,
-    session,
-    publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
-    bootstrapGrantBroker: createRelayBootstrapGrantBroker({
-      apiKeys,
-      tokenStore: bootstrapTokenStore,
-      orgProjectEnv,
-      rateLimitsByBucket: {
-        default_web_v1: { windowMs: 60_000, maxIssued: 100 },
-      },
-      quotasByBucket: {
-        free_registrations_v1: { maxIssued: 100 },
-      },
-    }),
-    bootstrapTokenStore,
-    signingSessionSeal: createSigningSessionSealRoutesOptions({
-      sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
-        stores: [thresholdAuthStores.authSessionStore as any, thresholdAuthStores.ecdsaAuthSessionStore as any],
-      }),
-      cipher: createSigningSessionSealShamir3PassCipherAdapter({
-        currentKeyVersion: TEST_KEY_VERSION,
-        keys: [
-          {
-            keyVersion: TEST_KEY_VERSION,
-            shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
-            serverEncryptExponentB64u: TEST_SERVER_ENCRYPT_EXPONENT_B64U,
-            serverDecryptExponentB64u: TEST_SERVER_DECRYPT_EXPONENT_B64U,
-          },
-        ],
-      }),
-      capabilities: {
-        mode: 'sealed_refresh_v1',
-        keyVersion: TEST_KEY_VERSION,
-        shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
-      },
-    }),
-  });
-  const server = await startExpressRouter(router);
-
-  const attachPage = async (targetPage: Page): Promise<void> => {
-    await targetPage.addInitScript((config) => {
-      (window as any).__w3aManagedRegistration = config;
-    }, managedRegistration);
-    await setupThresholdE2ePage(targetPage);
-    await targetPage.evaluate((config) => {
-      (window as any).__w3aManagedRegistration = config;
-    }, managedRegistration);
-    await installRelayServerProxyShim(targetPage, {
-      relayOrigin: relayerUrl,
-      relayUpstream: server.baseUrl,
-      logStyle: 'silent',
-    });
-    await installThresholdRegistrationFinalizeRelayKeyMaterialCapture(targetPage, {
-      relayerBaseUrl: relayerUrl,
-      relayUpstreamBaseUrl: server.baseUrl,
-      threshold,
-    });
-    await targetPage.route(`${relayerUrl}/threshold/signing-session-seal/**`, async (route) => {
-      const url = route.request().url();
-      if (url.endsWith('/apply-server-seal')) {
-        signingSessionSealRouteCounts.applyServerSealCalls += 1;
-      } else if (url.endsWith('/remove-server-seal')) {
-        signingSessionSealRouteCounts.removeServerSealCalls += 1;
-      }
-      await route.fallback();
-    });
-    await installThresholdRegistrationBootstrapMock(targetPage, {
-      relayerBaseUrl: relayerUrl,
-      threshold,
-      session,
-      runtimePolicyScope,
-      onNewPublicKey: (publicKey) => {
-        keysOnChain.add(publicKey);
-        nonceByPublicKey.set(publicKey, 0);
-      },
-      onNewAccountId: (accountId) => {
-        accountsOnChain.add(accountId);
-      },
-    });
-    await installFastNearRpcMock(targetPage, {
-      keysOnChain,
-      nonceByPublicKey,
-      accountsOnChain,
-    });
-  };
-
-  await attachPage(page);
-
-  return {
-    baseUrl: server.baseUrl,
-    relayerUrl,
-    managedRegistration,
-    signingSessionSealRouteCounts,
-    attachPage,
-    close: server.close,
-  };
-}
-
-async function readWebAuthnGetCallCount(page: Page): Promise<number> {
-  const countsByFrame = await Promise.all(
-    page.frames().map(async (frame) => {
-      return await frame
-        .evaluate((storageKey) => {
-          const parseCount = (value: unknown): number => {
-            const n = Number(value);
-            return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
-          };
-
-          const globalCount = parseCount((window as any).__w3aTestWebAuthnGetCalls);
-          let storedCount = 0;
-          try {
-            storedCount = parseCount(window.localStorage?.getItem?.(storageKey));
-          } catch {}
-
-          return {
-            origin: String(window.location?.origin || 'unknown'),
-            count: Math.max(globalCount, storedCount),
-          };
-        }, TEST_WEBAUTHN_GET_COUNTER_KEY)
-        .catch(() => ({ origin: 'unknown', count: 0 }));
-    }),
-  );
-
-  const maxByOrigin = new Map<string, number>();
-  for (const entry of countsByFrame) {
-    const origin = String(entry?.origin || 'unknown');
-    const count = Number.isFinite(Number(entry?.count))
-      ? Math.max(0, Math.floor(Number(entry?.count)))
-      : 0;
-    const previous = maxByOrigin.get(origin) ?? 0;
-    if (count > previous) {
-      maxByOrigin.set(origin, count);
-    }
-  }
-
-  let total = 0;
-  for (const count of maxByOrigin.values()) {
-    total += count;
-  }
-  return total;
-}
-
-async function readWalletIframeThresholdPersistence(page: Page): Promise<
-  Array<{
-    origin: string;
-    localEd25519Index: string | null;
-    localSealIndex: string | null;
-    sessionEd25519Index: string | null;
-    sessionSealIndex: string | null;
-  }>
-> {
-  return await Promise.all(
-    page.frames().map(async (frame) => {
-      return await frame
-        .evaluate(() => {
-          return {
-            origin: String(window.location?.origin || 'unknown'),
-            localEd25519Index:
-              window.localStorage?.getItem?.('tatchi:threshold-ed25519-session:v1:index') || null,
-            localSealIndex:
-              window.localStorage?.getItem?.('tatchi:signing-session-sealed:v1:index') || null,
-            sessionEd25519Index:
-              window.sessionStorage?.getItem?.('tatchi:threshold-ed25519-session:v1:index') || null,
-            sessionSealIndex:
-              window.sessionStorage?.getItem?.('tatchi:signing-session-sealed:v1:index') || null,
-          };
-        })
-        .catch(() => ({
-          origin: 'unknown',
-          localEd25519Index: null,
-          localSealIndex: null,
-          sessionEd25519Index: null,
-          sessionSealIndex: null,
-        }));
-    }),
-  );
-}
-
-  test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
+test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
   test.setTimeout(180_000);
 
   test('registration and login can bootstrap sign then export the same one-key ECDSA session', async ({
@@ -608,7 +21,6 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
             const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { TatchiPasskey } = sdkMod as any;
             const { ActionType } = actionsMod as any;
 
@@ -833,7 +245,7 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
     }
   });
 
-  test('same-tab refresh reuses sealed signing session without extra TouchID prompt', async ({
+  test('same-tab refresh reuses sealed ECDSA signing session without extra TouchID prompt', async ({
     page,
   }) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
@@ -842,7 +254,6 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
             const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { TatchiPasskey } = sdkMod as any;
 
             const confirmationConfig = {
@@ -940,9 +351,7 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
             const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { TatchiPasskey } = sdkMod as any;
-            const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
@@ -980,24 +389,47 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
             });
 
             tatchi.setConfirmationConfig(confirmationConfig as any);
-            const firstSign = await tatchi.near.executeAction({
+            const bootstrap = await tatchi.tempo.bootstrapEcdsaSession({
               nearAccountId: accountId,
-              receiverId: 'w3a-v1.testnet',
-              actionArgs: {
-                type: ActionType.FunctionCall,
-                methodName: 'set_greeting',
-                args: { greeting: `hello-before-refresh-${Date.now()}` },
-                gas: '30000000000000',
-                deposit: '0',
-              },
               options: {
-                waitUntil: 'EXECUTED_OPTIMISTIC' as any,
-                confirmationConfig,
+                relayerUrl,
+                ttlMs: 120_000,
+                remainingUses: 3,
               },
             });
+            if (!bootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
+              return {
+                ok: false,
+                error: 'threshold ECDSA bootstrap did not return ecdsaThresholdKeyId',
+              };
+            }
+            const firstSign = await tatchi.tempo.signTempo({
+              nearAccountId: accountId,
+              request: {
+                chain: 'tempo' as const,
+                kind: 'tempoTransaction' as const,
+                senderSignatureAlgorithm: 'secp256k1' as const,
+                tx: {
+                  chainId: 42431,
+                  maxPriorityFeePerGas: 1n,
+                  maxFeePerGas: 2n,
+                  gasLimit: 21_000n,
+                  calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x01' }],
+                  accessList: [],
+                  nonceKey: 0n,
+                  nonce: 1n,
+                  validBefore: null,
+                  validAfter: null,
+                  feePayerSignature: { kind: 'none' as const },
+                  aaAuthorizationList: [],
+                },
+              },
+              options: { confirmationConfig },
+            });
             return {
-              ok: !!firstSign?.success,
-              error: String(firstSign?.error || ''),
+              ok: firstSign?.chain === 'tempo' && firstSign?.kind === 'tempoTransaction',
+              chain: String(firstSign?.chain || ''),
+              kind: String(firstSign?.kind || ''),
             };
           } catch (error: unknown) {
             return {
@@ -1034,9 +466,7 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
             const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { TatchiPasskey } = sdkMod as any;
-            const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
@@ -1077,25 +507,35 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
 
             const session = await tatchi.auth.getWalletSession(accountId);
 
-            const refreshedSign = await tatchi.near.executeAction({
+            const refreshedSign = await tatchi.tempo.signTempo({
               nearAccountId: accountId,
-              receiverId: 'w3a-v1.testnet',
-              actionArgs: {
-                type: ActionType.FunctionCall,
-                methodName: 'set_greeting',
-                args: { greeting: `hello-after-refresh-${Date.now()}` },
-                gas: '30000000000000',
-                deposit: '0',
+              request: {
+                chain: 'tempo' as const,
+                kind: 'tempoTransaction' as const,
+                senderSignatureAlgorithm: 'secp256k1' as const,
+                tx: {
+                  chainId: 42431,
+                  maxPriorityFeePerGas: 1n,
+                  maxFeePerGas: 2n,
+                  gasLimit: 21_000n,
+                  calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x02' }],
+                  accessList: [],
+                  nonceKey: 0n,
+                  nonce: 2n,
+                  validBefore: null,
+                  validAfter: null,
+                  feePayerSignature: { kind: 'none' as const },
+                  aaAuthorizationList: [],
+                },
               },
-              options: {
-                waitUntil: 'EXECUTED_OPTIMISTIC' as any,
-                confirmationConfig,
-              },
+              options: { confirmationConfig },
             });
 
             return {
-              ok: !!refreshedSign?.success,
-              error: String(refreshedSign?.error || ''),
+              ok:
+                refreshedSign?.chain === 'tempo' && refreshedSign?.kind === 'tempoTransaction',
+              chain: String(refreshedSign?.chain || ''),
+              kind: String(refreshedSign?.kind || ''),
               sessionStatus: String(session?.signingSession?.status || ''),
             };
           } catch (error: unknown) {
@@ -1449,12 +889,90 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
         intervalMs: 250,
       });
       expect(reauthSign.ok, JSON.stringify({ reauthSign })).toBe(true);
-      expect(reauthSign.sessionStatus).toBe('active');
+      // Reauth succeeds and the server budget response is authoritative. With
+      // one requested use, a successful sign can immediately report exhausted.
+      expect(['active', 'exhausted']).toContain(reauthSign.sessionStatus);
       const finalGetCalls = await readWebAuthnGetCallCount(page);
       expect(
         finalGetCalls,
         JSON.stringify({ getCallsAfterFirstPhase, getCallsAfterRestoredSign, finalGetCalls }),
       ).toBeGreaterThan(getCallsAfterRestoredSign);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('passkey lifecycle restores each signing curve after reload and prompts after exhaustion', async ({
+    page,
+  }) => {
+    const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
+    try {
+      for (const curve of ['ed25519', 'ecdsa'] as const) {
+        const accountId = `passkeylifecycle-${curve}-${Date.now()}.w3a-v1.testnet`.toLowerCase();
+        const remainingUses = 3;
+
+        const firstPhase = await runPasskeySigningSessionLifecyclePhase(page, harness, {
+          accountId,
+          curve,
+          phase: 'register_unlock_sign',
+          tag: `${curve}-before-refresh`,
+          remainingUses,
+        });
+        expect(firstPhase.ok, JSON.stringify(firstPhase)).toBe(true);
+        expect(firstPhase.sessionStatus).toBe('active');
+        const getCallsAfterFirstPhase = await readWebAuthnGetCallCount(page);
+        expect(getCallsAfterFirstPhase).toBeGreaterThan(0);
+        await page.waitForTimeout(400);
+        expect(harness.signingSessionSealRouteCounts.applyServerSealCalls).toBeGreaterThan(0);
+
+        await page.reload();
+        await page.waitForTimeout(300);
+
+        const getCallsBeforeRestoredSign = await readWebAuthnGetCallCount(page);
+        const restoredSign = await runPasskeySigningSessionLifecyclePhase(page, harness, {
+          accountId,
+          curve,
+          phase: 'sign',
+          tag: `${curve}-after-refresh-1`,
+          remainingUses,
+        });
+        expect(restoredSign.ok, restoredSign.error || JSON.stringify(restoredSign)).toBe(true);
+        expect(restoredSign.sessionStatus).toBe('active');
+        const getCallsAfterRestoredSign = await readWebAuthnGetCallCount(page);
+        expect(getCallsAfterRestoredSign, JSON.stringify({ curve, firstPhase, restoredSign })).toBe(
+          getCallsBeforeRestoredSign,
+        );
+
+        const finalRestoredUse = await runPasskeySigningSessionLifecyclePhase(page, harness, {
+          accountId,
+          curve,
+          phase: 'sign',
+          tag: `${curve}-after-refresh-2`,
+          remainingUses,
+        });
+        expect(
+          finalRestoredUse.ok,
+          finalRestoredUse.error || JSON.stringify(finalRestoredUse),
+        ).toBe(true);
+        const getCallsAfterFinalRestoredUse = await readWebAuthnGetCallCount(page);
+        expect(
+          getCallsAfterFinalRestoredUse,
+          JSON.stringify({ curve, restoredSign, finalRestoredUse }),
+        ).toBe(getCallsAfterRestoredSign);
+
+        const reauthSign = await runPasskeySigningSessionLifecyclePhase(page, harness, {
+          accountId,
+          curve,
+          phase: 'sign',
+          tag: `${curve}-after-exhaustion`,
+          remainingUses,
+        });
+        expect(reauthSign.ok, JSON.stringify({ finalRestoredUse, reauthSign })).toBe(true);
+        const getCallsAfterReauth = await readWebAuthnGetCallCount(page);
+        expect(getCallsAfterReauth, JSON.stringify({ curve, finalRestoredUse, reauthSign })).toBe(
+          getCallsAfterFinalRestoredUse + 1,
+        );
+      }
     } finally {
       await harness.close();
     }
@@ -1543,6 +1061,20 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
                 error: 'threshold ECDSA bootstrap did not return ecdsaThresholdKeyId',
               };
             }
+            const evmBootstrap = await tatchi.evm.bootstrapEcdsaSession({
+              nearAccountId: accountId,
+              options: {
+                relayerUrl,
+                ttlMs: 120_000,
+                remainingUses: 10,
+              },
+            });
+            if (!evmBootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
+              return {
+                ok: false,
+                error: 'threshold ECDSA EVM bootstrap did not return ecdsaThresholdKeyId',
+              };
+            }
 
             const warmTempo = await tatchi.tempo.signTempo({
               nearAccountId: accountId,
@@ -1615,149 +1147,121 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
 
         const phasePromise = page.evaluate(
           async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u, order }) => {
-          try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const { TatchiPasskey } = sdkMod as any;
+            try {
+              const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+              const { TatchiPasskey } = sdkMod as any;
 
-            const confirmationConfig = {
-              uiMode: 'none' as const,
-              behavior: 'skipClick' as const,
-              autoProceedDelay: 0,
-            };
-            const tatchi = new TatchiPasskey({
-              nearNetwork: 'testnet',
-              nearRpcUrl: 'https://test.rpc.fastnear.com',
-              relayerAccount: 'web3-authn-v4.testnet',
-              relayer: {
-                url: relayerUrl,
-                smartAccountDeploymentMode: 'observe',
-              },
-              registration: {
-                mode: 'managed',
-                environmentId: String(
-                  (globalThis as any).__w3aManagedRegistration?.environmentId || '',
-                ),
-                publishableKey: String(
-                  (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
-                ),
-              },
-              signingSessionPersistenceMode: 'sealed_refresh_v1',
-              signingSessionSeal: {
-                keyVersion,
-                shamirPrimeB64u,
-              },
-              iframeWallet: {
-                walletOrigin: 'https://wallet.example.localhost',
-                servicePath: '/wallet-service',
-                sdkBasePath: '/sdk',
-                rpIdOverride: 'example.localhost',
-              },
-            });
-            tatchi.setConfirmationConfig(confirmationConfig as any);
+              const confirmationConfig = {
+                uiMode: 'none' as const,
+                behavior: 'skipClick' as const,
+                autoProceedDelay: 0,
+              };
+              const tatchi = new TatchiPasskey({
+                nearNetwork: 'testnet',
+                nearRpcUrl: 'https://test.rpc.fastnear.com',
+                relayerAccount: 'web3-authn-v4.testnet',
+                relayer: {
+                  url: relayerUrl,
+                  smartAccountDeploymentMode: 'observe',
+                },
+                registration: {
+                  mode: 'managed',
+                  environmentId: String(
+                    (globalThis as any).__w3aManagedRegistration?.environmentId || '',
+                  ),
+                  publishableKey: String(
+                    (globalThis as any).__w3aManagedRegistration?.publishableKey || '',
+                  ),
+                },
+                signingSessionPersistenceMode: 'sealed_refresh_v1',
+                signingSessionSeal: {
+                  keyVersion,
+                  shamirPrimeB64u,
+                },
+                iframeWallet: {
+                  walletOrigin: 'https://wallet.example.localhost',
+                  servicePath: '/wallet-service',
+                  sdkBasePath: '/sdk',
+                  rpIdOverride: 'example.localhost',
+                },
+              });
+              tatchi.setConfirmationConfig(confirmationConfig as any);
 
-            const login = await tatchi.unlock(accountId);
-            if (!login?.success) {
+              const tempoRequest = {
+                chain: 'tempo' as const,
+                kind: 'tempoTransaction' as const,
+                senderSignatureAlgorithm: 'secp256k1' as const,
+                tx: {
+                  chainId: 42431,
+                  maxPriorityFeePerGas: 1n,
+                  maxFeePerGas: 2n,
+                  gasLimit: 21_000n,
+                  calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
+                  accessList: [],
+                  nonceKey: 0n,
+                  nonce: 2n,
+                  validBefore: null,
+                  validAfter: null,
+                  feePayerSignature: { kind: 'none' as const },
+                  aaAuthorizationList: [],
+                },
+              };
+              const evmRequest = {
+                chain: 'evm' as const,
+                kind: 'eip1559' as const,
+                senderSignatureAlgorithm: 'secp256k1' as const,
+                tx: {
+                  chainId: 11155111,
+                  nonce: 7n,
+                  maxPriorityFeePerGas: 1_500_000_000n,
+                  maxFeePerGas: 3_000_000_000n,
+                  gasLimit: 21_000n,
+                  to: '0x' + '22'.repeat(20),
+                  value: 12_345n,
+                  data: '0x',
+                  accessList: [],
+                },
+              };
+              const requestByChain = {
+                tempo: tempoRequest,
+                evm: evmRequest,
+              } as const;
+
+              const orderedResults: Array<{
+                requestedChain: 'tempo' | 'evm';
+                resultChain: string;
+                kind: string;
+              }> = [];
+              for (const requestedChain of order) {
+                const signed = await tatchi.tempo.signTempo({
+                  nearAccountId: accountId,
+                  request: requestByChain[requestedChain],
+                  options: { confirmationConfig },
+                });
+                orderedResults.push({
+                  requestedChain,
+                  resultChain: String(signed?.chain || ''),
+                  kind: String(signed?.kind || ''),
+                });
+              }
+              const session = await tatchi.auth.getWalletSession(accountId);
+
+              return {
+                ok: true,
+                sessionStatus: String(session?.signingSession?.status || ''),
+                orderedResults,
+              };
+            } catch (error: unknown) {
               return {
                 ok: false,
-                error: String(login?.error || 'unlock after refresh failed'),
+                error: String(
+                  error && typeof error === 'object' && 'message' in error
+                    ? (error as { message?: unknown }).message
+                    : error || 'second phase failed',
+                ),
               };
             }
-
-            const tempoRequest = {
-              chain: 'tempo' as const,
-              kind: 'tempoTransaction' as const,
-              senderSignatureAlgorithm: 'secp256k1' as const,
-              tx: {
-                chainId: 42431,
-                maxPriorityFeePerGas: 1n,
-                maxFeePerGas: 2n,
-                gasLimit: 21_000n,
-                calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: '0x' }],
-                accessList: [],
-                nonceKey: 0n,
-                nonce: 2n,
-                validBefore: null,
-                validAfter: null,
-                feePayerSignature: { kind: 'none' as const },
-                aaAuthorizationList: [],
-              },
-            };
-            const evmRequest = {
-              chain: 'evm' as const,
-              kind: 'eip1559' as const,
-              senderSignatureAlgorithm: 'secp256k1' as const,
-              tx: {
-                chainId: 11155111,
-                nonce: 7n,
-                maxPriorityFeePerGas: 1_500_000_000n,
-                maxFeePerGas: 3_000_000_000n,
-                gasLimit: 21_000n,
-                to: '0x' + '22'.repeat(20),
-                value: 12_345n,
-                data: '0x',
-                accessList: [],
-              },
-            };
-            const requestByChain = {
-              tempo: tempoRequest,
-              evm: evmRequest,
-            } as const;
-
-            const bootstrapOptions = {
-              relayerUrl,
-              ttlMs: 120_000,
-              remainingUses: 10,
-            } as const;
-            const tempoBootstrap = await tatchi.tempo.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: bootstrapOptions,
-            });
-            if (!tempoBootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
-              throw new Error('threshold ECDSA bootstrap did not return ecdsaThresholdKeyId');
-            }
-            const evmBootstrap = await tatchi.evm.bootstrapEcdsaSession({
-              nearAccountId: accountId,
-              options: bootstrapOptions,
-            });
-            if (!evmBootstrap?.thresholdEcdsaKeyRef?.ecdsaThresholdKeyId) {
-              throw new Error('threshold ECDSA EVM bootstrap did not return ecdsaThresholdKeyId');
-            }
-
-            const orderedResults: Array<{
-              requestedChain: 'tempo' | 'evm';
-              resultChain: string;
-              kind: string;
-            }> = [];
-            for (const requestedChain of order) {
-              const signed = await tatchi.tempo.signTempo({
-                nearAccountId: accountId,
-                request: requestByChain[requestedChain],
-                options: { confirmationConfig },
-              });
-              orderedResults.push({
-                requestedChain,
-                resultChain: String(signed?.chain || ''),
-                kind: String(signed?.kind || ''),
-              });
-            }
-            const session = await tatchi.auth.getWalletSession(accountId);
-
-            return {
-              ok: true,
-              sessionStatus: String(session?.signingSession?.status || ''),
-              orderedResults,
-            };
-          } catch (error: unknown) {
-            return {
-              ok: false,
-              error: String(
-                error && typeof error === 'object' && 'message' in error
-                  ? (error as { message?: unknown }).message
-                  : error || 'second phase failed',
-              ),
-            };
-          }
-        },
+          },
           {
             relayerUrl: harness.relayerUrl,
             accountId: firstPhase.accountId,
@@ -1819,7 +1323,7 @@ async function readWalletIframeThresholdPersistence(page: Page): Promise<
           tempoThenEvmPhase,
           evmThenTempoPhase,
         }),
-      ).toBe(2);
+      ).toBe(0);
     } finally {
       await harness.close();
     }
@@ -2095,7 +1599,9 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
               }
 
               const signingEngine = tatchi.getContext().signingEngine as any;
-              const accountAddress = String(accountId || '').trim().toLowerCase();
+              const accountAddress = String(accountId || '')
+                .trim()
+                .toLowerCase();
               const nearCandidates = ['near:testnet', 'near:mainnet'];
               let accountContext: { profileId: string; accountRef: { chainIdKey: string } } | null =
                 null;
@@ -2127,12 +1633,13 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 Number.isFinite(preferredSignerSlot) && preferredSignerSlot >= 1
                   ? Math.max(1, Math.floor(preferredSignerSlot))
                   : 1;
-              const thresholdKeyMaterial = await IndexedDBManager.accountKeyMaterialDB.getKeyMaterial(
-                accountContext.profileId,
-                signerSlot,
-                accountContext.accountRef.chainIdKey,
-                'threshold_share_v1',
-              );
+              const thresholdKeyMaterial =
+                await IndexedDBManager.accountKeyMaterialDB.getKeyMaterial(
+                  accountContext.profileId,
+                  signerSlot,
+                  accountContext.accountRef.chainIdKey,
+                  'threshold_share_v1',
+                );
               const thresholdPayload = (thresholdKeyMaterial?.payload || {}) as any;
               const relayerKeyId = String(thresholdPayload?.relayerKeyId || '').trim();
               const participantIds = Array.isArray(thresholdPayload?.participants)

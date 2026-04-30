@@ -94,6 +94,9 @@ test.describe('EVM family threshold reconnect events', () => {
       } as any,
       lane,
       keyRef: undefined,
+      clientRootShare32B64u: 'test-client-root-share',
+      operationUsesNeeded: 1,
+      sessionBudgetUses: 3,
       onEvent: (event) => events.push(event),
     });
 

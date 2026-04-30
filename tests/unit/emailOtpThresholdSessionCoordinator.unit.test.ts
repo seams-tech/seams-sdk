@@ -419,18 +419,35 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
     });
   });
 
-  test('signing-session challenge requests fail closed without signing-session authority', async () => {
+  test('NEAR transaction challenge falls back to app-session OTP without signing-session authority', async () => {
     const { coordinator, workerCalls, getRefreshCount } = createCoordinator();
 
-    await expect(
-      coordinator.requestTransactionSigningChallenge({
-        nearAccountId: 'alice.testnet',
-        chain: 'near',
-      }),
-    ).rejects.toThrow('Email OTP signing-session authority is unavailable; unlock wallet again');
+    const challenge = await coordinator.requestTransactionSigningChallenge({
+      nearAccountId: 'alice.testnet',
+      chain: 'near',
+    });
 
-    expect(getRefreshCount()).toBe(0);
-    expect(workerCalls).toHaveLength(0);
+    expect(challenge).toMatchObject({
+      challengeId: 'challenge-1',
+      emailHint: 'a***@example.com',
+    });
+    expect(getRefreshCount()).toBe(1);
+    expect(workerCalls[0]).toMatchObject({
+      kind: 'emailOtp',
+      request: {
+        type: 'requestEmailOtpChallenge',
+        payload: {
+          relayUrl: 'https://relay.example',
+          walletId: 'alice.testnet',
+          routePlan: {
+            routeFamily: 'login',
+            authLane: { kind: 'app_session' },
+            operation: 'transaction_sign',
+          },
+          otpChannel: 'email_otp',
+        },
+      },
+    });
   });
 
   test('Email OTP export resend updates the challenge used for authorization', async () => {
@@ -534,6 +551,61 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
 
     expect(getRefreshCount()).toBe(0);
     expect(workerCalls).toHaveLength(0);
+  });
+
+  test('NEAR Ed25519 OTP reauth completion falls back to app-session route without threshold auth', async () => {
+    let seenRoutePlan: any;
+    const { coordinator } = createCoordinator({
+      requestWorkerOperation: async (call) => {
+        if (call.request?.type === 'loginWithEmailOtpAndBootstrapEcdsaSession') {
+          seenRoutePlan = call.request.payload.routePlan;
+          throw new Error('stop after route plan');
+        }
+        return { ok: true };
+      },
+      getThresholdEcdsaKeyRefForLookup: () => ({
+        type: 'threshold-ecdsa-secp256k1',
+        userId: 'alice.testnet',
+        relayerUrl: 'https://relay.example',
+        ecdsaThresholdKeyId: 'ecdsa-key',
+        ethereumAddress: '0xabc',
+        participantIds: [1, 3],
+      }),
+    });
+
+    await expect(
+      coordinator.loginWithEd25519CapabilityForSigning({
+        nearAccountId: 'alice.testnet',
+        challengeId: 'near-challenge',
+        otpCode: '123456',
+        record: {
+          nearAccountId: 'alice.testnet',
+          rpId: 'localhost',
+          relayerUrl: 'https://relay.example',
+          relayerKeyId: 'ed25519:relayer-key',
+          participantIds: [1, 2],
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'ed25519-exhausted-session',
+          walletSigningSessionId: 'wallet-session-1',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 0,
+          emailOtpAuthContext: {
+            policy: 'session',
+            retention: 'session',
+            reason: 'login',
+            authMethod: 'email_otp',
+          },
+          updatedAtMs: Date.now(),
+          source: 'email_otp',
+        } as any,
+      }),
+    ).rejects.toThrow('stop after route plan');
+
+    expect(seenRoutePlan).toMatchObject({
+      routeFamily: 'login',
+      operation: 'transaction_sign',
+      authLane: { kind: 'app_session' },
+    });
   });
 
   test('logs in Ed25519 Email OTP capability with normalized auth context', async () => {
@@ -1787,6 +1859,99 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       },
     });
     expect(ecdsaCommitCalls).toHaveLength(1);
+  });
+
+  test('Ed25519 signing restore without durable Ed25519 metadata defers without worker restore', async () => {
+    const expiresAtMs = Date.now() + 60_000;
+    const sealedRecord = {
+      v: 1,
+      alg: 'shamir3pass-v1',
+      storageScope: 'iframe_origin_indexeddb',
+      runtimeSessionId: 'runtime-1',
+      authMethod: 'email_otp',
+      secretKind: 'signing_session_secret32',
+      walletSigningSessionId: 'wallet-session-1',
+      thresholdSessionIds: {
+        ecdsa: 'ecdsa-session',
+        ed25519: 'ed25519-session',
+      },
+      sealedSecretB64u: 'sealed-session-secret',
+      curve: 'ecdsa',
+      walletId: 'alice.testnet',
+      userId: 'alice.testnet',
+      signingRootId: 'signing-root',
+      signingRootVersion: 'root-v1',
+      relayerUrl: 'https://relay.example',
+      keyVersion: 'seal-v1',
+      shamirPrimeB64u: 'prime-b64u',
+      ecdsaRestore: {
+        chain: 'tempo',
+        thresholdSessionJwt: 'threshold-session-jwt',
+        sessionKind: 'jwt',
+        ecdsaThresholdKeyId: 'ecdsa-key',
+        relayerKeyId: 'relayer-key',
+        participantIds: [1, 3],
+      },
+      issuedAtMs: Date.now(),
+      expiresAtMs,
+      remainingUses: 2,
+      updatedAtMs: Date.now(),
+    };
+    const { coordinator, workerCalls } = createCoordinator({
+      configs: {
+        signing: {
+          emailOtp: { authPolicy: 'session' },
+          sessionPersistenceMode: 'sealed_refresh_v1',
+          sessionSeal: { keyVersion: 'seal-v1', shamirPrimeB64u: 'prime-b64u' },
+        },
+      },
+      requestWorkerOperation: async (call) => {
+        if (call.request?.type === 'rehydrateEmailOtpEcdsaWarmSessionMaterial') {
+          throw new Error('worker restore should not run without Ed25519 metadata');
+        }
+        return { ok: true };
+      },
+      listExactSealedSessionsForAccount: async ({ accountId, filter }) =>
+        accountId === 'alice.testnet' &&
+        filter?.authMethod === 'email_otp' &&
+        filter?.curve === 'ed25519'
+          ? [sealedRecord]
+          : [],
+      getThresholdEcdsaSessionRecordByThresholdSessionId: () => null,
+      acquireSigningSessionRestoreLease: async (args) => ({
+        ...args,
+        v: 1,
+        walletSigningSessionId: 'wallet-session-1',
+        ownerId: 'unit-test',
+        attemptId: 'restore-attempt-1',
+        startedAtMs: Date.now(),
+        expiresAtMs,
+      }),
+      releaseSigningSessionRestoreLease: async () => {},
+    });
+
+    const first = await coordinator.restorePersistedSessionForSigning({
+      walletId: 'alice.testnet',
+      authMethod: 'email_otp',
+      curve: 'ed25519',
+      chain: 'near',
+      reason: 'transaction',
+    });
+    const second = await coordinator.restorePersistedSessionForSigning({
+      walletId: 'alice.testnet',
+      authMethod: 'email_otp',
+      curve: 'ed25519',
+      chain: 'near',
+      reason: 'transaction',
+    });
+
+    expect(first).toMatchObject({ attempted: 1, restored: 0, deferred: 1 });
+    expect(second).toMatchObject({ attempted: 1, restored: 0, deferred: 1 });
+    expect(
+      workerCalls.some(
+        (call) => call.request?.type === 'rehydrateEmailOtpEcdsaWarmSessionMaterial',
+      ),
+    ).toBe(false);
   });
 
   test('account-scoped restore enumerates durable sealed ECDSA records after reload', async () => {

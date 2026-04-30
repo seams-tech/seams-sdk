@@ -584,7 +584,7 @@ test.describe('signing session sealed store', () => {
     expect(result.after.b).toBeNull();
   });
 
-  test('uses IndexedDB in wallet iframe host mode and leaves only runtime marker in sessionStorage', async ({
+  test('uses IndexedDB in wallet iframe host mode without writing signing-session identity to sessionStorage', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -622,8 +622,8 @@ test.describe('signing session sealed store', () => {
             ),
             localIndex: localStorage.getItem('tatchi:signing-session-sealed:v1:index'),
             sessionIndex: sessionStorage.getItem('tatchi:signing-session-sealed:v1:index'),
-            runtimeSessionId: sessionStorage.getItem(
-              'tatchi:signing-session-sealed:runtime-session-id:v1',
+            sessionKeys: Object.keys(sessionStorage).filter((key) =>
+              key.includes('signing-session'),
             ),
           };
         } finally {
@@ -639,7 +639,7 @@ test.describe('signing session sealed store', () => {
     expect(result.localIndex).toBeNull();
     expect(result.sessionRaw).toBeNull();
     expect(result.sessionIndex).toBeNull();
-    expect(result.runtimeSessionId).toEqual(expect.any(String));
+    expect(result.sessionKeys).toEqual([]);
   });
 
   test('does not create tatchi_wallet_v1 when IndexedDB persistence is disabled', async ({
@@ -689,7 +689,7 @@ test.describe('signing session sealed store', () => {
     expect(result.databaseNames).not.toContain('tatchi_wallet_v1');
   });
 
-  test('does not erase IndexedDB record when browser-session marker is missing', async ({
+  test('reads IndexedDB record when browser-session marker is missing', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -712,21 +712,12 @@ test.describe('signing session sealed store', () => {
         });
         const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' };
         const before = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
-        const runtimeSessionId = sessionStorage.getItem(
-          'tatchi:signing-session-sealed:runtime-session-id:v1',
-        );
         sessionStorage.removeItem('tatchi:signing-session-sealed:runtime-session-id:v1');
         const after = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
         const exactAfterMarkerRemoved = await mod.listExactSealedSessionsForAccount({
           accountId: 'restart.testnet',
           filter: { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' },
         });
-        if (runtimeSessionId) {
-          sessionStorage.setItem(
-            'tatchi:signing-session-sealed:runtime-session-id:v1',
-            runtimeSessionId,
-          );
-        }
         const readAfterMarkerRestored = await mod.readExactSealedSession(
           thresholdSessionId,
           passkeyEcdsa,
@@ -737,7 +728,7 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result.before?.sealedSecretB64u).toBe('sealed-restart');
-    expect(result.after).toBeNull();
+    expect(result.after?.sealedSecretB64u).toBe('sealed-restart');
     expect(result.exactAfterMarkerRemoved).toHaveLength(1);
     expect(result.exactAfterMarkerRemoved[0]?.sealedSecretB64u).toBe('sealed-restart');
     expect(result.readAfterMarkerRestored?.sealedSecretB64u).toBe('sealed-restart');
@@ -998,5 +989,101 @@ test.describe('signing session sealed store', () => {
     expect(result.published?.updatedAtMs).toBe(22_222);
     expect(result.listedAfterPublish[0]?.updatedAtMs).toBe(22_222);
     expect(result.listedAfterClear).toEqual([]);
+  });
+
+  test('can delete durable sealed record while preserving active runtime identity', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+
+        await mod.writeExactSealedSession({
+          thresholdSessionId: 'preserve-identity-ed25519-session',
+          walletSigningSessionId: 'preserve-identity-wallet-session',
+          curve: 'ed25519',
+          thresholdSessionIds: {
+            ed25519: 'preserve-identity-ed25519-session',
+          },
+          authMethod: 'passkey',
+          walletId: 'preserve-identity.testnet',
+          userId: 'preserve-identity.testnet',
+          signingRootId: 'preserve-identity-root',
+          sealedSecretB64u: 'sealed-preserve-identity-k',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          updatedAtMs: 44_444,
+        });
+
+        await mod.deleteExactSealedSession(
+          'preserve-identity-ed25519-session',
+          {
+            authMethod: 'passkey',
+            curve: 'ed25519',
+          },
+          {
+            deleteResolvedIdentity: false,
+          },
+        );
+
+        const durableRecord = await mod.readExactSealedSession(
+          'preserve-identity-ed25519-session',
+          {
+            authMethod: 'passkey',
+            curve: 'ed25519',
+          },
+        );
+        const identitiesAfterPolicyDelete = mod.listResolvedIdentitiesForAccount({
+          walletId: 'preserve-identity.testnet',
+          authMethod: 'passkey',
+          curve: 'ed25519',
+        });
+
+        await mod.writeExactSealedSession({
+          thresholdSessionId: 'preserve-identity-ed25519-session',
+          walletSigningSessionId: 'preserve-identity-wallet-session',
+          curve: 'ed25519',
+          thresholdSessionIds: {
+            ed25519: 'preserve-identity-ed25519-session',
+          },
+          authMethod: 'passkey',
+          walletId: 'preserve-identity.testnet',
+          userId: 'preserve-identity.testnet',
+          signingRootId: 'preserve-identity-root',
+          sealedSecretB64u: 'sealed-preserve-identity-k-2',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          updatedAtMs: 55_555,
+        });
+
+        await mod.deleteExactSealedSession('preserve-identity-ed25519-session', {
+          authMethod: 'passkey',
+          curve: 'ed25519',
+        });
+        const identitiesAfterExplicitDelete = mod.listResolvedIdentitiesForAccount({
+          walletId: 'preserve-identity.testnet',
+          authMethod: 'passkey',
+          curve: 'ed25519',
+        });
+
+        return {
+          durableRecord,
+          identitiesAfterPolicyDelete,
+          identitiesAfterExplicitDelete,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.durableRecord).toBeNull();
+    expect(result.identitiesAfterPolicyDelete).toHaveLength(1);
+    expect(result.identitiesAfterPolicyDelete[0]?.walletSigningSessionId).toBe(
+      'preserve-identity-wallet-session',
+    );
+    expect(result.identitiesAfterPolicyDelete[0]?.thresholdSessionId).toBe(
+      'preserve-identity-ed25519-session',
+    );
+    expect(result.identitiesAfterExplicitDelete).toEqual([]);
   });
 });

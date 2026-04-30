@@ -2,11 +2,213 @@ import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { inferSigningSessionBudgetZeroSpendReason } from '@/core/signingEngine/session/signingSession/budgetFinalizer';
-import { buildTempoTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
+import {
+  buildNearTransactionSigningLane,
+  buildTempoTransactionSigningLane,
+} from '@/core/signingEngine/session/signingSession/lanes';
 import { buildWalletSigningSpendPlan } from '@/core/signingEngine/session/signingSession/budget';
+import {
+  createWalletBudgetProjection,
+  projectionToSigningSessionStatus,
+  reduceWalletBudgetProjection,
+} from '@/core/signingEngine/session/signingSession/budgetProjection';
+import { applyWalletBudgetStatusToSigningSessionReadiness } from '@/core/signingEngine/session/signingSession/readiness';
 import { SigningSessionIds } from '@/core/signingEngine/session/signingSession/types';
 
+function activeBudgetStatus(sessionId: string, remainingUses: number) {
+  return {
+    sessionId,
+    status: 'active' as const,
+    remainingUses,
+    expiresAtMs: Date.now() + 60_000,
+    projectionVersion: `test-projection:${sessionId}:${remainingUses}`,
+  };
+}
+
+function preparedBudgetInput<TSpend extends { walletSigningSessionId: string }>(
+  spend: TSpend,
+  remainingUses: number,
+) {
+  return {
+    spend,
+    expectedBudgetProjectionVersion: `test-projection:${spend.walletSigningSessionId}:${remainingUses}`,
+  };
+}
+
 test.describe('SigningSessionBudget', () => {
+  test('budget projection treats local reservations as temporary availability only', async () => {
+    const projection = createWalletBudgetProjection({
+      nearAccountId: 'budget.testnet',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-projection'),
+    });
+    const withServerStatus = reduceWalletBudgetProjection(projection, {
+      type: 'server_status_observed',
+      status: {
+        source: 'server_status',
+        sessionId: 'wsess-projection',
+        status: 'active',
+        remainingUses: 1,
+        expiresAtMs: Date.now() + 60_000,
+      },
+    });
+    const reserved = reduceWalletBudgetProjection(withServerStatus, {
+      type: 'reserve_requested',
+      reservation: {
+        operationId: SigningSessionIds.signingOperation('op-projection-reserve'),
+        operationFingerprint: SigningSessionIds.signingOperationFingerprint(
+          'sha256:projection',
+        ),
+        uses: 1,
+      },
+    });
+
+    expect(reserved.trustedStatus).toMatchObject({ status: 'active', remainingUses: 1 });
+    expect(reserved).toMatchObject({ localReservedUses: 1, effectiveRemainingUses: 0 });
+    expect(projectionToSigningSessionStatus(reserved)).toMatchObject({
+      status: 'active',
+      remainingUses: 1,
+      locallyReservedUses: 1,
+      availableUses: 0,
+    });
+
+    const released = reduceWalletBudgetProjection(reserved, {
+      type: 'reservation_released',
+      operationId: SigningSessionIds.signingOperation('op-projection-reserve'),
+    });
+    expect(released).toMatchObject({ localReservedUses: 0, effectiveRemainingUses: 1 });
+  });
+
+  test('budget projection preserves unknown budget as an explicit non-terminal state', async () => {
+    const projection = createWalletBudgetProjection({
+      nearAccountId: 'budget.testnet',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-unknown'),
+    });
+    const unknown = reduceWalletBudgetProjection(projection, {
+      type: 'budget_unknown_observed',
+      unknown: {
+        source: 'budget_unknown',
+        sessionId: 'wsess-unknown',
+        status: 'budget_unknown',
+        reason: 'missing_trusted_status',
+      },
+    });
+
+    expect(projectionToSigningSessionStatus(unknown)).toMatchObject({
+      status: 'budget_unknown',
+      statusCode: 'missing_trusted_status',
+    });
+  });
+
+  test('budget_unknown does not mask exhausted material readiness', async () => {
+    const merged = applyWalletBudgetStatusToSigningSessionReadiness({
+      status: 'exhausted',
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session('tsess-exhausted'),
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 0,
+      walletBudgetStatus: {
+        sessionId: 'wsess-budget-unknown',
+        status: 'budget_unknown',
+        statusCode: 'missing_trusted_status',
+      },
+      usesNeeded: 1,
+    });
+
+    expect(merged.readiness.status).toBe('exhausted');
+  });
+
+  test('trusted active budget keeps the final remaining use available', async () => {
+    const merged = applyWalletBudgetStatusToSigningSessionReadiness({
+      status: 'exhausted',
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session('tsess-local-exhausted'),
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 0,
+      walletBudgetStatus: activeBudgetStatus('wsess-active-budget', 1),
+      usesNeeded: 1,
+    });
+
+    expect(merged.readiness.status).toBe('ready');
+    expect(merged.remainingUses).toBe(1);
+  });
+
+  test('keeps missing trusted budget status explicit and fails closed', async () => {
+    const operationId = SigningSessionIds.signingOperation('op-budget-no-status-adapter');
+    const lane = buildTempoTransactionSigningLane({
+      accountId: toAccountId('budget.testnet'),
+      authMethod: 'email_otp',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
+      signingRootId: 'proj_budget:dev',
+      signingRootVersion: 'default',
+    });
+    const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
+    const budget = new SigningSessionCoordinator({
+      getStatus: async () => ({
+        sessionId: 'wsess-budget',
+        status: 'budget_unknown',
+        statusCode: 'adapter_unavailable',
+      }),
+    });
+
+    await expect(budget.reserve(preparedBudgetInput(spend, 1))).rejects.toThrow(
+      'wallet signing-session budget is budget_unknown',
+    );
+    await expect(
+      budget.reserve({
+        ...preparedBudgetInput(
+          buildWalletSigningSpendPlan(
+            {
+              operationId: SigningSessionIds.signingOperation(
+                'op-budget-no-status-adapter-second',
+              ),
+              intent: 'transaction_sign',
+            },
+            lane,
+          ),
+          1,
+        ),
+      }),
+    ).rejects.toThrow('wallet signing-session budget is budget_unknown');
+    await expect(
+      budget.getAvailableStatus({
+        nearAccountId: 'budget.testnet',
+        walletSigningSessionId: 'wsess-budget',
+      }),
+    ).resolves.toMatchObject({
+      status: 'budget_unknown',
+      statusCode: 'adapter_unavailable',
+    });
+  });
+
+  test('classifies absent trusted status as budget_unknown, not not_found', async () => {
+    const operationId = SigningSessionIds.signingOperation('op-budget-missing-status');
+    const lane = buildTempoTransactionSigningLane({
+      accountId: toAccountId('budget.testnet'),
+      authMethod: 'passkey',
+      storageSource: 'login',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget'),
+      signingRootId: 'proj_budget:dev',
+      signingRootVersion: 'default',
+    });
+    const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
+    const budget = new SigningSessionCoordinator({
+      getStatus: async () => null,
+    });
+
+    await expect(budget.reserve(preparedBudgetInput(spend, 1))).rejects.toThrow(
+      'wallet signing-session budget is budget_unknown',
+    );
+    await expect(
+      budget.getAvailableStatus({
+        nearAccountId: 'budget.testnet',
+        walletSigningSessionId: 'wsess-budget',
+      }),
+    ).resolves.toMatchObject({
+      status: 'budget_unknown',
+      statusCode: 'missing_trusted_status',
+    });
+  });
+
   test('records one spend per successful operation id', async () => {
     const calls: unknown[] = [];
     const operationId = SigningSessionIds.signingOperation('op-budget-once');
@@ -20,23 +222,19 @@ test.describe('SigningSessionBudget', () => {
     });
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     const budget = new SigningSessionCoordinator({
+      getStatus: async () => activeBudgetStatus('wsess-budget', 4),
       consumeUse: async (args) => {
         calls.push(args);
-        return {
-          sessionId: String(args.walletSigningSessionId),
-          status: 'active',
-          remainingUses: 4,
-          expiresAtMs: Date.now() + 60_000,
-        };
+        return activeBudgetStatus(String(args.walletSigningSessionId), 4);
       },
     });
 
     await budget.recordSuccess({
-      spend,
+      ...preparedBudgetInput(spend, 4),
       alreadyConsumedThresholdSessionIds: ['tsess-budget'],
     });
     await budget.recordSuccess({
-      spend,
+      ...preparedBudgetInput(spend, 4),
       alreadyConsumedThresholdSessionIds: ['tsess-budget'],
     });
 
@@ -48,6 +246,38 @@ test.describe('SigningSessionBudget', () => {
       reason: 'transaction_sign',
       targetThresholdSessionIds: ['tsess-budget'],
       alreadyConsumedThresholdSessionIds: ['tsess-budget'],
+    });
+    expect(budget.hasRecorded(operationId)).toBe(true);
+  });
+
+  test('syncs externally consumed Ed25519 spends without requiring the old projection version', async () => {
+    const calls: unknown[] = [];
+    const operationId = SigningSessionIds.signingOperation('op-budget-ed25519-external');
+    const lane = buildNearTransactionSigningLane({
+      accountId: toAccountId('budget.testnet'),
+      authMethod: 'email_otp',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-ed25519-external'),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session('tsess-ed25519-external'),
+      retention: 'session',
+      sessionOrigin: 'login',
+    });
+    const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
+    const budget = new SigningSessionCoordinator({
+      getStatus: async () => activeBudgetStatus('wsess-ed25519-external', 2),
+      consumeUse: async (args) => {
+        calls.push(args);
+        return activeBudgetStatus(String(args.walletSigningSessionId), 2);
+      },
+    });
+
+    await budget.recordSuccess({
+      ...preparedBudgetInput(spend, 3),
+      alreadyConsumedThresholdSessionIds: ['tsess-ed25519-external'],
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      alreadyConsumedThresholdSessionIds: ['tsess-ed25519-external'],
     });
     expect(budget.hasRecorded(operationId)).toBe(true);
   });
@@ -66,21 +296,19 @@ test.describe('SigningSessionBudget', () => {
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     let attempts = 0;
     const budget = new SigningSessionCoordinator({
+      getStatus: async () => activeBudgetStatus('wsess-budget', 3),
       consumeUse: async () => {
         attempts += 1;
         if (attempts === 1) throw new Error('transient spend failure');
-        return {
-          sessionId: 'wsess-budget',
-          status: 'active',
-          remainingUses: 3,
-          expiresAtMs: Date.now() + 60_000,
-        };
+        return activeBudgetStatus('wsess-budget', 3);
       },
     });
 
-    await expect(budget.recordSuccess({ spend })).rejects.toThrow('transient spend failure');
+    await expect(budget.recordSuccess(preparedBudgetInput(spend, 3))).rejects.toThrow(
+      'transient spend failure',
+    );
     expect(budget.hasRecorded(operationId)).toBe(false);
-    await budget.recordSuccess({ spend });
+    await budget.recordSuccess(preparedBudgetInput(spend, 3));
 
     expect(attempts).toBe(2);
     expect(budget.hasRecorded(operationId)).toBe(true);
@@ -99,6 +327,7 @@ test.describe('SigningSessionBudget', () => {
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     let attempts = 0;
     const budget = new SigningSessionCoordinator({
+      getStatus: async () => activeBudgetStatus('wsess-wrong-wallet', 1),
       consumeUse: async (args) => {
         attempts += 1;
         return {
@@ -108,11 +337,11 @@ test.describe('SigningSessionBudget', () => {
       },
     });
 
-    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
+    await expect(budget.recordSuccess(preparedBudgetInput(spend, 1))).rejects.toThrow(
       'wallet signing-session spend returned not_found',
     );
     expect(budget.hasRecorded(operationId)).toBe(false);
-    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
+    await expect(budget.recordSuccess(preparedBudgetInput(spend, 1))).rejects.toThrow(
       'wallet signing-session spend returned not_found',
     );
     expect(attempts).toBe(2);
@@ -134,16 +363,14 @@ test.describe('SigningSessionBudget', () => {
       walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-other'),
     };
     const budget = new SigningSessionCoordinator({
+      getStatus: async () => activeBudgetStatus('wsess-other', 1),
       consumeUse: async (args) => {
         calls.push(args);
-        return {
-          sessionId: String(args.walletSigningSessionId),
-          status: 'active',
-        };
+        return activeBudgetStatus(String(args.walletSigningSessionId), 1);
       },
     });
 
-    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
+    await expect(budget.recordSuccess(preparedBudgetInput(spend, 1))).rejects.toThrow(
       'walletSigningSessionId does not match lane',
     );
     expect(budget.hasRecorded(operationId)).toBe(false);
@@ -165,16 +392,17 @@ test.describe('SigningSessionBudget', () => {
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     const budget = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
+      getStatus: async () => activeBudgetStatus('wsess-budget', 1),
       consumeUse: async (args) => {
         calls.push(args);
         return undefined as any;
       },
     });
 
-    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
+    await expect(budget.recordSuccess(preparedBudgetInput(spend, 1))).rejects.toThrow(
       'wallet signing-session spend returned no status',
     );
-    await expect(budget.recordSuccess({ spend })).rejects.toThrow(
+    await expect(budget.recordSuccess(preparedBudgetInput(spend, 1))).rejects.toThrow(
       'wallet signing-session spend returned no status',
     );
 
@@ -215,26 +443,16 @@ test.describe('SigningSessionBudget', () => {
       lane,
     );
     const budget = new SigningSessionCoordinator({
-      getStatus: async () => ({
-        sessionId: 'wsess-budget',
-        status: 'active',
-        remainingUses: 2,
-        expiresAtMs: Date.now() + 60_000,
-      }),
-      consumeUse: async (args) => ({
-        sessionId: String(args.walletSigningSessionId),
-        status: 'active',
-        remainingUses: 1,
-        expiresAtMs: Date.now() + 60_000,
-      }),
+      getStatus: async () => activeBudgetStatus('wsess-budget', 2),
+      consumeUse: async (args) => activeBudgetStatus(String(args.walletSigningSessionId), 1),
     });
 
-    await budget.reserve({ spend: firstSpend });
-    await expect(budget.reserve({ spend: secondSpend })).rejects.toThrow(
+    await budget.reserve(preparedBudgetInput(firstSpend, 2));
+    await expect(budget.reserve(preparedBudgetInput(secondSpend, 2))).rejects.toThrow(
       'signing operation id reused for a different operation',
     );
-    await budget.recordSuccess({ spend: firstSpend });
-    await expect(budget.recordSuccess({ spend: secondSpend })).rejects.toThrow(
+    await budget.recordSuccess(preparedBudgetInput(firstSpend, 2));
+    await expect(budget.recordSuccess(preparedBudgetInput(secondSpend, 2))).rejects.toThrow(
       'signing operation id reused for a different operation',
     );
   });
@@ -254,14 +472,10 @@ test.describe('SigningSessionBudget', () => {
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     const budget = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
+      getStatus: async () => activeBudgetStatus('wsess-budget', 2),
       consumeUse: async (args) => {
         calls.push(args);
-        return {
-          sessionId: String(args.walletSigningSessionId),
-          status: 'active',
-          remainingUses: 2,
-          expiresAtMs: Date.now() + 60_000,
-        };
+        return activeBudgetStatus(String(args.walletSigningSessionId), 2);
       },
     });
 
@@ -288,7 +502,7 @@ test.describe('SigningSessionBudget', () => {
       },
     ]);
 
-    await budget.recordSuccess({ spend });
+    await budget.recordSuccess(preparedBudgetInput(spend, 2));
     expect(calls).toHaveLength(1);
     expect(budget.hasRecorded(operationId)).toBe(true);
   });
@@ -307,16 +521,12 @@ test.describe('SigningSessionBudget', () => {
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     const budget = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
-      consumeUse: async (args) => ({
-        sessionId: String(args.walletSigningSessionId),
-        status: 'active',
-        remainingUses: 2,
-        expiresAtMs: Date.now() + 60_000,
-      }),
+      getStatus: async () => activeBudgetStatus('wsess-budget', 2),
+      consumeUse: async (args) => activeBudgetStatus(String(args.walletSigningSessionId), 2),
     });
 
-    await budget.recordSuccess({ spend });
-    await budget.recordSuccess({ spend });
+    await budget.recordSuccess(preparedBudgetInput(spend, 2));
+    await budget.recordSuccess(preparedBudgetInput(spend, 2));
 
     expect(traces).toMatchObject([
       {
@@ -403,26 +613,19 @@ test.describe('SigningSessionBudget', () => {
       lane,
     );
     const budget = new SigningSessionCoordinator({
-      getStatus: async () => ({
-        sessionId: 'wsess-budget',
-        status: 'active',
-        remainingUses: 1,
-        expiresAtMs: Date.now() + 60_000,
-      }),
+      getStatus: async () => activeBudgetStatus('wsess-budget', 1),
       consumeUse: async (args) => ({
-        sessionId: String(args.walletSigningSessionId),
-        status: 'exhausted',
-        remainingUses: 0,
-        expiresAtMs: Date.now() + 60_000,
+        ...activeBudgetStatus(String(args.walletSigningSessionId), 0),
+        status: 'exhausted' as const,
       }),
     });
 
-    const reservation = await budget.reserve({ spend: firstSpend });
-    await expect(budget.reserve({ spend: secondSpend })).rejects.toThrow(
+    const reservation = await budget.reserve(preparedBudgetInput(firstSpend, 1));
+    await expect(budget.reserve(preparedBudgetInput(secondSpend, 1))).rejects.toThrow(
       'wallet signing-session budget is exhausted',
     );
     reservation?.release('confirmation_cancelled');
-    await budget.reserve({ spend: secondSpend });
+    await budget.reserve(preparedBudgetInput(secondSpend, 1));
   });
 
   test('dedupes reservation retries for the same operation id', async () => {
@@ -440,24 +643,17 @@ test.describe('SigningSessionBudget', () => {
     const spend = buildWalletSigningSpendPlan({ operationId, intent: 'transaction_sign' }, lane);
     const budget = new SigningSessionCoordinator({
       onTrace: (event) => traces.push(event),
-      getStatus: async () => ({
-        sessionId: 'wsess-budget',
-        status: 'active',
-        remainingUses: 1,
-        expiresAtMs: Date.now() + 60_000,
-      }),
+      getStatus: async () => activeBudgetStatus('wsess-budget', 1),
       consumeUse: async (args) => ({
-        sessionId: String(args.walletSigningSessionId),
+        ...activeBudgetStatus(String(args.walletSigningSessionId), 0),
         status: 'exhausted',
-        remainingUses: 0,
-        expiresAtMs: Date.now() + 60_000,
       }),
     });
 
-    await budget.reserve({ spend });
-    await budget.reserve({ spend });
-    await budget.recordSuccess({ spend });
-    await budget.reserve({ spend });
+    await budget.reserve(preparedBudgetInput(spend, 1));
+    await budget.reserve(preparedBudgetInput(spend, 1));
+    await budget.recordSuccess(preparedBudgetInput(spend, 1));
+    await budget.reserve(preparedBudgetInput(spend, 1));
 
     expect(traces).toMatchObject([
       { event: 'wallet_signing_budget_reservation_started' },
@@ -489,15 +685,12 @@ test.describe('SigningSessionBudget', () => {
       ),
     );
     const budget = new SigningSessionCoordinator({
-      getStatus: async () => ({
-        sessionId: 'wsess-budget',
-        status: 'active',
-        remainingUses: 2,
-        expiresAtMs: Date.now() + 60_000,
-      }),
+      getStatus: async () => activeBudgetStatus('wsess-budget', 2),
     });
 
-    const results = await Promise.allSettled(spends.map((spend) => budget.reserve({ spend })));
+    const results = await Promise.allSettled(
+      spends.map((spend) => budget.reserve(preparedBudgetInput(spend, 2))),
+    );
 
     expect(results.map((result) => result.status)).toEqual(['fulfilled', 'fulfilled', 'rejected']);
     expect(results[2]).toMatchObject({
@@ -509,10 +702,10 @@ test.describe('SigningSessionBudget', () => {
 
     const firstReservation = results[0].status === 'fulfilled' ? results[0].value : null;
     firstReservation?.release('confirmation_cancelled');
-    await expect(budget.reserve({ spend: spends[2]! })).resolves.toBeTruthy();
+    await expect(budget.reserve(preparedBudgetInput(spends[2]!, 2))).resolves.toBeTruthy();
   });
 
-  test('reports remaining budget net of in-flight reservations', async () => {
+  test('reports authoritative remaining budget separately from in-flight availability', async () => {
     const lane = buildTempoTransactionSigningLane({
       accountId: toAccountId('budget.testnet'),
       authMethod: 'passkey',
@@ -537,12 +730,7 @@ test.describe('SigningSessionBudget', () => {
       lane,
     );
     const budget = new SigningSessionCoordinator({
-      getStatus: async (args) => ({
-        sessionId: String(args.walletSigningSessionId),
-        status: 'active',
-        remainingUses: 2,
-        expiresAtMs: Date.now() + 60_000,
-      }),
+      getStatus: async (args) => activeBudgetStatus(String(args.walletSigningSessionId), 2),
     });
 
     await expect(
@@ -552,21 +740,31 @@ test.describe('SigningSessionBudget', () => {
       }),
     ).resolves.toMatchObject({ status: 'active', remainingUses: 2 });
 
-    const firstReservation = await budget.reserve({ spend: firstSpend });
+    const firstReservation = await budget.reserve(preparedBudgetInput(firstSpend, 2));
     await expect(
       budget.getAvailableStatus({
         nearAccountId: 'budget.testnet',
         walletSigningSessionId: 'wsess-budget-available',
       }),
-    ).resolves.toMatchObject({ status: 'active', remainingUses: 1 });
+    ).resolves.toMatchObject({
+      status: 'active',
+      remainingUses: 2,
+      locallyReservedUses: 1,
+      availableUses: 1,
+    });
 
-    const secondReservation = await budget.reserve({ spend: secondSpend });
+    const secondReservation = await budget.reserve(preparedBudgetInput(secondSpend, 2));
     await expect(
       budget.getAvailableStatus({
         nearAccountId: 'budget.testnet',
         walletSigningSessionId: 'wsess-budget-available',
       }),
-    ).resolves.toMatchObject({ status: 'exhausted', remainingUses: 0 });
+    ).resolves.toMatchObject({
+      status: 'active',
+      remainingUses: 2,
+      locallyReservedUses: 2,
+      availableUses: 0,
+    });
 
     firstReservation?.release('confirmation_cancelled');
     secondReservation?.release('confirmation_cancelled');
@@ -614,18 +812,13 @@ test.describe('SigningSessionBudget', () => {
       passkeyLane,
     );
     const budget = new SigningSessionCoordinator({
-      getStatus: async () => ({
-        sessionId: 'wsess-shared-budget',
-        status: 'active',
-        remainingUses: 2,
-        expiresAtMs: Date.now() + 60_000,
-      }),
+      getStatus: async () => activeBudgetStatus('wsess-shared-budget', 2),
     });
 
     const results = await Promise.allSettled([
-      budget.reserve({ spend: emailOtpSpend }),
-      budget.reserve({ spend: passkeySpend }),
-      budget.reserve({ spend: thirdPasskeySpend }),
+      budget.reserve(preparedBudgetInput(emailOtpSpend, 2)),
+      budget.reserve(preparedBudgetInput(passkeySpend, 2)),
+      budget.reserve(preparedBudgetInput(thirdPasskeySpend, 2)),
     ]);
 
     expect(results.map((result) => result.status)).toEqual(['fulfilled', 'fulfilled', 'rejected']);
@@ -671,17 +864,12 @@ test.describe('SigningSessionBudget', () => {
       passkeyLane,
     );
     const budget = new SigningSessionCoordinator({
-      getStatus: async (args) => ({
-        sessionId: String(args.walletSigningSessionId),
-        status: 'active',
-        remainingUses: 1,
-        expiresAtMs: Date.now() + 60_000,
-      }),
+      getStatus: async (args) => activeBudgetStatus(String(args.walletSigningSessionId), 1),
     });
 
     const results = await Promise.allSettled([
-      budget.reserve({ spend: emailOtpSpend }),
-      budget.reserve({ spend: passkeySpend }),
+      budget.reserve(preparedBudgetInput(emailOtpSpend, 1)),
+      budget.reserve(preparedBudgetInput(passkeySpend, 1)),
     ]);
 
     expect(results.map((result) => result.status)).toEqual(['fulfilled', 'fulfilled']);

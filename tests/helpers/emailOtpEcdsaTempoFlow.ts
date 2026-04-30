@@ -53,6 +53,7 @@ export type EmailOtpEcdsaTempoFlowOptions = {
   accountId?: string;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   signingKind?: 'tempoTransaction' | 'eip1559';
+  skipFirstSign?: boolean;
   signTwice?: boolean;
   signNearAfterLogin?: boolean;
   resendLoginOtpBeforeSubmit?: boolean;
@@ -88,6 +89,7 @@ export type EmailOtpEcdsaTempoFlowResult = {
     enrollChallengeCount: number;
     loginChallengeCount: number;
     exportChallengeCount: number;
+    signingChallengeCount: number;
   };
   webauthnCounters?: {
     createCount: number;
@@ -154,12 +156,15 @@ export async function setupEmailOtpEcdsaTempoHarness(
     ecdsaAuthSessionStore?: unknown;
   };
   if (!thresholdAuthStores.authSessionStore || !thresholdAuthStores.ecdsaAuthSessionStore) {
-    throw new Error('Missing threshold auth session stores for Email OTP signing-session seal policy');
+    throw new Error(
+      'Missing threshold auth session stores for Email OTP signing-session seal policy',
+    );
   }
   const runtimePolicyScope = {
     orgId: 'org_threshold_ecdsa_email_otp',
     projectId: 'proj_threshold_ecdsa_email_otp',
     envId: 'dev',
+    signingRootVersion: 'default',
   } as const;
 
   const harness = await setupManagedThresholdRegistrationHarness({
@@ -253,8 +258,8 @@ export async function setupEmailOtpEcdsaTempoHarness(
       if (!normalizedUserId) {
         throw new Error('mintAppSessionJwt requires userId');
       }
-      const normalizedWalletId = String(walletId || '').trim();
-      accountsOnChain.add(normalizedWalletId || normalizedUserId);
+      const normalizedWalletId = String(walletId || normalizedUserId).trim();
+      accountsOnChain.add(normalizedWalletId);
       const versionResult = rotate
         ? await service.rotateAppSessionVersion({ userId: normalizedUserId })
         : await service.getOrCreateAppSessionVersion({ userId: normalizedUserId });
@@ -268,7 +273,7 @@ export async function setupEmailOtpEcdsaTempoHarness(
         email: String(email || DEFAULT_EMAIL).trim() || DEFAULT_EMAIL,
         deviceId: String(deviceId || 'browser-email-otp').trim() || 'browser-email-otp',
         runtimePolicyScope,
-        ...(normalizedWalletId ? { walletId: normalizedWalletId } : {}),
+        walletId: normalizedWalletId,
       });
     },
     readEmailOtpEnrollment: async (walletId) => {
@@ -322,6 +327,7 @@ export async function runEmailOtpEcdsaTempoFlow(
       enrollChallengeCount: 0,
       loginChallengeCount: 0,
       exportChallengeCount: 0,
+      signingChallengeCount: 0,
     };
     const webauthnState = {
       createCount: 0,
@@ -571,7 +577,8 @@ export async function runEmailOtpEcdsaTempoFlow(
       await signingEngine.clearWarmSigningSessions(accountId).catch(() => undefined);
 
       const firstLoginOtp = await requestLoginOtp();
-      const loginOtp = input.resendLoginOtpBeforeSubmit === true ? await requestLoginOtp() : firstLoginOtp;
+      const loginOtp =
+        input.resendLoginOtpBeforeSubmit === true ? await requestLoginOtp() : firstLoginOtp;
       const loggedIn = await signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         nearAccountId: accountId,
         chain: bootstrapChain,
@@ -640,6 +647,7 @@ export async function runEmailOtpEcdsaTempoFlow(
             };
           }
           if (requestType === 'signIntentDigest' && prompt) {
+            otpState.signingChallengeCount += 1;
             const challengeId = String(prompt.challengeId || '').trim();
             const otpCode = await readEmailOtpOutbox({
               challengeId,
@@ -656,32 +664,35 @@ export async function runEmailOtpEcdsaTempoFlow(
         };
       }
 
-      const firstSignResult = await (async () => {
-        try {
-          const signed = await pm.tempo.signTempo({
-            nearAccountId: accountId,
-            request: makeThresholdEcdsaRequest('a1'),
-            options: { confirmationConfig },
-          });
-          return {
-            ok: true,
-            chain: String(signed?.chain || ''),
-            kind: String(signed?.kind || ''),
-            rawTxHex: String(signed?.rawTxHex || ''),
-          };
-        } catch (error: unknown) {
-          return {
-            ok: false,
-            error:
-              error && typeof error === 'object' && 'message' in error
-                ? String((error as { message?: unknown }).message || '')
-                : String(error || 'first sign failed'),
-          };
-        }
-      })();
+      const firstSignResult =
+        input.skipFirstSign === true
+          ? undefined
+          : await (async () => {
+              try {
+                const signed = await pm.tempo.signTempo({
+                  nearAccountId: accountId,
+                  request: makeThresholdEcdsaRequest('a1'),
+                  options: { confirmationConfig },
+                });
+                return {
+                  ok: true,
+                  chain: String(signed?.chain || ''),
+                  kind: String(signed?.kind || ''),
+                  rawTxHex: String(signed?.rawTxHex || ''),
+                };
+              } catch (error: unknown) {
+                return {
+                  ok: false,
+                  error:
+                    error && typeof error === 'object' && 'message' in error
+                      ? String((error as { message?: unknown }).message || '')
+                      : String(error || 'first sign failed'),
+                };
+              }
+            })();
 
       const secondSignResult =
-        input.signTwice === false
+        input.skipFirstSign === true || input.signTwice === false
           ? undefined
           : await (async () => {
               try {
@@ -827,9 +838,10 @@ export async function runEmailOtpEcdsaTempoFlow(
           enrollChallengeCount: otpState.enrollChallengeCount,
           loginChallengeCount: otpState.loginChallengeCount,
           exportChallengeCount: otpState.exportChallengeCount,
+          signingChallengeCount: otpState.signingChallengeCount,
         },
         webauthnCounters: webauthnState,
-        firstSign: firstSignResult,
+        ...(firstSignResult ? { firstSign: firstSignResult } : {}),
         ...(secondSignResult ? { secondSign: secondSignResult } : {}),
         ...(nearSignResult ? { nearSign: nearSignResult } : {}),
         ...(exportResults ? { exports: exportResults } : {}),
@@ -845,4 +857,551 @@ export async function runEmailOtpEcdsaTempoFlow(
       };
     }
   }, options);
+}
+export type ReloadSignKind = 'near' | 'tempo' | 'evm' | 'exportNear' | 'exportEcdsa';
+
+export async function runEmailOtpReloadPhase(
+  page: Page,
+  args: {
+    harness: EmailOtpEcdsaTempoHarness;
+    accountId: string;
+    appSessionJwt: string;
+    signKinds: ReloadSignKind[];
+    signAfterExports?: 'tempo' | 'evm';
+    rememberAppSessionJwt?: boolean;
+  },
+): Promise<{
+  ok: boolean;
+  sessionStatus?: string;
+  results?: Array<{
+    kind: string;
+    ok: boolean;
+    chain?: string;
+    error?: string;
+    promptCountBefore?: number;
+    promptCountAfter?: number;
+    webauthnGetCountBefore?: number;
+    webauthnGetCountAfter?: number;
+  }>;
+  emailOtpPromptCount?: number;
+  webauthnGetCount?: number;
+  sealedRecordSummaries?: Array<Record<string, unknown>>;
+  runtimeDiagnostics?: Record<string, unknown>;
+  promptCountBeforeExports?: number;
+  promptCountAfterExports?: number;
+  promptCountAfterFinalSign?: number;
+  authPromptEvents?: Array<{
+    requestType: string;
+    kind: string;
+    method: string;
+    hasEmailOtpPrompt: boolean;
+  }>;
+  error?: string;
+}> {
+  return await page.evaluate(
+    async ({
+      relayerUrl,
+      shamirPrimeB64u,
+      signingSessionSealKeyVersion,
+      accountId,
+      appSessionJwt,
+      signKinds,
+      signAfterExports,
+      rememberAppSessionJwt,
+    }) => {
+      const sdkMod = await import('/sdk/esm/index.js');
+      const actionsMod = await import('/sdk/esm/core/types/actions.js');
+      const { TatchiPasskey } = sdkMod as any;
+      const { ActionType } = actionsMod as any;
+
+      const readSealedRecordSummaries = async (): Promise<Array<Record<string, unknown>>> => {
+        const indexedDb = globalThis.indexedDB;
+        if (!indexedDb) return [];
+        const openRequest = indexedDb.open('tatchi_wallet_v1');
+        const db = await new Promise<IDBDatabase | null>((resolve) => {
+          openRequest.onerror = () => resolve(null);
+          openRequest.onsuccess = () => resolve(openRequest.result);
+        });
+        if (!db || !Array.from(db.objectStoreNames).includes('signing_session_seals_v1')) {
+          db?.close();
+          return [];
+        }
+        try {
+          const tx = db.transaction('signing_session_seals_v1', 'readonly');
+          const store = tx.objectStore('signing_session_seals_v1');
+          const getAllRequest = store.getAll();
+          const values = await new Promise<unknown[]>((resolve) => {
+            getAllRequest.onerror = () => resolve([]);
+            getAllRequest.onsuccess = () =>
+              resolve(Array.isArray(getAllRequest.result) ? getAllRequest.result : []);
+          });
+          return values
+            .map((value) =>
+              value && typeof value === 'object' && !Array.isArray(value)
+                ? (value as Record<string, unknown>)
+                : null,
+            )
+            .filter((record): record is Record<string, unknown> => Boolean(record))
+            .filter((record) => record.walletId === accountId || record.userId === accountId)
+            .map((record) => ({
+              storeKey: record.storeKey,
+              walletId: record.walletId,
+              userId: record.userId,
+              authMethod: record.authMethod,
+              curve: record.curve,
+              thresholdSessionIds: record.thresholdSessionIds,
+              hasRelayerUrl: Boolean(record.relayerUrl),
+              hasSigningRootId: Boolean(record.signingRootId),
+              ecdsaChain:
+                record.ecdsaRestore &&
+                typeof record.ecdsaRestore === 'object' &&
+                !Array.isArray(record.ecdsaRestore)
+                  ? (record.ecdsaRestore as Record<string, unknown>).chain
+                  : undefined,
+              hasEd25519Restore: Boolean(record.ed25519Restore),
+              ed25519RestoreKeys:
+                record.ed25519Restore &&
+                typeof record.ed25519Restore === 'object' &&
+                !Array.isArray(record.ed25519Restore)
+                  ? Object.keys(record.ed25519Restore as Record<string, unknown>).sort()
+                  : [],
+              hasSealedSecret: Boolean(record.sealedSecretB64u),
+            }));
+        } finally {
+          db.close();
+        }
+      };
+      const readRuntimeDiagnostics = async (): Promise<Record<string, unknown>> => {
+        const [thresholdStore, sealedStore] = await Promise.all([
+          import('/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js').catch(
+            () => null,
+          ),
+          import('/sdk/esm/core/signingEngine/session/sealedSessionStore.js').catch(() => null),
+        ]);
+        const ed25519Record =
+          thresholdStore &&
+          typeof (thresholdStore as any).getStoredThresholdEd25519SessionRecordForAccount ===
+            'function'
+            ? (thresholdStore as any).getStoredThresholdEd25519SessionRecordForAccount(accountId)
+            : null;
+        const identities =
+          sealedStore && typeof (sealedStore as any).listResolvedIdentitiesForAccount === 'function'
+            ? (sealedStore as any).listResolvedIdentitiesForAccount({
+                walletId: accountId,
+                curve: 'ed25519',
+              })
+            : [];
+        return {
+          ed25519Record: ed25519Record
+            ? {
+                source: ed25519Record.source,
+                thresholdSessionId: ed25519Record.thresholdSessionId,
+                walletSigningSessionId: ed25519Record.walletSigningSessionId,
+                retention: ed25519Record.emailOtpAuthContext?.retention,
+                hasJwt: Boolean(ed25519Record.thresholdSessionJwt),
+                hasClientBase: Boolean(ed25519Record.xClientBaseB64u),
+              }
+            : null,
+          ed25519Identities: Array.isArray(identities)
+            ? identities.map((identity) => ({
+                authMethod: identity.authMethod,
+                curve: identity.curve,
+                chain: identity.chain,
+                thresholdSessionId: identity.thresholdSessionId,
+                walletSigningSessionId: identity.walletSigningSessionId,
+              }))
+            : [],
+        };
+      };
+
+      const joinUrl = (base: string, path: string): string =>
+        `${String(base || '').replace(/\/+$/, '')}/${String(path || '').replace(/^\/+/, '')}`;
+      const readEmailOtpOutbox = async (challengeIdRaw: string): Promise<string> => {
+        const challengeId = String(challengeIdRaw || '').trim();
+        if (!challengeId) throw new Error('missing Email OTP challengeId for reload phase');
+        const outbox = await fetch(
+          `${joinUrl(relayerUrl, '/wallet/email-otp/dev/otp-outbox')}?challengeId=${encodeURIComponent(challengeId)}&walletId=${encodeURIComponent(accountId)}`,
+          {
+            headers: appSessionJwt ? { Authorization: `Bearer ${appSessionJwt}` } : undefined,
+          },
+        );
+        const outboxJson = await outbox.json().catch(() => ({}));
+        const otpCode = String(outboxJson?.otpCode || '').trim();
+        if (!otpCode) throw new Error(`missing Email OTP test outbox entry for ${challengeId}`);
+        return otpCode;
+      };
+
+      const confirmationConfig = {
+        uiMode: 'none' as const,
+        behavior: 'skipClick' as const,
+        autoProceedDelay: 0,
+      };
+      const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
+      const webauthnState = { getCount: 0 };
+      const originalCredentialsGet = globalThis.navigator?.credentials?.get?.bind(
+        globalThis.navigator.credentials,
+      );
+      if (globalThis.navigator?.credentials && originalCredentialsGet) {
+        globalThis.navigator.credentials.get = (async (...credentialArgs: unknown[]) => {
+          webauthnState.getCount += 1;
+          return await originalCredentialsGet(...(credentialArgs as [CredentialRequestOptions]));
+        }) as CredentialsContainer['get'];
+      }
+
+      try {
+        const pm = new TatchiPasskey({
+          nearNetwork: 'testnet',
+          nearRpcUrl: 'https://test.rpc.fastnear.com',
+          relayerAccount: 'web3-authn-v4.testnet',
+          relayer: {
+            url: relayerUrl,
+            smartAccountDeploymentMode: 'observe',
+          },
+          ...(managedRegistration
+            ? {
+                registration: {
+                  mode: 'managed' as const,
+                  environmentId: String(managedRegistration.environmentId || ''),
+                  publishableKey: String(managedRegistration.publishableKey || ''),
+                },
+              }
+            : {}),
+          emailOtpAuthPolicy: 'session' as const,
+          signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
+          signingSessionSeal: {
+            keyVersion: signingSessionSealKeyVersion,
+            shamirPrimeB64u,
+          },
+          iframeWallet: {
+            walletOrigin: '',
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+            rpIdOverride: 'example.localhost',
+          },
+        });
+        pm.setConfirmationConfig(confirmationConfig as any);
+
+        const signingEngine = pm.getContext().signingEngine as any;
+        if (
+          rememberAppSessionJwt !== false &&
+          appSessionJwt &&
+          typeof signingEngine?.emailOtpSessions?.rememberAppSessionJwt === 'function'
+        ) {
+          signingEngine.emailOtpSessions.rememberAppSessionJwt({
+            nearAccountId: accountId,
+            appSessionJwt,
+          });
+        }
+        const originalRequestUserConfirmation =
+          typeof signingEngine?.touchConfirm?.requestUserConfirmation === 'function'
+            ? signingEngine.touchConfirm.requestUserConfirmation.bind(signingEngine.touchConfirm)
+            : null;
+        let emailOtpPromptCount = 0;
+        const authPromptEvents: Array<{
+          requestType: string;
+          kind: string;
+          method: string;
+          hasEmailOtpPrompt: boolean;
+        }> = [];
+        if (originalRequestUserConfirmation) {
+          const buildNearTransactionDecisionExtras = async (
+            request: Record<string, any>,
+          ): Promise<Record<string, unknown>> => {
+            if (String(request?.type || '') !== 'signTransaction') {
+              return {};
+            }
+            const touchConfirmContext =
+              typeof signingEngine?.touchConfirm?.getContext === 'function'
+                ? signingEngine.touchConfirm.getContext()
+                : null;
+            if (!touchConfirmContext) {
+              throw new Error('missing touchConfirm context for headless NEAR confirmation');
+            }
+            const [{ createConfirmTxFlowAdapters }, { nonceLeaseToRef }, readinessRegistry] =
+              await Promise.all([
+                import('/sdk/esm/core/signingEngine/touchConfirm/handlers/flows/adapters/adapters.js'),
+                import('/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js'),
+                import('/sdk/esm/core/signingEngine/touchConfirm/confirmationReadinessRegistry.js').catch(
+                  () => null,
+                ),
+              ]);
+
+            // The production modal waits for this hook before confirming a transaction.
+            // The e2e shortcut must do the same or it can race signing-session reauth.
+            const readiness =
+              readinessRegistry &&
+              typeof (readinessRegistry as any).consumeConfirmationReadiness === 'function'
+                ? (readinessRegistry as any).consumeConfirmationReadiness(
+                    String(request?.requestId || ''),
+                  )
+                : undefined;
+            if (readiness?.promise) {
+              await readiness.promise;
+            }
+
+            const payload = request?.payload || {};
+            const nearAccountId = String(payload?.rpcCall?.nearAccountId || accountId).trim();
+            const txCount = Array.isArray(payload?.txSigningRequests)
+              ? payload.txSigningRequests.length
+              : 1;
+            const reserveNonces = String(request?.summary?.type || '') !== 'delegateAction';
+            const nearAdapters = createConfirmTxFlowAdapters(touchConfirmContext).near;
+            const nearContext = await nearAdapters.fetchNearContext({
+              nearAccountId,
+              nearPublicKeyStr: String(payload?.nearPublicKeyStr || '').trim() || undefined,
+              txCount,
+              reserveNonces,
+              allowFallback: false,
+              operationId: String(request?.requestId || ''),
+              operationFingerprint: String(
+                request?.intentDigest || payload?.intentDigest || request?.requestId || '',
+              ),
+            });
+            if (!nearContext?.transactionContext) {
+              throw new Error(
+                String(
+                  nearContext?.details ||
+                    nearContext?.error ||
+                    'missing NEAR transaction context for headless confirmation',
+                ),
+              );
+            }
+            return {
+              transactionContext: nearContext.transactionContext,
+              ...(Array.isArray(nearContext.nonceLeases) && nearContext.nonceLeases.length
+                ? {
+                    nonceLeases: nearContext.nonceLeases.map((lease: unknown) =>
+                      nonceLeaseToRef(lease as any),
+                    ),
+                  }
+                : {}),
+            };
+          };
+
+          signingEngine.touchConfirm.requestUserConfirmation = async (
+            request: Record<string, any>,
+            requestOptions?: Record<string, any>,
+          ) => {
+            const requestType = String(request?.type || '');
+            if (requestType === 'showSecurePrivateKeyUi') {
+              return { confirmed: true };
+            }
+            const prompt =
+              request?.payload?.signingAuthPlan?.emailOtpPrompt || request?.payload?.emailOtpPrompt;
+            const signingAuthPlan = request?.payload?.signingAuthPlan || null;
+            if (prompt || signingAuthPlan) {
+              authPromptEvents.push({
+                requestType,
+                kind: String(signingAuthPlan?.kind || ''),
+                method: String(signingAuthPlan?.method || ''),
+                hasEmailOtpPrompt: Boolean(prompt),
+              });
+            }
+            if (prompt) {
+              emailOtpPromptCount += 1;
+              const challengeId = String(prompt.challengeId || '').trim();
+              const otpCode = await readEmailOtpOutbox(challengeId);
+              const decisionExtras = await buildNearTransactionDecisionExtras(request);
+              return {
+                ...decisionExtras,
+                requestId: String(request?.requestId || ''),
+                confirmed: true,
+                otpCode,
+                emailOtpChallengeId: challengeId,
+                ...(request?.intentDigest ? { intentDigest: request.intentDigest } : {}),
+              };
+            }
+            return await originalRequestUserConfirmation(request as any, requestOptions as any);
+          };
+        }
+
+        const tempoRequest = (tag: string) => ({
+          chain: 'tempo' as const,
+          kind: 'tempoTransaction' as const,
+          senderSignatureAlgorithm: 'secp256k1' as const,
+          tx: {
+            chainId: 42431,
+            maxPriorityFeePerGas: 1n,
+            maxFeePerGas: 2n,
+            gasLimit: 21_000n,
+            calls: [{ to: '0x' + '11'.repeat(20), value: 0n, input: `0x${tag}` }],
+            accessList: [],
+            nonceKey: 0n,
+            validBefore: null,
+            validAfter: null,
+            feePayerSignature: { kind: 'none' as const },
+            aaAuthorizationList: [],
+          },
+        });
+        const evmRequest = (tag: string) => ({
+          chain: 'evm' as const,
+          kind: 'eip1559' as const,
+          senderSignatureAlgorithm: 'secp256k1' as const,
+          tx: {
+            chainId: 11155111,
+            maxPriorityFeePerGas: 1_500_000_000n,
+            maxFeePerGas: 3_000_000_000n,
+            gasLimit: 21_000n,
+            to: '0x' + '22'.repeat(20),
+            value: BigInt(`1234${tag.length}`),
+            data: `0x${tag}`,
+            accessList: [],
+          },
+        });
+
+        const results: Array<{
+          kind: string;
+          ok: boolean;
+          chain?: string;
+          error?: string;
+          promptCountBefore: number;
+          promptCountAfter: number;
+          webauthnGetCountBefore: number;
+          webauthnGetCountAfter: number;
+        }> = [];
+        const signOne = async (kind: ReloadSignKind, tag: string) => {
+          const promptCountBefore = emailOtpPromptCount;
+          const webauthnGetCountBefore = webauthnState.getCount;
+          const pushResult = (result: {
+            kind: string;
+            ok: boolean;
+            chain?: string;
+            error?: string;
+          }) => {
+            results.push({
+              ...result,
+              promptCountBefore,
+              promptCountAfter: emailOtpPromptCount,
+              webauthnGetCountBefore,
+              webauthnGetCountAfter: webauthnState.getCount,
+            });
+          };
+          try {
+            if (kind === 'near') {
+              const signed = await pm.near.signTransactionsWithActions({
+                nearAccountId: accountId,
+                transactions: [
+                  {
+                    receiverId: 'w3a-v1.testnet',
+                    actions: [{ type: ActionType.Transfer, amount: '1' }],
+                  },
+                ],
+                options: { confirmationConfig },
+              });
+              pushResult({
+                kind,
+                ok: Array.isArray(signed) && signed.length === 1,
+                chain: 'near',
+              });
+              return;
+            }
+            if (kind === 'tempo') {
+              const signed = await pm.tempo.signTempo({
+                nearAccountId: accountId,
+                request: tempoRequest(tag),
+                options: { confirmationConfig },
+              });
+              pushResult({ kind, ok: signed?.kind === 'tempoTransaction', chain: signed?.chain });
+              return;
+            }
+            if (kind === 'evm') {
+              const signed = await pm.tempo.signTempo({
+                nearAccountId: accountId,
+                request: evmRequest(tag),
+                options: { confirmationConfig },
+              });
+              pushResult({ kind, ok: signed?.kind === 'eip1559', chain: signed?.chain });
+              return;
+            }
+            if (kind === 'exportNear') {
+              const exported = await pm.keys.exportKeypairWithUI(accountId, {
+                chain: 'near',
+                variant: 'drawer',
+              });
+              pushResult({
+                kind,
+                ok: Array.isArray(exported?.exportedSchemes)
+                  ? exported.exportedSchemes.includes('ed25519')
+                  : true,
+                chain: 'near',
+              });
+              return;
+            }
+            if (kind === 'exportEcdsa') {
+              const exported = await pm.keys.exportKeypairWithUI(accountId, {
+                chain: 'tempo',
+                variant: 'drawer',
+              });
+              pushResult({
+                kind,
+                ok: Array.isArray(exported?.exportedSchemes)
+                  ? exported.exportedSchemes.includes('secp256k1')
+                  : true,
+                chain: 'tempo',
+              });
+            }
+          } catch (error: unknown) {
+            pushResult({
+              kind,
+              ok: false,
+              error:
+                error && typeof error === 'object' && 'message' in error
+                  ? String((error as { message?: unknown }).message || '')
+                  : String(error || `${kind} failed`),
+            });
+          }
+        };
+
+        let promptCountBeforeExports: number | null = null;
+        for (const [index, kind] of signKinds.entries()) {
+          if (
+            promptCountBeforeExports == null &&
+            (kind === 'exportNear' || kind === 'exportEcdsa')
+          ) {
+            promptCountBeforeExports = emailOtpPromptCount;
+          }
+          await signOne(kind as ReloadSignKind, `a${index + 1}`);
+        }
+        const promptCountAfterExports = emailOtpPromptCount;
+        if (signAfterExports === 'tempo') {
+          await signOne('tempo', 'af');
+        } else if (signAfterExports === 'evm') {
+          await signOne('evm', 'af');
+        }
+
+        const session = await pm.auth.getWalletSession(accountId);
+        return {
+          ok: results.every((result) => result.ok),
+          sessionStatus: String(session?.signingSession?.status || ''),
+          results,
+          emailOtpPromptCount,
+          webauthnGetCount: webauthnState.getCount,
+          sealedRecordSummaries: await readSealedRecordSummaries(),
+          runtimeDiagnostics: await readRuntimeDiagnostics(),
+          promptCountBeforeExports: promptCountBeforeExports ?? emailOtpPromptCount,
+          promptCountAfterExports,
+          promptCountAfterFinalSign: emailOtpPromptCount,
+          authPromptEvents,
+        };
+      } catch (error: unknown) {
+        return {
+          ok: false,
+          error:
+            error && typeof error === 'object' && 'message' in error
+              ? String((error as { message?: unknown }).message || '')
+              : String(error || 'reload phase failed'),
+        };
+      }
+    },
+    {
+      relayerUrl: args.harness.baseUrl,
+      shamirPrimeB64u: args.harness.shamirPrimeB64u,
+      signingSessionSealKeyVersion: args.harness.signingSessionSealKeyVersion,
+      accountId: args.accountId,
+      appSessionJwt: args.appSessionJwt,
+      signKinds: args.signKinds,
+      signAfterExports: args.signAfterExports,
+      rememberAppSessionJwt: args.rememberAppSessionJwt,
+    },
+  );
 }

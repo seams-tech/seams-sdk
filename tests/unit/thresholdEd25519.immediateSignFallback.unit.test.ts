@@ -1250,6 +1250,108 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
     });
   });
 
+  test('does not spend managed registration quota when Ed25519 unlock has app-session auth', async () => {
+    await withNearThresholdTestEnv(async () => {
+      const originalFetch = globalThis.fetch;
+      const nearAccountId = 'near-ed25519-app-session-unlock.testnet';
+      const relayerUrl = 'https://relay.example.test';
+      const relayerKeyId = 'ed25519:relayer-key-id';
+      const plannedSessionId = 'threshold-ed25519-app-session-unlock-session';
+      const plannedWalletSigningSessionId = 'wallet-ed25519-app-session-unlock';
+      const runtimePolicyScope = {
+        orgId: 'org-runtime',
+        projectId: 'project-runtime',
+        envId: 'dev',
+        signingRootVersion: 'v1',
+      };
+      const appSessionJwt = `header.${btoa(JSON.stringify({ runtimePolicyScope }))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '')}.sig`;
+      const credential = {
+        id: 'app-session-policy-credential',
+        rawId: 'app-session-policy-credential-raw',
+        type: 'public-key',
+        authenticatorAttachment: 'platform',
+        response: {
+          clientDataJSON: 'clientDataJSON-b64u',
+          authenticatorData: 'authenticatorData-b64u',
+          signature: 'signature-b64u',
+          userHandle: '',
+        },
+        clientExtensionResults: {
+          prf: { results: { first: 'AQ', second: undefined } },
+        },
+      };
+      const fetchUrls: string[] = [];
+      let mintAuthorization = '';
+      let mintBody: any = null;
+
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        fetchUrls.push(url);
+        if (url === `${relayerUrl}/v1/registration/bootstrap-grants`) {
+          throw new Error('unlock must not consume managed registration bootstrap grants');
+        }
+        if (url === `${relayerUrl}/threshold-ed25519/session`) {
+          mintAuthorization = String((init?.headers as Record<string, string>)?.Authorization || '');
+          mintBody = JSON.parse(String(init?.body || '{}'));
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              sessionId: plannedSessionId,
+              walletSigningSessionId: plannedWalletSigningSessionId,
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+              remainingUses: 3,
+              runtimePolicyScope,
+              jwt: 'app-session-threshold-jwt',
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }
+        return await originalFetch(input, init);
+      }) as typeof fetch;
+
+      try {
+        const result = await connectEd25519Session({
+          indexedDB: {} as any,
+          touchIdPrompt: {
+            getRpId: () => 'example.localhost',
+            getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
+              throw new Error('app-session unlock should not collect another WebAuthn prompt');
+            },
+          },
+          relayerUrl,
+          relayerKeyId,
+          nearAccountId,
+          participantIds: [1, 2],
+          sessionId: plannedSessionId,
+          walletSigningSessionId: plannedWalletSigningSessionId,
+          remainingUses: 3,
+          appSessionJwt,
+          runtimeScopeBootstrap: {
+            environmentId: 'dev',
+            publishableKey: 'pk_test_registration_quota',
+          },
+          localPrfCredential: credential as any,
+        });
+
+        expect(result.ok).toBe(true);
+        expect(fetchUrls).not.toContain(`${relayerUrl}/v1/registration/bootstrap-grants`);
+        expect(fetchUrls).toContain(`${relayerUrl}/threshold-ed25519/session`);
+        expect(mintAuthorization).toBe(`Bearer ${appSessionJwt}`);
+        expect(mintBody?.runtimeEnvironmentId).toBe('dev');
+        expect(mintBody?.sessionPolicy?.runtimePolicyScope).toEqual(runtimePolicyScope);
+        expect(mintBody?.webauthn_authentication).toBeUndefined();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
   test('records wallet signing budget once when the same NEAR signing operation completes twice', async () => {
     await withNearThresholdTestEnv(async () => {
       const nearAccountId = 'near-budget-idempotent.testnet';
