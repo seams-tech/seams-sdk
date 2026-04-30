@@ -4,9 +4,11 @@ import { toast } from 'sonner';
 
 export type DemoSigningSessionStatus = {
   sessionId: string;
-  status: 'active' | 'exhausted' | 'expired' | 'not_found' | 'unavailable';
+  status: 'active' | 'exhausted' | 'expired' | 'not_found' | 'unavailable' | 'budget_unknown';
   authMethod?: string | null;
   retention?: string | null;
+  availableUses?: number;
+  locallyReservedUses?: number;
   remainingUses?: number;
   expiresAtMs?: number;
   createdAtMs?: number;

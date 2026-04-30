@@ -48,6 +48,10 @@ function signingToastMessage(
             description: `Verifying the ${chainLabel} account.`,
           };
     }
+    case SigningEventPhase.STEP_04_ACCOUNT_READINESS_SUCCEEDED:
+      return { title: 'Account setup verified' };
+    case SigningEventPhase.STEP_04_ACCOUNT_READINESS_SKIPPED:
+      return { title: 'Account setup checked' };
     case SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED:
       return { title: 'Review transaction' };
     case SigningEventPhase.STEP_05_CONFIRMATION_APPROVED:
