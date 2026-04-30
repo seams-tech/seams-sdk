@@ -34,7 +34,7 @@ Tests to add:
        at most once.
 3. [ ] Integration-style test that NEAR, Tempo, and EVM all reserve before
        threshold signing and release or zero-spend on failure.
-4. [ ] Server-side or relay-facing test for atomic consume when two clients
+4. [x] Server-side or relay-facing test for atomic consume when two clients
        submit distinct operations against the same last remaining use.
 5. [x] Unit test that success finalization fails closed when the authoritative
        consume path is missing or returns no status.
@@ -43,7 +43,7 @@ Acceptance checks:
 
 1. [x] Distinct operations cannot overspend in one runtime.
 2. [x] Same-operation retries remain idempotent.
-3. [ ] Cross-runtime atomicity is covered at the authoritative budget boundary.
+3. [x] Cross-runtime atomicity is covered at the authoritative budget boundary.
 4. [x] A missing or malformed success consume result does not silently count as
        a successful signature budget spend.
 

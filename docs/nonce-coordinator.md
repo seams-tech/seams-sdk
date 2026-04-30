@@ -319,9 +319,9 @@ sequenceDiagram
   participant Signer as "Threshold signer"
   participant Chain as "RPC / chain"
 
-  Flow->>Session: "Resolve lane and plan"
-  Flow->>Budget: "Reserve remainingUses for operation"
-  Flow->>Nonce: "Reserve nonce lease"
+  Flow->>Session: "prepareSigning returns prepared identity"
+  Session->>Budget: "Reserve remainingUses for prepared operation"
+  Flow->>Nonce: "Reserve nonce lease with prepared identity"
   Flow->>Confirm: "Display exact transaction"
   Confirm-->>Flow: "User confirms"
   Flow->>Signer: "Create threshold signature"
@@ -950,6 +950,9 @@ chain-specific helper owns nonce state independently.
 This is a file-organization refactor, not a new nonce architecture. Do not
 reintroduce `EvmNonceManager`, `NearNonceManager`, or parallel classes. Use
 plain functions and small state structs owned by `createNonceCoordinator()`.
+Implement Phase 9 after or alongside the prepared-identity work, and treat it as
+a strict file split plus guard pass. Do not use Phase 9 to redesign the
+nonce/session interaction.
 
 The split must also stay compatible with the signing-session restore refactor.
 Nonce code may consume pure prepared operation identity types such as
@@ -1049,6 +1052,9 @@ are internal unless explicitly re-exported by that facade.
    and an explicit reconcile path.
 8. Old nonce-manager ownership paths are removed instead of kept as parallel
    legacy systems.
+9. Nonce reservation cannot happen before a prepared operation identity exists,
+   and nonce code cannot trigger signing-session restore, snapshot reads,
+   signing-lane selection, or wallet-budget mutation.
 
 ## Related Docs
 

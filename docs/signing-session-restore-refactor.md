@@ -1012,10 +1012,776 @@ Acceptance checks:
    - [x] The old `capabilityResolver.ts` name has been removed.
 3. [x] The old read-side restore model is not available as an importable API.
 
+### Phase 11: Carry Restore Purpose Through Execution
+
+Goal: close the remaining exact-purpose leaks found after the Ed25519 reload
+regression. The restore command already enumerates durable sealed records by
+purpose, but some execution ports still receive only the raw record and then
+rediscover the curve from primary record metadata or volatile runtime state.
+
+This phase exists to make the invariant mechanical:
+
+```text
+exact-purpose lookup -> exact-purpose restore work item -> exact-purpose execution
+```
+
+The requested restore purpose must never be dropped after durable enumeration.
+`record.curve` is the primary sealed-record curve, not authority for every lane
+contained in `thresholdSessionIds`.
+
+Todo:
+
+1. [x] Change restore execution ports to carry the requested purpose:
+       `{ accountId, record, purpose }`, where purpose is one of:
+       `{ authMethod, curve: 'ed25519', chain: 'near', thresholdSessionId,
+       walletSigningSessionId, reason }` or `{ authMethod, curve: 'ecdsa',
+       chain: 'tempo' | 'evm', thresholdSessionId, walletSigningSessionId,
+       reason }`.
+2. [x] Update `restorePersistedSessionForSigningCommand(...)` so it passes the
+       normalized exact-purpose work item to `restoreSealedRecordForAccount`.
+       Do not let the restore port infer curve, chain, threshold-session id, or
+       wallet signing-session id from `record.curve`.
+3. [x] Update `restorePersistedSessionsForAccountCommand(...)` to enumerate
+       `{ record, purpose }` work items for every matching lane. A single sealed
+       record with both `thresholdSessionIds.ecdsa` and
+       `thresholdSessionIds.ed25519` must produce two independent work items
+       when both purposes are requested.
+4. [x] Deduplicate account-wide restore by exact purpose, not by bare
+       `record.storeKey`. The dedupe key must include wallet id, auth method,
+       curve, chain, wallet signing-session id, threshold-session id, and
+       record version or `updatedAtMs`.
+5. [x] Split Email OTP sealed restore execution by purpose:
+       - [x] ECDSA restore may use `ecdsaRestore` metadata and
+             `thresholdSessionIds.ecdsa`.
+       - [x] Ed25519 restore must either restore from authenticated durable
+             Ed25519 metadata or return `deferred`.
+       - [x] Ed25519 restore must not route through the ECDSA restore helper
+             merely because the sealed record is ECDSA-primary.
+6. [x] Add durable Ed25519 restore metadata if same-device Ed25519 reload is
+       expected without volatile sessionStorage records. At minimum, persist
+       the Ed25519 relayer/session metadata needed to rehydrate and publish the
+       Ed25519 lane from IndexedDB alone.
+7. [x] Update NEAR Ed25519 transaction preparation so restore does not require
+       `getStoredThresholdEd25519SessionRecordForAccount(...)` to already
+       return an Email OTP record. Durable sealed records are the reload
+       entrypoint; volatile records are only runtime overlays.
+8. [x] Keep the post-restore identity assertion, but assert against the exact
+       prepared purpose. If volatile runtime state is absent and durable
+       Ed25519 metadata cannot restore it, fail as `deferred` or
+       `missing_session` with a diagnostic that names the missing durable field.
+9. [x] Add regression tests:
+       - [x] `restorePersistedSessionForSigningCommand` passes Ed25519 purpose
+             through to the restore port for an ECDSA-primary companion record.
+       - [x] Account-wide restore emits separate ECDSA and Ed25519 work items
+             for one multi-curve sealed record.
+       - [x] NEAR Ed25519 reload restore does not require a volatile
+             `ThresholdEd25519SessionRecord` before consulting durable sealed
+             records.
+       - [x] Ed25519 restore without durable Ed25519 metadata returns
+             `deferred` and does not mark the restore cache as successful.
+       - [x] ECDSA restore still works when the Ed25519 companion is missing.
+10. [x] Add static guards:
+       - [x] Restore coordinator ports cannot expose bare
+             `restoreSealedRecordForAccount({ accountId, record })`.
+       - [x] Account-wide restore cannot branch on `record.curve` to decide the
+             requested purpose.
+       - [x] NEAR Ed25519 transaction prepare must call exact-purpose restore
+             before lane selection without gating restore on volatile runtime
+             record presence.
+
+Acceptance checks:
+
+1. [x] Exact-purpose restore lookup and restore execution use the same identity.
+2. [x] `record.curve` is never used to collapse companion lanes during
+       account-wide restore.
+3. [x] Ed25519 reload restore either restores from durable Ed25519 metadata or
+       clearly defers; it does not accidentally depend on ECDSA restore side
+       effects.
+4. [ ] OTP refresh then NEAR Ed25519 signing, OTP refresh then ECDSA signing,
+       and account startup restore all pass with no read-side restore or unseal
+       spam.
+
+### Phase 12: Server-Authoritative Budget Projection
+
+Goal: make wallet signing-session `remainingUses` mechanically server-owned and
+make every client-side value a typed projection, reservation, material state, or
+hint. This addresses the remaining class of false exhaustion bugs where worker
+memory, sessionStorage records, IndexedDB policy hints, or local reservations can
+look like budget truth.
+
+Problem this fixes:
+
+1. Server budget, worker hot-material uses, sessionStorage records, IndexedDB
+   policy hints, and in-memory reservations all carry `remainingUses`-like
+   values today. When those values are loosely combined, a stale client-side
+   value can look authoritative and make a usable signing session appear
+   exhausted.
+2. The server already owns the real wallet signing-session budget, but client
+   code can still create false negatives by double-counting local reservations,
+   failing to release zero-spend attempts, trusting worker material exhaustion as
+   wallet budget exhaustion, or treating raw durable policy metadata as terminal.
+3. Optional budget/status/consume ports make production paths hard to reason
+   about. A missing adapter can silently skip a budget boundary, while another
+   path later observes stale local state and fails with an exhaustion or
+   missing-session error.
+4. Budget finalizers can regress if they rediscover lanes from read-side state
+   instead of spending against the exact prepared signing identity chosen after
+   restore and snapshot.
+5. A restored lane can have valid hot material but no initialized trusted budget
+   projection. That state must not collapse into generic `missing_session` or
+   `not_found`; it is a distinct `budget_unknown` initialization failure that
+   prepare-signing must resolve before reservation.
+
+What this phase does:
+
+1. Creates a single client budget projection path. The projection is derived from
+   trusted server status or consume responses plus temporary local reservations.
+2. Keeps local reservation as a concurrency guard only. It can reduce displayed
+   availability while an operation is in flight, but it cannot permanently mark a
+   wallet signing-session exhausted.
+3. Splits authority by type: server budget status is authority, worker status is
+   hot-material availability, IndexedDB policy is a hint, and sessionStorage is a
+   runtime overlay.
+4. Requires production budget ports at the coordinator boundary so missing
+   status/consume implementations fail loudly during integration instead of
+   drifting at runtime.
+5. Forces EVM and NEAR finalizers to consume using the prepared signing identity:
+   wallet signing-session id, threshold-session ids, backing material ids,
+   operation id, and operation fingerprint.
+6. Adds tests and guards that prevent terminal budget states from being created
+   from worker missing status, sessionStorage records, or raw IndexedDB policy
+   hints.
+7. Makes `prepareSigning(...)` the only transaction boundary that can combine
+   restore, snapshot, trusted budget projection refresh, reservation, challenge
+   preparation, signing, and finalization identity.
+8. Treats "restored material but no trusted budget projection" as
+   `budget_unknown`. The transaction path must either refresh the trusted budget
+   projection before reservation or fail with that explicit diagnostic before
+   threshold signing begins.
+9. Initializes restored-lane budget state explicitly during restore/prepare.
+   Restore/prepare must fetch trusted server budget status when budget authority
+   is needed, or return `budget_unknown`; it must not collapse unknown budget
+   state into generic `not_found`.
+
+Core invariant:
+
+```text
+server budget status or server consume response -> terminal wallet budget state
+client reservation -> temporary local availability adjustment
+worker/material status -> hot material availability only
+IndexedDB policy -> non-authoritative hint only
+restored material without trusted budget projection -> budget_unknown, not missing
+```
+
+Definitions:
+
+1. `TrustedWalletBudgetStatus`: status returned by a server status or consume
+   boundary for a wallet signing-session. It may mark `active`, `expired`,
+   `exhausted`, or `not_found`.
+2. `BudgetProjection`: the client view derived from the last trusted server
+   status plus local uncommitted reservations.
+3. `BudgetReservation`: an operation-scoped hold keyed by operation id and
+   operation fingerprint.
+4. `MaterialStatus`: worker hot-material state for an exact backing session.
+   It can make a lane `deferred`, `restorable`, or `material_exhausted`, but it
+   cannot mark the wallet budget exhausted.
+5. `PolicyHint`: durable sealed-record metadata such as `remainingUses` and
+   `expiresAtMs`. It is useful for UI and ordering, but it cannot produce a
+   terminal wallet budget state.
+6. `BudgetUnknown`: a non-terminal state returned when a lane is restored or
+   prepared but no trusted server budget status or consume response has been
+   observed yet. It blocks terminal UI decisions and budget-consuming
+   finalization until resolved.
+7. `PreparedSigningSession`: the transaction-scoped object returned by
+   `prepareSigning(...)`. It carries exact material identity, budget identity,
+   snapshot generation, budget projection generation, operation id, and
+   operation fingerprint. Reservation, challenge preparation, signing, and
+   finalization must reuse this object instead of rediscovering state.
+8. `BudgetIdentity`: the wallet signing-session id plus exact threshold-session
+   ids, backing material ids, operation id, and operation fingerprint that the
+   server budget status/consume boundary recognizes.
+
+Todo:
+
+1. [x] Add `session/signingSession/budgetProjection.ts` with a pure reducer.
+       Suggested events:
+       - [x] `server_status_observed`
+       - [x] `reserve_requested`
+       - [x] `reservation_released`
+       - [x] `server_consume_confirmed`
+       - [x] `zero_spend_recorded`
+       - [x] `budget_unknown_observed`
+       The reducer output must expose `effectiveRemainingUses` as
+       `serverRemainingUses - localReservedUses` only when server status is
+       trusted and active. `budget_unknown` is non-terminal and cannot be used
+       as a reservation source.
+2. [x] Add strict budget types that separate authority from hints:
+       - [x] `TrustedWalletBudgetStatus`
+       - [x] `WalletBudgetProjection`
+       - [x] `WalletBudgetMaterialStatus`
+       - [x] `WalletBudgetPolicyHint`
+       - [x] `WalletBudgetUnknown`
+       Terminal states must be representable only by
+       `TrustedWalletBudgetStatus`.
+3. [ ] Replace optional production budget ports with required adapters at the
+       `SigningSessionCoordinator` construction boundary. Tests may inject
+       explicit no-op adapters, but production paths must not silently continue
+       without status or consume capability when a prepared signing lane has a
+       wallet signing-session id.
+       - [x] Production `SigningEngine` transaction paths provide a trusted
+             server-backed wallet budget status adapter.
+       - [ ] Constructor/API shape still needs tightening so missing production
+             adapters fail at assembly time instead of falling back to material
+             status.
+4. [ ] Keep `reserve(...)` local and temporary:
+       - [ ] key by operation id and operation fingerprint
+       - [ ] queue by wallet signing-session id
+       - [ ] subtract reservations from trusted active server status
+       - [ ] never persist reservations
+       - [ ] release on zero-spend, cancellation, nonce failure, or pre-consume
+             signing failure
+5. [ ] Make `recordSuccess(...)` the only client path that updates budget truth
+       after signing. It must consume through the server-backed port or consume a
+       worker result that is already known to have consumed server budget for the
+       same operation. The returned trusted status replaces the projection.
+6. [ ] Preserve idempotency across retries:
+       - [ ] operation id reuse with the same fingerprint dedupes
+       - [ ] operation id reuse with a different fingerprint throws
+       - [ ] server consume uses the same operation-derived idempotency key
+       - [ ] duplicate server consume responses do not double-decrement the
+             projection
+7. [x] Change readiness composition so wallet-budget terminal states come only
+       from trusted server status. Worker `not_found`, worker `exhausted`,
+       missing volatile records, and raw IndexedDB `remainingUses: 0` should
+       produce material/restorable/deferred states unless there is trusted server
+       budget exhaustion.
+8. [ ] Treat sealed-record policy writes as projection sync only. Updating
+       `remainingUses` in IndexedDB after a trusted consume is fine, but later
+       reads of that field remain `policyHint` until authenticated payload
+       metadata or server status confirms it.
+9. [ ] Make prepared signing carry the budget identity. NEAR and EVM finalizers
+       must consume the prepared lane's wallet signing-session id,
+       threshold-session ids, backing material ids, operation id, and fingerprint
+       without rediscovering lanes from read-side state.
+10. [ ] Make prepared signing carry the budget projection version observed during
+       restore/prepare. Reservation and finalization must use that version or
+       deliberately refresh the projection before proceeding.
+11. [ ] Initialize budget for restored lanes explicitly:
+       - [x] after successful restore, fetch trusted server budget status for the
+             restored wallet signing-session id before reporting terminal budget
+             availability
+       - [x] if status cannot be fetched, return `budget_unknown`
+       - [x] do not translate missing local material, missing sessionStorage,
+             stale IndexedDB hints, or absent projection into `not_found`
+       - [x] do not let `budget_unknown` mask material `exhausted`/`expired`;
+             those states must still drive OTP/passkey step-up auth
+       - [ ] require reservation/finalization to resolve `budget_unknown` before
+             spending
+12. [ ] Treat local `remainingUses` as display/policy hint only:
+       - [x] worker `remainingUses` is material availability, not wallet budget
+             authority
+       - [ ] sessionStorage and IndexedDB `remainingUses` are hints only
+       - [ ] no terminal `exhausted` or `not_found` is allowed without trusted
+             server status or a trusted consume response
+13. [ ] Add static guards:
+       - [ ] `snapshotReader.ts` cannot import budget mutation helpers
+       - [ ] budget projection code cannot import workers, sealed restore, or
+             chain signing modules
+       - [ ] transaction code cannot call budget consume without a prepared
+             signing identity
+       - [ ] transaction code cannot call budget reservation after
+             `prepareSigning(...)` with only account id or loose lane filters
+       - [ ] no production path may set wallet budget `exhausted` from
+             `policyHint`, sessionStorage records, or worker missing status
+14. [ ] Add regression tests:
+      - [x] reducer handles reserve/release/consume idempotently
+       - [ ] two concurrent operations cannot both reserve the last use
+       - [ ] failed-before-consume releases the reservation and does not mark
+             the wallet budget exhausted
+       - [ ] failed-after-threshold-signature records success because the server
+             budget was already consumed
+       - [ ] stale IndexedDB `remainingUses: 0` with trusted server active status
+             does not block signing
+       - [ ] worker material missing with durable restorable state does not mark
+             wallet budget exhausted
+       - [ ] duplicate operation id with a different fingerprint throws before
+             reservation or consume
+       - [ ] EVM and NEAR finalizers spend from the prepared identity, not from
+             rediscovered lane records
+       - [x] passkey unlock, page refresh, then first NEAR sign with
+             `remainingUses = 1` restores the lane, preserves active runtime
+             identity after durable-seal exhaustion, and signs without false
+             local exhaustion
+       - [ ] passkey unlock, page refresh, then first Tempo/ARC sign with
+             `remainingUses = 1` restores the lane, resolves budget from trusted
+             status or consume, and signs without false exhaustion
+       - [x] Email OTP unlock, page refresh, then first NEAR and Tempo sign
+             reports active status from snapshot plus trusted budget projection
+      - [x] restored lane with unavailable budget status reports
+             `budget_unknown`, not `missing_session`, `not_found`, or synthetic
+             wallet-budget exhaustion
+
+Implementation instructions:
+
+1. Start with the pure reducer and tests. Do not change signing flows until the
+   reducer proves the intended state transitions.
+2. Add typed adapter boundaries around current server-backed status and consume
+   calls. If the server store cannot return a monotonic version yet, model the
+   consume response as the freshest trusted snapshot and leave `version`
+   optional.
+3. Add the restored-lane budget initialization path before changing planners:
+   restore/prepare should either attach trusted budget status and projection
+   version to the prepared identity, or return `budget_unknown`.
+4. Refactor `SigningSessionCoordinator` budget state to store projections and
+   reservations through the reducer. Remove replaced mutable bookkeeping as soon
+   as the reducer owns it.
+5. Update readiness and snapshot composition so material availability and wallet
+   budget availability are separate fields until a planner deliberately combines
+   them.
+6. Wire EVM and NEAR transaction finalizers to spend only the prepared signing
+   identity and prepared budget projection version. Delete fallback lookup chains
+   as each finalizer moves.
+7. Sync sealed-record policy only after trusted server/worker consume results.
+   Never use a later raw IndexedDB policy read as terminal authority.
+8. Add static guards before deleting old code, then delete old optional/fallback
+   paths in the same PR. Do not leave duplicate budget paths behind a flag.
+9. Run the focused budget, restore, EVM, and NEAR signing tests before browser
+   smoke testing reload flows.
+
+Acceptance checks:
+
+1. [ ] Only trusted server status or consume responses can mark a wallet signing
+       session `expired`, `exhausted`, or `not_found`.
+2. [ ] Client reservations affect only local availability and are always
+       releasable before consume.
+3. [ ] Worker/sessionStorage/IndexedDB state cannot permanently exhaust a wallet
+       budget.
+4. [ ] EVM and NEAR budget finalization use prepared signing identity only.
+5. [ ] Operation idempotency prevents double spend without causing false
+       exhaustion on retries.
+6. [ ] There is one budget projection path in production code and no optional
+       fallback budget consumers.
+7. [x] Restored lanes without trusted budget status report `budget_unknown`, not
+       `missing_session`, `not_found`, `expired`, `exhausted`, or synthetic
+       wallet-budget exhaustion.
+8. [ ] `prepareSigning` carries both material identity and budget projection
+       version into reservation and finalization.
+9. [x] Passkey unlock, refresh, first NEAR sign with `remainingUses = 1` succeeds
+       or fails for a trusted server reason, never for local false exhaustion.
+10. [ ] Passkey unlock, refresh, first Tempo/ARC sign with `remainingUses = 1`
+        succeeds or fails for a trusted server reason, never for local false
+        exhaustion.
+11. [x] Email OTP unlock, refresh, first NEAR and Tempo sign compose UI status
+        from snapshot plus trusted budget projection.
+
+### Phase 13: Remove sessionStorage Session Identity
+
+Goal: remove signing-session restore dependency on `sessionStorage` and
+consolidate durable lane/session identity into IndexedDB. `sessionStorage` must
+not be required for reload restore, lane selection, snapshot correctness, or
+budget decisions.
+
+Problem this fixes:
+
+1. `sessionStorage` is volatile tab state. It usually survives same-tab reload,
+   but it can disappear across iframe/origin changes, browser policies, tab
+   duplication, or app reload paths. Durable restore must not depend on it.
+2. The current system stores overlapping session identity in sessionStorage,
+   in-memory maps, worker memory, and `signing_session_seals_v1`. Overlap makes
+   it easy for a stale runtime record to disagree with the durable sealed
+   record.
+3. Missing sessionStorage previously caused durable IndexedDB material to be
+   hidden or deleted. That failure mode should be impossible by construction.
+4. Runtime records can make status and signing paths rediscover identity after
+   restore. Signing should instead use the prepared identity derived from exact
+   durable records and runtime worker confirmation.
+
+Target ownership:
+
+```text
+IndexedDB signing_session_seals_v1 -> durable restore identity and sealed payload
+IndexedDB signing_session_runtime_v1 -> non-secret durable lane metadata, if needed
+worker memory -> loaded unsealed signing material only
+in-memory maps -> current prepared identity and operation-local state only
+sessionStorage -> no signing-session state
+```
+
+The new `signing_session_runtime_v1` store is optional only if all required
+non-secret runtime metadata can be folded into `signing_session_seals_v1`
+without mixing sealed payload lifecycle with runtime lane metadata. Do not keep
+both stores if one store is enough.
+
+Refinements:
+
+1. Prefer one durable IndexedDB source. If `signing_session_seals_v1` can safely
+   hold the exact non-secret lane metadata needed for restore, snapshot, and
+   lane selection, extend that store instead of adding `signing_session_runtime_v1`.
+   Add a second durable runtime store only when lifecycle separation is clearly
+   simpler and it deletes an existing duplicate path.
+2. Make sessionStorage removal absolute. It may be read once during migration,
+   copied into IndexedDB, and deleted immediately. There must be no long-lived
+   compatibility read path, and no restore, snapshot, lane selection, budget, or
+   cleanup code may branch on sessionStorage after migration.
+
+Non-negotiable invariant:
+
+```text
+sessionStorage absence or mismatch can never make a signing session missing,
+exhausted, invalid, or deletable.
+```
+
+Todo:
+
+1. [x] Inventory every signing-session sessionStorage key and call site:
+       - [x] `tatchi:threshold-ecdsa-session:v3`
+       - [x] `tatchi:threshold-ed25519-session:v1`
+       - [x] `tatchi:signing-session-sealed:runtime-session-id:v1`
+       - [x] ECDSA and Ed25519 session-index keys
+       - [x] any TouchConfirm warm-session sessionStorage access
+2. [x] Define the durable IndexedDB runtime record shape for non-secret lane
+       metadata:
+       - [x] first decide whether to extend `signing_session_seals_v1` instead
+             of adding `signing_session_runtime_v1`
+       - [x] wallet id
+       - [x] auth method
+       - [x] curve and chain
+       - [x] wallet signing-session id
+       - [x] threshold-session id
+       - [x] signing-root binding
+       - [x] relayer transport metadata needed for restore
+       - [x] source and updatedAtMs
+       - [x] optional policy hint fields only as non-authoritative hints
+3. [x] Move ECDSA session record persistence from sessionStorage to IndexedDB.
+       Keep the existing in-memory map as a per-tab cache only.
+       Done by making `signing_session_seals_v1` the durable source and reducing
+       threshold ECDSA session records to per-tab in-memory projections.
+4. [x] Move Ed25519 session record persistence from sessionStorage to IndexedDB.
+       Keep in-memory Ed25519 maps as per-tab caches only.
+       Done by making `signing_session_seals_v1` the durable source and reducing
+       threshold Ed25519 session records to per-tab in-memory projections.
+5. [x] Remove the sealed-record runtime-session-id read gate. `readExactSealedSession`
+       may require exact auth method, curve, and chain, but it must not require a
+       volatile sessionStorage marker.
+6. [x] Make snapshots read durable lane metadata from IndexedDB and overlay worker
+       status. Missing worker material becomes `restorable` or `deferred` when a
+       durable exact-purpose record exists.
+7. [x] Make restore write refreshed runtime lane metadata back to IndexedDB after
+       successful rehydrate. The write is a cache/projection update, not authority
+       to delete sealed records.
+       Done by publishing resolved runtime identity from exact sealed records and
+       keeping hot threshold records in per-tab memory only.
+8. [x] Delete sessionStorage write/read helpers for signing-session identity once
+       the IndexedDB runtime store is wired.
+9. [x] Add static guards:
+       - [x] signing-session restore, snapshot, lane selection, and budget modules
+             cannot import sessionStorage-backed threshold-session store helpers
+       - [x] `sealedSessionStore.ts` cannot read sessionStorage
+       - [x] production signing flows cannot branch on a sessionStorage runtime
+             marker
+10. [x] Remove migration behavior from the signing path:
+       - [x] do not best-effort read old sessionStorage records
+       - [x] do not copy legacy sessionStorage metadata into IndexedDB
+       - [x] do not keep a long-lived compatibility read path
+       - [x] stale or mismatched sessionStorage records are inert; they are never
+             read as signing-session identity and cannot trigger durable
+             sealed-record deletion or terminal status
+11. [x] Add regression tests:
+       - [x] empty sessionStorage plus valid sealed record restores ECDSA signing
+       - [x] empty sessionStorage plus valid Ed25519 companion metadata restores
+             or clearly defers NEAR signing
+       - [x] empty sessionStorage never deletes `signing_session_seals_v1`
+       - [x] stale sessionStorage with mismatched threshold-session id is ignored
+       - [x] snapshot reports `restorable` from IndexedDB when worker memory is
+             empty
+       - [x] reload restore works after tab duplication or iframe sessionStorage
+             loss
+
+Implementation instructions:
+
+1. Start with the inventory and tests that explicitly clear `sessionStorage`
+   before reload restore. These tests should fail before the storage move.
+2. Extend `signing_session_seals_v1` with the missing non-secret fields unless
+   lifecycle coupling makes a separate IndexedDB runtime metadata store clearly
+   simpler. The goal is one durable source of restore identity, not a second
+   semi-authoritative taxonomy.
+3. Move writers first. Every place that currently writes ECDSA or Ed25519
+   session records to sessionStorage should write to IndexedDB and update the
+   per-tab in-memory cache.
+4. Move readers next. Snapshot, restore, export, and transaction lane selection
+   should read IndexedDB-backed runtime metadata or exact sealed records, never
+   sessionStorage.
+5. Remove the runtime-session-id gate from sealed-record reads after the new
+   exact-purpose IndexedDB readers are wired.
+6. Delete the sessionStorage helpers and add static guards in the same PR. Do not
+   leave a fallback path that can become authoritative again.
+7. Keep worker memory unchanged: unsealed signing material remains worker-only and
+   must not be persisted.
+
+Acceptance checks:
+
+1. [x] Signing-session restore and snapshot behavior is identical with
+       `sessionStorage` empty.
+2. [x] No signing-session durable sealed record read depends on a
+       sessionStorage runtime marker.
+3. [x] No signing-session identity is persisted to sessionStorage.
+4. [x] IndexedDB stores all durable non-secret lane metadata needed for reload
+       restore and snapshot composition.
+5. [x] Stale or mismatched sessionStorage records are ignored because production
+       signing-session code no longer reads sessionStorage.
+6. [x] Worker memory remains the only location for unsealed signing material.
+7. [x] Static guards prevent reintroducing sessionStorage-backed signing-session
+       identity.
+8. [x] sessionStorage absence or mismatch cannot produce `missing`, `not_found`,
+       `exhausted`, `expired`, or durable sealed-record deletion.
+
+### Phase 14: Unify Threshold Signing Operation Lifecycle
+
+Goal: make Ed25519 and ECDSA transaction signing enter through one
+signing-session lifecycle pipeline while keeping curve-specific cryptography in
+small adapters. The shared pipeline owns restore, readiness, auth, budget, and
+finalization decisions; curve adapters only load/use curve-specific signing
+material.
+
+Problem this fixes:
+
+1. Ed25519 and ECDSA currently duplicate lifecycle decisions in separate paths.
+   That lets one curve restore from durable IndexedDB records while another
+   still gates on volatile runtime state.
+2. Auth behavior can drift between paths. One path may prompt OTP/passkey
+   correctly while another reports `missing_session` or `auth_unavailable`.
+3. Budget reservation and finalization can rediscover a different lane/session
+   identity than the one selected before confirmation.
+4. Export, Tempo, ARC/EVM, and NEAR can each grow different restore/auth/budget
+   behavior even though they all depend on the same signing-session lifecycle
+   rules.
+
+Target invariant:
+
+```ts
+const prepared = await prepareThresholdSigningOperation(intent, lifecycleAdapter);
+const signed = await executePreparedThresholdSigning(prepared, payload, adapter);
+await finalizePreparedThresholdSigning(prepared, signed);
+```
+
+The lifecycle pipeline owns:
+
+1. exact-purpose restore
+2. side-effect-free snapshot/readiness classification
+3. lane selection
+4. auth plan selection
+5. trusted budget status read
+6. budget reservation
+7. confirmation boundary
+8. budget finalization
+9. post-sign cleanup and policy synchronization
+
+Curve adapters own only:
+
+1. curve-specific runtime material addressing
+2. curve-specific worker/session restore execution for the selected prepared lane
+3. threshold signing or key export execution
+4. curve-specific result normalization
+
+Lifecycle adapters own curve/account-specific reads needed by the shared prepare
+boundary, but they do not make final lifecycle decisions themselves. The shared
+prepare function calls a lifecycle adapter to perform exact-purpose restore,
+side-effect-free snapshot reads, candidate discovery, and runtime material
+addressing, then the shared prepare function resolves the lane, readiness,
+auth plan, and budget identity.
+
+Suggested intent shape:
+
+```ts
+type ThresholdSigningIntent =
+  | {
+      kind: 'transaction_sign';
+      chain: 'near' | 'tempo' | 'evm';
+      curve: 'ed25519' | 'ecdsa';
+      walletId: string;
+      reason: string;
+    }
+  | {
+      kind: 'key_export';
+      curve: 'ed25519' | 'ecdsa';
+      walletId: string;
+      reason: string;
+      freshAuthRequired: true;
+    };
+```
+
+Non-goals:
+
+1. Do not unify Ed25519 and ECDSA cryptographic implementations.
+2. Do not add a third lifecycle abstraction beside the current ECDSA and
+   Ed25519 paths. Move one path at a time, then delete the old path.
+3. Do not let curve adapters read budget state, select lanes, choose auth plans,
+   call restore coordinators directly, or construct `SigningSessionCoordinator`.
+
+Todo:
+
+1. [ ] Define `ThresholdSigningIntent`,
+       `PreparedThresholdSigningOperation`, `ThresholdCurveAdapter`, and
+       `ThresholdSigningResult` in one signing-session module. The prepared
+       object must carry material identity, wallet budget identity, snapshot
+       generation, budget projection version, operation id, operation
+       fingerprint, auth plan, and confirmation requirements.
+2. [ ] Add `prepareThresholdSigningOperation(intent, lifecycleAdapter)`.
+       It must run exact-purpose restore, read the side-effect-free snapshot,
+       resolve one lane, choose the auth plan, read trusted budget status or
+       return `budget_unknown`, and create the operation-scoped budget
+       reservation input.
+3. [ ] Tighten the prepare boundary so callers pass intent, not preselected
+       lane/readiness. `prepareThresholdSigningOperation(...)` must not accept
+       externally computed lane or readiness as its normal production input.
+       Existing transitional call sites that pass lane/readiness should be
+       deleted as each transaction/export path migrates.
+       This is the core invariant: if callers pass lane/readiness into shared
+       prepare, lane selection and readiness classification still happen before
+       the shared boundary and the old bug class survives.
+4. [ ] Move restore behind the shared prepare boundary:
+       - [ ] NEAR Ed25519 transaction signing must stop calling Ed25519 restore
+             before `prepareThresholdSigningOperation(...)`.
+       - [ ] ECDSA transaction signing must stop calling ECDSA restore in a
+             separate prepared-signing helper before the shared prepare step.
+       - [ ] The shared prepare function should invoke the lifecycle adapter for
+             exact-purpose restore before snapshot/lane selection.
+5. [ ] Move side-effect-free snapshot, lane selection, and readiness
+       classification behind the shared prepare boundary. NEAR/EVM-specific code
+       may provide adapter ports, but it must not decide the selected lane or
+       terminal readiness before calling `prepareThresholdSigningOperation(...)`.
+6. [ ] Replace broad ECDSA transaction restore with exact-purpose restore.
+       `prepareEvmFamilyEcdsaSigningSession(...)` currently restores both
+       `email_otp` and `passkey` ECDSA lanes before selection. For transaction
+       signing, restore should be bounded by explicit signing intent and the
+       selected snapshot candidate. Broad account/auth-method probing belongs
+       only in startup/session-status maintenance paths, not transaction
+       prepare. Account-wide startup restore may remain separate and explicitly
+       named.
+7. [ ] Add `executePreparedThresholdSigning(prepared, payload, adapter)`.
+       This function should be a thin dispatch boundary. It passes the prepared
+       lane to the adapter and must not let the adapter rediscover lane,
+       readiness, auth, or budget state.
+8. [ ] Add `finalizePreparedThresholdSigning(prepared, result)`.
+       It must finalize budget truth from the prepared budget identity and
+       projection version, release zero-spend reservations, sync policy hints
+       from trusted consume/status responses, and perform post-sign cleanup.
+9. [ ] Wire production transaction paths through the shared execute/finalize
+       helpers. It is not enough for `executePreparedThresholdSigning(...)` and
+       `finalizePreparedThresholdSigning(...)` to exist as unused helpers:
+       - [ ] NEAR Ed25519 transaction signing must call shared execute/finalize.
+       - [ ] Tempo ECDSA transaction signing must call shared execute/finalize.
+       - [ ] ARC/EVM ECDSA transaction signing must call shared execute/finalize.
+       - [ ] Key export must call shared execute/finalize when it migrates.
+10. [ ] Create an ECDSA lifecycle adapter plus ECDSA signing adapters for Tempo
+       and ARC/EVM transaction signing, then
+       migrate ECDSA transaction entrypoints through the shared prepare/execute/
+       finalize pipeline. Delete replaced direct readiness, restore, and budget
+       calls in the same change. The ECDSA lifecycle adapter is the only
+       transaction path allowed to perform ECDSA restore/snapshot/candidate
+       reads, and it is called only by shared prepare.
+11. [ ] Create an Ed25519 lifecycle adapter plus Ed25519 signing adapter for
+       NEAR transaction signing, then migrate NEAR Ed25519 entrypoints through
+       the same pipeline. Delete Ed25519-specific readiness/auth planner
+       branches once the adapter is wired. The Ed25519 lifecycle adapter is the
+       only transaction path allowed to perform Ed25519 restore/snapshot/
+       candidate reads, and it is called only by shared prepare.
+12. [ ] Migrate Ed25519 and ECDSA key export to the same pipeline with an explicit
+       `key_export` intent and stricter fresh-auth policy. Export must not reuse
+       transaction auth assumptions.
+13. [ ] Move confirmation gating behind the prepared operation boundary. UI
+       confirmation should receive the prepared auth/budget decision and return
+       an approval for that exact operation id and fingerprint.
+14. [ ] Strengthen static guards so they require production usage, not just
+       helper definitions:
+       - [ ] transaction/export entrypoints must call
+             `prepareThresholdSigningOperation(...)`
+       - [ ] transaction/export entrypoints must call
+             `executePreparedThresholdSigning(...)`
+       - [ ] transaction/export entrypoints must call
+             `finalizePreparedThresholdSigning(...)`
+       - [ ] architecture tests must fail if shared execute/finalize helpers are
+             defined but unused by production signing paths
+15. [ ] Add static guards:
+       - [ ] transaction and export entrypoints cannot import restore,
+             readiness, snapshot, or budget mutation helpers directly
+       - [ ] transaction and export entrypoints cannot classify readiness
+             directly before shared prepare
+       - [ ] curve adapters cannot import `SigningSessionCoordinator`,
+             `restoreCoordinator`, `snapshotReader`, budget projection modules,
+             or lane selection helpers
+       - [ ] transaction and export entrypoints cannot construct or
+             fallback-create `SigningSessionCoordinator`
+       - [ ] curve adapters cannot construct or resolve lanes from account id
+       - [ ] budget consume/finalize APIs require a prepared operation identity
+16. [ ] Add regression tests:
+       - [ ] OTP refresh, first ECDSA sign uses the restored session without OTP
+       - [ ] OTP refresh, Ed25519 export uses OTP auth, not passkey auth
+       - [ ] passkey unlock, first ECDSA sign succeeds without false
+             `threshold_ecdsa_session_not_ready`
+       - [ ] passkey refresh, ARC/Tempo ECDSA with `remainingUses = 1` signs once
+             without TouchID, then reauths once without budget-exhausted failure
+       - [ ] OTP and passkey Ed25519 transaction with `remainingUses = 1` signs
+             without prompt
+       - [ ] OTP and passkey Ed25519 transaction after exhaustion prompts the
+             correct auth method and signs
+       - [ ] budget reservation and finalization use the same prepared material
+             identity and budget projection version
+       - [ ] curve adapters cannot compile if they attempt direct lane, budget,
+             or restore decisions
+17. [ ] Add focused regression coverage for the boundary ownership itself:
+       - [ ] a production transaction path cannot restore before shared prepare
+       - [ ] a production transaction path cannot compute readiness before
+             shared prepare
+       - [ ] ECDSA transaction signing restores only the selected exact auth
+             method, not both `email_otp` and `passkey`
+       - [ ] a helper-name-only implementation fails guards if production
+             transaction paths do not use shared execute/finalize
+18. [ ] Delete obsolete lifecycle code as each path moves:
+       - [ ] Ed25519 per-path readiness/auth planner
+       - [ ] ECDSA transaction entrypoint budget/readiness fallback lookups
+       - [ ] export-specific auth/session lookup branches that duplicate the
+             prepared operation pipeline
+       - [ ] status/query-side restore or budget writes that remain reachable
+             from signing operations
+
+Implementation instructions:
+
+1. Start by introducing only the types and static guards. Keep the initial
+   implementation thin and route one existing stable ECDSA flow through it.
+2. Migrate ECDSA transaction signing first because it is currently closest to
+   the prepared identity model. Remove replaced direct calls in the same PR.
+3. Migrate NEAR Ed25519 second. This is the path that has repeatedly regressed,
+   so its old readiness/auth planner should be deleted as soon as the adapter is
+   covered by tests.
+4. Migrate key export last with a separate `key_export` intent. Do not let export
+   inherit transaction auth policy by accident.
+5. After each migration, run the focused wallet-iframe regression tests and the
+   signing-session unit/static-guard tests before moving the next path.
+
+Acceptance checks:
+
+1. [ ] NEAR Ed25519, Tempo, ARC/EVM, and key export all enter through
+       `prepareThresholdSigningOperation(...)`.
+2. [ ] Curve-specific modules only load/use prepared material and execute
+       signing/export. They do not decide restore, readiness, auth, lane
+       selection, or budget state.
+3. [ ] Reservation, confirmation, signing, and finalization all reuse the same
+       prepared material identity, operation id, operation fingerprint, wallet
+       budget identity, and budget projection version.
+4. [ ] Ed25519 and ECDSA exhaustion behavior is identical at the lifecycle layer:
+       both prompt the correct step-up auth and retry through the same prepared
+       operation path.
+5. [ ] No transaction/export entrypoint can bypass the prepared operation
+       boundary to read session readiness or consume budget directly.
+6. [ ] The old Ed25519 and ECDSA lifecycle branches are deleted as their paths
+       migrate; there is no compatibility flag or duplicate fallback pipeline.
+
 ## Completion Status
 
-Status: complete as of 2026-04-28 for the signing-session restore refactor.
-This plan is now archival. The current specs live in
+Status: implementation complete through Phase 13 as of 2026-04-29. Phase 14 is
+planned and should be implemented before deeper signing-session lifecycle work
+adds more curve-specific branches. The remaining Phase 11 acceptance item is
+manual browser smoke coverage for OTP/passkey reload signing flows. The current specs live in
 [`signing-session-architecture.md`](signing-session-architecture.md), with
 remaining non-restore hardening tracked in
 [`signing-session-coordinator-tests.md`](signing-session-coordinator-tests.md).
@@ -1033,6 +1799,10 @@ remaining non-restore hardening tracked in
 9. Phase 8: wire signing flows through the coordinator.
 10. Phase 9: add static guards.
 11. Phase 10: delete legacy code.
+12. Phase 11: carry restore purpose through execution.
+13. Phase 12: server-authoritative budget projection.
+14. Phase 13: remove sessionStorage session identity.
+15. Phase 14: unify threshold signing operation lifecycle.
 
 Do not remove read-side restore/write behavior until the explicit restore
 command, policy-write commands, and snapshot reader are all wired and covered by
@@ -1067,3 +1837,11 @@ compatibility layers behind a flag.
 12. Regression tests cover OTP reload to Ed25519, OTP reload to ECDSA, passkey
     reload persistence, unseal spam, purpose mismatch, and missing selected lane
     failures.
+13. Restore execution ports receive exact-purpose work items, not bare sealed
+    records.
+14. Wallet signing-session budget terminal states are produced only by trusted
+    server budget status or consume responses.
+15. Signing-session restore and snapshot correctness does not depend on
+    sessionStorage.
+16. Ed25519 and ECDSA transaction/export flows share one prepared signing
+    operation lifecycle, with curve-specific behavior isolated to adapters.
