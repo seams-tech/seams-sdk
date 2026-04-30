@@ -25,7 +25,7 @@ import {
   getSignTransactionPayload,
   getSigningAuthMode,
 } from './request';
-import type { ThemeName } from '@/core/types/tatchi';
+import type { ThemeName } from '@/core/types/seams';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { sendConfirmResponse } from '../../../shared/confirmCommon';

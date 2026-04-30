@@ -279,8 +279,8 @@ test.describe('unified signing pipeline', () => {
       ),
       'utf8',
     );
-    const tatchiPasskeyInterfacesSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/interfaces.ts'),
+    const seamsPasskeyInterfacesSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/SeamsPasskey/interfaces.ts'),
       'utf8',
     );
     const walletIframeMessagesSource = fs.readFileSync(
@@ -288,11 +288,11 @@ test.describe('unified signing pipeline', () => {
       'utf8',
     );
     const registrationSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/registration.ts'),
+      path.resolve(process.cwd(), '../client/src/core/SeamsPasskey/registration.ts'),
       'utf8',
     );
     const loginSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/login.ts'),
+      path.resolve(process.cwd(), '../client/src/core/SeamsPasskey/login.ts'),
       'utf8',
     );
     const configBuilderSource = fs.readFileSync(
@@ -316,7 +316,7 @@ test.describe('unified signing pipeline', () => {
     expect(thresholdSessionActivationSource).toContain('chain,');
     expect(thresholdSessionActivationSource).not.toContain('ecdsaHssExportArtifact:');
     expect(thresholdSessionActivationSource).not.toContain('ecdsaKeyModel');
-    expect(tatchiPasskeyInterfacesSource).not.toContain('ecdsaHssExportArtifact?:');
+    expect(seamsPasskeyInterfacesSource).not.toContain('ecdsaHssExportArtifact?:');
     expect(walletIframeMessagesSource).not.toContain('ecdsaHssExportArtifact?:');
     expect(registrationSource).not.toContain('resolveThresholdEcdsaCanonicalExportArtifact({');
     expect(registrationSource).toContain("source: 'registration'");
@@ -349,7 +349,7 @@ test.describe('unified signing pipeline', () => {
 
   test('registration session persistence stays on helper/public signing-session seams', () => {
     const registrationSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/registration.ts'),
+      path.resolve(process.cwd(), '../client/src/core/SeamsPasskey/registration.ts'),
       'utf8',
     );
     const signingEngineSource = fs.readFileSync(

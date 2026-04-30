@@ -512,7 +512,7 @@ test.describe('SigningSessionPlanner', () => {
       Object.defineProperty(globalThis, 'localStorage', {
         configurable: true,
         value: {
-          getItem: (key: string) => (key === 'tatchi:debug:signing-session' ? '1' : null),
+          getItem: (key: string) => (key === 'seams:debug:signing-session' ? '1' : null),
         },
       });
 
@@ -570,7 +570,7 @@ test.describe('SigningSessionPlanner', () => {
       Object.defineProperty(globalThis, 'localStorage', {
         configurable: true,
         value: {
-          getItem: (key: string) => (key === 'tatchi:debug:signing-session' ? '1' : null),
+          getItem: (key: string) => (key === 'seams:debug:signing-session' ? '1' : null),
         },
       });
 

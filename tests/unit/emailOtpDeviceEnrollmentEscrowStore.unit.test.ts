@@ -43,7 +43,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
         });
 
         const rawRecord = await new Promise<unknown>((resolve, reject) => {
-          const openReq = indexedDB.open('tatchi_email_otp_device_enrollment_escrows_v1');
+          const openReq = indexedDB.open('seams_email_otp_device_enrollment_escrows_v1');
           openReq.onsuccess = () => {
             const db = openReq.result;
             const tx = db.transaction('email_otp_device_enrollment_escrows_v1', 'readonly');
@@ -104,7 +104,7 @@ test.describe('Email OTP device enrollment escrow store', () => {
         const mod = await import(paths.store);
         await mod.clearAllEmailOtpDeviceEnrollmentEscrowRecords();
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('tatchi_email_otp_device_enrollment_escrows_v1', 1);
+          const req = indexedDB.open('seams_email_otp_device_enrollment_escrows_v1', 1);
           req.onupgradeneeded = () => {
             if (!req.result.objectStoreNames.contains('email_otp_device_enrollment_escrows_v1')) {
               req.result.createObjectStore('email_otp_device_enrollment_escrows_v1', {

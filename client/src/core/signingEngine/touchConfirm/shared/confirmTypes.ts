@@ -8,7 +8,7 @@ import {
 } from '@/core/types/webauthn';
 import type { TxDisplayModel } from '@/core/signingEngine/touchConfirm/shared/displayModel';
 import { isObject, isString } from '@shared/utils/validation';
-import type { SigningSessionRetention, WalletAuthMethod } from '@/core/types/tatchi';
+import type { SigningSessionRetention, WalletAuthMethod } from '@/core/types/seams';
 import type {
   WalletAuthCurve,
   WalletAuthIntent,

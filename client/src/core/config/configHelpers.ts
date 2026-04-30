@@ -2,18 +2,18 @@ import { coerceThemeName } from '@shared/utils/theme';
 import { toTrimmedString } from '@shared/utils/validation';
 import type { EcdsaSignerProvisioningDefaults } from '../types/ecdsaSignerProvisioningDefaults';
 import type {
-  TatchiChainConfig,
-  TatchiChainConfigInput,
-  TatchiChainNetwork,
-  TatchiConfigsInput,
+  SeamsChainConfig,
+  SeamsChainConfigInput,
+  SeamsChainNetwork,
+  SeamsConfigsInput,
   ThemeName,
   ThemePaletteName,
-} from '../types/tatchi';
+} from '../types/seams';
 import {
   isEvmChainNetwork,
   isNearChainNetwork,
   isTempoChainNetwork,
-  isTatchiChainNetwork,
+  isSeamsChainNetwork,
 } from './chains';
 
 export type IntRange = Readonly<{ min: number; max: number }>;
@@ -139,17 +139,17 @@ export function copyEcdsaSignerProvisioningDefaults(
   };
 }
 
-export function resolveChainNetwork(network: unknown): TatchiChainNetwork {
-  if (!isTatchiChainNetwork(network)) {
+export function resolveChainNetwork(network: unknown): SeamsChainNetwork {
+  if (!isSeamsChainNetwork(network)) {
     throw new Error(`[configPresets] Invalid chain network: ${String(network || '')}`);
   }
   return network;
 }
 
 export function resolveChainConfig(args: {
-  input: TatchiChainConfigInput;
-  fallback?: TatchiChainConfig;
-}): TatchiChainConfig {
+  input: SeamsChainConfigInput;
+  fallback?: SeamsChainConfig;
+}): SeamsChainConfig {
   const network = resolveChainNetwork((args.input as { network?: unknown }).network);
   const rpcUrl = resolveRequiredString({
     value: args.input.rpcUrl,
@@ -201,19 +201,19 @@ export function resolveChainConfig(args: {
 }
 
 export function resolveChains(
-  defaults: readonly TatchiChainConfig[],
-  overrides: TatchiConfigsInput['chains'],
-): TatchiChainConfig[] {
-  const byNetwork = new Map<TatchiChainNetwork, TatchiChainConfig>(
+  defaults: readonly SeamsChainConfig[],
+  overrides: SeamsConfigsInput['chains'],
+): SeamsChainConfig[] {
+  const byNetwork = new Map<SeamsChainNetwork, SeamsChainConfig>(
     defaults.map((chain) => [chain.network, { ...chain }]),
   );
-  const orderedNetworks: TatchiChainNetwork[] = [];
+  const orderedNetworks: SeamsChainNetwork[] = [];
 
   if (Array.isArray(overrides)) {
     for (const override of overrides) {
       const network = resolveChainNetwork((override as { network?: unknown }).network);
       const resolved = resolveChainConfig({
-        input: override as TatchiChainConfigInput,
+        input: override as SeamsChainConfigInput,
         fallback: byNetwork.get(network),
       });
       byNetwork.set(network, resolved);
@@ -231,7 +231,7 @@ export function resolveChains(
 
   const resolved = orderedNetworks
     .map((network) => byNetwork.get(network))
-    .filter((chain): chain is TatchiChainConfig => !!chain);
+    .filter((chain): chain is SeamsChainConfig => !!chain);
   if (!resolved.some((chain) => isNearChainNetwork(chain.network))) {
     throw new Error(
       '[configPresets] Missing required config: chains (at least one near-* network)',

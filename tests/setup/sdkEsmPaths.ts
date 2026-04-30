@@ -11,7 +11,7 @@ export const SDK_ESM_PATHS = {
   base64: sdkEsmPath('utils/base64.js'),
   accountIds: sdkEsmPath('core/types/accountIds.js'),
   actions: sdkEsmPath('core/types/actions.js'),
-  tatchiPasskey: sdkEsmPath('core/TatchiPasskey/index.js'),
+  seamsPasskey: sdkEsmPath('core/SeamsPasskey/index.js'),
   walletIframeRouter: sdkEsmPath('core/WalletIframe/client/router.js'),
   confirmUi: sdkEsmPath('core/signingEngine/touchConfirm/ui/confirm-ui.js'),
   walletEvents: sdkEsmPath('core/WalletIframe/events.js'),

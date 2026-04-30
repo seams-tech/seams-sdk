@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import type { SeamsPasskey } from '@/core/SeamsPasskey';
 import { checkNearAccountExistsBestEffort } from '@/core/rpcClients/near/rpcCalls';
 import { awaitWalletIframeReady } from '../utils/walletIframe';
 import { isObject } from '@shared/utils/validation';
@@ -45,7 +45,7 @@ export interface AccountInputState {
 }
 
 export interface UseAccountInputOptions {
-  tatchi: TatchiPasskey;
+  seams: SeamsPasskey;
   /**
    * Account domain/postfix used to derive full accountIds from a username input
    * (e.g. `w3a-relayer.testnet` for `alice.w3a-relayer.testnet`).
@@ -97,7 +97,7 @@ function normalizeStoredAccountOptions(input: {
 }
 
 export function useAccountInput({
-  tatchi,
+  seams,
   accountDomain,
   currentNearAccountId,
   isLoggedIn,
@@ -113,13 +113,13 @@ export function useAccountInput({
     const hasExplicitDomain = typeof accountDomain === 'string' && accountDomain.trim().length > 0;
     if (hasExplicitDomain) return;
 
-    const cfgRelayer = String(tatchi.configs.network.relayer.accountId || '')
+    const cfgRelayer = String(seams.configs.network.relayer.accountId || '')
       .trim()
       .replace(/^\./, '')
       .toLowerCase();
     if (cfgRelayer) return;
 
-    const relayUrl = String(tatchi.configs.network.relayer?.url || '').trim();
+    const relayUrl = String(seams.configs.network.relayer?.url || '').trim();
     if (!relayUrl) return;
 
     let cancelled = false;
@@ -131,12 +131,12 @@ export function useAccountInput({
     return () => {
       cancelled = true;
     };
-  }, [accountDomain, tatchi]);
+  }, [accountDomain, seams]);
 
   const normalizedDomain = (
     accountDomain ||
     discoveredRelayerAccount ||
-    tatchi.configs.network.relayer.accountId ||
+    seams.configs.network.relayer.accountId ||
     ''
   )
     .trim()
@@ -157,15 +157,15 @@ export function useAccountInput({
 
   // Await wallet iframe readiness when needed
   const awaitWalletIframeIfNeeded = useCallback(async () => {
-    if (tatchi.configs.wallet.mode !== 'iframe') return true;
-    return await awaitWalletIframeReady(tatchi);
-  }, [tatchi]);
+    if (seams.configs.wallet.mode !== 'iframe') return true;
+    return await awaitWalletIframeReady(seams);
+  }, [seams]);
 
   // Load recent accounts and determine account info
   const refreshAccountData = useCallback(async () => {
     try {
       await awaitWalletIframeIfNeeded();
-      const recentUnlocks = await tatchi.auth.getRecentUnlocks();
+      const recentUnlocks = await seams.auth.getRecentUnlocks();
       const accountIds = recentUnlocks.accountIds ?? [];
       const accounts = recentUnlocks.accounts ?? [];
       const lastUsedAccount = recentUnlocks.lastUsedAccount ?? null;
@@ -193,7 +193,7 @@ export function useAccountInput({
     } catch (error) {
       console.warn('Error loading account data:', error);
     }
-  }, [awaitWalletIframeIfNeeded, tatchi]);
+  }, [awaitWalletIframeIfNeeded, seams]);
 
   // Check whether the account currently exists on-chain.
   // Registration availability should not be blocked by a stale local passkey.
@@ -210,15 +210,15 @@ export function useAccountInput({
       }
 
       try {
-        if (tatchi.configs.wallet.mode === 'iframe' && !tatchi.isWalletIframeReady()) {
+        if (seams.configs.wallet.mode === 'iframe' && !seams.isWalletIframeReady()) {
           const ready = await awaitWalletIframeIfNeeded();
-          if (!ready || !tatchi.isWalletIframeReady()) {
+          if (!ready || !seams.isWalletIframeReady()) {
             // Avoid writing a false-negative while iframe auth surface is still booting.
             return;
           }
         }
         const accountExistsOnChain = await checkNearAccountExistsBestEffort(
-          tatchi.getContext().nearClient,
+          seams.getContext().nearClient,
           accountId,
         );
         setState((prevState) =>
@@ -235,7 +235,7 @@ export function useAccountInput({
         );
       }
     },
-    [awaitWalletIframeIfNeeded, tatchi],
+    [awaitWalletIframeIfNeeded, seams],
   );
 
   // Update derived state when inputs change
@@ -340,7 +340,7 @@ export function useAccountInput({
       } else {
         // No logged-in user, try to get last used account
         await awaitWalletIframeIfNeeded();
-        const recentUnlocks = await tatchi.auth.getRecentUnlocks();
+        const recentUnlocks = await seams.auth.getRecentUnlocks();
         const lastUsedAccount = recentUnlocks.lastUsedAccount ?? null;
         const accountIds = recentUnlocks.accountIds ?? [];
         const prefillAccountId = lastUsedAccount?.nearAccountId || accountIds?.[0] || '';
@@ -352,7 +352,7 @@ export function useAccountInput({
     };
 
     initializeAccountInput();
-  }, [awaitWalletIframeIfNeeded, currentNearAccountId, isLoggedIn, refreshAccountData, tatchi]);
+  }, [awaitWalletIframeIfNeeded, currentNearAccountId, isLoggedIn, refreshAccountData, seams]);
 
   // onLock: reset to last used account
   useEffect(() => {
@@ -361,7 +361,7 @@ export function useAccountInput({
       if (!isLoggedIn && !currentNearAccountId) {
         try {
           await awaitWalletIframeIfNeeded();
-          const recentUnlocks = await tatchi.auth.getRecentUnlocks();
+          const recentUnlocks = await seams.auth.getRecentUnlocks();
           const lastUsedAccount = recentUnlocks.lastUsedAccount ?? null;
           const accountIds = recentUnlocks.accountIds ?? [];
           const prefillAccountId = lastUsedAccount?.nearAccountId || accountIds?.[0] || '';
@@ -376,7 +376,7 @@ export function useAccountInput({
     };
 
     handleLockReset();
-  }, [awaitWalletIframeIfNeeded, currentNearAccountId, isLoggedIn, tatchi]);
+  }, [awaitWalletIframeIfNeeded, currentNearAccountId, isLoggedIn, seams]);
 
   // Update derived state when dependencies change
   useEffect(() => {
@@ -386,8 +386,8 @@ export function useAccountInput({
   // In iframe mode, account existence checks can race wallet boot.
   // Re-run checks once iframe becomes ready so login state is accurate.
   useEffect(() => {
-    if (tatchi.configs.wallet.mode !== 'iframe') return;
-    const offReady = tatchi.onWalletIframeReady(() => {
+    if (seams.configs.wallet.mode !== 'iframe') return;
+    const offReady = seams.onWalletIframeReady(() => {
       void refreshAccountData();
       const target = String(state.targetAccountId || '').trim();
       if (target) {
@@ -397,7 +397,7 @@ export function useAccountInput({
     return () => {
       offReady();
     };
-  }, [checkAccountExists, refreshAccountData, state.targetAccountId, tatchi]);
+  }, [checkAccountExists, refreshAccountData, state.targetAccountId, seams]);
 
   return {
     ...state,

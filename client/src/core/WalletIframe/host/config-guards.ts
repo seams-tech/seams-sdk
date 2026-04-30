@@ -1,9 +1,9 @@
-import type { TatchiConfigsInput } from '../../types/tatchi';
+import type { SeamsConfigsInput } from '../../types/seams';
 
 /**
  * Wallet-iframe host guardrails
  *
- * The wallet service iframe runs the "real" TatchiPasskey instance. It must never
+ * The wallet service iframe runs the "real" SeamsPasskey instance. It must never
  * attempt to initialize a nested wallet iframe client, even if consumer defaults
  * enable `iframeWallet`.
  *
@@ -12,7 +12,7 @@ import type { TatchiConfigsInput } from '../../types/tatchi';
  * generic config code.
  */
 
-export function sanitizeWalletHostConfigs(input: TatchiConfigsInput): TatchiConfigsInput {
+export function sanitizeWalletHostConfigs(input: SeamsConfigsInput): SeamsConfigsInput {
   const incoming = input.iframeWallet || {};
   const incomingWalletOrigin = incoming.walletOrigin;
   const incomingServicePath = incoming.walletServicePath;
@@ -42,7 +42,7 @@ export function sanitizeWalletHostConfigs(input: TatchiConfigsInput): TatchiConf
   };
 }
 
-export function assertWalletHostConfigsNoNestedIframeWallet(configs: TatchiConfigsInput): void {
+export function assertWalletHostConfigsNoNestedIframeWallet(configs: SeamsConfigsInput): void {
   const walletOrigin = configs.iframeWallet?.walletOrigin;
   if (walletOrigin) {
     throw new Error(

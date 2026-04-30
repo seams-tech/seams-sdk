@@ -1433,9 +1433,9 @@ exhausted, invalid, or deletable.
 Todo:
 
 1. [x] Inventory every signing-session sessionStorage key and call site:
-       - [x] `tatchi:threshold-ecdsa-session:v3`
-       - [x] `tatchi:threshold-ed25519-session:v1`
-       - [x] `tatchi:signing-session-sealed:runtime-session-id:v1`
+       - [x] `seams:threshold-ecdsa-session:v3`
+       - [x] `seams:threshold-ed25519-session:v1`
+       - [x] `seams:signing-session-sealed:runtime-session-id:v1`
        - [x] ECDSA and Ed25519 session-index keys
        - [x] any TouchConfirm warm-session sessionStorage access
 2. [x] Define the durable IndexedDB runtime record shape for non-secret lane

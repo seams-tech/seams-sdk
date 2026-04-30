@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { EmailRecoveryDomain } from '@/core/TatchiPasskey/near/emailRecovery';
+import { EmailRecoveryDomain } from '@/core/SeamsPasskey/near/emailRecovery';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { EmailRecoveryFlowEventPhase } from '@/core/types/sdkSentEvents';
 
@@ -54,7 +54,7 @@ function createPendingEmailRecoveryRecord(overrides?: Record<string, unknown>) {
     deadlineEpochSeconds: 1_893_456_000,
     recoveryEmailPayloadHash: 'sha256:payload-hash',
     recoveryEmailSubject: 'recover-v1 alice.testnet ABC123',
-    recoveryEmailBody: 'tee-encrypted\ntatchi-recovery-v1:payload-token',
+    recoveryEmailBody: 'tee-encrypted\nseams-recovery-v1:payload-token',
     requestId: 'ABC123',
     credential: {},
     createdAt: Date.now(),
@@ -246,7 +246,7 @@ test.describe('EmailRecoveryDomain', () => {
             },
             recoveryEmail: {
               subject: 'recover-v1 alice.testnet ABC123',
-              body: 'tee-encrypted\ntatchi-recovery-v1:payload-token',
+              body: 'tee-encrypted\nseams-recovery-v1:payload-token',
               payloadHash: 'sha256:payload-hash',
               deadlineEpochSeconds: 1_893_456_000,
             },
@@ -282,7 +282,7 @@ test.describe('EmailRecoveryDomain', () => {
       expect(result.nearPublicKey).toBe('ed25519:threshold-public-key');
       expect(result.mailtoUrl).toContain('mailto:recovery@example.test');
       expect(result.mailtoUrl).toContain(encodeURIComponent('recover-v1 alice.testnet ABC123'));
-      expect(result.mailtoUrl).toContain(encodeURIComponent('tatchi-recovery-v1:payload-token'));
+      expect(result.mailtoUrl).toContain(encodeURIComponent('seams-recovery-v1:payload-token'));
       expect(pendingStore.setCalls).toHaveLength(1);
       expect(pendingStore.setCalls[0]?.nearPublicKey).toBe('ed25519:threshold-public-key');
       expect(pendingStore.setCalls[0]?.ecdsaThresholdKeyId).toBe('ehss-email-recovery-1');

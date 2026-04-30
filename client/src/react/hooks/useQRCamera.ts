@@ -8,13 +8,13 @@ import { ScanQRCodeFlow, enumerateVideoDevices, detectFrontCamera } from '@/util
  *
  * Provides camera-based QR code scanning functionality for device linking.
  *
- * **Important:** This hook should be used with the TatchiPasskey provider.
- * Wrap your app with PasskeyProvider so useTatchi is available when needed.
+ * **Important:** This hook should be used with the SeamsPasskey provider.
+ * Wrap your app with PasskeyProvider so useSeams is available when needed.
  *
  * @example
  * ```tsx
- * import { PasskeyProvider } from '@tatchi-xyz/sdk/react';
- * import { useQRCamera } from '@tatchi-xyz/sdk/react';
+ * import { PasskeyProvider } from '@seams/sdk/react';
+ * import { useQRCamera } from '@seams/sdk/react';
  *
  * function QRScanner() {
  *   const qrCamera = useQRCamera({

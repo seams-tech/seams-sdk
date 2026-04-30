@@ -1,5 +1,5 @@
 import { stripTrailingSlashes, toTrimmedString } from '@shared/utils/validation';
-import type { ThresholdEcdsaPresignPoolPolicyInput } from '@/core/types/tatchi';
+import type { ThresholdEcdsaPresignPoolPolicyInput } from '@/core/types/seams';
 import { fetchThresholdEcdsaJson } from './httpRequest';
 
 function toDigest32Bytes(input: Uint8Array | number[]): Uint8Array | null {

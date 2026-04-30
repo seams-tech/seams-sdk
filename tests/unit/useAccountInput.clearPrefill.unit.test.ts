@@ -30,7 +30,7 @@ test.describe('useAccountInput refresh prefill behavior', () => {
         throw new Error('useAccountInput export missing from SDK ESM bundle');
       }
 
-      const tatchi = {
+      const seams = {
         configs: {
           wallet: { mode: 'popup' },
           network: {
@@ -65,7 +65,7 @@ test.describe('useAccountInput refresh prefill behavior', () => {
 
       function Harness() {
         const hook = useAccountInput({
-          tatchi,
+          seams,
           accountDomain: 'w3a-v1.testnet',
           currentNearAccountId: null,
           isLoggedIn: false,

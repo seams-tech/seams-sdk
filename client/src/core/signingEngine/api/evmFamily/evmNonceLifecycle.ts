@@ -25,7 +25,7 @@ export async function resolveManagedEvmNonceReservationInput(args: {
   return {
     chain: 'evm',
     networkKey: resolveNonceNetworkKey({
-      configs: args.deps.tatchiPasskeyConfigs,
+      configs: args.deps.seamsPasskeyConfigs,
       request: args.request,
     }),
     chainId: args.request.tx.chainId,

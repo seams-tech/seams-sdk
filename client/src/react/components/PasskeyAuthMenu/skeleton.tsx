@@ -1,5 +1,5 @@
 import React from 'react';
-import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
+import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { ArrowLeftIcon, FingerprintIcon } from './ui/icons';
 import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';

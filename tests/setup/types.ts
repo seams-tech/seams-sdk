@@ -2,7 +2,7 @@
  * Shared test configuration for Passkey/threshold e2e-style tests.
  *
  * In the threshold-only architecture:
- * - These values are threaded into the TatchiPasskey instance and ultimately
+ * - These values are threaded into the SeamsPasskey instance and ultimately
  *   into SigningEngine, NearClient, and the UserConfirm worker configuration.
  * - `nearRpcUrl` is used by confirmTxFlow and signing helpers
  *   to fetch NEAR context consistently.
@@ -36,7 +36,7 @@ export type PasskeyTestSetupOptions = PasskeyTestConfigOverrides & {
    */
   forceSameOriginSdkBase?: boolean;
   /**
-   * When true, skip dynamic loading of TatchiPasskey + global fallback injection.
+   * When true, skip dynamic loading of SeamsPasskey + global fallback injection.
    * Useful for lightweight lit-component tests that only need the import map.
    */
   skipPasskeyManagerInit?: boolean;

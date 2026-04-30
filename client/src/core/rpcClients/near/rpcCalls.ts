@@ -11,7 +11,7 @@
 import type { NearClient } from './NearClient';
 import type { AccountId } from '../../types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
-import type { PasskeyManagerContext } from '../../TatchiPasskey';
+import type { PasskeyManagerContext } from '../../SeamsPasskey';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { FinalExecutionOutcome } from '@near-js/types';
 
@@ -500,7 +500,7 @@ export async function executeDeviceLinkingContractCalls({
             : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         rpcCall: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(
-            context.signingEngine.tatchiPasskeyConfigs.network.chains,
+            context.signingEngine.seamsPasskeyConfigs.network.chains,
           ),
           nearAccountId: device1AccountId,
         },

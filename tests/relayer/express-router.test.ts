@@ -413,7 +413,7 @@ test.describe('relayer router (express) – P0', () => {
         headers: {
           'Content-Type': 'application/json',
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': 'proj_delegate:prod',
+          'X-Seams-Environment-Id': 'proj_delegate:prod',
         },
         body: JSON.stringify({
           hash: 'a'.repeat(64),
@@ -493,7 +493,7 @@ test.describe('relayer router (express) – P0', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': delegateEnvironmentId,
+          'X-Seams-Environment-Id': delegateEnvironmentId,
         },
         body: JSON.stringify({
           hash: 'b'.repeat(64),
@@ -576,7 +576,7 @@ test.describe('relayer router (express) – P0', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': delegateEnvironmentId,
+          'X-Seams-Environment-Id': delegateEnvironmentId,
         },
         body: JSON.stringify({
           hash: 'blocked'.padEnd(64, '1'),
@@ -668,7 +668,7 @@ test.describe('relayer router (express) – P0', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': delegateEnvironmentId,
+          'X-Seams-Environment-Id': delegateEnvironmentId,
         },
         body: JSON.stringify({
           hash: 'c'.repeat(64),
@@ -769,7 +769,7 @@ test.describe('relayer router (express) – P0', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': delegateEnvironmentId,
+          'X-Seams-Environment-Id': delegateEnvironmentId,
         },
         body: JSON.stringify({
           hash: 'c'.repeat(64),
@@ -873,7 +873,7 @@ test.describe('relayer router (express) – P0', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': delegateEnvironmentId,
+          'X-Seams-Environment-Id': delegateEnvironmentId,
         },
         body: JSON.stringify({
           hash,
@@ -961,7 +961,7 @@ test.describe('relayer router (express) – P0', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': delegateEnvironmentId,
+          'X-Seams-Environment-Id': delegateEnvironmentId,
         },
         body: JSON.stringify({
           hash,
@@ -1331,7 +1331,7 @@ test.describe('relayer router (express) – P0', () => {
   test('POST /auth/passkey/verify: verified does not set app-session cookie', async () => {
     const session = makeSessionAdapter({
       signJwt: async () => 'cookie-456',
-      buildSetCookie: (t) => `tatchi-jwt=${t}; Path=/; HttpOnly`,
+      buildSetCookie: (t) => `seams-jwt=${t}; Path=/; HttpOnly`,
     });
     const service = makeFakeAuthService({
       verifyWebAuthnLogin: async () => ({
@@ -1391,7 +1391,7 @@ test.describe('relayer router (express) – P0', () => {
   test('POST /auth/google/verify: verified does not mint app-session jwt/cookie', async () => {
     const session = makeSessionAdapter({
       signJwt: async () => 'google-jwt-should-not-be-returned',
-      buildSetCookie: (t) => `tatchi-jwt=${t}; Path=/; HttpOnly`,
+      buildSetCookie: (t) => `seams-jwt=${t}; Path=/; HttpOnly`,
     });
     const service = makeFakeAuthService({
       verifyGoogleLogin: async () => ({
@@ -1699,7 +1699,7 @@ test.describe('relayer router (express) – P0', () => {
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/state`, {
         method: 'GET',
-        headers: { Cookie: 'tatchi-jwt=stale-cookie-token' },
+        headers: { Cookie: 'seams-jwt=stale-cookie-token' },
       });
       expect(res.status).toBe(401);
       expect(res.json?.authenticated).toBe(false);
@@ -2136,7 +2136,7 @@ test.describe('relayer router (express) – P0', () => {
   test('POST /session/exchange: oidc_jwt + sessionKind=cookie sets cookie and omits jwt', async () => {
     const session = makeSessionAdapter({
       signJwt: async () => 'app-jwt-cookie-123',
-      buildSetCookie: (t) => `tatchi-jwt=${t}; Path=/; HttpOnly`,
+      buildSetCookie: (t) => `seams-jwt=${t}; Path=/; HttpOnly`,
     });
     const service = makeFakeAuthService({
       verifyOidcJwtExchange: async () => ({
@@ -2164,7 +2164,7 @@ test.describe('relayer router (express) – P0', () => {
       expect(getPath(res.json, 'session', 'userId')).toBe('user-oidc-cookie-1');
       expect(getPath(res.json, 'session', 'expiresAt')).toBeUndefined();
       expect(res.json?.jwt).toBeUndefined();
-      expect(res.headers.get('set-cookie')).toContain('tatchi-jwt=app-jwt-cookie-123');
+      expect(res.headers.get('set-cookie')).toContain('seams-jwt=app-jwt-cookie-123');
     } finally {
       await srv.close();
     }
@@ -2180,7 +2180,7 @@ test.describe('relayer router (express) – P0', () => {
         if (!chunk) continue;
         const equalsIndex = chunk.indexOf('=');
         const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
-        if (name !== 'tatchi-jwt') continue;
+        if (name !== 'seams-jwt') continue;
         const value = (equalsIndex >= 0 ? chunk.slice(equalsIndex + 1) : '').trim();
         return value || null;
       }
@@ -2218,8 +2218,8 @@ test.describe('relayer router (express) – P0', () => {
           },
         };
       },
-      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
-      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+      buildSetCookie: (token) => `seams-jwt=${token}; Path=/; HttpOnly`,
+      buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
       verifyOidcJwtExchange: async () => ({
@@ -2256,9 +2256,9 @@ test.describe('relayer router (express) – P0', () => {
       expect(exchange.status).toBe(200);
       expect(exchange.json?.ok).toBe(true);
       const issuedCookieHeader = String(exchange.headers.get('set-cookie') || '');
-      expect(issuedCookieHeader).toContain('tatchi-jwt=');
+      expect(issuedCookieHeader).toContain('seams-jwt=');
       const cookieHeader = String(issuedCookieHeader.split(';')[0] || '').trim();
-      expect(cookieHeader).toMatch(/^tatchi-jwt=/);
+      expect(cookieHeader).toMatch(/^seams-jwt=/);
 
       const stateBefore = await fetchJson(`${srv.baseUrl}/session/state`, {
         method: 'GET',
@@ -2298,7 +2298,7 @@ test.describe('relayer router (express) – P0', () => {
         if (!chunk) continue;
         const equalsIndex = chunk.indexOf('=');
         const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
-        if (name !== 'tatchi-jwt') continue;
+        if (name !== 'seams-jwt') continue;
         const value = (equalsIndex >= 0 ? chunk.slice(equalsIndex + 1) : '').trim();
         return value || null;
       }
@@ -2336,8 +2336,8 @@ test.describe('relayer router (express) – P0', () => {
           },
         };
       },
-      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
-      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+      buildSetCookie: (token) => `seams-jwt=${token}; Path=/; HttpOnly`,
+      buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
       verifyOidcJwtExchange: async () => ({
@@ -2383,7 +2383,7 @@ test.describe('relayer router (express) – P0', () => {
       expect(exchange.status).toBe(200);
       const issuedCookieHeader = String(exchange.headers.get('set-cookie') || '');
       const cookieHeader = String(issuedCookieHeader.split(';')[0] || '').trim();
-      expect(cookieHeader).toMatch(/^tatchi-jwt=/);
+      expect(cookieHeader).toMatch(/^seams-jwt=/);
 
       const consoleSessionBefore = await fetchJson(`${srv.baseUrl}/console/session`, {
         method: 'GET',
@@ -2426,7 +2426,7 @@ test.describe('relayer router (express) – P0', () => {
         if (!chunk) continue;
         const equalsIndex = chunk.indexOf('=');
         const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
-        if (name !== 'tatchi-jwt') continue;
+        if (name !== 'seams-jwt') continue;
         const value = (equalsIndex >= 0 ? chunk.slice(equalsIndex + 1) : '').trim();
         return value || null;
       }
@@ -2455,8 +2455,8 @@ test.describe('relayer router (express) – P0', () => {
           },
         };
       },
-      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
-      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+      buildSetCookie: (token) => `seams-jwt=${token}; Path=/; HttpOnly`,
+      buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
 
     const service = makeFakeAuthService({
@@ -2525,7 +2525,7 @@ test.describe('relayer router (express) – P0', () => {
         if (!chunk) continue;
         const equalsIndex = chunk.indexOf('=');
         const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
-        if (name !== 'tatchi-jwt') continue;
+        if (name !== 'seams-jwt') continue;
         const value = (equalsIndex >= 0 ? chunk.slice(equalsIndex + 1) : '').trim();
         return value || null;
       }
@@ -2552,8 +2552,8 @@ test.describe('relayer router (express) – P0', () => {
           },
         };
       },
-      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
-      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+      buildSetCookie: (token) => `seams-jwt=${token}; Path=/; HttpOnly`,
+      buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
 
     const service = makeFakeAuthService({
@@ -2654,12 +2654,12 @@ test.describe('relayer router (express) – P0', () => {
         const token = cookieHeader
           .split(';')
           .map((part) => part.trim())
-          .find((part) => part.startsWith('tatchi-jwt='))
-          ?.slice('tatchi-jwt='.length);
+          .find((part) => part.startsWith('seams-jwt='))
+          ?.slice('seams-jwt='.length);
         const claims = token ? issuedClaimsByToken.get(token) : null;
         return claims ? ({ ok: true, claims } as const) : ({ ok: false } as const);
       },
-      buildSetCookie: (token) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
+      buildSetCookie: (token) => `seams-jwt=${token}; Path=/; HttpOnly`,
     });
     const service = makeFakeAuthService({
       verifyGoogleLogin: async () => ({
@@ -2826,7 +2826,7 @@ test.describe('relayer router (express) – P0', () => {
   test('POST /session/exchange: passkey_assertion + sessionKind=cookie sets cookie and omits jwt', async () => {
     const session = makeSessionAdapter({
       signJwt: async () => 'app-jwt-passkey-cookie-1',
-      buildSetCookie: (t) => `tatchi-jwt=${t}; Path=/; HttpOnly`,
+      buildSetCookie: (t) => `seams-jwt=${t}; Path=/; HttpOnly`,
     });
     const service = makeFakeAuthService({
       verifyWebAuthnLogin: async () => ({
@@ -2868,7 +2868,7 @@ test.describe('relayer router (express) – P0', () => {
       expect(getPath(res.json, 'session', 'kind')).toBe('app_session_v1');
       expect(getPath(res.json, 'session', 'userId')).toBe('user-passkey-cookie-1');
       expect(res.json?.jwt).toBeUndefined();
-      expect(res.headers.get('set-cookie')).toContain('tatchi-jwt=app-jwt-passkey-cookie-1');
+      expect(res.headers.get('set-cookie')).toContain('seams-jwt=app-jwt-passkey-cookie-1');
     } finally {
       await srv.close();
     }
@@ -3229,7 +3229,7 @@ test.describe('relayer router (express) – P0', () => {
         claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' },
       }),
       refresh: async () => ({ ok: true, jwt: 'refreshed-999' }),
-      buildSetCookie: (t) => `tatchi-jwt=${t}; Path=/; HttpOnly`,
+      buildSetCookie: (t) => `seams-jwt=${t}; Path=/; HttpOnly`,
     });
     const service = makeFakeAuthService();
     const router = createRelayRouter(service, { session });
@@ -3241,7 +3241,7 @@ test.describe('relayer router (express) – P0', () => {
         body: JSON.stringify({ sessionKind: 'cookie' }),
       });
       expect(res.status).toBe(200);
-      expect(res.headers.get('set-cookie')).toContain('tatchi-jwt=refreshed-999');
+      expect(res.headers.get('set-cookie')).toContain('seams-jwt=refreshed-999');
       expect(res.json?.ok).toBe(true);
       expect(res.json?.jwt).toBeUndefined();
     } finally {
@@ -3255,7 +3255,7 @@ test.describe('relayer router (express) – P0', () => {
         ok: true,
         claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' },
       }),
-      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+      buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
       rotateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'v2' }),
@@ -3288,7 +3288,7 @@ test.describe('relayer router (express) – P0', () => {
           appSessionVersion: 'v1',
         },
       }),
-      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+      buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
       validateAppSessionVersion: async (args: any) => ({
@@ -3539,7 +3539,7 @@ test.describe('relayer router (express) – P0', () => {
         ok: true,
         claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' },
       }),
-      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+      buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
       rotateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'v2' }),
@@ -3573,7 +3573,7 @@ test.describe('relayer router (express) – P0', () => {
           appSessionVersion: 'v1',
         },
       }),
-      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+      buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
       validateAppSessionVersion: async (args: any) => ({
@@ -3639,7 +3639,7 @@ test.describe('relayer router (express) – P0', () => {
         ok: true,
         claims: { sub: 'bob.testnet', kind: 'app_session_v1', appSessionVersion: 'v1' },
       }),
-      buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+      buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
       verifyWebAuthnLogin: async () => ({
@@ -3945,7 +3945,7 @@ test.describe('relayer router (express) – P0', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${created.secret}`,
           Origin: 'https://example.localhost',
-          'X-Tatchi-Environment-Id': delegateEnvironmentId,
+          'X-Seams-Environment-Id': delegateEnvironmentId,
         },
         body: JSON.stringify({
           hash: 'd'.repeat(64),

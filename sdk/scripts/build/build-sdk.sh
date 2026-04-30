@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$SDK_ROOT/.." && pwd)"
 source "$SDK_ROOT/build-paths.sh"
 cd "$SDK_ROOT"
 
-echo "Starting SDK build for @tatchi-xyz/sdk..."
+echo "Starting SDK build for @seams/sdk..."
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -91,6 +91,7 @@ else
 fi
 
 print_step "Bundling workers with Bun (dev, no minify)..."
+mkdir -p "$BUILD_WORKERS"
 
 if "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/near-signer.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
   && "$BUN_BIN" build "$SOURCE_SIGNING_WORKERS/hss-client.worker.ts" --outdir "$BUILD_WORKERS" --format esm --target browser --root "$REPO_ROOT" --entry-naming '[name].[ext]' \
@@ -105,7 +106,6 @@ else
 fi
 
 print_step "Copying worker WASM binaries next to worker JS..."
-mkdir -p "$BUILD_WORKERS"
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "Signer WASM copied"; else print_warning "Signer WASM not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_SIGNER/pkg/wasm_signer_worker_bg.wasm" "$BUILD_WORKERS/near_signer.wasm" 2>/dev/null; then print_success "near_signer.wasm copied"; else print_warning "near_signer.wasm not found"; fi
 if cp "$SDK_ROOT/$SOURCE_WASM_HSS_CLIENT_SIGNER/pkg/hss_client_signer_bg.wasm" "$BUILD_WORKERS/" 2>/dev/null; then print_success "HSS client signer WASM copied"; else print_warning "HSS client signer WASM not found"; fi

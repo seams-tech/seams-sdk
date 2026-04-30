@@ -207,7 +207,7 @@ async function main() {
   const relayScriptsDir = path.dirname(fileURLToPath(import.meta.url));
   const relayCwd = path.resolve(relayScriptsDir, '..');
 
-  const adminUser = readEnv('POSTGRES_BOOTSTRAP_ADMIN_USER', 'tatchi');
+  const adminUser = readEnv('POSTGRES_BOOTSTRAP_ADMIN_USER', 'seams');
   const host = readEnv('POSTGRES_BOOTSTRAP_HOST', '127.0.0.1');
   const port = Number(readEnv('POSTGRES_BOOTSTRAP_PORT', '5432')) || 5432;
 

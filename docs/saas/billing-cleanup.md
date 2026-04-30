@@ -221,7 +221,7 @@ Exit criteria:
 - Completed: final cleanup grep across `server/src`, `tests`, and `examples` now returns only the intentional `DROP TABLE IF EXISTS console_payment_methods` migration line.
 - Completed: legacy billing plan doc `docs/billing-console.md` was removed so the repo no longer carries a contradictory subscription/payment-method plan.
 - Verification:
-  - `pnpm -C examples/tatchi-site exec tsc --noEmit` passed.
+  - `pnpm -C examples/seams-site exec tsc --noEmit` passed.
   - `pnpm -C examples/relay-server exec tsc --noEmit` passed.
   - `pnpm -C tests exec playwright test -c playwright.relayer.config.ts ./relayer/console-billing.service.test.ts ./relayer/console-billing.postgres.test.ts ./relayer/console-tenant-isolation.postgres.test.ts ./relayer/relay-api-keys.test.ts ./relayer/console-router.test.ts --reporter=line` passed (`175 passed, 54 skipped`).
   - `pnpm -C tests exec playwright test ./e2e/dashboard.billing.console.apiWiring.test.ts --reporter=line` passed (`4 passed`).

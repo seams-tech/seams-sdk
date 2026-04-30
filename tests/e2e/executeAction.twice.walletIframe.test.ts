@@ -66,7 +66,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
       const resultPromise = page.evaluate(
         async ({ walletOrigin, relayerUrl, receiverId }) => {
           try {
-            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
             const { ActionType } = await import('/sdk/esm/core/types/actions.js');
             const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
@@ -76,7 +76,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
                 : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const accountId = `e2e2x${suffix}.w3a-v1.testnet`;
 
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },
@@ -99,7 +99,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
             });
 
             const cfg = { uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0 } as const;
-            const reg = await tatchi.registration.registerPasskeyInternal(
+            const reg = await seams.registration.registerPasskeyInternal(
               accountId,
               {},
               cfg as any,
@@ -108,13 +108,13 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
               return { ok: false as const, error: reg?.error || 'registration failed' };
             }
 
-            const login = await tatchi.auth.unlock(accountId, {
+            const login = await seams.auth.unlock(accountId, {
               signingSession: { ttlMs: 0, remainingUses: 0 },
             });
             if (!login?.success) {
               return { ok: false as const, error: login?.error || 'login failed' };
             }
-            const walletSession = await tatchi.auth.getWalletSession(accountId);
+            const walletSession = await seams.auth.getWalletSession(accountId);
             const hasThresholdEcdsaState = !!String(
               walletSession?.login?.thresholdEcdsaEthereumAddress || '',
             ).trim();
@@ -135,7 +135,7 @@ test.describe('Lite signer – executeAction twice (wallet iframe)', () => {
             }> = [];
 
             const runOnce = async (call: number) => {
-              const result = await tatchi.near.executeAction({
+              const result = await seams.near.executeAction({
                 nearAccountId: accountId,
                 receiverId,
                 actionArgs: {

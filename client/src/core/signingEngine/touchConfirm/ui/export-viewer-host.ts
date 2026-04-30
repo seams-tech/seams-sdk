@@ -1,4 +1,4 @@
-import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
+import type { ThemeTokenOverridesInput } from '@/core/types/seams';
 import type { ExportGuidance, ExportPrivateKeyDisplayEntry } from '../shared/confirmTypes';
 import { addLitEventListener, LitComponentEvents } from './lit-events';
 import { ensureDefined, W3A_EXPORT_VIEWER_IFRAME_ID } from './registry';

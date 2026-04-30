@@ -153,8 +153,8 @@ try {
 } catch {}
 function resolveExamplesFrontendDir(): string {
   // Prefer the historical examples/vite path when present, but fall back to the
-  // current workspace frontend (examples/tatchi-site) when it's the only one.
-  const candidates = ['../examples/vite', '../examples/tatchi-site'].map((p) =>
+  // current workspace frontend (examples/seams-site) when it's the only one.
+  const candidates = ['../examples/vite', '../examples/seams-site'].map((p) =>
     path.resolve(path.join(__dirname, p)),
   );
   const existing = candidates.find(

@@ -73,7 +73,7 @@ export function emitEvmFamilySigningExecutionTrace(
 function isEvmFamilySigningExecutionTraceEnabled(): boolean {
   try {
     const storage = (globalThis as { localStorage?: Storage }).localStorage;
-    return storage?.getItem('tatchi:debug:signing-execution') === '1';
+    return storage?.getItem('seams:debug:signing-execution') === '1';
   } catch {
     return false;
   }

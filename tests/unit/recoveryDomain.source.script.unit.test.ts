@@ -71,6 +71,6 @@ test.describe('source-backed recovery domain typing', () => {
     expect(parsed.recoverySessionId).toBe('ABC123');
     expect(parsed.deadlineEpochSeconds).toBe(1_893_456_000);
     expect(parsed.derivedEvmOwnerAddress).toBe(`0x${'11'.repeat(20)}`);
-    expect(parsed.bodyPrefix).toBe('tatchi-recovery-v1');
+    expect(parsed.bodyPrefix).toBe('seams-recovery-v1');
   });
 });

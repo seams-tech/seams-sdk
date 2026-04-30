@@ -5,7 +5,7 @@ import type {
   ExportGuidance,
   ExportPrivateKeyDisplayEntry,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
-import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
+import type { ThemeTokenOverridesInput } from '@/core/types/seams';
 import {
   createCspStylesheetManager,
   getDefaultCspNonce,

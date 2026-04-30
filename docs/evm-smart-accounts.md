@@ -56,22 +56,22 @@ Authorization still comes from the signed recovery payload, not `msg.sender`.
 
 ## Required interfaces
 
-### `ITatchiSmartAccount`
+### `ISeamsSmartAccount`
 
 ```solidity
-interface ITatchiSmartAccount is
-  ITatchiSmartAccountView,
-  ITatchiSmartAccountOwners,
-  ITatchiSmartAccountRecovery,
-  ITatchiSmartAccountExecution,
+interface ISeamsSmartAccount is
+  ISeamsSmartAccountView,
+  ISeamsSmartAccountOwners,
+  ISeamsSmartAccountRecovery,
+  ISeamsSmartAccountExecution,
   IERC1271
 {}
 ```
 
-### `ITatchiSmartAccountView`
+### `ISeamsSmartAccountView`
 
 ```solidity
-interface ITatchiSmartAccountView {
+interface ISeamsSmartAccountView {
   function accountVersion() external pure returns (uint256);
   function nearAccountIdHash() external view returns (bytes32);
   function recoveryAuthority() external view returns (address);
@@ -83,19 +83,19 @@ interface ITatchiSmartAccountView {
 }
 ```
 
-### `ITatchiSmartAccountOwners`
+### `ISeamsSmartAccountOwners`
 
 ```solidity
-interface ITatchiSmartAccountOwners {
+interface ISeamsSmartAccountOwners {
   function addOwner(address owner) external;
   function removeOwner(address owner) external;
 }
 ```
 
-### `ITatchiSmartAccountRecovery`
+### `ISeamsSmartAccountRecovery`
 
 ```solidity
-interface ITatchiSmartAccountRecovery {
+interface ISeamsSmartAccountRecovery {
   function verifyAndRecover(
     bytes32 nearAccountIdHash,
     bytes32 newNearKeyHash,
@@ -118,10 +118,10 @@ interface ITatchiSmartAccountRecovery {
 }
 ```
 
-### `ITatchiSmartAccountExecution`
+### `ISeamsSmartAccountExecution`
 
 ```solidity
-interface ITatchiSmartAccountExecution {
+interface ISeamsSmartAccountExecution {
   function execute(address target, uint256 value, bytes calldata data) external payable returns (bytes memory);
   function executeBatch(
     address[] calldata targets,
@@ -131,10 +131,10 @@ interface ITatchiSmartAccountExecution {
 }
 ```
 
-### `ITatchiSmartAccountFactory`
+### `ISeamsSmartAccountFactory`
 
 ```solidity
-interface ITatchiSmartAccountFactory {
+interface ISeamsSmartAccountFactory {
   function createAccount(
     bytes32 salt,
     bytes calldata initData
@@ -228,7 +228,7 @@ EIP712Domain(
 
 Canonical values:
 
-- `name = "TatchiSmartAccountRecovery"`
+- `name = "SeamsSmartAccountRecovery"`
 - `version = "1"`
 - `chainId = block.chainid`
 - `verifyingContract = address(this)`

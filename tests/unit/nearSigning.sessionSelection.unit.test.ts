@@ -45,14 +45,14 @@ function createBudgetBackedSigningSessionCoordinator(args: {
   const normalizeThresholdSessionId = (sessionId: string): string =>
     sessionId.replace(/^threshold-ed25519:/, '');
   return new SigningSessionCoordinator({
-    getStatus: async (statusArgs) => {
+    getStatus: async (statusArgs: any) => {
       const walletSigningSessionId = String(
         statusArgs.walletSigningSessionId || args.walletSigningSessionId,
       );
-      const targetThresholdIds = (statusArgs.targetThresholdSessionIds || []).map((sessionId) =>
+      const targetThresholdIds = (statusArgs.targetThresholdSessionIds || []).map((sessionId: any) =>
         normalizeThresholdSessionId(String(sessionId)),
       );
-      if (targetThresholdIds.some((sessionId) => exhaustedThresholdSessionIds.has(sessionId))) {
+      if (targetThresholdIds.some((sessionId: string) => exhaustedThresholdSessionIds.has(sessionId))) {
         return {
           sessionId: walletSigningSessionId,
           status: 'exhausted' as const,
@@ -68,7 +68,7 @@ function createBudgetBackedSigningSessionCoordinator(args: {
         projectionVersion: `projection:${walletSigningSessionId}:${args.activeRemainingUses}`,
       };
     },
-    consumeUse: async (consumeArgs) => ({
+    consumeUse: async (consumeArgs: any) => ({
       sessionId: consumeArgs.walletSigningSessionId,
       status: 'active' as const,
       remainingUses: Math.max(0, args.activeRemainingUses - consumeArgs.uses),

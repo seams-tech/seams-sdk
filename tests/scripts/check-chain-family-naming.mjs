@@ -44,9 +44,9 @@ const PATTERNS = [
     regex: /\bresolvePrimaryExplorerUrl\s*\([^)\n]*,\s*['"]arc['"]\s*\)/g,
   },
   {
-    code: 'tatchi_chain_family_arc',
-    description: 'TatchiChainFamily declaration includes arc',
-    regex: /\bTatchiChainFamily\b[^\n;]*['"]arc['"]/g,
+    code: 'seams_chain_family_arc',
+    description: 'SeamsChainFamily declaration includes arc',
+    regex: /\bSeamsChainFamily\b[^\n;]*['"]arc['"]/g,
   },
 ];
 

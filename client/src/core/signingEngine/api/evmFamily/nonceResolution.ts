@@ -5,7 +5,7 @@ import { normalizeIndexedDbAccountModel } from '@/core/indexedDB/normalization';
 import type { ChainAccountRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import { toAccountId } from '@/core/types/accountIds';
-import type { TatchiChainConfig, TatchiConfigsReadonly } from '@/core/types/tatchi';
+import type { SeamsChainConfig, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 import { deriveSmartAccountDeploymentTargetFromSigningRequest } from '../../orchestration/ensureSmartAccountDeployed';
@@ -16,24 +16,24 @@ export type EvmFamilyAccountMetadataDeps = {
 };
 
 export type EvmFamilyNonceNetworkDeps = {
-  tatchiPasskeyConfigs: TatchiConfigsReadonly;
+  seamsPasskeyConfigs: SeamsConfigsReadonly;
 };
 
-function readOptionalChainId(chain: TatchiChainConfig): number | undefined {
+function readOptionalChainId(chain: SeamsChainConfig): number | undefined {
   if (!('chainId' in chain)) return undefined;
   return typeof chain.chainId === 'number' ? chain.chainId : undefined;
 }
 
-function isEvmFamilyNetwork(chain: TatchiChainConfig): boolean {
+function isEvmFamilyNetwork(chain: SeamsChainConfig): boolean {
   return String(chainFamilyFromNetwork(chain.network)) === 'evm';
 }
 
-function isTempoFamilyNetwork(chain: TatchiChainConfig): boolean {
+function isTempoFamilyNetwork(chain: SeamsChainConfig): boolean {
   return String(chainFamilyFromNetwork(chain.network)) === 'tempo';
 }
 
 export function resolveNonceNetworkKey(args: {
-  configs: TatchiConfigsReadonly;
+  configs: SeamsConfigsReadonly;
   request: EvmSigningRequest | TempoSigningRequest;
 }): string {
   const resolved = tryResolveNonceNetworkKey(args);
@@ -45,7 +45,7 @@ export function resolveNonceNetworkKey(args: {
 }
 
 export function resolveNonceNetworkKeyForError(args: {
-  configs: TatchiConfigsReadonly;
+  configs: SeamsConfigsReadonly;
   request: EvmSigningRequest | TempoSigningRequest;
 }): string {
   return (
@@ -54,7 +54,7 @@ export function resolveNonceNetworkKeyForError(args: {
 }
 
 function tryResolveNonceNetworkKey(args: {
-  configs: TatchiConfigsReadonly;
+  configs: SeamsConfigsReadonly;
   request: EvmSigningRequest | TempoSigningRequest;
 }): string | null {
   const chainId = args.request.tx.chainId;

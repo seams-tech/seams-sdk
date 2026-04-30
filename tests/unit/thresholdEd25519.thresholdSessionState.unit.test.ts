@@ -225,11 +225,11 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           },
         };
         sessionStorage.setItem(
-          'tatchi:threshold-ed25519-session:v1:alice.testnet',
+          'seams:threshold-ed25519-session:v1:alice.testnet',
           JSON.stringify({ v: 1, record: staleRecord }),
         );
         sessionStorage.setItem(
-          'tatchi:threshold-ed25519-session:v1:session-index',
+          'seams:threshold-ed25519-session:v1:session-index',
           JSON.stringify({ 'stale-threshold-session': 'alice.testnet' }),
         );
         try {
@@ -293,11 +293,11 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           const nearAccountId = String(record.nearAccountId || '');
           const thresholdSessionId = String(record.thresholdSessionId || '');
           sessionStorage.setItem(
-            `tatchi:threshold-ed25519-session:v1:${nearAccountId}`,
+            `seams:threshold-ed25519-session:v1:${nearAccountId}`,
             JSON.stringify({ v: 1, record }),
           );
           sessionStorage.setItem(
-            'tatchi:threshold-ed25519-session:v1:session-index',
+            'seams:threshold-ed25519-session:v1:session-index',
             JSON.stringify({ [thresholdSessionId]: nearAccountId }),
           );
         };

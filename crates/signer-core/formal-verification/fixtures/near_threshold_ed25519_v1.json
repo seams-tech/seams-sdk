@@ -45,7 +45,7 @@
     },
     {
       "name": "nep413-with-state",
-      "message": "Sign in to Tatchi",
+      "message": "Sign in to Seams",
       "recipient": "wallet.example.near",
       "nonce32_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
       "nonce_base64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",

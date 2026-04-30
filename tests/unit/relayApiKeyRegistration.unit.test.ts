@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { createAccountAndRegisterWithRelayServer } from '@/core/TatchiPasskey/faucets/createAccountRelayServer';
-import type { PasskeyManagerContext } from '@/core/TatchiPasskey';
+import { createAccountAndRegisterWithRelayServer } from '@/core/SeamsPasskey/faucets/createAccountRelayServer';
+import type { PasskeyManagerContext } from '@/core/SeamsPasskey';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 
 function buildSerializedCredential(): WebAuthnRegistrationCredential {

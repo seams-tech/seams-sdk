@@ -38,9 +38,9 @@ CRITICAL_DIRS=(
 )
 
 # Frontend deployment paths (used only for local dev/test copying)
-FRONTEND_ROOT="../examples/tatchi-site/src/public"
-FRONTEND_SDK="../examples/tatchi-site/src/public/sdk"
-FRONTEND_WORKERS="../examples/tatchi-site/src/public/sdk/workers"
+FRONTEND_ROOT="../examples/seams-site/src/public"
+FRONTEND_SDK="../examples/seams-site/src/public/sdk"
+FRONTEND_WORKERS="../examples/seams-site/src/public/sdk/workers"
 
 # Runtime paths (used by workers and tests)
 RUNTIME_SDK_BASE="/sdk"
@@ -81,10 +81,10 @@ CRITICAL_FILES=(
     "../client/src/core/signingEngine/touchConfirm/handlers"
     "../client/src/core/signingEngine/touchConfirm/workerBridge"
     "../client/src/core/signingEngine/SigningEngine.ts"
-    "../client/src/core/TatchiPasskey/index.ts"
-    "../client/src/core/TatchiPasskey/near/actions.ts"
-    "../client/src/core/TatchiPasskey/login.ts"
-    "../client/src/core/TatchiPasskey/registration.ts"
+    "../client/src/core/SeamsPasskey/index.ts"
+    "../client/src/core/SeamsPasskey/near/actions.ts"
+    "../client/src/core/SeamsPasskey/login.ts"
+    "../client/src/core/SeamsPasskey/registration.ts"
     "../client/src/index.ts"
     "rolldown.config.ts"
     "tsconfig.json"

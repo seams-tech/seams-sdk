@@ -97,12 +97,12 @@ Implemented today:
   - [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
   - [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
 - the dashboard billing API client now has a sponsored execution history fetcher in:
-  - [examples/tatchi-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts)
+  - [examples/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts)
 - sponsored execution reconciliation is now queryable through:
   - [server/src/console/sponsoredCalls/reconciliation.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/sponsoredCalls/reconciliation.ts)
   - [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
   - [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
-  - [examples/tatchi-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts)
+  - [examples/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts)
 - billing overview now includes reserved sponsorship and sponsored-spend summary through:
   - [server/src/router/express/createConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/express/createConsoleRouter.ts)
   - [server/src/router/cloudflare/createCloudflareConsoleRouter.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
@@ -111,7 +111,7 @@ Implemented today:
   - [server/src/console/billingPrepaidReservations/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billingPrepaidReservations/service.ts)
   - [server/src/console/billingPrepaidReservations/postgres.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/billingPrepaidReservations/postgres.ts)
 - the billing account UI now surfaces reserved sponsorship and recent sponsored-spend summary in:
-  - [examples/tatchi-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx)
+  - [examples/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx)
 - sponsorship balance state transitions now emit billing-category webhook events from:
   - [server/src/router/sponsorshipBillingEvents.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/sponsorshipBillingEvents.ts)
   - [server/src/router/sponsorshipExecution.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/sponsorshipExecution.ts)
@@ -128,9 +128,9 @@ Implemented today:
   - [server/src/router/relaySignedDelegate.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relaySignedDelegate.ts)
   - [server/src/console/observability/adapters.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/observability/adapters.ts)
 - billing invoice list/detail views now keep monthly documents aggregated while linking operators back to:
-  - [examples/tatchi-site/src/pages/dashboard/routes/billing/BillingInvoicesView.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/billing/BillingInvoicesView.tsx)
-  - [examples/tatchi-site/src/pages/dashboard/routes/billing/BillingInvoiceDetailView.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/billing/BillingInvoiceDetailView.tsx)
-  - [examples/tatchi-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx)
+  - [examples/seams-site/src/pages/dashboard/routes/billing/BillingInvoicesView.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/BillingInvoicesView.tsx)
+  - [examples/seams-site/src/pages/dashboard/routes/billing/BillingInvoiceDetailView.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/BillingInvoiceDetailView.tsx)
+  - [examples/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx)
 
 Missing today:
 

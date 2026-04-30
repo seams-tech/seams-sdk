@@ -26,7 +26,6 @@ test.describe('shared signing-session seal specs', () => {
       v: SIGNING_SESSION_SEALED_RECORD_VERSION,
       alg: SIGNING_SESSION_SEAL_ALG,
       storageScope: SIGNING_SESSION_SEAL_STORAGE_SCOPE,
-      runtimeSessionId: 'runtime-1',
       authMethod: 'email_otp',
       secretKind: SIGNING_SESSION_SECRET_KIND,
       storeKey: 'wallet-session-1:email_otp:ecdsa',
@@ -67,11 +66,11 @@ test.describe('shared signing-session seal specs', () => {
 
   test('freezes Email OTP signing-session HKDF salts and 32-bit length-prefixed info fields', () => {
     expect(EMAIL_OTP_HKDF_SALTS).toEqual({
-      thresholdEd25519Hss: 'tatchi/email-otp/threshold-ed25519-hss/v1',
-      signingSessionSecret: 'tatchi/email-otp/signing-session-secret/v1',
-      signingSessionRestoreRoot: 'tatchi/signing-session/restore-root/v1',
-      thresholdEcdsaClientRoot: 'tatchi/signing-session/threshold-ecdsa-client-root/v1',
-      thresholdEd25519RestoreSeed: 'tatchi/signing-session/threshold-ed25519-restore-seed/v1',
+      thresholdEd25519Hss: 'seams/email-otp/threshold-ed25519-hss/v1',
+      signingSessionSecret: 'seams/email-otp/signing-session-secret/v1',
+      signingSessionRestoreRoot: 'seams/signing-session/restore-root/v1',
+      thresholdEcdsaClientRoot: 'seams/signing-session/threshold-ecdsa-client-root/v1',
+      thresholdEd25519RestoreSeed: 'seams/signing-session/threshold-ed25519-restore-seed/v1',
     });
     expect(Array.from(encodeSigningSessionHkdfTuple(['email_otp', 'alice.testnet']))).toEqual([
       0x00,

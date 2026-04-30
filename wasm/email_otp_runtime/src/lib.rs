@@ -6,10 +6,10 @@ use zeroize::Zeroize;
 type HmacSha256 = Hmac<Sha256>;
 
 const HKDF_SHA256_LENGTH: usize = 32;
-const EMAIL_OTP_THRESHOLD_ROOT_SALT_V1: &str = "tatchi/email-otp/root/v1";
+const EMAIL_OTP_THRESHOLD_ROOT_SALT_V1: &str = "seams/email-otp/root/v1";
 const EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1: &str =
-    "tatchi/email-otp/threshold-client-share/v1";
-const EMAIL_OTP_UNLOCK_AUTH_SALT_V1: &str = "tatchi/email-otp/unlock-auth/v1";
+    "seams/email-otp/threshold-client-share/v1";
+const EMAIL_OTP_UNLOCK_AUTH_SALT_V1: &str = "seams/email-otp/unlock-auth/v1";
 const EMAIL_OTP_ECDSA_DERIVATION_PATH_V1: &str = "evm-signing";
 
 fn js_error(message: impl Into<String>) -> JsValue {

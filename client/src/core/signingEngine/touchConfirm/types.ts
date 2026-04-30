@@ -13,7 +13,7 @@ import type {
   UserConfirmRequest,
 } from './shared/confirmTypes';
 import type { ConfirmationConfig } from '../../types/signer-worker';
-import type { ThemeName, ThemeTokenOverridesInput, TatchiChainConfig } from '../../types/tatchi';
+import type { ThemeName, ThemeTokenOverridesInput, SeamsChainConfig } from '../../types/seams';
 import type { RegistrationCredentialConfirmationPayload } from '../workerManager/validation';
 import type {
   OrchestrateSigningConfirmationParams,
@@ -47,7 +47,7 @@ export interface TouchConfirmContext {
   indexedDB: UnifiedIndexedDBManager;
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
-  chains?: readonly TatchiChainConfig[];
+  chains?: readonly SeamsChainConfig[];
   getTheme?: () => ThemeName;
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
   rpIdOverride?: string;

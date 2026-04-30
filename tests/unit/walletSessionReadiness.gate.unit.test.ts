@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
-import type { WalletSession } from '@/core/types/tatchi';
+import type { WalletSession } from '@/core/types/seams';
 import { toAccountId } from '@/core/types/accountIds';
 
 function makeSession(overrides?: Partial<WalletSession>): WalletSession {

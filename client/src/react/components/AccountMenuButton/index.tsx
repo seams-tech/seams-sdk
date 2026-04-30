@@ -10,7 +10,7 @@ import { MoonIcon } from './icons/MoonIcon';
 import { UserAccountButton } from './UserAccountButton';
 import { ProfileDropdown } from './ProfileDropdown';
 import { useProfileState } from './hooks/useProfileState';
-import { useTatchi } from '../../context';
+import { useSeams } from '../../context';
 import type { AccountMenuButtonProps, MenuItem } from './types';
 import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
@@ -52,13 +52,13 @@ async function waitForNextPaint(): Promise<void> {
 /**
  * Account Menu Button Component
  * Provides user settings, account management, and device linking.
- * **Important:** This component should be used inside a TatchiPasskey context.
- * Wrap your app with PasskeyProvider or ensure TatchiPasskey is available in context via useTatchi.
+ * **Important:** This component should be used inside a SeamsPasskey context.
+ * Wrap your app with PasskeyProvider or ensure SeamsPasskey is available in context via useSeams.
  *
  * @example
  * ```tsx
- * import { PasskeyProvider } from '@tatchi-xyz/sdk/react';
- * import { AccountMenuButton } from '@tatchi-xyz/sdk/react';
+ * import { PasskeyProvider } from '@seams/sdk/react';
+ * import { AccountMenuButton } from '@seams/sdk/react';
  *
  * function App() {
  *   return (
@@ -95,7 +95,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   highlightedMenuItem,
 }) => {
   // Get values from context if not provided as props
-  const { loginState, tatchi, lock, themeCapabilities } = useTatchi();
+  const { loginState, seams, lock, themeCapabilities } = useSeams();
 
   // Use props if provided, otherwise fall back to context
   const accountName =
@@ -127,7 +127,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   // Keep local view state in sync with SDK preferences (mirrors wallet host in iframe mode)
   useEffect(() => {
-    if (!tatchi) return;
+    if (!seams) return;
     if (!loginState.isLoggedIn || !loggedInAccountId) {
       setCurrentConfirmConfig(null);
       return;
@@ -136,11 +136,11 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     let cancelled = false;
 
     if (AccountId.validate(loggedInAccountId).valid) {
-      tatchi.preferences.setCurrentUser(toAccountId(loggedInAccountId));
+      seams.preferences.setCurrentUser(toAccountId(loggedInAccountId));
     }
-    setCurrentConfirmConfig(tatchi.getConfirmationConfig());
+    setCurrentConfirmConfig(seams.getConfirmationConfig());
 
-    const unsubConfirmConfig = tatchi.preferences.onConfirmationConfigChange?.((cfg: any) => {
+    const unsubConfirmConfig = seams.preferences.onConfirmationConfigChange?.((cfg: any) => {
       if (cancelled) return;
       setCurrentConfirmConfig(cfg);
     });
@@ -149,24 +149,24 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       cancelled = true;
       unsubConfirmConfig?.();
     };
-  }, [tatchi, loginState.isLoggedIn, loggedInAccountId]);
+  }, [seams, loginState.isLoggedIn, loggedInAccountId]);
 
   // Handlers for transaction settings
   const handleSetUiMode = (mode: 'none' | 'modal' | 'drawer') => {
     // Only patch the field we intend to change to avoid overwriting theme or other values
-    tatchi.setConfirmationConfig({ uiMode: mode } as any);
+    seams.setConfirmationConfig({ uiMode: mode } as any);
   };
 
   const handleToggleSkipClick = () => {
     if (!currentConfirmConfig) return;
     const newBehavior =
       currentConfirmConfig.behavior === 'requireClick' ? 'skipClick' : 'requireClick';
-    tatchi.setConfirmBehavior(newBehavior);
+    seams.setConfirmBehavior(newBehavior);
   };
 
   const handleSetDelay = (delay: number) => {
     // Only patch delay; avoid passing a stale theme from local state
-    tatchi.setConfirmationConfig({ autoProceedDelay: delay } as any);
+    seams.setConfirmationConfig({ autoProceedDelay: delay } as any);
   };
 
   const handleToggleTheme = () => {
@@ -183,7 +183,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           : currentConfirmConfig?.theme === 'dark'
             ? 'light'
             : 'dark';
-    tatchi.setTheme(newTheme);
+    seams.setTheme(newTheme);
     // Always show a quick pulse to acknowledge the press
     if (typeof document !== 'undefined' && document.body) {
       document.body.setAttribute('data-w3a-theme-pulse', '1');
@@ -212,7 +212,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       await waitForNextPaint();
 
       try {
-        await tatchi.keys.exportKeypairWithUI(nearAccountId, {
+        await seams.keys.exportKeypairWithUI(nearAccountId, {
           chain,
           variant: 'drawer',
           onEvent: handleExportEvent,
@@ -234,7 +234,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         }
       }
     },
-    [nearAccountId, tatchi],
+    [nearAccountId, seams],
   );
 
   // Menu items configuration with context-aware handlers

@@ -1,9 +1,9 @@
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 
-export const EMAIL_OTP_THRESHOLD_ROOT_SALT_V1 = 'tatchi/email-otp/root/v1';
+export const EMAIL_OTP_THRESHOLD_ROOT_SALT_V1 = 'seams/email-otp/root/v1';
 export const EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1 =
-  'tatchi/email-otp/threshold-client-share/v1';
-export const EMAIL_OTP_UNLOCK_AUTH_SALT_V1 = 'tatchi/email-otp/unlock-auth/v1';
+  'seams/email-otp/threshold-client-share/v1';
+export const EMAIL_OTP_UNLOCK_AUTH_SALT_V1 = 'seams/email-otp/unlock-auth/v1';
 export const EMAIL_OTP_ECDSA_DERIVATION_PATH_V1 = 'evm-signing';
 
 const HKDF_SHA256_LENGTH = 32;

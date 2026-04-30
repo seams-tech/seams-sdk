@@ -42,7 +42,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
 
     (window as any).testUtils = {
       PasskeyManager: (window as any).PasskeyManager,
-      tatchi: (window as any).tatchi,
+      seams: (window as any).seams,
       configs: (window as any).configs || setupConfig,
       confirmOverrides: {
         // UserConfirm invariants:
@@ -56,7 +56,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
       // Login diagnostics helper (best-effort): returns the current login session snapshot.
       loginStatus: async () => {
         try {
-          const pm = (window as any).tatchi;
+          const pm = (window as any).seams;
           if (!pm || typeof pm.getWalletSession !== 'function') return null;
           return await pm.auth.getWalletSession();
         } catch {
@@ -163,9 +163,9 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
           };
         },
         preventSessionClearing: () => {
-          const t = (window as any).testUtils?.tatchi;
+          const t = (window as any).testUtils?.seams;
           if (t && typeof t.lock === 'function') {
-            (window as any).testUtils.tatchi.lock = async () => {
+            (window as any).testUtils.seams.lock = async () => {
               console.log('[TEST] Preventing session clearing in test environment');
             };
           }

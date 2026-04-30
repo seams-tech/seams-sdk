@@ -1,7 +1,7 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
+import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
 import type { NonceCoordinator, NonceOperationContext } from '../nonce/NonceCoordinator';
 import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
@@ -103,7 +103,7 @@ export {
 
 export type EvmFamilySigningDeps = {
   indexedDB: UnifiedIndexedDBManager;
-  tatchiPasskeyConfigs: TatchiConfigsReadonly;
+  seamsPasskeyConfigs: SeamsConfigsReadonly;
   nonceCoordinator: NonceCoordinator;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   withThresholdEcdsaCommitQueue: <T>(args: {

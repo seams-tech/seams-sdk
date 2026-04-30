@@ -9,5 +9,5 @@ cd "$(dirname "$0")/.."
 forge create \
   --rpc-url "$RPC_URL" \
   --private-key "$PRIVATE_KEY" \
-  src/TatchiSmartAccountFactory.sol:TatchiSmartAccountFactory \
+  src/SeamsSmartAccountFactory.sol:SeamsSmartAccountFactory \
   "$@"

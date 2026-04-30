@@ -24,7 +24,7 @@ import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/th
 import type { SigningSessionSealRoutesOptions } from '@server/threshold/session/signingSessionSeal';
 
 const SESSION_COOKIE_NAME =
-  String(process.env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
+  String(process.env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
 
 export async function setupThresholdE2ePage(page: Page): Promise<void> {
   const blankPageUrl = new URL('/__test_blank.html', DEFAULT_TEST_CONFIG.frontendUrl).toString();

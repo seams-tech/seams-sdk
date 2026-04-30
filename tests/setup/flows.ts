@@ -96,7 +96,7 @@ export async function registerPasskey(
 
       try {
         console.log(`[flow:register] invoking registerPasskeyInternal for ${args.accountId}`);
-        return utils.tatchi
+        return utils.seams
           .registerPasskeyInternal(
             toAccountId(args.accountId),
             {
@@ -214,7 +214,7 @@ export async function unlock(
 
       try {
         console.log(`[flow:login] invoking unlock for ${args.accountId}`);
-        return utils.tatchi
+        return utils.seams
           .unlock(toAccountId(args.accountId), {
             onEvent: (event: any) => {
               events.push(event);
@@ -291,7 +291,7 @@ export async function executeTransfer(
 
       try {
         console.log(`[flow:transfer] executing action for ${args.accountId}`);
-        return utils.tatchi.near
+        return utils.seams.near
           .executeAction({
             nearAccountId: toAccountId(args.accountId),
             receiverId: args.receiverId,

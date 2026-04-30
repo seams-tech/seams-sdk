@@ -131,12 +131,12 @@ const WALLET_SURFACE_CSS = [
 ].join('\n');
 
 /**
- * Tatchi SDK plugin: serve SDK assets under a stable base (default: /sdk) with optional COEP/CORP (strict mode) and permissive CORS.
+ * Seams SDK plugin: serve SDK assets under a stable base (default: /sdk) with optional COEP/CORP (strict mode) and permissive CORS.
  * Where it runs: both the app server and the wallet-iframe server.
  * - App server: lets host pages and Lit components load SDK CSS/JS locally.
  * - Wallet server: used by /wallet-service to load wallet-iframe-host-runtime.js and related CSS/JS.
  */
-export function tatchiServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
+export function seamsServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
   const configuredBase = toBasePath(opts.sdkBasePath, '/sdk');
   const sdkDistRoot = resolveSdkDistRoot(opts.sdkDistRoot);
   const enableDebugRoutes = opts.enableDebugRoutes === true;
@@ -149,7 +149,7 @@ export function tatchiServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
   // Prefer longest base match first (e.g., '/sdk/esm/react' before '/sdk')
 
   return {
-    name: 'tatchi:serve-sdk',
+    name: 'seams:serve-sdk',
     apply: 'serve',
     enforce: 'pre',
     configureServer(server) {
@@ -230,15 +230,15 @@ export function tatchiServeSdk(opts: ServeSdkOptions = {}): VitePlugin {
 
 /**
  * Dev plugin: expose the wallet service HTML route (default: /wallet-service) that links only external CSS/JS.
- * Where it runs: wallet-iframe dev server (wallet origin). Used by tatchiWalletServer.
+ * Where it runs: wallet-iframe dev server (wallet origin). Used by seamsWalletServer.
  */
-export function tatchiWalletService(opts: WalletServiceOptions = {}): VitePlugin {
+export function seamsWalletService(opts: WalletServiceOptions = {}): VitePlugin {
   const walletServicePath = toBasePath(opts.walletServicePath, '/wallet-service');
   const sdkBasePath = toBasePath(opts.sdkBasePath, '/sdk');
   const coepMode = resolveCoepMode(opts.coepMode);
 
   return {
-    name: 'tatchi:wallet-service',
+    name: 'seams:wallet-service',
     apply: 'serve',
     enforce: 'pre',
     configureServer(server) {
@@ -274,9 +274,9 @@ export function tatchiWalletService(opts: WalletServiceOptions = {}): VitePlugin
  * Dev plugin: force the correct `.wasm` MIME type (application/wasm) for any served wasm file.
  * Where it runs: both app and wallet-iframe dev servers.
  */
-export function tatchiWasmMime(): VitePlugin {
+export function seamsWasmMime(): VitePlugin {
   return {
-    name: 'tatchi:wasm-mime',
+    name: 'seams:wasm-mime',
     apply: 'serve',
     enforce: 'pre',
     configureServer(server) {
@@ -299,7 +299,7 @@ export function tatchiWasmMime(): VitePlugin {
  * - Uses Structured Header format for Permissions-Policy (double-quoted origins).
  * - Wallet dev CSP can be toggled strict/compatible via opts.devCSP.
  */
-export function tatchiHeaders(opts: DevHeadersOptions = {}): VitePlugin {
+export function seamsHeaders(opts: DevHeadersOptions = {}): VitePlugin {
   const walletOriginRaw = opts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN;
   const walletOrigin = walletOriginRaw?.trim();
   const walletServicePath = toBasePath(
@@ -324,11 +324,11 @@ export function tatchiHeaders(opts: DevHeadersOptions = {}): VitePlugin {
   logRorConfig(rorOrigins);
 
   return {
-    name: 'tatchi:dev-headers',
+    name: 'seams:dev-headers',
     apply: 'serve',
     enforce: 'pre',
     configureServer(server) {
-      console.log('[tatchi] headers enabled', {
+      console.log('[seams] headers enabled', {
         walletServicePath,
         sdkBasePath,
         coepMode,
@@ -393,7 +393,7 @@ export function tatchiHeaders(opts: DevHeadersOptions = {}): VitePlugin {
  * Compose dev plugins for serving SDK assets, wallet service HTML and dev headers.
  * External-facing entry for configuring either the app or wallet-iframe dev server.
  */
-function tatchiDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
+function seamsDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
   const mode: Required<Web3AuthnDevOptions>['mode'] = options.mode || 'self-contained';
   const sdkBasePath = toBasePath(options.sdkBasePath || process.env.VITE_SDK_BASE_PATH, '/sdk');
   const walletServicePath = toBasePath(
@@ -407,17 +407,17 @@ function tatchiDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
   const coepMode = resolveCoepMode(options.coepMode);
 
   // Build the sub-plugins to keep logic small and testable
-  const sdkPlugin = tatchiServeSdk({ sdkBasePath, sdkDistRoot, enableDebugRoutes, coepMode });
-  const walletPlugin = tatchiWalletService({ walletServicePath, sdkBasePath, coepMode });
-  const wasmMimePlugin = tatchiWasmMime();
+  const sdkPlugin = seamsServeSdk({ sdkBasePath, sdkDistRoot, enableDebugRoutes, coepMode });
+  const walletPlugin = seamsWalletService({ walletServicePath, sdkBasePath, coepMode });
+  const wasmMimePlugin = seamsWasmMime();
   // Flip wallet CSP to strict by default in dev. Consumers can override via
-  // VITE_WALLET_DEV_CSP or by composing tatchiHeaders directly.
+  // VITE_WALLET_DEV_CSP or by composing seamsHeaders directly.
   const headersPlugin = setDevHeaders
-    ? tatchiHeaders({ walletOrigin, walletServicePath, sdkBasePath, devCSP: 'strict', coepMode })
+    ? seamsHeaders({ walletOrigin, walletServicePath, sdkBasePath, devCSP: 'strict', coepMode })
     : undefined;
 
   return {
-    name: 'tatchi:dev',
+    name: 'seams:dev',
     apply: 'serve',
     enforce: 'pre',
     configureServer(server) {
@@ -444,7 +444,7 @@ function tatchiDevServer(options: Web3AuthnDevOptions = {}): VitePlugin {
  * Where it runs: build for either the app or a static wallet host (not used in dev).
  * Notes: no-ops if `_headers` already exists in `outDir` (to avoid overriding platform config).
  */
-export function tatchiBuildHeaders(
+export function seamsBuildHeaders(
   opts: {
     walletOrigin?: string;
     cors?: { accessControlAllowOrigin?: string };
@@ -465,7 +465,7 @@ export function tatchiBuildHeaders(
 
   // We intentionally return a broader shape than VitePlugin; cast at the end
   const plugin = {
-    name: 'tatchi:build-headers',
+    name: 'seams:build-headers',
     apply: 'build' as const,
     enforce: 'post' as const,
     // Capture the resolved outDir
@@ -477,7 +477,7 @@ export function tatchiBuildHeaders(
         const hdrPath = path.join(outDir, '_headers');
         if (fs.existsSync(hdrPath)) {
           // Do not override existing headers; leave a note in build logs
-          console.warn('[tatchi] _headers already exists in outDir; skipping auto-emission');
+          console.warn('[seams] _headers already exists in outDir; skipping auto-emission');
         } else {
           // Strict CSP is emitted only for wallet HTML routes; not for app pages.
           const contentLines: string[] = [
@@ -529,7 +529,7 @@ export function tatchiBuildHeaders(
           fs.mkdirSync(outDir, { recursive: true });
           fs.writeFileSync(hdrPath, content, 'utf-8');
           console.log(
-            '[tatchi] emitted _headers with COOP' +
+            '[seams] emitted _headers with COOP' +
               (coepMode === 'off' ? '' : '/COEP/CORP') +
               ' + Permissions-Policy' +
               (configuredAcaOrigin ? ' + CORS' : ''),
@@ -557,7 +557,7 @@ export function tatchiBuildHeaders(
           fs.mkdirSync(wsDir, { recursive: true });
           fs.writeFileSync(wsHtml, buildWalletServiceHtml(sdkBasePath), 'utf-8');
           console.log(
-            `[tatchi] emitted ${path.posix.join('/', walletRel, 'index.html')} (minimal wallet service)`,
+            `[seams] emitted ${path.posix.join('/', walletRel, 'index.html')} (minimal wallet service)`,
           );
         }
 
@@ -567,10 +567,10 @@ export function tatchiBuildHeaders(
         if (!fs.existsSync(evHtml)) {
           fs.mkdirSync(evDir, { recursive: true });
           fs.writeFileSync(evHtml, buildExportViewerHtml(sdkBasePath), 'utf-8');
-          console.log('[tatchi] emitted /export-viewer/index.html (minimal export viewer)');
+          console.log('[seams] emitted /export-viewer/index.html (minimal export viewer)');
         }
       } catch (e) {
-        console.warn('[tatchi] failed to emit _headers:', e);
+        console.warn('[seams] failed to emit _headers:', e);
       }
     },
   };
@@ -587,21 +587,21 @@ export function computeDevWalletCsp(mode: 'strict' | 'compatible' = 'strict'): s
   return buildWalletCsp({ mode });
 }
 
-export function tatchiWalletServer(options: Omit<Web3AuthnDevOptions, 'mode'> = {}): VitePlugin {
-  return tatchiDevServer({ ...options, mode: 'wallet-only' });
+export function seamsWalletServer(options: Omit<Web3AuthnDevOptions, 'mode'> = {}): VitePlugin {
+  return seamsDevServer({ ...options, mode: 'wallet-only' });
 }
 
-export function tatchiAppServer(options: Omit<Web3AuthnDevOptions, 'mode'> = {}): VitePlugin {
-  return tatchiDevServer({ ...options, mode: 'front-only' });
+export function seamsAppServer(options: Omit<Web3AuthnDevOptions, 'mode'> = {}): VitePlugin {
+  return seamsDevServer({ ...options, mode: 'front-only' });
 }
 
 /**
  * Convenience wrapper: app origin helper that combines dev-time headers with optional
  * build-time headers emission for static hosts.
  *
- * Dev-time (serve): applies COOP + Permissions-Policy, plus optional COEP/CORP, via tatchiAppServer.
+ * Dev-time (serve): applies COOP + Permissions-Policy, plus optional COEP/CORP, via seamsAppServer.
  * Build-time (build): when `emitHeaders` is true, writes a Cloudflare Pages/Netlify
- * `_headers` file into Vite's `outDir` via tatchiBuildHeaders, scoping strict CSP to
+ * `_headers` file into Vite's `outDir` via seamsBuildHeaders, scoping strict CSP to
  * wallet HTML routes only.
  *   - Emits: `COOP: same-origin`, `Permissions-Policy: …`, and (when `coepMode === 'strict'`) `COEP: require-corp` + `CORP: cross-origin`.
  *   - No-op if a `_headers` file already exists in `outDir` (avoids clobbering CI/platform rules).
@@ -611,15 +611,15 @@ export function tatchiAppServer(options: Omit<Web3AuthnDevOptions, 'mode'> = {})
  *   already manage headers via custom servers or platform rules.
  * - Returns a plugin array for ergonomics; Vite accepts arrays in the `plugins` list.
  */
-export function tatchiApp(
+export function seamsApp(
   options: Omit<Web3AuthnDevOptions, 'mode'> & { emitHeaders?: boolean } = {},
 ): any[] /* Vite Plugin[] */ {
   const { emitHeaders, ...devOpts } = options;
   const walletOrigin = (devOpts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN)?.trim();
-  const app = tatchiAppServer(devOpts);
+  const app = seamsAppServer(devOpts);
   // Build-time emission is opt-in and will no-op if `_headers` already exists.
   const hdr = emitHeaders
-    ? tatchiBuildHeaders({ walletOrigin, coepMode: devOpts.coepMode })
+    ? seamsBuildHeaders({ walletOrigin, coepMode: devOpts.coepMode })
     : undefined;
   return [app, hdr].filter(Boolean) as any[];
 }
@@ -628,9 +628,9 @@ export function tatchiApp(
  * Convenience wrapper: wallet origin helper that combines dev-time wallet server
  * with optional build-time headers emission for static hosts.
  *
- * Dev-time (serve): serves `/wallet-service` and `/sdk/*` plus headers via tatchiWalletServer.
+ * Dev-time (serve): serves `/wallet-service` and `/sdk/*` plus headers via seamsWalletServer.
  * Build-time (build): when `emitHeaders` is true, writes a Cloudflare Pages/Netlify
- * `_headers` file into Vite's `outDir` via tatchiBuildHeaders, scoping strict CSP to
+ * `_headers` file into Vite's `outDir` via seamsBuildHeaders, scoping strict CSP to
  * wallet HTML routes only.
  *   - Emits: `COOP: same-origin` (wallet HTML routes use `unsafe-none`), `Permissions-Policy: …`, and (when `coepMode === 'strict'`) `COEP: require-corp` + `CORP: cross-origin`.
  *   - No-op if a `_headers` file already exists in `outDir` (avoids clobbering CI/platform rules).
@@ -639,15 +639,15 @@ export function tatchiApp(
  * - Keeps production header emission opt-in to avoid overriding platform/server configs.
  * - Returns a plugin array for ergonomics; Vite accepts arrays in the `plugins` list.
  */
-export function tatchiWallet(
+export function seamsWallet(
   options: Omit<Web3AuthnDevOptions, 'mode'> & { emitHeaders?: boolean } = {},
 ): any[] /* Vite Plugin[] */ {
   const { emitHeaders, ...devOpts } = options;
   const walletOrigin = (devOpts.walletOrigin ?? process.env.VITE_WALLET_ORIGIN)?.trim();
-  const wallet = tatchiWalletServer(devOpts);
+  const wallet = seamsWalletServer(devOpts);
   // Build-time emission is opt-in and will no-op if `_headers` already exists.
   const hdr = emitHeaders
-    ? tatchiBuildHeaders({ walletOrigin, coepMode: devOpts.coepMode })
+    ? seamsBuildHeaders({ walletOrigin, coepMode: devOpts.coepMode })
     : undefined;
   return [wallet, hdr].filter(Boolean) as any[];
 }

@@ -23,7 +23,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
     const source = readRepoSource('client/src/core/signingEngine/nonce/NonceCoordinator.ts');
 
     expect(source).not.toContain('localStorage');
-    expect(source).not.toContain('tatchi:nonce-coordinator:v1:evm-leases');
+    expect(source).not.toContain('seams:nonce-coordinator:v1:evm-leases');
     expect(source).not.toContain('createDefaultSameOriginLeaseStore');
     expect(source).not.toContain('sameOriginLeaseStore');
   });
@@ -86,7 +86,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
   test('startup recovery is only invoked from startup or unlock boundaries', () => {
     const allowedCallers = new Set([
       'client/src/core/signingEngine/bootstrap/managerAssembly.ts',
-      'client/src/core/TatchiPasskey/login.ts',
+      'client/src/core/SeamsPasskey/login.ts',
       'client/src/core/signingEngine/nonce/NonceCoordinator.ts',
     ]);
     const callers = listSourceFiles('client/src')

@@ -124,7 +124,7 @@ Current policy ownership already exists in:
 
 - [server/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/types.ts)
 - [server/src/console/policies/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/types.ts)
-- [examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
+- [examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
 
 The refactor should therefore be:
 
@@ -770,7 +770,7 @@ Primary targets:
 
 - [server/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/types.ts)
 - [server/src/console/policies/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/policies/types.ts)
-- [examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
+- [examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
 - [server/src/sponsorship/evm.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/evm.ts)
 - [server/src/console/gasSponsorship/types.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/types.ts)
 - [server/src/console/gasSponsorship/service.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/service.ts)
@@ -831,7 +831,7 @@ Primary targets:
 
 - [server/src/console/gasSponsorship/onboarding.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/console/gasSponsorship/onboarding.ts)
 - [server/src/router/relaySponsoredEvmCall.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/relaySponsoredEvmCall.ts)
-- [examples/tatchi-site/src/flows/demo](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/flows/demo)
+- [examples/seams-site/src/flows/demo](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/flows/demo)
 
 Todo:
 
@@ -856,7 +856,7 @@ Exit criteria:
 
 Primary targets:
 
-- [examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
+- [examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
 - gas sponsorship API codecs used by the dashboard
 
 Todo:
@@ -918,8 +918,8 @@ Objective:
 
 Primary targets:
 
-- [examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
-- [examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/consoleGasSponsorshipApi.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/consoleGasSponsorshipApi.ts)
+- [examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
+- [examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/consoleGasSponsorshipApi.ts](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/consoleGasSponsorshipApi.ts)
 - gas sponsorship policy request/response codecs used by the dashboard
 
 Todo:
@@ -982,7 +982,7 @@ Primary targets:
 - [server/src/sponsorship/near.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/near.ts)
 - [server/src/sponsorship/spendCaps.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/spendCaps.ts)
 - [server/src/sponsorship/pricing.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/sponsorship/pricing.ts)
-- [examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
+- [examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/gas-sponsorship/page.tsx)
 - NEAR sponsorship relayer coverage and dashboard API wiring coverage
 
 Architecture changes:

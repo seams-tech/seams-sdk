@@ -10,8 +10,8 @@ import type {
   SignAndSendDelegateActionResult,
   SignDelegateActionResult,
   SignTransactionResult,
-} from './tatchi';
-import type { SyncAccountResult, SignNEP413MessageResult } from '../TatchiPasskey';
+} from './seams';
+import type { SyncAccountResult, SignNEP413MessageResult } from '../SeamsPasskey';
 
 ////////////////////////////
 // Wallet Flow Event Model
@@ -730,7 +730,7 @@ export interface RegistrationHooksOptions {
   afterCall?: AfterCall<RegistrationResult>;
   // Signer provisioning options used during registration.
   // When omitted, defaults are taken from
-  // `TatchiConfigsReadonly.signing.thresholdEcdsa.provisioningDefaults`.
+  // `SeamsConfigsReadonly.signing.thresholdEcdsa.provisioningDefaults`.
   signerOptions?: EcdsaSignerProvisioningDefaults;
   /**
    * Preferred grouping for per-call confirmer copy.
@@ -758,7 +758,7 @@ export interface LoginHooksOptions {
   session?: {
     // 'jwt' returns the token in the JSON body; 'cookie' sets HttpOnly cookie
     kind: 'jwt' | 'cookie';
-    // Optional: override relay URL; defaults to TatchiConfigsReadonly.network.relayer.url
+    // Optional: override relay URL; defaults to SeamsConfigsReadonly.network.relayer.url
     relayUrl?: string;
     // Optional: override route path.
     // - defaults to '/session/exchange'
@@ -781,7 +781,7 @@ export interface LoginHooksOptions {
   };
   /**
    * Optional: override the warm signing session policy minted during login.
-   * Defaults come from `TatchiConfigsReadonly.signing.sessionDefaults`.
+   * Defaults come from `SeamsConfigsReadonly.signing.sessionDefaults`.
    */
   signingSession?: {
     ttlMs?: number;

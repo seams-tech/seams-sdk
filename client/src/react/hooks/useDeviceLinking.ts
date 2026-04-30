@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import { useTatchi } from '../context';
+import { useSeams } from '../context';
 import {
   type DeviceLinkingQRData,
   LinkDeviceEventPhase,
@@ -13,13 +13,13 @@ import { QRScanMode } from '@/react/hooks/useQRCamera';
  *
  * Provides device linking functionality with QR code scanning and transaction management.
  *
- * **Important:** This hook must be used inside a TatchiPasskey context.
- * Wrap your app with TatchiPasskeyProvider or ensure TatchiPasskey is available in context via useTatchi.
+ * **Important:** This hook must be used inside a SeamsPasskey context.
+ * Wrap your app with SeamsPasskeyProvider or ensure SeamsPasskey is available in context via useSeams.
  *
  * @example
  * ```tsx
- * import { TatchiPasskeyProvider } from '@tatchi-xyz/sdk/react';
- * import { useDeviceLinking } from '@tatchi-xyz/sdk/react';
+ * import { SeamsPasskeyProvider } from '@seams/sdk/react';
+ * import { useDeviceLinking } from '@seams/sdk/react';
  *
  * function DeviceLinker() {
  *   const { linkDevice } = useDeviceLinking({
@@ -46,7 +46,7 @@ export interface UseDeviceLinkingReturn {
 }
 
 export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLinkingReturn => {
-  const { tatchi } = useTatchi();
+  const { seams } = useSeams();
   const { onDeviceLinked, onError, onClose, onEvent, fundingAmount = '0.05' } = options;
 
   const hasClosedEarlyRef = useRef(false);
@@ -76,7 +76,7 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
         console.log(`useDeviceLinking: Starting device linking from ${source}...`);
         hasClosedEarlyRef.current = false; // Reset for this linking attempt
 
-        const result = await tatchi.recovery.linkDeviceWithScannedQRData(qrData, {
+        const result = await seams.recovery.linkDeviceWithScannedQRData(qrData, {
           fundingAmount,
           onEvent: (event) => {
             onEvent?.(event);
@@ -114,7 +114,7 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
         }
       }
     },
-    [fundingAmount, tatchi],
+    [fundingAmount, seams],
   );
 
   return {

@@ -1,11 +1,11 @@
 import { UserVerificationPolicy, type AuthenticatorOptions } from '../types/authenticatorOptions';
 import type { EcdsaSignerProvisioningDefaults } from '../types/ecdsaSignerProvisioningDefaults';
 import type {
-  TatchiChainConfig,
-  TatchiConfigsInput,
-  TatchiConfigsReadonly,
+  SeamsChainConfig,
+  SeamsConfigsInput,
+  SeamsConfigsReadonly,
   ThresholdEcdsaPresignPoolPolicy,
-} from '../types/tatchi';
+} from '../types/seams';
 import { buildConfigsFromDefaults } from './configBuilder';
 
 ////////////////////////
@@ -66,7 +66,7 @@ export const THRESHOLD_ED25519_2P_PARTICIPANT_IDS = [
 /// Chain Configs
 ///////////////////
 
-export const DEFAULT_CHAIN_CONFIGS: TatchiChainConfig[] = [
+export const DEFAULT_CHAIN_CONFIGS: SeamsChainConfig[] = [
   {
     network: 'near-testnet',
     // You can provide a single URL or a comma-separated list for failover.
@@ -95,10 +95,10 @@ export const DEFAULT_CHAIN_CONFIGS: TatchiChainConfig[] = [
 ];
 
 //////////////////////////////
-/// Tatchi Client SDK configs
+/// Seams Client SDK configs
 //////////////////////////////
 
-export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
+export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
   network: {
     chains: DEFAULT_CHAIN_CONFIGS,
     relayer: {
@@ -185,7 +185,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: TatchiConfigsReadonly = {
   },
 };
 
-export function buildConfigsFromEnv(overrides: TatchiConfigsInput = {}): TatchiConfigsReadonly {
+export function buildConfigsFromEnv(overrides: SeamsConfigsInput = {}): SeamsConfigsReadonly {
   return buildConfigsFromDefaults({
     defaults: PASSKEY_MANAGER_DEFAULT_CONFIGS,
     overrides,

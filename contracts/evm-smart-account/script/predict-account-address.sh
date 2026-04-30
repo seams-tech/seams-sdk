@@ -21,7 +21,7 @@ fi
 INIT_DATA_HASH="$(cast keccak "$INIT_DATA_HEX")"
 DEPLOYMENT_SALT_PREIMAGE="$(cast abi-encode 'f(bytes32,bytes32)' "$SALT" "$INIT_DATA_HASH")"
 DEPLOYMENT_SALT="$(cast keccak "$DEPLOYMENT_SALT_PREIMAGE")"
-ACCOUNT_INIT_CODE="$(forge inspect src/TatchiSmartAccount.sol:TatchiSmartAccount bytecode)"
+ACCOUNT_INIT_CODE="$(forge inspect src/SeamsSmartAccount.sol:SeamsSmartAccount bytecode)"
 ACCOUNT_INIT_CODE_HASH="$(cast keccak "$ACCOUNT_INIT_CODE")"
 
 cast create2 \

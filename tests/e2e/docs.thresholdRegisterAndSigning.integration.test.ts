@@ -103,7 +103,7 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
           } catch {}
           counters.lastTempoSponsoredCallRequest = {
             authorization: headers.authorization || '',
-            environmentHeader: headers['x-tatchi-environment-id'] || '',
+            environmentHeader: headers['x-seams-environment-id'] || '',
             environmentId: String(requestBody.environmentId || ''),
             nearAccountId: String(requestBody.nearAccountId || ''),
             walletAddress: String(requestBody.walletAddress || ''),
@@ -260,11 +260,11 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
         return await originalFetch(input, init);
       }) as typeof fetch;
 
-      const TatchiContext = ReactRuntime.createContext(null as any);
+      const SeamsContext = ReactRuntime.createContext(null as any);
 
-      function useTatchiHook() {
-        const value = ReactRuntime.useContext(TatchiContext);
-        if (!value) throw new Error('Missing Tatchi context value in integration harness');
+      function useSeamsHook() {
+        const value = ReactRuntime.useContext(SeamsContext);
+        if (!value) throw new Error('Missing Seams context value in integration harness');
         return value;
       }
 
@@ -314,7 +314,7 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
           nearAccountId: undefined as string | undefined,
         });
 
-        const tatchi = ReactRuntime.useMemo(
+        const seams = ReactRuntime.useMemo(
           () => ({
             registerPasskey: async () => {
               counters.registerCalls += 1;
@@ -450,16 +450,16 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
         const contextValue = ReactRuntime.useMemo(
           () => ({
             accountInputState: { targetAccountId: accountId, accountExists: true },
-            unlock: tatchi.unlock,
-            registerPasskey: tatchi.registerPasskey,
+            unlock: seams.unlock,
+            registerPasskey: seams.registerPasskey,
             loginState,
-            tatchi,
+            seams,
           }),
-          [loginState, tatchi],
+          [loginState, seams],
         );
 
         return ReactRuntime.createElement(
-          TatchiContext.Provider,
+          SeamsContext.Provider,
           { value: contextValue },
           ReactRuntime.createElement(
             'div',
@@ -472,7 +472,7 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
                 });
               },
               __testOverrides: {
-                useTatchiHook,
+                useSeamsHook,
                 useAuthMenuControlHook: () => ({
                   defaultModeOverride: undefined,
                   remountKey: 0,
@@ -485,7 +485,7 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
             }),
             ReactRuntime.createElement(DemoPage, {
               __testOverrides: {
-                useTatchiHook,
+                useSeamsHook,
                 useSetGreetingHook,
                 frontendConfig: {
                   relayerUrl: 'https://relay.example',

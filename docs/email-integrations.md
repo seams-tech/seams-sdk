@@ -37,7 +37,7 @@ Reason:
 
 - Inbound email handling exists in `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/email.ts`.
 - Email-recovery service types already exist in `/Users/pta/Dev/rust/simple-threshold-signer/server/src/email-recovery/types.ts`.
-- The account settings UI already models backup email status as `PENDING | VERIFIED` in `/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/pages/dashboard/routes/account-settings/consoleAccountApi.ts`.
+- The account settings UI already models backup email status as `PENDING | VERIFIED` in `/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/account-settings/consoleAccountApi.ts`.
 
 ### What is missing
 

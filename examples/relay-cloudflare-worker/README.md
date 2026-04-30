@@ -21,8 +21,8 @@ extra requirements and limitations compared to the Express example.
 ## WASM bundling
 
 - The signer worker WASM is imported directly from the package sources
-  (`import signerWasmModule from '@tatchi-xyz/sdk/server/wasm/signer'` and
-  `import shamirWasmModule from '@tatchi-xyz/sdk/server/wasm/signer'`).
+  (`import signerWasmModule from '@seams/sdk/server/wasm/signer'` and
+  `import shamirWasmModule from '@seams/sdk/server/wasm/signer'`).
   Wrangler bundles the referenced files automatically; no `[wasm_modules]`
   section is required in `wrangler.toml`.
 - Do **not** try to `fetch` the WASM from an arbitrary URL at runtime. Workers
@@ -101,7 +101,7 @@ Cloudflare-native persistence
 
 - This example uses a **Durable Object** to persist threshold auth sessions + FROST signing sessions.
 - Configure the base key prefix in `wrangler.toml` (or dashboard):
-  - `THRESHOLD_PREFIX` (e.g. `tatchi:prod:w3a`)
+  - `THRESHOLD_PREFIX` (e.g. `seams:prod:w3a`)
   - Optional: `THRESHOLD_ED25519_SHARE_MODE=derived` (recommended for serverless)
   - Optional: `THRESHOLD_SIGNING_ROOT_OBJECT_NAME` (defaults to `threshold-signing-root-secrets`)
   - Optional: `SIGNING_ROOT_SECRET_SHARE_CACHE_TTL_MS` (defaults to `30000`)
@@ -125,7 +125,7 @@ const session = new SessionService({
       return jwt.sign(payload as any, env.JWT_SECRET || 'dev-token', {
         algorithm: 'HS256',
         issuer: 'relay-worker-demo',
-        audience: 'tatchi-app-demo',
+        audience: 'seams-app-demo',
         ...(hasExp ? {} : { expiresIn: 86400 }),
       });
     },
@@ -138,7 +138,7 @@ const session = new SessionService({
     },
   },
   // Minimal cookie config (defaults are fine for Lax; customize with hooks below if needed)
-  cookie: { name: 'tatchi-jwt' },
+  cookie: { name: 'seams-jwt' },
 });
 ```
 
@@ -162,10 +162,10 @@ const session = new SessionService({
     /* sign/verify as above */
   },
   cookie: {
-    name: 'tatchi-jwt',
+    name: 'seams-jwt',
     buildSetHeader: (token) =>
       [
-        `tatchi-jwt=${token}`,
+        `seams-jwt=${token}`,
         'Path=/',
         'HttpOnly',
         'Secure',
@@ -174,7 +174,7 @@ const session = new SessionService({
       ].join('; '),
     buildClearHeader: () =>
       [
-        'tatchi-jwt=',
+        'seams-jwt=',
         'Path=/',
         'HttpOnly',
         'Secure',
@@ -277,8 +277,8 @@ explicit allowlist (not `Access-Control-Allow-Origin: *`).
 
 Example mapping:
 
-- staging: `EXPECTED_ORIGIN=https://staging.tatchi.xyz`, `EXPECTED_WALLET_ORIGIN=https://wallet-staging.web3authn.org`
-- prod: `EXPECTED_ORIGIN=https://tatchi.xyz`, `EXPECTED_WALLET_ORIGIN=https://wallet.web3authn.org`
+- staging: `EXPECTED_ORIGIN=https://staging.seams.xyz`, `EXPECTED_WALLET_ORIGIN=https://wallet-staging.web3authn.org`
+- prod: `EXPECTED_ORIGIN=https://seams.xyz`, `EXPECTED_WALLET_ORIGIN=https://wallet.web3authn.org`
 
 ## Local testing tips
 

@@ -4,7 +4,7 @@ import type { MultichainRecoveryPayloadFields, RecoverySubjectBinding } from './
 import { ensureEd25519Prefix, isValidAccountId, toOptionalTrimmedString } from './validation';
 
 export const RECOVERY_EMAIL_SUBJECT_PREFIX = 'recover-v1';
-export const RECOVERY_EMAIL_BODY_PREFIX = 'tatchi-recovery-v1:';
+export const RECOVERY_EMAIL_BODY_PREFIX = 'seams-recovery-v1:';
 
 export type RecoveryEmailPayload = {
   version: 'recovery_email_payload_v1';

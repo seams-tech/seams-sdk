@@ -7,8 +7,8 @@ AuthService provides the server‑side pieces for account creation and WebAuthn 
 ```ts
 import express from 'express';
 import cors from 'cors';
-import { AuthService, SessionService } from '@tatchi-xyz/sdk/server';
-import { createRelayRouter } from '@tatchi-xyz/sdk/server/router/express';
+import { AuthService, SessionService } from '@seams/sdk/server';
+import { createRelayRouter } from '@seams/sdk/server/router/express';
 import jwt from 'jsonwebtoken';
 
 const service = new AuthService({
@@ -46,7 +46,7 @@ const session = new SessionService({
     },
   },
   // Minimal cookie config (defaults to HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=24h)
-  cookie: { name: 'tatchi-jwt' },
+  cookie: { name: 'seams-jwt' },
 });
 
 const app = express();
@@ -77,9 +77,9 @@ app.listen(3000);
 ## Quick Start (Cloudflare Workers)
 
 ```ts
-import { AuthService, SessionService } from '@tatchi-xyz/sdk/server';
-import { createCloudflareRouter } from '@tatchi-xyz/sdk/server/router/cloudflare';
-import signerWasm from '@tatchi-xyz/sdk/server/wasm/signer';
+import { AuthService, SessionService } from '@seams/sdk/server';
+import { createCloudflareRouter } from '@seams/sdk/server/router/cloudflare';
+import signerWasm from '@seams/sdk/server/wasm/signer';
 import jwt from 'jsonwebtoken';
 
 const service = new AuthService({
@@ -102,7 +102,7 @@ const session = new SessionService({
       }
     },
   },
-  cookie: { name: 'tatchi-jwt' },
+  cookie: { name: 'seams-jwt' },
 });
 
 export default {
@@ -167,11 +167,11 @@ const session = new SessionService({
     /* signToken/verifyToken as above */
   },
   cookie: {
-    name: 'tatchi-jwt',
+    name: 'seams-jwt',
     // Customize Set-Cookie attributes (e.g., cross-site):
     buildSetHeader: (token) =>
       [
-        `tatchi-jwt=${token}`,
+        `seams-jwt=${token}`,
         'Path=/',
         'HttpOnly',
         'Secure',
@@ -181,7 +181,7 @@ const session = new SessionService({
       ].join('; '),
     buildClearHeader: () =>
       [
-        'tatchi-jwt=',
+        'seams-jwt=',
         'Path=/',
         'HttpOnly',
         'Secure',
@@ -227,13 +227,13 @@ Cloudflare CORS note
 `signingSessionSeal` routes are opt-in and can be composed with helper builders:
 
 ```ts
-import { createRelayRouter } from '@tatchi-xyz/sdk/server/router/express';
+import { createRelayRouter } from '@seams/sdk/server/router/express';
 import {
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealPolicyFromEcdsaAuthSessionStore,
   createSigningSessionSealShamir3PassCipherAdapter,
   resolveSigningSessionSealRateLimitFromEnv,
-} from '@tatchi-xyz/sdk/server';
+} from '@seams/sdk/server';
 
 const ecdsaAuthSessionStore = /* your threshold-ecdsa auth session store */;
 const signingSessionSeal = createSigningSessionSealRoutesOptions({
@@ -298,7 +298,7 @@ JWT_SECRET=change-me
 JWT_ISSUER=relay
 JWT_AUDIENCE=your-app
 JWT_EXPIRES_SEC=86400
-SESSION_COOKIE_NAME=tatchi-jwt
+SESSION_COOKIE_NAME=seams-jwt
 
 # Optional: override session route paths
 # Session routes are configured in code via router options.

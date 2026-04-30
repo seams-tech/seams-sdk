@@ -9,6 +9,6 @@
     "wrangler": "^4.40.2"
   },
   "dependencies": {
-    "@tatchi-xyz/sdk": "workspace:*"
+    "@seams/sdk": "workspace:*"
   }
 }

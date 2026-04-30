@@ -190,7 +190,7 @@ export function extractBearerCredential(headers: HeaderBag): string | null {
 }
 
 export function extractRelayEnvironmentId(headers: HeaderBag): string | null {
-  const preferred = readHeader(headers, 'x-tatchi-environment-id');
+  const preferred = readHeader(headers, 'x-seams-environment-id');
   if (preferred) return preferred;
   const fallback = readHeader(headers, 'x-environment-id');
   if (fallback) return fallback;

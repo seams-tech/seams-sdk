@@ -5,7 +5,7 @@ const IMPORT_PATHS = {
   clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
   accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
   unifiedDb: '/sdk/esm/core/indexedDB/index.js',
-  linkDevicePreparedEcdsa: '/sdk/esm/core/TatchiPasskey/near/linkDevicePreparedEcdsa.js',
+  linkDevicePreparedEcdsa: '/sdk/esm/core/SeamsPasskey/near/linkDevicePreparedEcdsa.js',
 } as const;
 
 test.describe('link-device prepared ECDSA seeding on device1', () => {

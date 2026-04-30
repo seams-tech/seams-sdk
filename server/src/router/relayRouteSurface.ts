@@ -6,7 +6,7 @@ import {
   type RouteDefinition,
 } from './routeDefinitions';
 
-const RELAY_ROUTE_SURFACE_SYMBOL = Symbol.for('tatchi.relayRouteSurface');
+const RELAY_ROUTE_SURFACE_SYMBOL = Symbol.for('seams.relayRouteSurface');
 
 export interface RelayRouteSurface {
   mePath: string;

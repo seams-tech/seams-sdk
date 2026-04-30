@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  provider: '/sdk/esm/react/context/TatchiPasskeyProvider.js',
+  provider: '/sdk/esm/react/context/SeamsPasskeyProvider.js',
   reactIndex: '/sdk/esm/react/index.js',
   passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
   passkeyAuthMenuController:
@@ -42,7 +42,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const providerMod: any = await import(paths.provider);
         const menuMod: any = await import(paths.passkeyAuthMenu);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
 
         const config = {
@@ -97,7 +97,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const providerMod: any = await import(paths.provider);
         const menuMod: any = await import(paths.passkeyAuthMenu);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
 
         const config = (window as any).__w3a_pam2_config__ || {
@@ -161,7 +161,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
@@ -319,7 +319,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
@@ -399,7 +399,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
@@ -494,7 +494,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
@@ -591,7 +591,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
@@ -689,7 +689,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
@@ -766,7 +766,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           const [inputUsername, setInputUsername] = React.useState('');
           const runtime = React.useMemo(
             () => ({
-              tatchiPasskey: {
+              seamsPasskey: {
                 auth: {
                   getRecentUnlocks: async () => ({ lastUsedAccount: null }),
                 },
@@ -895,7 +895,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const { AuthMenuMode, AuthMenuModeMap } = typesMod;
 
@@ -964,7 +964,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
@@ -1037,7 +1037,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const menuMod: any = await import(paths.passkeyAuthMenu);
         const typesMod: any = await import(paths.authMenuTypes);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const { AuthMenuMode } = typesMod;
 
@@ -1091,8 +1091,8 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         const providerMod: any = await import(paths.provider);
         const reactMod: any = await import(paths.reactIndex);
 
-        const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
-        const { useTatchi } = reactMod;
+        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
+        const { useSeams } = reactMod;
 
         const config = {
           nearNetwork: 'testnet',
@@ -1110,12 +1110,12 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
         ];
 
         function Probe() {
-          const { tatchi } = useTatchi();
+          const { seams } = useSeams();
           React.useEffect(() => {
             (window as any).__authSurface__ = Object.fromEntries(
-              methodNames.map((name) => [name, typeof (tatchi.auth as any)[name]]),
+              methodNames.map((name) => [name, typeof (seams.auth as any)[name]]),
             );
-          }, [tatchi]);
+          }, [seams]);
           return React.createElement('div', { id: 'auth-surface-ready' }, 'ready');
         }
 

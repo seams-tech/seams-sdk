@@ -4,7 +4,7 @@ import type { RelayRouterOptions } from '../relay';
 
 const CORS_ALLOW_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
 const CORS_ALLOW_HEADERS =
-  'Content-Type,Authorization,X-Tatchi-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
+  'Content-Type,Authorization,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id,X-Console-Stripe-Webhook-Secret';
 
 function withCors(res: Response, opts?: RelayRouterOptions, req?: Request): void {
   const pathname = String((req as any)?.path || '').trim();

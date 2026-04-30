@@ -12,8 +12,8 @@ The wallet iframe mounts as a hidden 0×0 element in the parent document. When a
 - Overlay control lives in the wallet iframe client router and its `OnEventsProgressBus`:
   - `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts`
   - `client/src/core/WalletIframe/client/router.ts`
-- Public progress events are emitted by TatchiPasskey flows as v2 `WalletFlowEvent` payloads:
-  - `client/src/core/TatchiPasskey/near/actions.ts`
+- Public progress events are emitted by SeamsPasskey flows as v2 `WalletFlowEvent` payloads:
+  - `client/src/core/SeamsPasskey/near/actions.ts`
   - `client/src/core/signingEngine/touchConfirm/handlers/*`
   - `client/src/core/signingEngine/touchConfirm/handlers/flows/*`
 - Signer workers may emit private transport progress, but that is not consumed by the iframe progress bus unless the SDK maps it into a public `WalletFlowEvent`.
@@ -105,7 +105,7 @@ Notes:
 
 ### (i) Direct `executeAction` from SDK
 
-Even when you call `tatchi.near.executeAction(...)` directly from your app (not from a Lit component), the flow still meets activation without an extra modal click by combining:
+Even when you call `seams.near.executeAction(...)` directly from your app (not from a Lit component), the flow still meets activation without an extra modal click by combining:
 
 1. Overlay activation from v2 event metadata
    - When a signing event carries `interaction.overlay: 'show'`, the `ProgressBus` instructs the router to expand the wallet iframe overlay, so the credential call happens in the wallet document.
@@ -141,7 +141,7 @@ Before merging changes to the progress bus or overlay logic, verify:
 ## When an extra click is required (and for registrations)
 
 - If you run `executeAction` without a recent user gesture (e.g., on page load, or after a long async chain with no new click), browsers may reject WebAuthn with `NotAllowedError` due to missing activation. In such cases:
-  - Switch to `requireClick` behavior: `tatchi.setConfirmationConfig({ uiMode: 'modal', behavior: 'requireClick' })`.
+  - Switch to `requireClick` behavior: `seams.setConfirmationConfig({ uiMode: 'modal', behavior: 'requireClick' })`.
   - Or use a UI element inside the wallet iframe (e.g., `SecureSignTxButton`) so the click lands in the wallet context.
 
 - For registration/link‑device in the wallet‑iframe host context, we enforce explicit click (no auto‑proceed) to guarantee a clean activation for `create()`:
@@ -150,8 +150,8 @@ Before merging changes to the progress bus or overlay logic, verify:
 ## Developer tips
 
 - Pre‑warm to reduce perceived latency before the overlay appears:
-  - `tatchi.prefetchBlockheight()` → caches/refreshes block height/hash/nonce ahead of time.
-  - Sources: `client/src/core/TatchiPasskey/index.ts` and `client/src/core/signingEngine/nonce/NonceCoordinator.ts`.
+  - `seams.prefetchBlockheight()` → caches/refreshes block height/hash/nonce ahead of time.
+  - Sources: `client/src/core/SeamsPasskey/index.ts` and `client/src/core/signingEngine/nonce/NonceCoordinator.ts`.
 
 - Overlay is intentionally invisible but intercepts clicks while active. Keep the overlay up for the minimum time by setting `interaction.overlay: 'show'` only on events that truly need activation.
 

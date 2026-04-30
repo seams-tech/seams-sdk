@@ -3,7 +3,7 @@ import type { WorkerOperationContext } from '../../workerManager/executeWorkerOp
 import type {
   ThresholdEcdsaPresignPoolPolicy,
   ThresholdEcdsaPresignPoolPolicyInput,
-} from '@/core/types/tatchi';
+} from '@/core/types/seams';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { authorizeEcdsaWithSession } from '../../threshold/workflows/authorizeEcdsa';
 import {

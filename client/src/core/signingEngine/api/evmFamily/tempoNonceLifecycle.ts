@@ -30,7 +30,7 @@ export async function reserveManagedTempoNonceForRequest(args: {
   const reservationInput: ReserveNonceInput = {
     chain: 'tempo',
     networkKey: resolveNonceNetworkKey({
-      configs: args.deps.tatchiPasskeyConfigs,
+      configs: args.deps.seamsPasskeyConfigs,
       request: args.request,
     }),
     chainId: args.request.tx.chainId,

@@ -1231,7 +1231,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.addInitScript(() => {
       window.localStorage.setItem(
-        'tatchi-dashboard-ui-state-v1',
+        'seams-dashboard-ui-state-v1',
         JSON.stringify({
           isSidebarExpanded: true,
           expandedGroups: {
@@ -1349,7 +1349,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/login');
     await expect(page.locator('h1')).toHaveText(/sign in with google/i);
     await expect
-      .poll(() => page.evaluate(() => window.localStorage.getItem('tatchi-dashboard-ui-state-v1')))
+      .poll(() => page.evaluate(() => window.localStorage.getItem('seams-dashboard-ui-state-v1')))
       .toBeNull();
   });
 
@@ -1566,7 +1566,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.addInitScript(() => {
       window.localStorage.setItem(
-        'tatchi-dashboard-ui-state-v1',
+        'seams-dashboard-ui-state-v1',
         JSON.stringify({
           isSidebarExpanded: true,
           expandedGroups: {
@@ -1619,7 +1619,7 @@ test.describe('dashboard console config page api wiring', () => {
               orgId: 'org-dev',
               organization: {
                 id: 'org-dev',
-                name: 'tatchi-org-test',
+                name: 'seams-org-test',
                 slug: 'org-dev',
                 status: 'ACTIVE',
                 createdAt: iso('2026-03-08T00:00:00.000Z'),
@@ -1655,7 +1655,7 @@ test.describe('dashboard console config page api wiring', () => {
             ok: true,
             org: {
               id: 'org-dev',
-              name: 'tatchi-org-test',
+              name: 'seams-org-test',
               slug: 'org-dev',
               status: 'ACTIVE',
               createdAt: iso('2026-03-08T00:00:00.000Z'),
@@ -1739,7 +1739,7 @@ test.describe('dashboard console config page api wiring', () => {
             organizations: [
               {
                 id: 'org-dev',
-                name: 'tatchi-org-test',
+                name: 'seams-org-test',
                 slug: 'org-dev',
                 status: 'ACTIVE',
                 createdAt: iso('2026-03-08T00:00:00.000Z'),
@@ -1819,7 +1819,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect
       .poll(() =>
         page.evaluate(() => {
-          const raw = window.localStorage.getItem('tatchi-dashboard-ui-state-v1');
+          const raw = window.localStorage.getItem('seams-dashboard-ui-state-v1');
           const parsed = raw ? JSON.parse(raw) : null;
           return String(parsed?.selectedContext?.environment || '');
         }),
@@ -2109,7 +2109,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.addInitScript(() => {
       window.localStorage.setItem(
-        'tatchi-dashboard-ui-state-v1',
+        'seams-dashboard-ui-state-v1',
         JSON.stringify({
           isSidebarExpanded: true,
           expandedGroups: {
@@ -2480,7 +2480,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.addInitScript(() => {
       window.localStorage.setItem(
-        'tatchi-dashboard-ui-state-v1',
+        'seams-dashboard-ui-state-v1',
         JSON.stringify({
           isSidebarExpanded: true,
           expandedGroups: {
@@ -2836,7 +2836,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.addInitScript(() => {
       window.localStorage.setItem(
-        'tatchi-dashboard-ui-state-v1',
+        'seams-dashboard-ui-state-v1',
         JSON.stringify({
           isSidebarExpanded: true,
           expandedGroups: {
@@ -3210,7 +3210,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.addInitScript(() => {
       window.localStorage.setItem(
-        'tatchi-dashboard-ui-state-v1',
+        'seams-dashboard-ui-state-v1',
         JSON.stringify({
           isSidebarExpanded: true,
           expandedGroups: {
@@ -3866,7 +3866,7 @@ test.describe('dashboard console config page api wiring', () => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
 
     await page.addInitScript(() => {
-      window.localStorage.setItem('tatchi-site-theme', 'dark');
+      window.localStorage.setItem('seams-site-theme', 'dark');
     });
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
@@ -3950,7 +3950,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('[aria-label="Account and Settings options"]')).toBeVisible();
     await expect(page.getByRole('menuitem', { name: /toggle theme/i })).toBeVisible();
     await expect
-      .poll(() => page.evaluate(() => window.localStorage.getItem('tatchi-site-theme')))
+      .poll(() => page.evaluate(() => window.localStorage.getItem('seams-site-theme')))
       .toBe('light');
 
     await page.getByRole('menuitem', { name: /toggle theme/i }).click();
@@ -3959,7 +3959,7 @@ test.describe('dashboard console config page api wiring', () => {
       .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-w3a-theme')))
       .toBe('dark');
     await expect
-      .poll(() => page.evaluate(() => window.localStorage.getItem('tatchi-site-theme')))
+      .poll(() => page.evaluate(() => window.localStorage.getItem('seams-site-theme')))
       .toBe('dark');
   });
 
@@ -3991,7 +3991,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.addInitScript(() => {
       window.localStorage.setItem(
-        'tatchi-dashboard-ui-state-v1',
+        'seams-dashboard-ui-state-v1',
         JSON.stringify({
           isSidebarExpanded: true,
           expandedGroups: {
@@ -4419,7 +4419,7 @@ test.describe('dashboard console config page api wiring', () => {
 
     await page.addInitScript(() => {
       window.localStorage.setItem(
-        'tatchi-dashboard-ui-state-v1',
+        'seams-dashboard-ui-state-v1',
         JSON.stringify({
           isSidebarExpanded: true,
           expandedGroups: {

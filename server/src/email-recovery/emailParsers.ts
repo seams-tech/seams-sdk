@@ -101,7 +101,7 @@ export function parseRecoverEmailRequest(body: unknown): RecoverEmailParseResult
       status: 400,
       code: 'invalid_recovery_email',
       message:
-        'Recovery email must include Subject: recover-v1 <accountId> <sessionId> and a tatchi-recovery-v1 payload line',
+        'Recovery email must include Subject: recover-v1 <accountId> <sessionId> and a seams-recovery-v1 payload line',
     };
   }
   if (parsedArtifact.payload.nearAccountId !== accountId) {

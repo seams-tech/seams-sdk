@@ -4,7 +4,7 @@ import {
   ensureConsoleBillingPostgresSchema,
   ensureConsoleObservabilityPostgresSchema,
   ensureConsoleWebhooksPostgresSchema,
-} from '@tatchi-xyz/sdk/server/router/express';
+} from '@seams/sdk/server/router/express';
 
 dotenv.config({ path: '.env' });
 

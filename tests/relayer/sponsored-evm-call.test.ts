@@ -663,7 +663,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -775,7 +775,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -824,7 +824,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -873,7 +873,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -950,7 +950,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1034,7 +1034,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1124,7 +1124,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1210,7 +1210,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1258,7 +1258,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1280,7 +1280,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1348,7 +1348,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify(requestBody),
@@ -1358,7 +1358,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify(requestBody),
@@ -1408,7 +1408,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1421,7 +1421,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1474,7 +1474,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: 'Bearer pk_liveinvalid',
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify(requestBody),
@@ -1488,7 +1488,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: blockedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify(requestBody),
@@ -1523,7 +1523,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1571,7 +1571,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1622,7 +1622,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1670,7 +1670,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1744,7 +1744,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1815,7 +1815,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify(requestBody),
@@ -1825,7 +1825,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify(requestBody),
@@ -1864,7 +1864,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({
@@ -1911,7 +1911,7 @@ test.describe('sponsored evm call route', () => {
         headers: {
           authorization: `Bearer ${key.secret}`,
           origin: allowedOrigin,
-          'x-tatchi-environment-id': environmentId,
+          'x-seams-environment-id': environmentId,
           'content-type': 'application/json',
         },
         body: JSON.stringify({

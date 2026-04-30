@@ -20,7 +20,7 @@ export default [
       '**/test-results/**',
       'wasm/**/pkg/**',
       'wasm/**/target/**',
-      'examples/tatchi-site/public/**',
+      'examples/seams-site/public/**',
     ],
   },
 

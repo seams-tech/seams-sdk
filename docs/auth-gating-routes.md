@@ -716,7 +716,7 @@ Remove misleading secret-key scopes and align the UI with the real route surface
 
 Deliverables:
 
-- update API key scope definitions in `examples/tatchi-site/src/pages/dashboard/routes/api-keys/page.tsx`
+- update API key scope definitions in `examples/seams-site/src/pages/dashboard/routes/api-keys/page.tsx`
 - update machine scope enforcement in:
   - `server/src/console/apiKeys/service.ts`
   - `server/src/console/apiKeys/postgres.ts`

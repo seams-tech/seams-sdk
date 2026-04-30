@@ -30,7 +30,7 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     let cancelChecks = 0;
 
     const handlers = createWalletIframeHandlers({
-      getTatchiPasskey: () =>
+      getSeamsPasskey: () =>
         ({
           tempo: {
             signTempo: async () => {
@@ -61,7 +61,7 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     let signCalls = 0;
 
     const handlers = createWalletIframeHandlers({
-      getTatchiPasskey: () =>
+      getSeamsPasskey: () =>
         ({
           tempo: {
             signTempo: async (args: any) => {

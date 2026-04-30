@@ -12,8 +12,8 @@ import { resolvePrimaryExplorerUrl } from '@/core/config/chains';
 import type {
   ThemeName,
   ThemeTokenOverridesInput,
-  TatchiConfigsReadonly,
-} from '@/core/types/tatchi';
+  SeamsConfigsReadonly,
+} from '@/core/types/seams';
 import { createTouchConfirmManager } from '../touchConfirm/TouchConfirmManager';
 import type { TouchConfirmRuntimeBridgePort } from '../touchConfirm/types';
 import { TouchIdPrompt } from '../signers/webauthn/prompt/touchIdPrompt';
@@ -30,17 +30,17 @@ export type ManagerAssembly = {
 };
 
 export function createManagerAssembly(args: {
-  tatchiPasskeyConfigs: TatchiConfigsReadonly;
+  seamsPasskeyConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   getTheme: () => ThemeName;
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
 }): ManagerAssembly {
   const touchIdPrompt = new TouchIdPrompt(
-    args.tatchiPasskeyConfigs.wallet.iframe?.rpIdOverride,
+    args.seamsPasskeyConfigs.wallet.iframe?.rpIdOverride,
     true,
   );
   const userPreferencesManager = UserPreferencesInstance;
-  const chains = args.tatchiPasskeyConfigs.network.chains;
+  const chains = args.seamsPasskeyConfigs.network.chains;
   const evmNonceBackend = createEvmNonceBackend({
     chains,
   });
@@ -59,16 +59,16 @@ export function createManagerAssembly(args: {
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');
   const evmExplorerUrl = resolvePrimaryExplorerUrl(chains, 'evm');
   const isSealedRefreshMode =
-    args.tatchiPasskeyConfigs.signing.sessionPersistenceMode === 'sealed_refresh_v1';
+    args.seamsPasskeyConfigs.signing.sessionPersistenceMode === 'sealed_refresh_v1';
 
   const touchConfirm: TouchConfirmRuntimeBridgePort = createTouchConfirmManager(
     {
-      signingSessionPersistenceMode: args.tatchiPasskeyConfigs.signing.sessionPersistenceMode,
+      signingSessionPersistenceMode: args.seamsPasskeyConfigs.signing.sessionPersistenceMode,
       ...(isSealedRefreshMode
         ? {
-            signingSessionSealKeyVersion: args.tatchiPasskeyConfigs.signing.sessionSeal.keyVersion,
+            signingSessionSealKeyVersion: args.seamsPasskeyConfigs.signing.sessionSeal.keyVersion,
             signingSessionSealShamirPrimeB64u:
-              args.tatchiPasskeyConfigs.signing.sessionSeal.shamirPrimeB64u,
+              args.seamsPasskeyConfigs.signing.sessionSeal.shamirPrimeB64u,
           }
         : {}),
     },
@@ -93,9 +93,9 @@ export function createManagerAssembly(args: {
     args.nearClient,
     userPreferencesManager,
     nonceCoordinator,
-    args.tatchiPasskeyConfigs.network.relayer.url,
+    args.seamsPasskeyConfigs.network.relayer.url,
     chains,
-    args.tatchiPasskeyConfigs.wallet.iframe?.rpIdOverride,
+    args.seamsPasskeyConfigs.wallet.iframe?.rpIdOverride,
     true,
     nearExplorerUrl,
     tempoExplorerUrl,

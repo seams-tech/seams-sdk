@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';
-import { persistLinkDeviceThresholdEcdsaBootstrap } from '@/core/TatchiPasskey/evm/linkDeviceThresholdEcdsa';
+import { persistLinkDeviceThresholdEcdsaBootstrap } from '@/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa';
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/orchestration/thresholdActivation';
 import type { ThresholdEcdsaSessionStoreSource } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
@@ -121,7 +121,7 @@ function createExportTestEngine() {
   const engine: any = Object.create(SigningEngine.prototype);
 
   ensureSessionStorage().clear();
-  engine.tatchiPasskeyConfigs = {
+  engine.seamsPasskeyConfigs = {
     network: {
       relayer: {
         url: RELAYER_URL,

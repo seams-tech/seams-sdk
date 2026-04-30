@@ -171,7 +171,7 @@ async function executeEvmTransactionSigning(args: {
       error,
       chain: 'evm',
       networkKey: resolveNonceNetworkKeyForError({
-        configs: args.deps.tatchiPasskeyConfigs,
+        configs: args.deps.seamsPasskeyConfigs,
         request: args.request,
       }),
       chainId: args.request.tx.chainId,
@@ -243,7 +243,7 @@ async function executeTempoTransactionSigning(args: {
       error,
       chain: 'tempo',
       networkKey: resolveNonceNetworkKeyForError({
-        configs: args.deps.tatchiPasskeyConfigs,
+        configs: args.deps.seamsPasskeyConfigs,
         request: args.request,
       }),
       chainId: args.request.tx.chainId,

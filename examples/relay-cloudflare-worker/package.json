@@ -10,7 +10,7 @@
     "@types/jsonwebtoken": "^9.0.6"
   },
   "dependencies": {
-    "@tatchi-xyz/sdk": "workspace:*",
+    "@seams/sdk": "workspace:*",
     "jsonwebtoken": "^9.0.2"
   }
 }

@@ -12,7 +12,7 @@ import type {
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { NearTransactionsWithActionsPayload } from '../interfaces/near';
-import type { SignTransactionResult } from '@/core/types/tatchi';
+import type { SignTransactionResult } from '@/core/types/seams';
 import type { TransactionInputWasm } from '@/core/types/actions';
 import {
   SENSITIVE_OPERATION_POLICIES,

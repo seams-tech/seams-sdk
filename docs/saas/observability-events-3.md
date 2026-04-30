@@ -196,7 +196,7 @@ The dashboard should stop amplifying noise and load by draining every event page
 
 Deliverables:
 
-- update `examples/tatchi-site/src/pages/dashboard/routes/observability/page.tsx`
+- update `examples/seams-site/src/pages/dashboard/routes/observability/page.tsx`
 - keep `consoleObservabilityApi.ts` simple and paginated
 
 ### Phase 7. Delete legacy noisy data and code
@@ -228,8 +228,8 @@ Because we are in development, we should clean this up as if the old approach ne
 - `server/src/console/observability/types.ts`
 - `server/src/console/observability/postgres.ts`
 - `server/src/console/observability/requests.ts`
-- `examples/tatchi-site/src/pages/dashboard/routes/observability/page.tsx`
-- `examples/tatchi-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
+- `examples/seams-site/src/pages/dashboard/routes/observability/page.tsx`
+- `examples/seams-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
 - `tests/relayer/console-router.test.ts`
 - `tests/relayer/console-observability.ingestion.test.ts`
 - `docs/observability-events-3.md`

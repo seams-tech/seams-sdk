@@ -1,4 +1,4 @@
-import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
+import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { joinNormalizedUrl, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 import { normalizeSmartAccountDeploymentAttempts } from './smartAccountNormalization';
 import type {
@@ -13,7 +13,7 @@ export type SmartAccountDeploymentTransport = {
   thresholdSessionJwt: string;
 };
 
-function resolveSmartAccountDeployEndpoint(configs: TatchiConfigsReadonly): string {
+function resolveSmartAccountDeployEndpoint(configs: SeamsConfigsReadonly): string {
   const relayerUrl = String(configs.network.relayer?.url || '').trim();
   if (!relayerUrl) {
     throw new Error('[deployment] missing relayer url (configs.network.relayer.url)');
@@ -29,14 +29,14 @@ function resolveSmartAccountDeployEndpoint(configs: TatchiConfigsReadonly): stri
 }
 
 export function resolveSmartAccountDeploymentMode(
-  configs: TatchiConfigsReadonly,
+  configs: SeamsConfigsReadonly,
 ): 'observe' | 'enforce' {
   return configs.network.relayer?.smartAccountDeployment?.mode === 'enforce'
     ? 'enforce'
     : 'observe';
 }
 
-export function resolveSmartAccountDeploymentMaxAttempts(configs: TatchiConfigsReadonly): number {
+export function resolveSmartAccountDeploymentMaxAttempts(configs: SeamsConfigsReadonly): number {
   return normalizeSmartAccountDeploymentAttempts(
     configs.network.relayer?.smartAccountDeployment?.maxAttempts,
     2,
@@ -119,7 +119,7 @@ async function fetchCanonicalSmartAccountDeploymentManifest(input: {
 }
 
 export async function deploySmartAccountForChain(
-  configs: TatchiConfigsReadonly,
+  configs: SeamsConfigsReadonly,
   input: SmartAccountDeployerInput,
   transport: SmartAccountDeploymentTransport,
 ): Promise<SmartAccountDeployerResult> {

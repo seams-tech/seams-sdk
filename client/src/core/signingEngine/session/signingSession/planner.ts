@@ -1,4 +1,4 @@
-import type { SensitiveOperationPolicy } from '@/core/types/tatchi';
+import type { SensitiveOperationPolicy } from '@/core/types/seams';
 import type {
   BackingMaterialSessionId,
   SigningLaneContext,

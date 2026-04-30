@@ -8,13 +8,13 @@ node_modules
 **/.env
 **/.env.*
 
-examples/tatchi-docs/certs
+examples/seams-docs/certs
 
-examples/tatchi-docs/public
-examples/tatchi-docs/dist
-examples/tatchi-docs/docs/dist
-examples/tatchi-docs/src/.vitepress/cache
-examples/tatchi-site/.caddy.log
+examples/seams-docs/public
+examples/seams-docs/dist
+examples/seams-docs/docs/dist
+examples/seams-docs/src/.vitepress/cache
+examples/seams-site/.caddy.log
 
 examples/.vitepress-cache/
 

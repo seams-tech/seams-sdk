@@ -26,7 +26,7 @@ Atomically create a NEAR account and register a WebAuthn authenticator in relay 
 - When `RELAY_API_KEY_AUTH_ENABLED=1` (default in example), this route requires:
   - `Authorization: Bearer <secret_key>`
   - API key scope `accounts.create`
-  - Optional environment bind header `X-Tatchi-Environment-Id: <environment-id>` (rejects mismatched key/environment)
+  - Optional environment bind header `X-Seams-Environment-Id: <environment-id>` (rejects mismatched key/environment)
 
 This route is consumed internally by the SDK’s registration flows.
 
@@ -72,7 +72,7 @@ The route itself is generic, but the active runtime snapshot seeds a default `Te
   ```
 - Required headers:
   - `Authorization: Bearer <publishable_key>`
-  - `X-Tatchi-Environment-Id: <environment-id>`
+  - `X-Seams-Environment-Id: <environment-id>`
 - Behavior:
   - authenticates the publishable key against origin + environment
   - loads the latest runtime snapshot for the environment
@@ -438,13 +438,13 @@ Migrate an existing single-DB setup into split signer/console databases:
 
 ```bash
 # source monolith DB (required)
-MONOLITH_POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams
+MONOLITH_POSTGRES_URL=postgresql://seams:seams@127.0.0.1:5432/seams
 
 # target signer DB (required; migration URL preferred)
-POSTGRES_MIGRATION_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams_signer
+POSTGRES_MIGRATION_URL=postgresql://seams:seams@127.0.0.1:5432/seams_signer
 
 # target console DB (required; migration URL preferred)
-CONSOLE_POSTGRES_MIGRATION_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams_console
+CONSOLE_POSTGRES_MIGRATION_URL=postgresql://seams:seams@127.0.0.1:5432/seams_console
 
 # optional:
 # SPLIT_MIGRATION_CREATE_DATABASES=1   # default 1, auto-create target DBs if missing
@@ -456,13 +456,13 @@ pnpm run postgres:migrate:split-from-monolith
 After migration, set runtime URLs to the split DBs:
 
 ```bash
-POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams_signer
-CONSOLE_POSTGRES_URL=postgresql://tatchi:tatchi@127.0.0.1:5432/seams_console
+POSTGRES_URL=postgresql://seams:seams@127.0.0.1:5432/seams_signer
+CONSOLE_POSTGRES_URL=postgresql://seams:seams@127.0.0.1:5432/seams_console
 ```
 
 Bootstrap/verify scripts support optional env overrides for non-default local role/db names:
 
-- `POSTGRES_BOOTSTRAP_ADMIN_USER` (default: `tatchi`)
+- `POSTGRES_BOOTSTRAP_ADMIN_USER` (default: `seams`)
 - `POSTGRES_BOOTSTRAP_HOST` (default: `127.0.0.1`)
 - `POSTGRES_BOOTSTRAP_PORT` (default: `5432`)
 - `SIGNER_DB_NAME`, `SIGNER_RUNTIME_USER`, `SIGNER_RUNTIME_PASSWORD`, `SIGNER_MIGRATOR_USER`, `SIGNER_MIGRATOR_PASSWORD`
@@ -525,7 +525,7 @@ Example (cookie session from `/session/exchange`):
 
 ```bash
 curl -s http://localhost:3001/console/session \
-  -H "Cookie: tatchi-jwt=<app_session_jwt>"
+  -H "Cookie: seams-jwt=<app_session_jwt>"
 ```
 
 ### Coordinator Continuity Config (ECDSA Presign Sessions)

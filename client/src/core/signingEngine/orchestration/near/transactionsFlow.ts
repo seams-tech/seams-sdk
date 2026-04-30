@@ -79,7 +79,7 @@ import {
   emitSigningBoundaryTrace,
   emitSigningPlannerDecisionTrace,
 } from '../../session/signingSession/trace';
-import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
+import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type {
   SigningSessionBudgetStatusAuth,
   SigningSessionPreparedBudgetIdentity,
@@ -193,7 +193,7 @@ export async function signTransactionsWithActions({
   signerSlot,
   emailOtpSigning,
   signingOperationId: providedSigningOperationId,
-  signingSessionCoordinator: sessionCoordinator,
+  signingSessionCoordinator: sessionCoordinator = new SigningSessionCoordinator(),
   budgetIdentity: providedBudgetIdentity,
   finalizePreparedSigningSession,
   ed25519Warmup,
@@ -213,7 +213,7 @@ export async function signTransactionsWithActions({
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
   signingOperationId?: SigningOperationId;
-  signingSessionCoordinator: SigningSessionCoordinator;
+  signingSessionCoordinator?: SigningSessionCoordinator;
   budgetIdentity?: SigningSessionPreparedBudgetIdentity;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   ed25519Warmup?: NearEd25519WarmupHook;

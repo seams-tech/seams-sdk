@@ -1,4 +1,4 @@
-import type { ActionResult } from './tatchi';
+import type { ActionResult } from './seams';
 import type { AfterCall, EventCallback, LinkDeviceFlowEvent } from './sdkSentEvents';
 import { LinkDeviceEventPhase } from './sdkSentEvents';
 import { AccountId } from './accountIds';

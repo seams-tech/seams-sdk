@@ -1,6 +1,6 @@
 import React from 'react';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
-import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
+import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import {
   AuthMenuMode,
   AuthMenuModeMap,

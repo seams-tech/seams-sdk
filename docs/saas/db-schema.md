@@ -67,7 +67,7 @@ Reason:
 ### Local development connection anchor
 
 - Current local cluster connection:
-  - `postgresql://tatchi:tatchi@127.0.0.1/seams?statusColor=686B6F&env=local&name=seams&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
+  - `postgresql://seams:seams@127.0.0.1/seams?statusColor=686B6F&env=local&name=seams&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
 - Planned logical DB targets on the same cluster:
   - `seams_signer`
   - `seams_console`

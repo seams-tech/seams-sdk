@@ -217,7 +217,7 @@ type SealedSigningSessionRecord = {
 
 IndexedDB keying:
 
-1. database: existing wallet iframe client database, or `tatchi_wallet_v1` if a new database is required
+1. database: existing wallet iframe client database, or `seams_wallet_v1` if a new database is required
 2. object store: `signing_session_seals_v1`
 3. primary key: `walletSigningSessionId`
 4. indexes: `walletId`, `userId`, `authMethod`, `signingRootId`, `expiresAtMs`
@@ -347,7 +347,7 @@ Passkey derivation:
 ```text
 PRF.first
   -> HKDF(
-       domain = "tatchi/passkey/signing-session-secret/v1",
+       domain = "seams/passkey/signing-session-secret/v1",
        fields = [
          wallet_id,
          user_id,
@@ -365,7 +365,7 @@ Email OTP derivation:
 ```text
 S
   -> HKDF(
-       domain = "tatchi/email-otp/signing-session-secret/v1",
+       domain = "seams/email-otp/signing-session-secret/v1",
        fields = [
          wallet_id,
          user_id,
@@ -409,7 +409,7 @@ These derivations use the canonical `encode_tuple` field encoding from the Email
 session_restore_root =
   HKDF-SHA-256(
     ikm=K,
-    salt="tatchi/signing-session/restore-root/v1",
+    salt="seams/signing-session/restore-root/v1",
     info=encode_tuple([
       auth_method,
       wallet_id,
@@ -423,7 +423,7 @@ session_restore_root =
 ed25519_restore_seed32 =
   HKDF-SHA-256(
     ikm=session_restore_root,
-    salt="tatchi/signing-session/threshold-ed25519/v1",
+    salt="seams/signing-session/threshold-ed25519/v1",
     info=encode_tuple([
       ed25519_threshold_session_id,
       sorted_participant_ids,
@@ -434,7 +434,7 @@ ed25519_restore_seed32 =
 ecdsa_restore_client_root_share32 =
   HKDF-SHA-256(
     ikm=session_restore_root,
-    salt="tatchi/signing-session/threshold-ecdsa-client-root/v1",
+    salt="seams/signing-session/threshold-ecdsa-client-root/v1",
     info=encode_tuple([
       ecdsa_threshold_session_id,
       ecdsa_threshold_key_id,
@@ -865,15 +865,15 @@ Code paths affected by this refactor:
 2. route planning and route selection:
    - `client/src/core/signingEngine/emailOtp/authLane.ts`
    - `client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts`
-   - `client/src/core/TatchiPasskey/emailOtp.ts`
+   - `client/src/core/SeamsPasskey/emailOtp.ts`
 3. transaction signing dependency surfaces:
    - `client/src/core/signingEngine/api/nearSigning.ts`
    - `client/src/core/signingEngine/api/evmSigning.ts`
    - `client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts`
    - `client/src/core/signingEngine/SigningEngine.ts`
 4. public SDK and iframe surfaces:
-   - `client/src/core/TatchiPasskey/index.ts`
-   - `client/src/core/TatchiPasskey/interfaces.ts`
+   - `client/src/core/SeamsPasskey/index.ts`
+   - `client/src/core/SeamsPasskey/interfaces.ts`
    - `client/src/core/WalletIframe/shared/messages.ts`
    - `client/src/core/WalletIframe/client/router.ts`
 5. Email OTP worker operation surfaces:

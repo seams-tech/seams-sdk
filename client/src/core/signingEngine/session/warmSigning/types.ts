@@ -1,5 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { SigningSessionStatus } from '@/core/types/tatchi';
+import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';

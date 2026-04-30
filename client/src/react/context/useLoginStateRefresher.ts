@@ -1,23 +1,23 @@
 import { useCallback, useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import type { SeamsPasskey } from '@/core/SeamsPasskey';
 import { toAccountId } from '@/core/types/accountIds';
-import type { LoginState, TatchiContextType } from '../types';
+import type { LoginState, SeamsContextType } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function useLoginStateRefresher(args: {
-  tatchi: TatchiPasskey;
+  seams: SeamsPasskey;
   walletIframeConnected: boolean;
   setLoginState: Dispatch<SetStateAction<LoginState>>;
 }) {
-  const { tatchi, walletIframeConnected, setLoginState } = args;
+  const { seams, walletIframeConnected, setLoginState } = args;
 
-  const refreshLoginState: TatchiContextType['refreshLoginState'] = useCallback(
+  const refreshLoginState: SeamsContextType['refreshLoginState'] = useCallback(
     async (nearAccountId?: string) => {
       try {
         if (walletIframeConnected) {
           try {
-            const session = await tatchi.auth.getWalletSession();
+            const session = await seams.auth.getWalletSession();
             const { login: st } = session;
             if (isWalletSessionReadyForUi({ session })) {
               setLoginState((prevState) => ({
@@ -34,12 +34,12 @@ export function useLoginStateRefresher(args: {
           } catch {}
         }
 
-        const session = await tatchi.auth.getWalletSession(nearAccountId);
+        const session = await seams.auth.getWalletSession(nearAccountId);
         const { login: ls } = session;
         if (isWalletSessionReadyForUi({ session })) {
           if (ls.nearAccountId) {
             try {
-              tatchi.preferences.setCurrentUser(toAccountId(ls.nearAccountId));
+              seams.preferences.setCurrentUser(toAccountId(ls.nearAccountId));
             } catch {}
           }
           setLoginState((prevState) => ({
@@ -66,7 +66,7 @@ export function useLoginStateRefresher(args: {
         console.error('Error refreshing login state:', error);
       }
     },
-    [setLoginState, tatchi, walletIframeConnected],
+    [setLoginState, seams, walletIframeConnected],
   );
 
   useEffect(() => {

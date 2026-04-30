@@ -62,7 +62,7 @@ Expected R2 outputs:
 npm publish remains manual:
 
 ```bash
-npm login --scope=@tatchi-xyz --registry=https://registry.npmjs.org
+npm login --scope=@seams-xyz --registry=https://registry.npmjs.org
 pnpm install --frozen-lockfile
 pnpm build:sdk-prod
 cd sdk
@@ -72,7 +72,7 @@ npm publish --access public
 Verify:
 
 ```bash
-npm view @tatchi-xyz/sdk version
+npm view @seams/sdk version
 ```
 
 ## Deploy Hosted Surfaces
@@ -114,7 +114,7 @@ SDK runtime:
 npm:
 
 ```bash
-npm deprecate @tatchi-xyz/sdk@X.Y.Z "Use X.Y.Z+1"
+npm deprecate @seams/sdk@X.Y.Z "Use X.Y.Z+1"
 ```
 
 Use `npm unpublish` only inside npm's allowed unpublish window and only when

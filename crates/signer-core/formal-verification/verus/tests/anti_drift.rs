@@ -30,11 +30,11 @@ const ED25519_FIXTURE_FORMAT_VERSION: &str = "signer-core-near-threshold-ed25519
 const ED25519_FIXTURE_CORPUS_JSON: &str =
     include_str!("../../fixtures/near_threshold_ed25519_v1.json");
 const THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1: &[u8] =
-    b"tatchi/lite/threshold-secp256k1-ecdsa/relayer-share:v1";
+    b"seams/lite/threshold-secp256k1-ecdsa/relayer-share:v1";
 const EVM_SECP256K1_PRF_SECOND_HKDF_INFO_V1: &[u8] = b"secp256k1-signing-key-dual-prf-v1";
 const EVM_SECP256K1_PRF_SECOND_SALT_PREFIX_V1: &str = "evm-key-derivation:";
 const THRESHOLD_ED25519_CLIENT_SHARE_SALT_V1: &[u8] =
-    b"tatchi/lite/threshold-ed25519/client-share:v1";
+    b"seams/lite/threshold-ed25519/client-share:v1";
 const SECP256K1_ORDER_HEX: &str =
     "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
 

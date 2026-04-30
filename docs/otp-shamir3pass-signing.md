@@ -452,7 +452,7 @@ Rules:
 threshold_root =
   HKDF-SHA-256(
     ikm=S,
-    salt="tatchi/email-otp/root/v1",
+    salt="seams/email-otp/root/v1",
     info=encode_tuple([wallet_id])
   )
 ```
@@ -470,7 +470,7 @@ First release:
 ecdsa_client_share_seed =
   HKDF-SHA-256(
     ikm=threshold_root,
-    salt="tatchi/email-otp/threshold-client-share/v1",
+    salt="seams/email-otp/threshold-client-share/v1",
     info=encode_tuple([user_id, derivation_path])
   )
 ```
@@ -481,7 +481,7 @@ ecdsa_client_share_seed =
 unlock_auth_seed =
   HKDF-SHA-256(
     ikm=threshold_root,
-    salt="tatchi/email-otp/unlock-auth/v1",
+    salt="seams/email-otp/unlock-auth/v1",
     info=encode_tuple([wallet_id])
   )
 unlock_signing_key = DeterministicKey(unlock_auth_seed)
@@ -1006,7 +1006,7 @@ The implementation must preserve these invariants:
 
 50. focused tests have been updated to assert the new public surface:
 
-- `TatchiPasskey/emailOtp.ts` covers public challenge/verify helpers and worker-dispatched enrollment
+- `SeamsPasskey/emailOtp.ts` covers public challenge/verify helpers and worker-dispatched enrollment
 - `SigningEngine` covers worker-only login plus bootstrap
 - relayer integration covers the worker-owned bootstrap route shape without production main-thread helper exports
 
@@ -1032,7 +1032,7 @@ The implementation must preserve these invariants:
 
 The latest focused audit leaves these concrete residuals:
 
-1. [emailOtp.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/emailOtp.ts) is now a facade and dispatch boundary:
+1. [emailOtp.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/emailOtp.ts) is now a facade and dispatch boundary:
    - non-secret challenge and verify helpers remain public
    - secret-bearing enrollment requires the dedicated `emailOtp` worker
    - login plus ECDSA bootstrap is worker-only through `SigningEngine`
@@ -1125,13 +1125,13 @@ The current core OTP lifecycle work is complete enough that the remaining effort
 
 1. focused Email OTP derivation and lifecycle tests pass:
    - `tests/unit/emailOtpDerivation.unit.test.ts`
-   - `tests/unit/tatchiPasskey.emailOtp.unit.test.ts`
+   - `tests/unit/seamsPasskey.emailOtp.unit.test.ts`
    - `tests/unit/thresholdEcdsa.presignPoolRefill.unit.test.ts`
 2. broader OTP-adjacent unit coverage passes:
    - `tests/unit/warmSessionManager.emailOtpPolicy.unit.test.ts`
    - `tests/unit/configs.emailOtpAuthPolicy.test.ts`
    - `tests/unit/signingEngine.emailOtpBootstrap.unit.test.ts`
-   - `tests/unit/tatchiPasskey.loginThresholdWarm.unit.test.ts`
+   - `tests/unit/seamsPasskey.loginThresholdWarm.unit.test.ts`
 3. indirect OTP-adjacent UI and capability-resolution coverage passes:
    - `tests/unit/warmSessionManager.capabilityResolution.unit.test.ts`
    - `tests/unit/passkeyAuthMenu.fouc.unit.test.ts`
@@ -1151,7 +1151,7 @@ The current core OTP lifecycle work is complete enough that the remaining effort
    - prepare/finalize validation relies on the persisted integrated ECDSA key binding instead of a redundant client-supplied verifier hint
 7. the focused post-change validation was rerun after the dedicated-worker full-bootstrap shift, the public string-secret runtime cleanup, the `email_otp_runtime` derivation move, the final production compatibility-path deletion, and the test-only JS derivation quarantine, and still passes:
    - `pnpm -C sdk exec tsc --noEmit -p tsconfig.build.json`
-   - `pnpm -C tests exec playwright test unit/emailOtpDerivation.unit.test.ts unit/tatchiPasskey.emailOtp.unit.test.ts unit/signingEngine.emailOtpBootstrap.unit.test.ts --reporter=line --workers=1`
+   - `pnpm -C tests exec playwright test unit/emailOtpDerivation.unit.test.ts unit/seamsPasskey.emailOtp.unit.test.ts unit/signingEngine.emailOtpBootstrap.unit.test.ts --reporter=line --workers=1`
    - `pnpm -C tests exec playwright test -c playwright.relayer.config.ts ./relayer/email-otp.bootstrap-integration.test.ts --reporter=line --workers=1`
    - `tests/e2e/emailOtp.thresholdEcdsa.tempoSigning.test.ts`
    - `pnpm -C sdk run build:prepare`

@@ -34,9 +34,9 @@ import {
 import type {
   EmailOtpAuthPolicy,
   SigningSessionStatus,
-  TatchiConfigsReadonly,
+  SeamsConfigsReadonly,
   ThemeName,
-} from '../types/tatchi';
+} from '../types/seams';
 import type { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '../types';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -238,7 +238,7 @@ import {
   createOrchestrationDependencyBundle,
   type OrchestrationDependencyBundle,
 } from './bootstrap/orchestrationDependencyFactory';
-import { enrollEmailOtpWallet } from '../TatchiPasskey/emailOtp';
+import { enrollEmailOtpWallet } from '../SeamsPasskey/emailOtp';
 import { persistWarmSessionEd25519Capability } from './session/warmSigning/persistence';
 import {
   createEmailOtpWalletAuthAdapter,
@@ -446,13 +446,13 @@ export class SigningEngine {
   private sealedRefreshStartupParityError: Error | null = null;
   private readonly orchestrationDeps: OrchestrationDependencyBundle;
 
-  readonly tatchiPasskeyConfigs: TatchiConfigsReadonly;
+  readonly seamsPasskeyConfigs: SeamsConfigsReadonly;
 
-  constructor(tatchiPasskeyConfigs: TatchiConfigsReadonly, nearClient: NearClient) {
-    this.tatchiPasskeyConfigs = tatchiPasskeyConfigs;
+  constructor(seamsPasskeyConfigs: SeamsConfigsReadonly, nearClient: NearClient) {
+    this.seamsPasskeyConfigs = seamsPasskeyConfigs;
     this.nearClient = nearClient;
     this.sealedRefreshStartupParityPromise = verifySealedRefreshStartupParity({
-      configs: this.tatchiPasskeyConfigs,
+      configs: this.seamsPasskeyConfigs,
     }).catch((error: unknown) => {
       this.sealedRefreshStartupParityError =
         error instanceof Error
@@ -461,10 +461,10 @@ export class SigningEngine {
     });
 
     const assembly = createManagerAssembly({
-      tatchiPasskeyConfigs: this.tatchiPasskeyConfigs,
+      seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       nearClient: this.nearClient,
       getTheme: () => this.theme,
-      getAppearanceTokens: () => this.tatchiPasskeyConfigs.ui.appearance?.tokens,
+      getAppearanceTokens: () => this.seamsPasskeyConfigs.ui.appearance?.tokens,
     });
 
     this.touchIdPrompt = assembly.touchIdPrompt;
@@ -472,7 +472,7 @@ export class SigningEngine {
     this.nonceCoordinator = assembly.nonceCoordinator;
     this.signerWorkerManager = assembly.signerWorkerManager;
     this.emailOtpSessions = new EmailOtpThresholdSessionCoordinator({
-      configs: this.tatchiPasskeyConfigs,
+      configs: this.seamsPasskeyConfigs,
       signerWorkerManager: this.signerWorkerManager,
       touchIdPrompt: this.touchIdPrompt,
       requestUserConfirmation: (request) => this.touchConfirm.requestUserConfirmation(request),
@@ -491,7 +491,7 @@ export class SigningEngine {
     this.touchConfirm = this.createWarmSessionAwareTouchConfirm(assembly.touchConfirm);
 
     this.orchestrationDeps = createOrchestrationDependencyBundle({
-      tatchiPasskeyConfigs: this.tatchiPasskeyConfigs,
+      seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       nearClient: this.nearClient,
       touchIdPrompt: this.touchIdPrompt,
       userPreferencesManager: this.userPreferencesManager,
@@ -559,7 +559,7 @@ export class SigningEngine {
     });
 
     initializeRuntimeBootstrap({
-      tatchiPasskeyConfigs: this.tatchiPasskeyConfigs,
+      seamsPasskeyConfigs: this.seamsPasskeyConfigs,
       userPreferencesManager: this.userPreferencesManager,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       setWorkerBaseOrigin: (origin: string) => {
@@ -1017,7 +1017,7 @@ export class SigningEngine {
   private createWarmSessionCapabilityReader() {
     return createWarmSessionCapabilityReader({
       touchConfirm: this.touchConfirm,
-      signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
+      signingSessionSeal: this.seamsPasskeyConfigs.signing.sessionSeal,
       listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
         this.listThresholdEcdsaSessionRecordsForLookup({
           nearAccountId,
@@ -3086,6 +3086,7 @@ export class SigningEngine {
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
     sessionId?: string;
+    walletSigningSessionId?: string;
     ttlMs?: number;
     remainingUses?: number;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -3207,13 +3208,13 @@ export class SigningEngine {
   }): Promise<Awaited<ReturnType<typeof enrollEmailOtpWallet>>> {
     const nearAccountId = toAccountId(args.nearAccountId);
     const relayUrl = String(
-      args.relayUrl || this.tatchiPasskeyConfigs.network.relayer?.url || '',
+      args.relayUrl || this.seamsPasskeyConfigs.network.relayer?.url || '',
     ).trim();
     if (!relayUrl) {
       throw new Error('Missing relayer url (configs.network.relayer.url)');
     }
     const shamirPrimeB64u = String(
-      args.shamirPrimeB64u || this.tatchiPasskeyConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
+      args.shamirPrimeB64u || this.seamsPasskeyConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
     ).trim();
     if (!shamirPrimeB64u) {
       throw new Error('Missing shamir prime for Email OTP runtime');
@@ -3502,7 +3503,7 @@ export class SigningEngine {
   ): Promise<ProvisionWarmEd25519CapabilityResult> {
     const nearAccountId = toAccountId(args.nearAccountId);
     const relayerUrl = String(
-      args.relayerUrl || this.tatchiPasskeyConfigs.network.relayer?.url || '',
+      args.relayerUrl || this.seamsPasskeyConfigs.network.relayer?.url || '',
     ).trim();
     if (!relayerUrl) {
       throw new Error('Missing relayer url (configs.network.relayer.url)');
@@ -3547,7 +3548,7 @@ export class SigningEngine {
       },
       {
         ...args,
-        signingSessionSeal: this.tatchiPasskeyConfigs.signing.sessionSeal,
+        signingSessionSeal: this.seamsPasskeyConfigs.signing.sessionSeal,
       },
     );
   }
@@ -3867,7 +3868,7 @@ export class SigningEngine {
         getSignerWorkerContext: () =>
           this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
         thresholdEcdsaPresignPoolPolicy:
-          this.tatchiPasskeyConfigs.signing.thresholdEcdsa.presignPool,
+          this.seamsPasskeyConfigs.signing.thresholdEcdsa.presignPool,
       },
       { ...args, chain },
     );
@@ -4074,7 +4075,7 @@ export class SigningEngine {
  */
 export type SigningEnginePublic = Pick<
   SigningEngine,
-  | 'tatchiPasskeyConfigs'
+  | 'seamsPasskeyConfigs'
   | 'setTheme'
   | 'getUserPreferences'
   | 'getRpId'

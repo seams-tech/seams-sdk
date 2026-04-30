@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { autoConfirmWalletIframeUntil } from '../setup/flows';
 import {
   readWalletIframeThresholdPersistence,
@@ -20,8 +20,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const flowPromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const { TatchiPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const actionsMod = await import('/sdk/esm/core/types/actions.js');
+            const { SeamsPasskey } = sdkMod as any;
             const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
@@ -30,7 +31,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               autoProceedDelay: 0,
             };
             const accountId = `ecdsa-export-${Date.now()}.w3a-v1.testnet`;
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -60,9 +61,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            tatchi.setConfirmationConfig(confirmationConfig as any);
+            seams.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await tatchi.registration.registerPasskeyInternal(
+            const registration = await seams.registration.registerPasskeyInternal(
               accountId,
               {},
               confirmationConfig as any,
@@ -75,7 +76,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await tatchi.unlock(accountId);
+            const login = await seams.unlock(accountId);
             if (!login?.success) {
               return {
                 ok: false,
@@ -84,7 +85,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const bootstrap = await tatchi.tempo.bootstrapEcdsaSession({
+            const bootstrap = await seams.tempo.bootstrapEcdsaSession({
               nearAccountId: accountId,
               options: {
                 relayerUrl,
@@ -100,7 +101,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const signed = await tatchi.tempo.signTempo({
+            const signed = await seams.tempo.signTempo({
               nearAccountId: accountId,
               request: {
                 chain: 'tempo' as const,
@@ -130,12 +131,12 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            await tatchi.keys.exportKeypairWithUI(accountId, {
+            await seams.keys.exportKeypairWithUI(accountId, {
               chain: 'evm',
               variant: 'modal',
             });
 
-            const session = await tatchi.auth.getWalletSession(accountId);
+            const session = await seams.auth.getWalletSession(accountId);
             return {
               ok: true,
               accountId,
@@ -179,10 +180,10 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
     try {
       const result = await page.evaluate(
         async ({ relayerUrl, shamirPrimeB64u }) => {
-          const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { TatchiPasskey } = mod as any;
+          const mod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+          const { SeamsPasskey } = mod as any;
           const accountId = `parity-mismatch-${Date.now()}.testnet`;
-          const tatchi = new TatchiPasskey({
+          const seams = new SeamsPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayerAccount: 'web3-authn-v4.testnet',
@@ -213,7 +214,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           });
 
           try {
-            const loginResult = await tatchi.auth.unlock(accountId, {
+            const loginResult = await seams.auth.unlock(accountId, {
               session: { kind: 'jwt', relayUrl: relayerUrl },
             });
             if (!loginResult?.success) {
@@ -253,8 +254,8 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const loginPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const { TatchiPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsPasskey } = sdkMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
@@ -262,7 +263,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               autoProceedDelay: 0,
             };
             const accountId = `sealedrefresh${Date.now()}.w3a-v1.testnet`;
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -292,9 +293,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            tatchi.setConfirmationConfig(confirmationConfig as any);
+            seams.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await tatchi.registration.registerPasskeyInternal(
+            const registration = await seams.registration.registerPasskeyInternal(
               accountId,
               {},
               confirmationConfig as any,
@@ -306,7 +307,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await tatchi.unlock(accountId);
+            const login = await seams.unlock(accountId);
             if (!login?.success) {
               return {
                 ok: false,
@@ -314,7 +315,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const session = await tatchi.auth.getWalletSession(accountId);
+            const session = await seams.auth.getWalletSession(accountId);
             return {
               ok: true,
               accountId,
@@ -348,17 +349,27 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       expect(getCallsAfterLogin).toBeGreaterThan(0);
 
       const firstSignPromise = page.evaluate(
-        async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
+        async ({
+          relayerUrl,
+          accountId,
+          keyVersion,
+          shamirPrimeB64u,
+        }: {
+          relayerUrl: string;
+          accountId?: string;
+          keyVersion: string;
+          shamirPrimeB64u: string;
+        }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const { TatchiPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsPasskey } = sdkMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -388,8 +399,8 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            tatchi.setConfirmationConfig(confirmationConfig as any);
-            const bootstrap = await tatchi.tempo.bootstrapEcdsaSession({
+            seams.setConfirmationConfig(confirmationConfig as any);
+            const bootstrap = await seams.tempo.bootstrapEcdsaSession({
               nearAccountId: accountId,
               options: {
                 relayerUrl,
@@ -403,7 +414,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 error: 'threshold ECDSA bootstrap did not return ecdsaThresholdKeyId',
               };
             }
-            const firstSign = await tatchi.tempo.signTempo({
+            const firstSign = await seams.tempo.signTempo({
               nearAccountId: accountId,
               request: {
                 chain: 'tempo' as const,
@@ -465,15 +476,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const secondPhasePromise = page.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const { TatchiPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsPasskey } = sdkMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -503,11 +514,11 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            tatchi.setConfirmationConfig(confirmationConfig as any);
+            seams.setConfirmationConfig(confirmationConfig as any);
 
-            const session = await tatchi.auth.getWalletSession(accountId);
+            const session = await seams.auth.getWalletSession(accountId);
 
-            const refreshedSign = await tatchi.tempo.signTempo({
+            const refreshedSign = await seams.tempo.signTempo({
               nearAccountId: accountId,
               request: {
                 chain: 'tempo' as const,
@@ -594,9 +605,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
-            const { TatchiPasskey } = sdkMod as any;
+            const { SeamsPasskey } = sdkMod as any;
             const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
@@ -605,7 +616,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               autoProceedDelay: 0,
             };
             const accountId = `sealedrefreshexhaust${Date.now()}.w3a-v1.testnet`;
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -639,9 +650,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            tatchi.setConfirmationConfig(confirmationConfig as any);
+            seams.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await tatchi.registration.registerPasskeyInternal(
+            const registration = await seams.registration.registerPasskeyInternal(
               accountId,
               {},
               confirmationConfig as any,
@@ -653,7 +664,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await tatchi.unlock(accountId, {
+            const login = await seams.unlock(accountId, {
               signingSession: { ttlMs: 120_000, remainingUses: 1 },
             });
             if (!login?.success) {
@@ -663,7 +674,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const session = await tatchi.auth.getWalletSession(accountId);
+            const session = await seams.auth.getWalletSession(accountId);
             return {
               ok: true,
               accountId,
@@ -704,9 +715,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const restoredSignPromise = page.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
-            const { TatchiPasskey } = sdkMod as any;
+            const { SeamsPasskey } = sdkMod as any;
             const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
@@ -714,7 +725,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -748,9 +759,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            tatchi.setConfirmationConfig(confirmationConfig as any);
+            seams.setConfirmationConfig(confirmationConfig as any);
 
-            const sign = await tatchi.near.executeAction({
+            const sign = await seams.near.executeAction({
               nearAccountId: accountId,
               receiverId: 'w3a-v1.testnet',
               actionArgs: {
@@ -782,7 +793,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
         },
         {
           relayerUrl: harness.relayerUrl,
-          accountId: firstPhase.accountId,
+          accountId: firstPhase.accountId as string,
           keyVersion: TEST_KEY_VERSION,
           shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
         },
@@ -799,9 +810,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const reauthSignPromise = page.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
-            const { TatchiPasskey } = sdkMod as any;
+            const { SeamsPasskey } = sdkMod as any;
             const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
@@ -809,7 +820,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -843,9 +854,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            tatchi.setConfirmationConfig(confirmationConfig as any);
+            seams.setConfirmationConfig(confirmationConfig as any);
 
-            const sign = await tatchi.near.executeAction({
+            const sign = await seams.near.executeAction({
               nearAccountId: accountId,
               receiverId: 'w3a-v1.testnet',
               actionArgs: {
@@ -860,7 +871,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 confirmationConfig,
               },
             });
-            const session = await tatchi.auth.getWalletSession(accountId);
+            const session = await seams.auth.getWalletSession(accountId);
             return {
               ok: !!sign?.success,
               error: String(sign?.error || ''),
@@ -986,8 +997,8 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const { TatchiPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsPasskey } = sdkMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
@@ -995,7 +1006,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               autoProceedDelay: 0,
             };
             const accountId = `sealedrefreshmultichain${Date.now()}.w3a-v1.testnet`;
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -1025,9 +1036,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            tatchi.setConfirmationConfig(confirmationConfig as any);
+            seams.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await tatchi.registration.registerPasskeyInternal(
+            const registration = await seams.registration.registerPasskeyInternal(
               accountId,
               {},
               confirmationConfig as any,
@@ -1039,7 +1050,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await tatchi.unlock(accountId);
+            const login = await seams.unlock(accountId);
             if (!login?.success) {
               return {
                 ok: false,
@@ -1047,7 +1058,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const bootstrap = await tatchi.tempo.bootstrapEcdsaSession({
+            const bootstrap = await seams.tempo.bootstrapEcdsaSession({
               nearAccountId: accountId,
               options: {
                 relayerUrl,
@@ -1061,7 +1072,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 error: 'threshold ECDSA bootstrap did not return ecdsaThresholdKeyId',
               };
             }
-            const evmBootstrap = await tatchi.evm.bootstrapEcdsaSession({
+            const evmBootstrap = await seams.evm.bootstrapEcdsaSession({
               nearAccountId: accountId,
               options: {
                 relayerUrl,
@@ -1076,7 +1087,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const warmTempo = await tatchi.tempo.signTempo({
+            const warmTempo = await seams.tempo.signTempo({
               nearAccountId: accountId,
               request: {
                 chain: 'tempo' as const,
@@ -1106,7 +1117,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const session = await tatchi.auth.getWalletSession(accountId);
+            const session = await seams.auth.getWalletSession(accountId);
             return {
               ok: true,
               accountId,
@@ -1148,15 +1159,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
         const phasePromise = page.evaluate(
           async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u, order }) => {
             try {
-              const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-              const { TatchiPasskey } = sdkMod as any;
+              const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+              const { SeamsPasskey } = sdkMod as any;
 
               const confirmationConfig = {
                 uiMode: 'none' as const,
                 behavior: 'skipClick' as const,
                 autoProceedDelay: 0,
               };
-              const tatchi = new TatchiPasskey({
+              const seams = new SeamsPasskey({
                 nearNetwork: 'testnet',
                 nearRpcUrl: 'https://test.rpc.fastnear.com',
                 relayerAccount: 'web3-authn-v4.testnet',
@@ -1185,7 +1196,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                   rpIdOverride: 'example.localhost',
                 },
               });
-              tatchi.setConfirmationConfig(confirmationConfig as any);
+              seams.setConfirmationConfig(confirmationConfig as any);
 
               const tempoRequest = {
                 chain: 'tempo' as const,
@@ -1233,7 +1244,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 kind: string;
               }> = [];
               for (const requestedChain of order) {
-                const signed = await tatchi.tempo.signTempo({
+                const signed = await seams.tempo.signTempo({
                   nearAccountId: accountId,
                   request: requestByChain[requestedChain],
                   options: { confirmationConfig },
@@ -1244,7 +1255,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                   kind: String(signed?.kind || ''),
                 });
               }
-              const session = await tatchi.auth.getWalletSession(accountId);
+              const session = await seams.auth.getWalletSession(accountId);
 
               return {
                 ok: true,
@@ -1339,15 +1350,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const { TatchiPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsPasskey } = sdkMod as any;
             const confirmationConfig = {
               uiMode: 'none' as const,
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
             const accountId = `tabclose${Date.now()}.w3a-v1.testnet`;
-            const tatchi = new TatchiPasskey({
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -1377,8 +1388,8 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            tatchi.setConfirmationConfig(confirmationConfig as any);
-            const registration = await tatchi.registration.registerPasskeyInternal(
+            seams.setConfirmationConfig(confirmationConfig as any);
+            const registration = await seams.registration.registerPasskeyInternal(
               accountId,
               {},
               confirmationConfig as any,
@@ -1389,7 +1400,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                 error: String(registration?.error || 'registration failed'),
               };
             }
-            const login = await tatchi.unlock(accountId);
+            const login = await seams.unlock(accountId);
             if (!login?.success) {
               return {
                 ok: false,
@@ -1430,9 +1441,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const secondPhasePromise = secondPage.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-            const { TatchiPasskey } = sdkMod as any;
-            const tatchi = new TatchiPasskey({
+            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsPasskey } = sdkMod as any;
+            const seams = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -1462,7 +1473,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            const login = await tatchi.unlock(accountId);
+            const login = await seams.unlock(accountId);
             return {
               ok: !!login?.success,
               error: String(login?.error || ''),
@@ -1486,10 +1497,10 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           shamirPrimeB64u: TEST_SHAMIR_PRIME_B64U,
         },
       );
-      const secondPhase = await autoConfirmWalletIframeUntil(secondPage, secondPhasePromise, {
+      const secondPhase = (await autoConfirmWalletIframeUntil(secondPage, secondPhasePromise, {
         timeoutMs: 90_000,
         intervalMs: 250,
-      });
+      })) as any;
 
       expect(secondPhase.ok, secondPhase.error || JSON.stringify(secondPhase)).toBe(true);
       expect(secondPhase.signingStatus).toBe('active');
@@ -1530,10 +1541,10 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
         const firstPhasePromise = page.evaluate(
           async ({ relayerUrl, keyVersion, shamirPrimeB64u, curve, sessionKind }) => {
             try {
-              const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+              const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
               const actionsMod = await import('/sdk/esm/core/types/actions.js');
               const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
-              const { TatchiPasskey } = sdkMod as any;
+              const { SeamsPasskey } = sdkMod as any;
               const { ActionType } = actionsMod as any;
               const { IndexedDBManager } = indexedDbMod as any;
 
@@ -1552,7 +1563,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
               };
               const accountId =
                 `refreshmatrix-${curve}-${sessionKind}-${Date.now()}.w3a-v1.testnet`.toLowerCase();
-              const tatchi = new TatchiPasskey({
+              const seams = new SeamsPasskey({
                 nearNetwork: 'testnet',
                 nearRpcUrl: 'https://test.rpc.fastnear.com',
                 relayerAccount: 'web3-authn-v4.testnet',
@@ -1576,9 +1587,9 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 },
               });
 
-              tatchi.setConfirmationConfig(confirmationConfig as any);
+              seams.setConfirmationConfig(confirmationConfig as any);
 
-              const registration = await tatchi.registration.registerPasskeyInternal(
+              const registration = await seams.registration.registerPasskeyInternal(
                 accountId,
                 {},
                 confirmationConfig as any,
@@ -1590,7 +1601,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 };
               }
 
-              const login = await tatchi.unlock(accountId);
+              const login = await seams.unlock(accountId);
               if (!login?.success) {
                 return {
                   ok: false,
@@ -1598,7 +1609,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 };
               }
 
-              const signingEngine = tatchi.getContext().signingEngine as any;
+              const signingEngine = seams.getContext().signingEngine as any;
               const accountAddress = String(accountId || '')
                 .trim()
                 .toLowerCase();
@@ -1701,7 +1712,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                   };
                 }
                 if (sessionKind === 'jwt') {
-                  const firstSign = await tatchi.near.executeAction({
+                  const firstSign = await seams.near.executeAction({
                     nearAccountId: accountId,
                     receiverId: 'w3a-v1.testnet',
                     actionArgs: {
@@ -1725,7 +1736,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 }
               } else {
                 if (sessionKind === 'jwt') {
-                  const firstSign = await tatchi.tempo.signTempo({
+                  const firstSign = await seams.tempo.signTempo({
                     nearAccountId: accountId,
                     request: {
                       chain: 'tempo' as const,
@@ -1756,7 +1767,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 }
               }
 
-              const session = await tatchi.auth.getWalletSession(accountId);
+              const session = await seams.auth.getWalletSession(accountId);
               return {
                 ok: true,
                 accountId,
@@ -1796,9 +1807,9 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
         const secondPhasePromise = page.evaluate(
           async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u, curve, sessionKind }) => {
             try {
-              const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+              const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
               const actionsMod = await import('/sdk/esm/core/types/actions.js');
-              const { TatchiPasskey } = sdkMod as any;
+              const { SeamsPasskey } = sdkMod as any;
               const { ActionType } = actionsMod as any;
 
               const confirmationConfig = {
@@ -1806,7 +1817,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 behavior: 'skipClick' as const,
                 autoProceedDelay: 0,
               };
-              const tatchi = new TatchiPasskey({
+              const seams = new SeamsPasskey({
                 nearNetwork: 'testnet',
                 nearRpcUrl: 'https://test.rpc.fastnear.com',
                 relayerAccount: 'web3-authn-v4.testnet',
@@ -1830,11 +1841,11 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 },
               });
 
-              tatchi.setConfirmationConfig(confirmationConfig as any);
+              seams.setConfirmationConfig(confirmationConfig as any);
 
               if (curve === 'ed25519') {
                 if (sessionKind === 'jwt') {
-                  const refreshedSign = await tatchi.near.executeAction({
+                  const refreshedSign = await seams.near.executeAction({
                     nearAccountId: accountId,
                     receiverId: 'w3a-v1.testnet',
                     actionArgs: {
@@ -1858,7 +1869,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 }
               } else {
                 if (sessionKind === 'jwt') {
-                  const refreshedSign = await tatchi.tempo.signTempo({
+                  const refreshedSign = await seams.tempo.signTempo({
                     nearAccountId: accountId,
                     request: {
                       chain: 'tempo' as const,
@@ -1889,7 +1900,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 }
               }
 
-              const session = await tatchi.auth.getWalletSession(accountId);
+              const session = await seams.auth.getWalletSession(accountId);
               return {
                 ok: true,
                 sessionStatus: String(session?.signingSession?.status || ''),

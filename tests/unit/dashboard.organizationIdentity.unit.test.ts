@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   deriveDashboardOrganizationSlug,
   generateDashboardOrganizationId,
-} from '../../examples/tatchi-site/src/pages/dashboard/utils/organizationIdentity';
+} from '../../examples/seams-site/src/pages/dashboard/utils/organizationIdentity';
 
 test.describe('dashboard organization identity helpers', () => {
   test('derive slug from organization name and generate org ids in the expected format', () => {

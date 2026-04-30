@@ -18,8 +18,8 @@ const IMPORT_PATHS = {
 async function routeEvmFamilySigningFlowStubs(page: Page): Promise<void> {
   const evmFlowStub = `
     export async function signEvmWithTouchConfirm(args) {
-      globalThis.__tatchiStubConfirmationDisplayedCalls =
-        (globalThis.__tatchiStubConfirmationDisplayedCalls || 0) + 1;
+      globalThis.__seamsStubConfirmationDisplayedCalls =
+        (globalThis.__seamsStubConfirmationDisplayedCalls || 0) + 1;
       args.onConfirmationDisplayed?.();
       const emailOtpChallenge = args.emailOtpSigning
         ? await args.emailOtpSigning.prepare()
@@ -41,8 +41,8 @@ async function routeEvmFamilySigningFlowStubs(page: Page): Promise<void> {
           confirmation?.emailOtpChallengeId,
         );
       }
-      globalThis.__tatchiStubSignedKeyRefs = globalThis.__tatchiStubSignedKeyRefs || [];
-      globalThis.__tatchiStubSignedKeyRefs.push({
+      globalThis.__seamsStubSignedKeyRefs = globalThis.__seamsStubSignedKeyRefs || [];
+      globalThis.__seamsStubSignedKeyRefs.push({
         chain: 'evm',
         thresholdSessionId: String(keyRef?.thresholdSessionId || ''),
         walletSigningSessionId: String(keyRef?.walletSigningSessionId || ''),
@@ -57,8 +57,8 @@ async function routeEvmFamilySigningFlowStubs(page: Page): Promise<void> {
   `;
   const tempoFlowStub = `
     export async function signTempoWithTouchConfirm(args) {
-      globalThis.__tatchiStubConfirmationDisplayedCalls =
-        (globalThis.__tatchiStubConfirmationDisplayedCalls || 0) + 1;
+      globalThis.__seamsStubConfirmationDisplayedCalls =
+        (globalThis.__seamsStubConfirmationDisplayedCalls || 0) + 1;
       args.onConfirmationDisplayed?.();
       const emailOtpChallenge = args.emailOtpSigning
         ? await args.emailOtpSigning.prepare()
@@ -80,8 +80,8 @@ async function routeEvmFamilySigningFlowStubs(page: Page): Promise<void> {
           confirmation?.emailOtpChallengeId,
         );
       }
-      globalThis.__tatchiStubSignedKeyRefs = globalThis.__tatchiStubSignedKeyRefs || [];
-      globalThis.__tatchiStubSignedKeyRefs.push({
+      globalThis.__seamsStubSignedKeyRefs = globalThis.__seamsStubSignedKeyRefs || [];
+      globalThis.__seamsStubSignedKeyRefs.push({
         chain: 'tempo',
         thresholdSessionId: String(keyRef?.thresholdSessionId || ''),
         walletSigningSessionId: String(keyRef?.walletSigningSessionId || ''),
@@ -2377,7 +2377,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               ],
             },
           },
-          tatchiPasskeyConfigs: {
+          seamsPasskeyConfigs: {
             registration: { mode: 'manual' },
             network: { chains: [{ network: 'tempo-testnet', chainId: 11155111, rpcUrl: '' }] },
             signing: { thresholdEcdsa: { presignPool: { enabled: false } } },
@@ -2677,7 +2677,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               ],
             },
           },
-          tatchiPasskeyConfigs: {
+          seamsPasskeyConfigs: {
             registration: { mode: 'manual' },
             network: { chains: [{ network: 'tempo-testnet', chainId: 11155111, rpcUrl: '' }] },
             signing: { thresholdEcdsa: { presignPool: { enabled: false } } },
@@ -3036,7 +3036,7 @@ test.describe('tempo signing auth-mode resolution', () => {
                 upsertChainAccount: async (input: any) => ({ ...chainAccount, ...input }),
               },
             },
-            tatchiPasskeyConfigs: {
+            seamsPasskeyConfigs: {
               registration: { mode: 'manual' },
               network: {
                 chains: [
@@ -3157,7 +3157,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           };
 
-          (globalThis as any).__tatchiStubConfirmationDisplayedCalls = 0;
+          (globalThis as any).__seamsStubConfirmationDisplayedCalls = 0;
           try {
             signedResults.push(
               await signTempo(deps as any, {
@@ -3197,7 +3197,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             completedOtpCodes,
             spendCalls,
             markConsumedCalls,
-            signedKeyRefs: (globalThis as any).__tatchiStubSignedKeyRefs || [],
+            signedKeyRefs: (globalThis as any).__seamsStubSignedKeyRefs || [],
           };
         },
         { paths: IMPORT_PATHS, chain },
@@ -3361,7 +3361,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               upsertChainAccount: async (input: any) => input,
             },
           },
-          tatchiPasskeyConfigs: {
+          seamsPasskeyConfigs: {
             registration: { mode: 'manual' },
             network: { chains: [{ network: 'tempo-testnet', chainId, rpcUrl: '' }] },
             signing: {
@@ -3485,7 +3485,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         return {
           ok: true,
           spendCalls,
-          signedKeyRefs: (globalThis as any).__tatchiStubSignedKeyRefs || [],
+          signedKeyRefs: (globalThis as any).__seamsStubSignedKeyRefs || [],
         };
       },
       { paths: IMPORT_PATHS },
@@ -3715,7 +3715,7 @@ test.describe('tempo signing auth-mode resolution', () => {
                 upsertChainAccount: async (input: any) => ({ ...chainAccount, ...input }),
               },
             },
-            tatchiPasskeyConfigs: {
+            seamsPasskeyConfigs: {
               registration: { mode: 'manual' },
               network: {
                 chains: [
@@ -3822,7 +3822,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               spendCalls,
               ledgerTrace,
               confirmationDisplayedCalls:
-                (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+                (globalThis as any).__seamsStubConfirmationDisplayedCalls || 0,
             };
           } finally {
             store.clearAllStoredThresholdEd25519SessionRecords();
@@ -3835,7 +3835,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             spendCalls,
             ledgerTrace,
             confirmationDisplayedCalls:
-              (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+              (globalThis as any).__seamsStubConfirmationDisplayedCalls || 0,
           };
         },
         { paths: IMPORT_PATHS, chain },
@@ -4035,7 +4035,7 @@ test.describe('tempo signing auth-mode resolution', () => {
                 upsertChainAccount: async (input: any) => ({ ...chainAccount, ...input }),
               },
             },
-            tatchiPasskeyConfigs: {
+            seamsPasskeyConfigs: {
               registration: { mode: 'manual' },
               network: {
                 chains: [
@@ -4091,7 +4091,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             requestEmailOtpTransactionSigningChallenge: async ({ chain }: any) => {
               challengeChains.push(String(chain || ''));
               challengeDisplayCounts.push(
-                (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+                (globalThis as any).__seamsStubConfirmationDisplayedCalls || 0,
               );
               return {
                 challengeId: `${chain}-cancelled-challenge`,
@@ -4146,7 +4146,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             },
           };
 
-          (globalThis as any).__tatchiStubConfirmationDisplayedCalls = 0;
+          (globalThis as any).__seamsStubConfirmationDisplayedCalls = 0;
           try {
             await signTempo(deps as any, {
               nearAccountId: accountId,
@@ -4163,7 +4163,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               spendCalls,
               markConsumedCalls,
               confirmationDisplayedCalls:
-                (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+                (globalThis as any).__seamsStubConfirmationDisplayedCalls || 0,
             };
           } finally {
             store.clearAllStoredThresholdEd25519SessionRecords();
@@ -4179,7 +4179,7 @@ test.describe('tempo signing auth-mode resolution', () => {
             spendCalls,
             markConsumedCalls,
             confirmationDisplayedCalls:
-              (globalThis as any).__tatchiStubConfirmationDisplayedCalls || 0,
+              (globalThis as any).__seamsStubConfirmationDisplayedCalls || 0,
           };
         },
         { paths: IMPORT_PATHS, chain },
@@ -4402,7 +4402,7 @@ test.describe('tempo signing auth-mode resolution', () => {
               }),
             },
           },
-          tatchiPasskeyConfigs: {
+          seamsPasskeyConfigs: {
             registration: { mode: 'manual' },
             network: {
               chains: [

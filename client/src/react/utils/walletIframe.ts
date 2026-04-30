@@ -1,13 +1,13 @@
-// Utilities for coordinating with wallet-iframe readiness from TatchiPasskey.
-import type { TatchiPasskey } from '@/core/TatchiPasskey';
+// Utilities for coordinating with wallet-iframe readiness from SeamsPasskey.
+import type { SeamsPasskey } from '@/core/SeamsPasskey';
 
 /**
- * Await wallet iframe readiness when using TatchiPasskey.
+ * Await wallet iframe readiness when using SeamsPasskey.
  * - If iframe is already ready, resolves immediately (returns true).
  * - Otherwise waits for onReady/polling up to timeoutMs, then resolves (returns whether it became ready).
  */
 export async function awaitWalletIframeReady(
-  manager: Pick<TatchiPasskey, 'initWalletIframe' | 'isWalletIframeReady' | 'onWalletIframeReady'>,
+  manager: Pick<SeamsPasskey, 'initWalletIframe' | 'isWalletIframeReady' | 'onWalletIframeReady'>,
   opts?: { timeoutMs?: number },
 ): Promise<boolean> {
   const timeoutMs = Math.max(500, Math.min(15_000, opts?.timeoutMs ?? 4000));

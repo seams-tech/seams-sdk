@@ -214,7 +214,7 @@ test.describe('recovery authority executor', () => {
             metadataPatch: {
               sponsoredReceiptStatus: 'success',
               recoverySpec: {
-                version: 'tatchi_evm_recovery_spec_v1',
+                version: 'seams_evm_recovery_spec_v1',
                 newOwnerAddress: `0x${'11'.repeat(20)}`,
                 call: {
                   to: `0x${'22'.repeat(20)}`,
@@ -231,7 +231,7 @@ test.describe('recovery authority executor', () => {
                   contractMethod: 'verifyAndRecover',
                   authorityAddress: `0x${'99'.repeat(20)}`,
                   domain: {
-                    name: 'TatchiSmartAccountRecovery',
+                    name: 'SeamsSmartAccountRecovery',
                     version: '1',
                     chainId: 11155111,
                     verifyingContract: `0x${'22'.repeat(20)}`,
@@ -277,7 +277,7 @@ test.describe('recovery authority executor', () => {
     expect(metadata?.recoveryTargetMode).toBe('deployed');
     expect(metadata?.sponsoredReceiptStatus).toBe('success');
     expect(metadata?.recoverySpec?.version).toBe(
-      'tatchi_evm_recovery_spec_v1',
+      'seams_evm_recovery_spec_v1',
     );
     expect(metadata?.recoverySpec?.call?.selector).toBe('0xc3ec1673');
     expect(result.sessionUpdates.at(-1)?.status).toBe('evm_recovering');
@@ -415,7 +415,7 @@ test.describe('recovery authority executor', () => {
             newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
             recoveryTargetMode: 'deployed',
             recoverySpec: {
-              version: 'tatchi_evm_recovery_spec_v1',
+              version: 'seams_evm_recovery_spec_v1',
               newOwnerAddress: `0x${'11'.repeat(20)}`,
               call: {
                 to: `0x${'22'.repeat(20)}`,
@@ -432,7 +432,7 @@ test.describe('recovery authority executor', () => {
                 contractMethod: 'verifyAndRecover',
                 authorityAddress: `0x${'99'.repeat(20)}`,
                 domain: {
-                  name: 'TatchiSmartAccountRecovery',
+                  name: 'SeamsSmartAccountRecovery',
                   version: '1',
                   chainId: 11155111,
                   verifyingContract: `0x${'22'.repeat(20)}`,
@@ -536,7 +536,7 @@ test.describe('recovery authority executor', () => {
     expect(metadata?.lastErrorCode).toBe('recovery_executor_threw');
     expect(metadata?.retryState).toBe('requeued');
     expect(metadata?.recoverySpec?.version).toBe(
-      'tatchi_evm_recovery_spec_v1',
+      'seams_evm_recovery_spec_v1',
     );
     expect(metadata?.recoverySpec?.call?.selector).toBe('0xc3ec1673');
     expect(result.sessionUpdates.at(-1)?.status).toBe('evm_recovering');
@@ -777,7 +777,7 @@ test.describe('recovery authority executor', () => {
     expect(result.execution?.metadataPatch?.sponsoredEffectiveGasPrice).toBe('67890');
     expect(result.execution?.metadataPatch?.sponsoredFeeAmount).toBe('42');
     expect(result.execution?.metadataPatch?.recoverySpec?.version).toBe(
-      'tatchi_evm_recovery_spec_v1',
+      'seams_evm_recovery_spec_v1',
     );
     expect(result.execution?.metadataPatch?.recoverySpec?.newOwnerAddress).toBe(
       `0x${'11'.repeat(20)}`,
@@ -848,7 +848,7 @@ test.describe('recovery authority executor', () => {
             newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
             recoveryTargetMode: 'deployed',
             recoverySpec: {
-              version: 'tatchi_evm_recovery_spec_v1',
+              version: 'seams_evm_recovery_spec_v1',
               newOwnerAddress: `0x${'11'.repeat(20)}`,
               call: {
                 to: `0x${'22'.repeat(20)}`,
@@ -865,7 +865,7 @@ test.describe('recovery authority executor', () => {
                 contractMethod: 'verifyAndRecover',
                 authorityAddress: `0x${'99'.repeat(20)}`,
                 domain: {
-                  name: 'TatchiSmartAccountRecovery',
+                  name: 'SeamsSmartAccountRecovery',
                   version: '1',
                   chainId: 11155111,
                   verifyingContract: `0x${'22'.repeat(20)}`,
@@ -977,7 +977,7 @@ test.describe('recovery authority executor', () => {
     const metadata = result.finalExecution?.metadata as any;
     expect(metadata?.sponsoredGasUsed).toBe('12345');
     expect(metadata?.recoverySpec?.version).toBe(
-      'tatchi_evm_recovery_spec_v1',
+      'seams_evm_recovery_spec_v1',
     );
     expect(metadata?.recoverySpec?.call?.selector).toBe('0xc3ec1673');
     expect(result.sessionUpdates.at(-1)?.status).toBe('completed');

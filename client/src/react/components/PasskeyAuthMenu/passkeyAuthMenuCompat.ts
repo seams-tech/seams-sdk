@@ -9,7 +9,7 @@ import {
 } from './authMenuTypes';
 
 /**
- * SSR-safe entrypoint for `@tatchi-xyz/sdk/react/passkey-auth-menu`.
+ * SSR-safe entrypoint for `@seams/sdk/react/passkey-auth-menu`.
  *
  * This intentionally does NOT import the client implementation, so it can be
  * imported during SSR without pulling in browser-only dependencies.

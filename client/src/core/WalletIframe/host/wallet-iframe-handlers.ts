@@ -5,7 +5,7 @@ import type {
   ProgressPayload,
   PMExecuteActionPayload,
 } from '../shared/messages';
-import type { TatchiPasskey } from '../../TatchiPasskey';
+import type { SeamsPasskey } from '../../SeamsPasskey';
 import { isTouchIdCancellationError } from '@shared/utils/errors';
 import type {
   ActionHooksOptions,
@@ -18,7 +18,7 @@ import type {
   SignTransactionHooksOptions,
   SyncAccountHooksOptions,
 } from '../../types/sdkSentEvents';
-import type { WalletSession, RegistrationResult } from '../../types/tatchi';
+import type { WalletSession, RegistrationResult } from '../../types/seams';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import { toAccountId } from '../../types/accountIds';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
@@ -36,7 +36,7 @@ type HandlerMap = Partial<{
 }>;
 
 export interface HandlerDeps {
-  getTatchiPasskey(): TatchiPasskey;
+  getSeamsPasskey(): SeamsPasskey;
   post(msg: ChildToParentEnvelope): void;
   postProgress(requestId: string | undefined, payload: ProgressPayload): void;
   postToParent?(msg: unknown): void;
@@ -45,7 +45,7 @@ export interface HandlerDeps {
 }
 
 export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
-  const { getTatchiPasskey, post, postProgress, isCancelled, respondIfCancelled } = deps;
+  const { getSeamsPasskey, post, postProgress, isCancelled, respondIfCancelled } = deps;
 
   const respondOk = (requestId: string | undefined): void => {
     post({ type: 'PM_RESULT', requestId, payload: { ok: true } });
@@ -87,7 +87,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
   const handlers = {
     PM_UNLOCK: async (req: Req<'PM_UNLOCK'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.unlock(
@@ -99,19 +99,19 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_LOCK: async (req: Req<'PM_LOCK'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       await pm.auth.lock();
       respondOk(req.requestId);
     },
 
     PM_GET_WALLET_SESSION: async (req: Req<'PM_GET_WALLET_SESSION'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const result: WalletSession = await pm.auth.getWalletSession(req.payload?.nearAccountId);
       respondOkResult(req.requestId, result);
     },
 
     PM_REQUEST_EMAIL_OTP_CHALLENGE: async (req: Req<'PM_REQUEST_EMAIL_OTP_CHALLENGE'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, relayUrl, appSessionJwt, operation } = req.payload!;
       const result = await pm.auth.requestEmailOtpChallenge({
         nearAccountId,
@@ -125,7 +125,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE: async (
       req: Req<'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, relayUrl, appSessionJwt } = req.payload!;
       const result = await pm.auth.requestEmailOtpEnrollmentChallenge({
         nearAccountId,
@@ -138,7 +138,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE: async (
       req: Req<'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const result = await pm.auth.requestEmailOtpSigningSessionChallenge(req.payload!);
       respondOkResult(req.requestId, result);
     },
@@ -146,13 +146,13 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION: async (
       req: Req<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const result = await pm.auth.exchangeGoogleEmailOtpSession(req.payload!);
       respondOkResult(req.requestId, result);
     },
 
     PM_ENROLL_EMAIL_OTP: async (req: Req<'PM_ENROLL_EMAIL_OTP'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const payload = withProgress(req.requestId, req.payload || {});
       const result = await pm.auth.enrollEmailOtp(
         payload as Parameters<typeof pm.auth.enrollEmailOtp>[0],
@@ -163,7 +163,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY: async (
       req: Req<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const payload = withProgress(req.requestId, req.payload || {});
       const result = await pm.auth.loginWithEmailOtpEcdsaCapability(
         payload as Parameters<typeof pm.auth.loginWithEmailOtpEcdsaCapability>[0],
@@ -174,7 +174,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_REFRESH_EMAIL_OTP_SIGNING_SESSION: async (
       req: Req<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const payload = withProgress(req.requestId, req.payload || {});
       const result = await pm.auth.refreshEmailOtpSigningSession(
         payload as Parameters<typeof pm.auth.refreshEmailOtpSigningSession>[0],
@@ -185,7 +185,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY: async (
       req: Req<'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const payload = withProgress(req.requestId, req.payload || {});
       const result = await pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability(
         payload as Parameters<typeof pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability>[0],
@@ -194,7 +194,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_REGISTER: async (req: Req<'PM_REGISTER'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, options, confirmationConfig } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
 
@@ -215,7 +215,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION: async (
       req: Req<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
 
@@ -235,7 +235,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SIGN_TXS_WITH_ACTIONS: async (req: Req<'PM_SIGN_TXS_WITH_ACTIONS'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, transactions, options } = req.payload!;
 
       const results = await pm.near.signTransactionsWithActions({
@@ -251,7 +251,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SIGN_AND_SEND_TXS: async (req: Req<'PM_SIGN_AND_SEND_TXS'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, transactions, options } = req.payload || {};
 
       const results = await pm.near.signAndSendTransactions({
@@ -267,7 +267,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SEND_TRANSACTION: async (req: Req<'PM_SEND_TRANSACTION'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { signedTransaction, options } = req.payload || {};
       const st = normalizeSignedTransaction(signedTransaction);
       const result = await pm.near.sendTransaction({
@@ -282,7 +282,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_EXECUTE_ACTION: async (req: Req<'PM_EXECUTE_ACTION'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, receiverId, actionArgs, options } =
         req.payload || ({} as Partial<PMExecuteActionPayload>);
       const result = await pm.near.executeAction({
@@ -298,7 +298,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SIGN_DELEGATE_ACTION: async (req: Req<'PM_SIGN_DELEGATE_ACTION'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, delegate, options } = req.payload!;
       const result = await pm.near.signDelegateAction({
         nearAccountId: nearAccountId,
@@ -312,7 +312,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SIGN_NEP413: async (req: Req<'PM_SIGN_NEP413'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, params, options } = req.payload!;
       const result = await pm.near.signNEP413Message({
         nearAccountId,
@@ -326,7 +326,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SIGN_TEMPO: async (req: Req<'PM_SIGN_TEMPO'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, request, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.tempo.signTempo({
@@ -345,7 +345,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_REPORT_TEMPO_BROADCAST_ACCEPTED: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_ACCEPTED'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, signedResult, txHash } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       await pm.tempo.reportBroadcastAccepted({
@@ -363,7 +363,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_REPORT_TEMPO_BROADCAST_REJECTED: async (req: Req<'PM_REPORT_TEMPO_BROADCAST_REJECTED'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, signedResult, error } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       await pm.tempo.reportBroadcastRejected({
@@ -381,7 +381,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_REPORT_TEMPO_FINALIZED: async (req: Req<'PM_REPORT_TEMPO_FINALIZED'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, signedResult, txHash, receiptStatus } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       await pm.tempo.reportFinalized({
@@ -402,7 +402,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_REPORT_TEMPO_DROPPED_OR_REPLACED: async (
       req: Req<'PM_REPORT_TEMPO_DROPPED_OR_REPLACED'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, signedResult, reason, txHash } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       await pm.tempo.reportDroppedOrReplaced({
@@ -421,7 +421,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_RECONCILE_TEMPO_NONCE_LANE: async (req: Req<'PM_RECONCILE_TEMPO_NONCE_LANE'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, signedResult } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.tempo.reconcileNonceLane({
@@ -438,7 +438,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_EXPORT_KEYPAIR_UI: async (req: Req<'PM_EXPORT_KEYPAIR_UI'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, chain, variant, theme } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       try {
@@ -463,7 +463,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI: async (
       req: Req<'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, preparedSession, finalizedReport, expectedPublicKey, variant, theme } =
         req.payload!;
       if (respondIfCancelled(req.requestId)) return;
@@ -492,13 +492,13 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_GET_RECENT_UNLOCKS: async (req: Req<'PM_GET_RECENT_UNLOCKS'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const result = await pm.auth.getRecentUnlocks();
       respondOkResult(req.requestId, result);
     },
 
     PM_PREFETCH_BLOCKHEIGHT: async (req: Req<'PM_PREFETCH_BLOCKHEIGHT'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       await pm.prefetchBlockheight().catch(() => undefined);
       respondOk(req.requestId);
     },
@@ -506,7 +506,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL: async (
       req: Req<'PM_PREFILL_THRESHOLD_ECDSA_PRESIGN_POOL'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.prefillThresholdEcdsaPresignPool({
@@ -530,7 +530,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_GET_RECOVERY_EMAILS: async (req: Req<'PM_GET_RECOVERY_EMAILS'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.getRecoveryEmails(nearAccountId);
@@ -539,7 +539,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SET_RECOVERY_EMAILS: async (req: Req<'PM_SET_RECOVERY_EMAILS'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId, recoveryEmails, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.setRecoveryEmails({
@@ -554,7 +554,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SYNC_ACCOUNT_FLOW: async (req: Req<'PM_SYNC_ACCOUNT_FLOW'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { accountId } = req.payload || {};
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.syncAccount({
@@ -568,7 +568,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_START_EMAIL_RECOVERY: async (req: Req<'PM_START_EMAIL_RECOVERY'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { accountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.startEmailRecovery({
@@ -582,7 +582,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_FINALIZE_EMAIL_RECOVERY: async (req: Req<'PM_FINALIZE_EMAIL_RECOVERY'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { accountId, nearPublicKey } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       await pm.recovery.finalizeEmailRecovery({
@@ -597,7 +597,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_STOP_EMAIL_RECOVERY: async (req: Req<'PM_STOP_EMAIL_RECOVERY'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { accountId, nearPublicKey } = req.payload || {};
       if (respondIfCancelled(req.requestId)) return;
       await pm.recovery.cancelEmailRecovery({
@@ -609,7 +609,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_START_DEVICE2_LINKING_FLOW: async (req: Req<'PM_START_DEVICE2_LINKING_FLOW'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { ui, cameraId, accountId, signerSlot, options } = req.payload || {};
       const accountIdValue = accountId ? toAccountId(accountId) : undefined;
       if (respondIfCancelled(req.requestId)) return;
@@ -627,7 +627,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_STOP_DEVICE2_LINKING_FLOW: async (req: Req<'PM_STOP_DEVICE2_LINKING_FLOW'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       if (respondIfCancelled(req.requestId)) return;
       await pm.recovery.stopDevice2LinkingFlow();
       if (respondIfCancelled(req.requestId)) return;
@@ -637,7 +637,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     PM_LINK_DEVICE_WITH_SCANNED_QR_DATA: async (
       req: Req<'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'>,
     ) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { qrData, fundingAmount, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.linkDeviceWithScannedQRData(qrData, {
@@ -649,14 +649,14 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SET_CONFIRM_BEHAVIOR: async (req: Req<'PM_SET_CONFIRM_BEHAVIOR'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { behavior } = req.payload!;
       pm.setConfirmBehavior(behavior);
       respondOk(req.requestId);
     },
 
     PM_SET_CONFIRMATION_CONFIG: async (req: Req<'PM_SET_CONFIRMATION_CONFIG'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId } = req.payload || {};
       const incoming = (req.payload?.config || {}) as Record<string, unknown>;
       let patch: Record<string, unknown> = { ...incoming };
@@ -678,13 +678,13 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_GET_CONFIRMATION_CONFIG: async (req: Req<'PM_GET_CONFIRMATION_CONFIG'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const result = pm.getConfirmationConfig();
       respondOkResult(req.requestId, result);
     },
 
     PM_SET_THEME: async (req: Req<'PM_SET_THEME'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { theme } = req.payload!;
       try {
         pm.setTheme(theme);
@@ -698,7 +698,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_HAS_PASSKEY: async (req: Req<'PM_HAS_PASSKEY'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { nearAccountId } = req.payload!;
       // Soft probe to warm caches in some environments (optional)
       const ctx = pm.getContext();
@@ -712,14 +712,14 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_VIEW_ACCESS_KEYS: async (req: Req<'PM_VIEW_ACCESS_KEYS'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { accountId } = req.payload!;
       const result = await pm.viewAccessKeyList(accountId);
       respondOkResult(req.requestId, result);
     },
 
     PM_DELETE_DEVICE_KEY: async (req: Req<'PM_DELETE_DEVICE_KEY'>) => {
-      const pm = getTatchiPasskey();
+      const pm = getSeamsPasskey();
       const { accountId, publicKeyToDelete, options } = req.payload!;
       const result = await pm.deleteDeviceKey(accountId, publicKeyToDelete, {
         ...withProgress(req.requestId, options || {}),

@@ -18,7 +18,7 @@ Dashboard-specific Google SSO behavior is maintained in `docs/dashboard/sso.md` 
 ## Breaking Changes Landed (March 1, 2026)
 
 1. React wallet-menu callback is `onLock` (legacy `onLogout` removed, no alias).
-2. Passive stale-session cookie matching is strict by cookie name via `sessionCookieName` (typically wired from `SESSION_COOKIE_NAME`), defaulting to `tatchi-jwt`.
+2. Passive stale-session cookie matching is strict by cookie name via `sessionCookieName` (typically wired from `SESSION_COOKIE_NAME`), defaulting to `seams-jwt`.
 3. Wallet-state terminology is fully lock/unlock-first across active SDK and docs surfaces.
 
 ## Current Implementation Snapshot
@@ -64,7 +64,7 @@ Session routes:
 2. Public wallet-state naming is lock/unlock-first (`auth.unlock`, `auth.lock`, `auth.getWalletSession`).
 3. Wallet lock/unlock-specific HTTP routes are present in both Express and Cloudflare routers.
 4. `AccountMenuButton` lock-state callback is `onLock`; legacy `onLogout` no longer exists.
-5. Named-cookie matching for passive stale-session expiry uses `sessionCookieName` (env `SESSION_COOKIE_NAME` in examples), default `tatchi-jwt`.
+5. Named-cookie matching for passive stale-session expiry uses `sessionCookieName` (env `SESSION_COOKIE_NAME` in examples), default `seams-jwt`.
 
 ### 5) Relay Lifecycle Webhooks (Partially Implemented)
 
@@ -319,7 +319,7 @@ Validation requirements:
 - [x] Start wallet-plane route implementation (`wallet/unlock/*`, `wallet/lock`, `wallet/state`) and remove legacy wallet auth wording where lock state is intended.
 - [x] Rename `auth` capability methods to lock-state semantics (`auth.unlock`, `auth.lock`, `auth.getWalletSession`) and update direct callsites.
 - [x] Remove remaining legacy wallet-state symbols from SDK public surface.
-- [x] Require named cookie matching for passive stale-session expiry signaling (`sessionCookieName`, env-backed, default `tatchi-jwt`).
+- [x] Require named cookie matching for passive stale-session expiry signaling (`sessionCookieName`, env-backed, default `seams-jwt`).
 
 ## Next Execution Slice (Phased)
 
@@ -384,7 +384,7 @@ Locked decision (March 1, 2026):
 - [x] Emit warm-session lifecycle events: `session.warm.created`, `session.warm.refreshed`.
 - [x] Emit `session.warm.expired` for refresh unauthorized outcomes, invalid-session-version validation failures, and stale bearer/cookie parse failures.
 - [x] Expand `session.warm.expired` passive coverage to stale bearer/cookie parse failures on guarded session routes.
-- [x] Require stale-cookie passive expiry signals to match configured cookie name (`sessionCookieName`; default `tatchi-jwt`).
+- [x] Require stale-cookie passive expiry signals to match configured cookie name (`sessionCookieName`; default `seams-jwt`).
 - [x] Optional future expansion assessed: no additional guarded app-session routes in this release; add emit points only when new guarded routes are introduced.
 - [x] Emit relay lifecycle events: `session.revoked`, `wallet.unlocked`, `wallet.locked`, `session.exchange.failed`.
 - [x] Add HMAC signature + timestamp headers for webhook delivery.
@@ -450,7 +450,7 @@ Locked decision (March 1, 2026):
 - [x] Add integration tests:
   - `wallet/unlock/challenge -> session/exchange(passkey_assertion) -> session/state -> threshold bootstrap/sign`
   - revoke/lock invalidation after passkey-assertion exchange
-  - cookie-name matching (`SESSION_COOKIE_NAME`, default `tatchi-jwt`) remains enforced
+  - cookie-name matching (`SESSION_COOKIE_NAME`, default `seams-jwt`) remains enforced
 - [x] Update docs and provider guides:
   - document dual exchange types under one canonical endpoint
   - include passkey-first quickstart sequence and payload examples

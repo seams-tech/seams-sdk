@@ -29,7 +29,7 @@ import {
   finalizeThresholdEd25519HssServerCeremonyWithRelayRegistration,
   prepareThresholdEd25519HssServerCeremonyWithRelayRegistration,
   respondThresholdEd25519HssServerCeremonyWithRelayRegistration,
-} from '@/core/TatchiPasskey/faucets/createAccountRelayServer';
+} from '@/core/SeamsPasskey/faucets/createAccountRelayServer';
 import {
   deriveThresholdEd25519HssPublicKey,
   finalizeThresholdEd25519HssServerCeremony,

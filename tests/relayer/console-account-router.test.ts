@@ -587,8 +587,8 @@ for (const mode of ['express', 'cloudflare'] as const) {
           signedClaims = extra || null;
           return 'switched-session-token';
         },
-        buildSetCookie: (token: string) => `tatchi-jwt=${token}; Path=/; HttpOnly`,
-        buildClearCookie: () => 'tatchi-jwt=; Path=/; Max-Age=0',
+        buildSetCookie: (token: string) => `seams-jwt=${token}; Path=/; HttpOnly`,
+        buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
         refresh: async () => ({ ok: false, code: 'not_eligible', message: 'not eligible' }),
       };
 

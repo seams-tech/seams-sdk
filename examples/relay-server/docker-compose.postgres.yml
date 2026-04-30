@@ -2,8 +2,8 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: tatchi
-      POSTGRES_PASSWORD: tatchi
+      POSTGRES_USER: seams
+      POSTGRES_PASSWORD: seams
       POSTGRES_DB: seams
     ports:
       - '5432:5432'

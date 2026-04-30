@@ -27,7 +27,7 @@ export * from './emailRecovery';
 export * from './errors';
 export * from './accountIds';
 export * from './sdkSentEvents';
-export * from './tatchi';
+export * from './seams';
 export * from './delegate';
 
 export type { ClientUserData } from '../accountData/near/types';

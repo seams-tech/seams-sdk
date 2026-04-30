@@ -1,14 +1,14 @@
 import type {
   AuthService,
   RecoveryAuthoritySponsorshipRuntime,
-} from '@tatchi-xyz/sdk/server';
+} from '@seams/sdk/server';
 import {
   createCloudflareCron,
   type CfExecutionContext as Ctx,
   type CfScheduledEvent,
   type RelayCloudflareWorkerEnv,
-} from '@tatchi-xyz/sdk/server/router/cloudflare';
-import type { ConsoleObservabilityIngestionService } from '@tatchi-xyz/sdk/server/router/express';
+} from '@seams/sdk/server/router/cloudflare';
+import type { ConsoleObservabilityIngestionService } from '@seams/sdk/server/router/express';
 import { createWorkerCronOptions, type WorkerCronConfigEnv } from './cronConfig';
 import { resolveWorkerCronFeatureFlags } from './cronFlags';
 import { collectWorkerCronConfigIssues } from './cronValidation';

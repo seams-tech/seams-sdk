@@ -37,7 +37,7 @@ test.describe('Passkey auth account availability', () => {
       let viewAccountCalls = 0;
       let viewAccessKeyListCalls = 0;
 
-      const tatchi = {
+      const seams = {
         configs: {
           wallet: { mode: 'popup' },
           network: {
@@ -83,7 +83,7 @@ test.describe('Passkey auth account availability', () => {
 
       function Harness() {
         const hook = useAccountInput({
-          tatchi,
+          seams,
           accountDomain: 'w3a-v1.testnet',
           currentNearAccountId: null,
           isLoggedIn: false,

@@ -13,7 +13,7 @@ import {
 } from '@/core/signingEngine/signers/webauthn/credentials/helpers';
 import { toError } from '@shared/utils/errors';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
-import type { ThemeName } from '@/core/types/tatchi';
+import type { ThemeName } from '@/core/types/seams';
 
 export async function handleRegistrationFlow(
   ctx: TouchConfirmContext,

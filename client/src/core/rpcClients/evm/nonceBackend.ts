@@ -1,5 +1,5 @@
 import { chainFamilyFromNetwork } from '@/core/config/chains';
-import type { TatchiChainConfig } from '@/core/types/tatchi';
+import type { SeamsChainConfig } from '@/core/types/seams';
 
 export type EvmNonceChain = 'evm' | 'tempo';
 
@@ -54,11 +54,11 @@ export type CreateEvmNonceBackendWithFetcherArgs = {
 };
 
 export type CreateEvmNonceBackendArgs = {
-  chains: readonly TatchiChainConfig[];
+  chains: readonly SeamsChainConfig[];
   fetchImpl?: typeof fetch;
 };
 
-type ChainWithChainId = Extract<TatchiChainConfig, { chainId: number }>;
+type ChainWithChainId = Extract<SeamsChainConfig, { chainId: number }>;
 
 export function toManagedNonceReservationSnapshot(
   input: ManagedNonceReservation,
@@ -178,7 +178,7 @@ export function createEvmNonceBackend(args: CreateEvmNonceBackendArgs): EvmNonce
 }
 
 async function fetchChainNonceFromRpc(args: {
-  chains: readonly TatchiChainConfig[];
+  chains: readonly SeamsChainConfig[];
   input: ReserveNonceInput;
   fetchImpl: typeof fetch;
 }): Promise<bigint> {
@@ -220,19 +220,19 @@ async function fetchChainNonceFromRpc(args: {
 }
 
 function resolveRpcUrlForInput(
-  chains: readonly TatchiChainConfig[],
+  chains: readonly SeamsChainConfig[],
   input: ReserveNonceInput,
 ): string {
   const targetChainId = input.chainId;
   const networkKey = String(input.networkKey || '')
     .trim()
     .toLowerCase();
-  const byChainId = (source: readonly TatchiChainConfig[]): TatchiChainConfig[] =>
+  const byChainId = (source: readonly SeamsChainConfig[]): SeamsChainConfig[] =>
     source.filter((chain) => {
       const chainId = getOptionalConfigChainId(chain);
       return typeof chainId === 'number' && chainId === targetChainId;
     });
-  const byNetworkKey = (source: readonly TatchiChainConfig[]): TatchiChainConfig[] =>
+  const byNetworkKey = (source: readonly SeamsChainConfig[]): SeamsChainConfig[] =>
     source.filter(
       (chain) =>
         String(chain.network || '')
@@ -302,13 +302,13 @@ function resolveRpcUrlForInput(
   );
 }
 
-function isSupportedNonceRoutingChain(chain: TatchiChainConfig): boolean {
+function isSupportedNonceRoutingChain(chain: SeamsChainConfig): boolean {
   const family = chainFamilyFromNetwork(chain.network);
   return family === 'evm' || family === 'tempo';
 }
 
 function isChainCompatibleWithRequestChain(
-  chain: TatchiChainConfig,
+  chain: SeamsChainConfig,
   requestedChain: EvmNonceChain,
 ): boolean {
   const family = chainFamilyFromNetwork(chain.network);
@@ -320,7 +320,7 @@ function isChainCompatibleWithRequestChain(
 }
 
 function assertConfiguredChainIdMatchesInput(args: {
-  chain: TatchiChainConfig;
+  chain: SeamsChainConfig;
   chainId: number;
   networkKey: string;
 }): void {
@@ -338,7 +338,7 @@ function assertConfiguredChainIdMatchesInput(args: {
 }
 
 function assertChainSupportsRequestedRoute(args: {
-  chain: TatchiChainConfig;
+  chain: SeamsChainConfig;
   requestedChain: EvmNonceChain;
   networkKey: string;
   chainId: number;
@@ -352,11 +352,11 @@ function assertChainSupportsRequestedRoute(args: {
   );
 }
 
-function getOptionalConfigChainId(chain: TatchiChainConfig): number | undefined {
+function getOptionalConfigChainId(chain: SeamsChainConfig): number | undefined {
   return isChainWithChainId(chain) ? chain.chainId : undefined;
 }
 
-function isChainWithChainId(chain: TatchiChainConfig): chain is ChainWithChainId {
+function isChainWithChainId(chain: SeamsChainConfig): chain is ChainWithChainId {
   return chainFamilyFromNetwork(chain.network) !== 'near';
 }
 

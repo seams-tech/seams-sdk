@@ -605,7 +605,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
 
   test('wallet-session status polling cannot trigger sealed-session restore', () => {
     const source = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
-    const walletSessionSource = readRepoSource('client/src/core/TatchiPasskey/login.ts');
+    const walletSessionSource = readRepoSource('client/src/core/SeamsPasskey/login.ts');
     const emailOtpCoordinatorSource = readRepoSource(
       'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );

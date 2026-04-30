@@ -71,7 +71,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
       const resultPromise = page.evaluate(
         async ({ walletOrigin, relayerUrl, receiverId }) => {
         try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+          const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
           const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
           const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
@@ -81,7 +81,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
               : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
           const accountId = `e2enearnorm${suffix}.w3a-v1.testnet`;
 
-          const tatchi = new TatchiPasskey({
+          const seams = new SeamsPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayer: { url: relayerUrl },
@@ -107,7 +107,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
             behavior: 'skipClick',
             autoProceedDelay: 0,
           } as const;
-          const registration = await tatchi.registration.registerPasskeyInternal(
+          const registration = await seams.registration.registerPasskeyInternal(
             accountId,
             {},
             confirmationConfig as any,
@@ -116,14 +116,14 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
             return { ok: false as const, error: registration?.error || 'registration failed' };
           }
 
-          const login = await tatchi.auth.unlock(accountId);
+          const login = await seams.auth.unlock(accountId);
           if (!login?.success) {
             return { ok: false as const, error: login?.error || 'login failed' };
           }
 
           const rawReceiverId = `  ${receiverId}  `;
           const transferAction = { type: ActionType.Transfer, amount: '1' };
-          const signed = await tatchi.near.signTransactionsWithActions({
+          const signed = await seams.near.signTransactionsWithActions({
             nearAccountId: accountId,
             transactions: [{ receiverId: rawReceiverId, actions: [transferAction] }],
             options: {

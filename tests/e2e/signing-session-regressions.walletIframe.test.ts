@@ -36,14 +36,14 @@ async function setupPasskeyEvmSigningSession(
   const setupPromise = page.evaluate(
     async ({ relayerUrl, accountId, remainingUses, keyVersion, shamirPrimeB64u }) => {
       try {
-        const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-        const { TatchiPasskey } = sdkMod as any;
+        const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const { SeamsPasskey } = sdkMod as any;
         const confirmationConfig = {
           uiMode: 'none' as const,
           behavior: 'skipClick' as const,
           autoProceedDelay: 0,
         };
-        const tatchi = new TatchiPasskey({
+        const seams = new SeamsPasskey({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayerAccount: 'web3-authn-v4.testnet',
@@ -76,9 +76,9 @@ async function setupPasskeyEvmSigningSession(
             rpIdOverride: 'example.localhost',
           },
         });
-        tatchi.setConfirmationConfig(confirmationConfig as any);
+        seams.setConfirmationConfig(confirmationConfig as any);
 
-        const registration = await tatchi.registration.registerPasskeyInternal(
+        const registration = await seams.registration.registerPasskeyInternal(
           accountId,
           {},
           confirmationConfig as any,
@@ -87,7 +87,7 @@ async function setupPasskeyEvmSigningSession(
           return { ok: false, error: String(registration?.error || 'registration failed') };
         }
 
-        const login = await tatchi.unlock(accountId, {
+        const login = await seams.unlock(accountId, {
           session: {
             kind: 'jwt',
             relayUrl: relayerUrl,
@@ -99,7 +99,7 @@ async function setupPasskeyEvmSigningSession(
           return { ok: false, error: String(login?.error || 'unlock failed') };
         }
 
-        const bootstrap = await tatchi.evm.bootstrapEcdsaSession({
+        const bootstrap = await seams.evm.bootstrapEcdsaSession({
           nearAccountId: accountId,
           options: {
             relayerUrl,
@@ -111,7 +111,7 @@ async function setupPasskeyEvmSigningSession(
           return { ok: false, error: 'EVM ECDSA bootstrap did not return keyRef' };
         }
 
-        const session = await tatchi.auth.getWalletSession(accountId);
+        const session = await seams.auth.getWalletSession(accountId);
         return {
           ok: true,
           sessionStatus: String(session?.signingSession?.status || ''),
@@ -164,20 +164,20 @@ async function runPasskeyEvmSign(
 }> {
   const signPromise = page.evaluate(
     async ({ relayerUrl, accountId, tag, remainingUses, keyVersion, shamirPrimeB64u }) => {
-      const globalKey = '__signingSessionRegressionTatchi';
+      const globalKey = '__signingSessionRegressionSeams';
       let readSealedRecordSummaries = async (): Promise<Array<Record<string, unknown>>> => [];
       let readRuntimeDiagnostics = async (): Promise<Record<string, unknown>> => ({});
       try {
-        const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-        const { TatchiPasskey } = sdkMod as any;
+        const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const { SeamsPasskey } = sdkMod as any;
         const confirmationConfig = {
           uiMode: 'none' as const,
           behavior: 'skipClick' as const,
           autoProceedDelay: 0,
         };
-        const tatchi =
+        const seams =
           (globalThis as any)[globalKey] ||
-          new TatchiPasskey({
+          new SeamsPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayerAccount: 'web3-authn-v4.testnet',
@@ -210,12 +210,12 @@ async function runPasskeyEvmSign(
               rpIdOverride: 'example.localhost',
             },
           });
-        (globalThis as any)[globalKey] = tatchi;
-        tatchi.setConfirmationConfig(confirmationConfig as any);
+        (globalThis as any)[globalKey] = seams;
+        seams.setConfirmationConfig(confirmationConfig as any);
         readSealedRecordSummaries = async (): Promise<Array<Record<string, unknown>>> => {
           const indexedDb = globalThis.indexedDB;
           if (!indexedDb) return [];
-          const openRequest = indexedDb.open('tatchi_wallet_v1');
+          const openRequest = indexedDb.open('seams_wallet_v1');
           const db = await new Promise<IDBDatabase | null>((resolve) => {
             openRequest.onerror = () => resolve(null);
             openRequest.onsuccess = () => resolve(openRequest.result);
@@ -319,9 +319,9 @@ async function runPasskeyEvmSign(
           };
         };
 
-        const preSession = await tatchi.auth.getWalletSession(accountId).catch(() => null);
+        const preSession = await seams.auth.getWalletSession(accountId).catch(() => null);
         const preSessionStatus = String(preSession?.signingSession?.status || '');
-        const signed = await tatchi.tempo.signTempo({
+        const signed = await seams.tempo.signTempo({
           nearAccountId: accountId,
           request: {
             chain: 'evm' as const,
@@ -342,7 +342,7 @@ async function runPasskeyEvmSign(
           },
           options: { confirmationConfig },
         });
-        const session = await tatchi.auth.getWalletSession(accountId);
+        const session = await seams.auth.getWalletSession(accountId);
         return {
           ok: signed?.kind === 'eip1559' && signed?.chain === 'evm',
           kind: String(signed?.kind || ''),

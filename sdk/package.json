@@ -1,5 +1,5 @@
 {
-  "name": "@tatchi-xyz/sdk",
+  "name": "@seams/sdk",
   "version": "0.46.0",
   "type": "module",
   "description": "An embedded passkey wallet SDK built on NEAR protocol",
@@ -89,9 +89,9 @@
       "types": "./dist/types/client/src/react/components/PasskeyAuthMenu/preload.d.ts"
     },
     "./react/provider": {
-      "import": "./dist/esm/react/context/TatchiPasskeyProvider.js",
-      "default": "./dist/esm/react/context/TatchiPasskeyProvider.js",
-      "types": "./dist/types/client/src/react/context/TatchiPasskeyProvider.d.ts"
+      "import": "./dist/esm/react/context/SeamsPasskeyProvider.js",
+      "default": "./dist/esm/react/context/SeamsPasskeyProvider.js",
+      "types": "./dist/types/client/src/react/context/SeamsPasskeyProvider.d.ts"
     },
     "./react/styles": "./dist/esm/react/styles/styles.css",
     "./WalletIframe/client/html": {

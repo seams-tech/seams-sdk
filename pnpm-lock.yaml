@@ -44,7 +44,7 @@ importers:
 
   examples/relay-cloudflare-worker:
     dependencies:
-      '@tatchi-xyz/sdk':
+      '@seams/sdk':
         specifier: workspace:*
         version: link:../../sdk
       jsonwebtoken:
@@ -60,7 +60,7 @@ importers:
 
   examples/relay-server:
     dependencies:
-      '@tatchi-xyz/sdk':
+      '@seams/sdk':
         specifier: workspace:*
         version: link:../../sdk
       cors:
@@ -92,17 +92,7 @@ importers:
         specifier: ^5.6.2
         version: 5.8.3
 
-  examples/self-host-cloudflare-worker:
-    dependencies:
-      '@tatchi-xyz/sdk':
-        specifier: workspace:*
-        version: link:../../sdk
-    devDependencies:
-      wrangler:
-        specifier: ^4.40.2
-        version: 4.40.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)
-
-  examples/tatchi-docs:
+  examples/seams-docs:
     devDependencies:
       mermaid:
         specifier: ^11.12.1
@@ -117,7 +107,7 @@ importers:
         specifier: ^3.5.22
         version: 3.5.22(typescript@5.8.3)
 
-  examples/tatchi-site:
+  examples/seams-site:
     dependencies:
       '@fontsource/hanken-grotesk':
         specifier: ^5.2.8
@@ -125,12 +115,12 @@ importers:
       '@radix-ui/react-select':
         specifier: ^2.0.0
         version: 2.2.6(@types/react-dom@19.1.9(@types/react@19.1.12))(@types/react@19.1.12)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@seams/sdk':
+        specifier: workspace:*
+        version: link:../../sdk
       '@tanstack/react-query':
         specifier: ^5.76.1
         version: 5.87.1(react@18.3.1)
-      '@tatchi-xyz/sdk':
-        specifier: workspace:*
-        version: link:../../sdk
       borsh:
         specifier: ^2.0.0
         version: 2.0.0
@@ -174,6 +164,16 @@ importers:
       vite:
         specifier: ^8.0.0
         version: 8.0.0(@types/node@22.18.1)(jiti@2.6.1)(tsx@4.20.5)(yaml@2.8.1)
+
+  examples/self-host-cloudflare-worker:
+    dependencies:
+      '@seams/sdk':
+        specifier: workspace:*
+        version: link:../../sdk
+    devDependencies:
+      wrangler:
+        specifier: ^4.40.2
+        version: 4.40.3(bufferutil@4.0.9)(utf-8-validate@5.0.10)
 
   sdk:
     dependencies:

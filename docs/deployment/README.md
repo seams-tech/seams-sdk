@@ -20,7 +20,7 @@ environment variables and `examples/relay-cloudflare-worker/wrangler.toml`.
 | -------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `.github/workflows/ci.yml`             | `push`, `pull_request`, `merge_group`                       | Builds, lints, type-checks, runs formal verification, Postgres smoke tests, and threshold signing suites.                                            |
 | `.github/workflows/publish-sdk-r2.yml` | Successful `ci` workflow on deploy refs, or manual dispatch | Builds `sdk/dist`, writes `manifest.sha256` and `manifest.json`, signs the manifest with cosign, and publishes SDK runtime bundles to Cloudflare R2. |
-| `.github/workflows/deploy-pages.yml`   | Push to `dev`/`main`, or manual dispatch                    | Builds the SDK and `examples/tatchi-site`, copies SDK runtime assets under `/sdk`, and deploys the app and wallet Pages projects.                    |
+| `.github/workflows/deploy-pages.yml`   | Push to `dev`/`main`, or manual dispatch                    | Builds the SDK and `examples/seams-site`, copies SDK runtime assets under `/sdk`, and deploys the app and wallet Pages projects.                    |
 | `.github/workflows/deploy-relay.yml`   | Push to `dev`/`main`, or manual dispatch                    | Builds the SDK for Worker bundling, deploys the Cloudflare relay Worker, and configures Cloudflare Email Routing for the recovery recipient.         |
 
 Removed testnet-only workflows are replaced by the staging target in the

@@ -67,10 +67,10 @@ lane:
 - [thresholdEcdsaCoordinator.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator.ts)
   keys presign pools and sign orchestration off `relayerUrl`, `relayerKeyId`,
   `clientVerifyingShareB64u`, and `participantIds`
-- [registration.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/registration.ts),
-  [login.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/login.ts),
+- [registration.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/registration.ts),
+  [login.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/login.ts),
   and
-  [evm/linkDeviceThresholdEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/evm/linkDeviceThresholdEcdsa.ts)
+  [evm/linkDeviceThresholdEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.ts)
   all repeat the same legacy bootstrap assumptions
 
 ### Server-Side Shape Today
@@ -416,11 +416,11 @@ Todo:
       `mintEcdsaSessionFromRegistration(...)`
       with staged `ecdsa-hss` session bootstrap output
 - [x] update
-      [client/src/core/TatchiPasskey/registration.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/registration.ts)
+      [client/src/core/SeamsPasskey/registration.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/registration.ts)
       to use the staged `ecdsa-hss` bootstrap as the source of truth for new
       ECDSA identity
 - [x] update
-      [client/src/core/TatchiPasskey/login.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/login.ts)
+      [client/src/core/SeamsPasskey/login.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/login.ts)
       to warm sessions from staged `ecdsa-hss` bootstrap
 - [x] update link-device and recovery flows to consume the same staged ECDSA
       HSS bootstrap path
@@ -603,7 +603,7 @@ These are still useful, but they expose too much of the old public seam or use
 assertions/messages that should now be centered on `ecdsaThresholdKeyId` and
 root-share/staged bootstrap behavior:
 
-- `tests/unit/tatchiPasskey.loginThresholdWarm.unit.test.ts`
+- `tests/unit/seamsPasskey.loginThresholdWarm.unit.test.ts`
 - `tests/unit/thresholdEcdsa.tempoHighLevel.unit.test.ts`
 - `tests/e2e/thresholdEcdsa.tempoSigning.test.ts`
 - `tests/e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts`
@@ -624,7 +624,7 @@ tests, not product-boundary identity tests:
 
 ### Tightening Todo
 
-- [x] update `tests/unit/tatchiPasskey.loginThresholdWarm.unit.test.ts` so warm-up
+- [x] update `tests/unit/seamsPasskey.loginThresholdWarm.unit.test.ts` so warm-up
       assertions stop treating `clientVerifyingShareB64u` as the public bootstrap
       input and instead assert the staged/root-share bootstrap seam plus
       canonical `ecdsaThresholdKeyId`
@@ -690,7 +690,7 @@ Review summary:
 
 - File placement is mostly corrected now:
   - ECDSA-specific link-device persistence moved to
-    [client/src/core/TatchiPasskey/evm/linkDeviceThresholdEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/evm/linkDeviceThresholdEcdsa.ts),
+    [client/src/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.ts),
     which is the right boundary for EVM threshold signing.
   - staged ECDSA relay RPC helpers live in
     [client/src/core/rpcClients/relayer/thresholdEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/rpcClients/relayer/thresholdEcdsa.ts),
@@ -742,9 +742,9 @@ Findings:
 
 3. The old host-supplied canonical export artifact resolver seam has been
    removed.
-   - [client/src/core/TatchiPasskey/thresholdEcdsaCanonicalExportArtifact.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/thresholdEcdsaCanonicalExportArtifact.ts)
-   - [client/src/core/TatchiPasskey/interfaces.ts:193](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/interfaces.ts#L193)
-   - [client/src/core/TatchiPasskey/index.ts:255](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/index.ts#L255)
+   - [client/src/core/SeamsPasskey/thresholdEcdsaCanonicalExportArtifact.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/thresholdEcdsaCanonicalExportArtifact.ts)
+   - [client/src/core/SeamsPasskey/interfaces.ts:193](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/interfaces.ts#L193)
+   - [client/src/core/SeamsPasskey/index.ts:255](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/index.ts#L255)
    - Registration/login were already no longer using it as the source of truth.
    - The helper file and public API seam are now deleted.
 
@@ -766,7 +766,7 @@ Todo:
 - [x] switch sign-time relayer material loading to persisted backend input
       instead of re-deriving from `relayerKeyId`
 - [x] delete the dead canonical export artifact resolver seam:
-      [client/src/core/TatchiPasskey/thresholdEcdsaCanonicalExportArtifact.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/thresholdEcdsaCanonicalExportArtifact.ts)
+      [client/src/core/SeamsPasskey/thresholdEcdsaCanonicalExportArtifact.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/thresholdEcdsaCanonicalExportArtifact.ts)
       and related interface/API surface
 - [x] make the public threshold ECDSA key ref require `ecdsaThresholdKeyId`
       and demote backend-required legacy fields from the public identity seam

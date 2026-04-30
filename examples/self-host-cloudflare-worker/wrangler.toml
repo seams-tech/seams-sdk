@@ -1,4 +1,4 @@
-name = "tatchi-self-host-signing-worker"
+name = "seams-self-host-signing-worker"
 main = "src/worker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]

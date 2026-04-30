@@ -166,7 +166,7 @@ async function main() {
   const relayScriptsDir = path.dirname(fileURLToPath(import.meta.url));
   const relayCwd = path.resolve(relayScriptsDir, '..');
 
-  const adminUser = readEnv('POSTGRES_BOOTSTRAP_ADMIN_USER', 'tatchi');
+  const adminUser = readEnv('POSTGRES_BOOTSTRAP_ADMIN_USER', 'seams');
 
   const signer = {
     dbName: readEnv('SIGNER_DB_NAME', 'seams_signer'),

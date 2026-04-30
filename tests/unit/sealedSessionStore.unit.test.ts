@@ -51,7 +51,7 @@ test.describe('signing session sealed store', () => {
         const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' };
         const record = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
         const rawRecord = await new Promise<unknown>((resolve, reject) => {
-          const openReq = indexedDB.open('tatchi_wallet_v1');
+          const openReq = indexedDB.open('seams_wallet_v1');
           openReq.onsuccess = () => {
             const db = openReq.result;
             const tx = db.transaction('signing_session_seals_v1', 'readonly');
@@ -70,9 +70,9 @@ test.describe('signing session sealed store', () => {
         });
         const rawRecordJson = JSON.stringify(rawRecord);
         const sessionRaw = sessionStorage.getItem(
-          `tatchi:signing-session-sealed:v1:${thresholdSessionId}`,
+          `seams:signing-session-sealed:v1:${thresholdSessionId}`,
         );
-        const sessionIndex = sessionStorage.getItem('tatchi:signing-session-sealed:v1:index');
+        const sessionIndex = sessionStorage.getItem('seams:signing-session-sealed:v1:index');
         return {
           record,
           sessionRaw,
@@ -116,7 +116,7 @@ test.describe('signing session sealed store', () => {
         const thresholdSessionId = 'sess-plaintext-record';
         await mod.clearAllSealedSessions();
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('tatchi_wallet_v1');
+          const req = indexedDB.open('seams_wallet_v1');
           req.onupgradeneeded = () => {
             if (!req.result.objectStoreNames.contains('signing_session_seals_v1')) {
               req.result.createObjectStore('signing_session_seals_v1', {
@@ -133,7 +133,7 @@ test.describe('signing session sealed store', () => {
           alg: 'plain-v1',
           storageScope: 'iframe_origin_indexeddb',
           runtimeSessionId: sessionStorage.getItem(
-            'tatchi:signing-session-sealed:runtime-session-id:v1',
+            'seams:signing-session-sealed:runtime-session-id:v1',
           ),
           authMethod: 'passkey',
           secretKind: 'signing_session_secret32',
@@ -213,7 +213,7 @@ test.describe('signing session sealed store', () => {
         );
 
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('tatchi_wallet_v1');
+          const req = indexedDB.open('seams_wallet_v1');
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
@@ -223,7 +223,7 @@ test.describe('signing session sealed store', () => {
           alg: 'shamir3pass-v1',
           storageScope: 'iframe_origin_indexeddb',
           runtimeSessionId: sessionStorage.getItem(
-            'tatchi:signing-session-sealed:runtime-session-id:v1',
+            'seams:signing-session-sealed:runtime-session-id:v1',
           ),
           authMethod: 'email_otp',
           secretKind: 'enrollment_secret_s',
@@ -615,13 +615,13 @@ test.describe('signing session sealed store', () => {
           return {
             record,
             localRaw: localStorage.getItem(
-              `tatchi:signing-session-sealed:v1:${thresholdSessionId}`,
+              `seams:signing-session-sealed:v1:${thresholdSessionId}`,
             ),
             sessionRaw: sessionStorage.getItem(
-              `tatchi:signing-session-sealed:v1:${thresholdSessionId}`,
+              `seams:signing-session-sealed:v1:${thresholdSessionId}`,
             ),
-            localIndex: localStorage.getItem('tatchi:signing-session-sealed:v1:index'),
-            sessionIndex: sessionStorage.getItem('tatchi:signing-session-sealed:v1:index'),
+            localIndex: localStorage.getItem('seams:signing-session-sealed:v1:index'),
+            sessionIndex: sessionStorage.getItem('seams:signing-session-sealed:v1:index'),
             sessionKeys: Object.keys(sessionStorage).filter((key) =>
               key.includes('signing-session'),
             ),
@@ -642,13 +642,13 @@ test.describe('signing session sealed store', () => {
     expect(result.sessionKeys).toEqual([]);
   });
 
-  test('does not create tatchi_wallet_v1 when IndexedDB persistence is disabled', async ({
+  test('does not create seams_wallet_v1 when IndexedDB persistence is disabled', async ({
     page,
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         await new Promise<void>((resolve) => {
-          const req = indexedDB.deleteDatabase('tatchi_wallet_v1');
+          const req = indexedDB.deleteDatabase('seams_wallet_v1');
           req.onsuccess = () => resolve();
           req.onerror = () => resolve();
           req.onblocked = () => resolve();
@@ -686,7 +686,7 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result.record).toBeNull();
-    expect(result.databaseNames).not.toContain('tatchi_wallet_v1');
+    expect(result.databaseNames).not.toContain('seams_wallet_v1');
   });
 
   test('reads IndexedDB record when browser-session marker is missing', async ({
@@ -712,7 +712,7 @@ test.describe('signing session sealed store', () => {
         });
         const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' };
         const before = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
-        sessionStorage.removeItem('tatchi:signing-session-sealed:runtime-session-id:v1');
+        sessionStorage.removeItem('seams:signing-session-sealed:runtime-session-id:v1');
         const after = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
         const exactAfterMarkerRemoved = await mod.listExactSealedSessionsForAccount({
           accountId: 'restart.testnet',

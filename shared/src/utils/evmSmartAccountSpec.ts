@@ -1,24 +1,24 @@
-import smartAccountMetadata from '../../../contracts/evm-smart-account/abi/TatchiSmartAccount.metadata.json' with { type: 'json' };
+import smartAccountMetadata from '../../../contracts/evm-smart-account/abi/SeamsSmartAccount.metadata.json' with { type: 'json' };
 
-export type TatchiSmartAccountMethod =
+export type SeamsSmartAccountMethod =
   | 'addOwner'
   | 'removeOwner'
   | 'verifyAndRecover'
   | 'recoverAddOwner';
 
-export const TATCHI_SMART_ACCOUNT_ADD_OWNER_SIGNATURE = 'addOwner(address)' as const;
-export const TATCHI_SMART_ACCOUNT_REMOVE_OWNER_SIGNATURE = 'removeOwner(address)' as const;
-export const TATCHI_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE =
+export const SEAMS_SMART_ACCOUNT_ADD_OWNER_SIGNATURE = 'addOwner(address)' as const;
+export const SEAMS_SMART_ACCOUNT_REMOVE_OWNER_SIGNATURE = 'removeOwner(address)' as const;
+export const SEAMS_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE =
   'verifyAndRecover(bytes32,bytes32,address,bytes32,uint256,uint256,bytes)' as const;
-export const TATCHI_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE =
+export const SEAMS_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE =
   'recoverAddOwner(bytes32,bytes32,address,bytes32,uint256,uint256,bytes)' as const;
 
 const METHOD_SIGNATURES = {
-  addOwner: TATCHI_SMART_ACCOUNT_ADD_OWNER_SIGNATURE,
-  removeOwner: TATCHI_SMART_ACCOUNT_REMOVE_OWNER_SIGNATURE,
-  verifyAndRecover: TATCHI_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE,
-  recoverAddOwner: TATCHI_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE,
-} as const satisfies Record<TatchiSmartAccountMethod, string>;
+  addOwner: SEAMS_SMART_ACCOUNT_ADD_OWNER_SIGNATURE,
+  removeOwner: SEAMS_SMART_ACCOUNT_REMOVE_OWNER_SIGNATURE,
+  verifyAndRecover: SEAMS_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE,
+  recoverAddOwner: SEAMS_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE,
+} as const satisfies Record<SeamsSmartAccountMethod, string>;
 
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -36,25 +36,25 @@ function normalizeMethodIdentifier(value: unknown, label: string): `0x${string}`
   return normalized as `0x${string}`;
 }
 
-function readMethodSelector(method: TatchiSmartAccountMethod): `0x${string}` {
+function readMethodSelector(method: SeamsSmartAccountMethod): `0x${string}` {
   const methodIdentifiers = asObject(asObject(smartAccountMetadata).methodIdentifiers);
   const signature = METHOD_SIGNATURES[method];
   return normalizeMethodIdentifier(methodIdentifiers[signature], signature);
 }
 
-export function getTatchiSmartAccountMethodSignature(method: TatchiSmartAccountMethod): string {
+export function getSeamsSmartAccountMethodSignature(method: SeamsSmartAccountMethod): string {
   return METHOD_SIGNATURES[method];
 }
 
-export function getTatchiSmartAccountMethodSelector(
-  method: TatchiSmartAccountMethod,
+export function getSeamsSmartAccountMethodSelector(
+  method: SeamsSmartAccountMethod,
 ): `0x${string}` {
   return readMethodSelector(method);
 }
 
 // The packaged `.metadata.json` is machine-readable for selectors; the sibling `abi/*.json`
 // files are currently human-formatted tables, so keep the minimal tx-confirmation ABI local here.
-export const TATCHI_SMART_ACCOUNT_ADD_OWNER_ABI = Object.freeze([
+export const SEAMS_SMART_ACCOUNT_ADD_OWNER_ABI = Object.freeze([
   Object.freeze({
     type: 'function',
     name: 'addOwner',
@@ -64,7 +64,7 @@ export const TATCHI_SMART_ACCOUNT_ADD_OWNER_ABI = Object.freeze([
   }),
 ]);
 
-export const TATCHI_SMART_ACCOUNT_REMOVE_OWNER_ABI = Object.freeze([
+export const SEAMS_SMART_ACCOUNT_REMOVE_OWNER_ABI = Object.freeze([
   Object.freeze({
     type: 'function',
     name: 'removeOwner',

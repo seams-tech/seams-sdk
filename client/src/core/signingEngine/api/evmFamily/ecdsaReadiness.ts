@@ -1,5 +1,5 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
-import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
+import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { SigningOperationIntent } from '../../session/signingSession/types';
 import {
@@ -17,11 +17,11 @@ import type { ThresholdEcdsaSessionStoreSource } from '../thresholdLifecycle/thr
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
 export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilyWarmSessionServicesDeps & {
-  tatchiPasskeyConfigs: TatchiConfigsReadonly;
+  seamsPasskeyConfigs: SeamsConfigsReadonly;
 };
 
 function resolveManagedRuntimeScopeBootstrap(
-  configs: TatchiConfigsReadonly,
+  configs: SeamsConfigsReadonly,
 ): { environmentId: string; publishableKey: string } | undefined {
   const registration = configs.registration;
   if (registration.mode !== 'managed') return undefined;
@@ -85,7 +85,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
     chain,
     keyRef: resolvedKeyRef,
     source,
-    runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.tatchiPasskeyConfigs),
+    runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.seamsPasskeyConfigs),
     usesNeeded: operationUsesNeeded,
     sessionBudgetUses,
     operationIntent: SigningOperationIntent.TransactionSign,

@@ -32,7 +32,7 @@ This plan assumes:
   - signer domain: threshold signing + relay runtime tables.
   - console domain: org/project/environment, dashboard settings, billing, webhooks, API keys.
 - Local cluster anchor:
-  - `postgresql://tatchi:tatchi@127.0.0.1/seams?statusColor=686B6F&env=local&name=seams&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
+  - `postgresql://seams:seams@127.0.0.1/seams?statusColor=686B6F&env=local&name=seams&tLSMode=0&usePrivateKey=false&safeModeLevel=0&advancedSafeModeLevel=0&driverVersion=0&lazyload=false`
   - target logical DBs: `seams_signer` and `seams_console` on the same `127.0.0.1` cluster.
 - Integration between signer and console domains stays API/event-based; no direct cross-database joins.
 

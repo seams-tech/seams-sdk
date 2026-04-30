@@ -175,11 +175,11 @@ export function logRorConfig(origins: string[], endpoint = '/.well-known/webauth
       invalid.push(o);
     }
   }
-  const msg = `[tatchi] ROR enabled: GET ${endpoint} -> { origins: [${origins.join(', ')}] }`;
+  const msg = `[seams] ROR enabled: GET ${endpoint} -> { origins: [${origins.join(', ')}] }`;
   console.log(msg);
   if (invalid.length > 0) {
     console.warn(
-      `[tatchi] ROR warning: invalid origins: ${invalid.join(
+      `[seams] ROR warning: invalid origins: ${invalid.join(
         ', ',
       )} (expected absolute origins like https://app.example.com)`,
     );
@@ -244,7 +244,7 @@ const requireCjs = createRequire(import.meta.url);
 
 export function resolveSdkDistRoot(explicit?: string): string {
   if (explicit) return path.resolve(explicit);
-  const pkgPath = requireCjs.resolve('@tatchi-xyz/sdk/package.json');
+  const pkgPath = requireCjs.resolve('@seams/sdk/package.json');
   const pkgDir = path.dirname(pkgPath);
   try {
     const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { module?: string };

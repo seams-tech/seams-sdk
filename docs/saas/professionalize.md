@@ -6,7 +6,7 @@ Date updated: February 15, 2026
 
 Professionalize the public docs homepage and top-level marketing paths so a new visitor can quickly understand:
 
-1. What Tatchi is.
+1. What Seams is.
 2. Who it is for.
 3. Why it is credible.
 4. What to do next.
@@ -18,26 +18,26 @@ Professionalize the public docs homepage and top-level marketing paths so a new 
 - [x] Top-level IA is implemented in custom homepage navbar:
   - `Products`, `Solutions`, `Documentation`, `Pricing`, `Company`
   - CTA actions: `GitHub`, `Contact Sales`, `Get Started`
-  - File: `examples/tatchi-site/src/components/Navbar/NavbarStatic.tsx`
+  - File: `examples/seams-site/src/components/Navbar/NavbarStatic.tsx`
 - [x] Mobile menu includes the same IA and CTA structure.
 - [x] Top-level pages exist:
-  - `examples/tatchi-site/src/products/index.md`
-  - `examples/tatchi-site/src/solutions/index.md`
-  - `examples/tatchi-site/src/pricing/index.md`
-  - `examples/tatchi-site/src/company/index.md`
+  - `examples/seams-site/src/products/index.md`
+  - `examples/seams-site/src/solutions/index.md`
+  - `examples/seams-site/src/pricing/index.md`
+  - `examples/seams-site/src/company/index.md`
 - [x] Dedicated sales contact route exists:
-  - `examples/tatchi-site/src/contact/index.md`
-- [x] Hero copy now uses consistent `Tatchi` naming and outcome-first messaging.
-  - File: `examples/tatchi-site/src/components/HomeHero.tsx`
+  - `examples/seams-site/src/contact/index.md`
+- [x] Hero copy now uses consistent `Seams` naming and outcome-first messaging.
+  - File: `examples/seams-site/src/components/HomeHero.tsx`
 - [x] Homepage includes trust/products/solutions/security/final CTA sections.
-  - File: `examples/tatchi-site/src/pages/HomePage.tsx`
+  - File: `examples/seams-site/src/pages/HomePage.tsx`
 - [x] Default VitePress nav includes top-level routes for non-home pages.
-  - File: `examples/tatchi-site/src/.vitepress/config.ts`
+  - File: `examples/seams-site/src/.vitepress/config.ts`
 - [x] Sales/contact CTAs no longer point to personal-profile links.
   - Files:
-    - `examples/tatchi-site/src/components/Navbar/NavbarStatic.tsx`
-    - `examples/tatchi-site/src/components/Footer.tsx`
-    - `examples/tatchi-site/src/pricing/index.md`
+    - `examples/seams-site/src/components/Navbar/NavbarStatic.tsx`
+    - `examples/seams-site/src/components/Footer.tsx`
+    - `examples/seams-site/src/pricing/index.md`
 
 ### Gaps Still Open
 
@@ -50,7 +50,7 @@ Professionalize the public docs homepage and top-level marketing paths so a new 
 
 ### Phase A: Messaging + Conversion Plumbing (Immediate)
 
-- [x] Standardize public naming to `Tatchi` across homepage marketing copy.
+- [x] Standardize public naming to `Seams` across homepage marketing copy.
 - [x] Rewrite hero to outcome-first positioning with:
   - one clear headline,
   - one value subhead,

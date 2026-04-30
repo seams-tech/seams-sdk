@@ -14,9 +14,9 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
           const sdkMod = await import('/sdk/esm/index.js');
           const { IndexedDBManager } = await import('/sdk/esm/core/indexedDB/index.js');
           const { persistLinkDeviceThresholdEcdsaBootstrap } = await import(
-            '/sdk/esm/core/TatchiPasskey/evm/linkDeviceThresholdEcdsa.js'
+            '/sdk/esm/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.js'
           );
-          const { TatchiPasskey } = sdkMod as any;
+          const { SeamsPasskey } = sdkMod as any;
 
           const accountId = `linkdeviceecdsa${Date.now()}.w3a-v1.testnet`;
           const confirmationConfig = {
@@ -26,7 +26,7 @@ test.describe('threshold-ecdsa link-device manual-bootstrap', () => {
           };
           const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-          const pm = new TatchiPasskey({
+          const pm = new SeamsPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayerAccount: 'web3-authn-v4.testnet',

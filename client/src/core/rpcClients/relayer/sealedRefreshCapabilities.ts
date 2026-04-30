@@ -1,5 +1,5 @@
 import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
-import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
+import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
 
 type SealedRefreshMode = 'none' | 'sealed_refresh_v1';
@@ -13,7 +13,7 @@ export type RelayerSigningSessionSealCapabilities =
     };
 
 type VerifySealedRefreshStartupParityArgs = {
-  configs: TatchiConfigsReadonly;
+  configs: SeamsConfigsReadonly;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 };
@@ -73,22 +73,17 @@ function parseWellKnownSigningSessionSealCapabilities(
   );
   if (fromCapabilities) return fromCapabilities;
 
-  const fromLegacyTatchi = normalizeSigningSessionSealCapabilities(
-    asRecord(root.tatchi)?.signingSessionSeal,
-  );
-  if (fromLegacyTatchi) return fromLegacyTatchi;
-
   return { mode: 'none' };
 }
 
-function shouldEnforceSealedRefreshParity(configs: TatchiConfigsReadonly): boolean {
+function shouldEnforceSealedRefreshParity(configs: SeamsConfigsReadonly): boolean {
   if (configs.signing.sessionPersistenceMode !== 'sealed_refresh_v1') return false;
   const appOriginWalletIframeMode =
     configs.wallet.mode === 'iframe' && !__isWalletIframeHostMode();
   return !appOriginWalletIframeMode;
 }
 
-function buildParityConfigKey(configs: TatchiConfigsReadonly): string {
+function buildParityConfigKey(configs: SeamsConfigsReadonly): string {
   const relayerUrl = String(configs.network.relayer.url || '').trim();
   const mode = String(configs.signing.sessionPersistenceMode || '').trim().toLowerCase();
   const keyVersion = normalizeOptionalNonEmptyString(configs.signing.sessionSeal.keyVersion) || '';

@@ -1,4 +1,4 @@
-import { SessionService } from '@tatchi-xyz/sdk/server';
+import { SessionService } from '@seams/sdk/server';
 import jwt from 'jsonwebtoken';
 // Optional JWT session integration example
 
@@ -14,9 +14,9 @@ type DemoJwtClaims = {
 
 const demoSecret = 'demo-secret';
 const demoIssuer = 'relay-worker-demo';
-const demoAudience = 'tatchi-app-demo';
+const demoAudience = 'seams-app-demo';
 const demoExpiresInSec = 24 * 60 * 60;
-export const DEFAULT_SESSION_COOKIE_NAME = 'tatchi-jwt';
+export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';
 
 export function createJwtSession(
   cookieName: string = DEFAULT_SESSION_COOKIE_NAME,

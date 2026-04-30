@@ -1,4 +1,4 @@
-import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import type { SeamsPasskey } from '@/core/SeamsPasskey';
 import { awaitWalletIframeReady } from '@/react/utils/walletIframe';
 
 export interface RecentUnlockPrefillResult {
@@ -10,11 +10,11 @@ export interface RecentUnlockPrefillResult {
  * Intended to be called from a lazily imported "feature island".
  */
 export async function getRecentUnlockPrefill(
-  tatchiPasskey: TatchiPasskey,
+  seamsPasskey: SeamsPasskey,
 ): Promise<RecentUnlockPrefillResult | null> {
   try {
-    await awaitWalletIframeReady(tatchiPasskey).catch(() => false);
-    const { lastUsedAccount } = await tatchiPasskey.auth.getRecentUnlocks();
+    await awaitWalletIframeReady(seamsPasskey).catch(() => false);
+    const { lastUsedAccount } = await seamsPasskey.auth.getRecentUnlocks();
     const username = (lastUsedAccount?.nearAccountId ?? '').split('.')[0] || '';
     if (!username) return null;
     return { username };

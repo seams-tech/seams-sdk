@@ -4,37 +4,37 @@
  * This package provides React components and hooks for integrating Web3Authn Passkey
  * functionality into React applications.
  *
- * **Important:** All React components and hooks must be used inside a TatchiPasskey context.
- * Wrap your app with TatchiPasskeyProvider to provide the required context.
+ * **Important:** All React components and hooks must be used inside a SeamsPasskey context.
+ * Wrap your app with SeamsPasskeyProvider to provide the required context.
  *
  * @example
  * ```tsx
- * import { TatchiPasskeyProvider, QRCodeScanner, AccountMenuButton } from '@tatchi-xyz/sdk/react';
+ * import { SeamsPasskeyProvider, QRCodeScanner, AccountMenuButton } from '@seams/sdk/react';
  *
  * function App() {
  *   return (
- *     <TatchiPasskeyProvider configs={passkeyConfigs}>
+ *     <SeamsPasskeyProvider configs={passkeyConfigs}>
  *       <div>
  *         <QRCodeScanner onDeviceLinked={(result) => console.log(result)} />
  *         <AccountMenuButton username="alice" onLock={() => console.log('wallet locked')} />
  *       </div>
- *     </TatchiPasskeyProvider>
+ *     </SeamsPasskeyProvider>
  *   );
  * }
  * ```
  */
 
-export { TatchiContextProvider, useTatchi } from './context';
-export { TatchiPasskeyProvider } from './context/TatchiPasskeyProvider';
+export { SeamsContextProvider, useSeams } from './context';
+export { SeamsPasskeyProvider } from './context/SeamsPasskeyProvider';
 
 // === RE-EXPORT CORE TYPES ===
-export { TatchiPasskey } from '../core/TatchiPasskey';
+export { SeamsPasskey } from '../core/SeamsPasskey';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../core/config/defaultConfigs';
 export type {
   EmailOtpAuthPolicy,
-  TatchiConfigsReadonly,
-  TatchiConfigsInput,
-} from '../core/types/tatchi';
+  SeamsConfigsReadonly,
+  SeamsConfigsInput,
+} from '../core/types/seams';
 export type { StoreUserDataInput } from '../core/accountData/near/types';
 
 // === RE-EXPORT ACTION TYPES ===
@@ -55,12 +55,12 @@ export type {
 
 // === TYPES ===
 export type {
-  TatchiContextType,
-  TatchiContextProviderProps,
+  SeamsContextType,
+  SeamsContextProviderProps,
   LoginState,
   LoginResult,
   RegistrationResult,
-  // Re-exported from TatchiPasskey types
+  // Re-exported from SeamsPasskey types
   RegistrationHooksOptions,
   LoginHooksOptions,
   SignNEP413HooksOptions,
@@ -125,7 +125,7 @@ export { useTheme, Theme } from './components/theme';
 export type { UseThemeReturn, ThemeProps, ThemeName } from './components/theme';
 export { LIGHT_TOKENS, DARK_TOKENS } from './components/theme';
 
-export type { ActionResult } from '../core/types/tatchi';
+export type { ActionResult } from '../core/types/seams';
 
 export {
   AccountSyncEventPhase,

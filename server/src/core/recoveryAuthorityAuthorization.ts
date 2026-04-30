@@ -1,16 +1,16 @@
 import { keccak256Bytes } from '@shared/utils/keccak';
 import {
-  getTatchiSmartAccountMethodSelector,
-  TATCHI_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE,
-  TATCHI_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE,
+  getSeamsSmartAccountMethodSelector,
+  SEAMS_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE,
+  SEAMS_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE,
 } from '@shared/utils/evmSmartAccountSpec';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { signSecp256k1Recoverable } from './ThresholdService/ethSignerWasm';
 
-export const RECOVERY_AUTHORITY_DOMAIN_NAME = 'TatchiSmartAccountRecovery';
+export const RECOVERY_AUTHORITY_DOMAIN_NAME = 'SeamsSmartAccountRecovery';
 export const RECOVERY_AUTHORITY_DOMAIN_VERSION = '1';
-export const VERIFY_AND_RECOVER_SIGNATURE = TATCHI_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE;
-export const RECOVER_ADD_OWNER_SIGNATURE = TATCHI_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE;
+export const VERIFY_AND_RECOVER_SIGNATURE = SEAMS_SMART_ACCOUNT_VERIFY_AND_RECOVER_SIGNATURE;
+export const RECOVER_ADD_OWNER_SIGNATURE = SEAMS_SMART_ACCOUNT_RECOVER_ADD_OWNER_SIGNATURE;
 
 export type RecoveryAuthorityContractMethod = 'verifyAndRecover' | 'recoverAddOwner';
 
@@ -297,7 +297,7 @@ export function encodeRecoveryAuthorityCalldata(
 export function getRecoveryAuthorityFunctionSelector(
   method: RecoveryAuthorityContractMethod,
 ): `0x${string}` {
-  return getTatchiSmartAccountMethodSelector(method);
+  return getSeamsSmartAccountMethodSelector(method);
 }
 
 export function getRecoveryAuthorityFunctionSignature(

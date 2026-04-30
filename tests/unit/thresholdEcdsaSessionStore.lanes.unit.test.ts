@@ -396,11 +396,11 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
 
         sessionStorage.clear();
         sessionStorage.setItem(
-          'tatchi:threshold-ecdsa-session:v3:index',
+          'seams:threshold-ecdsa-session:v3:index',
           JSON.stringify(['alice|not-a-chain|rk']),
         );
         sessionStorage.setItem(
-          'tatchi:threshold-ecdsa-session:v3:alice|not-a-chain|rk',
+          'seams:threshold-ecdsa-session:v3:alice|not-a-chain|rk',
           JSON.stringify({
             v: 1,
             record: {
@@ -461,7 +461,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
       async ({ paths }) => {
         const storeMod = await import(paths.thresholdSessionStore);
         const deps = { recordsByLane: new Map<string, unknown>() };
-        const prefix = 'tatchi:threshold-ecdsa-session:v3';
+        const prefix = 'seams:threshold-ecdsa-session:v3';
         const laneKey = [
           'alice.testnet',
           'evm',
@@ -756,7 +756,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
           chain: 'evm',
           source: 'registration',
         });
-        const explicitStoragePrefix = 'tatchi:threshold-ecdsa-session:v3';
+        const explicitStoragePrefix = 'seams:threshold-ecdsa-session:v3';
         const explicitLaneIndex = JSON.parse(
           sessionStorage.getItem(`${explicitStoragePrefix}:index`) || '[]',
         );
@@ -1015,7 +1015,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
         const storeMod = await import(paths.thresholdSessionStore);
         const deps = { recordsByLane: new Map<string, unknown>() };
         const now = Date.now();
-        const prefix = 'tatchi:threshold-ecdsa-session:v3';
+        const prefix = 'seams:threshold-ecdsa-session:v3';
         const laneKey = ['alice.testnet', 'evm', 'login', 'ek-root-bound', 'proj_a:dev', 'v1']
           .map((part) => encodeURIComponent(part))
           .join('|');
@@ -1155,7 +1155,7 @@ test.describe('threshold ECDSA lane-scoped session store', () => {
         const storeMod = await import(paths.thresholdSessionStore);
         const deps = { recordsByLane: new Map<string, unknown>() };
         const now = Date.now();
-        const prefix = 'tatchi:threshold-ecdsa-session:v3';
+        const prefix = 'seams:threshold-ecdsa-session:v3';
 
         sessionStorage.clear();
         sessionStorage.setItem(

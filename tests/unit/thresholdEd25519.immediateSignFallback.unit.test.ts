@@ -151,6 +151,27 @@ function createNearThresholdRuntimeCtx({
   } as any;
 }
 
+function activeBudgetStatus(walletSigningSessionId: string, remainingUses: number = 10) {
+  return {
+    sessionId: walletSigningSessionId,
+    status: 'active' as const,
+    remainingUses,
+    expiresAtMs: Date.now() + 60_000,
+    projectionVersion: `projection:${walletSigningSessionId}:${remainingUses}`,
+  };
+}
+
+function createActiveSigningSessionCoordinator(
+  walletSigningSessionId: string,
+  remainingUses: number = 10,
+): SigningSessionCoordinator {
+  return new SigningSessionCoordinator({
+    getStatus: async () => activeBudgetStatus(walletSigningSessionId, remainingUses),
+    consumeUse: async ({ uses }) =>
+      activeBudgetStatus(walletSigningSessionId, Math.max(0, remainingUses - uses)),
+  });
+}
+
 test.describe('threshold ed25519 immediate signing fallback', () => {
   test('uses Email OTP client-base session material without falling back to WebAuthn', async () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
@@ -319,6 +340,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
         signerSlot: 1,
         sessionId,
+        signingSessionCoordinator: createActiveSigningSessionCoordinator(
+          walletSigningSessionId,
+          10,
+        ),
         onEvent: (event) => progressEvents.push(event),
       });
 
@@ -620,6 +645,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           },
         },
         signingSessionCoordinator: new SigningSessionCoordinator({
+          getStatus: async () => activeBudgetStatus(walletSigningSessionId, 1),
           consumeUse: async ({ uses }) => {
             consumedUses = uses;
             markThresholdEd25519EmailOtpSessionConsumedForAccount({
@@ -632,6 +658,8 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               status: 'exhausted',
               authMethod: 'email_otp',
               retention: 'single_use',
+              remainingUses: 0,
+              projectionVersion: `projection:${walletSigningSessionId}:0`,
             };
           },
         }),
@@ -982,6 +1010,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
         rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
         signerSlot: 1,
         sessionId,
+        signingSessionCoordinator: createActiveSigningSessionCoordinator(
+          walletSigningSessionId,
+          10,
+        ),
       });
 
       expect(Array.isArray(signed)).toBe(true);
@@ -1013,7 +1045,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           localStorage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'clear'>;
         }
       ).localStorage = localStorage;
-      localStorage.setItem('tatchi:debug:signing-session', '1');
+      localStorage.setItem('seams:debug:signing-session', '1');
       const debugCalls: unknown[][] = [];
       console.debug = (...args: unknown[]) => {
         debugCalls.push(args);
@@ -1139,6 +1171,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               return { sessionId: thresholdSessionId };
             },
           },
+          signingSessionCoordinator: createActiveSigningSessionCoordinator(
+            walletSigningSessionId,
+            10,
+          ),
         });
 
         expect(signed).toHaveLength(1);
@@ -1393,6 +1429,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       const consumeCalls: any[] = [];
       const signingSessionCoordinator = new SigningSessionCoordinator({
+        getStatus: async () => activeBudgetStatus(walletSigningSessionId, 10),
         consumeUse: async (input) => {
           consumeCalls.push(input);
           return {
@@ -1401,6 +1438,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             authMethod: 'email_otp',
             retention: 'session',
             remainingUses: 9,
+            projectionVersion: `projection:${walletSigningSessionId}:9`,
           };
         },
       });
@@ -1545,6 +1583,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             },
           },
           signingSessionCoordinator: new SigningSessionCoordinator({
+            getStatus: async () => activeBudgetStatus(walletSigningSessionId, 1),
             consumeUse: async (input) => {
               consumeCalls.push(input);
               return {
@@ -1553,6 +1592,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 authMethod: 'email_otp',
                 retention: 'single_use',
                 remainingUses: 0,
+                projectionVersion: `projection:${walletSigningSessionId}:0`,
               };
             },
           }),
@@ -1697,6 +1737,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           },
         },
         signingSessionCoordinator: new SigningSessionCoordinator({
+          getStatus: async () => activeBudgetStatus(walletSigningSessionId, 1),
           consumeUse: async (input) => {
             consumeCalls.push(input);
             markThresholdEd25519EmailOtpSessionConsumedForAccount({
@@ -1710,6 +1751,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               authMethod: 'email_otp',
               retention: 'single_use',
               remainingUses: 0,
+              projectionVersion: `projection:${walletSigningSessionId}:0`,
             };
           },
         }),
@@ -1803,6 +1845,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           signerSlot: 1,
           sessionId: thresholdSessionId,
           signingSessionCoordinator: new SigningSessionCoordinator({
+            getStatus: async () => activeBudgetStatus(walletSigningSessionId, 10),
             consumeUse: async (input) => {
               consumeCalls.push(input);
               return {
@@ -1811,6 +1854,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 authMethod: 'email_otp',
                 retention: 'session',
                 remainingUses: 9,
+                projectionVersion: `projection:${walletSigningSessionId}:9`,
               };
             },
           }),

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { LinkDeviceFlow } from '@/core/TatchiPasskey/near/linkDevice';
-import { linkDeviceWithScannedQRData } from '@/core/TatchiPasskey/scanDevice';
+import { LinkDeviceFlow } from '@/core/SeamsPasskey/near/linkDevice';
+import { linkDeviceWithScannedQRData } from '@/core/SeamsPasskey/scanDevice';
 import { LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
 
 function createDisplayContext() {

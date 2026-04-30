@@ -90,14 +90,14 @@ Review in this order:
 
 ### Client: link-device and recovery flows
 
-- [emailRecovery.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/near/emailRecovery.ts)
-- [linkDevice.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/near/linkDevice.ts)
-- [linkDeviceOwnerManagement.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/near/linkDeviceOwnerManagement.ts)
-- [linkDevicePreparedEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/near/linkDevicePreparedEcdsa.ts)
-- [linkDeviceThresholdEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/evm/linkDeviceThresholdEcdsa.ts)
-- [thresholdEcdsaProvisioning.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/thresholdEcdsaProvisioning.ts)
-- [registration.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/registration.ts)
-- [scanDevice.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/scanDevice.ts)
+- [emailRecovery.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/near/emailRecovery.ts)
+- [linkDevice.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/near/linkDevice.ts)
+- [linkDeviceOwnerManagement.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/near/linkDeviceOwnerManagement.ts)
+- [linkDevicePreparedEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/near/linkDevicePreparedEcdsa.ts)
+- [linkDeviceThresholdEcdsa.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.ts)
+- [thresholdEcdsaProvisioning.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/thresholdEcdsaProvisioning.ts)
+- [registration.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/registration.ts)
+- [scanDevice.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/scanDevice.ts)
 - [emailRecovery.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/types/emailRecovery.ts)
 
 ### Client: local persistence and deployment reconciliation
@@ -164,5 +164,5 @@ These files are modified or untracked in the worktree, but they are not part of 
 
 ### Example site
 
-- [Navbar.css](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/components/Navbar/Navbar.css)
-- [NavbarStatic.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/tatchi-site/src/components/Navbar/NavbarStatic.tsx)
+- [Navbar.css](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/components/Navbar/Navbar.css)
+- [NavbarStatic.tsx](/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/components/Navbar/NavbarStatic.tsx)

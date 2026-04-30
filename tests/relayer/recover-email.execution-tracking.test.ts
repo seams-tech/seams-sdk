@@ -109,7 +109,7 @@ function buildRecoverySpecFixture(input?: {
   const selector = getRecoveryAuthorityFunctionSelector(contractMethod);
   const functionSignature = getRecoveryAuthorityFunctionSignature(contractMethod);
   return {
-    version: 'tatchi_evm_recovery_spec_v1' as const,
+    version: 'seams_evm_recovery_spec_v1' as const,
     newOwnerAddress,
     call: {
       to: accountAddress,
@@ -125,7 +125,7 @@ function buildRecoverySpecFixture(input?: {
       contractMethod,
       authorityAddress: `0x${'99'.repeat(20)}` as const,
       domain: {
-        name: 'TatchiSmartAccountRecovery',
+        name: 'SeamsSmartAccountRecovery',
         version: '1',
         chainId: 11155111,
         verifyingContract: accountAddress,
@@ -902,7 +902,7 @@ test.describe('recover-email execution tracking', () => {
             sponsoredEffectiveGasPrice: '67890',
             sponsoredFeeAmount: '838102050',
             recoverySpec: expect.objectContaining({
-              version: 'tatchi_evm_recovery_spec_v1',
+              version: 'seams_evm_recovery_spec_v1',
               newOwnerAddress,
               call: expect.objectContaining({
                 to: accountAddress,

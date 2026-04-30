@@ -94,9 +94,9 @@ It complements `docs/observability-events-3.md`, which covers the observability 
 - `server/src/console/observability/policy.ts`
 - `server/src/console/observability/types.ts`
 - `server/src/console/audit/types.ts`
-- `examples/tatchi-site/src/pages/dashboard/routes/audit/page.tsx`
-- `examples/tatchi-site/src/pages/dashboard/routes/audit/consoleAuditApi.ts`
-- `examples/tatchi-site/src/pages/dashboard/routes/observability/page.tsx`
-- `examples/tatchi-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
+- `examples/seams-site/src/pages/dashboard/routes/audit/page.tsx`
+- `examples/seams-site/src/pages/dashboard/routes/audit/consoleAuditApi.ts`
+- `examples/seams-site/src/pages/dashboard/routes/observability/page.tsx`
+- `examples/seams-site/src/pages/dashboard/routes/observability/consoleObservabilityApi.ts`
 - `tests/relayer/console-router.test.ts`
 - `tests/relayer/console-observability.ingestion.test.ts`

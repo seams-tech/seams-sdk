@@ -8,7 +8,7 @@ import QRCodeIcon from '../QRCodeIcon';
 import { ArrowRightAnim } from '../ArrowRightAnim';
 import { AuthMenuMode, type PasskeyAuthMenuProps } from './types';
 import { getGoogleSsoButtonLabel, getGoogleSsoHelperText } from './socialCopy';
-import { usePasskeyAuthMenuRuntime } from './adapters/tatchi';
+import { usePasskeyAuthMenuRuntime } from './adapters/seams';
 import { usePasskeyAuthMenuController } from './controller/usePasskeyAuthMenuController';
 import { useSDKEvents } from './controller/useSDKEvents';
 

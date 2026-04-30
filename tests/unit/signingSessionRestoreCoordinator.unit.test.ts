@@ -25,7 +25,6 @@ function makeSealedRecord(args: {
     v: 1,
     alg: 'shamir3pass-v1',
     storageScope: 'iframe_origin_indexeddb',
-    runtimeSessionId: 'runtime-restore',
     authMethod,
     secretKind: 'signing_session_secret32',
     storeKey: `${authMethod}:${curve}:${args.chain || 'near'}:${thresholdSessionId}`,
@@ -264,8 +263,12 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
 
     expect(result).toMatchObject({ attempted: 1, restored: 1, deferred: 0 });
     expect(restoreCalls).toBe(1);
-    expect(restoredRecord?.thresholdSessionIds.ed25519).toBe('tsess-ed25519-companion');
-    expect(restoredRecord?.thresholdSessionIds.ecdsa).toBe('tsess-ecdsa-companion');
+    expect((restoredRecord as SigningSessionSealedStoreRecord | null)?.thresholdSessionIds.ed25519).toBe(
+      'tsess-ed25519-companion',
+    );
+    expect((restoredRecord as SigningSessionSealedStoreRecord | null)?.thresholdSessionIds.ecdsa).toBe(
+      'tsess-ecdsa-companion',
+    );
   });
 
   test('passes Ed25519 purpose through to the restore port for an ECDSA-primary companion record', async () => {
@@ -369,8 +372,10 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
     };
     const ports = {
       cache,
-      listExactSealedSessionsForAccount: async ({ chain }) =>
-        chain === 'tempo' ? [makeSealedRecord({ chain: 'tempo' })] : [],
+      listExactSealedSessionsForAccount: async (filter: any) =>
+        filter.curve === 'ecdsa' && filter.chain === 'tempo'
+          ? [makeSealedRecord({ chain: 'tempo' })]
+          : [],
       restoreSealedRecordForAccount: async () => {
         restoreCalls += 1;
         return 'restored' as const;

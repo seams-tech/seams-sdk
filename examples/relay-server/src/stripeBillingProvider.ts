@@ -4,7 +4,7 @@ import type {
   StripeCheckoutSessionLookupProviderOutput,
   StripeCheckoutSessionProviderInput,
   StripeCheckoutSessionProviderOutput,
-} from '@tatchi-xyz/sdk/server/router/express';
+} from '@seams/sdk/server/router/express';
 
 interface StripeApiErrorPayload {
   error?: {
@@ -100,12 +100,12 @@ function buildCreditPackName(input: StripeCheckoutSessionProviderInput): string 
     amountMinor?: number;
   };
   const amountMinor = Number(checkoutInput.amountMinor);
-  if (!Number.isFinite(amountMinor) || amountMinor <= 0) return 'Tatchi prepaid credits';
+  if (!Number.isFinite(amountMinor) || amountMinor <= 0) return 'Seams prepaid credits';
   const amount = `$${(amountMinor / 100).toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
-  return `Tatchi prepaid credits (${amount})`;
+  return `Seams prepaid credits (${amount})`;
 }
 
 export function createStripeBillingProviderAdapter(
@@ -175,7 +175,7 @@ export function createStripeBillingProviderAdapter(
     const form = new URLSearchParams();
     setFormField(form, 'name', `Console ${orgId}`);
     setFormField(form, 'metadata[org_id]', orgId);
-    setFormField(form, 'description', `Tatchi console billing customer for ${orgId}`);
+    setFormField(form, 'description', `Seams console billing customer for ${orgId}`);
 
     const payload = await postForm('/v1/customers', form);
     const customerId = normalizeString(payload.id);

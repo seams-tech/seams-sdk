@@ -38,9 +38,9 @@ export const BUILD_PATHS = {
 
   // Frontend deployment paths
   FRONTEND: {
-    ROOT: '../examples/tatchi-site/src/public',
-    SDK: '../examples/tatchi-site/src/public/sdk',
-    WORKERS: '../examples/tatchi-site/src/public/sdk/workers',
+    ROOT: '../examples/seams-site/src/public',
+    SDK: '../examples/seams-site/src/public/sdk',
+    WORKERS: '../examples/seams-site/src/public/sdk/workers',
   },
 
   // Runtime paths (used by workers and tests)

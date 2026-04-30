@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  thresholdWarmSessionBootstrap: '/sdk/esm/core/TatchiPasskey/thresholdWarmSessionBootstrap.js',
-  login: '/sdk/esm/core/TatchiPasskey/login.js',
+  thresholdWarmSessionBootstrap: '/sdk/esm/core/SeamsPasskey/thresholdWarmSessionBootstrap.js',
+  login: '/sdk/esm/core/SeamsPasskey/login.js',
   indexedDb: '/sdk/esm/core/indexedDB/index.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',

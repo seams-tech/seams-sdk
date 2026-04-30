@@ -274,7 +274,7 @@ Conceptually:
 import {
   createSelfHostedCloudflareSigningWorker,
   ThresholdStoreDurableObject,
-} from '@tatchi-xyz/sdk/self-host/cloudflare';
+} from '@seams/sdk/self-host/cloudflare';
 
 export { ThresholdStoreDurableObject };
 
@@ -841,7 +841,7 @@ Customer self-hosting should require a small worker entrypoint.
 import {
   createSelfHostedCloudflareSigningWorker,
   ThresholdStoreDurableObject,
-} from '@tatchi-xyz/sdk/self-host/cloudflare';
+} from '@seams/sdk/self-host/cloudflare';
 
 export { ThresholdStoreDurableObject };
 
@@ -1253,7 +1253,7 @@ when an admin auth adapter is configured.
 Add an SDK export such as:
 
 ```ts
-@tatchi-xyz/sdk/self-host/cloudflare
+@seams/sdk/self-host/cloudflare
 ```
 
 The export should include:
@@ -1318,7 +1318,7 @@ y_relayer` derivation specs.
 
 ### Phase 4. Package the self-hosted worker SDK
 
-1. Add `@tatchi-xyz/sdk/self-host/cloudflare` exports.
+1. Add `@seams/sdk/self-host/cloudflare` exports.
 2. Add `createSelfHostedCloudflareSigningWorker`.
 3. Add neutral `ThresholdStoreDurableObject` export.
 4. Add a minimal worker example.

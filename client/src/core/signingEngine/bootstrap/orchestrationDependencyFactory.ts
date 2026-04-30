@@ -5,7 +5,7 @@ import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { AccountId } from '@/core/types/accountIds';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { SigningSessionStatus, ThemeName, TatchiConfigsReadonly } from '@/core/types/tatchi';
+import type { SigningSessionStatus, ThemeName, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { TouchConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../touchConfirm/types';
 import type { EvmSigningRequest } from '../chainAdaptors/evm/types';
 import type { EvmSignedResult } from '../chainAdaptors/evm/evmAdapter';
@@ -55,7 +55,7 @@ import type { SigningSessionBudgetStatusAuth } from '../session/signingSession/b
 import type { SigningSessionSnapshot } from '../session/snapshotReader';
 import type { RestorePersistedSessionForSigningInput } from '../session/restoreCoordinator';
 
-function resolveConfiguredSigningSessionBudgetUses(configs: TatchiConfigsReadonly): number {
+function resolveConfiguredSigningSessionBudgetUses(configs: SeamsConfigsReadonly): number {
   const remainingUses = Math.floor(Number(configs.signing.sessionDefaults?.remainingUses) || 0);
   return remainingUses > 0 ? remainingUses : 1;
 }
@@ -76,7 +76,7 @@ export type ManagerConvenienceDeps = {
 };
 
 export type CreateOrchestrationDependencyBundleArgs = {
-  tatchiPasskeyConfigs: TatchiConfigsReadonly;
+  seamsPasskeyConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
@@ -241,7 +241,7 @@ export type OrchestrationDependencyBundle = {
 export function createOrchestrationDependencyBundle(
   args: CreateOrchestrationDependencyBundleArgs,
 ): OrchestrationDependencyBundle {
-  const nearRpcUrl = resolvePrimaryNearRpcUrl(args.tatchiPasskeyConfigs.network.chains);
+  const nearRpcUrl = resolvePrimaryNearRpcUrl(args.seamsPasskeyConfigs.network.chains);
   const resolveCanonicalThresholdEcdsaSessionIdForChain = (
     nearAccountId: AccountId | string,
     chain: 'tempo' | 'evm',
@@ -368,7 +368,7 @@ export function createOrchestrationDependencyBundle(
         ...(walletSigningSessionId || record.walletSigningSessionId
           ? { walletSigningSessionId: walletSigningSessionId || record.walletSigningSessionId }
           : {}),
-        remainingUses: resolveConfiguredSigningSessionBudgetUses(args.tatchiPasskeyConfigs),
+        remainingUses: resolveConfiguredSigningSessionBudgetUses(args.seamsPasskeyConfigs),
       });
       if (!provisioned.ok || !provisioned.sessionId) {
         throw new Error(
@@ -384,7 +384,7 @@ export function createOrchestrationDependencyBundle(
       };
     },
     getSigningSessionBudgetUses: () =>
-      resolveConfiguredSigningSessionBudgetUses(args.tatchiPasskeyConfigs),
+      resolveConfiguredSigningSessionBudgetUses(args.seamsPasskeyConfigs),
     signingSessionCoordinator,
     getWarmThresholdEd25519SessionStatusForSession: ({ nearAccountId, thresholdSessionId }) =>
       createWarmSessionStatusReader({
@@ -420,7 +420,7 @@ export function createOrchestrationDependencyBundle(
     nearSigningDeps: nearSigningDeps,
     tempoSigningDeps: {
       indexedDB: IndexedDBManager,
-      tatchiPasskeyConfigs: args.tatchiPasskeyConfigs,
+      seamsPasskeyConfigs: args.seamsPasskeyConfigs,
       nonceCoordinator: args.nonceCoordinator,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       getEmailOtpThresholdEcdsaKeyRefForSigning: ({ nearAccountId, chain }) =>
@@ -486,7 +486,7 @@ export function createOrchestrationDependencyBundle(
     },
     privateKeyExportRecoveryDeps: {
       indexedDB: IndexedDBManager,
-      relayerUrl: args.tatchiPasskeyConfigs.network.relayer.url,
+      relayerUrl: args.seamsPasskeyConfigs.network.relayer.url,
       getRpId: () => args.touchIdPrompt.getRpId(),
       requestExportPrivateKeysWithUi: (payload) =>
         args.signerWorkerManager.requestExportPrivateKeysWithUi(payload),
@@ -510,7 +510,7 @@ export function createOrchestrationDependencyBundle(
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       getOrCreateActiveThresholdEcdsaSessionId: (nearAccountId, chain) =>
         getOrCreateActiveThresholdEcdsaSessionId(nearAccountId, chain),
-      defaultRelayerUrl: args.tatchiPasskeyConfigs.network.relayer?.url || '',
+      defaultRelayerUrl: args.seamsPasskeyConfigs.network.relayer?.url || '',
       persistThresholdEcdsaBootstrapChainAccount: args.persistThresholdEcdsaBootstrapChainAccount,
       upsertThresholdEcdsaSessionFromBootstrap: args.upsertThresholdEcdsaSessionFromBootstrap,
     },

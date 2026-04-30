@@ -13,11 +13,11 @@ Featuring:
 Install the published package:
 
 ```bash
-npm install @tatchi-xyz/sdk
+npm install @seams/sdk
 # or
-pnpm add @tatchi-xyz/sdk
+pnpm add @seams/sdk
 # or
-yarn add @tatchi-xyz/sdk
+yarn add @seams/sdk
 ```
 
 ### For SDK Developers
@@ -47,11 +47,11 @@ pnpm -C sdk run type-check # TypeScript validation
 The easiest way to get started with React (React 18+)
 
 ```tsx
-import { TatchiPasskeyProvider, useTatchi } from '@tatchi-xyz/sdk/react';
+import { SeamsPasskeyProvider, useSeams } from '@seams/sdk/react';
 
 function App() {
   return (
-    <TatchiPasskeyProvider
+    <SeamsPasskeyProvider
       config={{
         chains: [
           {
@@ -69,15 +69,15 @@ function App() {
       }}
     >
       <YourApp />
-    </TatchiPasskeyProvider>
+    </SeamsPasskeyProvider>
   );
 }
 
 function SignInButton() {
-  const tatchi = useTatchi();
+  const seams = useSeams();
 
   const handleSignIn = async () => {
-    const result = await tatchi.registerPasskey('alice.testnet');
+    const result = await seams.registerPasskey('alice.testnet');
     console.log('Registered:', result.success);
   };
 
@@ -93,39 +93,39 @@ Use the Vite plugins to serve wallet assets in dev and emit the right headers fo
 // vite.config.ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { tatchiDev, tatchiBuildHeaders } from '@tatchi-xyz/sdk/plugins/vite';
+import { seamsDev, seamsBuildHeaders } from '@seams/sdk/plugins/vite';
 
 export default defineConfig({
   plugins: [
     react(),
-    tatchiDev({
+    seamsDev({
       walletOrigin: process.env.VITE_WALLET_ORIGIN,
       sdkBasePath: '/sdk',
       walletServicePath: '/wallet-service',
     }),
-    tatchiBuildHeaders({
+    seamsBuildHeaders({
       walletOrigin: process.env.VITE_WALLET_ORIGIN,
     }),
   ],
 });
 ```
 
-See `examples/tatchi-site` and `examples/tatchi-docs` for full app examples.
+See `examples/seams-site` and `examples/seams-docs` for full app examples.
 
 ## Stable API Surfaces
 
-Use `@tatchi-xyz/sdk` for the main surface (for example `TatchiPasskey` and core types).
+Use `@seams/sdk` for the main surface (for example `SeamsPasskey` and core types).
 
 Threshold APIs are stable under an explicit subpath:
 
 ```ts
-import { keygenEcdsa } from '@tatchi-xyz/sdk/threshold';
+import { keygenEcdsa } from '@seams/sdk/threshold';
 ```
 
 ## Configuration Options
 
 ```typescript
-interface TatchiPasskeyConfig {
+interface SeamsPasskeyConfig {
   // Chain settings
   chains: Array<{
     network:
@@ -203,5 +203,5 @@ MIT License - see [LICENSE](../LICENSE) for details.
 
 ## Support
 
-- **Documentation**: [../examples/tatchi-docs/](../examples/tatchi-docs/)
+- **Documentation**: [../examples/seams-docs/](../examples/seams-docs/)
 - **Issues**: [GitHub Issues](https://github.com/web3-authn/sdk/issues)

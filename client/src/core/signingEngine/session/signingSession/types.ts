@@ -1,5 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { SigningSessionRetention, WalletAuthMethod } from '@/core/types/tatchi';
+import type { SigningSessionRetention, WalletAuthMethod } from '@/core/types/seams';
 import type {
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionStoreSource,

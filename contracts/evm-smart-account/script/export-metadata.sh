@@ -5,19 +5,19 @@ cd "$(dirname "$0")/.."
 
 mkdir -p abi
 
-ACCOUNT_METHODS="$(forge inspect --json src/TatchiSmartAccount.sol:TatchiSmartAccount methodIdentifiers)"
-ACCOUNT_ERRORS="$(forge inspect --json src/TatchiSmartAccount.sol:TatchiSmartAccount errors)"
-ACCOUNT_EVENTS="$(forge inspect --json src/TatchiSmartAccount.sol:TatchiSmartAccount events)"
-ACCOUNT_BYTECODE="$(forge inspect src/TatchiSmartAccount.sol:TatchiSmartAccount bytecode)"
-ACCOUNT_DEPLOYED_BYTECODE="$(forge inspect src/TatchiSmartAccount.sol:TatchiSmartAccount deployedBytecode)"
+ACCOUNT_METHODS="$(forge inspect --json src/SeamsSmartAccount.sol:SeamsSmartAccount methodIdentifiers)"
+ACCOUNT_ERRORS="$(forge inspect --json src/SeamsSmartAccount.sol:SeamsSmartAccount errors)"
+ACCOUNT_EVENTS="$(forge inspect --json src/SeamsSmartAccount.sol:SeamsSmartAccount events)"
+ACCOUNT_BYTECODE="$(forge inspect src/SeamsSmartAccount.sol:SeamsSmartAccount bytecode)"
+ACCOUNT_DEPLOYED_BYTECODE="$(forge inspect src/SeamsSmartAccount.sol:SeamsSmartAccount deployedBytecode)"
 ACCOUNT_BYTECODE_HASH="$(cast keccak "$ACCOUNT_BYTECODE")"
 ACCOUNT_DEPLOYED_BYTECODE_HASH="$(cast keccak "$ACCOUNT_DEPLOYED_BYTECODE")"
 
-FACTORY_METHODS="$(forge inspect --json src/TatchiSmartAccountFactory.sol:TatchiSmartAccountFactory methodIdentifiers)"
+FACTORY_METHODS="$(forge inspect --json src/SeamsSmartAccountFactory.sol:SeamsSmartAccountFactory methodIdentifiers)"
 FACTORY_ERRORS="$(printf '{}')"
-FACTORY_EVENTS="$(forge inspect --json src/TatchiSmartAccountFactory.sol:TatchiSmartAccountFactory events)"
-FACTORY_BYTECODE="$(forge inspect src/TatchiSmartAccountFactory.sol:TatchiSmartAccountFactory bytecode)"
-FACTORY_DEPLOYED_BYTECODE="$(forge inspect src/TatchiSmartAccountFactory.sol:TatchiSmartAccountFactory deployedBytecode)"
+FACTORY_EVENTS="$(forge inspect --json src/SeamsSmartAccountFactory.sol:SeamsSmartAccountFactory events)"
+FACTORY_BYTECODE="$(forge inspect src/SeamsSmartAccountFactory.sol:SeamsSmartAccountFactory bytecode)"
+FACTORY_DEPLOYED_BYTECODE="$(forge inspect src/SeamsSmartAccountFactory.sol:SeamsSmartAccountFactory deployedBytecode)"
 FACTORY_BYTECODE_HASH="$(cast keccak "$FACTORY_BYTECODE")"
 FACTORY_DEPLOYED_BYTECODE_HASH="$(cast keccak "$FACTORY_DEPLOYED_BYTECODE")"
 
@@ -48,10 +48,10 @@ function writeMetadata(path, payload) {
   fs.writeFileSync(path, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
-writeMetadata('abi/TatchiSmartAccount.metadata.json', {
-  contract: 'TatchiSmartAccount',
-  source: 'src/TatchiSmartAccount.sol',
-  abiFile: 'abi/TatchiSmartAccount.json',
+writeMetadata('abi/SeamsSmartAccount.metadata.json', {
+  contract: 'SeamsSmartAccount',
+  source: 'src/SeamsSmartAccount.sol',
+  abiFile: 'abi/SeamsSmartAccount.json',
   methodIdentifiers: prefixHexMap(process.env.ACCOUNT_METHODS),
   errorSelectors: prefixHexMap(process.env.ACCOUNT_ERRORS),
   eventTopics: prefixHexMap(process.env.ACCOUNT_EVENTS),
@@ -59,10 +59,10 @@ writeMetadata('abi/TatchiSmartAccount.metadata.json', {
   deployedBytecodeHash: process.env.ACCOUNT_DEPLOYED_BYTECODE_HASH,
 });
 
-writeMetadata('abi/TatchiSmartAccountFactory.metadata.json', {
-  contract: 'TatchiSmartAccountFactory',
-  source: 'src/TatchiSmartAccountFactory.sol',
-  abiFile: 'abi/TatchiSmartAccountFactory.json',
+writeMetadata('abi/SeamsSmartAccountFactory.metadata.json', {
+  contract: 'SeamsSmartAccountFactory',
+  source: 'src/SeamsSmartAccountFactory.sol',
+  abiFile: 'abi/SeamsSmartAccountFactory.json',
   methodIdentifiers: prefixHexMap(process.env.FACTORY_METHODS),
   errorSelectors: prefixHexMap(process.env.FACTORY_ERRORS),
   eventTopics: prefixHexMap(process.env.FACTORY_EVENTS),

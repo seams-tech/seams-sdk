@@ -3,7 +3,7 @@ import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/parti
 import type {
   ThresholdEcdsaPresignPoolPolicy,
   ThresholdEcdsaPresignPoolPolicyInput,
-} from '@/core/types/tatchi';
+} from '@/core/types/seams';
 import { DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY } from '@/core/config/defaultConfigs';
 import {
   addSecp256k1PublicKeys33Wasm,

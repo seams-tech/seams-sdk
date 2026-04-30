@@ -13,11 +13,11 @@ The WalletIframe isolates sensitive wallet operations (passkey authentication an
 
 The system consists of three layers:
 
-1. **TatchiPasskeyIframe** - A proxy that provides the same API as the regular TatchiPasskey but routes calls to the iframe
+1. **SeamsPasskeyIframe** - A proxy that provides the same API as the regular SeamsPasskey but routes calls to the iframe
 2. **WalletIframeRouter** - Handles communication between the main app and the iframe using MessagePort
-3. **Wallet Host** - The actual TatchiPasskey running inside the iframe, executing the real operations
+3. **Wallet Host** - The actual SeamsPasskey running inside the iframe, executing the real operations
 
-When you call methods like `registerPasskey()` or `signTransaction()`, the request flows through these layers. The iframe temporarily expands to capture user activation (TouchID/WebAuthn or iframe-hosted confirmation) when needed, then shrinks back to invisible once that interaction is complete. This is driven by v2 `WalletFlowEvent.interaction.overlay` metadata emitted from TatchiPasskey calls.
+When you call methods like `registerPasskey()` or `signTransaction()`, the request flows through these layers. The iframe temporarily expands to capture user activation (TouchID/WebAuthn or iframe-hosted confirmation) when needed, then shrinks back to invisible once that interaction is complete. This is driven by v2 `WalletFlowEvent.interaction.overlay` metadata emitted from SeamsPasskey calls.
 
 ## Architecture Overview
 
@@ -25,7 +25,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 
 #### 1. **Entry Point Layer**
 
-- **`TatchiPasskeyIframe.ts`** - The main API that developers interact with. It provides the same interface as the regular TatchiPasskey but routes all calls to the iframe.
+- **`SeamsPasskeyIframe.ts`** - The main API that developers interact with. It provides the same interface as the regular SeamsPasskey but routes all calls to the iframe.
 - **`index.ts`** - Exports all public APIs and types for the WalletIframe system.
 
 #### 2. **Client-Side Communication Layer** (Runs in Parent App)
@@ -50,17 +50,17 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 
 - **`host/index.ts`** - The main service host entry that:
   - Receives messages from the parent via MessagePort
-  - Creates and manages the actual TatchiPasskey instance
+  - Creates and manages the actual SeamsPasskey instance
   - Executes wallet operations (register, login, sign, etc.)
   - Sends progress events back to the parent
   - Handles UI component mounting requests
 - **`host/lit-ui/iframe-lit-elem-mounter.ts`** - Manages Lit-based UI components inside the iframe:
   - Mounts transaction buttons and other UI elements
-  - Wires UI interactions to TatchiPasskey methods
+  - Wires UI interactions to SeamsPasskey methods
   - Handles component lifecycle (mount/unmount/update)
 - **`host/lit-ui/iframe-lit-element-registry.ts`** - Declarative registry of available UI components:
   - Defines which Lit components can be mounted
-  - Maps UI events to TatchiPasskey actions
+  - Maps UI events to SeamsPasskey actions
   - Provides type-safe component definitions
 
 #### 4. **Shared Communication Protocol**
@@ -84,7 +84,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   Your App      │    │  WalletIframe    │    │  Wallet Host    │
 │                 │    │                  │    │                 │
-│ TatchiPasskey   │───▶│ TatchiPasskey    │───▶│ TatchiPasskey   │
+│ SeamsPasskey   │───▶│ SeamsPasskey    │───▶│ SeamsPasskey   │
 │ Iframe          │    │ Router           │    │ (real instance) │
 │                 │    │                  │    │                 │
 │                 │    │ IframeTransport  │    │                 │
@@ -101,7 +101,7 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 
 ### Key Design Patterns
 
-1. **Proxy Pattern**: `TatchiPasskeyIframe` acts as a transparent proxy to the real TatchiPasskey
+1. **Proxy Pattern**: `SeamsPasskeyIframe` acts as a transparent proxy to the real SeamsPasskey
 2. **Message Passing**: All communication uses typed messages over MessagePort
 3. **Event Bridging**: Progress events flow from iframe back to parent callbacks
 4. **Overlay Management**: Explicit show/hide behavior from `WalletFlowEvent.interaction.overlay`
@@ -115,11 +115,11 @@ When you call methods like `registerPasskey()` or `signTransaction()`, the reque
 - **Capability Delegation**: The iframe grants WebAuthn and clipboard access via explicit `allow` attributes. Sandboxing is intentionally omitted for cross-origin deployments because Chromium drops transferred `MessagePort`s from sandboxed iframes, which would break the CONNECT → READY handshake.
 - **No Function Transfer**: Functions never cross the iframe boundary
 
-## Callback Chain for TatchiPasskeyIframe Calls
+## Callback Chain for SeamsPasskeyIframe Calls
 
 The callback chain follows this flow:
 
-### 1. **TatchiPasskeyIframe** (Entry Point)
+### 1. **SeamsPasskeyIframe** (Entry Point)
 
 - Acts as a proxy/wrapper around the WalletIframeRouter
 - Handles hook callbacks (`afterCall`, `onError`, `onEvent`)
@@ -150,21 +150,21 @@ The callback chain follows this flow:
 ### 3. **host/index.ts** (Service Host)
 
 - Receives messages via MessagePort in `onPortMessage()`
-- Creates and manages the actual TatchiPasskey instance
-- Executes the requested operations (like `tatchi!.registration.registerPasskey()`)
+- Creates and manages the actual SeamsPasskey instance
+- Executes the requested operations (like `seams!.registration.registerPasskey()`)
 - Sends progress events back via `post({ type: 'PROGRESS', requestId, payload: ev })`
 - Returns results via `post({ type: 'PM_RESULT', requestId, payload: { ok: true, result } })`
 
 ## Key Communication Flow:
 
-1. **TatchiPasskeyIframe** → calls **WalletIframeRouter** method
+1. **SeamsPasskeyIframe** → calls **WalletIframeRouter** method
 2. **WalletIframeRouter** → posts message to iframe via MessagePort
-3. **host/index.ts** → receives message, executes TatchiPasskey operation
+3. **host/index.ts** → receives message, executes SeamsPasskey operation
 4. **host/index.ts** → sends PROGRESS events during operation
 5. **WalletIframeRouter** → bridges PROGRESS events to caller's `onEvent` callback
 6. **host/index.ts** → sends final result
 7. **WalletIframeRouter** → resolves promise with result
-8. **TatchiPasskeyIframe** → calls `afterCall` hook and returns result
+8. **SeamsPasskeyIframe** → calls `afterCall` hook and returns result
 
 ## Progress Event Bridging:
 
@@ -176,7 +176,7 @@ The key point is that public progress events are bridged through the MessagePort
 
 `ev` is a v2 `WalletFlowEvent`. Private signer worker progress is not forwarded directly to the app; it is mapped into public flow events only when the flow intentionally exposes that state.
 
-So yes, your understanding is correct: **TatchiPasskeyIframe → WalletIframeRouter → posts to host/index.ts**, with the additional detail that progress events flow back through the same channel to provide real-time updates to the caller.
+So yes, your understanding is correct: **SeamsPasskeyIframe → WalletIframeRouter → posts to host/index.ts**, with the additional detail that progress events flow back through the same channel to provide real-time updates to the caller.
 
 ## Activation Overlay (iframe sizing behavior)
 
@@ -237,7 +237,7 @@ class OverlayController {
 
 - Expand to full‑screen during activation:
   - `showFrameForActivation()` in `client/src/core/WalletIframe/client/router.ts` ensures the iframe exists and delegates to `OverlayController.showFullscreen()`, which applies the fullscreen class (fixed inset, pointer-events enabled, z-index 2147483646).
-  - This is invoked explicitly for sensitive flows (e.g., `registerPasskey()`, `tatchi.auth.unlock()`, transaction signing, key export, and link-device authorization) and by v2 progress events with `interaction.overlay: 'show'`.
+  - This is invoked explicitly for sensitive flows (e.g., `registerPasskey()`, `seams.auth.unlock()`, transaction signing, key export, and link-device authorization) and by v2 progress events with `interaction.overlay: 'show'`.
 
 - Collapse back to 0×0:
   - `hideFrameForActivation()` in the same router delegates to `OverlayController.hide()` to restore the hidden state and make it non-interactive.

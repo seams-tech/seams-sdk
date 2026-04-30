@@ -63,9 +63,9 @@ test.describe('shared Email OTP recovery key specs', () => {
     expect(EMAIL_OTP_RECOVERY_WRAP_KEY_LENGTH).toBe(32);
     expect(EMAIL_OTP_RECOVERY_WRAP_NONCE_LENGTH).toBe(12);
     expect(EMAIL_OTP_RECOVERY_WRAP_ALG).toBe('chacha20poly1305-hkdf-sha256-v1');
-    expect(EMAIL_OTP_RECOVERY_WRAP_HKDF_SALT).toBe('tatchi/email-otp/recovery-wrap/v1');
+    expect(EMAIL_OTP_RECOVERY_WRAP_HKDF_SALT).toBe('seams/email-otp/recovery-wrap/v1');
     expect(EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_AAD_CONTEXT).toBe(
-      'tatchi/email-otp/recovery-wrapped-enrollment/v1',
+      'seams/email-otp/recovery-wrapped-enrollment/v1',
     );
     expect(EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND).toBe(
       'email_otp_device_enrollment_escrow',
@@ -127,7 +127,7 @@ test.describe('shared Email OTP recovery key specs', () => {
     expect(Array.from(encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata))).toEqual(
       Array.from(
         encodeSigningSessionHkdfTuple([
-          'tatchi/email-otp/recovery-wrapped-enrollment/v1',
+          'seams/email-otp/recovery-wrapped-enrollment/v1',
           'alice.testnet',
           'user-1',
           'google-sub-1',

@@ -5,7 +5,7 @@ import {
   normalizePositiveInteger,
 } from '@shared/utils/normalize';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
+import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { normalizeThresholdEcdsaSessionKind } from './normalization';
 import type {
   ThresholdEcdsaClientAdditiveShareHandle,

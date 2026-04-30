@@ -3,7 +3,7 @@ import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils
 
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_RECORD_VERSION = 1 as const;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_DB_NAME =
-  'tatchi_email_otp_device_enrollment_escrows_v1' as const;
+  'seams_email_otp_device_enrollment_escrows_v1' as const;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_DB_VERSION = 1 as const;
 export const EMAIL_OTP_DEVICE_ENROLLMENT_ESCROW_STORE_NAME =
   'email_otp_device_enrollment_escrows_v1' as const;

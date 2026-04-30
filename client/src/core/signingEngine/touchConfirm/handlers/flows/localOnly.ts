@@ -14,7 +14,7 @@ import { getNearAccountId, getIntentDigest } from './adapters/request';
 import { errorMessage } from '@shared/utils/errors';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
-import type { ThemeName, ThemeTokenOverridesInput } from '@/core/types/tatchi';
+import type { ThemeName, ThemeTokenOverridesInput } from '@/core/types/seams';
 import {
   upsertExportViewerHost,
   removeExportViewerHostIfPresent,

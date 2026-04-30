@@ -1,6 +1,6 @@
-import type { CloudflareCronOptions } from '@tatchi-xyz/sdk/server/router/cloudflare';
-import type { ConsoleObservabilityIngestionService } from '@tatchi-xyz/sdk/server/router/express';
-import type { RecoveryAuthoritySponsorshipRuntime } from '@tatchi-xyz/sdk/server';
+import type { CloudflareCronOptions } from '@seams/sdk/server/router/cloudflare';
+import type { ConsoleObservabilityIngestionService } from '@seams/sdk/server/router/express';
+import type { RecoveryAuthoritySponsorshipRuntime } from '@seams/sdk/server';
 import type { WorkerCronFeatureFlags } from './cronFlags';
 
 export interface WorkerCronConfigEnv {

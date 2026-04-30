@@ -123,19 +123,19 @@ test.describe('Wallet iframe preferences sync', () => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
-    const tatchiPath = SDK_ESM_PATHS.tatchiPasskey;
+    const seamsPath = SDK_ESM_PATHS.seamsPasskey;
     const result = await page.evaluate(
-      async ({ walletOrigin, waitForSource, tatchiPath }) => {
+      async ({ walletOrigin, waitForSource, seamsPath }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         try {
           const base =
             window.location.origin === 'null'
               ? 'https://example.localhost'
               : window.location.origin;
-          const mod = await import(new URL(tatchiPath, base).toString());
-          const { TatchiPasskey } = mod as typeof import('@/core/TatchiPasskey');
+          const mod = await import(new URL(seamsPath, base).toString());
+          const { SeamsPasskey } = mod as typeof import('@/core/SeamsPasskey');
 
-          const tatchi = new TatchiPasskey({
+          const seams = new SeamsPasskey({
             chains: [
               {
                 network: 'near-testnet',
@@ -151,33 +151,33 @@ test.describe('Wallet iframe preferences sync', () => {
             },
           });
 
-          await tatchi.initWalletIframe();
+          await seams.initWalletIframe();
           const seeded = await waitFor(
-            () => tatchi.getConfirmationConfig().uiMode === 'modal',
+            () => seams.getConfirmationConfig().uiMode === 'modal',
             3000,
           );
-          const initialTheme = tatchi.theme;
-          const initialConfig = tatchi.getConfirmationConfig();
+          const initialTheme = seams.theme;
+          const initialConfig = seams.getConfirmationConfig();
 
           // Flip confirmation config on the wallet host and ensure the app-origin mirrors it via PREFERENCES_CHANGED.
-          const router = await (tatchi as any).walletIframe.requireRouter();
+          const router = await (seams as any).walletIframe.requireRouter();
           await router.setConfirmationConfig({
             uiMode: 'drawer',
             behavior: 'skipClick',
             autoProceedDelay: 5,
           });
           const mirrored = await waitFor(
-            () => tatchi.getConfirmationConfig().uiMode === 'drawer',
+            () => seams.getConfirmationConfig().uiMode === 'drawer',
             3000,
           );
 
           return {
             success: true,
             initialTheme,
-            finalTheme: tatchi.theme,
+            finalTheme: seams.theme,
             initialConfig,
-            finalConfig: tatchi.getConfirmationConfig(),
-            currentUser: String(tatchi.preferences.getCurrentUserAccountId?.() || ''),
+            finalConfig: seams.getConfirmationConfig(),
+            currentUser: String(seams.preferences.getCurrentUserAccountId?.() || ''),
             seeded,
             mirrored,
           };
@@ -185,7 +185,7 @@ test.describe('Wallet iframe preferences sync', () => {
           return { success: false, error: error?.message || String(error) };
         }
       },
-      { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, tatchiPath },
+      { walletOrigin: WALLET_ORIGIN, waitForSource: WAIT_FOR_SOURCE, seamsPath },
     );
 
     if (!result.success) {
@@ -217,19 +217,19 @@ test.describe('Wallet iframe preferences sync', () => {
     expect(indexedDbNoise).toBeUndefined();
   });
 
-  test('tatchi.setTheme forwards updates to the wallet host', async ({ page }) => {
-    const tatchiPath = SDK_ESM_PATHS.tatchiPasskey;
+  test('seams.setTheme forwards updates to the wallet host', async ({ page }) => {
+    const seamsPath = SDK_ESM_PATHS.seamsPasskey;
     const result = await page.evaluate(
-      async ({ walletOrigin, tatchiPath }) => {
+      async ({ walletOrigin, seamsPath }) => {
         try {
           const base =
             window.location.origin === 'null'
               ? 'https://example.localhost'
               : window.location.origin;
-          const mod = await import(new URL(tatchiPath, base).toString());
-          const { TatchiPasskey } = mod as typeof import('@/core/TatchiPasskey');
+          const mod = await import(new URL(seamsPath, base).toString());
+          const { SeamsPasskey } = mod as typeof import('@/core/SeamsPasskey');
 
-          const tatchi = new TatchiPasskey({
+          const seams = new SeamsPasskey({
             chains: [
               {
                 network: 'near-testnet',
@@ -245,15 +245,15 @@ test.describe('Wallet iframe preferences sync', () => {
             },
           });
 
-          await tatchi.initWalletIframe();
-          tatchi.setTheme('light');
+          await seams.initWalletIframe();
+          seams.setTheme('light');
 
-          return { success: true, currentTheme: tatchi.theme };
+          return { success: true, currentTheme: seams.theme };
         } catch (error: any) {
           return { success: false, error: error?.message || String(error) };
         }
       },
-      { walletOrigin: WALLET_ORIGIN, tatchiPath },
+      { walletOrigin: WALLET_ORIGIN, seamsPath },
     );
 
     if (!result.success) {

@@ -73,12 +73,12 @@ async function mountVisibleEmailOtpUnlockPrompt(
       const ReactDOMClient = await import('react-dom/client');
       const ReactDOM = await import('react-dom');
       const sdkMod = await import('/sdk/esm/index.js');
-      const providerMod: any = await import('/sdk/esm/react/context/TatchiPasskeyProvider.js');
+      const providerMod: any = await import('/sdk/esm/react/context/SeamsPasskeyProvider.js');
       const menuMod: any =
         await import('/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js');
 
-      const { TatchiPasskey } = sdkMod as any;
-      const Provider = providerMod.TatchiPasskeyProvider || providerMod.default;
+      const { SeamsPasskey } = sdkMod as any;
+      const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
       const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
       const AuthMenuMode = menuMod.AuthMenuMode;
       const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
@@ -112,7 +112,7 @@ async function mountVisibleEmailOtpUnlockPrompt(
           rpIdOverride: 'example.localhost',
         },
       };
-      const pm = new TatchiPasskey(sdkConfig);
+      const pm = new SeamsPasskey(sdkConfig);
       await pm
         .getContext()
         .signingEngine.clearWarmSigningSessions(accountId)

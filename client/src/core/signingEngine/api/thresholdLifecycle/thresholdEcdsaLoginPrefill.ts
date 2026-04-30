@@ -10,7 +10,7 @@ import type {
   SigningSessionStatus,
   ThresholdEcdsaPresignPoolPolicy,
   ThresholdEcdsaPresignPoolPolicyInput,
-} from '@/core/types/tatchi';
+} from '@/core/types/seams';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import {
   getThresholdEcdsaClientPresignaturePoolDepth,

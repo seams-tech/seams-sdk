@@ -1,6 +1,6 @@
 import type { DeviceLinkingQRData } from '../core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../core/types/linkDevice';
-import { validateDeviceLinkingQRData } from '../core/TatchiPasskey/scanDevice';
+import { validateDeviceLinkingQRData } from '../core/SeamsPasskey/scanDevice';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 
 // ===========================
@@ -40,7 +40,7 @@ export enum ScanQRCodeFlowState {
 
 /**
  * ScanQRCodeFlow - Encapsulates QR code scanning lifecycle
- * Can be used in both React (useQRCamera) and non-React (TatchiPasskey) contexts
+ * Can be used in both React (useQRCamera) and non-React (SeamsPasskey) contexts
  */
 export class ScanQRCodeFlow {
   private state: ScanQRCodeFlowState = ScanQRCodeFlowState.IDLE;

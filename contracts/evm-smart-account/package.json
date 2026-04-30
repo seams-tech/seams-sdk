@@ -1,8 +1,8 @@
 {
-  "name": "@tatchi/evm-smart-account",
+  "name": "@seams/evm-smart-account",
   "private": true,
   "version": "0.0.0",
-  "description": "Tatchi EVM smart account contracts",
+  "description": "Seams EVM smart account contracts",
   "license": "MIT",
   "scripts": {
     "build": "forge build",

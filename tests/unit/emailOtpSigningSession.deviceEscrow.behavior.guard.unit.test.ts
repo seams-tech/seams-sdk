@@ -151,7 +151,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
 
   test('logout lock path does not delete device-local Email OTP enc_s(S)', () => {
     const loginSource = readFileSync(
-      join(REPO_ROOT, 'client/src/core/TatchiPasskey/login.ts'),
+      join(REPO_ROOT, 'client/src/core/SeamsPasskey/login.ts'),
       'utf8',
     );
     const lockSlice = loginSource.slice(

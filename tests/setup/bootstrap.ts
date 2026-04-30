@@ -195,10 +195,10 @@ async function waitForEnvironmentStabilization(page: Page): Promise<void> {
 
 /**
  * Step 4: DYNAMIC IMPORTS
- * Load TatchiPasskey only after environment is ready
+ * Load SeamsPasskey only after environment is ready
  *
  * NOTE (UserConfirm worker):
- * - The dynamically loaded TatchiPasskey instance wires:
+ * - The dynamically loaded SeamsPasskey instance wires:
  *   - UserConfirm worker as the owner of WebAuthn PRF + UserConfirm
  *     (via awaitUserConfirmationV2 in the UserConfirm worker bundle).
  *   - Signer worker as a WrapKeySeed/KEK/NEAR‑signature enclave that derives
@@ -222,17 +222,17 @@ async function loadPasskeyManagerDynamically(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      printStepLine(5, `importing TatchiPasskey: attempt ${attempt}/${maxRetries}`, 1);
+      printStepLine(5, `importing SeamsPasskey: attempt ${attempt}/${maxRetries}`, 1);
 
-      const modulePaths = { tatchiPasskey: SDK_ESM_PATHS.tatchiPasskey } as const;
+      const modulePaths = { seamsPasskey: SDK_ESM_PATHS.seamsPasskey } as const;
       const loadHandle = await page.waitForFunction(
         async (args) => {
           try {
             const { setupOptions, modulePaths } = args as any;
-            const { TatchiPasskey } = await import(modulePaths.tatchiPasskey);
+            const { SeamsPasskey } = await import(modulePaths.seamsPasskey);
 
-            if (!TatchiPasskey) {
-              throw new Error('TatchiPasskey not found in SDK module');
+            if (!SeamsPasskey) {
+              throw new Error('SeamsPasskey not found in SDK module');
             }
 
             // Create and validate configuration
@@ -255,15 +255,15 @@ async function loadPasskeyManagerDynamically(
             if (!runtimeConfigs.relayerAccount)
               throw new Error('relayerAccount is required but not provided');
 
-            // Create TatchiPasskey instance
-            const tatchi = new TatchiPasskey(runtimeConfigs);
+            // Create SeamsPasskey instance
+            const seams = new SeamsPasskey(runtimeConfigs);
 
             // Store in window for test access
-            (window as any).TatchiPasskey = TatchiPasskey;
-            (window as any).tatchi = tatchi;
+            (window as any).SeamsPasskey = SeamsPasskey;
+            (window as any).seams = seams;
             (window as any).configs = runtimeConfigs;
 
-            return { success: true, message: 'TatchiPasskey loaded successfully' };
+            return { success: true, message: 'SeamsPasskey loaded successfully' };
           } catch (error: any) {
             const message = error?.message ? String(error.message) : String(error);
             return { success: false, error: message };
@@ -286,11 +286,11 @@ async function loadPasskeyManagerDynamically(
           'error' in loadResult &&
           typeof (loadResult as { error?: unknown }).error === 'string'
             ? (loadResult as { error: string }).error
-            : 'Unknown error loading TatchiPasskey';
+            : 'Unknown error loading SeamsPasskey';
         throw new Error(message);
       }
 
-      printStepLine(5, `TatchiPasskey ready (attempt ${attempt})`, 2);
+      printStepLine(5, `SeamsPasskey ready (attempt ${attempt})`, 2);
       return;
     } catch (error: any) {
       lastError = error;
@@ -307,7 +307,7 @@ async function loadPasskeyManagerDynamically(
 
   // All retries failed
   throw new Error(
-    `Failed to load TatchiPasskey after ${maxRetries} attempts. Last error: ${lastError?.message}`,
+    `Failed to load SeamsPasskey after ${maxRetries} attempts. Last error: ${lastError?.message}`,
   );
 }
 

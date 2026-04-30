@@ -66,8 +66,8 @@ Do not start on a vendor hostname if the customer may later require self-hosting
 
 Use a browser-transparent `CNAME + TXT` setup:
 
-- `CNAME wallet.dev1.com -> customer-wallet-edge.tatchi.xyz`
-- `TXT _tatchi-verify.wallet.dev1.com -> <vendor-generated-verification-token>`
+- `CNAME wallet.dev1.com -> customer-wallet-edge.seams.xyz`
+- `TXT _seams-verify.wallet.dev1.com -> <vendor-generated-verification-token>`
 - optional: `TXT _acme-challenge.wallet.dev1.com -> <vendor-generated-acme-token>` when DNS-based certificate validation is required
 
 Requirements:
@@ -78,7 +78,7 @@ Requirements:
 
 Non-goal:
 
-- HTTP redirects from `wallet.dev1.com` to `wallet.tatchi.xyz`
+- HTTP redirects from `wallet.dev1.com` to `wallet.seams.xyz`
 - NS delegation of the customer subdomain for the default onboarding flow
 
 Operational note:
@@ -186,7 +186,7 @@ Moving from a shared vendor wallet domain to customer-owned wallet domains chang
 
 Example:
 
-- wallet origin: `https://wallet.tatchi.xyz`
+- wallet origin: `https://wallet.seams.xyz`
 
 Properties:
 

@@ -1,6 +1,6 @@
 import React from 'react';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
-import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
+import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { StoredAccountOption } from '@/react/types';
 import {
   EMAIL_OTP_RECOVERY_KEY_CHAR_LENGTH,
@@ -8,7 +8,7 @@ import {
   formatEmailOtpRecoveryKey,
   normalizeEmailOtpRecoveryKey,
 } from '@shared/utils/emailOtpRecoveryKey';
-import type { PasskeyAuthMenuRuntime } from '../adapters/tatchi';
+import type { PasskeyAuthMenuRuntime } from '../adapters/seams';
 import { AuthMenuMode, type PasskeyAuthMenuOtpPrompt, type PasskeyAuthMenuProps } from '../types';
 import type { SocialLoginHandlers } from '../ui/SocialProviders';
 import { usePasskeyAuthMenuForceInitialRegister } from '../hydrationContext';
@@ -344,7 +344,7 @@ export function usePasskeyAuthMenuController(
     let cancelled = false;
     void import('../features/recentUnlockPrefill')
       .then(async (m) => {
-        const result = await m.getRecentUnlockPrefill(runtime.tatchiPasskey);
+        const result = await m.getRecentUnlockPrefill(runtime.seamsPasskey);
         if (cancelled || !result?.username) return;
         if (prevModeRef.current !== AuthMenuMode.Login) return;
         if (latestValueRef.current.trim().length > 0) return;
@@ -358,7 +358,7 @@ export function usePasskeyAuthMenuController(
     return () => {
       cancelled = true;
     };
-  }, [mode, runtime.tatchiPasskey, setCurrentValue]);
+  }, [mode, runtime.seamsPasskey, setCurrentValue]);
 
   const fallbackOnEvent = React.useCallback((event: LinkDeviceFlowEvent) => {
     console.log('ShowQRCode event:', event);

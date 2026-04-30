@@ -185,7 +185,7 @@ export async function runThresholdEcdsaTempoFlow(
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
 
-    const { TatchiPasskey } = sdkMod as any;
+    const { SeamsPasskey } = sdkMod as any;
 
     const accountId =
       typeof input.accountId === 'string' && input.accountId.trim()
@@ -199,7 +199,7 @@ export async function runThresholdEcdsaTempoFlow(
     };
     const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-    const pm = new TatchiPasskey({
+    const pm = new SeamsPasskey({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',

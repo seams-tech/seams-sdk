@@ -63,7 +63,7 @@ test.describe('EVM family threshold reconnect events', () => {
     const readyKeyRef = await ensureEvmFamilyThresholdEcdsaKeyRefReady({
       deps: {
         touchConfirm: fixture.touchConfirm,
-        tatchiPasskeyConfigs: {
+        seamsPasskeyConfigs: {
           registration: { mode: 'self' },
         },
         getEmailOtpThresholdEcdsaKeyRefForSigning: () => staleBootstrap.thresholdEcdsaKeyRef,

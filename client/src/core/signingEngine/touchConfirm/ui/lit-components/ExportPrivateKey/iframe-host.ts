@@ -9,7 +9,7 @@ import { isObject, isString } from '@shared/utils/validation';
 import { dispatchLitCancel, dispatchLitConfirm, dispatchLitCopy } from '../../lit-events';
 import { ensureExternalStyles } from '../css/css-loader';
 import type { ExportGuidance, ExportPrivateKeyDisplayEntry } from '../../../shared/confirmTypes';
-import type { ThemeTokenOverridesInput } from '@/core/types/tatchi';
+import type { ThemeTokenOverridesInput } from '@/core/types/seams';
 
 type MessageType =
   | 'READY'
@@ -171,7 +171,7 @@ export class IframeExportHost extends LitElementWithProps {
       try {
         console.warn(
           '[W3A][IframeExportHost] Embedded SDK base is not absolute. Skipping CSS preloads. ' +
-            'Configure an absolute base so assets resolve: React → set TatchiPasskeyProvider config ' +
+            'Configure an absolute base so assets resolve: React → set SeamsPasskeyProvider config ' +
             '{ iframeWallet: { walletOrigin: "https://wallet.example.com", sdkBasePath: "/sdk" } }, ',
         );
       } catch {}

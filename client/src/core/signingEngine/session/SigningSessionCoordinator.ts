@@ -1,5 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { SigningSessionStatus } from '@/core/types/tatchi';
+import type { SigningSessionStatus } from '@/core/types/seams';
 import {
   deleteExactSealedSession,
   updateExactSealedSessionPolicy,
@@ -161,7 +161,7 @@ export class SigningSessionCoordinator
   private readonly walletBudgetState: SigningSessionCoordinatorBudgetState;
   private readonly operationIdBindingState: SigningOperationIdBindingState;
 
-  constructor(deps: SigningSessionCoordinatorDeps) {
+  constructor(deps: SigningSessionCoordinatorDeps = {}) {
     this.onPlannerTrace = deps.onPlannerTrace;
     this.onWalletBudgetTrace = deps.onWalletBudgetTrace || deps.onTrace;
     this.walletSessionDeps = {

@@ -79,10 +79,10 @@ test.describe('Wallet iframe assetsBaseUrl normalization', () => {
   test('uses /sdk/ when sdkBasePath is an empty string', async ({ page }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-        const { TatchiPasskey } = mod as any;
+        const mod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const { SeamsPasskey } = mod as any;
 
-        const pm = new TatchiPasskey({
+        const pm = new SeamsPasskey({
           relayer: { url: 'http://localhost:3000' },
           iframeWallet: {
             walletOrigin,

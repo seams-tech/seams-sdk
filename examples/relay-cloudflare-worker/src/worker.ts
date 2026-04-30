@@ -6,24 +6,24 @@ import {
   createRorOptions,
   type SigningRootSecretShareKekResolutionInput,
   type ThresholdStoreConfigInput,
-} from '@tatchi-xyz/sdk/server';
+} from '@seams/sdk/server';
 import {
   createCloudflareEmailHandler,
   createCloudflareRouter,
   createInMemoryRelayRuntimeSnapshotConsumer,
-} from '@tatchi-xyz/sdk/server/router/cloudflare';
+} from '@seams/sdk/server/router/cloudflare';
 import type {
   CfEmailMessage,
   CfScheduledEvent,
   CfExecutionContext as Ctx,
   RelayCloudflareWorkerEnv,
-} from '@tatchi-xyz/sdk/server/router/cloudflare';
-import signerWasmModule from '@tatchi-xyz/sdk/server/wasm/signer';
+} from '@seams/sdk/server/router/cloudflare';
+import signerWasmModule from '@seams/sdk/server/wasm/signer';
 import { createJwtSession } from './jwtSession';
 import { createWorkerCronObservabilityIngestion } from './observability';
 import { createWorkerScheduledHandler } from './scheduledHandler';
 
-export { ThresholdStoreDurableObject } from '@tatchi-xyz/sdk/server/router/cloudflare';
+export { ThresholdStoreDurableObject } from '@seams/sdk/server/router/cloudflare';
 
 type Env = RelayCloudflareWorkerEnv & {
   // base env vars
@@ -167,7 +167,7 @@ export default {
   async fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> {
     const authService = createAuthService(env);
     const sessionCookieName =
-      String(env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
+      String(env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
     const jwtSession = createJwtSession(sessionCookieName);
     const signingSessionSeal = createSigningSessionSealOptions({
       enabled: env.SIGNING_SESSION_SEAL_ENABLED,

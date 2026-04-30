@@ -29,7 +29,7 @@ Treat auth and wallet as two independent concerns:
 2. App session transport:
    - Minted by relay through `/session/exchange`.
    - Transport can be `jwt` or `cookie`.
-   - Cookie name is strict and defaults to `tatchi-jwt`.
+   - Cookie name is strict and defaults to `seams-jwt`.
 
 3. Wallet unlock/lock:
    - Unlock and lock semantics are wallet-state semantics, not app-login semantics.
@@ -53,7 +53,7 @@ If validation fails, wallet is considered locked.
    - required for protected wallet/session routes
 
 2. `sessionKind="cookie"`:
-   - relay sets HttpOnly cookie (default name `tatchi-jwt`)
+   - relay sets HttpOnly cookie (default name `seams-jwt`)
    - client sends `credentials: 'include'` and browser carries cookie
 
 ### Operation Matrix
@@ -141,10 +141,10 @@ This is the minimum production shape:
 import express from 'express';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
-import { AuthService, SessionService } from '@tatchi-xyz/sdk/server';
-import { createRelayRouter } from '@tatchi-xyz/sdk/server/router/express';
+import { AuthService, SessionService } from '@seams/sdk/server';
+import { createRelayRouter } from '@seams/sdk/server/router/express';
 
-const sessionCookieName = process.env.SESSION_COOKIE_NAME?.trim() || 'tatchi-jwt';
+const sessionCookieName = process.env.SESSION_COOKIE_NAME?.trim() || 'seams-jwt';
 
 const authService = new AuthService({
   relayerAccount: process.env.RELAYER_ACCOUNT_ID!,
@@ -260,7 +260,7 @@ export async function exchangeRelaySession(req: Request, res: Response): Promise
 Use SDK unlock with session exchange payload:
 
 ```ts
-await tatchi.auth.unlock(nearAccountId, {
+await seams.auth.unlock(nearAccountId, {
   session: {
     kind: 'cookie', // or 'jwt'
     relayUrl: 'https://relay.example.com',
@@ -283,7 +283,7 @@ Notes:
 SDK can do passkey assertion exchange in a single unlock call:
 
 ```ts
-await tatchi.auth.unlock(nearAccountId, {
+await seams.auth.unlock(nearAccountId, {
   session: {
     kind: 'cookie',
     relayUrl: 'https://relay.example.com',

@@ -172,7 +172,7 @@ Suggested files:
 
 - [x] Replace `ROR_CONTRACT_ID` in relay examples with provider-backed config.
 - [x] Replace cloudflare worker env contract fields with provider-backed config.
-- [x] Update tatchi-site env/vite config to stop forwarding `VITE_ROR_CONTRACT_ID`.
+- [x] Update seams-site env/vite config to stop forwarding `VITE_ROR_CONTRACT_ID`.
 
 Suggested files:
 
@@ -180,9 +180,9 @@ Suggested files:
 - `examples/relay-server/src/index.ts`
 - `examples/relay-cloudflare-worker/src/worker.ts`
 - `examples/relay-cloudflare-worker/wrangler.toml`
-- `examples/tatchi-site/env.example`
-- `examples/tatchi-site/vite.config.ts`
-- `examples/tatchi-site/vite-env.d.ts`
+- `examples/seams-site/env.example`
+- `examples/seams-site/vite.config.ts`
+- `examples/seams-site/vite-env.d.ts`
 
 ### Phase 6: Tests + docs + plugin cleanup
 
@@ -198,10 +198,10 @@ Candidate files:
 - `tests/e2e/thresholdEd25519.*.test.ts` (constructor arg cleanup)
 - `server/src/README.md`
 - `client/src/core/signingEngine/signers/webauthn/fallbacks/README.md`
-- `examples/tatchi-docs/src/concepts/passkey-scope.md`
-- `examples/tatchi-site/src/docs/concepts/passkey-scope.md`
-- `examples/tatchi-docs/src/getting-started/installation.md`
-- `examples/tatchi-site/src/docs/getting-started/installation.md`
+- `examples/seams-docs/src/concepts/passkey-scope.md`
+- `examples/seams-docs/src/concepts/passkey-scope.md`
+- `examples/seams-docs/src/getting-started/installation.md`
+- `examples/seams-docs/src/getting-started/installation.md`
 
 ## 7. Migration Notes (Consumers)
 

@@ -312,10 +312,10 @@ UX rules:
 
 These are current cleanup targets. They should be removed during the refactor, not preserved behind compatibility flags.
 
-- `examples/tatchi-site/src/pages/dashboard/routes/gas-smart-wallets/page.tsx`
+- `examples/seams-site/src/pages/dashboard/routes/gas-smart-wallets/page.tsx`
   - currently keeps sponsorship authorization in a separate dashboard surface
   - long term, policy-owned sponsorship editing should move into the policy engine workspace
-- `examples/tatchi-site/src/pages/dashboard/routes/policy-engine/consolePoliciesApi.ts`
+- `examples/seams-site/src/pages/dashboard/routes/policy-engine/consolePoliciesApi.ts`
   - client contract is still generic and mirrors free-form `rules`
   - should move to typed request and response shapes once the schema is defined
 - `server/src/console/policies/service.ts`

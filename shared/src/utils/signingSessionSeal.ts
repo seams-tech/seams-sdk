@@ -3,7 +3,7 @@ export const SIGNING_SESSION_SEAL_ALG = 'shamir3pass-v1' as const;
 export const SIGNING_SESSION_SEAL_STORAGE_SCOPE = 'iframe_origin_indexeddb' as const;
 export const SIGNING_SESSION_SECRET_KIND = 'signing_session_secret32' as const;
 
-export const SIGNING_SESSION_SEAL_DB_NAME = 'tatchi_wallet_v1' as const;
+export const SIGNING_SESSION_SEAL_DB_NAME = 'seams_wallet_v1' as const;
 export const SIGNING_SESSION_SEAL_DB_VERSION = 4 as const;
 export const SIGNING_SESSION_SEAL_STORE_NAME = 'signing_session_seals_v1' as const;
 export const SIGNING_SESSION_RESTORE_LEASE_STORE_NAME =
@@ -20,11 +20,11 @@ export const PASSKEY_PRF_SECOND_SALT_V1 = new Uint8Array([
 ]);
 
 export const EMAIL_OTP_HKDF_SALTS = {
-  thresholdEd25519Hss: 'tatchi/email-otp/threshold-ed25519-hss/v1',
-  signingSessionSecret: 'tatchi/email-otp/signing-session-secret/v1',
-  signingSessionRestoreRoot: 'tatchi/signing-session/restore-root/v1',
-  thresholdEcdsaClientRoot: 'tatchi/signing-session/threshold-ecdsa-client-root/v1',
-  thresholdEd25519RestoreSeed: 'tatchi/signing-session/threshold-ed25519-restore-seed/v1',
+  thresholdEd25519Hss: 'seams/email-otp/threshold-ed25519-hss/v1',
+  signingSessionSecret: 'seams/email-otp/signing-session-secret/v1',
+  signingSessionRestoreRoot: 'seams/signing-session/restore-root/v1',
+  thresholdEcdsaClientRoot: 'seams/signing-session/threshold-ecdsa-client-root/v1',
+  thresholdEd25519RestoreSeed: 'seams/signing-session/threshold-ed25519-restore-seed/v1',
 } as const;
 
 export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';

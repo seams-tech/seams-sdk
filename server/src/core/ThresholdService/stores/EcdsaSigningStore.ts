@@ -866,7 +866,7 @@ if type(requestedId) ~= 'string' or requestedId == '' then
   return nil
 end
 if type(marker) ~= 'string' or marker == '' then
-  marker = '__tatchi_threshold_ecdsa_presign_deleted__'
+  marker = '__seams_threshold_ecdsa_presign_deleted__'
 end
 
 local len = redis.call('LLEN', listKey)
@@ -1078,7 +1078,7 @@ class UpstashRedisRestThresholdEcdsaPresignaturePool implements ThresholdEcdsaPr
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
     const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
-    const marker = `__tatchi_threshold_ecdsa_presign_deleted__:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    const marker = `__seams_threshold_ecdsa_presign_deleted__:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     try {
       const raw = await this.client.eval(
         ECDSA_PRESIGN_RESERVE_BY_ID_LUA,
@@ -1198,7 +1198,7 @@ class RedisTcpThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
     const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
-    const marker = `__tatchi_threshold_ecdsa_presign_deleted__:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    const marker = `__seams_threshold_ecdsa_presign_deleted__:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     const evalResp = await this.client.send([
       'EVAL',
       ECDSA_PRESIGN_RESERVE_BY_ID_LUA,

@@ -307,7 +307,7 @@ export async function runEmailOtpEcdsaTempoFlow(
 
     const sdkMod = await import('/sdk/esm/index.js');
     const actionsMod = await import('/sdk/esm/core/types/actions.js');
-    const { TatchiPasskey } = sdkMod as any;
+    const { SeamsPasskey } = sdkMod as any;
     const { ActionType } = actionsMod as any;
 
     const accountId =
@@ -445,7 +445,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         target: 'login',
       });
 
-    const pm = new TatchiPasskey({
+    const pm = new SeamsPasskey({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',
@@ -480,8 +480,8 @@ export async function runEmailOtpEcdsaTempoFlow(
       if (context?.configs?.signing?.sessionSeal) {
         context.configs.signing.sessionSeal.shamirPrimeB64u = shamirPrimeB64u;
       }
-      if (context?.signingEngine?.tatchiPasskeyConfigs?.signing?.sessionSeal) {
-        context.signingEngine.tatchiPasskeyConfigs.signing.sessionSeal.shamirPrimeB64u =
+      if (context?.signingEngine?.seamsPasskeyConfigs?.signing?.sessionSeal) {
+        context.signingEngine.seamsPasskeyConfigs.signing.sessionSeal.shamirPrimeB64u =
           shamirPrimeB64u;
       }
     } catch {}
@@ -911,13 +911,13 @@ export async function runEmailOtpReloadPhase(
     }) => {
       const sdkMod = await import('/sdk/esm/index.js');
       const actionsMod = await import('/sdk/esm/core/types/actions.js');
-      const { TatchiPasskey } = sdkMod as any;
+      const { SeamsPasskey } = sdkMod as any;
       const { ActionType } = actionsMod as any;
 
       const readSealedRecordSummaries = async (): Promise<Array<Record<string, unknown>>> => {
         const indexedDb = globalThis.indexedDB;
         if (!indexedDb) return [];
-        const openRequest = indexedDb.open('tatchi_wallet_v1');
+        const openRequest = indexedDb.open('seams_wallet_v1');
         const db = await new Promise<IDBDatabase | null>((resolve) => {
           openRequest.onerror = () => resolve(null);
           openRequest.onsuccess = () => resolve(openRequest.result);
@@ -1049,7 +1049,7 @@ export async function runEmailOtpReloadPhase(
       }
 
       try {
-        const pm = new TatchiPasskey({
+        const pm = new SeamsPasskey({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayerAccount: 'web3-authn-v4.testnet',

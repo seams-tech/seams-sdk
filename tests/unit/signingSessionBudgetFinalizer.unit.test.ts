@@ -9,17 +9,36 @@ import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningS
 import {
   SigningOperationIntent,
   SigningSessionIds,
-  type SigningLaneContext,
+  type SelectedSigningLaneContext,
 } from '@/core/signingEngine/session/signingSession/types';
 import { createNonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { toAccountId } from '@/core/types/accountIds';
 
+function selectedLane(lane: SelectedSigningLaneContext): SelectedSigningLaneContext {
+  return lane;
+}
+
+function budgetIdentity(walletSigningSessionId: string) {
+  const projectionVersion = `projection:${walletSigningSessionId}:1`;
+  return {
+    walletSigningSessionId,
+    projectionVersion,
+    status: {
+      sessionId: walletSigningSessionId,
+      status: 'active' as const,
+      remainingUses: 1,
+      expiresAtMs: Date.now() + 60_000,
+      projectionVersion,
+    },
+  };
+}
+
 test.describe('SigningSessionBudgetFinalizer', () => {
   test('fails closed after produced signatures when authoritative budget recording fails', async () => {
-    const rows: Array<{ name: string; lane: SigningLaneContext }> = [
+    const rows: Array<{ name: string; lane: SelectedSigningLaneContext }> = [
       {
         name: 'near',
-        lane: buildNearTransactionSigningLane({
+        lane: selectedLane(buildNearTransactionSigningLane({
           accountId: toAccountId('budget-finalizer-near.testnet'),
           authMethod: 'email_otp',
           walletSigningSessionId: SigningSessionIds.walletSigningSession(
@@ -30,11 +49,11 @@ test.describe('SigningSessionBudgetFinalizer', () => {
           ),
           signingRootId: 'proj_budget:near',
           signingRootVersion: 'default',
-        }),
+        }) as SelectedSigningLaneContext),
       },
       {
         name: 'evm',
-        lane: buildEvmTransactionSigningLane({
+        lane: selectedLane(buildEvmTransactionSigningLane({
           accountId: toAccountId('budget-finalizer-evm.testnet'),
           authMethod: 'email_otp',
           walletSigningSessionId: SigningSessionIds.walletSigningSession(
@@ -45,11 +64,11 @@ test.describe('SigningSessionBudgetFinalizer', () => {
           ),
           signingRootId: 'proj_budget:evm',
           signingRootVersion: 'default',
-        }),
+        }) as SelectedSigningLaneContext),
       },
       {
         name: 'tempo',
-        lane: buildTempoTransactionSigningLane({
+        lane: selectedLane(buildTempoTransactionSigningLane({
           accountId: toAccountId('budget-finalizer-tempo.testnet'),
           authMethod: 'email_otp',
           walletSigningSessionId: SigningSessionIds.walletSigningSession(
@@ -60,7 +79,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
           ),
           signingRootId: 'proj_budget:tempo',
           signingRootVersion: 'default',
-        }),
+        }) as SelectedSigningLaneContext),
       },
     ];
 
@@ -86,6 +105,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
           intent: 'transaction_sign',
         },
         lane: row.lane,
+        budgetIdentity: budgetIdentity(String(row.lane.walletSigningSessionId)),
         onRecordSuccessError: (error) => {
           observedErrors.push(error instanceof Error ? error.message : String(error));
         },
@@ -105,7 +125,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
     const operationId = SigningSessionIds.signingOperation('op-budget-cancel-near');
     const operationFingerprint =
       SigningSessionIds.signingOperationFingerprint('sha256:budget-cancel-near');
-    const lane = buildNearTransactionSigningLane({
+    const lane = selectedLane(buildNearTransactionSigningLane({
       accountId,
       authMethod: 'passkey',
       storageSource: 'login',
@@ -115,7 +135,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
       ),
       signingRootId: 'proj_budget:near',
       signingRootVersion: 'default',
-    });
+    }) as SelectedSigningLaneContext);
     let consumeCalls = 0;
     const budgetTraceEvents: string[] = [];
     const ledger = new SigningSessionCoordinator({
@@ -124,6 +144,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
         status: 'active',
         remainingUses: 1,
         expiresAtMs: Date.now() + 60_000,
+        projectionVersion: budgetIdentity(String(walletSigningSessionId)).projectionVersion,
       }),
       consumeUse: async () => {
         consumeCalls += 1;
@@ -132,6 +153,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
           status: 'active',
           remainingUses: 0,
           expiresAtMs: Date.now() + 60_000,
+          projectionVersion: `projection:${walletSigningSessionId}:0`,
         };
       },
       onTrace: (event) => budgetTraceEvents.push(event.event),
@@ -144,6 +166,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
         intent: SigningOperationIntent.TransactionSign,
       },
       lane,
+      budgetIdentity: budgetIdentity(String(walletSigningSessionId)),
     });
     const releasedNearNonces: string[] = [];
     const nonceCoordinator = createNonceCoordinator({
@@ -160,7 +183,12 @@ test.describe('SigningSessionBudgetFinalizer', () => {
     await finalizer.reserve();
     await expect(
       ledger.getAvailableStatus({ nearAccountId: accountId, walletSigningSessionId }),
-    ).resolves.toMatchObject({ status: 'exhausted', remainingUses: 0 });
+    ).resolves.toMatchObject({
+      status: 'active',
+      remainingUses: 1,
+      locallyReservedUses: 1,
+      availableUses: 0,
+    });
 
     const { leases } = await nonceCoordinator.reserveNearContext({
       lane: {
@@ -206,7 +234,12 @@ test.describe('SigningSessionBudgetFinalizer', () => {
     expect(budgetTraceEvents).toContain('wallet_signing_budget_zero_spend_recorded');
     await expect(
       ledger.getAvailableStatus({ nearAccountId: accountId, walletSigningSessionId }),
-    ).resolves.toMatchObject({ status: 'active', remainingUses: 1 });
+    ).resolves.toMatchObject({
+      status: 'active',
+      remainingUses: 1,
+      locallyReservedUses: 0,
+      availableUses: 1,
+    });
   });
 
   test('post-sign broadcast rejection consumes budget once and reconciles nonce state', async () => {
@@ -217,7 +250,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
     const operationFingerprint = SigningSessionIds.signingOperationFingerprint(
       'sha256:budget-broadcast-reject',
     );
-    const lane = buildEvmTransactionSigningLane({
+    const lane = selectedLane(buildEvmTransactionSigningLane({
       accountId,
       authMethod: 'passkey',
       storageSource: 'login',
@@ -227,7 +260,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
       ),
       signingRootId: 'proj_budget:evm',
       signingRootVersion: 'default',
-    });
+    }) as SelectedSigningLaneContext);
     let consumeCalls = 0;
     let sessionRemainingUses = 1;
     const nonceTraces: string[] = [];
@@ -237,6 +270,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
         status: sessionRemainingUses > 0 ? 'active' : 'exhausted',
         remainingUses: sessionRemainingUses,
         expiresAtMs: Date.now() + 60_000,
+        projectionVersion: `projection:${walletSigningSessionId}:${sessionRemainingUses}`,
       }),
       consumeUse: async () => {
         consumeCalls += 1;
@@ -246,6 +280,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
           status: sessionRemainingUses > 0 ? 'active' : 'exhausted',
           remainingUses: sessionRemainingUses,
           expiresAtMs: Date.now() + 60_000,
+          projectionVersion: `projection:${walletSigningSessionId}:${sessionRemainingUses}`,
         };
       },
     });
@@ -257,6 +292,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
         intent: SigningOperationIntent.TransactionSign,
       },
       lane,
+      budgetIdentity: budgetIdentity(String(walletSigningSessionId)),
     });
     const nonceCoordinator = createNonceCoordinator({
       evmNonceBackend: {
@@ -319,7 +355,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
     const operationFingerprint = SigningSessionIds.signingOperationFingerprint(
       'sha256:budget-trace-correlation',
     );
-    const lane = buildTempoTransactionSigningLane({
+    const lane = selectedLane(buildTempoTransactionSigningLane({
       accountId,
       authMethod: 'email_otp',
       walletSigningSessionId,
@@ -328,7 +364,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
       ),
       signingRootId: 'proj_budget:tempo',
       signingRootVersion: 'default',
-    });
+    }) as SelectedSigningLaneContext);
     const budgetTraces: unknown[] = [];
     const nonceTraces: unknown[] = [];
     const ledger = new SigningSessionCoordinator({
@@ -337,12 +373,14 @@ test.describe('SigningSessionBudgetFinalizer', () => {
         status: 'active',
         remainingUses: 1,
         expiresAtMs: Date.now() + 60_000,
+        projectionVersion: budgetIdentity(String(walletSigningSessionId)).projectionVersion,
       }),
       consumeUse: async () => ({
         sessionId: walletSigningSessionId,
         status: 'exhausted',
         remainingUses: 0,
         expiresAtMs: Date.now() + 60_000,
+        projectionVersion: `projection:${walletSigningSessionId}:0`,
       }),
       onTrace: (event) => budgetTraces.push(event),
     });
@@ -354,6 +392,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
         intent: SigningOperationIntent.TransactionSign,
       },
       lane,
+      budgetIdentity: budgetIdentity(String(walletSigningSessionId)),
     });
     const nonceCoordinator = createNonceCoordinator({
       evmNonceBackend: {

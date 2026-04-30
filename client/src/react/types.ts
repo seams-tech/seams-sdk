@@ -4,12 +4,12 @@ import type {
   RegistrationHooksOptions,
   ActionHooksOptions,
   SignNEP413HooksOptions,
-  TatchiPasskey,
-  TatchiConfigsInput,
+  SeamsPasskey,
+  SeamsConfigsInput,
   SignNEP413MessageParams,
   SignNEP413MessageResult,
-} from '../core/TatchiPasskey';
-import type { ThemeName, WalletAuthMethod } from '../core/types/tatchi';
+} from '../core/SeamsPasskey';
+import type { ThemeName, WalletAuthMethod } from '../core/types/seams';
 import { TransactionInput } from '../core/types/actions';
 import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/signer-worker';
 import type { ClientUserData } from '../core/accountData/near/types';
@@ -28,7 +28,7 @@ import type {
   LoginResult,
   RegistrationResult,
   SigningSessionStatus,
-} from '../core/types/tatchi';
+} from '../core/types/seams';
 import type { DeviceLinkingQRData, StartDevice2LinkingFlowArgs } from '../core/types/linkDevice';
 import type { AccessKeyList } from '../core/rpcClients/near/NearClient';
 
@@ -120,9 +120,9 @@ export type SDKFlowRuntime = SDKFlowState & {
   ) => Promise<void>;
 };
 
-export interface TatchiContextType {
-  // Core TatchiPasskey instance - provides all user-facing functionality
-  tatchi: TatchiPasskey;
+export interface SeamsContextType {
+  // Core SeamsPasskey instance - provides all user-facing functionality
+  seams: SeamsPasskey;
 
   /**
    * SDK progress state for the most recent flow (login/registration).
@@ -132,7 +132,7 @@ export interface TatchiContextType {
   sdkFlow: SDKFlowRuntime;
 
   ////////////////////////////
-  // TatchiPasskey functions
+  // SeamsPasskey functions
   ////////////////////////////
 
   // Registration and wallet unlock functions
@@ -209,9 +209,9 @@ export interface TatchiContextType {
   };
 }
 
-/** Config options for TatchiContextProvider
+/** Config options for SeamsContextProvider
  * @param children - ReactNode to render inside the provider
- * @param config - TatchiConfigsInput
+ * @param config - SeamsConfigsInput
  * @example
  * config: {
  *   chains: [
@@ -227,11 +227,11 @@ export interface TatchiContextType {
  *   relayer: { url: 'https://relay.example.com' },
  * }
  */
-export interface TatchiContextProviderProps {
+export interface SeamsContextProviderProps {
   children: ReactNode;
   // Config overrides; provider resolves defaults and validates required fields.
   // Includes optional `appearance` defaults (`theme`, `palette`, `tokens`).
-  config: TatchiConfigsInput;
+  config: SeamsConfigsInput;
   // Controlled theme from host app (optional).
   theme?: {
     theme: ThemeName;
@@ -258,4 +258,4 @@ export type {
   // Results
   RegistrationResult,
   LoginResult,
-} from '../core/types/tatchi';
+} from '../core/types/seams';

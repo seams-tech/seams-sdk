@@ -91,7 +91,7 @@ test.describe('email recovery subject parsing with request_id', () => {
             'Date: Tue, 01 Jan 2024 00:00:00 GMT',
             '',
             'tee-encrypted',
-            `tatchi-recovery-v1:${token}`,
+            `seams-recovery-v1:${token}`,
           ].join('\n');
 
           const bindings = parseVerifiedRecoveryEmailArtifact(rawEmail);

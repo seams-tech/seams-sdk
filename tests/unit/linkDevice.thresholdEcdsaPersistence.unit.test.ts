@@ -5,7 +5,7 @@ const IMPORT_PATHS = {
   clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
   accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
   unifiedDb: '/sdk/esm/core/indexedDB/index.js',
-  linkDeviceThresholdEcdsa: '/sdk/esm/core/TatchiPasskey/evm/linkDeviceThresholdEcdsa.js',
+  linkDeviceThresholdEcdsa: '/sdk/esm/core/SeamsPasskey/evm/linkDeviceThresholdEcdsa.js',
 } as const;
 
 test.describe('link-device threshold-ecdsa persistence', () => {

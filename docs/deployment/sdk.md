@@ -2,7 +2,7 @@
 
 The SDK has two deployment outputs:
 
-- npm package `@tatchi-xyz/sdk`
+- npm package `@seams/sdk`
 - runtime bundles from `sdk/dist` served by Pages at `/sdk/*` and optionally
   published to Cloudflare R2
 
@@ -32,14 +32,14 @@ Main outputs:
 
 ```bash
 pnpm build:sdk-prod
-pnpm -C examples/tatchi-site build
+pnpm -C examples/seams-site build
 ```
 
 Then it copies runtime assets into the Pages output:
 
 ```bash
-sdk/dist/esm/sdk/       -> examples/tatchi-site/dist/sdk/
-sdk/dist/workers/       -> examples/tatchi-site/dist/sdk/workers/
+sdk/dist/esm/sdk/       -> examples/seams-site/dist/sdk/
+sdk/dist/workers/       -> examples/seams-site/dist/sdk/workers/
 ```
 
 Use `VITE_SDK_BASE_PATH=/sdk` unless you intentionally serve the SDK under a
@@ -149,7 +149,7 @@ R2 rollback:
 npm rollback:
 
 ```bash
-npm deprecate @tatchi-xyz/sdk@X.Y.Z "Use X.Y.Z+1"
+npm deprecate @seams/sdk@X.Y.Z "Use X.Y.Z+1"
 ```
 
 Use `npm unpublish` only inside npm's allowed unpublish window and only when

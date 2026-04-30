@@ -78,7 +78,7 @@ Target answer:
   - must never be stored in frontend config or shipped in browser bundles
 - `publishable_key`
   - browser-safe credential
-  - identifies project/environment to a Tatchi-managed bootstrap broker
+  - identifies project/environment to a Seams-managed bootstrap broker
   - cannot directly authorize privileged relay calls on its own
 - This doc uses explicit key types instead of the generic phrase "API key".
 - There is no supported long-lived browser-held secret for registration.
@@ -126,7 +126,7 @@ Request path:
 Properties:
 
 - No developer backend required.
-- Requires Tatchi-managed broker infrastructure.
+- Requires Seams-managed broker infrastructure.
 - `publishable_key` never authorizes direct relay access.
 - Origin restrictions and quotas are enforced before relay bootstrap is reachable.
 
@@ -565,9 +565,9 @@ Rules:
 - Browser SDK accepts only `backend_proxy` or `managed`.
 - Browser SDK rejects `secretKey`, `apiKey`, and `relayer.apiKey`.
 - Server examples use:
-  - `TATCHI_SECRET_KEY`
+  - `SEAMS_SECRET_KEY`
 - Browser examples use:
-  - `VITE_TATCHI_PUBLISHABLE_KEY`
+  - `VITE_SEAMS_PUBLISHABLE_KEY`
 - Relay runtime can still be called directly from a trusted backend with `secret_key`.
 
 ## Data Model / Persistence Plan

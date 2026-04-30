@@ -3,19 +3,19 @@ import { useNearClient } from '../hooks/useNearClient';
 import { useAccountInput } from '../hooks/useAccountInput';
 import { useEagerPrewarm } from './useEagerPrewarm';
 import { useLoginStateRefresher } from './useLoginStateRefresher';
-import { useTatchiContextValue } from './useTatchiContextValue';
+import { useSeamsContextValue } from './useSeamsContextValue';
 import { useWalletIframeLifecycle } from './useWalletIframeLifecycle';
-import { getOrCreateTatchiManager } from './tatchiManagerSingleton';
+import { getOrCreateSeamsManager } from './seamsManagerSingleton';
 import type {
-  TatchiContextType,
-  TatchiContextProviderProps,
+  SeamsContextType,
+  SeamsContextProviderProps,
   LoginState,
   AccountInputState,
 } from '../types';
 
-const TatchiContext = createContext<TatchiContextType | undefined>(undefined);
+const SeamsContext = createContext<SeamsContextType | undefined>(undefined);
 
-export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
+export const SeamsContextProvider: React.FC<SeamsContextProviderProps> = ({
   children,
   config,
   theme,
@@ -32,12 +32,12 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
   const [walletIframeConnected, setWalletIframeConnected] = useState<boolean>(false);
 
   const nearClient = useNearClient();
-  const tatchi = useMemo(() => getOrCreateTatchiManager(config, nearClient), [config, nearClient]);
+  const seams = useMemo(() => getOrCreateSeamsManager(config, nearClient), [config, nearClient]);
 
-  useEagerPrewarm(tatchi, eager);
+  useEagerPrewarm(seams, eager);
 
   useWalletIframeLifecycle({
-    tatchi,
+    seams,
     setWalletIframeConnected,
     setLoginState,
   });
@@ -47,11 +47,11 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
   );
 
   const accountInputHook = useAccountInput({
-    tatchi,
+    seams,
     // If the host app didn't explicitly provide a relayer account id/domain, allow the hook to
     // best-effort discover it from the relay `/healthz` endpoint (prevents postfix mismatches).
     ...(hasExplicitAccountDomainOverride
-      ? { accountDomain: tatchi.configs.network.relayer.accountId }
+      ? { accountDomain: seams.configs.network.relayer.accountId }
       : {}),
     currentNearAccountId: loginState.nearAccountId,
     isLoggedIn: loginState.isLoggedIn,
@@ -97,18 +97,18 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
   );
 
   const refreshLoginState = useLoginStateRefresher({
-    tatchi,
+    seams,
     walletIframeConnected,
     setLoginState,
   });
 
   useEffect(() => {
     if (!theme?.theme) return;
-    tatchi.setTheme(theme.theme);
-  }, [tatchi, theme?.theme]);
+    seams.setTheme(theme.theme);
+  }, [seams, theme?.theme]);
 
-  const value = useTatchiContextValue({
-    tatchi,
+  const value = useSeamsContextValue({
+    seams,
     loginState,
     setLoginState,
     walletIframeConnected,
@@ -119,16 +119,16 @@ export const TatchiContextProvider: React.FC<TatchiContextProviderProps> = ({
     hostSetTheme: theme?.setTheme,
   });
 
-  return <TatchiContext.Provider value={value}>{children}</TatchiContext.Provider>;
+  return <SeamsContext.Provider value={value}>{children}</SeamsContext.Provider>;
 };
 
-export const useTatchi = () => {
-  const context = useContext(TatchiContext);
+export const useSeams = () => {
+  const context = useContext(SeamsContext);
   if (context === undefined) {
-    throw new Error('useTatchi must be used within a TatchiContextProvider');
+    throw new Error('useSeams must be used within a SeamsContextProvider');
   }
   return context;
 };
 
 // Re-export types for convenience
-export type { TatchiContextType, RegistrationResult, LoginResult } from '../types';
+export type { SeamsContextType, RegistrationResult, LoginResult } from '../types';

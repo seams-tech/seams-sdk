@@ -116,7 +116,7 @@ Recommended derivation:
 K_recovery_i =
   HKDF-SHA-256(
     ikm = recovery_key_i,
-    salt = "tatchi/email-otp/recovery-wrap/v1",
+    salt = "seams/email-otp/recovery-wrap/v1",
     info = encode_tuple([
       wallet_id,
       user_id,
@@ -140,7 +140,7 @@ ChaCha20-Poly1305 AAD:
 
 ```text
 encode_tuple([
-  "tatchi/email-otp/recovery-wrapped-enrollment/v1",
+  "seams/email-otp/recovery-wrapped-enrollment/v1",
   wallet_id,
   user_id,
   auth_subject_id,

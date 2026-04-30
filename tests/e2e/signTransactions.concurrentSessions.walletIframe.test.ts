@@ -73,7 +73,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
       const resultPromise = page.evaluate(
         async ({ walletOrigin, relayerUrl, receiverId }) => {
         try {
-          const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+          const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
           const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
           const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
@@ -84,7 +84,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
           const account1 = `e2econ1${suffix}.w3a-v1.testnet`;
           const account2 = `e2econ2${suffix}.w3a-v1.testnet`;
 
-          const tatchi = new TatchiPasskey({
+          const seams = new SeamsPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayer: { url: relayerUrl },
@@ -111,7 +111,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
             autoProceedDelay: 0,
           } as const;
 
-          const reg1 = await tatchi.registration.registerPasskeyInternal(
+          const reg1 = await seams.registration.registerPasskeyInternal(
             account1,
             {},
             confirmConfig as any,
@@ -120,7 +120,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
             return { ok: false as const, error: reg1?.error || 'registration (1) failed' };
           }
 
-          const reg2 = await tatchi.registration.registerPasskeyInternal(
+          const reg2 = await seams.registration.registerPasskeyInternal(
             account2,
             {},
             confirmConfig as any,
@@ -129,12 +129,12 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
             return { ok: false as const, error: reg2?.error || 'registration (2) failed' };
           }
 
-          const login1 = await tatchi.auth.unlock(account1);
+          const login1 = await seams.auth.unlock(account1);
           if (!login1?.success) {
             return { ok: false as const, error: login1?.error || 'login (1) failed' };
           }
 
-          const login2 = await tatchi.auth.unlock(account2);
+          const login2 = await seams.auth.unlock(account2);
           if (!login2?.success) {
             return { ok: false as const, error: login2?.error || 'login (2) failed' };
           }
@@ -148,7 +148,7 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
             Array.from(value as ArrayLike<number>);
 
           const signOnce = async (accountId: string, receiverId: string) => {
-            const signed = await tatchi.near.signTransactionsWithActions({
+            const signed = await seams.near.signTransactionsWithActions({
               nearAccountId: accountId,
               transactions: [{ receiverId, actions: [action] }],
               options: {

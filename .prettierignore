@@ -13,5 +13,5 @@
 wasm/**/pkg/**
 wasm/**/target/**
 
-examples/tatchi-docs/public/**
+examples/seams-docs/public/**
 

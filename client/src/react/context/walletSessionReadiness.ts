@@ -1,4 +1,4 @@
-import type { WalletSession } from '@/core/types/tatchi';
+import type { WalletSession } from '@/core/types/seams';
 
 export function isWalletSessionReadyForUi(args: {
   session: Pick<WalletSession, 'login' | 'signingSession'>;

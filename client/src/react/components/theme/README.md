@@ -10,7 +10,7 @@ A single theme module powers the UI using a scoped token → CSS variable system
 Import from the barrel for clarity:
 
 ```
-import { Theme, useTheme } from '@tatchi-xyz/sdk/react';
+import { Theme, useTheme } from '@seams/sdk/react';
 // or within this repo: from '../theme'
 ```
 

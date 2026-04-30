@@ -1,6 +1,6 @@
 # Web3Authn SDK
 
-Monorepo for `@tatchi-xyz/sdk`: an embedded passkey wallet SDK for NEAR.
+Monorepo for `@seams/sdk`: an embedded passkey wallet SDK for NEAR.
 
 ## Installation
 
@@ -22,7 +22,7 @@ pnpm run server
 - Primary local endpoints: app `https://localhost`, wallet `https://localhost:8443`, relay API base `https://localhost:9444`.
 - Docs default origin: `https://docs.localhost`.
 - Internal dev ports: Vite on `http://localhost:3600`, relay on `http://127.0.0.1:8444`.
-- Browser-managed registration in the example site uses `VITE_TATCHI_ENVIRONMENT_ID` + `VITE_TATCHI_PUBLISHABLE_KEY` from `examples/tatchi-site/.env`.
+- Browser-managed registration in the example site uses `VITE_SEAMS_ENVIRONMENT_ID` + `VITE_SEAMS_PUBLISHABLE_KEY` from `examples/seams-site/.env`.
 
 ## Repo development
 
@@ -40,9 +40,9 @@ pnpm run server
 
 ## Architecture
 
-- Wallet iframe / origin isolation: `examples/tatchi-site/src/docs/concepts/architecture.md`
-- Security model: `examples/tatchi-site/src/docs/concepts/security-model.md`
-- SecureConfirm + WebAuthn: `examples/tatchi-site/src/docs/concepts/secureconfirm-webauthn.md`
+- Wallet iframe / origin isolation: `examples/seams-docs/src/concepts/architecture.md`
+- Security model: `examples/seams-docs/src/concepts/security-model.md`
+- SecureConfirm + WebAuthn: `examples/seams-docs/src/concepts/secureconfirm-webauthn.md`
 - Relay deployment: `examples/relay-server/README.md`
 
 ## Deployment

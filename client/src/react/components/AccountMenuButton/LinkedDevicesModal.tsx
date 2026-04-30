@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useTatchi } from '../../context';
+import { useSeams } from '../../context';
 import './LinkedDevicesModal.css';
 import { useTheme, Theme } from '../theme';
 
@@ -19,7 +19,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { tatchi, loginState, viewAccessKeyList } = useTatchi();
+  const { seams, loginState, viewAccessKeyList } = useSeams();
   const { theme, tokens } = useTheme();
   const scopedTokens = React.useMemo(
     () => (theme === 'dark' ? { dark: tokens } : { light: tokens }),
@@ -72,7 +72,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   }, [isOpen, onClose]);
 
   const loadAuthenticators = async () => {
-    if (!tatchi) return;
+    if (!seams) return;
 
     setIsLoading(true);
     setError(null);
@@ -81,7 +81,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       // Resolve current signer slot for highlighting
       let currentSignerSlotFromState: number | null = null;
       try {
-        const { login } = await tatchi.auth.getWalletSession(nearAccountId);
+        const { login } = await seams.auth.getWalletSession(nearAccountId);
         const slot = (login as any)?.userData?.signerSlot;
         currentSignerSlotFromState =
           typeof slot === 'number' && Number.isFinite(slot) ? Math.floor(slot) : null;
@@ -98,7 +98,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       // This annotates access keys with signer slots.
       const relayMetaByPublicKey = new Map<string, RelayAuthenticatorRow>();
       try {
-        const relayerUrl = String((tatchi as any)?.configs?.network.relayer?.url || '')
+        const relayerUrl = String((seams as any)?.configs?.network.relayer?.url || '')
           .trim()
           .replace(/\/$/, '');
         if (relayerUrl) {
@@ -126,7 +126,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
             // ignore
           }
 
-          const rpIdOverride = String((tatchi as any)?.configs?.rpIdOverride || '').trim();
+          const rpIdOverride = String((seams as any)?.configs?.rpIdOverride || '').trim();
           const rpId =
             rpIdOverride ||
             (typeof window !== 'undefined' ? String(window.location.hostname || '').trim() : '');

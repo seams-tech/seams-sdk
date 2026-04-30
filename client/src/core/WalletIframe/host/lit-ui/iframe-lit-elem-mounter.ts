@@ -7,15 +7,15 @@
  *
  * Key Responsibilities:
  * - Component Mounting: Creates and mounts Lit UI components on demand
- * - Event Wiring: Connects UI interactions to TatchiPasskey methods
+ * - Event Wiring: Connects UI interactions to SeamsPasskey methods
  * - Lifecycle Management: Handles mount/unmount/update operations
  * - Message API: Exposes window.postMessage interface for parent communication
  * - Component Registry: Uses declarative registry for component definitions
- * - TatchiPasskey Integration: Wires UI actions to actual wallet operations
+ * - SeamsPasskey Integration: Wires UI actions to actual wallet operations
  *
  * Architecture:
  * - Maintains mounted component instances by ID
- * - Provides typed prop/event bindings for TatchiPasskey actions
+ * - Provides typed prop/event bindings for SeamsPasskey actions
  * - Handles both direct component mounting and registry-based mounting
  *
  * Message Protocol:
@@ -25,12 +25,12 @@
  * - WALLET_UI_REGISTER_TYPES: Register new component types
  */
 
-import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import type { SeamsPasskey } from '@/core/SeamsPasskey';
 import type { SignAndSendTransactionHooksOptions } from '@/core/types/sdkSentEvents';
 import {
   fromTransactionInputsWasm,
   type ActionResult,
-  type TatchiConfigsInput,
+  type SeamsConfigsInput,
   type TransactionInput,
   type TransactionInputWasm,
 } from '@/core/types';
@@ -49,9 +49,9 @@ import {
   HostMounterClasses,
 } from './mounter-styles';
 
-export type EnsureTatchiPasskey = () => void;
-export type GetPasskeyManager = () => TatchiPasskey | null;
-export type UpdateWalletConfigs = (patch: Partial<TatchiConfigsInput>) => void;
+export type EnsureSeamsPasskey = () => void;
+export type GetPasskeyManager = () => SeamsPasskey | null;
+export type UpdateWalletConfigs = (patch: Partial<SeamsConfigsInput>) => void;
 
 type StructuredPrimitive = string | number | boolean | null;
 type StructuredValue =
@@ -88,7 +88,7 @@ type WalletUiUpdatePayload = { id: string; props?: UiProps };
 type WalletUiUnmountPayload = { id: string };
 
 type WalletUiInboundPayloadMap = {
-  WALLET_SET_CONFIG: Partial<TatchiConfigsInput>;
+  WALLET_SET_CONFIG: Partial<SeamsConfigsInput>;
   WALLET_UI_REGISTER_TYPES: WalletUIRegistry;
   WALLET_UI_MOUNT: WalletUiMountPayload;
   WALLET_UI_UPDATE: WalletUiUpdatePayload;
@@ -134,8 +134,8 @@ type MountedEntry = {
 };
 
 type SetupLitElemMounterOptions = {
-  ensureTatchiPasskey: EnsureTatchiPasskey;
-  getTatchiPasskey: GetPasskeyManager;
+  ensureSeamsPasskey: EnsureSeamsPasskey;
+  getSeamsPasskey: GetPasskeyManager;
   updateWalletConfigs: UpdateWalletConfigs;
   postToParent: (message: WalletUiOutboundMessage) => void;
 };
@@ -326,7 +326,7 @@ const mountAnchored = (
 };
 
 export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
-  const { ensureTatchiPasskey, getTatchiPasskey, updateWalletConfigs } = opts;
+  const { ensureSeamsPasskey, getSeamsPasskey, updateWalletConfigs } = opts;
 
   // Generic registry for mountable components
   let uiRegistry: WalletUIRegistry = { ...uiBuiltinRegistry };
@@ -341,8 +341,8 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
     action: T,
     args: PmActionArgsMap[T],
   ): Promise<PmActionResultMap[T]> => {
-    ensureTatchiPasskey();
-    const pm = getTatchiPasskey();
+    ensureSeamsPasskey();
+    const pm = getSeamsPasskey();
     if (!pm) {
       throw new Error('Passkey manager not initialized');
     }

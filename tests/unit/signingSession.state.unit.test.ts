@@ -99,7 +99,7 @@ test.describe('signing session PRF cache utilities', () => {
 
   test('threshold warm-session bootstrap uses hydrate seam without active-pointer flags', () => {
     const source = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/TatchiPasskey/thresholdWarmSessionBootstrap.ts'),
+      path.resolve(process.cwd(), '../client/src/core/SeamsPasskey/thresholdWarmSessionBootstrap.ts'),
       'utf8',
     );
 

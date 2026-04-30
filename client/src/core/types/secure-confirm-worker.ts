@@ -5,7 +5,7 @@
  * - the UserConfirm bridge (`awaitUserConfirmationV2`) used by confirmTxFlow, and
  * - a small warm-session material store for threshold signing.
  */
-import type { SigningSessionPersistenceMode } from './tatchi';
+import type { SigningSessionPersistenceMode } from './seams';
 
 export interface TouchConfirmManagerConfig {
   workerUrl?: string;

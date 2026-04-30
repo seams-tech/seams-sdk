@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  tatchiTypes: '/sdk/esm/core/types/sdkSentEvents.js',
+  seamsTypes: '/sdk/esm/core/types/sdkSentEvents.js',
 } as const;
 
 test.describe('wallet flow event invariants', () => {
@@ -15,7 +15,7 @@ test.describe('wallet flow event invariants', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const events = await import(paths.tatchiTypes);
+        const events = await import(paths.seamsTypes);
         const enumNames = [
           'RegistrationEventPhase',
           'UnlockEventPhase',
@@ -66,7 +66,7 @@ test.describe('wallet flow event invariants', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const events = await import(paths.tatchiTypes);
+        const events = await import(paths.seamsTypes);
         return [
           events.createRegistrationFlowEvent({
             phase: events.RegistrationEventPhase.CANCELLED,
@@ -177,7 +177,7 @@ test.describe('signing wallet flow events', () => {
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const events = await import(paths.tatchiTypes);
+        const events = await import(paths.seamsTypes);
         const warmSessionEvent = events.createSigningFlowEvent({
           phase: events.SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
           status: 'succeeded',
@@ -284,7 +284,7 @@ test.describe('account sync wallet flow events', () => {
   test('derives account sync steps, messages, and terminal overlay metadata', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const events = await import(paths.tatchiTypes);
+        const events = await import(paths.seamsTypes);
         const promptEvent = events.createAccountSyncFlowEvent({
           phase: events.AccountSyncEventPhase.STEP_02_PASSKEY_PROMPT_STARTED,
           status: 'waiting_for_user',
@@ -348,7 +348,7 @@ test.describe('key export wallet flow events', () => {
   test('derives key export viewer steps, messages, and overlay metadata', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
-        const events = await import(paths.tatchiTypes);
+        const events = await import(paths.seamsTypes);
         const promptEvent = events.createKeyExportFlowEvent({
           phase: events.KeyExportEventPhase.STEP_02_AUTH_PASSKEY_PROMPT_STARTED,
           status: 'waiting_for_user',

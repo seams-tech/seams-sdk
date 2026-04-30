@@ -61,7 +61,7 @@ type RecoverySponsoredEvmExecutionAssessment = SponsorshipExecutionAssessment & 
 };
 
 type RecoverySpecMetadata = {
-  version: 'tatchi_evm_recovery_spec_v1';
+  version: 'seams_evm_recovery_spec_v1';
   newOwnerAddress: `0x${string}`;
   call: {
     to: `0x${string}`;
@@ -267,7 +267,7 @@ function buildRecoverySpecMetadata(input: {
   gasLimit: bigint;
 }): RecoverySpecMetadata {
   return {
-    version: 'tatchi_evm_recovery_spec_v1',
+    version: 'seams_evm_recovery_spec_v1',
     newOwnerAddress: input.ownerAddress,
     call: {
       to: input.accountAddress,

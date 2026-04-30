@@ -2,7 +2,7 @@ import type {
   SigningSessionRetention,
   SigningSessionStatus,
   WalletAuthMethod,
-} from '@/core/types/tatchi';
+} from '@/core/types/seams';
 import type {
   WarmSessionStatusBatchReader,
   WarmSessionStatusReader,

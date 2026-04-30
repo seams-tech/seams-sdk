@@ -1,7 +1,7 @@
 /**
  * E2E Test Setup Utilities
  *
- * Provides reusable setup functions for TatchiPasskey e2e testing for:
+ * Provides reusable setup functions for SeamsPasskey e2e testing for:
  * - Registration flow: Works correctly
  * - Contract verification: Finds stored credentials
  * - Login flow: standard WebAuthn works properly
@@ -11,7 +11,7 @@
  * ===================================
  *
  * This file uses STATIC imports at the top for types and utilities that are safe to load early.
- * However, TatchiPasskey itself is imported DYNAMICALLY inside test functions to avoid
+ * However, SeamsPasskey itself is imported DYNAMICALLY inside test functions to avoid
  * module loading race conditions with WebAuthn Virtual Authenticator setup.
  *
  * Why Dynamic Imports Are Necessary:
@@ -26,7 +26,7 @@
  * 1. ENVIRONMENT SETUP: Configure WebAuthn Virtual Authenticator first
  * 2. IMPORT MAP INJECTION: Add module resolution mappings to the page
  * 3. STABILIZATION WAIT: Allow browser environment to settle
- * 4. DYNAMIC IMPORTS: Load TatchiPasskey only after environment is ready
+ * 4. DYNAMIC IMPORTS: Load SeamsPasskey only after environment is ready
  * 5. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
  */
 
@@ -34,10 +34,10 @@
 // ===================================
 // These imports are safe to use statically because:
 // - Page: Playwright type, no runtime dependencies
-// - type TatchiPasskey: TypeScript type only, no runtime code
+// - type SeamsPasskey: TypeScript type only, no runtime code
 // - encoders: Utility functions used in Node.js context, not browser
 import { Page, test } from '@playwright/test';
-import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import type { SeamsPasskey } from '@/core/SeamsPasskey';
 import { executeSequentialSetup } from './bootstrap';
 import { DEFAULT_TEST_CONFIG } from './config';
 import { setupWebAuthnMocks } from './webauthn-mocks';
@@ -64,7 +64,7 @@ export { SDK_ESM_BASE_PATH, SDK_ESM_PATHS, sdkEsmPath } from './sdkEsmPaths';
  * 1. ENVIRONMENT SETUP: Configure WebAuthn Virtual Authenticator first
  * 2. IMPORT MAP INJECTION: Add module resolution mappings to the page
  * 3. STABILIZATION WAIT: Allow browser environment to settle
- * 4. DYNAMIC IMPORTS: Load TatchiPasskey only after environment is ready
+ * 4. DYNAMIC IMPORTS: Load SeamsPasskey only after environment is ready
  * 5. GLOBAL FALLBACK: Ensure base64UrlEncode is available as safety measure
  */
 export async function setupBasicPasskeyTest(
@@ -254,8 +254,8 @@ export async function setupTestnetFaucetTest(
 // =============================================================================
 
 export interface TestUtils {
-  PasskeyManager: typeof TatchiPasskey;
-  tatchi: TatchiPasskey;
+  PasskeyManager: typeof SeamsPasskey;
+  seams: SeamsPasskey;
   configs: {
     nearNetwork: 'testnet';
     relayerAccount: string;

@@ -1,6 +1,6 @@
 import { createConsoleRouteDefinitions, type RouteDefinition } from './routeDefinitions';
 
-const CONSOLE_ROUTE_SURFACE_SYMBOL = Symbol.for('tatchi.consoleRouteSurface');
+const CONSOLE_ROUTE_SURFACE_SYMBOL = Symbol.for('seams.consoleRouteSurface');
 
 export interface ConsoleRouteSurface {
   routeDefinitions: readonly RouteDefinition[];

@@ -20,10 +20,10 @@ import type {
 } from '../shared/messages';
 import { CONFIRM_UI_ELEMENT_SELECTORS } from '../../signingEngine/touchConfirm/ui/registry';
 import { setupLitElemMounter } from './lit-ui/iframe-lit-elem-mounter';
-import type { TatchiConfigsInput } from '../../types/tatchi';
+import type { SeamsConfigsInput } from '../../types/seams';
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
-import { TatchiPasskey } from '../../TatchiPasskey';
+import { SeamsPasskey } from '../../SeamsPasskey';
 import { WalletIframeDomEvents } from '../events';
 // handlers moved to dedicated module; host no longer imports per-call hook types
 import { createWalletIframeHandlers } from './wallet-iframe-handlers';
@@ -93,9 +93,9 @@ export function initWalletIFrame(): void {
     return true;
   };
 
-  const ensureTatchiPasskey = (): TatchiPasskey => {
-    const prev = ctx.tatchiPasskey;
-    const pm = ensurePasskeyManager(ctx) as TatchiPasskey;
+  const ensureSeamsPasskey = (): SeamsPasskey => {
+    const prev = ctx.seamsPasskey;
+    const pm = ensurePasskeyManager(ctx) as SeamsPasskey;
     if (prev !== pm) {
       const up = pm.preferences;
 
@@ -131,11 +131,11 @@ export function initWalletIFrame(): void {
     return pm;
   };
 
-  const getTatchiPasskey = (): TatchiPasskey => ensureTatchiPasskey();
+  const getSeamsPasskey = (): SeamsPasskey => ensureSeamsPasskey();
 
   // Unified handler map wired with minimal deps from this host
   const handlers = createWalletIframeHandlers({
-    getTatchiPasskey: getTatchiPasskey,
+    getSeamsPasskey: getSeamsPasskey,
     post,
     postProgress,
     postToParent,
@@ -148,13 +148,13 @@ export function initWalletIFrame(): void {
   // iframe can instruct this host to render a clickable control that performs WebAuthn
   // operations within the same browsing context (satisfying user activation requirements).
   setupLitElemMounter({
-    ensureTatchiPasskey: ensureTatchiPasskey,
-    getTatchiPasskey: () => ctx.tatchiPasskey,
+    ensureSeamsPasskey: ensureSeamsPasskey,
+    getSeamsPasskey: () => ctx.seamsPasskey,
     updateWalletConfigs: (patch) => {
       ctx.walletConfigs = {
-        ...(ctx.walletConfigs || ({} as TatchiConfigsInput)),
+        ...(ctx.walletConfigs || ({} as SeamsConfigsInput)),
         ...patch,
-      } as TatchiConfigsInput;
+      } as SeamsConfigsInput;
     },
     postToParent,
   });
@@ -162,7 +162,7 @@ export function initWalletIFrame(): void {
   /**
    * Main message handler for iframe communication
    * This function receives all messages from the parent application and routes them
-   * to the appropriate TatchiPasskey operations.
+   * to the appropriate SeamsPasskey operations.
    */
   const onPortMessage = async (e: MessageEvent<ParentToChildEnvelope>) => {
     const req = e.data as ParentToChildEnvelope;
@@ -171,7 +171,7 @@ export function initWalletIFrame(): void {
 
     // Handle ping/pong for connection health checks
     if (req.type === 'PING') {
-      // Initialize TatchiPasskey and prewarm workers on wallet origin (non-blocking)
+      // Initialize SeamsPasskey and prewarm workers on wallet origin (non-blocking)
       let canInitOnPing = false;
       try {
         canInitOnPing =
@@ -183,7 +183,7 @@ export function initWalletIFrame(): void {
       if (canInitOnPing) {
         Promise.resolve()
           .then(() => {
-            const pm = ensureTatchiPasskey();
+            const pm = ensureSeamsPasskey();
             return pm.initWalletIframe();
           })
           .catch(() => {});

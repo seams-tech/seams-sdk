@@ -36,7 +36,7 @@ This folder is the signing runtime for NEAR + Tempo/EVM flows.
 
 ```mermaid
 flowchart LR
-  TP["TatchiPasskey"] --> SE["SigningEngine"]
+  TP["SeamsPasskey"] --> SE["SigningEngine"]
   SE --> ORCH["orchestration/executeSigningIntent"]
   ORCH --> ENG["signers/algorithms/*"]
   ENG --> CHAINS["chainAdaptors/*"]

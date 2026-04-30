@@ -1,7 +1,7 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
-import type { TatchiConfigsReadonly } from '@/core/types/tatchi';
+import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
@@ -20,7 +20,7 @@ import type { EvmFamilyLifecycleEventCallback } from './types';
 
 export type EvmFamilySmartAccountDeps = {
   indexedDB: UnifiedIndexedDBManager;
-  tatchiPasskeyConfigs: TatchiConfigsReadonly;
+  seamsPasskeyConfigs: SeamsConfigsReadonly;
 };
 
 export async function ensureSmartAccountDeploymentReady(args: {
@@ -31,7 +31,7 @@ export async function ensureSmartAccountDeploymentReady(args: {
   onEvent?: EvmFamilyLifecycleEventCallback;
 }): Promise<void> {
   const target = deriveSmartAccountDeploymentTargetFromSigningRequest(args.request);
-  const deploymentMode = resolveSmartAccountDeploymentMode(args.deps.tatchiPasskeyConfigs);
+  const deploymentMode = resolveSmartAccountDeploymentMode(args.deps.seamsPasskeyConfigs);
   const deploymentEventData = {
     chain: target.chain,
     chainIdCandidates: target.chainIdCandidates,
@@ -52,7 +52,7 @@ export async function ensureSmartAccountDeploymentReady(args: {
       chain: target.chain,
       chainIdCandidates: target.chainIdCandidates,
       accountModelCandidates: target.accountModelCandidates,
-      maxDeployAttempts: resolveSmartAccountDeploymentMaxAttempts(args.deps.tatchiPasskeyConfigs),
+      maxDeployAttempts: resolveSmartAccountDeploymentMaxAttempts(args.deps.seamsPasskeyConfigs),
       ...(deploymentMode === 'enforce'
         ? {
             deploy: (input) => {
@@ -68,7 +68,7 @@ export async function ensureSmartAccountDeploymentReady(args: {
                     'Missing threshold-session transport for canonical smart-account deployment',
                 });
               }
-              return deploySmartAccountForChain(args.deps.tatchiPasskeyConfigs, input, {
+              return deploySmartAccountForChain(args.deps.seamsPasskeyConfigs, input, {
                 relayerUrl,
                 thresholdSessionJwt,
               });

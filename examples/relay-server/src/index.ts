@@ -29,7 +29,7 @@ import {
   type SigningRootSecretShareId,
   type SigningRootSecretShareSource,
   type SigningRootShareResolver,
-} from '@tatchi-xyz/sdk/server';
+} from '@seams/sdk/server';
 import {
   createConsoleRouter,
   createInMemoryConsoleAccountService,
@@ -90,7 +90,7 @@ import {
   type ConsoleWebhookService,
   type BillingProviderAdapters,
   type InviteConsoleTeamMemberRequest,
-} from '@tatchi-xyz/sdk/server/router/express';
+} from '@seams/sdk/server/router/express';
 
 import dotenv from 'dotenv';
 import { dirname, resolve } from 'node:path';
@@ -385,7 +385,7 @@ async function seedDemoConsoleOrgAndMembers(input: {
   const seedMembers: InviteConsoleTeamMemberRequest[] = [
     {
       userId: 'console-owner',
-      email: 'owner@demo.tatchi.local',
+      email: 'owner@demo.seams.local',
       displayName: 'Console Owner',
       roles: [
         { role: 'owner', scope: 'ORG' as const },
@@ -401,7 +401,7 @@ async function seedDemoConsoleOrgAndMembers(input: {
     },
     {
       userId: 'console-admin',
-      email: 'admin@demo.tatchi.local',
+      email: 'admin@demo.seams.local',
       displayName: 'Console Admin',
       roles: [
         { role: 'admin', scope: 'ORG' as const },
@@ -415,7 +415,7 @@ async function seedDemoConsoleOrgAndMembers(input: {
     },
     {
       userId: 'console-operator',
-      email: 'operator@demo.tatchi.local',
+      email: 'operator@demo.seams.local',
       displayName: 'Console Operator',
       roles: [
         { role: 'overview_read', scope: 'ORG' as const },
@@ -434,9 +434,9 @@ async function seedDemoConsoleOrgAndMembers(input: {
   }
 
   const deprecatedSeedEmails = new Set<string>([
-    'security@demo.tatchi.local',
-    'billing@demo.tatchi.local',
-    'devops@demo.tatchi.local',
+    'security@demo.seams.local',
+    'billing@demo.seams.local',
+    'devops@demo.seams.local',
   ]);
   try {
     const existingMembers = await input.teamRbac.listMembers(seedCtx, {});
@@ -861,7 +861,7 @@ async function seedDemoConsolePoliciesAndApprovals(input: {
 
 async function main() {
   const env = process.env;
-  const sessionCookieName = String(env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
+  const sessionCookieName = String(env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
   const jwtSession = createJwtSession(sessionCookieName);
   const redisUrl = typeof env.REDIS_URL === 'string' ? env.REDIS_URL.trim() : '';
   const {

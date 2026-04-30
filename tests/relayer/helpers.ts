@@ -20,7 +20,7 @@ type ExpressAppLike = ((req: unknown, res: unknown) => unknown) & {
 };
 
 const SESSION_COOKIE_NAME =
-  String(process.env.SESSION_COOKIE_NAME || 'tatchi-jwt').trim() || 'tatchi-jwt';
+  String(process.env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
 
 // In TS `moduleResolution: bundler`, CommonJS packages like `express` can type as a
 // namespace object (non-callable). Normalize to a callable factory for tests.

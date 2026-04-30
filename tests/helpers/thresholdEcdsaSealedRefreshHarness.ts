@@ -634,13 +634,13 @@ export async function readWalletIframeThresholdPersistence(page: Page): Promise<
           return {
             origin: String(window.location?.origin || 'unknown'),
             localEd25519Index:
-              window.localStorage?.getItem?.('tatchi:threshold-ed25519-session:v1:index') || null,
+              window.localStorage?.getItem?.('seams:threshold-ed25519-session:v1:index') || null,
             localSealIndex:
-              window.localStorage?.getItem?.('tatchi:signing-session-sealed:v1:index') || null,
+              window.localStorage?.getItem?.('seams:signing-session-sealed:v1:index') || null,
             sessionEd25519Index:
-              window.sessionStorage?.getItem?.('tatchi:threshold-ed25519-session:v1:index') || null,
+              window.sessionStorage?.getItem?.('seams:threshold-ed25519-session:v1:index') || null,
             sessionSealIndex:
-              window.sessionStorage?.getItem?.('tatchi:signing-session-sealed:v1:index') || null,
+              window.sessionStorage?.getItem?.('seams:signing-session-sealed:v1:index') || null,
           };
         })
         .catch(() => ({
@@ -690,9 +690,9 @@ export async function runPasskeySigningSessionLifecyclePhase(
     }) => {
       let stage = 'init';
       try {
-        const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
+        const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
         const actionsMod = await import('/sdk/esm/core/types/actions.js');
-        const { TatchiPasskey } = sdkMod as any;
+        const { SeamsPasskey } = sdkMod as any;
         const { ActionType } = actionsMod as any;
 
         const confirmationConfig = {
@@ -700,7 +700,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
           behavior: 'skipClick' as const,
           autoProceedDelay: 0,
         };
-        const tatchi = new TatchiPasskey({
+        const seams = new SeamsPasskey({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayerAccount: 'web3-authn-v4.testnet',
@@ -734,11 +734,11 @@ export async function runPasskeySigningSessionLifecyclePhase(
           },
         });
 
-        tatchi.setConfirmationConfig(confirmationConfig as any);
+        seams.setConfirmationConfig(confirmationConfig as any);
 
         if (phase === 'register_unlock_sign') {
           stage = 'registration';
-          const registration = await tatchi.registration.registerPasskeyInternal(
+          const registration = await seams.registration.registerPasskeyInternal(
             accountId,
             {},
             confirmationConfig as any,
@@ -754,7 +754,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
           }
 
           stage = 'unlock';
-          const login = await tatchi.unlock(accountId, {
+          const login = await seams.unlock(accountId, {
             session: {
               kind: 'jwt',
               relayUrl: relayerUrl,
@@ -774,7 +774,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
 
           if (curve === 'ecdsa') {
             stage = 'bootstrap_ecdsa';
-            const bootstrap = await tatchi.tempo.bootstrapEcdsaSession({
+            const bootstrap = await seams.tempo.bootstrapEcdsaSession({
               nearAccountId: accountId,
               options: {
                 relayerUrl,
@@ -802,7 +802,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
             .map((byte) => byte.toString(16).padStart(2, '0'))
             .join('');
           if (curve === 'ed25519') {
-            const signed = await tatchi.near.executeAction({
+            const signed = await seams.near.executeAction({
               nearAccountId: accountId,
               receiverId: 'w3a-v1.testnet',
               actionArgs: {
@@ -823,7 +823,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
             return { ok: true, signKind: 'nearAction', chain: 'near' };
           }
 
-          const signed = await tatchi.tempo.signTempo({
+          const signed = await seams.tempo.signTempo({
             nearAccountId: accountId,
             request: {
               chain: 'tempo' as const,
@@ -867,7 +867,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
         }
 
         stage = 'get_session';
-        const session = await tatchi.auth.getWalletSession(accountId);
+        const session = await seams.auth.getWalletSession(accountId);
         return {
           ok: true,
           accountId,
@@ -880,9 +880,9 @@ export async function runPasskeySigningSessionLifecyclePhase(
       } catch (error: unknown) {
         let sessionStatus = '';
         try {
-          const sdkMod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-          const { TatchiPasskey } = sdkMod as any;
-          const tatchi = new TatchiPasskey({
+          const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+          const { SeamsPasskey } = sdkMod as any;
+          const seams = new SeamsPasskey({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayerAccount: 'web3-authn-v4.testnet',
@@ -902,7 +902,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
               rpIdOverride: 'example.localhost',
             },
           });
-          const session = await tatchi.auth.getWalletSession(accountId);
+          const session = await seams.auth.getWalletSession(accountId);
           sessionStatus = String(session?.signingSession?.status || '');
         } catch {}
         return {

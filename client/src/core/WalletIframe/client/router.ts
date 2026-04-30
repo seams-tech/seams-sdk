@@ -100,9 +100,9 @@ import type {
   RegistrationResult,
   SignDelegateActionResult,
   SignTransactionResult,
-  TatchiChainConfig,
-  TatchiConfigsInput,
-} from '../../types/tatchi';
+  SeamsChainConfig,
+  SeamsConfigsInput,
+} from '../../types/seams';
 import type { MultichainSigningRequest } from '../../signingEngine/chainAdaptors/tempo/types';
 import type { EvmSignedResult } from '../../signingEngine/chainAdaptors/evm/evmAdapter';
 import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/tempoAdapter';
@@ -121,7 +121,7 @@ import type {
   StartDevice2LinkingFlowResults,
   DeviceLinkingQRData,
 } from '../../types/linkDevice';
-import type { SyncAccountResult } from '../../TatchiPasskey/syncAccount';
+import type { SyncAccountResult } from '../../SeamsPasskey/syncAccount';
 import type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
@@ -130,7 +130,7 @@ import type {
   EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpEnrollmentResult,
   GoogleEmailOtpSessionExchangeResult,
-} from '../../TatchiPasskey/interfaces';
+} from '../../SeamsPasskey/interfaces';
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '../../types';
 import type { DelegateActionInput } from '../../types/delegate';
 import { IframeTransport } from './transport/IframeTransport';
@@ -147,7 +147,7 @@ import { toError } from '@shared/utils/errors';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 import { type ConfirmationConfig } from '../../types/signer-worker';
 import type { AccessKeyList } from '../../rpcClients/near/NearClient';
-import type { SignNEP413MessageResult } from '../../TatchiPasskey/near';
+import type { SignNEP413MessageResult } from '../../SeamsPasskey/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../config/defaultConfigs';
 import { cloneResolvedChainConfig } from '../../config/chains';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
@@ -174,15 +174,15 @@ export interface WalletIframeRouterOptions {
     autoMount?: boolean;
   };
   // Optional config forwarded to wallet host
-  chains?: readonly TatchiChainConfig[];
+  chains?: readonly SeamsChainConfig[];
   relayerAccount?: string;
-  relayer?: TatchiConfigsInput['relayer'];
-  registration?: TatchiConfigsInput['registration'];
-  signingSessionDefaults?: TatchiConfigsInput['signingSessionDefaults'];
-  signingSessionPersistenceMode?: TatchiConfigsInput['signingSessionPersistenceMode'];
-  signingSessionSeal?: TatchiConfigsInput['signingSessionSeal'];
-  thresholdEcdsaPresignPool?: TatchiConfigsInput['thresholdEcdsaPresignPool'];
-  provisioningDefaults?: TatchiConfigsInput['provisioningDefaults'];
+  relayer?: SeamsConfigsInput['relayer'];
+  registration?: SeamsConfigsInput['registration'];
+  signingSessionDefaults?: SeamsConfigsInput['signingSessionDefaults'];
+  signingSessionPersistenceMode?: SeamsConfigsInput['signingSessionPersistenceMode'];
+  signingSessionSeal?: SeamsConfigsInput['signingSessionSeal'];
+  thresholdEcdsaPresignPool?: SeamsConfigsInput['thresholdEcdsaPresignPool'];
+  provisioningDefaults?: SeamsConfigsInput['provisioningDefaults'];
   rpIdOverride?: string;
   authenticatorOptions?: AuthenticatorOptions;
   // SDK asset base path for embedded bundles when mounting same‑origin via srcdoc
@@ -753,7 +753,7 @@ export class WalletIframeRouter {
     };
   }
 
-  // ===== TatchiPasskey RPCs =====
+  // ===== SeamsPasskey RPCs =====
 
   async signTransactionsWithActions(payload: {
     nearAccountId: string;

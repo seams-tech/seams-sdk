@@ -44,7 +44,7 @@ u16be(len(kek_id))              || kek_id
 
 with:
 
-- `domain = "tatchi/signing-root-share/aes-gcm/v1"`
+- `domain = "seams/signing-root-share/aes-gcm/v1"`
 - `signing_root_id` trimmed and non-empty
 - `signing_root_version` trimmed, or empty bytes when absent
 - `share_id` exactly `1`, `2`, or `3`

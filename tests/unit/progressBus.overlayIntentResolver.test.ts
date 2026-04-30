@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   progressBus: '/sdk/esm/core/WalletIframe/client/progress/on-events-progress-bus.js',
-  tatchiTypes: '/sdk/esm/core/types/sdkSentEvents.js',
+  seamsTypes: '/sdk/esm/core/types/sdkSentEvents.js',
 } as const;
 
 test.describe('defaultOverlayIntentResolver', () => {
@@ -15,7 +15,7 @@ test.describe('defaultOverlayIntentResolver', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const progress = await import(paths.progressBus);
-        const phases = await import(paths.tatchiTypes);
+        const phases = await import(paths.seamsTypes);
         const resolveOverlayIntent = progress.defaultOverlayIntentResolver as (
           p: any,
         ) => 'show' | 'hide' | 'none';
@@ -65,7 +65,7 @@ test.describe('defaultOverlayIntentResolver', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const progress = await import(paths.progressBus);
-        const events = await import(paths.tatchiTypes);
+        const events = await import(paths.seamsTypes);
         const bus = new progress.OnEventsProgressBus(
           { show: () => undefined, hide: () => undefined },
           progress.defaultOverlayIntentResolver,

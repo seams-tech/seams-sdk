@@ -27,7 +27,7 @@ test.describe('SSR sanity: PasskeyAuthMenuSkeleton', () => {
 
     // Use a non-literal dynamic import to avoid TypeScript self-reference resolution
     // (which requires rootDir disambiguation for this package).
-    const subpath: string = '@tatchi-xyz/sdk/react/passkey-auth-menu';
+    const subpath: string = '@seams/sdk/react/passkey-auth-menu';
     const mod: any = await import(subpath);
     expect(mod).toHaveProperty('PasskeyAuthMenuSkeleton');
     expect(typeof mod.PasskeyAuthMenuSkeleton).toBe('function');

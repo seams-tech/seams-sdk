@@ -19,7 +19,7 @@ import {
   ensureConsoleTeamRbacPostgresSchema,
   ensureConsoleWalletsPostgresSchema,
   ensureConsoleWebhooksPostgresSchema,
-} from '@tatchi-xyz/sdk/server/router/express';
+} from '@seams/sdk/server/router/express';
 
 dotenv.config({ path: '.env' });
 
@@ -703,7 +703,7 @@ async function main() {
 
     const signerSelected = sourceTables
       .filter((name) => !name.startsWith('console_'))
-      .filter((name) => name !== 'tatchi_sdk_migrations')
+      .filter((name) => name !== 'seams_sdk_migrations')
       .filter((name) => signerTableSet.has(name));
 
     const consoleSelected = sourceTables

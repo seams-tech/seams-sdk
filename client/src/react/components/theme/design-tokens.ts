@@ -149,7 +149,7 @@ export interface UseThemeReturn {
   isDark: boolean;
   /**
    * Optional controlled theme setter when the host app provides it via
-   * `TatchiPasskeyProvider theme={{ theme, setTheme }}`.
+   * `SeamsPasskeyProvider theme={{ theme, setTheme }}`.
    */
   setTheme?: (theme: 'light' | 'dark') => void;
 }

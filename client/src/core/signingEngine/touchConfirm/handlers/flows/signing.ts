@@ -1,7 +1,7 @@
 import type { TouchConfirmContext } from '../../';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { UserConfirmSecurityContext, TransactionContext } from '@/core/types';
-import type { ThemeName } from '@/core/types/tatchi';
+import type { ThemeName } from '@/core/types/seams';
 import type { NonceLease } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { nonceLeaseToRef } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/signers/webauthn/credentials/collectAuthenticationCredentialForChallengeB64u';

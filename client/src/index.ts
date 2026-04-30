@@ -1,4 +1,4 @@
-export { TatchiPasskey } from './core/TatchiPasskey';
+export { SeamsPasskey } from './core/SeamsPasskey';
 export {
   type NearClient,
   MinimalNearClient,
@@ -20,8 +20,8 @@ export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';
 export { buildConfigsFromEnv } from './core/config/defaultConfigs';
 
 export type {
-  TatchiConfigsReadonly,
-  TatchiConfigsInput,
+  SeamsConfigsReadonly,
+  SeamsConfigsInput,
   // Registration
   RegistrationResult,
   // Login
@@ -31,7 +31,7 @@ export type {
   SigningSessionStatus,
   // Actions
   ActionResult,
-} from './core/types/tatchi';
+} from './core/types/seams';
 
 export type {
   // Hooks Options
@@ -105,7 +105,7 @@ export type {
 export type { AccountId } from './core/types/accountIds';
 export { toAccountId } from './core/types/accountIds';
 
-export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/TatchiPasskey/near';
+export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/SeamsPasskey/near';
 
 // === Action Types ===
 export { ActionType } from './core/types/actions';

@@ -1,5 +1,5 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
-import type { WalletAuthMethod } from '@/core/types/tatchi';
+import type { WalletAuthMethod } from '@/core/types/seams';
 import type { SignerAuthMethod, SignerKind, SignerSource } from '@shared/utils/signerDomain';
 
 export type AccountAuthFixtureKind = 'passkey_only' | 'email_otp_only' | 'passkey_email_otp';

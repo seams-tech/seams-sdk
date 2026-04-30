@@ -1,4 +1,4 @@
-import type { EmailOtpAuthPolicy } from '@/core/types/tatchi';
+import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import { AuthMenuMode } from './authMenuTypes';
 
 export function getGoogleSsoButtonLabel(mode: AuthMenuMode): string {

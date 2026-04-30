@@ -93,7 +93,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
       const result = await page.evaluate(
         async ({ relayerUrl }) => {
           try {
-            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
             const { ActionType } = await import('/sdk/esm/core/types/actions.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -101,7 +101,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
                 : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const accountId = `e2etamper${suffix}.w3a-v1.testnet`;
 
-            const pm = new TatchiPasskey({
+            const pm = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },
@@ -207,7 +207,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
       const result = await page.evaluate(
         async ({ relayerUrl }) => {
           try {
-            const { TatchiPasskey } = await import('/sdk/esm/core/TatchiPasskey/index.js');
+            const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
             const { ActionType } = await import('/sdk/esm/core/types/actions.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -215,7 +215,7 @@ test.describe('threshold-ed25519 FROST transcript tampering', () => {
                 : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const accountId = `e2etamper${suffix}.w3a-v1.testnet`;
 
-            const pm = new TatchiPasskey({
+            const pm = new SeamsPasskey({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },

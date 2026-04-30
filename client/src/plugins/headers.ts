@@ -27,7 +27,7 @@ export function buildPermissionsPolicy(walletOrigin?: string): string {
  *  - false by default. Set to true only for development servers that require eval (e.g., Next.js Fast Refresh).
  *  - Wallet pages always include 'wasm-unsafe-eval' because browser-side signer initialization uses
  *    WebAssembly compilation.
- *  - Tatchi SDK does not require JS 'unsafe-eval' in production.
+ *  - Seams SDK does not require JS 'unsafe-eval' in production.
  *
  * Typical usage: apply strict CSP only to wallet HTML routes
  * (/wallet-service, /export-viewer); do not attach CSP to host app routes.

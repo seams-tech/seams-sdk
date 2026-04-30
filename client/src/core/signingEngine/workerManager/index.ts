@@ -12,7 +12,7 @@ import type {
 } from './workerTypes';
 import { UserPreferencesManager } from '../api/userPreferences';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
-import type { ThemeName, TatchiChainConfig } from '@/core/types/tatchi';
+import type { ThemeName, SeamsChainConfig } from '@/core/types/seams';
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
@@ -44,7 +44,7 @@ export class SignerWorkerManager {
   private userPreferencesManager: UserPreferencesManager;
   private nonceCoordinator: NonceCoordinator;
   private relayerUrl: string;
-  private chains?: readonly TatchiChainConfig[];
+  private chains?: readonly SeamsChainConfig[];
   private nearExplorerUrl?: string;
   private tempoExplorerUrl?: string;
   private evmExplorerUrl?: string;
@@ -58,7 +58,7 @@ export class SignerWorkerManager {
     userPreferencesManager: UserPreferencesManager,
     nonceCoordinator: NonceCoordinator,
     relayerUrl: string,
-    chains?: readonly TatchiChainConfig[],
+    chains?: readonly SeamsChainConfig[],
     rpIdOverride?: string,
     enableSafariGetWebauthnRegistrationFallback: boolean = true,
     nearExplorerUrl?: string,

@@ -1,7 +1,7 @@
 import { keccak256Bytes } from '@shared/utils/keccak';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
-import smartAccountMetadata from '../../../contracts/evm-smart-account/abi/TatchiSmartAccount.metadata.json' with { type: 'json' };
-import smartAccountFactoryMetadata from '../../../contracts/evm-smart-account/abi/TatchiSmartAccountFactory.metadata.json' with { type: 'json' };
+import smartAccountMetadata from '../../../contracts/evm-smart-account/abi/SeamsSmartAccount.metadata.json' with { type: 'json' };
+import smartAccountFactoryMetadata from '../../../contracts/evm-smart-account/abi/SeamsSmartAccountFactory.metadata.json' with { type: 'json' };
 import type { CanonicalSmartAccountDeploymentManifest } from './smartAccountDeploymentManifest';
 import { normalizeSmartAccountHexLike } from './smartAccountRegistrationRecords';
 

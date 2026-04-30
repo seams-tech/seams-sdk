@@ -1,7 +1,7 @@
 import { MinimalNearClient } from '../../rpcClients/near/NearClient';
-import { TatchiPasskey } from '../../TatchiPasskey';
+import { SeamsPasskey } from '../../SeamsPasskey';
 import { __setWalletIframeHostMode } from '../host-mode';
-import type { TatchiConfigsInput } from '../../types/tatchi';
+import type { SeamsConfigsInput } from '../../types/seams';
 import type { PMSetConfigPayload } from '../shared/messages';
 import { isString } from '@shared/utils/validation';
 import { setEmbeddedBase } from '../../walletRuntimePaths';
@@ -78,7 +78,7 @@ function stableSerialize(value: unknown): string {
   }
 }
 
-function buildWalletRuntimeResetFingerprint(config: TatchiConfigsInput | null | undefined): string {
+function buildWalletRuntimeResetFingerprint(config: SeamsConfigsInput | null | undefined): string {
   return stableSerialize({
     chains: config?.chains,
     relayerAccount: config?.relayerAccount,
@@ -153,9 +153,9 @@ function upsertLitThemeOverrideStyle(args: {
 export interface HostContext {
   parentOrigin: string | null;
   port: MessagePort | null;
-  walletConfigs: TatchiConfigsInput | null;
+  walletConfigs: SeamsConfigsInput | null;
   nearClient: MinimalNearClient | null;
-  tatchiPasskey: TatchiPasskey | null;
+  seamsPasskey: SeamsPasskey | null;
   prefsUnsubscribe?: (() => void) | null;
   onWindowMessage?: (e: MessageEvent) => void;
 }
@@ -166,13 +166,13 @@ export function createHostContext(): HostContext {
     port: null,
     walletConfigs: null,
     nearClient: null,
-    tatchiPasskey: null,
+    seamsPasskey: null,
     prefsUnsubscribe: null,
     onWindowMessage: undefined,
   };
 }
 
-export function ensurePasskeyManager(ctx: HostContext): TatchiPasskey {
+export function ensurePasskeyManager(ctx: HostContext): SeamsPasskey {
   const { walletConfigs } = ctx;
   if (!walletConfigs) {
     throw new Error('Wallet service not configured. Call PM_SET_CONFIG first.');
@@ -181,22 +181,22 @@ export function ensurePasskeyManager(ctx: HostContext): TatchiPasskey {
   if (!ctx.nearClient) {
     ctx.nearClient = new MinimalNearClient(nearRpcUrl);
   }
-  if (!ctx.tatchiPasskey) {
+  if (!ctx.seamsPasskey) {
     const cfg = sanitizeWalletHostConfigs(walletConfigs);
     assertWalletHostConfigsNoNestedIframeWallet(cfg);
     __setWalletIframeHostMode(true);
-    ctx.tatchiPasskey = new TatchiPasskey(cfg, ctx.nearClient);
+    ctx.seamsPasskey = new SeamsPasskey(cfg, ctx.nearClient);
     try {
-      void ctx.tatchiPasskey.initWalletIframe().catch(() => {});
+      void ctx.seamsPasskey.initWalletIframe().catch(() => {});
     } catch {}
     updateThemeBridge(ctx);
   }
-  return ctx.tatchiPasskey!;
+  return ctx.seamsPasskey!;
 }
 
 export function updateThemeBridge(ctx: HostContext): void {
   try {
-    const pm = ctx.tatchiPasskey;
+    const pm = ctx.seamsPasskey;
     if (!pm) return;
     const theme = pm.theme;
     if (theme === 'light' || theme === 'dark') {
@@ -206,7 +206,7 @@ export function updateThemeBridge(ctx: HostContext): void {
 }
 
 export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload): void {
-  const prev = ctx.walletConfigs || ({} as TatchiConfigsInput);
+  const prev = ctx.walletConfigs || ({} as SeamsConfigsInput);
   const prevRuntimeResetFingerprint = buildWalletRuntimeResetFingerprint(ctx.walletConfigs);
   const nextSigningSessionPersistenceMode =
     payload?.signingSessionPersistenceMode ?? prev.signingSessionPersistenceMode;
@@ -273,7 +273,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
       ...(payload?.iframeWallet || {}),
     },
     appearance: nextAppearance ?? prev.appearance,
-  } as TatchiConfigsInput;
+  } as SeamsConfigsInput;
   ctx.walletConfigs = sanitizeWalletHostConfigs(base);
   const nextRuntimeResetFingerprint = buildWalletRuntimeResetFingerprint(ctx.walletConfigs);
 
@@ -320,7 +320,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     ctx.prefsUnsubscribe?.();
     ctx.prefsUnsubscribe = null;
     ctx.nearClient = null;
-    ctx.tatchiPasskey = null;
+    ctx.seamsPasskey = null;
   }
 
   // Forward UI registry to iframe-lit-elem-mounter if provided

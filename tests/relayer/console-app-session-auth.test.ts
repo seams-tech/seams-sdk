@@ -253,8 +253,8 @@ test.describe('console app-session auth adapter', () => {
             if (ctx.orgId === resolvedOrgId) {
               return {
                 id: resolvedOrgId,
-                name: 'tatchi-org-test',
-                slug: 'tatchi-org-test',
+                name: 'seams-org-test',
+                slug: 'seams-org-test',
                 status: 'ACTIVE',
                 createdAt: new Date(0).toISOString(),
                 updatedAt: new Date(0).toISOString(),
@@ -272,8 +272,8 @@ test.describe('console app-session auth adapter', () => {
             request.environmentId === 'proj_mmggz8jp_v9pft0:dev'
               ? {
                   id: resolvedOrgId,
-                  name: 'tatchi-org-test',
-                  slug: 'tatchi-org-test',
+                  name: 'seams-org-test',
+                  slug: 'seams-org-test',
                   status: 'ACTIVE',
                   createdAt: new Date(0).toISOString(),
                   updatedAt: new Date(0).toISOString(),

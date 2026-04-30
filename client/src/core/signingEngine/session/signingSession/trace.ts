@@ -75,7 +75,7 @@ export function emitSigningPlannerDecisionTrace(
 function isSigningSessionTraceEnabled(): boolean {
   try {
     const storage = (globalThis as { localStorage?: Storage }).localStorage;
-    return storage?.getItem('tatchi:debug:signing-session') === '1';
+    return storage?.getItem('seams:debug:signing-session') === '1';
   } catch {
     return false;
   }

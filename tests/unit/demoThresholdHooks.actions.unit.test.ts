@@ -111,7 +111,7 @@ test.describe('demo threshold action hooks', () => {
         hookApi = useDemoTempoFeeTokenActions({
           isLoggedIn: true,
           nearAccountId: 'alice.testnet',
-          tatchi: {
+          seams: {
             tempo: {
               executeEvmFamilyTransaction: async (args: any) => {
                 counters.executeEvmFamilyTransactionCalls += 1;
@@ -293,7 +293,7 @@ test.describe('demo threshold action hooks', () => {
         hookApi = useDemoTempoSigningActions({
           isLoggedIn: true,
           nearAccountId: 'alice.testnet',
-          tatchi: {
+          seams: {
             tempo: {
               executeEvmFamilyTransaction: async (args: any) => {
                 counters.executeEvmFamilyTransactionCalls += 1;
@@ -452,7 +452,7 @@ test.describe('demo threshold action hooks', () => {
         hookApi = useDemoArcSigningActions({
           canSignEvm: true,
           nearAccountId: 'alice.testnet',
-          tatchi: {
+          seams: {
             tempo: {
               executeEvmFamilyTransaction: async (args: any) => {
                 counters.executeEvmFamilyTransactionCalls += 1;
@@ -577,7 +577,7 @@ test.describe('demo threshold action hooks', () => {
         hookApi = useDemoArcSigningActions({
           canSignEvm: true,
           nearAccountId: 'alice.testnet',
-          tatchi: {
+          seams: {
             tempo: {
               executeEvmFamilyTransaction: async (args: any) => {
                 counters.executeEvmFamilyTransactionCalls += 1;
@@ -658,7 +658,7 @@ test.describe('demo threshold action hooks', () => {
         hookApi = useDemoTempoFeeTokenActions({
           isLoggedIn: true,
           nearAccountId: 'alice.testnet',
-          tatchi: {
+          seams: {
             tempo: {
               executeEvmFamilyTransaction: async () => {
                 counters.executeEvmFamilyTransactionCalls += 1;
@@ -763,7 +763,7 @@ test.describe('demo threshold action hooks', () => {
         hookApi = useDemoTempoSigningActions({
           isLoggedIn: true,
           nearAccountId: 'alice.testnet',
-          tatchi: {
+          seams: {
             tempo: {
               executeEvmFamilyTransaction: async () => {
                 counters.executeEvmFamilyTransactionCalls += 1;
@@ -874,7 +874,7 @@ test.describe('demo threshold action hooks', () => {
         hookApi = useDemoTempoSigningActions({
           isLoggedIn: true,
           nearAccountId: 'alice.testnet',
-          tatchi: {
+          seams: {
             tempo: {
               executeEvmFamilyTransaction: async (args: any) => {
                 counters.executeEvmFamilyTransactionCalls += 1;
@@ -991,7 +991,7 @@ test.describe('demo threshold action hooks', () => {
         hookApi = useDemoArcSigningActions({
           canSignEvm: true,
           nearAccountId: 'alice.testnet',
-          tatchi: {
+          seams: {
             tempo: {
               executeEvmFamilyTransaction: async () => {
                 counters.executeEvmFamilyTransactionCalls += 1;

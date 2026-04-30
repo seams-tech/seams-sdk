@@ -1,6 +1,6 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
-import type { EmailOtpAuthPolicy, TatchiConfigsReadonly } from '@/core/types/tatchi';
+import type { EmailOtpAuthPolicy, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { TouchIdPrompt } from '@/core/signingEngine/signers/webauthn/prompt/touchIdPrompt';
 import type { SignerWorkerManager } from '@/core/signingEngine/workerManager';
 import type {
@@ -92,7 +92,7 @@ import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signin
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '@/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
-import type { EmailOtpEnrollmentResult } from '@/core/TatchiPasskey/emailOtp';
+import type { EmailOtpEnrollmentResult } from '@/core/SeamsPasskey/emailOtp';
 import {
   acquireSigningSessionRestoreLease,
   deleteExactSealedSession,
@@ -257,7 +257,7 @@ export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
 };
 
 export type EmailOtpThresholdSessionCoordinatorDeps = {
-  configs: TatchiConfigsReadonly;
+  configs: SeamsConfigsReadonly;
   signerWorkerManager: SignerWorkerManager;
   touchIdPrompt: TouchIdPrompt;
   requestUserConfirmation: (request: UserConfirmRequest) => Promise<UserConfirmDecision>;
@@ -3079,7 +3079,7 @@ function replaceUrlPathSuffix(url: string, fromPath: string, toPath: string): st
 }
 
 function resolveRegistrationTransportFromConfig(args: {
-  configs: TatchiConfigsReadonly;
+  configs: SeamsConfigsReadonly;
   relayerUrl: string;
 }): RegistrationTransport {
   const registration = args.configs.registration;

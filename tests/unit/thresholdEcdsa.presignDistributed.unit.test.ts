@@ -36,7 +36,7 @@ function deriveFixtureRelayerSecp256k1SigningShare32(input: {
 }): Uint8Array {
   const relayerShareSeedBytes = base64UrlDecode(input.relayerShareSeedB64u);
   const relayerShareSaltV1 = new TextEncoder().encode(
-    'tatchi/test/threshold-secp256k1-ecdsa/fixture-relayer-share:v1',
+    'seams/test/threshold-secp256k1-ecdsa/fixture-relayer-share:v1',
   );
   const relayerShareInfo = new TextEncoder().encode(input.relayerKeyId);
   const okm64 = toUint8Array(

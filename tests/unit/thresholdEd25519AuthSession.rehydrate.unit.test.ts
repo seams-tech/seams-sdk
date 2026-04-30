@@ -39,25 +39,25 @@ test.describe('threshold Ed25519 auth-session rehydrate', () => {
           );
           return {
             record,
-            localRecord: localStorage.getItem('tatchi:threshold-ed25519-session:v1:alice.testnet'),
-            localIndex: localStorage.getItem('tatchi:threshold-ed25519-session:v1:index'),
+            localRecord: localStorage.getItem('seams:threshold-ed25519-session:v1:alice.testnet'),
+            localIndex: localStorage.getItem('seams:threshold-ed25519-session:v1:index'),
             localSessionIndex: localStorage.getItem(
-              'tatchi:threshold-ed25519-session:v1:session-index',
+              'seams:threshold-ed25519-session:v1:session-index',
             ),
             sessionRecord: sessionStorage.getItem(
-              'tatchi:threshold-ed25519-session:v1:alice.testnet',
+              'seams:threshold-ed25519-session:v1:alice.testnet',
             ),
-            sessionIndex: sessionStorage.getItem('tatchi:threshold-ed25519-session:v1:index'),
+            sessionIndex: sessionStorage.getItem('seams:threshold-ed25519-session:v1:index'),
             sessionSessionIndex: sessionStorage.getItem(
-              'tatchi:threshold-ed25519-session:v1:session-index',
+              'seams:threshold-ed25519-session:v1:session-index',
             ),
           };
         } finally {
           delete (globalThis as { __W3A_TEST_WALLET_IFRAME_HOST_MODE__?: boolean })
             .__W3A_TEST_WALLET_IFRAME_HOST_MODE__;
-          sessionStorage.removeItem('tatchi:threshold-ed25519-session:v1:alice.testnet');
-          sessionStorage.removeItem('tatchi:threshold-ed25519-session:v1:index');
-          sessionStorage.removeItem('tatchi:threshold-ed25519-session:v1:session-index');
+          sessionStorage.removeItem('seams:threshold-ed25519-session:v1:alice.testnet');
+          sessionStorage.removeItem('seams:threshold-ed25519-session:v1:index');
+          sessionStorage.removeItem('seams:threshold-ed25519-session:v1:session-index');
         }
       },
       { paths: IMPORT_PATHS },

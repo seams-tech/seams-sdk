@@ -97,10 +97,10 @@ test.describe('Wallet iframe config propagation', () => {
   test('forwards signing-session config in PM_SET_CONFIG', async ({ page }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-        const { TatchiPasskey } = mod as any;
+        const mod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const { SeamsPasskey } = mod as any;
 
-        const pm = new TatchiPasskey({
+        const pm = new SeamsPasskey({
           relayer: { url: 'http://localhost:3000' },
           signingSessionDefaults: {
             ttlMs: 12_345,
@@ -214,10 +214,10 @@ test.describe('Wallet iframe config propagation', () => {
   }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-        const { TatchiPasskey } = mod as any;
+        const mod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const { SeamsPasskey } = mod as any;
 
-        const pm = new TatchiPasskey({
+        const pm = new SeamsPasskey({
           relayer: { url: 'http://localhost:3000' },
           signingSessionPersistenceMode: 'none',
           signingSessionSeal: {
@@ -255,10 +255,10 @@ test.describe('Wallet iframe config propagation', () => {
   test('forwards managed registration config in PM_SET_CONFIG', async ({ page }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-        const { TatchiPasskey } = mod as any;
+        const mod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const { SeamsPasskey } = mod as any;
 
-        const pm = new TatchiPasskey({
+        const pm = new SeamsPasskey({
           relayer: { url: 'https://localhost:9444' },
           registration: {
             mode: 'managed',
@@ -297,9 +297,9 @@ test.describe('Wallet iframe config propagation', () => {
   test('fails fast when sealed refresh is enabled without shamirPrimeB64u', async ({ page }) => {
     const result = await page.evaluate(async () => {
       try {
-        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-        const { TatchiPasskey } = mod as any;
-        new TatchiPasskey({
+        const mod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const { SeamsPasskey } = mod as any;
+        new SeamsPasskey({
           relayer: { url: 'http://localhost:3000' },
           signingSessionPersistenceMode: 'sealed_refresh_v1',
           signingSessionSeal: {
@@ -327,10 +327,10 @@ test.describe('Wallet iframe config propagation', () => {
   }) => {
     await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/core/TatchiPasskey/index.js');
-        const { TatchiPasskey } = mod as any;
+        const mod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const { SeamsPasskey } = mod as any;
 
-        const pm = new TatchiPasskey({
+        const pm = new SeamsPasskey({
           relayer: { url: 'http://localhost:3000' },
           appearance: {
             theme: 'light',

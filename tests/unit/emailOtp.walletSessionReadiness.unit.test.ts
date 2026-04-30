@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  login: '/sdk/esm/core/TatchiPasskey/login.js',
+  login: '/sdk/esm/core/SeamsPasskey/login.js',
   indexedDb: '/sdk/esm/core/indexedDB/index.js',
 } as const;
 

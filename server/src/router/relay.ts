@@ -35,7 +35,7 @@ import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 export type SessionClaims = Record<string, unknown>;
 
 export type SessionKind = 'cookie' | 'jwt';
-export const DEFAULT_SESSION_COOKIE_NAME = 'tatchi-jwt';
+export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';
 
 /**
  * Best-effort extraction of JWT `exp` claim as ISO timestamp.
@@ -457,7 +457,7 @@ export interface RelayRouterOptions {
   session?: SessionAdapter | null;
   /**
    * App-session cookie name used for passive stale-session signal matching.
-   * Defaults to `tatchi-jwt`.
+   * Defaults to `seams-jwt`.
    */
   sessionCookieName?: string;
   // Optional: pluggable threshold signing service

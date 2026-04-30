@@ -162,7 +162,7 @@ pub struct WebAuthnAuthenticationResponse {
 // ============================================================================
 // CONTRACT INTERFACE: WebAuthn Registration Credential
 // ============================================================================
-// Reference: client/src/core/TatchiPasskey/faucets/createAccountRelayServer.ts
+// Reference: client/src/core/SeamsPasskey/faucets/createAccountRelayServer.ts
 // Used in: /registration/bootstrap, link_device_register_user
 //
 // CRITICAL: All fields in these structs are sent to the NEAR smart contract.

@@ -149,8 +149,8 @@ function createSessionAdapter() {
       }
     },
     buildSetCookie: (token: string) =>
-      `tatchi-jwt=${token}; Path=/; HttpOnly; Secure; SameSite=Lax`,
-    buildClearCookie: () => `tatchi-jwt=; Path=/; Max-Age=0`,
+      `seams-jwt=${token}; Path=/; HttpOnly; Secure; SameSite=Lax`,
+    buildClearCookie: () => `seams-jwt=; Path=/; Max-Age=0`,
     refresh: async () => ({ ok: false as const, code: 'not_eligible', message: 'not eligible' }),
   };
 }

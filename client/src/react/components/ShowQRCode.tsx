@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 
-import { useTatchi } from '../context';
+import { useSeams } from '../context';
 import {
   LinkDeviceFlowEvent,
   LinkDeviceEventPhase,
@@ -17,7 +17,7 @@ export interface ShowQRCodeProps {
 
 export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProps) {
   const { startDevice2LinkingFlow, stopDevice2LinkingFlow, accountInputState, loginState } =
-    useTatchi();
+    useSeams();
 
   const [deviceLinkingState, setDeviceLinkingState] = useState<{
     mode: 'idle' | 'device1' | 'device2';

@@ -2,11 +2,11 @@ import { toTrimmedString } from '@shared/utils/validation';
 import type {
   EmailOtpAuthPolicy,
   SigningSessionPersistenceMode,
-  TatchiConfigsInput,
-  TatchiConfigsReadonly,
-  TatchiWalletMode,
+  SeamsConfigsInput,
+  SeamsConfigsReadonly,
+  SeamsWalletMode,
   ThresholdEcdsaPresignPoolPolicy,
-} from '../types/tatchi';
+} from '../types/seams';
 import {
   copyEcdsaSignerProvisioningDefaults,
   resolveBoolean,
@@ -75,10 +75,10 @@ function joinUrlPath(baseUrl: string, path: string): string {
 }
 
 function resolveRegistrationConfig(args: {
-  overrides: TatchiConfigsInput;
-  defaults: TatchiConfigsReadonly;
+  overrides: SeamsConfigsInput;
+  defaults: SeamsConfigsReadonly;
   relayerUrl: string;
-}): TatchiConfigsReadonly['registration'] {
+}): SeamsConfigsReadonly['registration'] {
   const registrationOverrides = args.overrides.registration;
   const registrationDefaults = args.defaults.registration;
   const managedOverrides =
@@ -134,9 +134,9 @@ function resolveRegistrationConfig(args: {
 
 function resolveSigningSessionSeal(args: {
   mode: SigningSessionPersistenceMode;
-  overrides: TatchiConfigsInput;
-  defaults: TatchiConfigsReadonly;
-}): TatchiConfigsReadonly['signing']['sessionSeal'] {
+  overrides: SeamsConfigsInput;
+  defaults: SeamsConfigsReadonly;
+}): SeamsConfigsReadonly['signing']['sessionSeal'] {
   if (args.mode !== 'sealed_refresh_v1') {
     return {};
   }
@@ -166,10 +166,10 @@ function resolveSigningSessionSeal(args: {
 }
 
 export function buildConfigsFromDefaults(args: {
-  defaults: TatchiConfigsReadonly;
-  overrides?: TatchiConfigsInput;
+  defaults: SeamsConfigsReadonly;
+  overrides?: SeamsConfigsInput;
   fallbackThresholdEcdsaPresignPoolPolicy: ThresholdEcdsaPresignPoolPolicy;
-}): TatchiConfigsReadonly {
+}): SeamsConfigsReadonly {
   const defaults = args.defaults;
   const overrides = args.overrides ?? {};
 
@@ -244,7 +244,7 @@ export function buildConfigsFromDefaults(args: {
     Object.prototype.hasOwnProperty.call(overrides.iframeWallet, 'walletOrigin');
   const walletOriginRaw = overrides.iframeWallet?.walletOrigin ?? defaults.wallet.iframe.origin;
   const walletOrigin = toTrimmedString(walletOriginRaw);
-  const walletMode: TatchiWalletMode = walletOriginOverrideProvided
+  const walletMode: SeamsWalletMode = walletOriginOverrideProvided
     ? walletOrigin
       ? 'iframe'
       : 'direct'

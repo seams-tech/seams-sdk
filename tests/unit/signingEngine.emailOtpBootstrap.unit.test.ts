@@ -99,7 +99,7 @@ function makeThresholdSessionJwt(
 function makeBareSigningEngine(): SigningEngine {
   const engine = Object.create(SigningEngine.prototype) as SigningEngine;
   const engineAny = engine as any;
-  engineAny.tatchiPasskeyConfigs = {
+  engineAny.seamsPasskeyConfigs = {
     network: {
       relayer: { url: 'https://relay.example' },
     },
@@ -141,7 +141,7 @@ function installEmailOtpSessionsFixture(
       throw new Error('unexpected Email OTP worker operation');
     });
   const coordinator = new EmailOtpThresholdSessionCoordinator({
-    configs: engineAny.tatchiPasskeyConfigs || {
+    configs: engineAny.seamsPasskeyConfigs || {
       network: { relayer: { url: 'https://relay.example' } },
       signing: {
         emailOtp: { authPolicy: 'session' },
@@ -227,7 +227,7 @@ function makeEngine(args: {
   const readyChecks: Array<Record<string, unknown>> = [];
   const ed25519ProvisionCalls: Array<Record<string, unknown>> = [];
 
-  engineAny.tatchiPasskeyConfigs = {
+  engineAny.seamsPasskeyConfigs = {
     network: {
       relayer: {
         url: 'https://relay.example',
@@ -915,7 +915,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       }),
       releaseSigningSessionRestoreLease: async () => undefined,
     });
-    (engine as any).tatchiPasskeyConfigs.signing.sessionPersistenceMode = 'sealed_refresh_v1';
+    (engine as any).seamsPasskeyConfigs.signing.sessionPersistenceMode = 'sealed_refresh_v1';
 
     await engine.loginWithEmailOtpEcdsaCapabilityInternal({
       nearAccountId: walletId,
@@ -1040,7 +1040,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       }),
       releaseSigningSessionRestoreLease: async () => undefined,
     });
-    (engine as any).tatchiPasskeyConfigs.signing.sessionPersistenceMode = 'sealed_refresh_v1';
+    (engine as any).seamsPasskeyConfigs.signing.sessionPersistenceMode = 'sealed_refresh_v1';
 
     const restoreResult = await (engine as any).emailOtpSessions.restorePersistedSessionForSigning({
       walletId,
@@ -1159,7 +1159,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       releaseSigningSessionRestoreLease: async () => undefined,
     });
     const engineAny = engine as any;
-    engineAny.tatchiPasskeyConfigs.signing.sessionPersistenceMode = 'sealed_refresh_v1';
+    engineAny.seamsPasskeyConfigs.signing.sessionPersistenceMode = 'sealed_refresh_v1';
     engineAny.orchestrationDeps.signingSessionCoordinator = new SigningSessionCoordinator({
       touchConfirm: {},
       listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
@@ -1319,7 +1319,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     let workerCalls = 0;
     const engine = makeBareSigningEngine();
     const engineAny = engine as any;
-    engineAny.tatchiPasskeyConfigs = {
+    engineAny.seamsPasskeyConfigs = {
       network: { relayer: { url: 'https://relay.example' } },
       signing: {
         emailOtp: { authPolicy: 'session' },
@@ -1331,7 +1331,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       v: 1,
       alg: 'shamir3pass-v1',
       storageScope: 'iframe_origin_indexeddb',
-      runtimeSessionId: 'runtime-curve-mismatch',
       authMethod: 'email_otp',
       secretKind: 'signing_session_secret32',
       walletSigningSessionId: 'wallet-signing-session-curve-mismatch',
@@ -1368,7 +1367,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
     const internalLoginRequests: Array<Record<string, any>> = [];
     const engine = makeBareSigningEngine();
     const engineAny = engine as any;
-    engineAny.tatchiPasskeyConfigs = {
+    engineAny.seamsPasskeyConfigs = {
       network: { relayer: { url: 'https://relay.example' } },
       signing: {
         emailOtp: { authPolicy: 'session' },
@@ -1467,10 +1466,6 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
       routeAuth: {
         kind: 'threshold_session',
         jwt: thresholdSessionJwt,
-        thresholdSessionId: 'ecdsa-session-worker',
-        walletSigningSessionId: 'wallet-session-worker',
-        curve: 'ecdsa',
-        chain: 'evm',
       },
       ecdsaThresholdKeyId: 'ecdsa-key-worker',
       participantIds: [1, 2],

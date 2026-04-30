@@ -1,16 +1,16 @@
 import { useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import type { SeamsPasskey } from '@/core/SeamsPasskey';
 import { toAccountId } from '@/core/types/accountIds';
 import type { LoginState } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function useWalletIframeLifecycle(args: {
-  tatchi: TatchiPasskey;
+  seams: SeamsPasskey;
   setWalletIframeConnected: Dispatch<SetStateAction<boolean>>;
   setLoginState: Dispatch<SetStateAction<LoginState>>;
 }) {
-  const { tatchi, setWalletIframeConnected, setLoginState } = args;
+  const { seams, setWalletIframeConnected, setLoginState } = args;
 
   useEffect(() => {
     let offReady: (() => void) | undefined;
@@ -20,26 +20,26 @@ export function useWalletIframeLifecycle(args: {
 
     (async () => {
       try {
-        const useIframe = tatchi.configs.wallet.mode === 'iframe';
+        const useIframe = seams.configs.wallet.mode === 'iframe';
         if (!useIframe) {
           setWalletIframeConnected(false);
           return;
         }
 
-        await tatchi.initWalletIframe();
+        await seams.initWalletIframe();
         if (cancelled) return;
 
-        setWalletIframeConnected(tatchi.isWalletIframeReady());
-        offReady = tatchi.onWalletIframeReady(() => setWalletIframeConnected(true));
+        setWalletIframeConnected(seams.isWalletIframeReady());
+        offReady = seams.onWalletIframeReady(() => setWalletIframeConnected(true));
 
-        offLogin = tatchi.onWalletIframeLoginStatusChanged(
+        offLogin = seams.onWalletIframeLoginStatusChanged(
           async (status: { isLoggedIn: boolean; nearAccountId: string | null }) => {
             if (cancelled) return;
             if (status?.isLoggedIn && status?.nearAccountId) {
-              const session = await tatchi.auth.getWalletSession(status.nearAccountId);
+              const session = await seams.auth.getWalletSession(status.nearAccountId);
               const { login: state } = session;
               if (isWalletSessionReadyForUi({ session })) {
-                tatchi.preferences.setCurrentUser(toAccountId(status.nearAccountId));
+                seams.preferences.setCurrentUser(toAccountId(status.nearAccountId));
                 setLoginState((prev) => ({
                   ...prev,
                   isLoggedIn: true,
@@ -76,15 +76,15 @@ export function useWalletIframeLifecycle(args: {
 
         // Preferences changes (including current-user changes from wallet-host flows like device linking)
         // should update login state on the app origin as well.
-        offPrefs = tatchi.onWalletIframePreferencesChanged(async (payload) => {
+        offPrefs = seams.onWalletIframePreferencesChanged(async (payload) => {
           if (cancelled) return;
           const acct = payload?.nearAccountId;
           if (acct) {
             try {
-              const session = await tatchi.auth.getWalletSession(acct);
+              const session = await seams.auth.getWalletSession(acct);
               const { login: state } = session;
               if (isWalletSessionReadyForUi({ session }) && state?.nearAccountId) {
-                tatchi.preferences.setCurrentUser(toAccountId(state.nearAccountId));
+                seams.preferences.setCurrentUser(toAccountId(state.nearAccountId));
                 setLoginState((prev) => ({
                   ...prev,
                   isLoggedIn: true,
@@ -109,7 +109,7 @@ export function useWalletIframeLifecycle(args: {
           }));
         });
 
-        const session = await tatchi.auth.getWalletSession();
+        const session = await seams.auth.getWalletSession();
         const { login: st } = session;
         if (isWalletSessionReadyForUi({ session })) {
           setLoginState((prev) => ({
@@ -123,7 +123,7 @@ export function useWalletIframeLifecycle(args: {
           }));
         }
       } catch (err) {
-        console.warn('[TatchiContextProvider] WalletIframe init failed:', err);
+        console.warn('[SeamsContextProvider] WalletIframe init failed:', err);
       }
     })();
 
@@ -133,5 +133,5 @@ export function useWalletIframeLifecycle(args: {
       offLogin && offLogin();
       offPrefs && offPrefs();
     };
-  }, [setLoginState, setWalletIframeConnected, tatchi]);
+  }, [setLoginState, setWalletIframeConnected, seams]);
 }

@@ -202,7 +202,7 @@ test.describe('dashboard webhooks console api wiring', () => {
 
     await page.getByRole('button', { name: 'Create Webhook' }).click();
     await page
-      .getByPlaceholder('https://example.com/webhooks/tatchi')
+      .getByPlaceholder('https://example.com/webhooks/seams')
       .fill('https://example.com/webhooks/dashboard-test');
     await page.getByLabel('Event categories dropdown').selectOption('wallet');
     await page.locator('button').filter({ hasText: 'Create endpoint' }).click();

@@ -3,7 +3,7 @@
 //
 // CSP policy note:
 // - We RELAX CSP ONLY FOR NEXT DEV to accommodate the framework's dev runtime (Fast Refresh/overlay),
-//   which requires 'unsafe-eval' and inline styles. This relaxation is not required by the Tatchi SDK itself.
+//   which requires 'unsafe-eval' and inline styles. This relaxation is not required by the Seams SDK itself.
 // - In PRODUCTION you should keep a strict CSP: no JS 'unsafe-eval', no inline styles, include
 //   "style-src-attr 'none'", and allow only 'wasm-unsafe-eval' for wallet WASM compilation.
 
@@ -13,7 +13,7 @@ import { sanitizeOrigins } from './plugin-utils';
 export type NextHeader = { key: string; value: string };
 export type NextHeaderEntry = { source: string; headers: NextHeader[] };
 
-export function tatchiNextHeaders(opts: {
+export function seamsNextHeaders(opts: {
   walletOrigin: string;
   cspMode?: CspMode;
   extraFrameSrc?: string[];
@@ -50,7 +50,7 @@ export function tatchiNextHeaders(opts: {
  * Adds Permissions-Policy and a wallet-friendly CSP via Next's headers() API.
  * emitHeaders has no effect for Next.js; kept for parity with Vite wrappers.
  */
-export function tatchiNextApp(opts: {
+export function seamsNextApp(opts: {
   walletOrigin: string;
   emitHeaders?: boolean;
   cspMode?: CspMode;
@@ -61,7 +61,7 @@ export function tatchiNextApp(opts: {
 }) {
   if (opts.emitHeaders) {
     console.warn(
-      '[tatchi] tatchiNextApp: emitHeaders has no effect in Next.js; headers are applied via next.config.js headers().',
+      '[seams] seamsNextApp: emitHeaders has no effect in Next.js; headers are applied via next.config.js headers().',
     );
   }
   return (config: any) => {
@@ -70,7 +70,7 @@ export function tatchiNextApp(opts: {
       ...config,
       async headers() {
         const user = typeof existing === 'function' ? await existing() : [];
-        return [...(user || []), ...tatchiNextHeaders(opts)];
+        return [...(user || []), ...seamsNextHeaders(opts)];
       },
     };
   };
@@ -78,11 +78,11 @@ export function tatchiNextApp(opts: {
 
 /**
  * Convenience wrapper for Next.js wallet origin.
- * Same behavior as tatchiNextApp — Next.js does not serve the SDK/wallet HTML; this
+ * Same behavior as seamsNextApp — Next.js does not serve the SDK/wallet HTML; this
  * helper only sets headers via headers() so the wallet host can be prepped if you
  * proxy wallet routes through Next in dev.
  */
-export function tatchiNextWallet(opts: {
+export function seamsNextWallet(opts: {
   walletOrigin: string;
   emitHeaders?: boolean;
   cspMode?: CspMode;
@@ -93,7 +93,7 @@ export function tatchiNextWallet(opts: {
 }) {
   if (opts.emitHeaders) {
     console.warn(
-      '[tatchi] tatchiNextWallet: emitHeaders has no effect in Next.js; headers are applied via next.config.js headers().',
+      '[seams] seamsNextWallet: emitHeaders has no effect in Next.js; headers are applied via next.config.js headers().',
     );
   }
   return (config: any) => {
@@ -102,7 +102,7 @@ export function tatchiNextWallet(opts: {
       ...config,
       async headers() {
         const user = typeof existing === 'function' ? await existing() : [];
-        return [...(user || []), ...tatchiNextHeaders(opts)];
+        return [...(user || []), ...seamsNextHeaders(opts)];
       },
     };
   };

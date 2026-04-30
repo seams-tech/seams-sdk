@@ -90,7 +90,7 @@ async function readStoredTheme(page: Page, key: string): Promise<string | null> 
 async function expectStoredTheme(page: Page, theme: ThemeMode): Promise<void> {
   await expect
     .poll(async () => {
-      return await readStoredTheme(page, 'tatchi-site-theme');
+      return await readStoredTheme(page, 'seams-site-theme');
     })
     .toBe(theme);
 }
@@ -116,7 +116,7 @@ async function setTheme(page: Page, target: ThemeMode): Promise<void> {
     document.documentElement.classList.toggle('dark', next === 'dark');
     document.documentElement.setAttribute('data-w3a-theme', next);
     try {
-      window.localStorage.setItem('tatchi-site-theme', next);
+      window.localStorage.setItem('seams-site-theme', next);
     } catch {}
     window.dispatchEvent(new CustomEvent('w3a:appearance', { detail: next }));
   }, target);

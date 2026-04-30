@@ -11,7 +11,7 @@ const AES_GCM_NONCE_LENGTH = 12;
 const AES_GCM_KEY_LENGTH_BITS = 256;
 const AES_GCM_KEY_LENGTH_BYTES = AES_GCM_KEY_LENGTH_BITS / 8;
 const SIGNING_ROOT_SECRET_SHARE_SEAL_MAGIC = new Uint8Array([0x74, 0x70, 0x72, 0x73, 0x01]); // "tprs" + v1
-const SIGNING_ROOT_SECRET_SHARE_SEAL_AAD_DOMAIN = 'tatchi/signing-root-share/aes-gcm/v1';
+const SIGNING_ROOT_SECRET_SHARE_SEAL_AAD_DOMAIN = 'seams/signing-root-share/aes-gcm/v1';
 
 export type SigningRootSecretShareKekResolutionInput = {
   readonly signingRootId: string;

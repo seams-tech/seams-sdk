@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
-import type { TatchiPasskey } from '@/core/TatchiPasskey';
+import type { SeamsPasskey } from '@/core/SeamsPasskey';
 
 type IdleCapableWindow = Window & {
   requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
   cancelIdleCallback?: (id: number) => void;
 };
 
-export function useEagerPrewarm(tatchi: TatchiPasskey, eager?: boolean) {
+export function useEagerPrewarm(seams: SeamsPasskey, eager?: boolean) {
   useEffect(() => {
     if (!eager) return;
     if (typeof window === 'undefined') return;
@@ -17,13 +17,13 @@ export function useEagerPrewarm(tatchi: TatchiPasskey, eager?: boolean) {
     const run = async () => {
       if (cancelled) return;
       try {
-        const anyTatchi = tatchi as unknown as {
+        const anySeams = seams as unknown as {
           prewarm?: (opts: { iframe: boolean; workers: boolean }) => Promise<void>;
         };
-        if (typeof anyTatchi.prewarm === 'function') {
-          await anyTatchi.prewarm({ iframe: true, workers: true }).catch(() => undefined);
+        if (typeof anySeams.prewarm === 'function') {
+          await anySeams.prewarm({ iframe: true, workers: true }).catch(() => undefined);
         } else {
-          await tatchi.initWalletIframe().catch(() => undefined);
+          await seams.initWalletIframe().catch(() => undefined);
         }
       } catch {
         // best-effort
@@ -57,5 +57,5 @@ export function useEagerPrewarm(tatchi: TatchiPasskey, eager?: boolean) {
         clearTimeout(timeoutId);
       }
     };
-  }, [eager, tatchi]);
+  }, [eager, seams]);
 }

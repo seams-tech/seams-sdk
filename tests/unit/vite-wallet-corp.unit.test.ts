@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { tatchiBuildHeaders, tatchiWalletService } from '@/plugins/vite';
+import { seamsBuildHeaders, seamsWalletService } from '@/plugins/vite';
 
 test.describe('plugins/vite wallet CORP defaults', () => {
   test('dev wallet-service sets CORP even when COEP is off', async () => {
-    const plugin = tatchiWalletService({
+    const plugin = seamsWalletService({
       walletServicePath: '/wallet-service',
       sdkBasePath: '/sdk',
       coepMode: 'off',
@@ -46,10 +46,10 @@ test.describe('plugins/vite wallet CORP defaults', () => {
   });
 
   test('build _headers includes CORP for wallet HTML even when COEP is off', async () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tatchi-headers-'));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'seams-headers-'));
     const outDir = path.join(tmp, 'dist');
 
-    const plugin = tatchiBuildHeaders({
+    const plugin = seamsBuildHeaders({
       walletOrigin: 'https://wallet.example.localhost',
       coepMode: 'off',
     });

@@ -26,7 +26,7 @@ import type {
   UserConfirmPromptEnvelope,
 } from '../shared/confirmTypes';
 import { coerceThemeName } from '@shared/utils/theme';
-import type { ThemeName } from '@/core/types/tatchi';
+import type { ThemeName } from '@/core/types/seams';
 import {
   handleIntentDigestSigningFlow,
   handleTransactionSigningFlow,

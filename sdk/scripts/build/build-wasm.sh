@@ -14,7 +14,7 @@ source "$SDK_ROOT/build-paths.sh"
 source "$SCRIPT_DIR/wasm-toolchain.sh"
 cd "$SDK_ROOT"
 
-echo "Starting WASM build for @tatchi-xyz/sdk..."
+echo "Starting WASM build for @seams/sdk..."
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

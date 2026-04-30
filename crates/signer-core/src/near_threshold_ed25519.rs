@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use crate::error::{CoreResult, SignerCoreError};
 
-pub const THRESHOLD_CLIENT_SHARE_SALT_V1: &[u8] = b"tatchi/lite/threshold-ed25519/client-share:v1";
+pub const THRESHOLD_CLIENT_SHARE_SALT_V1: &[u8] = b"seams/lite/threshold-ed25519/client-share:v1";
 
 fn decode_wrap_key_seed_b64u(wrap_key_seed_b64u: &str) -> CoreResult<Vec<u8>> {
     Base64UrlUnpadded::decode_vec(wrap_key_seed_b64u)

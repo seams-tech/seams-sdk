@@ -1,4 +1,4 @@
-# Tatchi SDK Headers – Dev and Build
+# Seams SDK Headers – Dev and Build
 
 This folder contains header builders and small plugins for Vite and Next. They provide security headers needed for the wallet iframe, workers and WASM.
 
@@ -25,31 +25,31 @@ Takeaways:
     - Typical use: apply strict CSP to wallet HTML only, not app pages.
 
 - `vite.ts`
-  - `tatchiServeSdk({ sdkBasePath?, sdkDistRoot?, enableDebugRoutes?, coepMode? })`
+  - `seamsServeSdk({ sdkBasePath?, sdkDistRoot?, enableDebugRoutes?, coepMode? })`
     - Serves SDK files under a stable base (default `/sdk`).
     - Sets COEP/CORP only in strict mode; echoes CORS from request (dev only).
     - Emits two tiny virtual assets used by wallet pages: `wallet-shims.js`, `wallet-service.css`.
-  - `tatchiWalletService({ walletServicePath?, sdkBasePath?, coepMode? })`
+  - `seamsWalletService({ walletServicePath?, sdkBasePath?, coepMode? })`
     - Serves minimal wallet HTML with only external CSS/JS (no inline) so strict CSP works.
-  - `tatchiWasmMime()`
+  - `seamsWasmMime()`
     - Forces `application/wasm` for any `.wasm` file.
-  - `tatchiHeaders({ walletOrigin?, walletServicePath?, sdkBasePath?, devCSP?, coepMode? })`
+  - `seamsHeaders({ walletOrigin?, walletServicePath?, sdkBasePath?, devCSP?, coepMode? })`
     - Adds: `COOP: same-origin` (except wallet HTML → `unsafe-none`), `COEP: require-corp`, `CORP: cross-origin` (when `coepMode !== 'off'`).
     - Adds `Permissions-Policy` built from `walletOrigin`.
     - Optional dev CSP on wallet HTML only: `devCSP: 'strict' | 'compatible'`.
-  - `tatchiApp({ walletOrigin?, emitHeaders?, coepMode? })`
-    - Dev (serve): same behavior as `tatchiAppServer({ walletOrigin })` (headers only on the app origin).
+  - `seamsApp({ walletOrigin?, emitHeaders?, coepMode? })`
+    - Dev (serve): same behavior as `seamsAppServer({ walletOrigin })` (headers only on the app origin).
     - Build (build): when `emitHeaders: true`, writes `_headers` (COOP + Permissions‑Policy; optional COEP/CORP when enabled; strict CSP scoped to wallet HTML routes).
-  - `tatchiWallet({ walletOrigin?, walletServicePath?, sdkBasePath?, emitHeaders?, coepMode? })`
-    - Dev (serve): same behavior as `tatchiWalletServer({ ... })` (serves `/wallet-service` + `/sdk` with headers).
+  - `seamsWallet({ walletOrigin?, walletServicePath?, sdkBasePath?, emitHeaders?, coepMode? })`
+    - Dev (serve): same behavior as `seamsWalletServer({ ... })` (serves `/wallet-service` + `/sdk` with headers).
     - Build (build): when `emitHeaders: true`, writes `_headers` (same as above; strict CSP scoped to wallet HTML routes).
-  - `tatchiApp({ walletOrigin?, emitHeaders? })`
-    - Dev (serve): same behavior as `tatchiAppServer({ walletOrigin })` (headers only on the app origin).
+  - `seamsApp({ walletOrigin?, emitHeaders? })`
+    - Dev (serve): same behavior as `seamsAppServer({ walletOrigin })` (headers only on the app origin).
     - Build (build): when `emitHeaders: true`, writes `_headers` (COOP + Permissions‑Policy; optional COEP/CORP when enabled; strict CSP scoped to wallet HTML routes).
   - Convenience dev servers:
-    - `tatchiWalletServer({...})` → wallet origin (`/wallet-service` + `/sdk` + headers)
-    - `tatchiAppServer({...})` → app origin (headers only; combine with `tatchiServeSdk` if needed)
-  - `tatchiBuildHeaders({ walletOrigin?, cors?, coepMode? })`
+    - `seamsWalletServer({...})` → wallet origin (`/wallet-service` + `/sdk` + headers)
+    - `seamsAppServer({...})` → app origin (headers only; combine with `seamsServeSdk` if needed)
+  - `seamsBuildHeaders({ walletOrigin?, cors?, coepMode? })`
     - Writes a Pages/Netlify‑compatible `_headers` file into Vite `outDir`.
     - Global: `COOP: same-origin`, `COEP: require-corp`, `CORP: cross-origin`, `Permissions-Policy` (COEP/CORP omitted when `coepMode === 'off'`).
     - Wallet HTML (`/wallet-service`, `/export-viewer`): adds strict `Content-Security-Policy`.
@@ -81,12 +81,12 @@ App (dev + optional build headers):
 ```ts
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import { tatchiApp } from '@tatchi-xyz/sdk/plugins/vite';
+import { seamsApp } from '@seams/sdk/plugins/vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
-    plugins: [react(), tatchiApp({ walletOrigin: env.VITE_WALLET_ORIGIN, emitHeaders: true })],
+    plugins: [react(), seamsApp({ walletOrigin: env.VITE_WALLET_ORIGIN, emitHeaders: true })],
   };
 });
 ```
@@ -95,13 +95,13 @@ Wallet (dev + optional build headers):
 
 ```ts
 import { defineConfig, loadEnv } from 'vite';
-import { tatchiWallet } from '@tatchi-xyz/sdk/plugins/vite';
+import { seamsWallet } from '@seams/sdk/plugins/vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [
-      tatchiWallet({
+      seamsWallet({
         walletOrigin: env.VITE_WALLET_ORIGIN,
         sdkBasePath: env.VITE_SDK_BASE_PATH || '/sdk',
         walletServicePath: env.VITE_WALLET_SERVICE_PATH || '/wallet-service',
@@ -120,7 +120,7 @@ App origin:
 
 ```js
 // next.config.js (ESM)
-import { tatchiNextApp } from '@tatchi-xyz/sdk/plugins/next';
+import { seamsNextApp } from '@seams/sdk/plugins/next';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const walletOrigin = process.env.NEXT_PUBLIC_WALLET_ORIGIN || 'https://wallet.example.localhost';
@@ -130,7 +130,7 @@ const baseConfig = {
   // outputFileTracingRoot: __dirname,
 };
 
-export default tatchiNextApp({
+export default seamsNextApp({
   walletOrigin,
   // Relax CSP only in dev to accommodate Next's dev runtime
   cspMode: isDev ? 'compatible' : 'strict',
@@ -144,9 +144,9 @@ export default tatchiNextApp({
 Wallet origin (if you proxy wallet routes through Next in dev):
 
 ```js
-import { tatchiNextWallet } from '@tatchi-xyz/sdk/plugins/next';
+import { seamsNextWallet } from '@seams/sdk/plugins/next';
 
-export default tatchiNextWallet({
+export default seamsNextWallet({
   walletOrigin: process.env.NEXT_PUBLIC_WALLET_ORIGIN,
 })(/** base config **/);
 ```
@@ -165,10 +165,10 @@ App server (headers only):
 ```ts
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { tatchiHeaders } from '@tatchi-xyz/sdk/plugins/vite';
+import { seamsHeaders } from '@seams/sdk/plugins/vite';
 
 export default defineConfig({
-  plugins: [react(), tatchiHeaders({ walletOrigin: 'https://wallet.example.com' })],
+  plugins: [react(), seamsHeaders({ walletOrigin: 'https://wallet.example.com' })],
 });
 ```
 
@@ -177,19 +177,19 @@ Wallet server (serve SDK + wallet HTML + headers):
 ```ts
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
-import { tatchiWalletServer, tatchiBuildHeaders } from '@tatchi-xyz/sdk/plugins/vite';
+import { seamsWalletServer, seamsBuildHeaders } from '@seams/sdk/plugins/vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [
       react(),
-      tatchiWalletServer({
+      seamsWalletServer({
         walletOrigin: env.VITE_WALLET_ORIGIN,
         sdkBasePath: env.VITE_SDK_BASE_PATH || '/sdk',
         walletServicePath: env.VITE_WALLET_SERVICE_PATH || '/wallet-service',
       }),
-      tatchiBuildHeaders({ walletOrigin: env.VITE_WALLET_ORIGIN }),
+      seamsBuildHeaders({ walletOrigin: env.VITE_WALLET_ORIGIN }),
     ],
   };
 });
@@ -200,21 +200,21 @@ export default defineConfig(({ mode }) => {
 App integrators (your app server):
 
 - Recommended (cross‑origin wallet):
-  - Dev+Build: `tatchiApp({ walletOrigin, emitHeaders: true })`.
-  - Advanced: dev-only headers via `tatchiHeaders({ walletOrigin })` if you manage build-time headers yourself.
+  - Dev+Build: `seamsApp({ walletOrigin, emitHeaders: true })`.
+  - Advanced: dev-only headers via `seamsHeaders({ walletOrigin })` if you manage build-time headers yourself.
 - Same‑origin (dev convenience only):
-  - Dev: If you must run a single server, use `tatchiWallet({ ... })` on the app server. Avoid this in production.
-  - Advanced: `tatchiWalletServer` / `tatchiAppServer` exist for granular composition when needed.
+  - Dev: If you must run a single server, use `seamsWallet({ ... })` on the app server. Avoid this in production.
+  - Advanced: `seamsWalletServer` / `seamsAppServer` exist for granular composition when needed.
 
 Wallet deployers (wallet‑iframe host):
 
-- Recommended: `tatchiWallet({ walletOrigin, sdkBasePath, walletServicePath, emitHeaders: true })`.
-- Advanced: `tatchiWalletServer({ ... })` in dev, `tatchiBuildHeaders({ walletOrigin })` at build. Serve the generated `wallet-service/index.html`, `export-viewer/index.html`, and `/sdk/*` assets.
+- Recommended: `seamsWallet({ walletOrigin, sdkBasePath, walletServicePath, emitHeaders: true })`.
+- Advanced: `seamsWalletServer({ ... })` in dev, `seamsBuildHeaders({ walletOrigin })` at build. Serve the generated `wallet-service/index.html`, `export-viewer/index.html`, and `/sdk/*` assets.
 
 ## Production guidance
 
 - Keep strict CSP on wallet HTML; do not attach CSP to app pages via this plugin.
-- Ensure platform emits COEP/CORP and Permissions‑Policy. You can use `tatchiBuildHeaders` on static hosts.
+- Ensure platform emits COEP/CORP and Permissions‑Policy. You can use `seamsBuildHeaders` on static hosts.
 - Avoid duplicating CORS headers for `/sdk/*`. If your platform injects `Access-Control-Allow-Origin`, do not also configure it via the plugin.
 
 ## FAQ

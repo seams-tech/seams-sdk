@@ -159,13 +159,13 @@ test.describe('docs frontend signing actions smoke', () => {
           return await originalFetch(input, init);
         }) as typeof fetch;
 
-        function useTatchiHook() {
+        function useSeamsHook() {
           return {
             loginState: {
               isLoggedIn: true,
               nearAccountId: 'alice.testnet',
             },
-            tatchi: {
+            seams: {
               auth: {
                 getWalletSession: async () => ({
                   login: {
@@ -318,7 +318,7 @@ test.describe('docs frontend signing actions smoke', () => {
           root.render(
             ReactRuntime.createElement(DemoPage, {
               __testOverrides: {
-                useTatchiHook,
+                useSeamsHook,
                 useSetGreetingHook,
               },
             }),
@@ -484,13 +484,13 @@ test.describe('docs frontend signing actions smoke', () => {
           return await originalFetch(input, init);
         }) as typeof fetch;
 
-        function useTatchiHook() {
+        function useSeamsHook() {
           return {
             loginState: {
               isLoggedIn: true,
               nearAccountId: 'alice.testnet',
             },
-            tatchi: {
+            seams: {
               auth: {
                 getWalletSession: async () => ({
                   login: {
@@ -575,7 +575,7 @@ test.describe('docs frontend signing actions smoke', () => {
               ReactRuntime.createElement(Toaster),
               ReactRuntime.createElement(DemoPage, {
                 __testOverrides: {
-                  useTatchiHook,
+                  useSeamsHook,
                   useSetGreetingHook,
                 },
               }),

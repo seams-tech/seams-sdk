@@ -1,7 +1,7 @@
 import type {
   SigningSessionRetention,
   WalletAuthMethod,
-} from '@/core/types/tatchi';
+} from '@/core/types/seams';
 import { WALLET_AUTH_METHODS } from '@shared/utils';
 import { normalizePositiveInteger, toTrimmedString } from '@shared/utils/validation';
 

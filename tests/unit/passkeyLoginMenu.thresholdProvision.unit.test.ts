@@ -81,7 +81,7 @@ async function runFlow(
         }
       }
 
-      function useTatchiHook() {
+      function useSeamsHook() {
         return {
           accountInputState: { targetAccountId: 'alice.testnet', accountExists: true },
           unlock: async (nearAccountId: string) => {
@@ -97,7 +97,7 @@ async function runFlow(
             nearAccountId: 'alice.testnet',
             transactionId: 'mock-registration-tx',
           }),
-          tatchi: {
+          seams: {
             recovery: {
               syncAccount: async (args?: { accountId?: string }) => {
                 counters.syncCalls.push(String(args?.accountId || ''));
@@ -129,7 +129,7 @@ async function runFlow(
                 counters.loggedInCalls.push(String(nearAccountId || ''));
               },
               __testOverrides: {
-                useTatchiHook,
+                useSeamsHook,
                 useAuthMenuControlHook: () => ({
                   defaultModeOverride: undefined,
                   remountKey: 0,

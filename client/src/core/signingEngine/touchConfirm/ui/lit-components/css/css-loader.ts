@@ -26,7 +26,7 @@ function resolveStylesheetUrl(assetName: string): string {
       console.warn(
         `[W3A][css-loader] Embedded SDK base is relative: "${base}". ` +
           `In production, configure an absolute base so iframe assets resolve: ` +
-          `set TatchiPasskeyProvider config { iframeWallet: { walletOrigin: "https://wallet.example.com", sdkBasePath: "/sdk" } }, `,
+          `set SeamsPasskeyProvider config { iframeWallet: { walletOrigin: "https://wallet.example.com", sdkBasePath: "/sdk" } }, `,
       );
     }
   } catch {}

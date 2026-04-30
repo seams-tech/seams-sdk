@@ -169,7 +169,7 @@ Prompt routing on exhaustion:
 
 Primary implementation:
 
-- `client/src/core/TatchiPasskey/login.ts`
+- `client/src/core/SeamsPasskey/login.ts`
 - `client/src/core/signingEngine/threshold/workflows/connectEd25519Session.ts`
 - `client/src/core/signingEngine/threshold/workflows/bootstrapEcdsaSession.ts`
 
@@ -264,7 +264,7 @@ Use this only when the server-side signing-session seal module is enabled.
 Client config (opt-in):
 
 ```ts
-const tatchi = createTatchiPasskey({
+const seams = createSeamsPasskey({
   signingSessionPersistenceMode: 'sealed_refresh_v1',
   signingSessionSeal: {
     keyVersion: 'kek-s-2026-02',

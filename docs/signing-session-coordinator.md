@@ -641,7 +641,7 @@ Completed in the current checkpoint:
 78. [x] Added an opt-in EVM-family runtime trace hook for redacted post-sign execution-machine transitions.
 79. [x] Extracted duplicated EVM/Tempo touch-confirm auth-method and progress mapping into the shared signing orchestration helper.
 80. [x] Centralized signing lane/plan trace redaction summaries and added planner-wrapper trace coverage.
-81. [x] Removed app-level source-less ECDSA reads from TatchiPasskey login metadata and login presign prefill helpers.
+81. [x] Removed app-level source-less ECDSA reads from SeamsPasskey login metadata and login presign prefill helpers.
 82. [x] Removed source-less ECDSA key-ref reads from the orchestration canonical-session resolver by enumerating passkey sources explicitly.
 83. [x] Removed the source-less ECDSA record probe from `WarmSessionStatusReader` threshold-session resolution.
 84. [x] Centralized the explicit ECDSA session-store source list and used it when collecting warm signing-session ids.
@@ -778,11 +778,11 @@ Goal: make current policy ownership and ambiguous paths visible before moving co
 Current owner inventory:
 
 1. Transaction auth-plan construction:
-   `api/evmFamily/authPlanning.ts` owns EVM/Tempo transaction auth-plan resolution through `SigningSessionPlanner`; `api/nearSigning.ts` routes NEAR API-wrapper transaction auth-plan construction through `SigningSessionPlanner`; `SigningEngine.ts` owns key-export auth-plan construction; `TatchiPasskey/login.ts` and `threshold/workflows/connectEd25519Session.ts` own non-transaction login/connect auth-plan construction; touch-confirm modules only normalize and execute the provided plan.
+   `api/evmFamily/authPlanning.ts` owns EVM/Tempo transaction auth-plan resolution through `SigningSessionPlanner`; `api/nearSigning.ts` routes NEAR API-wrapper transaction auth-plan construction through `SigningSessionPlanner`; `SigningEngine.ts` owns key-export auth-plan construction; `SeamsPasskey/login.ts` and `threshold/workflows/connectEd25519Session.ts` own non-transaction login/connect auth-plan construction; touch-confirm modules only normalize and execute the provided plan.
 2. ECDSA session record/key-ref reads:
    EVM/Tempo transaction signing reads selected ECDSA lanes through `api/evmFamily/ecdsaLanes.ts`, `SigningCapabilityReader`, and source-required WarmSession APIs. `WarmSessionStatusReader.ts` and `WalletSigningSessionCoordinator.ts` enumerate explicit sources for status and wallet-session discovery. Remaining generic `SigningEngine.getThresholdEcdsa*ForLookup` calls are admin/export/bootstrap/status compatibility surfaces and must not be used as transaction-signing policy inputs.
 3. Auth side effects:
-   `api/evmFamily/transactionExecutor.ts` and shared touch-confirm signing helpers execute transaction confirmation and confirmed EVM/Tempo OTP/passkey reauth. `api/nearSigning.ts` still owns NEAR per-operation OTP/passkey reauth execution. `EmailOtpThresholdSessionCoordinator.ts`, `TatchiPasskey/index.ts`, and `email-otp.worker.ts` own Email OTP challenge/verification mechanics. `WarmSessionEcdsaProvisioner.ts` owns ECDSA reconnect/provisioning mechanics and is now called by source-required EVM-family readiness APIs for transaction signing.
+   `api/evmFamily/transactionExecutor.ts` and shared touch-confirm signing helpers execute transaction confirmation and confirmed EVM/Tempo OTP/passkey reauth. `api/nearSigning.ts` still owns NEAR per-operation OTP/passkey reauth execution. `EmailOtpThresholdSessionCoordinator.ts`, `SeamsPasskey/index.ts`, and `email-otp.worker.ts` own Email OTP challenge/verification mechanics. `WarmSessionEcdsaProvisioner.ts` owns ECDSA reconnect/provisioning mechanics and is now called by source-required EVM-family readiness APIs for transaction signing.
 4. Budget and cleanup:
    `WalletSigningBudgetLedger.ts` owns idempotent transaction budget spending, operation-fingerprint binding, in-runtime reservation, and fail-closed success consume. `WalletSigningSessionCoordinator.ts` owns wallet-session spend discovery and low-level use consumption. `SigningPostSignPolicy.ts` owns selected-lane ECDSA single-use cleanup policy. `WarmSessionPostSignPolicyAdapter.ts` adapts store/status reads for cleanup. `SigningEngine.clearThresholdEcdsa*` and threshold session-store helpers remain low-level admin cleanup APIs.
 

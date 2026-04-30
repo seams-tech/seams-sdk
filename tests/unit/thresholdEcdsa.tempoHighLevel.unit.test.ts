@@ -83,7 +83,7 @@ async function signTempoWithExistingPasskey(
 }> {
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
-    const { TatchiPasskey } = sdkMod as any;
+    const { SeamsPasskey } = sdkMod as any;
 
     const confirmationConfig = {
       uiMode: 'none' as const,
@@ -91,7 +91,7 @@ async function signTempoWithExistingPasskey(
       autoProceedDelay: 0,
     };
 
-    const pm = new TatchiPasskey({
+    const pm = new SeamsPasskey({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',
@@ -171,9 +171,9 @@ async function bootstrapEvmSessionWithExistingPasskey(
 }> {
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
-    const { TatchiPasskey } = sdkMod as any;
+    const { SeamsPasskey } = sdkMod as any;
 
-    const pm = new TatchiPasskey({
+    const pm = new SeamsPasskey({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',
@@ -226,7 +226,7 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
 }> {
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
-    const { TatchiPasskey } = sdkMod as any;
+    const { SeamsPasskey } = sdkMod as any;
 
     const confirmationConfig = {
       uiMode: 'none' as const,
@@ -234,7 +234,7 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
       autoProceedDelay: 0,
     };
 
-    const pm = new TatchiPasskey({
+    const pm = new SeamsPasskey({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',

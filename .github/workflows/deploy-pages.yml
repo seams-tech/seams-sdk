@@ -84,8 +84,8 @@ jobs:
           VITE_RELAYER_URL: ${{ vars.VITE_RELAYER_URL }}
           VITE_CONSOLE_BASE_URL: ${{ vars.VITE_CONSOLE_BASE_URL }}
           VITE_RELAYER_ACCOUNT_ID: ${{ vars.VITE_RELAYER_ACCOUNT_ID }}
-          VITE_TATCHI_ENVIRONMENT_ID: ${{ vars.VITE_TATCHI_ENVIRONMENT_ID }}
-          VITE_TATCHI_PUBLISHABLE_KEY: ${{ vars.VITE_TATCHI_PUBLISHABLE_KEY }}
+          VITE_SEAMS_ENVIRONMENT_ID: ${{ vars.VITE_SEAMS_ENVIRONMENT_ID }}
+          VITE_SEAMS_PUBLISHABLE_KEY: ${{ vars.VITE_SEAMS_PUBLISHABLE_KEY }}
           VITE_EMAIL_RECOVERER_GLOBAL_CONTRACT: ${{ vars.VITE_EMAIL_RECOVERER_GLOBAL_CONTRACT }}
           VITE_EMAIL_DKIM_VERIFIER_CONTRACT: ${{ vars.VITE_EMAIL_DKIM_VERIFIER_CONTRACT }}
           VITE_NEAR_NETWORK: ${{ vars.VITE_NEAR_NETWORK }}
@@ -105,16 +105,16 @@ jobs:
           VITE_SIGNING_SESSION_SEAL_KEY_VERSION: ${{ vars.VITE_SIGNING_SESSION_SEAL_KEY_VERSION }}
           VITE_SIGNING_SESSION_SHAMIR_P_B64U: ${{ vars.VITE_SIGNING_SESSION_SHAMIR_P_B64U }}
           VITE_DASHBOARD_WALLETS_ROUTES_ENABLED: ${{ vars.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED }}
-        run: pnpm -C examples/tatchi-site build
+        run: pnpm -C examples/seams-site build
 
       - name: Copy SDK runtime assets into Pages output
         run: |
           set -euo pipefail
           test -d sdk/dist/esm/sdk
-          mkdir -p examples/tatchi-site/dist/sdk examples/tatchi-site/dist/sdk/workers
-          rsync -av --delete sdk/dist/esm/sdk/ examples/tatchi-site/dist/sdk/
+          mkdir -p examples/seams-site/dist/sdk examples/seams-site/dist/sdk/workers
+          rsync -av --delete sdk/dist/esm/sdk/ examples/seams-site/dist/sdk/
           if [ -d sdk/dist/workers ]; then
-            rsync -av --delete sdk/dist/workers/ examples/tatchi-site/dist/sdk/workers/
+            rsync -av --delete sdk/dist/workers/ examples/seams-site/dist/sdk/workers/
           fi
 
       - name: Deploy app to Cloudflare Pages
@@ -124,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_VITE is not set" >&2; exit 1)
-          pnpm -C examples/relay-cloudflare-worker exec wrangler pages deploy examples/tatchi-site/dist \
+          pnpm -C examples/relay-cloudflare-worker exec wrangler pages deploy examples/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH"
 
@@ -135,6 +135,6 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${CF_PAGES_PROJECT:-}" || (echo "CF_PAGES_PROJECT_WALLET is not set" >&2; exit 1)
-          pnpm -C examples/relay-cloudflare-worker exec wrangler pages deploy examples/tatchi-site/dist \
+          pnpm -C examples/relay-cloudflare-worker exec wrangler pages deploy examples/seams-site/dist \
             --project-name "$CF_PAGES_PROJECT" \
             --branch "$PAGES_BRANCH"

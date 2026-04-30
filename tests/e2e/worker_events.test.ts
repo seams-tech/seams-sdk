@@ -68,7 +68,7 @@ test.describe('Worker Communication Protocol', () => {
             COMPLETED: 'signing.completed',
           } as const;
 
-          const { tatchi, generateTestAccountId } = (window as any).testUtils;
+          const { seams, generateTestAccountId } = (window as any).testUtils;
           const testAccountId = generateTestAccountId();
 
           // Track all progress events
@@ -80,7 +80,7 @@ test.describe('Worker Communication Protocol', () => {
           const cfg =
             (window as any).testUtils?.confirmOverrides?.none ||
             ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          const registrationResult = await tatchi.registration.registerPasskeyInternal(
+          const registrationResult = await seams.registration.registerPasskeyInternal(
             testAccountId,
             {
               onEvent: (event: any) => {
@@ -96,7 +96,7 @@ test.describe('Worker Communication Protocol', () => {
           }
 
           // Login to activate session
-          const loginResult = await tatchi.auth.unlock(testAccountId, {
+          const loginResult = await seams.auth.unlock(testAccountId, {
             signingSession: { ttlMs: 0, remainingUses: 0 },
             onEvent: (event: any) => {
               console.log(`Login [${event.step}]: ${event.phase} - ${event.message}`);
@@ -107,7 +107,7 @@ test.describe('Worker Communication Protocol', () => {
             throw new Error(`Login failed: ${loginResult.error}`);
           }
 
-          const walletSession = await tatchi.auth.getWalletSession(testAccountId);
+          const walletSession = await seams.auth.getWalletSession(testAccountId);
           const hasThresholdEcdsaState = !!String(
             walletSession?.login?.thresholdEcdsaEthereumAddress || '',
           ).trim();
@@ -121,7 +121,7 @@ test.describe('Worker Communication Protocol', () => {
           await new Promise((resolve) => setTimeout(resolve, 5000));
 
           // Now test executeAction with detailed progress tracking (new SDK signature)
-          const actionResult = await tatchi.near.executeAction({
+          const actionResult = await seams.near.executeAction({
             nearAccountId: testAccountId,
             receiverId: (window as any).testUtils.configs.testReceiverAccountId, // Use centralized configuration
             actionArgs: {
@@ -366,12 +366,12 @@ test.describe('Worker Communication Protocol', () => {
   test('Progress Messages - Login without prior registration', async ({ page }) => {
     const resultPromise = page.evaluate(async () => {
       try {
-        const { tatchi, generateTestAccountId } = (window as any).testUtils;
+        const { seams, generateTestAccountId } = (window as any).testUtils;
         const testAccountId = generateTestAccountId();
 
         const capturedEvents: Array<{ phase: string; status: string; message: string }> = [];
 
-        const loginResult = await tatchi.auth.unlock(testAccountId, {
+        const loginResult = await seams.auth.unlock(testAccountId, {
           signingSession: { ttlMs: 0, remainingUses: 0 },
           onEvent: (event: any) => {
             capturedEvents.push({
@@ -442,7 +442,7 @@ test.describe('Worker Communication Protocol', () => {
           const cfg =
             utils?.confirmOverrides?.none ||
             ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          const registrationResult = await utils.tatchi.registration.registerPasskeyInternal(
+          const registrationResult = await utils.seams.registration.registerPasskeyInternal(
             testAccountId,
             {
               onEvent: (event: any) => {
@@ -459,7 +459,7 @@ test.describe('Worker Communication Protocol', () => {
             throw new Error(`Registration failed unexpectedly: ${registrationResult?.error}`);
           }
 
-          const loginResult = await utils.tatchi.auth.unlock(testAccountId, {
+          const loginResult = await utils.seams.auth.unlock(testAccountId, {
             session: { kind: 'jwt' },
             signingSession: { ttlMs: 0, remainingUses: 0 },
             onEvent: (event: any) => {
@@ -573,7 +573,7 @@ test.describe('Worker Communication Protocol', () => {
 
     const resultPromise = page.evaluate(async () => {
       try {
-        const { tatchi, generateTestAccountId } = (window as any).testUtils;
+        const { seams, generateTestAccountId } = (window as any).testUtils;
         const testAccountId = generateTestAccountId();
 
         // Track progress message types
@@ -584,7 +584,7 @@ test.describe('Worker Communication Protocol', () => {
         const cfg2 =
           (window as any).testUtils?.confirmOverrides?.none ||
           ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-        const registrationResult = await tatchi.registration.registerPasskeyInternal(
+        const registrationResult = await seams.registration.registerPasskeyInternal(
           testAccountId,
           {
             onEvent: (event: any) => {
@@ -599,7 +599,7 @@ test.describe('Worker Communication Protocol', () => {
         }
 
         // Test login flow (should generate various progress messages)
-        const loginResult = await tatchi.auth.unlock(testAccountId, {
+        const loginResult = await seams.auth.unlock(testAccountId, {
           signingSession: { ttlMs: 0, remainingUses: 0 },
           onEvent: (event: any) => {
             progressEvents.push(event);
@@ -691,7 +691,7 @@ test.describe('Worker Communication Protocol', () => {
     });
     const resultPromise = page.evaluate(async () => {
       try {
-        const { tatchi, generateTestAccountId } = (window as any).testUtils;
+        const { seams, generateTestAccountId } = (window as any).testUtils;
         const validAccountId = generateTestAccountId();
 
         const progressEvents: any[] = [];
@@ -705,7 +705,7 @@ test.describe('Worker Communication Protocol', () => {
           const cfg3 =
             (window as any).testUtils?.confirmOverrides?.none ||
             ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          result = await tatchi.registration.registerPasskeyInternal(
+          result = await seams.registration.registerPasskeyInternal(
             validAccountId,
             {
               onEvent: (event: any) => {

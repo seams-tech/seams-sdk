@@ -101,7 +101,7 @@ What is already complete:
 
 Concrete residuals confirmed by the latest audit:
 
-1. [emailOtp.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/TatchiPasskey/emailOtp.ts) no longer owns a production Email OTP secret-bearing login/unlock/bootstrap path:
+1. [emailOtp.ts](/Users/pta/Dev/rust/simple-threshold-signer/client/src/core/SeamsPasskey/emailOtp.ts) no longer owns a production Email OTP secret-bearing login/unlock/bootstrap path:
    - non-secret challenge and verify helpers may use direct fetch overrides for tests and simple public route calls
    - enrollment dispatches secret-bearing work through the dedicated `emailOtp` worker
    - login plus ECDSA bootstrap is worker-only
@@ -525,7 +525,7 @@ The following current responsibilities should move out of main-thread OTP runtim
 5. unlock challenge signing flow composition
 6. enrollment sealing flow composition
 
-The intended end state is that `client/src/core/TatchiPasskey/emailOtp.ts` becomes a facade file instead of the place where secret-bearing orchestration happens.
+The intended end state is that `client/src/core/SeamsPasskey/emailOtp.ts` becomes a facade file instead of the place where secret-bearing orchestration happens.
 
 ## WarmSessionManager boundary
 
@@ -562,7 +562,7 @@ The app origin should own only:
 
 The wallet iframe origin should own:
 
-1. the `TatchiPasskey` runtime used for Email OTP
+1. the `SeamsPasskey` runtime used for Email OTP
 2. the dedicated `emailOtp` worker and nested `shamir3pass` worker
 3. Email OTP challenge, verify, enrollment, unseal, and bootstrap route calls
 4. nonsecret wallet profile and account-projection persistence
@@ -579,7 +579,7 @@ The app origin may still pass user-entered OTP values and public flow inputs to 
 ### Todo list
 
 1. [x] Add wallet-iframe RPC methods for the current canonical SDK Email OTP operations: challenge request, enrollment challenge request, enrollment, login plus threshold-ECDSA bootstrap, and enrollment plus threshold-ECDSA bootstrap.
-2. [x] Route `tatchi.auth.*EmailOtp*` SDK calls through the wallet iframe client when wallet-iframe mode is enabled.
+2. [x] Route `seams.auth.*EmailOtp*` SDK calls through the wallet iframe client when wallet-iframe mode is enabled.
 3. [x] Keep OTP input in app-origin UI, but send the code only as a transient request payload to the wallet iframe.
 4. [x] Add focused iframe RPC regression coverage proving Email OTP auth calls cross the wallet-iframe boundary and do not include app-origin generated `clientSecret32` in the normal flow.
 5. [x] Route `PasskeyAuthMenu` Google SSO and Email OTP actions through only wallet-iframe-owned SDK calls when wallet-iframe mode is enabled.
@@ -682,14 +682,14 @@ Completed:
     - the demo carousel no longer advances to protected transaction UI before SDK login state is authoritative
 16. begin iframe-origin Email OTP ownership:
     - add wallet-iframe RPC messages, router methods, and host handlers for current Email OTP auth operations
-    - route app-origin `TatchiPasskey` Email OTP auth methods through the wallet iframe when enabled
+    - route app-origin `SeamsPasskey` Email OTP auth methods through the wallet iframe when enabled
     - add focused iframe routing regression coverage
 17. move Google Email OTP session exchange behind the wallet-iframe SDK boundary:
     - add wallet-iframe RPC for Google Email OTP `/session/exchange`
-    - expose `tatchi.auth.exchangeGoogleEmailOtpSession`
+    - expose `seams.auth.exchangeGoogleEmailOtpSession`
     - update the demo `PasskeyAuthMenu` Google SSO flow to hand the Google id token to the SDK instead of calling `/session/exchange` directly from app-origin code
 18. delete app-origin IndexedDB persistence for wallet-iframe mode:
-    - app-origin `TatchiPasskey` configures IndexedDB as disabled in iframe mode
+    - app-origin `SeamsPasskey` configures IndexedDB as disabled in iframe mode
     - nonsecret Email OTP account metadata and threshold-session metadata stay in the wallet-origin runtime
     - app-origin no longer keeps a metadata-only IndexedDB bridge
 19. add focused wallet-iframe Email OTP ownership regression coverage:

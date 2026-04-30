@@ -233,7 +233,7 @@ test.describe('source-backed EVM smart-account verification', () => {
 
   test('deployed addOwner and removeOwner runtime uses canonical spec selectors', async () => {
     const linkDeviceOwnerManagementPath = pathToFileURL(
-      path.join(repoRoot, 'client/src/core/TatchiPasskey/near/linkDeviceOwnerManagement.ts'),
+      path.join(repoRoot, 'client/src/core/SeamsPasskey/near/linkDeviceOwnerManagement.ts'),
     ).href;
 
     const script = `

@@ -11,7 +11,7 @@ use zeroize::Zeroizing;
 use crate::error::{CoreResult, SignerCoreError};
 
 const THRESHOLD_SECP256K1_RELAYER_SHARE_SALT_V1: &[u8] =
-    b"tatchi/lite/threshold-secp256k1-ecdsa/relayer-share:v1";
+    b"seams/lite/threshold-secp256k1-ecdsa/relayer-share:v1";
 const EVM_SECP256K1_PRF_SECOND_HKDF_INFO_V1: &[u8] = b"secp256k1-signing-key-dual-prf-v1";
 const EVM_SECP256K1_PRF_SECOND_SALT_PREFIX_V1: &str = "evm-key-derivation:";
 pub const THRESHOLD_SECP256K1_2P_CLIENT_PARTICIPANT_ID: u32 = 1;

@@ -100,7 +100,7 @@ export const PasskeyAuthMenu: React.FC<PasskeyAuthMenuProps> = (props) => {
   const [retryKey, setRetryKey] = React.useState(0);
   const ClientLazy = React.useMemo(() => getClientLazy(retryKey), [retryKey]);
 
-  // Align with the SDK Theme boundary when present (TatchiPasskeyProvider wraps one by default).
+  // Align with the SDK Theme boundary when present (SeamsPasskeyProvider wraps one by default).
   // Falls back to system preference when used standalone.
   const { theme, tokens } = useTheme();
 

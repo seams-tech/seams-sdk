@@ -40,7 +40,7 @@ function resolveConfiguredSigningSessionBudgetUses(args: {
   fallback?: number;
 }): number {
   const configured = Math.floor(
-    Number(args.deps.tatchiPasskeyConfigs.signing.sessionDefaults?.remainingUses) || 0,
+    Number(args.deps.seamsPasskeyConfigs.signing.sessionDefaults?.remainingUses) || 0,
   );
   if (configured > 0) return configured;
   const fallback = Math.floor(Number(args.fallback) || 0);
@@ -297,7 +297,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         workerCtx: signerWorkerCtx,
         shouldAbort: args.shouldAbort,
         thresholdEcdsaPresignPoolPolicy:
-          args.deps.tatchiPasskeyConfigs.signing.thresholdEcdsa.presignPool,
+          args.deps.seamsPasskeyConfigs.signing.thresholdEcdsa.presignPool,
         onThresholdEcdsaPresignRefillScheduled: ({
           trigger,
           result,

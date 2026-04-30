@@ -2,7 +2,7 @@ packages:
   - tests
   - sdk
   - examples/relay-server
-  - examples/tatchi-site
-  - examples/tatchi-docs
+  - examples/seams-site
+  - examples/seams-docs
   - examples/relay-cloudflare-worker
   - examples/self-host-cloudflare-worker

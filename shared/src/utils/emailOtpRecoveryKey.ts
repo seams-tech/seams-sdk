@@ -10,9 +10,9 @@ export const EMAIL_OTP_RECOVERY_WRAP_KEY_LENGTH = 32 as const;
 export const EMAIL_OTP_RECOVERY_WRAP_NONCE_LENGTH = 12 as const;
 
 export const EMAIL_OTP_RECOVERY_WRAP_ALG = 'chacha20poly1305-hkdf-sha256-v1' as const;
-export const EMAIL_OTP_RECOVERY_WRAP_HKDF_SALT = 'tatchi/email-otp/recovery-wrap/v1' as const;
+export const EMAIL_OTP_RECOVERY_WRAP_HKDF_SALT = 'seams/email-otp/recovery-wrap/v1' as const;
 export const EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_AAD_CONTEXT =
-  'tatchi/email-otp/recovery-wrapped-enrollment/v1' as const;
+  'seams/email-otp/recovery-wrapped-enrollment/v1' as const;
 export const EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND =
   'email_otp_device_enrollment_escrow' as const;
 export const EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND =

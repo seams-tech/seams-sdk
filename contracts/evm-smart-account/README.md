@@ -1,4 +1,4 @@
-# Tatchi EVM Smart Account
+# Seams EVM Smart Account
 
 This package contains the first in-repo implementation of the EVM smart-account
 surface described in:
@@ -47,10 +47,10 @@ pnpm --dir contracts/evm-smart-account encode:event
 
 Generated ABI JSON files are written to:
 
-- `abi/TatchiSmartAccount.json`
-- `abi/TatchiSmartAccountFactory.json`
-- `abi/TatchiSmartAccount.metadata.json`
-- `abi/TatchiSmartAccountFactory.metadata.json`
+- `abi/SeamsSmartAccount.json`
+- `abi/SeamsSmartAccountFactory.json`
+- `abi/SeamsSmartAccount.metadata.json`
+- `abi/SeamsSmartAccountFactory.metadata.json`
 
 Regenerate them with:
 
@@ -82,7 +82,7 @@ The metadata JSON files include:
 - requires `FACTORY_ADDRESS`
 - requires `SALT`
 - accepts `INIT_DATA` directly, or derives it from the same env vars as `encode-init-data.sh`
-- outputs the deterministic CREATE2 address used by `TatchiSmartAccountFactory`
+- outputs the deterministic CREATE2 address used by `SeamsSmartAccountFactory`
 
 `script/encode-recovery-calldata.sh`
 

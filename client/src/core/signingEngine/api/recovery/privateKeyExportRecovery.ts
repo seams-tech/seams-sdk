@@ -4,7 +4,7 @@ import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
-import type { ThemeName } from '@/core/types/tatchi';
+import type { ThemeName } from '@/core/types/seams';
 import { getLastLoggedInSignerSlot } from '../../signers/webauthn/device/signerSlot';
 
 type ExportKeypairChain = 'near' | 'evm' | 'tempo';

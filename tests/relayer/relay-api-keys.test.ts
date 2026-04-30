@@ -392,7 +392,7 @@ test.describe('relay API key auth (express)', () => {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
-          'x-tatchi-environment-id': 'env-stage',
+          'x-seams-environment-id': 'env-stage',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
@@ -479,7 +479,7 @@ test.describe('relay API key auth (express)', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
           'x-forwarded-for': '127.0.0.1',
-          'x-tatchi-environment-id': 'env-prod',
+          'x-seams-environment-id': 'env-prod',
         },
         body: JSON.stringify(makeRegistrationBody()),
       });
@@ -727,7 +727,7 @@ test.describe('relay API key auth (express)', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
           'x-forwarded-for': '127.0.0.1',
-          'x-tatchi-environment-id': 'env-prod',
+          'x-seams-environment-id': 'env-prod',
         },
         body: JSON.stringify(makeRegistrationBodyWithSmartAccountTargets()),
       });
@@ -1001,7 +1001,7 @@ test.describe('relay API key auth (express)', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${secret}`,
           'x-forwarded-for': '127.0.0.1',
-          'x-tatchi-environment-id': 'env-prod',
+          'x-seams-environment-id': 'env-prod',
         },
         body: JSON.stringify(body),
       });
@@ -1253,7 +1253,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       path: '/registration/bootstrap',
       headers: {
         Authorization: `Bearer ${secret}`,
-        'x-tatchi-environment-id': 'env-stage',
+        'x-seams-environment-id': 'env-stage',
       },
       body: makeRegistrationBody(),
       ctx,
@@ -1329,7 +1329,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       headers: {
         Authorization: `Bearer ${secret}`,
         'cf-connecting-ip': '203.0.113.20',
-        'x-tatchi-environment-id': 'env-prod',
+        'x-seams-environment-id': 'env-prod',
       },
       body: makeRegistrationBody(),
       ctx,
@@ -1449,7 +1449,7 @@ test.describe('relay API key auth (cloudflare)', () => {
       headers: {
         Authorization: `Bearer ${secret}`,
         'cf-connecting-ip': '203.0.113.20',
-        'x-tatchi-environment-id': 'env-prod',
+        'x-seams-environment-id': 'env-prod',
       },
       body: makeRegistrationBodyWithSmartAccountTargets(),
       ctx,

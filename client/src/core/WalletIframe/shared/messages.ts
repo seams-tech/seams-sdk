@@ -1,4 +1,4 @@
-// Typed RPC messages for the wallet service iframe channel (TatchiPasskey-first)
+// Typed RPC messages for the wallet service iframe channel (SeamsPasskey-first)
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '../../types';
@@ -13,7 +13,7 @@ import type {
   ThresholdEd25519HssPreparedSessionEnvelope,
 } from '../../signingEngine/signers/wasm/hssClientSignerWasm';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
-import type { EmailOtpAuthPolicy, TatchiConfigsInput } from '../../types/tatchi';
+import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '../../types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { WalletFlowEvent } from '../../types/sdkSentEvents';
@@ -24,7 +24,7 @@ export type ParentToChildType =
   | 'PING'
   | 'PM_SET_CONFIG'
   | 'PM_CANCEL'
-  // TatchiPasskey API surface
+  // SeamsPasskey API surface
   | 'PM_REGISTER'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_UNLOCK'
@@ -102,7 +102,7 @@ export interface PreferencesChangedPayload {
   updatedAt: number;
 }
 
-export interface PMSetConfigPayload extends Partial<TatchiConfigsInput> {
+export interface PMSetConfigPayload extends Partial<SeamsConfigsInput> {
   // Absolute base URL for SDK Lit component assets (e.g., https://app.example.com/sdk/)
   assetsBaseUrl?: string;
   // Optional: register wallet-host UI components (Lit tags + bindings)

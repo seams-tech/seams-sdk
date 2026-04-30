@@ -18,7 +18,7 @@ export interface SessionConfig {
     }) => Promise<Record<string, unknown> | void> | Record<string, unknown> | void;
   };
   cookie?: {
-    /** Cookie name. Default: 'tatchi-jwt' */
+    /** Cookie name. Default: 'seams-jwt' */
     name?: string;
     /** Optional override: build Set-Cookie header for a new token */
     buildSetHeader?: (token: string) => string;
@@ -50,7 +50,7 @@ export class SessionService<TClaims extends Record<string, unknown> = Record<str
   }
 
   getCookieName(): string {
-    return this.cfg?.cookie?.name || 'tatchi-jwt';
+    return this.cfg?.cookie?.name || 'seams-jwt';
   }
 
   buildSetCookie(token: string): string {

@@ -3,7 +3,7 @@
 This repo deploys three hosted surfaces:
 
 - SDK runtime bundles in Cloudflare R2.
-- App and wallet Pages projects from `examples/tatchi-site`.
+- App and wallet Pages projects from `examples/seams-site`.
 - Relay Worker from `examples/relay-cloudflare-worker`.
 
 The relay also needs durable persistence. Use split Postgres databases for
@@ -42,8 +42,8 @@ environment.
 | `VITE_RELAYER_URL`                      | Pages build  | Public relay API base URL.                                                   |
 | `VITE_CONSOLE_BASE_URL`                 | Pages build  | Optional console API base URL; defaults in app code when unset.              |
 | `VITE_RELAYER_ACCOUNT_ID`               | Pages build  | Parent NEAR account used for account creation.                               |
-| `VITE_TATCHI_ENVIRONMENT_ID`            | Pages build  | Hosted environment id for managed registration and sponsored actions.        |
-| `VITE_TATCHI_PUBLISHABLE_KEY`           | Pages build  | Publishable key for browser-managed relay calls.                             |
+| `VITE_SEAMS_ENVIRONMENT_ID`            | Pages build  | Hosted environment id for managed registration and sponsored actions.        |
+| `VITE_SEAMS_PUBLISHABLE_KEY`           | Pages build  | Publishable key for browser-managed relay calls.                             |
 | `VITE_WALLET_ORIGIN`                    | Pages build  | Wallet origin. Must match CORS and WebAuthn RP configuration.                |
 | `VITE_WALLET_SERVICE_PATH`              | Pages build  | Wallet service path; defaults to `/wallet-service` when unset.               |
 | `VITE_SDK_BASE_PATH`                    | Pages build  | SDK asset path; defaults to `/sdk` when unset.                               |
@@ -74,8 +74,8 @@ It deploys branch alias `dev` for staging and `main` for production.
 
 The workflow copies SDK runtime assets into the Pages output:
 
-- `sdk/dist/esm/sdk/*` -> `examples/tatchi-site/dist/sdk/*`
-- `sdk/dist/workers/*` -> `examples/tatchi-site/dist/sdk/workers/*`
+- `sdk/dist/esm/sdk/*` -> `examples/seams-site/dist/sdk/*`
+- `sdk/dist/workers/*` -> `examples/seams-site/dist/sdk/workers/*`
 
 That means Pages serves the same runtime assets at `/sdk/*` that were built
 for the commit being deployed.

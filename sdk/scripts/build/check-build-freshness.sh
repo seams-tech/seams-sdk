@@ -59,7 +59,7 @@ for required in \
     "$BUILD_WORKERS/$WORKER_EMAIL_OTP_RUNTIME_WASM" \
     "$BUILD_WORKERS/near_signer.wasm" \
     "$BUILD_ESM/index.js" \
-    "$BUILD_ESM/core/TatchiPasskey/index.js" \
+    "$BUILD_ESM/core/SeamsPasskey/index.js" \
     "$BUILD_ESM/react/index.js" \
     "$BUILD_ESM/react/styles/styles.css"; do
     if [ ! -f "$required" ]; then

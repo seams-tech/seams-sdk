@@ -10,13 +10,13 @@ import { Theme, useTheme } from './theme';
  * This component provides a complete QR code scanning interface for device linking.
  * It supports both camera-based scanning and file upload scanning.
  *
- * **Important:** This component should be used inside a TatchiPasskey context.
- * Wrap your app with PasskeyProvider (useTatchi available) for full functionality.
+ * **Important:** This component should be used inside a SeamsPasskey context.
+ * Wrap your app with PasskeyProvider (useSeams available) for full functionality.
  *
  * @example
  * ```tsx
- * import { PasskeyProvider } from '@tatchi-xyz/sdk/react';
- * import { QRCodeScanner } from '@tatchi-xyz/sdk/react';
+ * import { PasskeyProvider } from '@seams/sdk/react';
+ * import { QRCodeScanner } from '@seams/sdk/react';
  *
  * function App() {
  *   return (

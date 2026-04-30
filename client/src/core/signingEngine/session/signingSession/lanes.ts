@@ -1,5 +1,5 @@
 import type { AccountId } from '@/core/types/accountIds';
-import type { SigningSessionRetention } from '@/core/types/tatchi';
+import type { SigningSessionRetention } from '@/core/types/seams';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
