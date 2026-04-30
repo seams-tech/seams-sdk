@@ -322,6 +322,7 @@ type EmailOtpWorkerRequest =
       payload: {
         sessionId: string;
         uses?: number;
+        consume?: boolean;
       };
     }
   | {
@@ -863,6 +864,7 @@ function putEmailOtpWarmSessionMaterial(args: {
 function claimEmailOtpWarmSessionMaterial(args: {
   sessionId: string;
   uses?: number;
+  consume?: boolean;
 }): EmailOtpWarmSessionClaimResult {
   const sessionId = String(args.sessionId || '').trim();
   const status = readEmailOtpWarmSessionStatus(sessionId);
@@ -884,13 +886,18 @@ function claimEmailOtpWarmSessionMaterial(args: {
     };
   }
   const prfFirstB64u = base64UrlEncode(entry.clientRootShare32);
-  entry.remainingUses -= uses;
+  const consume = args.consume !== false;
+  if (consume) {
+    entry.remainingUses -= uses;
+  }
   const remainingUses = entry.remainingUses;
   const expiresAtMs = entry.expiresAtMs;
-  if (remainingUses <= 0) {
-    deleteEmailOtpWarmSession(sessionId);
-  } else {
-    emailOtpWarmSessions.set(sessionId, entry);
+  if (consume) {
+    if (remainingUses <= 0) {
+      deleteEmailOtpWarmSession(sessionId);
+    } else {
+      emailOtpWarmSessions.set(sessionId, entry);
+    }
   }
   return {
     ok: true,
@@ -3148,6 +3155,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           result: claimEmailOtpWarmSessionMaterial({
             sessionId: readString(msg.payload.sessionId, 'sessionId'),
             uses: msg.payload.uses,
+            consume: msg.payload.consume,
           }),
         });
         return;

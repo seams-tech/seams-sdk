@@ -238,7 +238,7 @@ export async function bootstrapEcdsaSession(args: {
       args.runtimeScopeBootstrap?.publishableKey || '',
     ).trim();
     const managedBootstrapGrant =
-      !args.runtimePolicyScope && runtimeEnvironmentId && runtimeScopePublishableKey
+      !useAuthorizationBootstrap && !args.runtimePolicyScope && runtimeEnvironmentId && runtimeScopePublishableKey
         ? await requestManagedRegistrationBootstrapGrant({
             relayerUrl: args.relayerUrl,
             environmentId: runtimeEnvironmentId,
@@ -253,9 +253,10 @@ export async function bootstrapEcdsaSession(args: {
     const sessionId = requestedSessionId || generateThresholdSessionId();
     const walletSigningSessionId =
       String(args.walletSigningSessionId || '').trim() || generateWalletSigningSessionId();
-    const webauthnAuthentication = useAuthorizationBootstrap
-      ? undefined
-      : args.webauthnAuthentication || credential || undefined;
+    // Authorization bootstraps may still be driven by a fresh WebAuthn proof
+    // during passkey reauth. Preserve that proof so the server can refresh the
+    // wallet signing-session budget for the newly minted threshold material.
+    const webauthnAuthentication = args.webauthnAuthentication || credential || undefined;
     const routeAuth: ThresholdEcdsaHssRouteAuth | undefined = useAuthorizationBootstrap
       ? args.bootstrapAuth
       : managedBootstrapGrant?.token

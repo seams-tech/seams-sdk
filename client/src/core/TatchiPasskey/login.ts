@@ -17,7 +17,11 @@ import type {
 import type { PasskeyManagerContext } from './index';
 import type { AccountId } from '../types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '../types';
-import { getUserFriendlyErrorMessage, isUserCancellationError, toError } from '@shared/utils/errors';
+import {
+  getUserFriendlyErrorMessage,
+  isUserCancellationError,
+  toError,
+} from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { isObject } from '@shared/utils/validation';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
@@ -46,6 +50,11 @@ import {
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarmSessionBootstrap';
+import type {
+  SigningSessionSnapshot,
+  SigningSessionSnapshotEcdsaLane,
+  SigningSessionSnapshotEd25519Lane,
+} from '../signingEngine/session/snapshotReader';
 
 type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
 
@@ -163,9 +172,7 @@ export async function unlock(
 
     const baseSignerSlot =
       signerSlotHint ??
-      (Number.isFinite(userData.signerSlot) && userData.signerSlot >= 1
-        ? userData.signerSlot
-        : 1);
+      (Number.isFinite(userData.signerSlot) && userData.signerSlot >= 1 ? userData.signerSlot : 1);
 
     const signingSessionPolicy = (() => {
       const ttlMsRaw =
@@ -911,7 +918,7 @@ export async function getWalletSession(
   });
   const login = await getLoginStateInternal(context, nearAccountId);
   const signingSession = login?.nearAccountId
-    ? await resolveWarmSigningSessionStatusForUi(context, login.nearAccountId).catch(() => null)
+    ? await resolveSigningSessionStatusForUi(context, login.nearAccountId).catch(() => null)
     : null;
   const authMethod: WalletAuthMethod | null =
     signingSession?.authMethod ||
@@ -944,11 +951,9 @@ function readWalletSessionNonceDiagnostics(
   }
 }
 
-const THRESHOLD_ECDSA_LOGIN_METADATA_CHAINS: ReadonlyArray<'tempo' | 'evm'> = [
-  'tempo',
-  'evm',
-];
+const THRESHOLD_ECDSA_LOGIN_METADATA_CHAINS: ReadonlyArray<'tempo' | 'evm'> = ['tempo', 'evm'];
 const walletSessionInitRestoreByAccount = new Map<string, Promise<void>>();
+const walletSessionInitRestoreGenerationByAccount = new Map<string, number>();
 
 async function restorePersistedSessionsForWalletSessionInit(
   context: PasskeyManagerContext,
@@ -956,37 +961,61 @@ async function restorePersistedSessionsForWalletSessionInit(
 ): Promise<void> {
   const accountId = String(nearAccountId || '').trim();
   if (!accountId) return;
+  const signingEngine = context.signingEngine as typeof context.signingEngine & {
+    restorePersistedSessionsForAccount?: typeof context.signingEngine.restorePersistedSessionsForAccount;
+    readPersistedSigningSessionSnapshot?: typeof context.signingEngine.readPersistedSigningSessionSnapshot;
+  };
+  if (
+    typeof signingEngine.restorePersistedSessionsForAccount !== 'function' ||
+    typeof signingEngine.readPersistedSigningSessionSnapshot !== 'function'
+  ) {
+    return;
+  }
+  const snapshotGeneration = Math.max(
+    0,
+    Math.floor(
+      Number(
+        (
+          await signingEngine
+            .readPersistedSigningSessionSnapshot({
+              walletId: accountId,
+            })
+            .catch(() => null)
+        )?.generation,
+      ) || 0,
+    ),
+  );
+  const restoredGeneration = walletSessionInitRestoreGenerationByAccount.get(accountId);
+  if (restoredGeneration === snapshotGeneration) return;
   const existing = walletSessionInitRestoreByAccount.get(accountId);
   if (existing) {
     await existing;
     return;
   }
   const restorePromise = (async () => {
-    const signingEngine = context.signingEngine as typeof context.signingEngine & {
-      restorePersistedSessionsForAccount?: typeof context.signingEngine.restorePersistedSessionsForAccount;
-      readPersistedSigningSessionSnapshot?: typeof context.signingEngine.readPersistedSigningSessionSnapshot;
-    };
-    if (
-      typeof signingEngine.restorePersistedSessionsForAccount !== 'function' ||
-      typeof signingEngine.readPersistedSigningSessionSnapshot !== 'function'
-    ) {
-      return;
-    }
     // Startup/session polling is a command boundary: restore durable material once,
     // then consume the side-effect-free snapshot path before status readers run.
     await signingEngine.restorePersistedSessionsForAccount({
       walletId: accountId,
       maxRecords: 12,
     });
-    await signingEngine.readPersistedSigningSessionSnapshot({
+    const restoredSnapshot = await signingEngine.readPersistedSigningSessionSnapshot({
       walletId: accountId,
     });
-  })().catch((error: unknown) => {
-    console.warn('[WalletSession] persisted signing-session init restore failed', {
+    walletSessionInitRestoreGenerationByAccount.set(
       accountId,
-      error: error instanceof Error ? error.message : String(error || 'unknown error'),
+      Math.max(0, Math.floor(Number(restoredSnapshot.generation) || 0)),
+    );
+  })()
+    .catch((error: unknown) => {
+      console.warn('[WalletSession] persisted signing-session init restore failed', {
+        accountId,
+        error: error instanceof Error ? error.message : String(error || 'unknown error'),
+      });
+    })
+    .finally(() => {
+      walletSessionInitRestoreByAccount.delete(accountId);
     });
-  });
   walletSessionInitRestoreByAccount.set(accountId, restorePromise);
   await restorePromise;
 }
@@ -1245,10 +1274,21 @@ async function resolveWarmSigningSessionStatusForUi(
         ).flat()
       : [];
 
-  const statuses = [ed25519, ...ecdsaStatuses].filter(
-    (status): status is SigningSessionStatus => Boolean(status),
+  const statuses = [ed25519, ...ecdsaStatuses].filter((status): status is SigningSessionStatus =>
+    Boolean(status),
   );
-  const active = statuses
+  return selectSigningSessionStatusForUi(statuses);
+}
+
+type SigningSessionSnapshotLane =
+  | SigningSessionSnapshotEd25519Lane
+  | SigningSessionSnapshotEcdsaLane;
+
+function selectSigningSessionStatusForUi(
+  statuses: readonly (SigningSessionStatus | null | undefined)[],
+): SigningSessionStatus | null {
+  const candidates = statuses.filter((status): status is SigningSessionStatus => Boolean(status));
+  const active = candidates
     .filter((status) => status.status === 'active')
     .sort((left, right) => {
       const leftUses = Math.floor(Number(left.remainingUses) || 0);
@@ -1257,7 +1297,99 @@ async function resolveWarmSigningSessionStatusForUi(
       return Math.floor(Number(left.expiresAtMs) || 0) - Math.floor(Number(right.expiresAtMs) || 0);
     })[0];
   if (active) return active;
-  return statuses.find((status) => status.status !== 'not_found') || statuses[0] || null;
+  return candidates.find((status) => status.status !== 'not_found') || candidates[0] || null;
+}
+
+function snapshotLaneToSigningSessionStatus(
+  lane: SigningSessionSnapshotLane,
+): SigningSessionStatus | null {
+  const sessionId = String(lane.thresholdSessionId || '').trim();
+  if (!sessionId) return null;
+  if (
+    lane.state !== 'ready' &&
+    lane.state !== 'restorable' &&
+    lane.state !== 'expired' &&
+    lane.state !== 'exhausted'
+  ) {
+    return null;
+  }
+  const remainingUses = Math.floor(Number(lane.remainingUses ?? lane.policyHint?.remainingUses));
+  const expiresAtMs = Math.floor(Number(lane.expiresAtMs ?? lane.policyHint?.expiresAtMs));
+  if (lane.state === 'restorable') {
+    if (Number.isFinite(remainingUses) && remainingUses <= 0) return null;
+    if (Number.isFinite(expiresAtMs) && expiresAtMs > 0 && Date.now() >= expiresAtMs) return null;
+  }
+  const status: SigningSessionStatus = {
+    sessionId,
+    status:
+      lane.state === 'ready' || lane.state === 'restorable'
+        ? 'active'
+        : lane.state === 'expired'
+          ? 'expired'
+          : 'exhausted',
+    ...(lane.authMethod ? { authMethod: lane.authMethod } : {}),
+  };
+  if (Number.isFinite(remainingUses) && remainingUses >= 0) {
+    status.remainingUses = remainingUses;
+  }
+  if (Number.isFinite(expiresAtMs) && expiresAtMs > 0) {
+    status.expiresAtMs = expiresAtMs;
+  }
+  return status;
+}
+
+function snapshotToSigningSessionStatusForUi(
+  snapshot: SigningSessionSnapshot | null,
+): SigningSessionStatus | null {
+  if (!snapshot) return null;
+  return selectSigningSessionStatusForUi([
+    snapshotLaneToSigningSessionStatus(snapshot.lanes.ed25519.near),
+    snapshotLaneToSigningSessionStatus(snapshot.lanes.ecdsa.tempo),
+    snapshotLaneToSigningSessionStatus(snapshot.lanes.ecdsa.evm),
+  ]);
+}
+
+async function readSigningSessionSnapshotForUi(
+  context: PasskeyManagerContext,
+  nearAccountId: AccountId,
+): Promise<SigningSessionSnapshot | null> {
+  const signingEngine = context.signingEngine as typeof context.signingEngine & {
+    readPersistedSigningSessionSnapshot?: typeof context.signingEngine.readPersistedSigningSessionSnapshot;
+  };
+  if (typeof signingEngine.readPersistedSigningSessionSnapshot !== 'function') {
+    return null;
+  }
+  return await signingEngine.readPersistedSigningSessionSnapshot({
+    walletId: nearAccountId,
+  });
+}
+
+async function resolveSnapshotSigningSessionStatusForUi(
+  context: PasskeyManagerContext,
+  nearAccountId: AccountId,
+): Promise<SigningSessionStatus | null> {
+  return snapshotToSigningSessionStatusForUi(
+    await readSigningSessionSnapshotForUi(context, nearAccountId),
+  );
+}
+
+async function resolveSigningSessionStatusForUi(
+  context: PasskeyManagerContext,
+  nearAccountId: AccountId,
+  hints?: {
+    ed25519?: SigningSessionStatus | null;
+    snapshot?: SigningSessionStatus | null;
+  },
+): Promise<SigningSessionStatus | null> {
+  const [warmStatus, snapshotStatus] = await Promise.all([
+    resolveWarmSigningSessionStatusForUi(context, nearAccountId, hints).catch(() => null),
+    hints && 'snapshot' in hints
+      ? Promise.resolve(hints.snapshot || null)
+      : resolveSnapshotSigningSessionStatusForUi(context, nearAccountId).catch(() => null),
+  ]);
+  // The snapshot is the side-effect-free public read model after restore; warm
+  // status remains useful as a runtime fallback while the refactor finishes.
+  return selectSigningSessionStatusForUi([snapshotStatus, warmStatus]);
 }
 
 async function getLoginStateInternal(
@@ -1294,12 +1426,13 @@ async function getLoginStateInternal(
             () => null,
           );
     const userData =
-      (lastUser && lastUser.nearAccountId === targetAccountId
-        ? lastUser
-        : latestByAccount) ||
+      (lastUser && lastUser.nearAccountId === targetAccountId ? lastUser : latestByAccount) ||
       (await signingEngine.getUserBySignerSlot(targetAccountId, 1).catch(() => null));
     const resolvedNearAccountId = targetAccountId;
-    const thresholdMetadata = await resolveThresholdEcdsaLoginMetadata(context, resolvedNearAccountId);
+    const thresholdMetadata = await resolveThresholdEcdsaLoginMetadata(
+      context,
+      resolvedNearAccountId,
+    );
     const requiresWarmSession = shouldRequireThresholdWarmSession(context);
     const thresholdSignerMode = isThresholdSignerMode(context);
     const hasThresholdEcdsaLogin = !!(
@@ -1308,13 +1441,18 @@ async function getLoginStateInternal(
     const ed25519WarmStatus = await signingEngine
       .getWarmThresholdEd25519SessionStatus(resolvedNearAccountId)
       .catch(() => null);
-    const hasThresholdEd25519SessionRecord = !!getStoredThresholdEd25519SessionRecordForAccount(
+    const snapshotStatusForLogin = await resolveSnapshotSigningSessionStatusForUi(
+      context,
       resolvedNearAccountId,
-    );
+    ).catch(() => null);
+    const hasThresholdEd25519SessionRecord =
+      !!getStoredThresholdEd25519SessionRecordForAccount(resolvedNearAccountId);
     const shouldGateNearPublicKey =
       requiresWarmSession || thresholdSignerMode || hasThresholdEcdsaLogin;
     const hasThresholdEd25519SigningCapability =
-      ed25519WarmStatus?.status === 'active' || hasThresholdEd25519SessionRecord;
+      ed25519WarmStatus?.status === 'active' ||
+      snapshotStatusForLogin?.status === 'active' ||
+      hasThresholdEd25519SessionRecord;
     const publicKey =
       userData?.operationalPublicKey &&
       (!shouldGateNearPublicKey || hasThresholdEd25519SigningCapability)
@@ -1324,8 +1462,9 @@ async function getLoginStateInternal(
     const shouldResolveWarmStatusForLogin =
       requiresWarmSession || thresholdSignerMode || hasThresholdEcdsaLogin || !publicKey;
     const warmStatusForLogin = shouldResolveWarmStatusForLogin
-      ? await resolveWarmSigningSessionStatusForUi(context, resolvedNearAccountId, {
+      ? await resolveSigningSessionStatusForUi(context, resolvedNearAccountId, {
           ed25519: ed25519WarmStatus,
+          snapshot: snapshotStatusForLogin,
         }).catch(() => null)
       : null;
     const hasActiveWarmSigningSession = warmStatusForLogin?.status === 'active';
@@ -1335,8 +1474,9 @@ async function getLoginStateInternal(
     if (isLoggedIn && (requiresWarmSession || !hasNearOperationalLogin)) {
       const warmStatus =
         warmStatusForLogin ||
-        (await resolveWarmSigningSessionStatusForUi(context, resolvedNearAccountId, {
+        (await resolveSigningSessionStatusForUi(context, resolvedNearAccountId, {
           ed25519: ed25519WarmStatus,
+          snapshot: snapshotStatusForLogin,
         }));
       if (!warmStatus || warmStatus.status !== 'active') {
         return {

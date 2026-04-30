@@ -14,26 +14,25 @@ import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EmailOtpAuthLane } from '../../emailOtp/authLane';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../touchConfirm';
-import {
+import type {
   SigningSessionCoordinator,
-  type SigningSessionReadiness,
+  SigningSessionReadiness,
 } from '../../session/SigningSessionCoordinator';
 import { resolveEmailOtpEcdsaWorkerSessionId } from '../../session/signingSession/readiness';
 import {
   createSigningBoundaryTraceEvent,
   emitSigningBoundaryTrace,
-  emitSigningPlannerDecisionTrace,
 } from '../../session/signingSession/trace';
 import type { SigningLaneContext, SigningSessionPlan } from '../../session/signingSession/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/signingSession/types';
+import type { SigningSessionPreparedBudgetIdentity } from '../../session/signingSession/budget';
+import type { PreparedThresholdSigningOperation } from '../../session/signingSession/preparedOperation';
 import { signingAuthPlanFromSigningSessionPlan } from '../../orchestration/shared/touchConfirmSigning';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
 import {
   emailOtpEcdsaAuthLaneFromRecord,
   isEmailOtpThresholdEcdsaSigningContext,
-  readSelectedEcdsaRecordForLane,
   type EvmFamilyEcdsaSessionReaderDeps,
-  type EvmFamilyEcdsaAuthMethod,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import { emitEvmFamilySigningEvent } from './events';
@@ -46,7 +45,7 @@ import type {
 export type EvmFamilyPreConfirmSigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
   touchConfirm: WarmSessionStatusReader;
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-  signingSessionCoordinator?: SigningSessionCoordinator;
+  signingSessionCoordinator: SigningSessionCoordinator;
 };
 export type EvmFamilyWarmSessionReadinessDeps = EvmFamilyPreConfirmSigningDeps;
 
@@ -88,22 +87,17 @@ type ResolveEvmFamilyTransactionWalletAuthBaseArgs = {
 export type ResolveEvmFamilyTransactionWalletAuthArgs =
   | (ResolveEvmFamilyTransactionWalletAuthBaseArgs & {
       senderSignatureAlgorithm: 'secp256k1';
-      ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
-      ecdsaAuthMethod: EvmFamilyEcdsaAuthMethod;
-      ecdsaWarmRecord?: ThresholdEcdsaSessionRecord;
-      ecdsaWarmKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-      emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
+      preparedOperation: PreparedThresholdSigningOperation<
+        ResolvedEvmFamilyEcdsaSigningLane,
+        Record<string, unknown>
+      >;
     })
   | (ResolveEvmFamilyTransactionWalletAuthBaseArgs & {
       senderSignatureAlgorithm: Exclude<EvmFamilySenderSignatureAlgorithm, 'secp256k1'>;
-      ecdsaSigningLane?: never;
-      ecdsaAuthMethod?: never;
-      ecdsaWarmRecord?: never;
-      ecdsaWarmKeyRef?: never;
-      emailOtpReauthRecord?: never;
+      preparedOperation?: never;
     });
 
-async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
+export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
   deps: Pick<EvmFamilyPreConfirmSigningDeps, 'touchConfirm' | 'getEmailOtpWarmSessionStatus'>;
   lane: SigningLaneContext;
   record?: ThresholdEcdsaSessionRecord;
@@ -178,24 +172,31 @@ export async function resolveEvmFamilyTransactionWalletAuth(
 ): Promise<{
   signingAuthPlan: SigningAuthPlan;
   signingSessionPlan?: SigningSessionPlan;
+  budgetIdentity?: SigningSessionPreparedBudgetIdentity;
   emailOtpSigning?: {
     prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
     complete: (otpCode: string, challengeId?: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   };
 }> {
-  const laneWarmRecord = args.ecdsaWarmRecord;
-  const laneWarmKeyRef = args.ecdsaWarmKeyRef;
+  const preparedEcdsaMetadata =
+    args.senderSignatureAlgorithm === 'secp256k1'
+      ? (args.preparedOperation.metadata as {
+          warmRecord?: ThresholdEcdsaSessionRecord;
+          warmKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+          emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
+          signingRootId?: string;
+        })
+      : null;
+  const preparedEcdsaLane =
+    args.senderSignatureAlgorithm === 'secp256k1' ? args.preparedOperation.lane : undefined;
+  const laneWarmRecord = preparedEcdsaMetadata?.warmRecord;
+  const laneWarmKeyRef = preparedEcdsaMetadata?.warmKeyRef;
   const confirmedEmailOtpDeps = args.confirmedDeps;
   const emailOtpReauthRecord =
     args.senderSignatureAlgorithm === 'secp256k1' &&
-    args.ecdsaSigningLane.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? args.emailOtpReauthRecord ||
-        args.ecdsaWarmRecord ||
-        readSelectedEcdsaRecordForLane({
-          deps: args.deps,
-          lane: args.ecdsaSigningLane,
-        })
+    preparedEcdsaLane?.authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? preparedEcdsaMetadata?.emailOtpReauthRecord || preparedEcdsaMetadata?.warmRecord
       : undefined;
   const passkeyAuthAdapter = createPasskeyWalletAuthAdapter({
     challenge: async () => ({}),
@@ -219,7 +220,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(
         'evm-family',
         createSigningBoundaryTraceEvent({
           event: 'auth_side_effect_started',
-          lane: args.senderSignatureAlgorithm === 'secp256k1' ? args.ecdsaSigningLane : undefined,
+          lane: preparedEcdsaLane,
           sideEffect: 'email_otp_challenge',
           phase: 'confirmed',
         }),
@@ -310,38 +311,11 @@ export async function resolveEvmFamilyTransactionWalletAuth(
     ReturnType<typeof emailOtpAuthAdapter.createEmailOtpReauthPlan>
   > | null = null;
   let plannedSigningSessionPlan: SigningSessionPlan | undefined;
+  let plannedBudgetIdentity: SigningSessionPreparedBudgetIdentity | undefined;
   if (args.senderSignatureAlgorithm === 'secp256k1') {
-    const ecdsaSigningLane = args.ecdsaSigningLane;
-    const readiness = await resolveEvmFamilyEcdsaPlannerReadiness({
-      deps: args.deps,
-      lane: ecdsaSigningLane,
-      ...(laneWarmRecord ? { record: laneWarmRecord } : {}),
-      ...(laneWarmKeyRef ? { keyRef: laneWarmKeyRef } : {}),
-    });
-    emitSigningBoundaryTrace(
-      'evm-family',
-      createSigningBoundaryTraceEvent({
-        event: 'pre_confirm_readiness_checked',
-        lane: ecdsaSigningLane,
-        readinessStatus: readiness.readiness.status,
-        phase: 'pre_confirm',
-      }),
-    );
-    const coordinatorInput = {
-      lane: ecdsaSigningLane,
-      readiness: readiness.readiness,
-      expiresAtMs: readiness.expiresAtMs,
-      remainingUses: readiness.remainingUses,
-      forceFreshAuth: args.forceFreshAuth,
-      missingWhenExpiresAtMissing: true,
-    };
-    const signingSessionCoordinator =
-      args.deps.signingSessionCoordinator || new SigningSessionCoordinator();
-    const resolvedSigningSession = await signingSessionCoordinator.resolveAuthPlanFromReadiness(
-      coordinatorInput,
-      (event) => emitSigningPlannerDecisionTrace('evm-family', event),
-    );
-    const signingSessionPlan = resolvedSigningSession.signingSessionPlan;
+    const preparedOperation = args.preparedOperation;
+    const signingSessionPlan = preparedOperation.signingSessionPlan;
+    plannedBudgetIdentity = preparedOperation.budgetIdentity;
     plannedSigningSessionPlan = signingSessionPlan;
     if (signingSessionPlan.kind === SigningSessionPlanKind.WarmSession) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
@@ -349,9 +323,11 @@ export async function resolveEvmFamilyTransactionWalletAuth(
         accountId: authInput.accountId,
         intent: SigningOperationIntent.TransactionSign,
         ...(authInput.curve ? { curve: authInput.curve } : {}),
-        ...(readiness.signingRootId ? { signingRootId: readiness.signingRootId } : {}),
-        expiresAtMs: resolvedSigningSession.expiresAtMs,
-        remainingUses: resolvedSigningSession.remainingUses,
+        ...(preparedOperation.metadata.signingRootId
+          ? { signingRootId: String(preparedOperation.metadata.signingRootId) }
+          : {}),
+        expiresAtMs: preparedOperation.expiresAtMs,
+        remainingUses: preparedOperation.remainingUses,
       });
     } else if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
@@ -382,6 +358,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(
     return {
       signingAuthPlan,
       ...(plannedSigningSessionPlan ? { signingSessionPlan: plannedSigningSessionPlan } : {}),
+      ...(plannedBudgetIdentity ? { budgetIdentity: plannedBudgetIdentity } : {}),
     };
   }
 
@@ -397,6 +374,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(
   return {
     signingAuthPlan,
     ...(plannedSigningSessionPlan ? { signingSessionPlan: plannedSigningSessionPlan } : {}),
+    ...(plannedBudgetIdentity ? { budgetIdentity: plannedBudgetIdentity } : {}),
     emailOtpSigning: {
       prepare: prepareChallenge,
       resend: async () => {

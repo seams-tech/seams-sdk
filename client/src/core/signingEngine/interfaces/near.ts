@@ -14,12 +14,17 @@ import type { SigningAuthPlan } from '../touchConfirm/shared/confirmTypes';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
+import type { SigningSessionPreparedBudgetIdentity } from '../session/signingSession/budget';
 import type { SigningLaneContext, SigningOperationId } from '../session/signingSession/types';
+import type { ThresholdEd25519SessionRecord } from '../api/thresholdLifecycle/thresholdSessionStore';
 
 export type NearEmailOtpSigningHook = {
   prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
   resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
-  complete: (otpCode: string, challengeId?: string) => Promise<{ sessionId: string }>;
+  complete: (
+    otpCode: string,
+    challengeId?: string,
+  ) => Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }>;
 };
 
 export type NearEd25519WarmupHook = {
@@ -38,8 +43,20 @@ export type NearPasskeyEd25519ReconnectHook = {
     usesNeeded: number;
     sessionId?: string;
     walletSigningSessionId?: string;
-  }) => Promise<{ sessionId: string }>;
+  }) => Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }>;
 };
+
+export type NearSigningSessionFinalizationHook = {
+  recordSuccess: (args?: { alreadyConsumedThresholdSessionIds?: string[] }) => Promise<void>;
+  recordZeroSpend: (error: unknown) => Promise<void> | void;
+};
+
+export type NearPreparedSigningSessionFinalizer = (args: {
+  status: 'success' | 'zero_spend';
+  hooks: NearSigningSessionFinalizationHook;
+  result?: unknown;
+  error?: unknown;
+}) => Promise<void>;
 
 export type NearTransactionsWithActionsPayload = {
   ctx: SigningRuntimeDeps;
@@ -53,7 +70,9 @@ export type NearTransactionsWithActionsPayload = {
   signerSlot?: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
   signingOperationId?: SigningOperationId;
-  signingSessionCoordinator?: SigningSessionCoordinator;
+  signingSessionCoordinator: SigningSessionCoordinator;
+  budgetIdentity?: SigningSessionPreparedBudgetIdentity;
+  finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
   signingAuthPlan?: SigningAuthPlan;

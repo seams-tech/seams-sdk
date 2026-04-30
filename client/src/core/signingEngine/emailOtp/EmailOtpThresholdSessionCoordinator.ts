@@ -31,6 +31,7 @@ import {
   type RestorePersistedSessionsForAccountResult,
   type RestorePersistedSessionForSigningInput,
   type RestorePersistedSessionForSigningResult,
+  type RestorePersistedSessionPurpose,
   type RestoreSealedRecordForAccountResult,
 } from '@/core/signingEngine/session/restoreCoordinator';
 import {
@@ -42,6 +43,7 @@ import {
   type SigningSessionSnapshotRuntimeEd25519Record,
   type SigningSessionSnapshotRuntimeEcdsaRecord,
 } from '@/core/signingEngine/session/snapshotReader';
+import { resolveEmailOtpEcdsaWorkerSessionId } from '@/core/signingEngine/session/signingSession/readiness';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/session/sessionPolicy';
 import {
   buildEd25519SessionPolicy,
@@ -150,6 +152,7 @@ export type EmailOtpThresholdEcdsaRehydrateResult = {
   warmCapability: WarmSessionEcdsaCapabilityState;
   remainingUses: number;
   expiresAtMs: number;
+  ed25519RestoreSeedB64u?: string;
 };
 
 export type EmailOtpThresholdEd25519ProvisioningResult = {
@@ -301,6 +304,7 @@ export type EmailOtpThresholdSessionCoordinatorDeps = {
     expiresAtMs: number;
     remainingUses: number;
     jwt: string;
+    xClientBaseB64u?: string;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
     source: 'email_otp';
   }) => unknown | Promise<unknown>;
@@ -365,17 +369,19 @@ export class EmailOtpThresholdSessionCoordinator {
   private async cleanupSigningSession(args: {
     sessionId: string;
     chain?: ThresholdEcdsaActivationChain;
-    reason:
-      | 'explicit_clear'
-      | 'expired'
-      | 'exhausted'
-      | 'invalid_persisted_record';
+    reason: 'explicit_clear' | 'expired' | 'exhausted' | 'invalid_persisted_record';
   }): Promise<void> {
     const sessionId = String(args.sessionId || '').trim();
     if (!sessionId) return;
     const filter = this.resolveEmailOtpEcdsaSealedRecordFilter(sessionId, args.chain);
     if (filter) {
-      await deleteExactSealedSession(sessionId, filter).catch(() => undefined);
+      // Expiry/exhaustion deletes the durable refresh seal, not the active-tab
+      // lane identity. The next signing command still needs that identity to
+      // select the exact lane and prompt OTP reauth.
+      const preserveResolvedIdentity = args.reason === 'expired' || args.reason === 'exhausted';
+      await deleteExactSealedSession(sessionId, filter, {
+        deleteResolvedIdentity: !preserveResolvedIdentity,
+      }).catch(() => undefined);
     }
     this.clearEcdsaRestoreCaches();
   }
@@ -672,8 +678,7 @@ export class EmailOtpThresholdSessionCoordinator {
       return { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
     }
     const listRecords =
-      this.deps.listExactSealedSessionsForAccount ||
-      listExactSealedSessionsForAccount;
+      this.deps.listExactSealedSessionsForAccount || listExactSealedSessionsForAccount;
 
     const result = await restorePersistedSessionsForAccountCommand(
       {
@@ -687,7 +692,7 @@ export class EmailOtpThresholdSessionCoordinator {
             filter,
           }),
         restoreSealedRecordForAccount: (restoreArgs) =>
-          this.restoreEcdsaSealedRecordForAccount(restoreArgs),
+          this.restoreEmailOtpSealedRecordForAccount(restoreArgs),
         cache: this.ecdsaSigningRestoreCache,
         onListError: ({ accountId: failedAccountId, error }) => {
           console.warn('[EmailOtpSession] account-scoped sealed ECDSA restore list failed', {
@@ -717,8 +722,7 @@ export class EmailOtpThresholdSessionCoordinator {
     const accountId = String(toAccountId(args.walletId) || '').trim();
     if (!accountId) return { attempted: 0, restored: 0, deferred: 0 };
     const listRecords =
-      this.deps.listExactSealedSessionsForAccount ||
-      listExactSealedSessionsForAccount;
+      this.deps.listExactSealedSessionsForAccount || listExactSealedSessionsForAccount;
 
     return await restorePersistedSessionForSigningCommand(
       {
@@ -727,7 +731,7 @@ export class EmailOtpThresholdSessionCoordinator {
       },
       {
         listExactSealedSessionsForAccount: ({ walletId: recordAccountId, ...filter }) => {
-          if (filter.curve === 'ecdsa' && (filter.chain !== 'tempo' && filter.chain !== 'evm')) {
+          if (filter.curve === 'ecdsa' && filter.chain !== 'tempo' && filter.chain !== 'evm') {
             return Promise.resolve([]);
           }
           return listRecords({
@@ -739,7 +743,7 @@ export class EmailOtpThresholdSessionCoordinator {
           });
         },
         restoreSealedRecordForAccount: (restoreArgs) =>
-          this.restoreEcdsaSealedRecordForAccount(restoreArgs),
+          this.restoreEmailOtpSealedRecordForAccount(restoreArgs),
         cache: this.ecdsaSigningRestoreCache,
         onListError: ({ accountId: failedAccountId, chain, reason, error }) => {
           console.warn('[EmailOtpSession] signing-intent sealed ECDSA restore list failed', {
@@ -759,8 +763,7 @@ export class EmailOtpThresholdSessionCoordinator {
     const accountId = String(toAccountId(args.walletId) || '').trim();
     const listRecords =
       this.deps.configs.signing.sessionPersistenceMode === 'sealed_refresh_v1'
-        ? this.deps.listExactSealedSessionsForAccount ||
-          listExactSealedSessionsForAccount
+        ? this.deps.listExactSealedSessionsForAccount || listExactSealedSessionsForAccount
         : async () => [];
 
     return await readSigningSessionSnapshot(
@@ -816,29 +819,40 @@ export class EmailOtpThresholdSessionCoordinator {
           return runtimeRecords;
         },
         listRuntimeEd25519RecordsForAccount: async ({ accountId: recordAccountId }) => {
-          const identity = listResolvedIdentitiesForAccount({
+          const records: SigningSessionSnapshotRuntimeEd25519Record[] = [];
+          const seen = new Set<string>();
+          const pushRecord = (record: SigningSessionSnapshotRuntimeEd25519Record) => {
+            const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+            if (!thresholdSessionId || seen.has(thresholdSessionId)) return;
+            seen.add(thresholdSessionId);
+            records.push(record);
+          };
+          const identities = listResolvedIdentitiesForAccount({
             walletId: recordAccountId,
-            authMethod: 'email_otp',
             curve: 'ed25519',
-          })[0];
-          if (identity) {
-            return [
-              {
-                authMethod: 'email_otp',
-                curve: 'ed25519',
-                chain: 'near',
-                thresholdSessionId: identity.thresholdSessionId,
-                walletSigningSessionId: identity.walletSigningSessionId,
-              },
-            ];
+          });
+          for (const identity of identities) {
+            pushRecord({
+              authMethod: identity.authMethod,
+              curve: 'ed25519',
+              chain: 'near',
+              thresholdSessionId: identity.thresholdSessionId,
+              walletSigningSessionId: identity.walletSigningSessionId,
+            });
           }
-          return [];
+          return records;
         },
         readRuntimeClaimsForSessions: async (sessionIds) => {
           const claims = new Map<string, SigningSessionSnapshotRuntimeClaim | null>();
           await Promise.all(
             sessionIds.map(async (sessionId) => {
-              const status = await this.readWarmSessionStatusOnly(sessionId);
+              const ecdsaRecord =
+                getStoredThresholdEcdsaSessionRecordByThresholdSessionId(sessionId);
+              const statusSessionId =
+                ecdsaRecord?.source === 'email_otp'
+                  ? resolveEmailOtpEcdsaWorkerSessionId(ecdsaRecord)
+                  : sessionId;
+              const status = await this.readWarmSessionStatusOnly(statusSessionId);
               claims.set(
                 sessionId,
                 warmStatusToSigningSessionSnapshotRuntimeClaim({ sessionId, status }),
@@ -851,18 +865,38 @@ export class EmailOtpThresholdSessionCoordinator {
     );
   }
 
+  private async restoreEmailOtpSealedRecordForAccount(args: {
+    accountId: string;
+    record: SigningSessionSealedStoreRecord;
+    purpose: RestorePersistedSessionPurpose;
+  }): Promise<RestoreSealedRecordForAccountResult> {
+    if (args.purpose.authMethod !== 'email_otp') return 'deferred';
+    if (args.purpose.curve === 'ed25519') {
+      return await this.restoreEd25519SealedRecordForAccount(args);
+    }
+    return await this.restoreEcdsaSealedRecordForAccount(args);
+  }
+
   private async restoreEcdsaSealedRecordForAccount(args: {
     accountId: string;
     record: SigningSessionSealedStoreRecord;
+    purpose: RestorePersistedSessionPurpose;
   }): Promise<RestoreSealedRecordForAccountResult> {
-    const thresholdSessionId = String(args.record.thresholdSessionIds.ecdsa || '').trim();
+    if (args.purpose.curve !== 'ecdsa') return 'deferred';
+    const thresholdSessionId = String(args.purpose.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return 'deferred';
+    if (args.record.authMethod !== args.purpose.authMethod) return 'deferred';
+    if (args.record.thresholdSessionIds.ecdsa !== thresholdSessionId) return 'deferred';
+    if (args.record.ecdsaRestore?.chain !== args.purpose.chain) return 'deferred';
+    if (args.record.walletSigningSessionId !== args.purpose.walletSigningSessionId) {
+      return 'deferred';
+    }
     const restoreKey = [
       args.accountId,
-      args.record.authMethod,
-      args.record.curve,
-      args.record.ecdsaRestore?.chain || 'unknown-chain',
-      args.record.walletSigningSessionId,
+      args.purpose.authMethod,
+      args.purpose.curve,
+      args.purpose.chain,
+      args.purpose.walletSigningSessionId,
       thresholdSessionId,
     ].join(':');
     if (this.ecdsaAccountSealedRestoreCompletedKeys.has(restoreKey)) return 'ready';
@@ -884,18 +918,50 @@ export class EmailOtpThresholdSessionCoordinator {
       return this.ecdsaAccountSealedRestoreCompletedKeys.has(restoreKey) ? 'ready' : 'deferred';
     }
     let restoreResult: 'restored' | 'deferred' = 'deferred';
-    const task = this.tryRestoreEcdsaWarmSessionStatusFromSealedRecord(thresholdSessionId)
-      .then((restoredStatus) => {
-        if (restoredStatus?.ok) {
-          this.ecdsaAccountSealedRestoreCompletedKeys.add(restoreKey);
-          restoreResult = 'restored';
+    const task = (async () => {
+      const sealedEd25519SessionId = String(args.record.thresholdSessionIds.ed25519 || '').trim();
+      const ed25519Record = sealedEd25519SessionId
+        ? getStoredThresholdEd25519SessionRecordByThresholdSessionId(sealedEd25519SessionId)
+        : null;
+      if (
+        sealedEd25519SessionId &&
+        (!ed25519Record ||
+          ed25519Record.source !== 'email_otp' ||
+          ed25519Record.emailOtpAuthContext?.retention !== 'session' ||
+          ed25519Record.walletSigningSessionId !== args.purpose.walletSigningSessionId)
+      ) {
+        const diagnosticKey = `exact-purpose-missing-ed25519-companion:${thresholdSessionId}:${sealedEd25519SessionId}`;
+        if (this.shouldLogSealedRefreshDiagnostic(diagnosticKey)) {
+          console.debug(
+            '[EmailOtpSession] exact-purpose ECDSA restore proceeding without Ed25519 companion',
+            {
+              thresholdSessionId,
+              sealedEd25519SessionId,
+              walletSigningSessionId: args.purpose.walletSigningSessionId,
+            },
+          );
         }
-      })
+      }
+      const restored = await this.restoreEcdsaSigningSessionMaterialFromSealedRecord({
+        sealedRecord: args.record,
+        ecdsaRecord: existing,
+        ...(ed25519Record ? { ed25519Record } : {}),
+      });
+      if (restored) {
+        await this.recordSessionMaterialRestored(thresholdSessionId, {
+          ok: true,
+          remainingUses: restored.remainingUses,
+          expiresAtMs: restored.expiresAtMs,
+        });
+        this.ecdsaAccountSealedRestoreCompletedKeys.add(restoreKey);
+        restoreResult = 'restored';
+      }
+    })()
       .catch((error) => {
         console.warn('[EmailOtpSession] account-scoped sealed ECDSA restore failed', {
           accountId: args.accountId,
           thresholdSessionId,
-          walletSigningSessionId: args.record.walletSigningSessionId,
+          walletSigningSessionId: args.purpose.walletSigningSessionId,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
       })
@@ -905,6 +971,101 @@ export class EmailOtpThresholdSessionCoordinator {
     this.ecdsaAccountSealedRestoreInFlightByKey.set(restoreKey, task);
     await task;
     return restoreResult;
+  }
+
+  private buildEd25519RecordFromSealedRestoreMetadata(args: {
+    accountId: string;
+    record: SigningSessionSealedStoreRecord;
+    purpose: RestorePersistedSessionPurpose;
+  }): ThresholdEd25519SessionRecord | null {
+    if (args.purpose.curve !== 'ed25519') return null;
+    const existing = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+      args.purpose.thresholdSessionId,
+    );
+    if (
+      existing?.source === 'email_otp' &&
+      existing.emailOtpAuthContext?.retention === 'session' &&
+      existing.walletSigningSessionId === args.purpose.walletSigningSessionId
+    ) {
+      return existing;
+    }
+    const metadata = args.record.ed25519Restore;
+    if (!metadata) return null;
+    const relayerUrl = String(args.record.relayerUrl || '').trim();
+    const signingRootId = String(args.record.signingRootId || '').trim();
+    if (!relayerUrl || !signingRootId) return null;
+    const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(metadata.runtimePolicyScope);
+    return upsertStoredThresholdEd25519SessionRecord({
+      nearAccountId: args.accountId,
+      rpId: metadata.rpId,
+      relayerUrl,
+      relayerKeyId: metadata.relayerKeyId,
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      ...(metadata.xClientBaseB64u ? { xClientBaseB64u: metadata.xClientBaseB64u } : {}),
+      participantIds: metadata.participantIds,
+      thresholdSessionKind: metadata.sessionKind,
+      thresholdSessionId: args.purpose.thresholdSessionId,
+      walletSigningSessionId: args.purpose.walletSigningSessionId,
+      ...(metadata.thresholdSessionJwt
+        ? { thresholdSessionJwt: metadata.thresholdSessionJwt }
+        : {}),
+      expiresAtMs: args.record.expiresAtMs,
+      remainingUses: args.record.remainingUses,
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
+      source: 'email_otp',
+    });
+  }
+
+  private async restoreEd25519SealedRecordForAccount(args: {
+    accountId: string;
+    record: SigningSessionSealedStoreRecord;
+    purpose: RestorePersistedSessionPurpose;
+  }): Promise<RestoreSealedRecordForAccountResult> {
+    if (args.purpose.curve !== 'ed25519') return 'deferred';
+    const ecdsaThresholdSessionId = String(args.record.thresholdSessionIds.ecdsa || '').trim();
+    if (!ecdsaThresholdSessionId) return 'deferred';
+    const ed25519Record = this.buildEd25519RecordFromSealedRestoreMetadata(args);
+    if (!ed25519Record) return 'deferred';
+    const existingStatus = await this.readWarmSessionStatusFromWorker(
+      args.purpose.thresholdSessionId,
+    ).catch(() => null);
+    if (existingStatus?.ok) return 'ready';
+    const ecdsaRecord =
+      this.deps.getThresholdEcdsaSessionRecordByThresholdSessionId?.(ecdsaThresholdSessionId) ||
+      getStoredThresholdEcdsaSessionRecordByThresholdSessionId(ecdsaThresholdSessionId);
+    const restored = await this.restoreEcdsaSigningSessionMaterialFromSealedRecord({
+      sealedRecord: args.record,
+      ecdsaRecord,
+      ed25519Record,
+    }).catch((error) => {
+      console.warn('[EmailOtpSession] exact-purpose Ed25519 sealed restore failed', {
+        accountId: args.accountId,
+        thresholdSessionId: args.purpose.thresholdSessionId,
+        ecdsaThresholdSessionId,
+        error: error instanceof Error ? error.message : String(error || 'unknown error'),
+      });
+      return null;
+    });
+    if (!restored?.ed25519RestoreSeedB64u) return 'deferred';
+    await this.recordSessionMaterialRestored(ecdsaThresholdSessionId, {
+      ok: true,
+      remainingUses: restored.remainingUses,
+      expiresAtMs: restored.expiresAtMs,
+    });
+    await this.recordSessionMaterialRestored(args.purpose.thresholdSessionId, {
+      ok: true,
+      remainingUses: restored.remainingUses,
+      expiresAtMs: restored.expiresAtMs,
+    });
+    const status = await this.readWarmSessionStatusFromWorker(
+      args.purpose.thresholdSessionId,
+    ).catch(() => null);
+    return status?.ok ? 'restored' : 'deferred';
   }
 
   private async readWarmSessionStatusFromWorker(
@@ -935,6 +1096,7 @@ export class EmailOtpThresholdSessionCoordinator {
   private async claimWarmSessionMaterialFromWorker(args: {
     sessionId: string;
     uses?: number;
+    consume?: boolean;
   }): Promise<WarmSessionClaimResult> {
     return await this.deps.signerWorkerManager.requestWorkerOperation({
       kind: 'emailOtp',
@@ -944,6 +1106,7 @@ export class EmailOtpThresholdSessionCoordinator {
         payload: {
           sessionId: args.sessionId,
           ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+          ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
         },
       },
     });
@@ -969,6 +1132,9 @@ export class EmailOtpThresholdSessionCoordinator {
   async claimWarmSessionMaterial(args: {
     sessionId: string;
     uses?: number;
+    consume?: boolean;
+    curve?: 'ed25519' | 'ecdsa';
+    chain?: 'near' | 'tempo' | 'evm';
   }): Promise<WarmSessionClaimResult> {
     const normalizedSessionId = String(args.sessionId || '').trim();
     if (!normalizedSessionId) {
@@ -978,6 +1144,7 @@ export class EmailOtpThresholdSessionCoordinator {
       const result = await this.claimWarmSessionMaterialFromWorker({
         sessionId: normalizedSessionId,
         ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+        ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
       });
       if (
         !result.ok &&
@@ -990,6 +1157,7 @@ export class EmailOtpThresholdSessionCoordinator {
           const retry = await this.claimWarmSessionMaterialFromWorker({
             sessionId: normalizedSessionId,
             ...(typeof args.uses === 'number' ? { uses: args.uses } : {}),
+            ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
           });
           await this.recordSessionMaterialClaimed(normalizedSessionId, retry);
           return retry;
@@ -1013,6 +1181,8 @@ export class EmailOtpThresholdSessionCoordinator {
   async consumeWarmSessionUses(args: {
     sessionId: string;
     uses?: number;
+    curve?: 'ed25519' | 'ecdsa';
+    chain?: 'near' | 'tempo' | 'evm';
   }): Promise<WarmSessionStatusResult> {
     const normalizedSessionId = String(args.sessionId || '').trim();
     if (!normalizedSessionId) {
@@ -1337,7 +1507,7 @@ export class EmailOtpThresholdSessionCoordinator {
       ? authLaneToRouteAuth(providedAuthLane)
       : args.routeAuth;
     const routePlan =
-      !providedAuthLane && !providedRouteAuth && args.chain !== 'near'
+      !providedAuthLane && !providedRouteAuth
         ? this.buildRoutePlan({
             freshRouteFamily: 'login',
             appSessionJwt: await this.resolveAppSessionJwt({
@@ -1345,8 +1515,8 @@ export class EmailOtpThresholdSessionCoordinator {
               relayUrl: this.requireRelayUrl(),
             }),
             sessionKind: 'jwt',
-            curve: 'ecdsa',
-            chain: args.chain,
+            curve: args.chain === 'near' ? 'ed25519' : 'ecdsa',
+            ...(args.chain !== 'near' ? { chain: args.chain } : {}),
             operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
           })
         : this.buildSigningSessionRoutePlan({
@@ -2204,6 +2374,21 @@ export class EmailOtpThresholdSessionCoordinator {
       keyVersion: existing.keyVersion,
       shamirPrimeB64u: existing.shamirPrimeB64u,
       ecdsaRestore: existing.ecdsaRestore,
+      ed25519Restore: {
+        rpId: ed25519Record.rpId,
+        relayerKeyId: ed25519Record.relayerKeyId,
+        participantIds: ed25519Record.participantIds,
+        ...(ed25519Record.thresholdSessionJwt
+          ? { thresholdSessionJwt: ed25519Record.thresholdSessionJwt }
+          : {}),
+        sessionKind: ed25519Record.thresholdSessionKind || 'jwt',
+        ...(ed25519Record.runtimePolicyScope
+          ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
+          : {}),
+        ...(ed25519Record.xClientBaseB64u
+          ? { xClientBaseB64u: ed25519Record.xClientBaseB64u }
+          : {}),
+      },
       issuedAtMs: existing.issuedAtMs,
       expiresAtMs: existing.expiresAtMs,
       remainingUses: existing.remainingUses,
@@ -2355,6 +2540,19 @@ export class EmailOtpThresholdSessionCoordinator {
             participantIds: restoreParticipantIds,
             sessionKind: restoreSessionKind,
             ...(restoreRuntimePolicyScope ? { runtimePolicyScope: restoreRuntimePolicyScope } : {}),
+            // The same sealed signing-session secret can rehydrate the Ed25519
+            // companion only when we carry its exact lane identity into the
+            // worker. Without this, ECDSA reload works while NEAR Ed25519
+            // falls through as missing after page refresh.
+            ...(ed25519Record
+              ? {
+                  ed25519: {
+                    sessionId: ed25519Record.thresholdSessionId,
+                    relayerKeyId: ed25519Record.relayerKeyId,
+                    participantIds: ed25519Record.participantIds,
+                  },
+                }
+              : {}),
           },
         },
       },
@@ -2400,12 +2598,30 @@ export class EmailOtpThresholdSessionCoordinator {
         updatedAtMs: Date.now(),
         source: ed25519Record.source,
       });
+      if (restored.ed25519RestoreSeedB64u) {
+        await this.deps.hydrateSigningSession({
+          sessionId: ed25519Record.thresholdSessionId,
+          prfFirstB64u: restored.ed25519RestoreSeedB64u,
+          expiresAtMs: restored.expiresAtMs,
+          remainingUses: restored.remainingUses,
+          transport: {
+            curve: 'ed25519',
+            relayerUrl: ed25519Record.relayerUrl,
+            ...(ed25519Record.thresholdSessionJwt
+              ? { thresholdSessionJwt: ed25519Record.thresholdSessionJwt }
+              : {}),
+          },
+        });
+      }
     }
     return {
       bootstrap,
       warmCapability,
       remainingUses: restored.remainingUses,
       expiresAtMs: restored.expiresAtMs,
+      ...(restored.ed25519RestoreSeedB64u
+        ? { ed25519RestoreSeedB64u: restored.ed25519RestoreSeedB64u }
+        : {}),
     };
   }
 
@@ -2417,7 +2633,7 @@ export class EmailOtpThresholdSessionCoordinator {
     routeAuth?: AppOrThresholdSessionAuth;
     authLane?: EmailOtpAuthLane;
     remainingUses?: number;
-  }): Promise<{ sessionId: string }> {
+  }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
     const nearAccountId = toAccountId(args.nearAccountId);
     const relayUrl = String(args.record.relayerUrl || this.requireRelayUrl()).trim();
     const providedAuthLane = args.authLane;
@@ -2425,14 +2641,26 @@ export class EmailOtpThresholdSessionCoordinator {
       ? authLaneToRouteAuth(providedAuthLane)
       : args.routeAuth;
     const operation = WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION;
-    const routePlan = this.buildSigningSessionRoutePlan({
-      authLane: providedAuthLane,
-      routeAuth: providedRouteAuth,
-      thresholdSessionId: args.record.thresholdSessionId,
-      walletSigningSessionId: args.record.walletSigningSessionId,
-      curve: 'ed25519',
-      operation,
-    });
+    const routePlan =
+      providedAuthLane || providedRouteAuth
+        ? this.buildSigningSessionRoutePlan({
+            authLane: providedAuthLane,
+            routeAuth: providedRouteAuth,
+            thresholdSessionId: args.record.thresholdSessionId,
+            walletSigningSessionId: args.record.walletSigningSessionId,
+            curve: 'ed25519',
+            operation,
+          })
+        : this.buildRoutePlan({
+            freshRouteFamily: 'login',
+            appSessionJwt: await this.resolveAppSessionJwt({
+              nearAccountId,
+              relayUrl,
+            }),
+            sessionKind: 'jwt',
+            curve: 'ed25519',
+            operation,
+          });
     const defaultRemainingUses = Math.max(1, Math.floor(Number(args.remainingUses) || 1));
     let ecdsaChain: ThresholdEcdsaActivationChain | null = null;
     let ecdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | null = null;
@@ -2475,7 +2703,13 @@ export class EmailOtpThresholdSessionCoordinator {
     if (!provisioned?.sessionId) {
       throw new Error('Email OTP Ed25519 signing did not provision an Ed25519 signing session');
     }
-    return { sessionId: provisioned.sessionId };
+    const refreshedRecord = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+      provisioned.sessionId,
+    );
+    return {
+      sessionId: provisioned.sessionId,
+      ...(refreshedRecord ? { record: refreshedRecord } : {}),
+    };
   }
 
   async provisionEd25519Capability(
@@ -2734,13 +2968,35 @@ export class EmailOtpThresholdSessionCoordinator {
       },
       clientInputs,
       workerCtx,
-      persistToThresholdSessionId: sessionId,
     });
     if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
       throw new Error(
         completed.error || 'Email OTP threshold-ed25519 client-base reconstruction failed',
       );
     }
+    await this.deps.persistWarmSessionEd25519Capability({
+      nearAccountId,
+      rpId,
+      relayerUrl,
+      relayerKeyId,
+      ...(sessionScope ? { runtimePolicyScope: sessionScope } : {}),
+      participantIds,
+      sessionKind: 'jwt',
+      sessionId,
+      ...(policy.walletSigningSessionId
+        ? { walletSigningSessionId: policy.walletSigningSessionId }
+        : {}),
+      expiresAtMs,
+      remainingUses,
+      jwt,
+      xClientBaseB64u: completed.clientOutput.xClientBaseB64u,
+      emailOtpAuthContext: args.emailOtpAuthContext,
+      source: 'email_otp',
+    });
+    await this.attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
+      ecdsaThresholdSessionId: args.ecdsaThresholdSessionId,
+      ed25519ThresholdSessionId: sessionId,
+    });
 
     return {
       publicKey,

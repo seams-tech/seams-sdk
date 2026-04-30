@@ -1,5 +1,8 @@
 import type { SigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
-import { getStoredThresholdEd25519SessionRecordByThresholdSessionId } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+import {
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  persistStoredThresholdEd25519SessionClientBase,
+} from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import { runThresholdEd25519HssCeremonyWithSession } from '@/core/signingEngine/api/thresholdLifecycle/thresholdEd25519Lifecycle';
 import {
   deriveThresholdEd25519HssClientInputsWasm,
@@ -112,13 +115,24 @@ export async function ensureThresholdEd25519HssClientBase(args: {
     context,
     clientInputs,
     workerCtx: { requestWorkerOperation: args.ctx.requestWorkerOperation },
-    persistToThresholdSessionId: thresholdSessionId,
   });
   const relayCeremonyMs = Date.now() - relayCeremonyStartedAt;
   if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
     throw new Error(
       completed.error || 'Failed to reconstruct threshold Ed25519 single-key HSS client base share',
     );
+  }
+  const xClientBaseB64u = String(completed.clientOutput.xClientBaseB64u || '').trim();
+  const persisted = xClientBaseB64u
+    ? persistStoredThresholdEd25519SessionClientBase({
+        thresholdSessionId,
+        xClientBaseB64u,
+      })
+    : null;
+  if (!persisted) {
+    console.warn('[threshold-ed25519][client-base] cache write skipped', {
+      thresholdSessionId,
+    });
   }
   console.info('[threshold-ed25519][client-base] lazy reconstruction timings', {
     thresholdSessionId,
@@ -127,5 +141,5 @@ export async function ensureThresholdEd25519HssClientBase(args: {
     relayCeremonyMs,
     totalMs: Date.now() - startedAt,
   });
-  return String(completed.clientOutput.xClientBaseB64u || '').trim() || undefined;
+  return xClientBaseB64u || undefined;
 }

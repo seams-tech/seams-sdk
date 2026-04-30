@@ -1,5 +1,8 @@
 import { createSigningSessionBudgetFinalizer } from '../../session/signingSession/budgetFinalizer';
-import type { SigningSessionBudgetReservation } from '../../session/signingSession/budget';
+import type {
+  SigningSessionBudgetReservation,
+  SigningSessionPreparedBudgetIdentity,
+} from '../../session/signingSession/budget';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
   type SigningOperationFingerprint,
@@ -17,11 +20,12 @@ export type EvmFamilyTransactionSigningOperationContext = SigningOperationContex
 };
 
 type EvmFamilyWalletSigningSessionBudgetArgs = {
-  signingSessionCoordinator?: SigningSessionCoordinator;
+  signingSessionCoordinator: SigningSessionCoordinator;
   nearAccountId: string;
   chain: EvmFamilyChain;
   operation: EvmFamilyTransactionSigningOperationContext;
   ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
+  budgetIdentity: SigningSessionPreparedBudgetIdentity;
 };
 
 function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningSessionBudgetArgs) {
@@ -40,6 +44,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
   return {
     finalizer: createSigningSessionBudgetFinalizer({
       signingSessionBudget: args.signingSessionCoordinator,
+      budgetIdentity: args.budgetIdentity,
       operation: args.operation,
       // Passkey reauth can replace the ECDSA threshold session after the
       // confirmation. Budget finalization must follow the refreshed keyRef,
@@ -72,7 +77,10 @@ export async function recordSuccessfulEvmFamilyWalletSigningSessionSpend(
 ): Promise<void> {
   const result = createEvmFamilyTransactionBudgetFinalizer(args);
   await result.finalizer.recordSuccess({
-    ...(result.selectedSigningLane.authMethod === 'email_otp' && result.thresholdSessionId
+    // ECDSA threshold authorization is the server-side budget spend boundary
+    // for both Email OTP and passkey lanes. Finalization should sync the
+    // resulting status, not spend the same threshold session a second time.
+    ...(result.thresholdSessionId
       ? { alreadyConsumedThresholdSessionIds: [result.thresholdSessionId] }
       : {}),
   });

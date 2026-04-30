@@ -51,8 +51,7 @@ import { SigningAuthPlanKind } from '@/core/signingEngine/touchConfirm/shared/co
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
 import { passkeySigningAuthPlan } from '../shared/touchConfirmSigning';
-import { emitSigningPlannerDecisionTrace } from '../../session/signingSession/trace';
-import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
+import { planSigningSession } from '../../session/signingSession/planner';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -161,11 +160,16 @@ export async function signDelegateAction({
       })
     : null;
   const resolvedThresholdSigningSession = thresholdAuthContext
-    ? await new SigningSessionCoordinator().resolveAuthPlanFromReadiness(
-        thresholdAuthContext.coordinatorInput,
-        (event) =>
-          emitSigningPlannerDecisionTrace('near', event),
-      )
+    ? {
+        signingSessionPlan: planSigningSession({
+          lane: thresholdAuthContext.coordinatorInput.lane,
+          readiness: thresholdAuthContext.coordinatorInput.readiness,
+          forceFreshAuth: thresholdAuthContext.coordinatorInput.forceFreshAuth,
+        }),
+        readiness: thresholdAuthContext.coordinatorInput.readiness,
+        expiresAtMs: thresholdAuthContext.coordinatorInput.expiresAtMs || 0,
+        remainingUses: thresholdAuthContext.coordinatorInput.remainingUses || 0,
+      }
     : null;
   const thresholdAuthPlan = thresholdAuthContext
     ? buildNearThresholdSigningAuthPlan({

@@ -130,15 +130,31 @@ export function createNearSigningSessionCoordinator(
       touchConfirm,
       getEmailOtpWarmSessionStatus,
     }),
-    claimPrfFirstByThresholdSessionId: (claimArgs) =>
-      claimWarmSessionPrfFirst({
+    claimPrfFirstByThresholdSessionId: async (claimArgs) => {
+      let consume = claimArgs.consume;
+      if (typeof consume !== 'boolean') {
+        if (claimArgs.authMethod !== 'passkey') {
+          consume = true;
+        } else {
+          const statusBeforeRestore = await touchConfirm
+            ?.getWarmSessionStatus?.({ sessionId: claimArgs.thresholdSessionId })
+            .catch(() => null);
+          // Restoring from a durable seal removes the server seal and spends one
+          // trusted use. In that case the immediate PRF claim must only read the
+          // freshly rehydrated material; hot in-memory claims still spend locally.
+          consume = statusBeforeRestore?.ok === true;
+        }
+      }
+      return claimWarmSessionPrfFirst({
         touchConfirm,
         thresholdSessionId: claimArgs.thresholdSessionId,
         errorContext: claimArgs.errorContext,
         uses: claimArgs.uses,
+        consume,
         restoreBeforeClaim: () =>
           restorePasskeySessionBeforeClaim({ touchConfirm, claim: claimArgs }),
-      }),
+      });
+    },
   };
 }
 
@@ -323,9 +339,10 @@ async function resolvePlannerReadinessForEd25519(args: {
   };
 
   if (args.capability.state === 'auth_missing') {
-    return isEmailOtpSession
-      ? buildReadiness({ status: 'missing_session', remainingUses: 0 })
-      : buildReadiness({ status: 'auth_unavailable', remainingUses: 0 });
+    // A persisted Ed25519 lane with missing volatile auth is still enough to
+    // choose the step-up method. Treat it as reauthable instead of terminal so
+    // exhausted passkey sessions can prompt TouchID and mint a fresh session.
+    return buildReadiness({ status: 'missing_session', remainingUses: 0 });
   }
   if (args.capability.state === 'prf_unavailable') {
     if (isEmailOtpSession) {

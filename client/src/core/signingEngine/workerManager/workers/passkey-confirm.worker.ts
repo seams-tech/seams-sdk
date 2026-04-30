@@ -683,7 +683,11 @@ function readWarmSessionClaimEntry(sessionId: string): OkResult | ErrResult {
   return { ok: true, remainingUses: entry.remainingUses, expiresAtMs: entry.expiresAtMs };
 }
 
-function claimWarmSessionMaterialEntry(sessionId: string, uses: number): OkDispenseResult | ErrResult {
+function claimWarmSessionMaterialEntry(
+  sessionId: string,
+  uses: number,
+  consume: boolean,
+): OkDispenseResult | ErrResult {
   const statusRead = readWarmSessionClaimEntry(sessionId);
   if (!statusRead.ok) return statusRead;
   const entry = prfFirstSessionCache.get(sessionId);
@@ -702,11 +706,13 @@ function claimWarmSessionMaterialEntry(sessionId: string, uses: number): OkDispe
       message: 'Warm-session material exhausted for threshold session',
     };
   }
-  entry.remainingUses -= usesNeeded;
-  if (entry.remainingUses <= 0) {
-    prfFirstSessionCache.delete(sessionId);
-  } else {
-    prfFirstSessionCache.set(sessionId, entry);
+  if (consume) {
+    entry.remainingUses -= usesNeeded;
+    if (entry.remainingUses <= 0) {
+      prfFirstSessionCache.delete(sessionId);
+    } else {
+      prfFirstSessionCache.set(sessionId, entry);
+    }
   }
   return {
     ok: true,
@@ -1119,9 +1125,10 @@ self.onmessage = (event: MessageEvent) => {
     const payload = asRecord(incoming.payload);
     const sessionId = normalizeOptionalTrimmedString(payload?.sessionId);
     const uses = Math.max(1, Math.floor(Number(payload?.uses) || 1));
+    const consume = payload?.consume !== false;
     postUserConfirmWorkerResponse(id, {
       success: true,
-      data: claimWarmSessionMaterialEntry(sessionId, uses),
+      data: claimWarmSessionMaterialEntry(sessionId, uses, consume),
     });
     return;
   }

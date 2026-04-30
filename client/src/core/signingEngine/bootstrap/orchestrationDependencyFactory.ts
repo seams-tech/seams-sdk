@@ -21,6 +21,7 @@ import type { RegistrationSessionDeps } from '../api/registration/registrationSe
 import { generateSessionId as generateSessionIdValue } from '../api/session/signingSessionState';
 import type { TempoSigningDeps } from '../api/tempoSigning';
 import type { ThresholdEd25519LifecycleDeps } from '../api/thresholdLifecycle/thresholdEd25519Lifecycle';
+import { resolveEvmFamilyTransactionAccountAuth } from '../api/evmFamily/accountAuth';
 import {
   THRESHOLD_ECDSA_PASSKEY_SESSION_STORE_SOURCES,
   getStoredThresholdEd25519SessionRecordForAccount,
@@ -50,7 +51,14 @@ import type {
   ProvisionWarmEd25519CapabilityResult,
 } from '../session/warmSigning/types';
 import { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
+import type { SigningSessionBudgetStatusAuth } from '../session/signingSession/budget';
 import type { SigningSessionSnapshot } from '../session/snapshotReader';
+import type { RestorePersistedSessionForSigningInput } from '../session/restoreCoordinator';
+
+function resolveConfiguredSigningSessionBudgetUses(configs: TatchiConfigsReadonly): number {
+  const remainingUses = Math.floor(Number(configs.signing.sessionDefaults?.remainingUses) || 0);
+  return remainingUses > 0 ? remainingUses : 1;
+}
 
 export type OrchestrationSignTempoInput = {
   nearAccountId: string;
@@ -79,6 +87,13 @@ export type CreateOrchestrationDependencyBundleArgs = {
     sessionId: string;
     uses?: number;
   }) => Promise<WarmSessionStatusResult>;
+  getWalletSigningBudgetStatus: (args: {
+    nearAccountId: AccountId | string;
+    walletSigningSessionId?: string;
+    targetBackingMaterialSessionIds?: string[];
+    targetThresholdSessionIds?: string[];
+    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  }) => Promise<SigningSessionStatus | null>;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
   getTheme: () => ThemeName;
@@ -152,13 +167,9 @@ export type CreateOrchestrationDependencyBundleArgs = {
     record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
-  restorePersistedSessionForSigning: (args: {
-    walletId: AccountId | string;
-    authMethod: 'email_otp';
-    curve: 'ecdsa';
-    chain: 'tempo' | 'evm';
-    reason: 'transaction' | 'export' | 'session_status';
-  }) => Promise<unknown>;
+  restorePersistedSessionForSigning: (
+    args: RestorePersistedSessionForSigningInput,
+  ) => Promise<unknown>;
   readSigningSessionSnapshotForSigning: (args: {
     walletId: AccountId | string;
     authMethod?: 'email_otp' | 'passkey';
@@ -166,6 +177,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
+    uses?: number;
   }) => void;
   markThresholdEd25519EmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: AccountId | string;
@@ -261,6 +273,7 @@ export function createOrchestrationDependencyBundle(
       };
     });
   const signingSessionCoordinator = new SigningSessionCoordinator({
+    getStatus: args.getWalletSigningBudgetStatus,
     touchConfirm: args.touchConfirm,
     listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
       args.listThresholdEcdsaSessionRecordsForLookup({
@@ -322,11 +335,22 @@ export function createOrchestrationDependencyBundle(
         ...(typeof remainingUses === 'number' ? { remainingUses } : {}),
         ...(authLane ? { authLane } : {}),
       }) || Promise.reject(new Error('Email OTP Ed25519 signing bootstrap is not configured')),
+    restorePersistedSessionForSigning: (restoreArgs) =>
+      args.restorePersistedSessionForSigning(restoreArgs),
+    readSigningSessionSnapshotForSigning: (snapshotArgs) =>
+      args.readSigningSessionSnapshotForSigning(snapshotArgs),
+    resolveAccountAuthMethodForSigning: async ({ nearAccountId }) => {
+      const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
+        deps: { indexedDB: IndexedDBManager },
+        nearAccountId: String(nearAccountId),
+        senderSignatureAlgorithm: 'secp256k1',
+      });
+      return accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
+    },
     reconnectPasskeyEd25519CapabilityForSigning: async ({
       nearAccountId,
       record,
       localPrfCredential,
-      usesNeeded,
       sessionId,
       walletSigningSessionId,
     }) => {
@@ -344,7 +368,7 @@ export function createOrchestrationDependencyBundle(
         ...(walletSigningSessionId || record.walletSigningSessionId
           ? { walletSigningSessionId: walletSigningSessionId || record.walletSigningSessionId }
           : {}),
-        remainingUses: Math.max(1, Math.floor(Number(usesNeeded) || 1)),
+        remainingUses: resolveConfiguredSigningSessionBudgetUses(args.tatchiPasskeyConfigs),
       });
       if (!provisioned.ok || !provisioned.sessionId) {
         throw new Error(
@@ -353,8 +377,14 @@ export function createOrchestrationDependencyBundle(
             'Passkey Ed25519 signing session reconnect failed',
         );
       }
-      return { sessionId: provisioned.sessionId };
+      const refreshedRecord = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
+      return {
+        sessionId: provisioned.sessionId,
+        ...(refreshedRecord ? { record: refreshedRecord } : {}),
+      };
     },
+    getSigningSessionBudgetUses: () =>
+      resolveConfiguredSigningSessionBudgetUses(args.tatchiPasskeyConfigs),
     signingSessionCoordinator,
     getWarmThresholdEd25519SessionStatusForSession: ({ nearAccountId, thresholdSessionId }) =>
       createWarmSessionStatusReader({
@@ -364,7 +394,6 @@ export function createOrchestrationDependencyBundle(
             nearAccountId,
             chain,
           }),
-        signingSessionCoordinator,
         getEmailOtpWarmSessionStatus,
       }).getEd25519SigningSessionStatusForSession({ nearAccountId, thresholdSessionId }),
     withThresholdEd25519CommitQueue: (queueArgs) => args.withThresholdEd25519CommitQueue(queueArgs),
@@ -446,8 +475,8 @@ export function createOrchestrationDependencyBundle(
         args.restorePersistedSessionForSigning(restoreArgs),
       readSigningSessionSnapshotForSigning: (snapshotArgs) =>
         args.readSigningSessionSnapshotForSigning(snapshotArgs),
-      markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({ nearAccountId, chain }) =>
-        args.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({ nearAccountId, chain }),
+      markThresholdEcdsaEmailOtpSessionConsumedForAccount: ({ nearAccountId, chain, uses }) =>
+        args.markThresholdEcdsaEmailOtpSessionConsumedForAccount?.({ nearAccountId, chain, uses }),
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
       provisionThresholdEcdsaSession: (provisionArgs) =>
@@ -504,7 +533,6 @@ export function createOrchestrationDependencyBundle(
               nearAccountId,
               chain,
             }),
-          signingSessionCoordinator,
           getEmailOtpWarmSessionStatus,
         }).getEd25519SigningSessionStatus(nearAccountId),
     }),

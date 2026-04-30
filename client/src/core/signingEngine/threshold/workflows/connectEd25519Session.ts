@@ -9,7 +9,10 @@ import {
   type ThresholdWebAuthnPromptPort,
 } from '../webauthn';
 import { buildEd25519SessionPolicy } from '../session/sessionPolicy';
-import type { ThresholdRuntimePolicyScope } from '../session/sessionPolicy';
+import {
+  parseThresholdRuntimePolicyScopeFromJwt,
+  type ThresholdRuntimePolicyScope,
+} from '../session/sessionPolicy';
 import { mintEd25519AuthSession } from '../session/ed25519AuthSession';
 import type { Ed25519SessionKind } from '../session/ed25519SessionTypes';
 import { persistWarmSessionEd25519Capability } from '../../session/warmSigning/persistence';
@@ -126,9 +129,19 @@ export async function connectEd25519Session(args: {
   if (!rpId) {
     return { ok: false, code: 'invalid_args', message: 'Missing rpId for WebAuthn' };
   }
+  const appSessionJwt = String(args.appSessionJwt || '').trim();
+  const hasAppSessionAuth = Boolean(appSessionJwt || args.useAppSessionCookie === true);
+  const appSessionRuntimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(appSessionJwt);
+  // JWT-backed unlocks with a signed runtime scope are already authenticated; bootstrap
+  // grants are registration-style publishable-key flows and consume free registration quota.
+  // Cookie-only calls may not have a session cookie in local/e2e runtimes, so keep their
+  // existing managed bootstrap path unless the caller supplied canonical scope.
+  const shouldResolveManagedRuntimePolicyScope =
+    !appSessionRuntimePolicyScope && !args.runtimePolicyScope && Boolean(args.runtimeScopeBootstrap);
   const runtimePolicyScope =
     args.runtimePolicyScope ||
-    (args.runtimeScopeBootstrap
+    appSessionRuntimePolicyScope ||
+    (shouldResolveManagedRuntimePolicyScope && args.runtimeScopeBootstrap
       ? await resolveManagedRuntimePolicyScope({
           relayerUrl: args.relayerUrl,
           environmentId: args.runtimeScopeBootstrap.environmentId,
@@ -151,8 +164,6 @@ export async function connectEd25519Session(args: {
   });
 
   let credential: WebAuthnAuthenticationCredential | undefined = args.localPrfCredential;
-  const appSessionJwt = String(args.appSessionJwt || '').trim();
-  const hasAppSessionAuth = Boolean(appSessionJwt || args.useAppSessionCookie === true);
   if (!hasAppSessionAuth && !credential) {
     const walletAuthResolver = createWalletAuthModeResolver({
       passkey: createPasskeyWalletAuthAdapter({

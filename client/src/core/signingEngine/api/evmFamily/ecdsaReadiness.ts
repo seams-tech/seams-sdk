@@ -52,6 +52,8 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
   remainingUses?: number;
+  operationUsesNeeded?: number;
+  sessionBudgetUses: number;
   shouldAbort?: () => boolean;
   onEvent?: EvmFamilyLifecycleEventCallback;
 }): Promise<ThresholdEcdsaSecp256k1KeyRef> {
@@ -63,6 +65,14 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   const thresholdSessionId = String(args.lane.thresholdSessionId);
   const walletSigningSessionId = String(args.lane.walletSigningSessionId);
   const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
+  const operationUsesNeeded = Math.max(
+    1,
+    Math.floor(Number(args.operationUsesNeeded ?? args.remainingUses) || 1),
+  );
+  const sessionBudgetUses = Math.max(
+    1,
+    Math.floor(Number(args.sessionBudgetUses) || 1),
+  );
   const resolvedKeyRef =
     args.keyRef ||
     readSelectedEcdsaKeyRefForLane({
@@ -76,7 +86,8 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
     keyRef: resolvedKeyRef,
     source,
     runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.tatchiPasskeyConfigs),
-    usesNeeded: Math.max(1, Math.floor(Number(args.remainingUses) || 1)),
+    usesNeeded: operationUsesNeeded,
+    sessionBudgetUses,
     operationIntent: SigningOperationIntent.TransactionSign,
     sessionId: thresholdSessionId,
     walletSigningSessionId,

@@ -113,6 +113,8 @@ async function executeEvmTransactionSigning(args: {
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
+  deferSuccessfulSigningSessionFinalization?: boolean;
+  deferFailedSigningSessionFinalization?: boolean;
   retryWithFreshEmailOtpAuth: (error: unknown) => Promise<TempoSignedResult | EvmSignedResult | null>;
   nonceOperation: NonceOperationContext;
 }): Promise<EvmSignedResult | TempoSignedResult> {
@@ -153,12 +155,14 @@ async function executeEvmTransactionSigning(args: {
         await releaseEvmFamilyNonceReservation(args.deps, reservation);
       },
     } as unknown);
-    await runSuccessfulEvmFamilyPostSignCommands({
-      signingSessionPlan: args.signingSessionPlan,
-      chain: 'evm',
-      recordSuccessfulWalletSigningSessionSpend: args.recordSuccessfulWalletSigningSessionSpend,
-      applySuccessfulEcdsaPostSignPolicy: args.applySuccessfulEcdsaPostSignPolicy,
-    });
+    if (!args.deferSuccessfulSigningSessionFinalization) {
+      await runSuccessfulEvmFamilyPostSignCommands({
+        signingSessionPlan: args.signingSessionPlan,
+        chain: 'evm',
+        recordSuccessfulWalletSigningSessionSpend: args.recordSuccessfulWalletSigningSessionSpend,
+        applySuccessfulEcdsaPostSignPolicy: args.applySuccessfulEcdsaPostSignPolicy,
+      });
+    }
     return result;
   } catch (error: unknown) {
     const retried = await args.retryWithFreshEmailOtpAuth(error);
@@ -172,7 +176,9 @@ async function executeEvmTransactionSigning(args: {
       }),
       chainId: args.request.tx.chainId,
     });
-    args.recordFailedWalletSigningSessionSpend(finalError);
+    if (!args.deferFailedSigningSessionFinalization) {
+      args.recordFailedWalletSigningSessionSpend(finalError);
+    }
     throw finalError;
   }
 }
@@ -191,6 +197,8 @@ async function executeTempoTransactionSigning(args: {
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
+  deferSuccessfulSigningSessionFinalization?: boolean;
+  deferFailedSigningSessionFinalization?: boolean;
   retryWithFreshEmailOtpAuth: (error: unknown) => Promise<TempoSignedResult | EvmSignedResult | null>;
   nonceOperation: NonceOperationContext;
 }): Promise<EvmSignedResult | TempoSignedResult> {
@@ -219,12 +227,14 @@ async function executeTempoTransactionSigning(args: {
         await releaseEvmFamilyNonceReservation(args.deps, reservation);
       },
     } as unknown);
-    await runSuccessfulEvmFamilyPostSignCommands({
-      signingSessionPlan: args.signingSessionPlan,
-      chain: 'tempo',
-      recordSuccessfulWalletSigningSessionSpend: args.recordSuccessfulWalletSigningSessionSpend,
-      applySuccessfulEcdsaPostSignPolicy: args.applySuccessfulEcdsaPostSignPolicy,
-    });
+    if (!args.deferSuccessfulSigningSessionFinalization) {
+      await runSuccessfulEvmFamilyPostSignCommands({
+        signingSessionPlan: args.signingSessionPlan,
+        chain: 'tempo',
+        recordSuccessfulWalletSigningSessionSpend: args.recordSuccessfulWalletSigningSessionSpend,
+        applySuccessfulEcdsaPostSignPolicy: args.applySuccessfulEcdsaPostSignPolicy,
+      });
+    }
     return result;
   } catch (error: unknown) {
     const retried = await args.retryWithFreshEmailOtpAuth(error);
@@ -238,7 +248,9 @@ async function executeTempoTransactionSigning(args: {
       }),
       chainId: args.request.tx.chainId,
     });
-    args.recordFailedWalletSigningSessionSpend(finalError);
+    if (!args.deferFailedSigningSessionFinalization) {
+      args.recordFailedWalletSigningSessionSpend(finalError);
+    }
     throw finalError;
   }
 }
@@ -257,6 +269,8 @@ export async function executeEvmFamilyTransactionSigning(args: {
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
   applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
+  deferSuccessfulSigningSessionFinalization?: boolean;
+  deferFailedSigningSessionFinalization?: boolean;
   retryWithFreshEmailOtpAuth: (error: unknown) => Promise<TempoSignedResult | EvmSignedResult | null>;
   nonceOperation: NonceOperationContext;
 }): Promise<TempoSignedResult | EvmSignedResult> {

@@ -83,6 +83,7 @@ import {
   type ExportPrivateKeyDisplayEntry,
 } from './touchConfirm/shared/confirmTypes';
 import { SigningOperationIntent } from './session/signingSession/types';
+import type { SigningSessionBudgetStatusAuth } from './session/signingSession/budget';
 import type { TouchIdPrompt } from './signers/webauthn/prompt/touchIdPrompt';
 import type { WebAuthnAllowCredential } from './signers/webauthn/credentials';
 import type { EvmSigningRequest } from './chainAdaptors/evm/types';
@@ -115,6 +116,7 @@ import {
   getThresholdEcdsaKeyRefForLookup as getThresholdEcdsaKeyRefForLookupValue,
   getThresholdEcdsaSessionRecordForLookup as getThresholdEcdsaSessionRecordForLookupValue,
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId as getStoredThresholdEcdsaSessionRecordByThresholdSessionIdValue,
+  getStoredThresholdEd25519SessionRecordByThresholdSessionId as getStoredThresholdEd25519SessionRecordByThresholdSessionIdValue,
   getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
   listThresholdEcdsaKeyRefsForLookup as listThresholdEcdsaKeyRefsForLookupValue,
   listThresholdEcdsaSessionRecordsForLookup as listThresholdEcdsaSessionRecordsForLookupValue,
@@ -1044,6 +1046,7 @@ export class SigningEngine {
     walletSigningSessionId?: string;
     targetThresholdSessionIds?: string[];
     targetBackingMaterialSessionIds?: string[];
+    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   }): Promise<SigningSessionStatus | null> {
     const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
     if (!walletSigningSessionId) return null;
@@ -1053,6 +1056,7 @@ export class SigningEngine {
         walletSigningSessionId,
         targetThresholdSessionIds: args.targetThresholdSessionIds,
         targetBackingMaterialSessionIds: args.targetBackingMaterialSessionIds,
+        trustedStatusAuth: args.trustedStatusAuth,
       })
       .catch(() => null);
   }
@@ -1061,14 +1065,27 @@ export class SigningEngine {
     nearAccountId: AccountId | string;
     walletSigningSessionId?: string;
     targetThresholdSessionIds?: string[];
+    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   }): Promise<SigningSessionStatus | null> {
     const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
     if (!walletSigningSessionId) return null;
-    const auth = this.resolveWalletSigningBudgetStatusAuth({
-      nearAccountId: args.nearAccountId,
-      walletSigningSessionId,
-      targetThresholdSessionIds: args.targetThresholdSessionIds,
-    });
+    const trustedStatusAuth = args.trustedStatusAuth;
+    const auth =
+      trustedStatusAuth &&
+      String(trustedStatusAuth.relayerUrl || '').trim() &&
+      String(trustedStatusAuth.thresholdSessionId || '').trim()
+        ? {
+            relayerUrl: String(trustedStatusAuth.relayerUrl || '').trim(),
+            thresholdSessionId: String(trustedStatusAuth.thresholdSessionId || '').trim(),
+            ...(String(trustedStatusAuth.thresholdSessionJwt || '').trim()
+              ? { thresholdSessionJwt: String(trustedStatusAuth.thresholdSessionJwt || '').trim() }
+              : {}),
+          }
+        : this.resolveWalletSigningBudgetStatusAuth({
+            nearAccountId: args.nearAccountId,
+            walletSigningSessionId,
+            targetThresholdSessionIds: args.targetThresholdSessionIds,
+          });
     if (!auth?.relayerUrl) return null;
     const response = await fetch(
       joinNormalizedUrl(auth.relayerUrl, '/session/signing-budget/status'),
@@ -1164,6 +1181,18 @@ export class SigningEngine {
         exactTarget,
       });
     };
+    for (const targetThresholdSessionId of targetThresholdIds) {
+      pushCandidate(
+        getStoredThresholdEd25519SessionRecordByThresholdSessionIdValue(
+          targetThresholdSessionId,
+        ),
+      );
+      pushCandidate(
+        getStoredThresholdEcdsaSessionRecordByThresholdSessionIdValue(
+          targetThresholdSessionId,
+        ),
+      );
+    }
     pushCandidate(getStoredThresholdEd25519SessionRecordForAccountValue(accountId));
     for (const chain of ['tempo', 'evm'] as const) {
       for (const record of this.listThresholdEcdsaSessionRecordsForLookup({
@@ -1545,11 +1574,12 @@ export class SigningEngine {
     onEvent?: KeyExportEventCallback;
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
     if (args.options.chain === 'near') {
-      await this.restoreNearEd25519SessionForExportBestEffort({
+      const intendedAuthMethod = await this.restoreNearEd25519SessionForExportBestEffort({
         nearAccountId: args.nearAccountId,
       });
       const singleKeyHssResult = await this.tryExportNearEd25519SingleKeyHssWithAuthorization({
         nearAccountId: args.nearAccountId,
+        intendedAuthMethod,
         options: {
           variant: args.options.variant,
           theme: args.options.theme,
@@ -1620,38 +1650,50 @@ export class SigningEngine {
     });
   }
 
+  private async resolveNearEd25519ExportAuthMethod(
+    nearAccountId: AccountId,
+  ): Promise<'email_otp' | 'passkey'> {
+    const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
+      deps: { indexedDB: this.orchestrationDeps.indexedDB },
+      nearAccountId: String(nearAccountId),
+      senderSignatureAlgorithm: 'secp256k1',
+    }).catch(() => null);
+    if (accountAuth?.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp) return 'email_otp';
+    if (accountAuth?.primaryAuthMethod === SIGNER_AUTH_METHODS.passkey) return 'passkey';
+    const currentRecord = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
+    return currentRecord?.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
+  }
+
   private async restoreNearEd25519SessionForExportBestEffort(args: {
     nearAccountId: AccountId;
-  }): Promise<void> {
-    await Promise.all(
-      (['email_otp', 'passkey'] as const).map(async (authMethod) => {
-        try {
-          if (authMethod === 'passkey') {
-            await this.touchConfirm.restorePersistedSessionForSigning({
-              walletId: args.nearAccountId,
-              authMethod: 'passkey',
-              curve: 'ed25519',
-              chain: 'near',
-              reason: 'export',
-            });
-            return;
-          }
-          await this.emailOtpSessions.restorePersistedSessionForSigning({
-            walletId: args.nearAccountId,
-            authMethod: 'email_otp',
-            curve: 'ed25519',
-            chain: 'near',
-            reason: 'export',
-          });
-        } catch (error: unknown) {
-          console.debug('[SigningEngine][ed25519-export] persisted session restore skipped', {
-            nearAccountId: String(args.nearAccountId),
-            authMethod,
-            message: error instanceof Error ? error.message : String(error || 'unknown error'),
-          });
-        }
-      }),
-    );
+  }): Promise<'email_otp' | 'passkey'> {
+    const authMethod = await this.resolveNearEd25519ExportAuthMethod(args.nearAccountId);
+    try {
+      if (authMethod === 'passkey') {
+        await this.touchConfirm.restorePersistedSessionForSigning({
+          walletId: args.nearAccountId,
+          authMethod: 'passkey',
+          curve: 'ed25519',
+          chain: 'near',
+          reason: 'export',
+        });
+        return authMethod;
+      }
+      await this.emailOtpSessions.restorePersistedSessionForSigning({
+        walletId: args.nearAccountId,
+        authMethod: 'email_otp',
+        curve: 'ed25519',
+        chain: 'near',
+        reason: 'export',
+      });
+    } catch (error: unknown) {
+      console.debug('[SigningEngine][ed25519-export] persisted session restore skipped', {
+        nearAccountId: String(args.nearAccountId),
+        authMethod,
+        message: error instanceof Error ? error.message : String(error || 'unknown error'),
+      });
+    }
+    return authMethod;
   }
 
   private async restoreEmailOtpEcdsaSessionForExportBestEffort(args: {
@@ -2590,6 +2632,7 @@ export class SigningEngine {
 
   private async tryExportNearEd25519SingleKeyHssWithAuthorization(args: {
     nearAccountId: AccountId;
+    intendedAuthMethod?: 'email_otp' | 'passkey';
     options: {
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
@@ -2599,6 +2642,18 @@ export class SigningEngine {
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> } | null> {
     const nearAccountId = toAccountId(args.nearAccountId);
     const sessionRecord = getStoredThresholdEd25519SessionRecordForAccountValue(nearAccountId);
+    if (
+      args.intendedAuthMethod === 'email_otp' &&
+      sessionRecord?.source !== SIGNER_AUTH_METHODS.emailOtp
+    ) {
+      throw new Error('Email OTP Ed25519 export session is not ready after exact restore');
+    }
+    if (
+      args.intendedAuthMethod === 'passkey' &&
+      sessionRecord?.source === SIGNER_AUTH_METHODS.emailOtp
+    ) {
+      throw new Error('Passkey Ed25519 export session is not ready after exact restore');
+    }
     const orgId = String(sessionRecord?.runtimePolicyScope?.orgId || '').trim();
     const projectId = String(sessionRecord?.runtimePolicyScope?.projectId || '').trim();
     const envId = String(sessionRecord?.runtimePolicyScope?.envId || '').trim();

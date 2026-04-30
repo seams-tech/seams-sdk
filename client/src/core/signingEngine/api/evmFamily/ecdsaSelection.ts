@@ -1,5 +1,4 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
-import { resolveAccountAuthMetadataForSignerSource } from '@/core/signingEngine/auth';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { SigningLaneContext } from '../../session/signingSession/types';
@@ -49,6 +48,17 @@ export type EvmFamilyEcdsaSigningSelection = {
   reauthRecord?: ThresholdEcdsaSessionRecord;
   lane?: SigningLaneContext;
 };
+
+function accountAuthWithSelectedPrimary(
+  accountAuth: AccountAuthMetadata,
+  authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey,
+): AccountAuthMetadata {
+  return {
+    ...accountAuth,
+    primaryAuthMethod: authMethod,
+    linkedAuthMethods: Array.from(new Set([...accountAuth.linkedAuthMethods, authMethod])),
+  };
+}
 
 function logMissingEcdsaSelectionLane(args: {
   nearAccountId: string;
@@ -144,6 +154,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   nearAccountId: string;
   chain: EvmFamilyChain;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
+  authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey;
 }): Promise<EvmFamilyEcdsaSigningSelection> {
   const emailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
     deps: args.deps,
@@ -178,7 +189,10 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     ...unambiguousLane,
   });
 
-  if (accountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
+  const selectedAuthMethod = args.authMethod;
+  const selectedAccountAuth = accountAuthWithSelectedPrimary(accountAuth, args.authMethod);
+
+  if (selectedAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
     const signingLane = buildEvmFamilyEcdsaSigningLaneContext({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
@@ -220,9 +234,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     });
     return {
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      accountAuth: resolveAccountAuthMetadataForSignerSource({
-        source: SIGNER_AUTH_METHODS.emailOtp,
-      }),
+      accountAuth: selectedAccountAuth,
       source: SIGNER_AUTH_METHODS.emailOtp,
       ...(warmRecord ? { warmRecord } : {}),
       ...(warmRecord && selectedKeyRef ? { warmKeyRef: selectedKeyRef } : {}),
@@ -279,7 +291,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   });
   return {
     authMethod: SIGNER_AUTH_METHODS.passkey,
-    accountAuth,
+    accountAuth: selectedAccountAuth,
     source: passkeySource,
     ...(selectedWarmRecord ? { warmRecord: selectedWarmRecord } : {}),
     ...(selectedWarmRecord && selectedPasskeyKeyRef ? { warmKeyRef: selectedPasskeyKeyRef } : {}),

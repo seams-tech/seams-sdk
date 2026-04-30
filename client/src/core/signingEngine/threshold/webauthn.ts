@@ -41,11 +41,16 @@ export type WarmSessionMaterialPort = {
     prfFirstB64u: string;
     expiresAtMs: number;
     remainingUses: number;
+    transport?: {
+      curve?: 'ed25519' | 'ecdsa';
+      relayerUrl?: string;
+      walletSigningSessionId?: string;
+      thresholdSessionJwt?: string;
+      keyVersion?: string;
+      shamirPrimeB64u?: string;
+    };
   }) => Promise<void>;
-  claimWarmSessionMaterial?: (args: {
-    sessionId: string;
-    uses?: number;
-  }) => Promise<{
+  claimWarmSessionMaterial?: (args: { sessionId: string; uses?: number }) => Promise<{
     ok: boolean;
     code?: string;
     message?: string;
@@ -63,7 +68,9 @@ export type WarmSessionMaterialPort = {
   persistSigningSessionSealForThresholdSession?: (args: {
     sessionId: string;
     transport?: {
+      curve?: 'ed25519' | 'ecdsa';
       relayerUrl?: string;
+      walletSigningSessionId?: string;
       thresholdSessionJwt?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
@@ -78,10 +85,7 @@ export type WarmSessionMaterialPort = {
     expiresAtMs?: number;
   }>;
 };
-export type WarmSessionMaterialWriter = Pick<
-  WarmSessionMaterialPort,
-  'putWarmSessionMaterial'
->;
+export type WarmSessionMaterialWriter = Pick<WarmSessionMaterialPort, 'putWarmSessionMaterial'>;
 export type ThresholdSigningKeyOpsPort = ThresholdEd25519ClientShareDeriverPort;
 
 export async function collectAuthenticationCredentialForChallengeB64u(args: {

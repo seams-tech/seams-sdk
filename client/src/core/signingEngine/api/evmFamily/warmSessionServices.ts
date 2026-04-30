@@ -50,6 +50,7 @@ export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps &
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: string;
     chain: EvmFamilyChain;
+    uses?: number;
   }) => void;
   provisionThresholdEcdsaSession: (
     args: BootstrapEcdsaSessionArgs,
@@ -86,7 +87,9 @@ export function createEvmFamilyWarmSessionServices(
     source?: ThresholdEcdsaSessionStoreSource;
   }): Promise<void> => {
     if (!args.source) {
-      throw new Error('[SigningEngine] ECDSA signing source is required for signing-artifact cleanup');
+      throw new Error(
+        '[SigningEngine] ECDSA signing source is required for signing-artifact cleanup',
+      );
     }
     const record = getThresholdEcdsaSessionRecordForLane({
       deps,
@@ -102,10 +105,7 @@ export function createEvmFamilyWarmSessionServices(
     const thresholdSessionId = String(
       args.thresholdSessionId || record.thresholdSessionId || '',
     ).trim();
-    if (
-      thresholdSessionId &&
-      typeof deps.touchConfirm.clearWarmSessionMaterial === 'function'
-    ) {
+    if (thresholdSessionId && typeof deps.touchConfirm.clearWarmSessionMaterial === 'function') {
       await deps.touchConfirm
         .clearWarmSessionMaterial({ sessionId: thresholdSessionId })
         .catch(() => undefined);
@@ -183,13 +183,14 @@ export function createEvmFamilyWarmSessionServices(
             thresholdSessionId: claimArgs.thresholdSessionId,
             errorContext: claimArgs.errorContext,
             uses: claimArgs.uses,
+            ...(typeof claimArgs.consume === 'boolean' ? { consume: claimArgs.consume } : {}),
+            ...(claimArgs.curve ? { curve: claimArgs.curve } : {}),
+            ...(claimArgs.chain ? { chain: claimArgs.chain } : {}),
             restoreBeforeClaim: async () => {
               if (claimArgs.authMethod !== 'passkey') return;
               if (typeof deps.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
               const walletId = String(claimArgs.walletId || '').trim();
-              const walletSigningSessionId = String(
-                claimArgs.walletSigningSessionId || '',
-              ).trim();
+              const walletSigningSessionId = String(claimArgs.walletSigningSessionId || '').trim();
               const thresholdSessionId = String(claimArgs.thresholdSessionId || '').trim();
               if (!walletId || !walletSigningSessionId || !thresholdSessionId) return;
               await deps.touchConfirm.restorePersistedSessionForSigning({

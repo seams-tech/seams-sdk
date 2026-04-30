@@ -1,5 +1,8 @@
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
-import type { ThresholdEcdsaSessionStoreSource } from '../thresholdLifecycle/thresholdSessionStore';
+import type {
+  ThresholdEcdsaSessionRecord,
+  ThresholdEcdsaSessionStoreSource,
+} from '../thresholdLifecycle/thresholdSessionStore';
 import type { EvmFamilyChain } from './types';
 
 type EvmFamilyEcdsaPostSignPolicyRunner = {
@@ -8,6 +11,7 @@ type EvmFamilyEcdsaPostSignPolicyRunner = {
     chain: EvmFamilyChain;
     thresholdSessionId: string;
     source: ThresholdEcdsaSessionStoreSource;
+    selectedRecord?: ThresholdEcdsaSessionRecord;
   }) => Promise<void> | void;
 };
 
@@ -17,6 +21,7 @@ export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
   chain: EvmFamilyChain;
   ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
   selectedEcdsaSource: ThresholdEcdsaSessionStoreSource;
+  selectedRecord?: ThresholdEcdsaSessionRecord;
 }): Promise<void> {
   // Post-sign cleanup is security-sensitive: it must operate on the exact
   // lane used after any OTP/passkey reauth, not a generic threshold-session id.
@@ -25,5 +30,6 @@ export async function applySuccessfulEvmFamilyEcdsaPostSignPolicy(args: {
     chain: args.chain,
     thresholdSessionId: String(args.ecdsaSigningLane.thresholdSessionId),
     source: args.selectedEcdsaSource,
+    ...(args.selectedRecord ? { selectedRecord: args.selectedRecord } : {}),
   });
 }
