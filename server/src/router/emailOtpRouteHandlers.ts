@@ -1417,11 +1417,21 @@ export async function handleEmailOtpDevOtpOutboxRoute(input: {
     };
   }
 
-  const result = await input.service.readEmailOtpOutboxEntry({
+  let result = await input.service.readEmailOtpOutboxEntry({
     challengeId,
     userId: input.userId,
     walletId,
   });
+  if (!result.ok && result.code === 'not_found' && walletId !== input.userId) {
+    // Dev-only outbox reads are wallet-scoped after the app-session wallet check above.
+    // Signing-session OTP challenges are stored under the wallet id, while Google SSO
+    // app sessions use the provider subject as userId.
+    result = await input.service.readEmailOtpOutboxEntry({
+      challengeId,
+      userId: walletId,
+      walletId,
+    });
+  }
   return {
     status: result.ok
       ? 200

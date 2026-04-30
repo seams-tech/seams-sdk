@@ -17,6 +17,7 @@ import { handleSponsoredEvmCall } from './routes/sponsoredEvmCall';
 import {
   handleSessionState,
   handleSessionExchange,
+  handleSigningBudgetStatus,
   handleSessionRefresh,
   handleSessionRevoke,
   handleWalletLock,
@@ -119,6 +120,7 @@ export function createCloudflareRouter(
     handleSessionState,
     handleSessionExchange,
     handleSessionRevoke,
+    handleSigningBudgetStatus,
     handleSessionRefresh,
     handleWalletUnlockChallenge,
     handleWalletUnlockVerify,

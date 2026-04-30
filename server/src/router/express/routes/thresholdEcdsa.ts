@@ -480,9 +480,7 @@ export function registerThresholdEcdsaRoutes(
             walletSigningSessionId: result.walletSigningSessionId,
             expiresAtMs: result.expiresAtMs,
             participantIds: result.participantIds,
-            ...(result.runtimePolicyScope
-              ? { runtimePolicyScope: result.runtimePolicyScope }
-              : {}),
+            ...(result.runtimePolicyScope ? { runtimePolicyScope: result.runtimePolicyScope } : {}),
           },
           fallbackParticipantIds: result.participantIds,
           requireJwtErrorMessage:

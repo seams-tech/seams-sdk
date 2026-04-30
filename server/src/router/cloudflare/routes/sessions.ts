@@ -230,6 +230,12 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
       userId: string;
       appSessionVersion: string;
       sessionHash: string;
+      thresholdSessionId: string;
+      walletSigningSessionId: string;
+      walletBudgetStatus: {
+        expiresAtMs: number;
+        remainingUses: number;
+      };
     }
   | { ok: false; response: Response }
 > {
@@ -346,6 +352,12 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
     userId,
     appSessionVersion: `signing-session:${claims.kind}:${walletSigningSessionId}:${sessionId}`,
     sessionHash,
+    thresholdSessionId: sessionId,
+    walletSigningSessionId,
+    walletBudgetStatus: {
+      expiresAtMs: walletBudgetStatus.expiresAtMs,
+      remainingUses: Math.max(0, Math.floor(Number(walletBudgetStatus.remainingUses) || 0)),
+    },
   };
 }
 
@@ -1059,6 +1071,55 @@ export async function handleSessionRefresh(ctx: CloudflareRelayContext): Promise
     } catch {}
   }
   return res;
+}
+
+export async function handleSigningBudgetStatus(ctx: CloudflareRelayContext): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/session/signing-budget/status') return null;
+  try {
+    const body = (await readJson(ctx.request)) as Record<string, unknown>;
+    const expectedWalletSigningSessionId = String(body.walletSigningSessionId || '').trim();
+    const validated = await readAndValidateEmailOtpSigningSession(ctx);
+    if (!validated.ok) return validated.response;
+    if (
+      expectedWalletSigningSessionId &&
+      expectedWalletSigningSessionId !== validated.walletSigningSessionId
+    ) {
+      return json(
+        {
+          ok: false,
+          code: 'wallet_signing_session_mismatch',
+          message: 'Wallet signing-session status token does not match requested wallet session',
+        },
+        { status: 403 },
+      );
+    }
+    const remainingUses = Math.max(
+      0,
+      Math.floor(Number(validated.walletBudgetStatus.remainingUses) || 0),
+    );
+    return json(
+      {
+        ok: true,
+        walletSigningSessionId: validated.walletSigningSessionId,
+        thresholdSessionId: validated.thresholdSessionId,
+        status: remainingUses > 0 ? 'active' : 'exhausted',
+        remainingUses,
+        expiresAtMs: validated.walletBudgetStatus.expiresAtMs,
+        projectionVersion: [
+          'wallet-budget',
+          validated.walletSigningSessionId,
+          validated.walletBudgetStatus.expiresAtMs,
+          remainingUses,
+        ].join(':'),
+      },
+      { status: 200 },
+    );
+  } catch (e: any) {
+    return json(
+      { ok: false, code: 'internal', message: e?.message || 'Internal error' },
+      { status: 500 },
+    );
+  }
 }
 
 export async function handleWalletUnlockChallenge(

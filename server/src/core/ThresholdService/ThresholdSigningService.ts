@@ -312,7 +312,9 @@ function createEcdsaSigningRootReference(input: {
 function resolveEcdsaSigningRootFromScope(scope: unknown): EcdsaSigningRootReference | null {
   if (!isObject(scope)) return null;
   try {
-    return createEcdsaSigningRootReference(signingRootScopeFromRuntimePolicyScope(scope as RuntimePolicyScope));
+    return createEcdsaSigningRootReference(
+      signingRootScopeFromRuntimePolicyScope(scope as RuntimePolicyScope),
+    );
   } catch {
     return null;
   }
@@ -1417,7 +1419,9 @@ export class ThresholdSigningService {
     });
   }
 
-  private resolveEcdsaSigningRootFromScopeOrFixed(scope: unknown): EcdsaSigningRootReference | null {
+  private resolveEcdsaSigningRootFromScopeOrFixed(
+    scope: unknown,
+  ): EcdsaSigningRootReference | null {
     const scopedSigningRoot = resolveEcdsaSigningRootFromScope(scope);
     if (scopedSigningRoot) return scopedSigningRoot;
     return this.resolveFixedEcdsaSigningRoot();
@@ -1432,9 +1436,7 @@ export class ThresholdSigningService {
     if (policySigningRoot) return policySigningRoot;
 
     const ed25519Claims = parseThresholdEd25519SessionClaims(request.ed25519SessionClaims);
-    const ed25519SigningRoot = resolveEcdsaSigningRootFromScope(
-      ed25519Claims?.runtimePolicyScope,
-    );
+    const ed25519SigningRoot = resolveEcdsaSigningRootFromScope(ed25519Claims?.runtimePolicyScope);
     if (ed25519SigningRoot) return ed25519SigningRoot;
 
     const appClaims = parseAppSessionClaims(request.appSessionClaims);
@@ -1798,7 +1800,14 @@ export class ThresholdSigningService {
           idempotencyKey,
         );
       }
-      return await this.authSessionStore.consumeUseCount(walletBudgetSessionId);
+      // Wallet budgets are shared across curves and runtimes. A consume
+      // without an operation-derived idempotency key would reopen overspend
+      // races at the authoritative server boundary.
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'wallet signing-session budget consume requires an idempotency key',
+      };
     }
     if (idempotencyKey) {
       return await input.curveStore.consumeUseCountOnce(input.curveSessionId, idempotencyKey);
@@ -1807,17 +1816,40 @@ export class ThresholdSigningService {
   }
 
   private async thresholdEd25519AuthorizationBudgetIdempotencyKey(input: {
+    relayerKeyId: string;
     purpose: string;
     signingPayload: unknown;
-  }): Promise<string | undefined> {
-    if (input.purpose !== 'near_tx') return undefined;
+  }): Promise<string> {
     const digest = await sha256BytesUtf8(
       alphabetizeStringify({
+        version: 'threshold_ed25519_authorization_budget_idempotency_v2',
+        relayerKeyId: input.relayerKeyId,
         purpose: input.purpose,
+        // The server has already verified that the requested signing digest is one
+        // of the digests committed by this payload. Budget idempotency is therefore
+        // scoped to the confirmed operation payload, not each digest in the batch.
         signingPayload: input.signingPayload,
       }),
     );
-    return `near_tx:${base64UrlEncode(digest)}`;
+    return `ed25519_authorize:${base64UrlEncode(digest)}`;
+  }
+
+  private async thresholdEcdsaAuthorizationBudgetIdempotencyKey(input: {
+    ecdsaThresholdKeyId: string;
+    purpose: string;
+    signingDigest32: Uint8Array;
+    signingPayload: unknown;
+  }): Promise<string> {
+    const digest = await sha256BytesUtf8(
+      alphabetizeStringify({
+        version: 'threshold_ecdsa_authorization_budget_idempotency_v1',
+        ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+        purpose: input.purpose,
+        signingDigest32B64u: base64UrlEncode(input.signingDigest32),
+        signingPayload: input.signingPayload,
+      }),
+    );
+    return `ecdsa_authorize:${base64UrlEncode(digest)}`;
   }
 
   private createThresholdEd25519MpcSessionId(): string {
@@ -2710,8 +2742,7 @@ export class ThresholdSigningService {
         message: 'threshold_ecdsa.session_policy.sessionId is required',
       };
     }
-    const walletSigningSessionId =
-      String(policy.walletSigningSessionId || '').trim() || sessionId;
+    const walletSigningSessionId = String(policy.walletSigningSessionId || '').trim() || sessionId;
     const policyParticipantIds =
       normalizeThresholdEd25519ParticipantIds(policy.participantIds) || null;
     const session = await this.ecdsaMintSessionWithoutWebAuthn({
@@ -2729,15 +2760,15 @@ export class ThresholdSigningService {
     });
     if (!session.ok) return session;
 
-      return {
-        ok: true,
-        ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId,
-        signingRootId: derived.value.signingRootMetadata.signingRootId,
-        ...(derived.value.signingRootMetadata.signingRootVersion
-          ? { signingRootVersion: derived.value.signingRootMetadata.signingRootVersion }
-          : {}),
-        relayerKeyId: derived.value.relayerKeyId,
-        clientVerifyingShareB64u: derived.value.clientVerifyingShareB64u,
+    return {
+      ok: true,
+      ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId,
+      signingRootId: derived.value.signingRootMetadata.signingRootId,
+      ...(derived.value.signingRootMetadata.signingRootVersion
+        ? { signingRootVersion: derived.value.signingRootMetadata.signingRootVersion }
+        : {}),
+      relayerKeyId: derived.value.relayerKeyId,
+      clientVerifyingShareB64u: derived.value.clientVerifyingShareB64u,
       clientAdditiveShare32B64u: derived.value.clientAdditiveShare32B64u,
       thresholdEcdsaPublicKeyB64u,
       ethereumAddress,
@@ -3148,7 +3179,8 @@ export class ThresholdSigningService {
           return {
             ok: false,
             code: 'unauthorized',
-            message: 'email_otp_bootstrap requires authenticated app-session or threshold-session auth',
+            message:
+              'email_otp_bootstrap requires authenticated app-session or threshold-session auth',
           };
         }
         if (
@@ -3307,7 +3339,8 @@ export class ThresholdSigningService {
             return {
               ok: false,
               code: 'invalid_body',
-              message: 'session_bootstrap with threshold-ecdsa session requires ecdsaThresholdKeyId',
+              message:
+                'session_bootstrap with threshold-ecdsa session requires ecdsaThresholdKeyId',
             };
           }
           const integratedKey = await this.getEcdsaIntegratedKeyRecord(ecdsaThresholdKeyId);
@@ -3786,7 +3819,8 @@ export class ThresholdSigningService {
             : {}),
         },
         refreshExistingWalletBudget:
-          ceremony.value.operation === 'registration_bootstrap' &&
+          (ceremony.value.operation === 'registration_bootstrap' ||
+            ceremony.value.operation === 'session_bootstrap') &&
           Boolean(ceremony.value.webauthnAuthentication),
       });
       if (!bootstrap.ok) return bootstrap;
@@ -3872,7 +3906,7 @@ export class ThresholdSigningService {
 
       const parsedRequest = parseThresholdEcdsaAuthorizeWithSessionRequest(input.request);
       if (!parsedRequest.ok) return parsedRequest;
-      const { ecdsaThresholdKeyId, purpose, signingDigest32 } = parsedRequest.value;
+      const { ecdsaThresholdKeyId, purpose, signingDigest32, signingPayload } = parsedRequest.value;
 
       await this.ensureReady();
 
@@ -3960,6 +3994,12 @@ export class ThresholdSigningService {
         walletSigningSessionId: claims.walletSigningSessionId,
         curveSessionId: sessionId,
         curveStore: this.ecdsaAuthSessionStore,
+        idempotencyKey: await this.thresholdEcdsaAuthorizationBudgetIdempotencyKey({
+          ecdsaThresholdKeyId,
+          purpose,
+          signingDigest32,
+          signingPayload,
+        }),
       });
       if (!consumed.ok) {
         return { ok: false, code: consumed.code, message: consumed.message };
@@ -4093,13 +4133,13 @@ export class ThresholdSigningService {
       );
       const hasEcdsaSessionAuth = Boolean(
         ecdsaSessionClaims &&
-          ecdsaSessionClaims.walletId === nearAccountId &&
-          ecdsaSessionClaims.rpId === rpId &&
-          ecdsaSessionClaims.thresholdExpiresAtMs > Date.now() &&
-          (!policySigningRoot ||
-            (ecdsaSigningRoot &&
-              ecdsaSigningRoot.signingRootId === policySigningRoot.signingRootId &&
-              ecdsaSigningRoot.signingRootVersion === policySigningRoot.signingRootVersion)),
+        ecdsaSessionClaims.walletId === nearAccountId &&
+        ecdsaSessionClaims.rpId === rpId &&
+        ecdsaSessionClaims.thresholdExpiresAtMs > Date.now() &&
+        (!policySigningRoot ||
+          (ecdsaSigningRoot &&
+            ecdsaSigningRoot.signingRootId === policySigningRoot.signingRootId &&
+            ecdsaSigningRoot.signingRootVersion === policySigningRoot.signingRootVersion)),
       );
       const hasSessionAuth = hasAppSessionAuth || hasEcdsaSessionAuth;
       if (!hasSessionAuth && !this.verifyWebAuthnAuthenticationLite) {
@@ -5218,6 +5258,7 @@ export class ThresholdSigningService {
         curveSessionId: sessionId,
         curveStore: this.authSessionStore,
         idempotencyKey: await this.thresholdEd25519AuthorizationBudgetIdempotencyKey({
+          relayerKeyId,
           purpose,
           signingPayload,
         }),

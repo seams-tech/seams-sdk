@@ -230,6 +230,12 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
         userId: string;
         appSessionVersion: string;
         sessionHash: string;
+        thresholdSessionId: string;
+        walletSigningSessionId: string;
+        walletBudgetStatus: {
+          expiresAtMs: number;
+          remainingUses: number;
+        };
       }
     | { ok: false; status: number; body: Record<string, unknown> }
   > => {
@@ -338,6 +344,12 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       userId,
       appSessionVersion: `signing-session:${claims.kind}:${walletSigningSessionId}:${sessionId}`,
       sessionHash,
+      thresholdSessionId: sessionId,
+      walletSigningSessionId,
+      walletBudgetStatus: {
+        expiresAtMs: walletBudgetStatus.expiresAtMs,
+        remainingUses: Math.max(0, Math.floor(Number(walletBudgetStatus.remainingUses) || 0)),
+      },
     };
   };
 
@@ -1016,6 +1028,55 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       }
     } catch (e: any) {
       res.status(500).json({ code: 'internal', message: e?.message || 'Internal error' });
+    }
+  });
+
+  // Session: authoritative wallet signing-session budget status.
+  //
+  // This route intentionally authenticates with a threshold-session token and
+  // returns only the wallet-level budget projection. Client runtime and
+  // IndexedDB remaining-use counters are material hints; this server store is
+  // the budget authority.
+  router.post('/session/signing-budget/status', async (req: any, res: any) => {
+    try {
+      const body = (req.body || {}) as Record<string, unknown>;
+      const expectedWalletSigningSessionId = String(body.walletSigningSessionId || '').trim();
+      const validated = await readAndValidateEmailOtpSigningSession(req.headers || {});
+      if (!validated.ok) {
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+      if (
+        expectedWalletSigningSessionId &&
+        expectedWalletSigningSessionId !== validated.walletSigningSessionId
+      ) {
+        res.status(403).json({
+          ok: false,
+          code: 'wallet_signing_session_mismatch',
+          message: 'Wallet signing-session status token does not match requested wallet session',
+        });
+        return;
+      }
+      const remainingUses = Math.max(
+        0,
+        Math.floor(Number(validated.walletBudgetStatus.remainingUses) || 0),
+      );
+      res.status(200).json({
+        ok: true,
+        walletSigningSessionId: validated.walletSigningSessionId,
+        thresholdSessionId: validated.thresholdSessionId,
+        status: remainingUses > 0 ? 'active' : 'exhausted',
+        remainingUses,
+        expiresAtMs: validated.walletBudgetStatus.expiresAtMs,
+        projectionVersion: [
+          'wallet-budget',
+          validated.walletSigningSessionId,
+          validated.walletBudgetStatus.expiresAtMs,
+          remainingUses,
+        ].join(':'),
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, code: 'internal', message: e?.message || 'Internal error' });
     }
   });
 
