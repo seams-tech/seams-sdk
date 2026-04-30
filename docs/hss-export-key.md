@@ -9,21 +9,19 @@ lifecycle behavior.
 
 Current status:
 
-- Ed25519 Option A is the implemented default path.
+- Ed25519 single-key HSS is the implemented default path.
 - ECDSA homomorphic export is still a planned export lane, not the active
   product default.
-- Ed25519 Option B is historical background only and is not part of the active
-  code path, active specs, or active product behavior.
 
 ## Scope
 
 This document defines:
 
-- the active Ed25519 Option A lifecycle,
+- the active Ed25519 single-key HSS lifecycle,
 - the planned ECDSA homomorphic export model,
 - shared security invariants,
 - registration/session performance lessons from the HSS rollout,
-- the current recommendation for what is live versus historical.
+- the current recommendation for the live HSS/export surface.
 
 ## Active Ed25519 Model
 
@@ -96,35 +94,30 @@ Do not treat scalar export as equivalent to seed export.
 
 The active product path now does all of the following:
 
-- reconstructs Ed25519 signing-share state through the Option A HSS ceremony
+- reconstructs Ed25519 signing-share state through the single-key HSS ceremony
 - uses one canonical public key for both signing and export verification
 - runs registration, warm-session minting, sync-account, link-device, and
-  recovery through the Option A session/HSS seam
-- keeps the active signer worker free of the old Option B dual-key inputs and
-  bootstrap-share baggage
+  recovery through the single-key HSS session seam
+- keeps the active signer worker free of bootstrap-share baggage from older
+  designs
 - keeps the export lane on verified `near-ed25519-seed-v1` output only
 
 Verification gates now include:
 
 - the active-path script gate in
-  [tests/unit/thresholdEd25519.optionAActivePath.script.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/thresholdEd25519.optionAActivePath.script.unit.test.ts)
+  [tests/unit/thresholdEd25519.singleKeyHssActivePath.script.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/thresholdEd25519.singleKeyHssActivePath.script.unit.test.ts)
 - the separated-role keep-gate in
   [tests/unit/thresholdEd25519.separatedRoles.script.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/thresholdEd25519.separatedRoles.script.unit.test.ts)
 - the real role-separated example in
   [crates/ed25519-hss/examples/prime_order_separated_roles_e2e.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/examples/prime_order_separated_roles_e2e.rs)
 
-### Migration Outcome
+### Active Invariant
 
-The Ed25519 Option A migration is complete.
+The Ed25519 single-key HSS migration is complete. What that means in practice:
 
-What that means in practice:
-
-- Option A is the only active Ed25519 path
-- Option B is no longer part of the default product implementation
-- the active code path no longer depends on dual-key recovery semantics,
-  `recoveryPublicKey` as a second active Ed25519 key, or bootstrap-package
-  worker paths
-- old Option B code, tests, benchmarks, and docs were removed instead of being
+- the active code path no longer depends on `recoveryPublicKey` as a second
+  active Ed25519 key or on bootstrap-package worker paths
+- old code, tests, benchmarks, and docs were removed instead of being
   left behind as dormant baggage
 
 ## Planned ECDSA Homomorphic Export Model
@@ -257,7 +250,7 @@ Across both Ed25519 and ECDSA:
 
 ### Root Causes Of Registration Lag
 
-We traced the long Option A registration delay to a mix of client-side and
+We traced the long single-key HSS registration delay to a mix of client-side and
 server-side HSS packaging/runtime issues.
 
 The main problems were:
@@ -333,24 +326,6 @@ After those fixes, registration HSS timings dropped into the expected range:
 
 At that point, the remaining registration time was mostly real NEAR account
 creation and access-key visibility checks, not HSS itself.
-
-## Historical Note: Ed25519 Option B
-
-Ed25519 Option B was the earlier dual-key NEAR-specific model:
-
-- one threshold operational key `pk_a`
-- one independent recovery/export key `pk_d`
-
-It existed to avoid paying the hidden single-key `d -> a` conversion on the hot
-signing path.
-
-That tradeoff is no longer compelling enough for the active product model. The
-HSS path is fast enough that the product now prefers one canonical key
-lifecycle instead.
-
-Option B should now be treated only as older migration background, not as a
-live alternative. Do not reintroduce it into the active product path, docs, or
-API surface.
 
 ## Active Dependencies
 

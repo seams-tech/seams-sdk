@@ -4,7 +4,7 @@ Date updated: April 3, 2026
 
 ## Summary
 
-This plan is for speeding up the active Ed25519 Option A registration flow.
+This plan is for speeding up the active Ed25519 single-key HSS registration flow.
 
 The rule for this work is simple:
 
@@ -22,7 +22,7 @@ The current registration flow does this:
 
 1. validate account input and run a best-effort account existence check
 2. complete WebAuthn registration
-3. run Ed25519 Option A HSS registration prepare/finalize
+3. run Ed25519 single-key HSS registration prepare/finalize
 4. submit atomic relay registration
 5. create the NEAR account on-chain
 6. run optimistic access-key visibility verification
@@ -44,7 +44,7 @@ Recent timings show:
 An optimization counts as successful only if it satisfies all of these:
 
 - improves median end-to-end registration time in local/dev benchmarking
-- does not regress correctness or active Option A behavior
+- does not regress correctness or active single-key HSS behavior
 - does not materially weaken security or scope binding
 - does not add permanent legacy branches or duplicate code paths
 

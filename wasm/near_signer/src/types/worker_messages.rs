@@ -19,7 +19,7 @@ pub enum WorkerRequestType {
     SignDelegateAction,
     // Public, deterministic key enrollment helper for threshold mode
     DeriveThresholdEd25519ClientVerifyingShare,
-    // Public helper that derives Option A HSS client inputs from PRF + canonical context
+    // Public helper that derives single-key HSS client inputs from PRF + canonical context
     DeriveThresholdEd25519HssClientInputs,
     /// Internal helper to generate a fresh ephemeral Ed25519 keypair.
     GenerateEphemeralNearKeypair,

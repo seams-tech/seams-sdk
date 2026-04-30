@@ -57,7 +57,7 @@ Current evidence is useful but incomplete:
 - Threshold ECDSA already has a benchmark harness and recent numbers, but it is not a true multi-wallet load test.
 - Threshold Ed25519 no longer uses the deleted dual-key microbenchmark harness.
 - The active single-key threshold-ed25519 reference is now
-  [threshold-ed25519-option-a.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/benchmarks/threshold-ed25519-option-a.md),
+  [threshold-ed25519-single-key-hss.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/benchmarks/threshold-ed25519-single-key-hss.md),
   and the first real actor-based multi-wallet run now exists for the active
   path, but only for the local single-node warm-session topology.
 - Threshold ECDSA live presign sessions are process-local, so multi-instance behavior depends on routing and peer-forwarding correctness, not just shared storage.

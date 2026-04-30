@@ -47,6 +47,7 @@ import {
   type WalletEmailOtpChannel,
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
+import { joinNormalizedUrl } from '@shared/utils/normalize';
 import {
   requireThresholdSessionJwt,
   type AppOrThresholdSessionAuth,
@@ -200,7 +201,6 @@ import { createManagerAssembly } from './bootstrap/managerAssembly';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
 import { createWarmSessionCapabilityReader } from './session/warmSigning/capabilityReader';
 import { createWarmSessionStatusReader } from './session/warmSigning/statusReader';
-import { SigningSessionCoordinator } from './session/SigningSessionCoordinator';
 import { provisionWarmEd25519Capability } from './session/warmSigning/ed25519Provisioner';
 import { provisionWarmEcdsaCapability } from './session/warmSigning/ecdsaProvisioner';
 import { assertWarmSessionEcdsaOperationAllowed } from './session/warmSigning/postSignPolicyAdapter';
@@ -260,7 +260,19 @@ import type {
 import type {
   ReadSigningSessionSnapshotInput,
   SigningSessionSnapshot,
+  SigningSessionSnapshotRuntimeEcdsaRecord,
+  SigningSessionSnapshotRuntimeEd25519Record,
+  SigningSessionSnapshotRuntimeClaim,
 } from './session/snapshotReader';
+import {
+  readSigningSessionSnapshot,
+  warmStatusToSigningSessionSnapshotRuntimeClaim,
+} from './session/snapshotReader';
+import {
+  listExactSealedSessionsForAccount,
+  listResolvedIdentitiesForAccount,
+} from './session/sealedSessionStore';
+import { resolveEmailOtpEcdsaWorkerSessionId } from './session/signingSession/readiness';
 
 export type {
   ThresholdEcdsaActivationChain,
@@ -486,6 +498,7 @@ export class SigningEngine {
       getEmailOtpWarmSessionStatus: (sessionId) =>
         this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
       consumeEmailOtpWarmSessionUses: (args) => this.emailOtpSessions.consumeWarmSessionUses(args),
+      getWalletSigningBudgetStatus: (args) => this.readTrustedWalletSigningBudgetStatus(args),
       signerWorkerManager: this.signerWorkerManager,
       getWorkerBaseOrigin: () => this.workerBaseOrigin,
       getTheme: () => this.theme,
@@ -523,9 +536,14 @@ export class SigningEngine {
       loginWithEmailOtpEcdsaCapabilityForSigning: (args) =>
         this.emailOtpSessions.loginWithEcdsaCapabilityForSigning(args),
       restorePersistedSessionForSigning: (args) =>
-        this.emailOtpSessions.restorePersistedSessionForSigning(args),
+        args.authMethod === 'passkey'
+          ? this.touchConfirm.restorePersistedSessionForSigning({
+              ...args,
+              authMethod: 'passkey',
+            })
+          : this.emailOtpSessions.restorePersistedSessionForSigning(args),
       readSigningSessionSnapshotForSigning: (args) =>
-        this.emailOtpSessions.readPersistedSessionSnapshot(args),
+        this.readPersistedSigningSessionSnapshot(args),
       markThresholdEcdsaEmailOtpSessionConsumedForAccount: (args) =>
         this.markThresholdEcdsaEmailOtpSessionConsumedForAccount(args),
       markThresholdEd25519EmailOtpSessionConsumedForAccount: (args) =>
@@ -608,6 +626,9 @@ export class SigningEngine {
     const claimWarmSessionMaterial = async (args: {
       sessionId: string;
       uses?: number;
+      consume?: boolean;
+      curve?: 'ed25519' | 'ecdsa';
+      chain?: 'near' | 'tempo' | 'evm';
     }): Promise<WarmSessionClaimResult> => {
       const secondary = await this.emailOtpSessions.claimWarmSessionMaterial(args);
       if (secondary.ok || (secondary.code !== 'not_found' && secondary.code !== 'worker_error')) {
@@ -722,19 +743,6 @@ export class SigningEngine {
     }) as TouchConfirmRuntimeBridgePort;
   }
 
-  private createSigningSessionStatusOnlyCoordinator(): SigningSessionCoordinator {
-    return new SigningSessionCoordinator({
-      touchConfirm: this.createWarmSessionStatusOnlyTouchConfirm(this.touchConfirm),
-      listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
-        this.listThresholdEcdsaSessionRecordsForLookup({
-          nearAccountId,
-          chain,
-        }),
-      getEmailOtpWarmSessionStatus: (sessionId) =>
-        this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
-    });
-  }
-
   private async ensureSealedRefreshStartupParity(): Promise<void> {
     await this.sealedRefreshStartupParityPromise;
     if (this.sealedRefreshStartupParityError) {
@@ -752,9 +760,7 @@ export class SigningEngine {
     const walletId = String(toAccountId(args.walletId) || '').trim();
     const empty = { listed: 0, attempted: 0, restored: 0, deferred: 0, skipped: 0, truncated: 0 };
     if (!walletId) return empty;
-    const targets = args.authMethod
-      ? [args.authMethod]
-      : (['email_otp', 'passkey'] as const);
+    const targets = args.authMethod ? [args.authMethod] : (['email_otp', 'passkey'] as const);
     const results = await Promise.all(
       targets.map(async (authMethod) => {
         if (authMethod === 'email_otp') {
@@ -789,7 +795,149 @@ export class SigningEngine {
   async readPersistedSigningSessionSnapshot(
     args: ReadSigningSessionSnapshotInput,
   ): Promise<SigningSessionSnapshot> {
-    return await this.emailOtpSessions.readPersistedSessionSnapshot(args);
+    const accountId = String(toAccountId(args.walletId) || '').trim();
+    const statusReader = this.createWarmSessionStatusOnlyTouchConfirm(this.touchConfirm);
+    const pushRuntimeEcdsaRecord = (
+      records: SigningSessionSnapshotRuntimeEcdsaRecord[],
+      seen: Set<string>,
+      record: SigningSessionSnapshotRuntimeEcdsaRecord,
+    ): void => {
+      const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+      if (!thresholdSessionId || seen.has(thresholdSessionId)) return;
+      seen.add(thresholdSessionId);
+      records.push(record);
+    };
+
+    return await readSigningSessionSnapshot(
+      {
+        ...args,
+        walletId: accountId,
+      },
+      {
+        listSealedRecordsForAccount: async ({ accountId: recordAccountId, filter }) => {
+          const listByAuthMethod = async (authMethod: 'email_otp' | 'passkey') => {
+            if (filter.curve === 'ecdsa') {
+              return await listExactSealedSessionsForAccount({
+                accountId: recordAccountId,
+                filter: { authMethod, curve: 'ecdsa', chain: filter.chain },
+              });
+            }
+            return await listExactSealedSessionsForAccount({
+              accountId: recordAccountId,
+              filter: { authMethod, curve: 'ed25519' },
+            });
+          };
+          if (filter.authMethod) {
+            return await listByAuthMethod(filter.authMethod);
+          }
+          const [emailOtpRecords, passkeyRecords] = await Promise.all([
+            listByAuthMethod('email_otp'),
+            listByAuthMethod('passkey'),
+          ]);
+          return [...emailOtpRecords, ...passkeyRecords];
+        },
+        listRuntimeEcdsaRecordsForAccount: async ({ accountId: recordAccountId }) => {
+          const records: SigningSessionSnapshotRuntimeEcdsaRecord[] = [];
+          const seen = new Set<string>();
+          for (const chain of ['tempo', 'evm'] as const) {
+            for (const authMethod of ['email_otp', 'passkey'] as const) {
+              for (const identity of listResolvedIdentitiesForAccount({
+                walletId: recordAccountId,
+                authMethod,
+                curve: 'ecdsa',
+                chain,
+              })) {
+                pushRuntimeEcdsaRecord(records, seen, {
+                  authMethod: identity.authMethod,
+                  curve: 'ecdsa',
+                  chain,
+                  thresholdSessionId: identity.thresholdSessionId,
+                  walletSigningSessionId: identity.walletSigningSessionId,
+                });
+              }
+            }
+            for (const runtimeRecord of this.listThresholdEcdsaSessionRecordsForLookup({
+              nearAccountId: recordAccountId,
+              chain,
+            })) {
+              const authMethod = runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp
+                ? 'email_otp'
+                : 'passkey';
+              if (args.authMethod && args.authMethod !== authMethod) continue;
+              pushRuntimeEcdsaRecord(records, seen, {
+                authMethod,
+                curve: 'ecdsa',
+                chain,
+                thresholdSessionId: runtimeRecord.thresholdSessionId,
+                walletSigningSessionId: runtimeRecord.walletSigningSessionId,
+              });
+            }
+          }
+          return records;
+        },
+        listRuntimeEd25519RecordsForAccount: async ({ accountId: recordAccountId }) => {
+          const records: SigningSessionSnapshotRuntimeEd25519Record[] = [];
+          const seen = new Set<string>();
+          const pushRecord = (record: SigningSessionSnapshotRuntimeEd25519Record): void => {
+            const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+            if (!thresholdSessionId || seen.has(thresholdSessionId)) return;
+            seen.add(thresholdSessionId);
+            records.push(record);
+          };
+          for (const identity of listResolvedIdentitiesForAccount({
+            walletId: recordAccountId,
+            ...(args.authMethod ? { authMethod: args.authMethod } : {}),
+            curve: 'ed25519',
+          })) {
+            pushRecord({
+              authMethod: identity.authMethod,
+              curve: 'ed25519',
+              chain: 'near',
+              thresholdSessionId: identity.thresholdSessionId,
+              walletSigningSessionId: identity.walletSigningSessionId,
+            });
+          }
+          const ed25519Record = getStoredThresholdEd25519SessionRecordForAccountValue(recordAccountId);
+          if (ed25519Record) {
+            const authMethod =
+              ed25519Record.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
+            if (!args.authMethod || args.authMethod === authMethod) {
+              pushRecord({
+                authMethod,
+                curve: 'ed25519',
+                chain: 'near',
+                thresholdSessionId: ed25519Record.thresholdSessionId,
+                walletSigningSessionId: ed25519Record.walletSigningSessionId,
+              });
+            }
+          }
+          return records;
+        },
+        readRuntimeClaimsForSessions: async (sessionIds) => {
+          const claims = new Map<string, SigningSessionSnapshotRuntimeClaim | null>();
+          await Promise.all(
+            sessionIds.map(async (sessionId) => {
+              const ecdsaRecord =
+                getStoredThresholdEcdsaSessionRecordByThresholdSessionIdValue(sessionId);
+              const statusSessionId =
+                ecdsaRecord?.source === SIGNER_AUTH_METHODS.emailOtp
+                  ? resolveEmailOtpEcdsaWorkerSessionId(ecdsaRecord)
+                  : sessionId;
+              const status = await statusReader
+                .getWarmSessionStatus({ sessionId: statusSessionId })
+                .catch(() => null);
+              claims.set(
+                sessionId,
+                status
+                  ? warmStatusToSigningSessionSnapshotRuntimeClaim({ sessionId, status })
+                  : null,
+              );
+            }),
+          );
+          return claims;
+        },
+      },
+    );
   }
 
   private async ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap(
@@ -879,7 +1027,6 @@ export class SigningEngine {
   }
 
   private createWarmSessionStatusReader() {
-    const signingSessionCoordinator = this.createSigningSessionStatusOnlyCoordinator();
     return createWarmSessionStatusReader({
       touchConfirm: this.createWarmSessionStatusOnlyTouchConfirm(this.touchConfirm),
       listThresholdEcdsaSessionRecordsForLookup: ({ nearAccountId, chain }) =>
@@ -887,7 +1034,6 @@ export class SigningEngine {
           nearAccountId,
           chain,
         }),
-      signingSessionCoordinator,
       getEmailOtpWarmSessionStatus: (sessionId) =>
         this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
     });
@@ -896,15 +1042,144 @@ export class SigningEngine {
   private async getWalletSigningBudgetAvailableStatus(args: {
     nearAccountId: AccountId | string;
     walletSigningSessionId?: string;
+    targetThresholdSessionIds?: string[];
+    targetBackingMaterialSessionIds?: string[];
   }): Promise<SigningSessionStatus | null> {
     const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
     if (!walletSigningSessionId) return null;
-    return await this.createSigningSessionStatusOnlyCoordinator()
+    return await this.orchestrationDeps.signingSessionCoordinator
       .getAvailableStatus({
         nearAccountId: args.nearAccountId,
         walletSigningSessionId,
+        targetThresholdSessionIds: args.targetThresholdSessionIds,
+        targetBackingMaterialSessionIds: args.targetBackingMaterialSessionIds,
       })
       .catch(() => null);
+  }
+
+  private async readTrustedWalletSigningBudgetStatus(args: {
+    nearAccountId: AccountId | string;
+    walletSigningSessionId?: string;
+    targetThresholdSessionIds?: string[];
+  }): Promise<SigningSessionStatus | null> {
+    const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+    if (!walletSigningSessionId) return null;
+    const auth = this.resolveWalletSigningBudgetStatusAuth({
+      nearAccountId: args.nearAccountId,
+      walletSigningSessionId,
+      targetThresholdSessionIds: args.targetThresholdSessionIds,
+    });
+    if (!auth?.relayerUrl) return null;
+    const response = await fetch(
+      joinNormalizedUrl(auth.relayerUrl, '/session/signing-budget/status'),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(auth.thresholdSessionJwt ? { Authorization: `Bearer ${auth.thresholdSessionJwt}` } : {}),
+        },
+        credentials: auth.thresholdSessionJwt ? 'omit' : 'include',
+        body: JSON.stringify({
+          walletSigningSessionId,
+          ...(auth.thresholdSessionId ? { thresholdSessionId: auth.thresholdSessionId } : {}),
+        }),
+      },
+    );
+    const json = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!response.ok || !json || json.ok === false) {
+      if (response.status === 401 || response.status === 403 || response.status === 404) {
+        return {
+          sessionId: walletSigningSessionId,
+          status: 'not_found',
+          ...(typeof json?.code === 'string' ? { statusCode: json.code } : {}),
+        };
+      }
+      return null;
+    }
+    const status = String(json.status || '').trim();
+    if (status !== 'active' && status !== 'exhausted' && status !== 'expired') return null;
+    const remainingUses = Math.max(0, Math.floor(Number(json.remainingUses) || 0));
+    const expiresAtMs = Math.floor(Number(json.expiresAtMs) || 0);
+    const projectionVersion = String(json.projectionVersion || '').trim();
+    return {
+      sessionId: walletSigningSessionId,
+      status,
+      ...(status === 'active' || status === 'exhausted' ? { remainingUses } : {}),
+      ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
+      ...(projectionVersion ? { projectionVersion } : {}),
+    };
+  }
+
+  private resolveWalletSigningBudgetStatusAuth(args: {
+    nearAccountId: AccountId | string;
+    walletSigningSessionId: string;
+    targetThresholdSessionIds?: string[];
+  }):
+    | {
+        relayerUrl: string;
+        thresholdSessionId?: string;
+        thresholdSessionJwt?: string;
+      }
+    | null {
+    const accountId = toAccountId(args.nearAccountId);
+    const walletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+    if (!accountId || !walletSigningSessionId) return null;
+    const targetThresholdIds = new Set(
+      (args.targetThresholdSessionIds || [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean),
+    );
+    const candidates: Array<{
+      relayerUrl: string;
+      thresholdSessionId: string;
+      thresholdSessionJwt?: string;
+      exactTarget: boolean;
+    }> = [];
+    const pushCandidate = (
+      record:
+        | {
+            relayerUrl?: string;
+            thresholdSessionId?: string;
+            thresholdSessionJwt?: string;
+            walletSigningSessionId?: string;
+            thresholdSessionKind?: string;
+          }
+        | null
+        | undefined,
+    ): void => {
+      if (!record) return;
+      if (String(record.walletSigningSessionId || '').trim() !== walletSigningSessionId) return;
+      const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+      const relayerUrl = String(record.relayerUrl || '').trim();
+      if (!thresholdSessionId || !relayerUrl) return;
+      const exactTarget =
+        targetThresholdIds.size === 0 || targetThresholdIds.has(thresholdSessionId);
+      if (!exactTarget && targetThresholdIds.size > 0) return;
+      const thresholdSessionJwt = String(record.thresholdSessionJwt || '').trim();
+      if (!thresholdSessionJwt && record.thresholdSessionKind !== 'cookie') return;
+      candidates.push({
+        relayerUrl,
+        thresholdSessionId,
+        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+        exactTarget,
+      });
+    };
+    pushCandidate(getStoredThresholdEd25519SessionRecordForAccountValue(accountId));
+    for (const chain of ['tempo', 'evm'] as const) {
+      for (const record of this.listThresholdEcdsaSessionRecordsForLookup({
+        nearAccountId: accountId,
+        chain,
+      })) {
+        pushCandidate(record);
+      }
+    }
+    return (
+      candidates.find((candidate) => candidate.exactTarget && candidate.thresholdSessionJwt) ||
+      candidates.find((candidate) => candidate.exactTarget) ||
+      candidates.find((candidate) => candidate.thresholdSessionJwt) ||
+      candidates[0] ||
+      null
+    );
   }
 
   private mergeWalletSigningBudgetStatus<TStatus extends SigningSessionStatus>(
@@ -912,6 +1187,7 @@ export class SigningEngine {
     budgetStatus: SigningSessionStatus | null,
   ): TStatus {
     if (!budgetStatus) return status;
+    if (budgetStatus.status === 'not_found') return status;
     if (budgetStatus.status !== 'active') {
       return {
         ...status,
@@ -919,14 +1195,16 @@ export class SigningEngine {
         sessionId: status.sessionId,
       };
     }
-    const statusRemainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
     const budgetRemainingUses = Math.max(0, Math.floor(Number(budgetStatus.remainingUses) || 0));
     const statusExpiresAtMs = Math.floor(Number(status.expiresAtMs) || 0);
     const budgetExpiresAtMs = Math.floor(Number(budgetStatus.expiresAtMs) || 0);
+    // Runtime material counters can hit zero before the server-side wallet
+    // budget does. The budget route is the trusted policy source; local status
+    // only supplies material/auth context.
     return {
       ...status,
       status: 'active',
-      remainingUses: Math.min(statusRemainingUses, budgetRemainingUses),
+      remainingUses: budgetRemainingUses,
       expiresAtMs:
         statusExpiresAtMs > 0 && budgetExpiresAtMs > 0
           ? Math.min(statusExpiresAtMs, budgetExpiresAtMs)
@@ -1267,7 +1545,10 @@ export class SigningEngine {
     onEvent?: KeyExportEventCallback;
   }): Promise<{ accountId: string; exportedSchemes: Array<'ed25519' | 'secp256k1'> }> {
     if (args.options.chain === 'near') {
-      const optionAResult = await this.tryExportNearEd25519OptionAWithAuthorization({
+      await this.restoreNearEd25519SessionForExportBestEffort({
+        nearAccountId: args.nearAccountId,
+      });
+      const singleKeyHssResult = await this.tryExportNearEd25519SingleKeyHssWithAuthorization({
         nearAccountId: args.nearAccountId,
         options: {
           variant: args.options.variant,
@@ -1276,8 +1557,10 @@ export class SigningEngine {
         flowId: args.flowId,
         onEvent: args.onEvent,
       });
-      if (optionAResult) return optionAResult;
-      throw new Error('NEAR Ed25519 export now requires the canonical Option A HSS export path');
+      if (singleKeyHssResult) return singleKeyHssResult;
+      throw new Error(
+        'NEAR Ed25519 export now requires the canonical single-key HSS export path',
+      );
     }
 
     const exportChain = args.options.chain === 'tempo' ? 'tempo' : 'evm';
@@ -1286,23 +1569,35 @@ export class SigningEngine {
       chain: exportChain,
     });
     let thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
-    const keyRefCandidates = this.listThresholdEcdsaKeyRefsForLookup({
-      nearAccountId: args.nearAccountId,
-      chain: exportChain,
+    const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
+      deps: { indexedDB: this.orchestrationDeps.indexedDB },
+      nearAccountId: String(args.nearAccountId),
+      senderSignatureAlgorithm: 'secp256k1',
     });
-    if (keyRefCandidates.length === 1) {
-      thresholdEcdsaKeyRef = keyRefCandidates[0].keyRef;
-    } else if (keyRefCandidates.length > 1) {
-      throw new Error(
-        `[SigningEngine] multiple threshold ECDSA ${exportChain} lanes are available; select a signing source before export`,
-      );
+    if (accountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
+      try {
+        thresholdEcdsaKeyRef = this.getEmailOtpThresholdEcdsaKeyRefForSigning({
+          nearAccountId: args.nearAccountId,
+          chain: exportChain,
+        });
+      } catch {
+        thresholdEcdsaKeyRef = undefined;
+      }
     } else {
-      const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
-        deps: { indexedDB: this.orchestrationDeps.indexedDB },
-        nearAccountId: String(args.nearAccountId),
-        senderSignatureAlgorithm: 'secp256k1',
-      });
-      if (accountAuth.primaryAuthMethod !== SIGNER_AUTH_METHODS.emailOtp) {
+      const passkeyExportSourcePriority = ['login', 'manual-bootstrap', 'registration'] as const;
+      for (const source of passkeyExportSourcePriority) {
+        try {
+          thresholdEcdsaKeyRef = this.getPasskeyThresholdEcdsaKeyRefForSigning({
+            nearAccountId: args.nearAccountId,
+            chain: exportChain,
+            source,
+          });
+          break;
+        } catch {
+          thresholdEcdsaKeyRef = undefined;
+        }
+      }
+      if (!thresholdEcdsaKeyRef) {
         thresholdEcdsaKeyRef = (
           await this.bootstrapEcdsaSession({
             nearAccountId: args.nearAccountId,
@@ -1323,6 +1618,40 @@ export class SigningEngine {
       flowId: args.flowId,
       onEvent: args.onEvent,
     });
+  }
+
+  private async restoreNearEd25519SessionForExportBestEffort(args: {
+    nearAccountId: AccountId;
+  }): Promise<void> {
+    await Promise.all(
+      (['email_otp', 'passkey'] as const).map(async (authMethod) => {
+        try {
+          if (authMethod === 'passkey') {
+            await this.touchConfirm.restorePersistedSessionForSigning({
+              walletId: args.nearAccountId,
+              authMethod: 'passkey',
+              curve: 'ed25519',
+              chain: 'near',
+              reason: 'export',
+            });
+            return;
+          }
+          await this.emailOtpSessions.restorePersistedSessionForSigning({
+            walletId: args.nearAccountId,
+            authMethod: 'email_otp',
+            curve: 'ed25519',
+            chain: 'near',
+            reason: 'export',
+          });
+        } catch (error: unknown) {
+          console.debug('[SigningEngine][ed25519-export] persisted session restore skipped', {
+            nearAccountId: String(args.nearAccountId),
+            authMethod,
+            message: error instanceof Error ? error.message : String(error || 'unknown error'),
+          });
+        }
+      }),
+    );
   }
 
   private async restoreEmailOtpEcdsaSessionForExportBestEffort(args: {
@@ -2121,7 +2450,7 @@ export class SigningEngine {
     });
   }
 
-  private async runNearEd25519OptionAHssExport(args: {
+  private async runNearEd25519SingleKeyHssExport(args: {
     signingRootId: string;
     nearAccountId: AccountId;
     keyVersion: string;
@@ -2168,7 +2497,7 @@ export class SigningEngine {
       workerCtx: this.orchestrationDeps.thresholdSessionActivationDeps.getSignerWorkerContext(),
     });
     if (!completed.success || !completed.finalizedReport || !completed.preparedSession) {
-      throw new Error(completed.error || 'Failed to finalize Option A Ed25519 export ceremony');
+      throw new Error(completed.error || 'Failed to finalize single-key HSS Ed25519 export ceremony');
     }
 
     return {
@@ -2217,7 +2546,7 @@ export class SigningEngine {
       });
       if (!artifactResult.success || !artifactResult.artifact) {
         throw new Error(
-          artifactResult.error || 'Failed to build Option A Ed25519 seed export artifact',
+          artifactResult.error || 'Failed to build single-key HSS Ed25519 seed export artifact',
         );
       }
       emitKeyExportEvent(args.options.onEvent, {
@@ -2259,7 +2588,7 @@ export class SigningEngine {
     }
   }
 
-  private async tryExportNearEd25519OptionAWithAuthorization(args: {
+  private async tryExportNearEd25519SingleKeyHssWithAuthorization(args: {
     nearAccountId: AccountId;
     options: {
       variant?: 'drawer' | 'modal';
@@ -2285,7 +2614,10 @@ export class SigningEngine {
       : [];
     const hasCanonicalRuntimeScope = Boolean(orgId && projectId && envId && signingRootVersion);
 
-    const requireOptionAExportPrerequisite = (condition: boolean, message: string): void => {
+    const requireSingleKeyHssExportPrerequisite = (
+      condition: boolean,
+      message: string,
+    ): void => {
       if (condition) return;
       if (hasCanonicalRuntimeScope) {
         throw new Error(message);
@@ -2303,9 +2635,9 @@ export class SigningEngine {
       !relayerKeyId ||
       participantIds.length === 0
     ) {
-      requireOptionAExportPrerequisite(
+      requireSingleKeyHssExportPrerequisite(
         false,
-        'Missing canonical Option A Ed25519 export session prerequisites',
+        'Missing canonical single-key HSS Ed25519 export session prerequisites',
       );
       return null;
     }
@@ -2323,7 +2655,10 @@ export class SigningEngine {
       this.orchestrationDeps.indexedDB.clientDB,
     ).catch(() => null as number | null);
     if (signerSlot == null) {
-      requireOptionAExportPrerequisite(false, 'Missing signer slot for Option A Ed25519 export');
+      requireSingleKeyHssExportPrerequisite(
+        false,
+        'Missing signer slot for single-key HSS Ed25519 export',
+      );
       return null;
     }
 
@@ -2338,9 +2673,9 @@ export class SigningEngine {
     const keyVersion = String(thresholdKeyMaterial?.keyVersion || '').trim();
     const expectedPublicKey = String(thresholdKeyMaterial?.publicKey || '').trim();
     if (!keyVersion || !expectedPublicKey) {
-      requireOptionAExportPrerequisite(
+      requireSingleKeyHssExportPrerequisite(
         false,
-        'Missing canonical public key material for Option A Ed25519 export',
+        'Missing canonical public key material for single-key HSS Ed25519 export',
       );
       return null;
     }
@@ -2385,7 +2720,7 @@ export class SigningEngine {
           interaction: { kind: 'none', overlay: 'none' },
           data: { chain: 'near', curve: 'ed25519' },
         });
-        const hssTask = this.runNearEd25519OptionAHssExport({
+        const hssTask = this.runNearEd25519SingleKeyHssExport({
           signingRootId: defaultSigningRootId,
           nearAccountId,
           keyVersion,
@@ -2415,7 +2750,7 @@ export class SigningEngine {
         if (!artifactResult.success || !artifactResult.artifact) {
           throw new Error(
             artifactResult.error ||
-              'Failed to build Email OTP Option A Ed25519 seed export artifact',
+              'Failed to build Email OTP single-key HSS Ed25519 seed export artifact',
           );
         }
         emitKeyExportEvent(args.onEvent, {
@@ -2455,7 +2790,7 @@ export class SigningEngine {
       });
       const prfFirstB64u = this.requirePrfFirstForPrivateKeyExport({
         credential: exportCredential,
-        errorContext: 'Option A Ed25519 export',
+        errorContext: 'single-key HSS Ed25519 export',
       });
       emitKeyExportEvent(args.onEvent, {
         phase: KeyExportEventPhase.STEP_03_MATERIAL_PREPARE_STARTED,
@@ -2465,7 +2800,7 @@ export class SigningEngine {
         interaction: { kind: 'none', overlay: 'none' },
         data: { chain: 'near', curve: 'ed25519' },
       });
-      const hssTask = this.runNearEd25519OptionAHssExport({
+      const hssTask = this.runNearEd25519SingleKeyHssExport({
         signingRootId: defaultSigningRootId,
         nearAccountId,
         keyVersion,
@@ -2495,7 +2830,7 @@ export class SigningEngine {
       });
       if (!artifactResult.success || !artifactResult.artifact) {
         throw new Error(
-          artifactResult.error || 'Failed to build Option A Ed25519 seed export artifact',
+          artifactResult.error || 'Failed to build single-key HSS Ed25519 seed export artifact',
         );
       }
       emitKeyExportEvent(args.onEvent, {
@@ -3309,6 +3644,7 @@ export class SigningEngine {
   markThresholdEcdsaEmailOtpSessionConsumedForAccount(args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
+    uses?: number;
   }): void {
     markThresholdEcdsaEmailOtpSessionConsumedForAccountValue(
       {

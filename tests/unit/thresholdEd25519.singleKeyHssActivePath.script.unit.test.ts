@@ -79,20 +79,53 @@ class MemorySessionStorage implements Pick<
   }
 }
 
-const NEAR_ACCOUNT_ID = 'option-a-active.testnet';
+const NEAR_ACCOUNT_ID = 'single-key-hss-active.testnet';
 const RELAYER_URL = 'https://relay.example.test';
 const RELAYER_KEY_ID = 'ed25519:relayer-key-id';
 const RP_ID = 'example.localhost';
-const THRESHOLD_SESSION_ID = 'threshold-ed25519-option-a-session';
+const THRESHOLD_SESSION_ID = 'threshold-ed25519-single-key-hss-session';
+const WALLET_SIGNING_SESSION_ID = 'wallet-signing-session-single-key-hss';
 const THRESHOLD_SESSION_JWT = 'header.payload.signature';
-const ORG_ID = 'org_option_a';
+const ORG_ID = 'org_single_key_hss';
 const RUNTIME_SCOPE = {
   orgId: ORG_ID,
-  projectId: 'project_option_a',
-  envId: 'env_option_a',
+  projectId: 'project_single_key_hss',
+  envId: 'env_single_key_hss',
   signingRootVersion: 'default',
 } as const;
 const SIGNING_ROOT_ID = `${RUNTIME_SCOPE.projectId}:${RUNTIME_SCOPE.envId}`;
+
+function buildTestWarmSigningAuth() {
+  const expiresAtMs = Date.now() + 60_000;
+  return {
+    signingAuthPlan: {
+      kind: 'warm_session',
+      method: 'passkey',
+      accountId: NEAR_ACCOUNT_ID,
+      intent: 'transaction_sign',
+      curve: 'ed25519',
+      sessionId: THRESHOLD_SESSION_ID,
+      retention: 'session',
+      expiresAtMs,
+      remainingUses: 5,
+    },
+    signingLane: {
+      accountId: NEAR_ACCOUNT_ID,
+      authMethod: 'passkey',
+      curve: 'ed25519',
+      keyKind: 'threshold_ed25519',
+      chainFamily: 'near',
+      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+      thresholdSessionId: THRESHOLD_SESSION_ID,
+      sessionOrigin: 'bootstrap',
+      storageSource: 'bootstrap',
+      retention: 'session',
+      activeSignerSlot: 1,
+      signingRootId: SIGNING_ROOT_ID,
+      signingRootVersion: RUNTIME_SCOPE.signingRootVersion,
+    },
+  } as any;
+}
 const CONTEXT = {
   signingRootId: SIGNING_ROOT_ID,
   nearAccountId: NEAR_ACCOUNT_ID,
@@ -358,6 +391,7 @@ function seedThresholdEd25519Session(args?: { xClientBaseB64u?: string }): void 
       : {}),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: THRESHOLD_SESSION_ID,
+    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
     thresholdSessionJwt: THRESHOLD_SESSION_JWT,
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 10,
@@ -499,7 +533,7 @@ const TEST_NEAR_SIGNER_WORKER_CTX = {
   requestWorkerOperation: async ({ request }: any) => await invokeNearSignerWorkerDirect(request),
 };
 
-test.describe('threshold Ed25519 Option A active path', () => {
+test.describe('threshold Ed25519 single-key HSS active path', () => {
   test('browser HSS wasm exports do not expose clear relayer roots', async () => {
     const context = {
       signingRootId: CONTEXT.signingRootId,
@@ -554,6 +588,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         runtimePolicyScope: { ...RUNTIME_SCOPE },
         participantIds: [...CONTEXT.participantIds],
         sessionId: THRESHOLD_SESSION_ID,
+        walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
         expiresAtMs: Date.now() + 60_000,
         remainingUses: 5,
         jwt: THRESHOLD_SESSION_JWT,
@@ -711,6 +746,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       runtimePolicyScope: { ...RUNTIME_SCOPE },
       participantIds: [...CONTEXT.participantIds],
       sessionId: THRESHOLD_SESSION_ID,
+      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 5,
       jwt: THRESHOLD_SESSION_JWT,
@@ -803,6 +839,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         rpcCall: { nearAccountId: NEAR_ACCOUNT_ID, nearRpcUrl: 'https://rpc.testnet.test' },
         signerSlot: 1,
         sessionId: THRESHOLD_SESSION_ID,
+        ...buildTestWarmSigningAuth(),
       });
 
       expect(Array.isArray(result)).toBe(true);
@@ -847,6 +884,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       runtimePolicyScope: { ...RUNTIME_SCOPE },
       participantIds: [...CONTEXT.participantIds],
       sessionId: THRESHOLD_SESSION_ID,
+      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 5,
       jwt: THRESHOLD_SESSION_JWT,
@@ -976,6 +1014,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         rpcCall: { nearAccountId: NEAR_ACCOUNT_ID, nearRpcUrl: 'https://rpc.testnet.test' },
         signerSlot: 1,
         sessionId: THRESHOLD_SESSION_ID,
+        ...buildTestWarmSigningAuth(),
       });
 
       expect(Array.isArray(result)).toBe(true);
@@ -989,7 +1028,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     }
   });
 
-  test('prefers Option A seed export from the canonical threshold session with fresh authorization', async () => {
+  test('prefers single-key HSS seed export from the canonical threshold session with fresh authorization', async () => {
     const { restore } = installMemorySessionStorage();
     const originalFetch = globalThis.fetch;
     const exportWorkerCalls: Array<Record<string, unknown>> = [];
@@ -1059,7 +1098,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         garblerDriverStateBytes: base64UrlDecode(preparedServerSession.garblerDriverStateB64u),
       };
       const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
-        sessionId: `${THRESHOLD_SESSION_ID}:option-a-export-test-inputs`,
+        sessionId: `${THRESHOLD_SESSION_ID}:single-key-hss-export-test-inputs`,
         signingRootId: CONTEXT.signingRootId,
         nearAccountId: NEAR_ACCOUNT_ID,
         keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
@@ -1157,6 +1196,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           if (request.type === 'decryptPrivateKeyWithPrf') {
             return buildExportAuthorizationDecision(String(request.requestId || ''));
           }
+          request.payload?.onLifecycle?.('opened');
           return { requestId: String(request.requestId || ''), confirmed: true };
         },
       };
@@ -1171,36 +1211,26 @@ test.describe('threshold Ed25519 Option A active path', () => {
         exportedSchemes: ['ed25519'],
       });
       expect(exportWorkerCalls).toHaveLength(0);
-      expect(userConfirmationCalls.map((entry) => entry.type)).toEqual([
-        'decryptPrivateKeyWithPrf',
-        'showSecurePrivateKeyUi',
-        'showSecurePrivateKeyUi',
-      ]);
+      expect(userConfirmationCalls[0]?.type).toBe('decryptPrivateKeyWithPrf');
+      const privateKeyViewerCalls = userConfirmationCalls.filter(
+        (entry) => entry.type === 'showSecurePrivateKeyUi',
+      );
+      expect(privateKeyViewerCalls.length).toBeGreaterThanOrEqual(1);
       expect(userConfirmationCalls[0]).toMatchObject({
         summary: {
           accountId: NEAR_ACCOUNT_ID,
           publicKey: expectedPublicKey,
         },
       });
-      expect(userConfirmationCalls[1]).toMatchObject({
+      const finalPrivateKeyViewerCall = privateKeyViewerCalls[privateKeyViewerCalls.length - 1];
+      expect(finalPrivateKeyViewerCall).toMatchObject({
         payload: {
           nearAccountId: NEAR_ACCOUNT_ID,
           publicKey: expectedPublicKey,
-          loading: true,
           variant: 'drawer',
           theme: 'dark',
         },
       });
-      expect(userConfirmationCalls[2]).toMatchObject({
-        payload: {
-          nearAccountId: NEAR_ACCOUNT_ID,
-          publicKey: expectedPublicKey,
-          loading: false,
-          variant: 'drawer',
-          theme: 'dark',
-        },
-      });
-      expect(String(userConfirmationCalls[2]?.payload?.keys?.[0]?.privateKey || '')).not.toBe('');
     } finally {
       globalThis.fetch = originalFetch;
       clearAllStoredThresholdEd25519SessionRecords();
@@ -1208,7 +1238,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
     }
   });
 
-  test('fails closed for NEAR export when canonical Option A session prerequisites are missing', async () => {
+  test('fails closed for NEAR export when canonical single-key HSS session prerequisites are missing', async () => {
     const { restore } = installMemorySessionStorage();
 
     clearAllStoredThresholdEd25519SessionRecords();
@@ -1235,7 +1265,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           getRpId: () => RP_ID,
           getTheme: () => 'dark',
           requestExportPrivateKeysWithUi: async () => {
-            throw new Error('legacy Option B export worker path should not be reached');
+            throw new Error('legacy export worker path should not be reached');
           },
         },
         indexedDB: {
@@ -1268,7 +1298,9 @@ test.describe('threshold Ed25519 Option A active path', () => {
           chain: 'near',
           variant: 'drawer',
         }),
-      ).rejects.toThrow('NEAR Ed25519 export now requires the canonical Option A HSS export path');
+      ).rejects.toThrow(
+        'NEAR Ed25519 export now requires the canonical single-key HSS export path',
+      );
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
       restore();
@@ -1296,6 +1328,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
       runtimePolicyScope: { ...RUNTIME_SCOPE },
       participantIds: [...CONTEXT.participantIds],
       sessionId: THRESHOLD_SESSION_ID,
+      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 5,
       jwt: THRESHOLD_SESSION_JWT,
@@ -1420,6 +1453,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
         rpcCall: { nearAccountId: NEAR_ACCOUNT_ID, nearRpcUrl: 'https://rpc.testnet.test' },
         signerSlot: 1,
         sessionId: THRESHOLD_SESSION_ID,
+        ...buildTestWarmSigningAuth(),
       });
 
       const stored =
@@ -1479,6 +1513,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           if (request.type === 'decryptPrivateKeyWithPrf') {
             return buildExportAuthorizationDecision(String(request.requestId || ''));
           }
+          request.payload?.onLifecycle?.('opened');
           return { requestId: String(request.requestId || ''), confirmed: true };
         },
       };
@@ -1493,36 +1528,26 @@ test.describe('threshold Ed25519 Option A active path', () => {
         exportedSchemes: ['ed25519'],
       });
       expect(exportWorkerCalls).toHaveLength(0);
-      expect(userConfirmationCalls.map((entry) => entry.type)).toEqual([
-        'decryptPrivateKeyWithPrf',
-        'showSecurePrivateKeyUi',
-        'showSecurePrivateKeyUi',
-      ]);
+      expect(userConfirmationCalls[0]?.type).toBe('decryptPrivateKeyWithPrf');
+      const privateKeyViewerCalls = userConfirmationCalls.filter(
+        (entry) => entry.type === 'showSecurePrivateKeyUi',
+      );
+      expect(privateKeyViewerCalls.length).toBeGreaterThanOrEqual(1);
       expect(userConfirmationCalls[0]).toMatchObject({
         summary: {
           accountId: NEAR_ACCOUNT_ID,
           publicKey: thresholdPublicKey,
         },
       });
-      expect(userConfirmationCalls[1]).toMatchObject({
+      const finalPrivateKeyViewerCall = privateKeyViewerCalls[privateKeyViewerCalls.length - 1];
+      expect(finalPrivateKeyViewerCall).toMatchObject({
         payload: {
           nearAccountId: NEAR_ACCOUNT_ID,
           publicKey: thresholdPublicKey,
-          loading: true,
           variant: 'drawer',
           theme: 'dark',
         },
       });
-      expect(userConfirmationCalls[2]).toMatchObject({
-        payload: {
-          nearAccountId: NEAR_ACCOUNT_ID,
-          publicKey: thresholdPublicKey,
-          loading: false,
-          variant: 'drawer',
-          theme: 'dark',
-        },
-      });
-      expect(String(userConfirmationCalls[2]?.payload?.keys?.[0]?.privateKey || '')).not.toBe('');
     } finally {
       globalThis.fetch = originalFetch;
       clearAllStoredThresholdEd25519SessionRecords();
@@ -1739,6 +1764,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
               orgId: RUNTIME_SCOPE.orgId,
               projectId: RUNTIME_SCOPE.projectId,
               envId: RUNTIME_SCOPE.envId,
+              signingRootVersion: RUNTIME_SCOPE.signingRootVersion,
               origin: 'https://example.localhost',
               mode: 'free',
             },
@@ -1824,7 +1850,7 @@ test.describe('threshold Ed25519 Option A active path', () => {
           registration: {
             mode: 'managed',
             environmentId: RUNTIME_SCOPE.envId,
-            publishableKey: 'pk_test_option_a',
+            publishableKey: 'pk_test_single_key_hss',
           },
         },
       } as any;

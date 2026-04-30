@@ -296,7 +296,7 @@ mod tests {
             org_id: "org_123".to_string(),
             account_id: "alice.near".to_string(),
             key_purpose: "near-ed25519".to_string(),
-            key_version: "option-a-v1".to_string(),
+            key_version: "single-key-hss-v1".to_string(),
             participant_ids: vec![2, 1, 2],
             derivation_version: 1,
         }
@@ -394,7 +394,7 @@ mod tests {
         let different_version = derive_ed25519_hss_server_inputs_v1(
             &master_secret,
             &Ed25519HssCanonicalContextV1 {
-                key_version: "option-a-v2".to_string(),
+                key_version: "single-key-hss-v2".to_string(),
                 ..sample_hss_context()
             },
         )

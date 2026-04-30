@@ -403,7 +403,7 @@ export async function createManagedRegistrationFlowGrant(args: {
   const registrationTransport = resolveRegistrationTransport(args.context);
   if (registrationTransport.mode !== 'managed') {
     throw new Error(
-      'Threshold Ed25519 Option A registration currently requires managed registration transport',
+      'Threshold Ed25519 single-key HSS registration currently requires managed registration transport',
     );
   }
   const grantStartedAt = performance.now();

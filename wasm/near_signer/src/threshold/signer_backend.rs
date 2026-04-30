@@ -402,7 +402,7 @@ impl ThresholdEd25519RelayerSigner {
             .map_err(|_| "threshold-signer: invalid relayer identifier".to_string())?;
 
         let x_client_base_b64u = x_client_base_b64u.ok_or_else(|| {
-            "threshold-signer: missing xClientBaseB64u; Ed25519 threshold signing now requires Option A base-share reconstruction".to_string()
+            "threshold-signer: missing xClientBaseB64u; Ed25519 threshold signing now requires single-key HSS base-share reconstruction".to_string()
         })?;
         let key_package =
             crate::threshold::threshold_client_share::key_package_from_client_base_b64u(

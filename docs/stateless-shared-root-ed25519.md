@@ -42,7 +42,7 @@ The active Ed25519 product path now follows this model for session creation and
 signing:
 
 - the client re-derives passkey-rooted inputs and reconstructs `x_client_base`
-  through the Option A HSS ceremony when canonical runtime scope is available
+  through the single-key HSS ceremony when canonical runtime scope is available
 - the server re-derives its root inputs and participates only through the
   role-separated HSS server routes
 - the live signer worker accepts `x_client_base` as the Ed25519 signing-share
@@ -60,8 +60,7 @@ signing:
   single-key as well: registration creates and verifies one canonical
   operational NEAR access key instead of returning a second active recovery key
 
-Historical Option B material is no longer part of the active Ed25519 runtime
-path. The active product surface is the single-key Option A lifecycle only.
+The active product surface is the single-key HSS lifecycle only.
 
 ## Strict Architectural Rule
 
@@ -73,7 +72,7 @@ There is exactly one Ed25519 lifecycle:
 - one canonical signing scalar `a = clamp(SHA-512(d)[0..31])`
 - one threshold signing model over shares of `a`
 - one export model over the same canonical seed `d`
-- no alternate dual-key default lifecycle
+- no alternate default lifecycle
 - no local-only Ed25519 lifecycle
 
 Implementation consequence:
@@ -176,10 +175,10 @@ The current assumption is:
   `0.415 s` browser total hidden eval for the fixed function
 - this is acceptable for unlock/session creation if it buys a cleaner
   single-key lifecycle
-- the old dual-key threshold-ed25519 benchmark harness is obsolete and should
+- the removed threshold-ed25519 microbenchmark harness is obsolete and should
   not be used as a live performance reference for the active path
 - the active performance and verification reference now lives in
-  [threshold-ed25519-option-a.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/benchmarks/threshold-ed25519-option-a.md)
+  [threshold-ed25519-single-key-hss.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/benchmarks/threshold-ed25519-single-key-hss.md)
 
 The performance bar is therefore:
 
@@ -214,7 +213,7 @@ rather than separate operational and export keys by default.
 
 ## Design Consequences
 
-- Do not introduce a second NEAR-only dual-key default model.
+- Do not introduce a second NEAR-only default key lifecycle.
 - Do not reintroduce wrapped client signing-share storage as the main unlock
   path.
 - Do not describe HSS as a rebuild-only backend experiment anymore.
@@ -228,4 +227,4 @@ Treat this as the canonical Ed25519 direction for:
 - Solana
 - Sui
 - any other Ed25519 chain where one canonical key identity matters more than a
-  chain-specific dual-key optimization
+  chain-specific optimization

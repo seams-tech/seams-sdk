@@ -7,7 +7,7 @@ pub struct ThresholdSignerConfig {
     pub relayer_url: String,
     /// Identifies which relayer-held key share to use.
     pub relayer_key_id: String,
-    /// Option A client base share reconstructed from the `ed25519-hss` ceremony.
+    /// Client base share reconstructed from the single-key `ed25519-hss` ceremony.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x_client_base_b64u: Option<String>,
     /// Optional FROST participant identifier used for the client share (2P only for now).

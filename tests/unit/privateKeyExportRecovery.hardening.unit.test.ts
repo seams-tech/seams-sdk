@@ -9,7 +9,7 @@ test.describe('private key export recovery hardening', () => {
     await page.goto('/');
   });
 
-  test('fails closed with typed error + telemetry when Option A seed export worker op is unavailable', async ({
+  test('fails closed with typed error + telemetry when single-key HSS seed export worker op is unavailable', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -66,7 +66,7 @@ test.describe('private key export recovery hardening', () => {
     expect(result.telemetryAccountId).toBe('alice.testnet');
   });
 
-  test('fails closed with typed error + telemetry on missing Option A seed export worker message', async ({
+  test('fails closed with typed error + telemetry on missing single-key HSS seed export worker message', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -136,7 +136,7 @@ test.describe('private key export recovery hardening', () => {
     expect(result.telemetrySignerSlot).toBe(7);
   });
 
-  test('routes successful Option A seed export through the worker with canonical payload', async ({
+  test('routes successful single-key HSS seed export through the worker with canonical payload', async ({
     page,
   }) => {
     const result = await page.evaluate(

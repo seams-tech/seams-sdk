@@ -4,7 +4,7 @@ Date updated: April 3, 2026
 
 ## Summary
 
-This document explains the active Ed25519 Option A threshold signer, including
+This document explains the active single-key Ed25519 HSS threshold signer, including
 the implemented server-side relayer-share self-heal path used when durable
 relayer share storage is missing.
 
@@ -17,21 +17,20 @@ The active design is:
 - client hidden input re-derived from passkey `prf.output`
 - server hidden input re-derived from server root material
 
-This is cleaner than the old dual-key model because the product is no longer
-architecturally tied to NEAR-specific recovery semantics. The same hidden
-Ed25519 lifecycle can support any chain whose wallet model is based on normal
-Ed25519 keypairs, with chain-specific account and message adapters layered on
-top.
+This keeps the product independent of NEAR-specific recovery semantics. The
+same hidden Ed25519 lifecycle can support any chain whose wallet model is based
+on normal Ed25519 keypairs, with chain-specific account and message adapters
+layered on top.
 
 ## Current Status
 
-Current Option A state:
+Current single-key HSS state:
 
 - registration uses the HSS prepare/finalize seam
 - warm-session reconstruction uses the HSS prepare/finalize seam
-- signing uses the canonical Option A Ed25519 key
+- signing uses the canonical single-key Ed25519 key
 - export uses verified seed export only
-- sync-account, link-device, and email recovery all use the Option A path
+- sync-account, link-device, and email recovery all use the single-key HSS path
 - relayer-share cache loss is now recoverable through authenticated
   client-assisted HSS self-heal
 
@@ -49,7 +48,7 @@ Those caches improve latency, but they are not equally fundamental today:
   loss is now recoverable because session HSS finalize can reinsert the missing
   relayer share material
 
-## How Option A Works
+## How The Single-Key HSS Design Works
 
 ### Canonical Hidden Lifecycle
 
@@ -205,7 +204,7 @@ When a sign path resolves `relayerKeyId`:
 
 - if the key store entry exists, use it as today
 - if the key store entry is missing, do not fail permanently
-- instead require a valid Option A threshold session and run a repair ceremony
+- instead require a valid single-key HSS threshold session and run a repair ceremony
 - derive and persist:
   - `relayerSigningShareB64u`
   - `relayerVerifyingShareB64u`
@@ -322,7 +321,7 @@ Do not make that decision before repair reliability is proven.
 
 ## Security Rules For Self-Heal
 
-The repair path must preserve the same security rules as normal Option A flows:
+The repair path must preserve the same security rules as normal single-key HSS flows:
 
 - no server-only reconstruction claim
 - no raw client-root disclosure to the server
@@ -363,9 +362,9 @@ server cache while removing cache loss as a permanent outage condition.
 
 ## Plan Checklist
 
-- [x] Option A registration uses HSS prepare/finalize
-- [x] Option A signing uses canonical Ed25519 key lifecycle
-- [x] Option A export uses verified seed export only
+- [x] Single-key HSS registration uses HSS prepare/finalize
+- [x] Single-key HSS signing uses canonical Ed25519 key lifecycle
+- [x] Single-key HSS export uses verified seed export only
 - [x] Client-side `xClientBaseB64u` can be lazily reconstructed when missing
 - [x] Add a dedicated internal Ed25519 relayer-share repair helper
 - [x] Define the authenticated session/context requirements for repair

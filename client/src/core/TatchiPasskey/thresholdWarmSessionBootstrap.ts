@@ -44,7 +44,7 @@ import {
 } from '../signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase';
 import { resolveThresholdWarmSessionDefaults } from './thresholdWarmSessionDefaults';
 
-export const THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
+export const THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
 
 export type ThresholdWarmSessionPolicyDraft = {
   sessionId: string;
@@ -175,7 +175,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
       signingRootId,
       nearAccountId: args.nearAccountId,
       keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-      keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
+      keyVersion: THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
       participantIds: normalizeThresholdEd25519ParticipantIds(requestedPolicy.participantIds) || [
         ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
       ],
@@ -183,7 +183,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
       onProgress: args.onProgress,
     });
   if (!prepared.success) {
-    throw new Error(prepared.error || 'Failed to prepare threshold Ed25519 Option A registration');
+    throw new Error(prepared.error || 'Failed to prepare threshold Ed25519 HSS registration');
   }
 
   args.onProgress?.('Preparing threshold Ed25519 relay ceremony...');
@@ -196,7 +196,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
         signingRootId,
         nearAccountId: String(args.nearAccountId),
         keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-        keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
+        keyVersion: THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
         participantIds: prepared.participantIds,
         derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
       },
@@ -235,7 +235,7 @@ export async function prepareThresholdEd25519RegistrationWithHss(args: {
   return {
     hssFinalize,
     registrationInput: {
-      keyVersion: THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1,
+      keyVersion: THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1,
       recoveryExportCapable: true,
       publicKey: hssFinalize.publicKey,
       relayerKeyId: hssFinalize.relayerKeyId,
@@ -268,7 +268,10 @@ export function requireThresholdEd25519WarmSessionKeyVersion(
     typeof section.recoveryExportCapable === 'boolean'
       ? Boolean(section.recoveryExportCapable)
       : undefined;
-  if (keyVersion !== THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1 || recoveryExportCapable !== true) {
+  if (
+    keyVersion !== THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 ||
+    recoveryExportCapable !== true
+  ) {
     throw new Error(`${errorContext} returned incomplete threshold-ed25519 key metadata`);
   }
   return { keyVersion };
@@ -283,7 +286,8 @@ export function completeRegisteredThresholdEd25519Registration(args: {
     throw new Error('Registration did not return threshold-ed25519 material');
   }
   if (
-    String(thresholdEd25519.keyVersion || '').trim() !== THRESHOLD_ED25519_OPTION_A_KEY_VERSION_V1
+    String(thresholdEd25519.keyVersion || '').trim() !==
+    THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1
   ) {
     throw new Error('Registration did not return the active threshold-ed25519 keyVersion');
   }
@@ -417,6 +421,10 @@ export async function persistRegisteredThresholdEd25519Session(args: {
   }
   const sessionId = String(session.sessionId || '').trim();
   const jwt = String(session.jwt || '').trim();
+  const walletSigningSessionId =
+    String(session.walletSigningSessionId || '').trim() ||
+    String(args.registrationSessionPolicy.walletSigningSessionId || '').trim() ||
+    String(args.registrationSessionPolicy.sessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   const remainingUsesRaw =
     typeof session.remainingUses === 'number'
@@ -442,10 +450,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     participantIds,
     sessionKind: 'jwt' as Ed25519SessionKind,
     sessionId,
-    walletSigningSessionId:
-      String(session.walletSigningSessionId || '').trim() ||
-      String(args.registrationSessionPolicy.walletSigningSessionId || '').trim() ||
-      String(args.registrationSessionPolicy.sessionId || '').trim(),
+    walletSigningSessionId,
     expiresAtMs,
     remainingUses,
     jwt,
@@ -461,6 +466,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     transport: {
       curve: 'ed25519',
       relayerUrl: args.relayerUrl,
+      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       ...(jwt ? { thresholdSessionJwt: jwt } : {}),
     },
   });
@@ -487,7 +493,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
     : '';
   if (!signingRootId) {
     throw new Error(
-      'Threshold Ed25519 warm session is missing canonical Option A signing-root scope',
+      'Threshold Ed25519 warm session is missing canonical single-key HSS signing-root scope',
     );
   }
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.session.participantIds) ||
@@ -512,7 +518,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
     });
   if (!prepared.success) {
     throw new Error(
-      prepared.error || 'Failed to prepare threshold Ed25519 Option A registration ceremony',
+      prepared.error || 'Failed to prepare threshold Ed25519 HSS reconstruction ceremony',
     );
   }
   const completed = await args.context.signingEngine.runThresholdEd25519HssCeremonyWithSession({
@@ -537,7 +543,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
   });
   if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
     throw new Error(
-      completed.error || 'Failed to reconstruct threshold Ed25519 Option A client base',
+      completed.error || 'Failed to reconstruct threshold Ed25519 single-key HSS client base',
     );
   }
   return String(completed.clientOutput.xClientBaseB64u || '').trim();
@@ -649,6 +655,10 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
   const sessionId =
     String(args.session?.sessionId || '').trim() ||
     String(args.requestedPolicy.sessionId || '').trim();
+  const walletSigningSessionId =
+    String(args.session?.walletSigningSessionId || '').trim() ||
+    String(args.requestedPolicy.walletSigningSessionId || '').trim() ||
+    String(args.requestedPolicy.sessionId || '').trim();
   const sessionJwt = String(args.session?.jwt || '').trim();
   const expiresAtMs = Number(args.session?.expiresAtMs);
   if (!sessionId || !sessionJwt || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
@@ -681,10 +691,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     participantIds,
     sessionKind: 'jwt',
     sessionId,
-    walletSigningSessionId:
-      String(args.session?.walletSigningSessionId || '').trim() ||
-      String(args.requestedPolicy.walletSigningSessionId || '').trim() ||
-      String(args.requestedPolicy.sessionId || '').trim(),
+    walletSigningSessionId,
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,
     jwt: sessionJwt,
@@ -699,6 +706,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     transport: {
       curve: 'ed25519',
       relayerUrl: String(args.relayerUrl || '').trim(),
+      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       ...(sessionJwt ? { thresholdSessionJwt: sessionJwt } : {}),
     },
   });

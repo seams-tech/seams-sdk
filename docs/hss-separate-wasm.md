@@ -89,7 +89,7 @@ Phase 0 findings completed so far:
   [wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm](/Users/pta/Dev/rust/simple-threshold-signer/wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm)
 - active browser-path timing baseline captured from the real worker-driven HSS
   harness in
-  [tests/unit/thresholdEd25519.optionAActivePath.script.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/thresholdEd25519.optionAActivePath.script.unit.test.ts):
+  [tests/unit/thresholdEd25519.singleKeyHssActivePath.script.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/thresholdEd25519.singleKeyHssActivePath.script.unit.test.ts):
   - rebuild / lazy reconstruction:
     - `prepareSessionMs`: about `364-390ms`
     - `prepareClientRequestMs`: about `229-243ms`
@@ -301,7 +301,7 @@ Move the active browser HSS flow to the new client package.
 This includes:
 
 - registration HSS flow
-- Ed25519 Option A rebuild flow
+- Ed25519 single-key HSS rebuild flow
 - export flow if it uses the same browser HSS evaluator path
 
 After the new path is working:
@@ -499,7 +499,7 @@ At minimum, each meaningful phase should re-run:
 And after the switch:
 
 - registration flow smoke test
-- Option A rebuild flow smoke test
+- single-key HSS rebuild flow smoke test
 - export flow smoke test
 
 ## Risks

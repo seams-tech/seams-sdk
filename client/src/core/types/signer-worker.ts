@@ -37,7 +37,7 @@ export interface ThresholdSignerConfig {
   relayerUrl: string;
   /** Identifies which relayer-held key share to use */
   relayerKeyId: string;
-  /** Option A client base share reconstructed from the ed25519-hss ceremony. */
+  /** Client base share reconstructed from the single-key ed25519-hss ceremony. */
   xClientBaseB64u?: string;
   /** FROST participant identifier used for the client share (2P only, optional). */
   clientParticipantId?: number;

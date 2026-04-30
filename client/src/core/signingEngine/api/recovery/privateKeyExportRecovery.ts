@@ -86,7 +86,7 @@ async function runExportWorkerOperation(
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
   const accountId = toAccountId(args.nearAccountId);
   if (args.options.chain === 'near') {
-    throw new Error('NEAR Ed25519 export must use the canonical Option A seed export lane');
+    throw new Error('NEAR Ed25519 export must use the canonical single-key HSS seed export lane');
   }
   if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
     throwExportWorkerBoundaryRequired({
@@ -105,7 +105,7 @@ async function runExportWorkerOperation(
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
       if (!isEvmOrTempoChain(args.options.chain)) {
-        throw new Error('NEAR Ed25519 export must use the canonical Option A seed export lane');
+        throw new Error('NEAR Ed25519 export must use the canonical single-key HSS seed export lane');
       }
       return await requestExportPrivateKeysWithUi({
         nearAccountId: accountId,
@@ -171,10 +171,10 @@ export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
   const expectedPublicKey = String(args.expectedPublicKey || '').trim();
   const seedB64u = String(args.seedB64u || '').trim();
   if (!expectedPublicKey) {
-    throw new Error('Missing expectedPublicKey for Option A seed export');
+    throw new Error('Missing expectedPublicKey for single-key HSS seed export');
   }
   if (!seedB64u) {
-    throw new Error('Missing seedB64u for Option A seed export');
+    throw new Error('Missing seedB64u for single-key HSS seed export');
   }
 
   const resolvedTheme = args.options?.theme ?? deps.getTheme();

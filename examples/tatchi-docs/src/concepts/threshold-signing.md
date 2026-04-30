@@ -49,7 +49,7 @@ key.
 
 ## Registration And Warm Session Flow
 
-Registration now uses the sessionless Option A HSS seam. The relay derives and
+Registration uses the sessionless single-key HSS seam. The relay derives and
 stores canonical threshold-ed25519 registration material from the finalized HSS
 report, and the client immediately reconstructs live signing state for warm
 session use.
@@ -124,9 +124,9 @@ sequenceDiagram
   Signer->>Signer: aggregate standard Ed25519 signature
 ```
 
-The active signer worker now consumes only Option A signing material. It no
-longer derives live signing shares from wrap-key inputs or Option B bootstrap
-shares.
+The active signer worker now consumes only single-key HSS signing material. It
+no longer derives live signing shares from wrap-key inputs or bootstrap-share
+inputs.
 
 ## Export Flow
 

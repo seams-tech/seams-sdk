@@ -5,7 +5,7 @@ import {
 } from '@/core/signingEngine/api/recovery/privateKeyExportRecovery';
 
 test.describe('privateKeyExportRecovery method binding', () => {
-  test('invokes requestExportPrivateKeysWithUi with Option A seed export payload', async () => {
+  test('invokes requestExportPrivateKeysWithUi with single-key HSS seed export payload', async () => {
     const requestExportState = {
       callCount: 0,
       lastPayload: null as Record<string, unknown> | null,

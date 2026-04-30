@@ -182,42 +182,42 @@ test('ECDSA HSS consumes threshold-prf signing-root y_relayer without changing b
   yClient32Le.fill(0);
 });
 
-test('ECDSA wallet identity is stable across Option A local combine and Option B pairwise partial combine outputs', async () => {
+test('ECDSA wallet identity is stable across local and pairwise partial-combine outputs', async () => {
   const vector = vectorForPurpose('ecdsa-hss/y_relayer');
   const yClient32Le = new Uint8Array(32).fill(0x07);
 
   for (const pairwise of vector.pairwise_outputs) {
-    const optionAShareWires = shareWirePairForIds(vector, pairwise.ids);
-    const optionAYRelayer = await deriveEcdsaHssYRelayerFromSigningRootSecretShares({
-      shareWires: optionAShareWires,
+    const localShareWires = shareWirePairForIds(vector, pairwise.ids);
+    const localYRelayer = await deriveEcdsaHssYRelayerFromSigningRootSecretShares({
+      shareWires: localShareWires,
       context: ECDSA_CONTEXT,
     });
-    const optionBYRelayer = hexToBytes(pairwise.output_hex);
+    const pairwiseYRelayer = hexToBytes(pairwise.output_hex);
 
-    expect(bytesToHex(optionAYRelayer)).toBe(bytesToHex(optionBYRelayer));
+    expect(bytesToHex(localYRelayer)).toBe(bytesToHex(pairwiseYRelayer));
 
-    const optionAWallet = await ecdsaHssExplicitExport({
+    const localWallet = await ecdsaHssExplicitExport({
       ...ECDSA_CONTEXT,
       yClient32Le,
-      yRelayer32Le: optionAYRelayer,
+      yRelayer32Le: localYRelayer,
     });
-    const optionBWallet = await ecdsaHssExplicitExport({
+    const pairwiseWallet = await ecdsaHssExplicitExport({
       ...ECDSA_CONTEXT,
       yClient32Le,
-      yRelayer32Le: optionBYRelayer,
+      yRelayer32Le: pairwiseYRelayer,
     });
 
-    expect(bytesToHex(optionAWallet.canonicalPublicKey33)).toBe(
-      bytesToHex(optionBWallet.canonicalPublicKey33),
+    expect(bytesToHex(localWallet.canonicalPublicKey33)).toBe(
+      bytesToHex(pairwiseWallet.canonicalPublicKey33),
     );
-    expect(bytesToHex(optionAWallet.canonicalEthereumAddress20)).toBe(
-      bytesToHex(optionBWallet.canonicalEthereumAddress20),
+    expect(bytesToHex(localWallet.canonicalEthereumAddress20)).toBe(
+      bytesToHex(pairwiseWallet.canonicalEthereumAddress20),
     );
 
-    optionAShareWires[0].fill(0);
-    optionAShareWires[1].fill(0);
-    optionAYRelayer.fill(0);
-    optionBYRelayer.fill(0);
+    localShareWires[0].fill(0);
+    localShareWires[1].fill(0);
+    localYRelayer.fill(0);
+    pairwiseYRelayer.fill(0);
   }
 
   yClient32Le.fill(0);

@@ -56,17 +56,17 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   }
   if (hasCanonicalRuntimeScope && !thresholdSessionJwt) {
     throw new Error(
-      'Threshold Ed25519 session is bound to canonical Option A scope but is missing threshold session JWT for HSS reconstruction',
+      'Threshold Ed25519 session is bound to canonical single-key HSS scope but is missing threshold session JWT for reconstruction',
     );
   }
   if (!signingRootId) {
     throw new Error(
-      'Threshold Ed25519 session is missing signing-root scope for Option A HSS reconstruction',
+      'Threshold Ed25519 session is missing signing-root scope for single-key HSS reconstruction',
     );
   }
   if (!thresholdSessionJwt) {
     throw new Error(
-      'Threshold Ed25519 session is missing threshold session JWT for Option A HSS reconstruction',
+      'Threshold Ed25519 session is missing threshold session JWT for single-key HSS reconstruction',
     );
   }
 
@@ -117,7 +117,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   const relayCeremonyMs = Date.now() - relayCeremonyStartedAt;
   if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
     throw new Error(
-      completed.error || 'Failed to reconstruct threshold Ed25519 Option A client base share',
+      completed.error || 'Failed to reconstruct threshold Ed25519 single-key HSS client base share',
     );
   }
   console.info('[threshold-ed25519][client-base] lazy reconstruction timings', {

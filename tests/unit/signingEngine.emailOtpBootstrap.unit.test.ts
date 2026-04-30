@@ -2317,7 +2317,7 @@ test.describe('SigningEngine Email OTP bootstrap runtime', () => {
         };
       },
     });
-    engineAny.runNearEd25519OptionAHssExport = async (input: Record<string, unknown>) => {
+    engineAny.runNearEd25519SingleKeyHssExport = async (input: Record<string, unknown>) => {
       hssExportRequests.push(input);
       return {
         preparedSession: { sessionId: 'prepared-session' },

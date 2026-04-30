@@ -1,4 +1,4 @@
-# Threshold Ed25519 Option A Active-Path Reference
+# Threshold Ed25519 Single-Key HSS Active-Path Reference
 
 Date updated: April 1, 2026
 
@@ -7,7 +7,8 @@ Date updated: April 1, 2026
 This document is the current performance and verification reference for the
 active single-key threshold-ed25519 path.
 
-It replaces the deleted dual-key microbenchmark story. The active path is:
+It replaces the deleted microbenchmark story for the removed Ed25519 path. The
+active path is:
 
 - sessionless registration HSS for threshold-ed25519 bootstrap
 - threshold-ed25519 session mint plus HSS share reconstruction
@@ -23,7 +24,7 @@ The kept secure performance checkpoint for the active hidden-eval step is:
 - browser hidden eval total: about `0.415 s`
 
 Those numbers are the current active-path reference for the `d -> a` hidden
-conversion and share projection step used by Option A HSS.
+conversion and share projection step used by the single-key HSS design.
 
 Interpretation:
 
@@ -34,9 +35,9 @@ Interpretation:
 
 ## Current Verification Reference
 
-The kept verification surface for the active Option A path is:
+The kept verification surface for the active single-key HSS path is:
 
-- [thresholdEd25519.optionAActivePath.script.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/thresholdEd25519.optionAActivePath.script.unit.test.ts)
+- [thresholdEd25519.singleKeyHssActivePath.script.unit.test.ts](/Users/pta/Dev/rust/simple-threshold-signer/tests/unit/thresholdEd25519.singleKeyHssActivePath.script.unit.test.ts)
   - active signing/share reconstruction
   - controlled seed export
   - canonical public-key binding
@@ -66,7 +67,7 @@ That work remains in the actor-based load-testing plan at
 
 For threshold-ed25519 today:
 
-- use this document for the active Option A hidden-eval checkpoint and the
+- use this document for the active single-key HSS hidden-eval checkpoint and the
   current verification keep-gates
 - use
   [stateless-shared-root-ed25519.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/stateless-shared-root-ed25519.md)
