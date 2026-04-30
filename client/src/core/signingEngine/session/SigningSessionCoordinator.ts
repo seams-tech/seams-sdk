@@ -14,15 +14,19 @@ import {
 import {
   applySigningSessionBudgetReservationsToStatus,
   assertSigningSessionBudgetReservationAvailable,
+  assertPreparedBudgetProjectionVersion,
   assertWalletSigningOperationFingerprintMatches,
   createSigningSessionBudgetTraceEvent,
   isSigningSessionBudgetExhaustedError,
+  isSigningSessionBudgetUnknownError,
+  withBudgetProjectionVersion,
   normalizeRequired,
   normalizeStringList,
   normalizeSigningSessionBudgetRecordSuccessInput,
   resolveWalletSigningOperationFingerprint,
   summarizeWalletSigningSessionStatus,
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+  SIGNING_SESSION_BUDGET_UNKNOWN_ERROR,
   type SigningSessionBudget,
   type SigningSessionBudgetDeps,
   type SigningSessionBudgetRecordSuccessInput,
@@ -30,9 +34,12 @@ import {
   type SigningSessionBudgetTraceEvent,
   type SigningSessionBudgetZeroSpendReason,
   type SigningSessionBudgetReservation,
+  type SigningSessionPreparedBudgetIdentity,
   type SigningSessionBudgetConsumer,
   type SigningSessionBudgetStatusReader,
+  type SigningSessionBudgetStatusAuth,
 } from './signingSession/budget';
+import { budgetUnknownSigningSessionStatus } from './signingSession/budgetProjection';
 import {
   bindCallerProvidedSigningOperationIdToFingerprint,
   type SigningOperationIdBindingState,
@@ -40,7 +47,9 @@ import {
 
 export {
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+  SIGNING_SESSION_BUDGET_UNKNOWN_ERROR,
   isSigningSessionBudgetExhaustedError,
+  isSigningSessionBudgetUnknownError,
   type SigningSessionBudgetReservation,
 };
 import {
@@ -49,7 +58,9 @@ import {
   consumeWalletSigningSessionUse,
   discoverLanesForAccount,
   normalizeNonEmpty,
+  readDirectSigningSessionStatusForTargets,
   readClaimsForLanes,
+  readWalletScopedLaneClaimsForAccount,
   statusFromClaim,
   walletScopedClaimsForLanes,
   type WalletSigningSessionReadinessDeps,
@@ -103,6 +114,7 @@ export type SigningSessionStatusPort = {
     walletSigningSessionId?: string;
     targetBackingMaterialSessionIds?: string[];
     targetThresholdSessionIds?: string[];
+    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   }): Promise<SigningSessionStatus | null>;
   getLaneClaimsForAccount(
     nearAccountId: AccountId | string,
@@ -142,13 +154,14 @@ export class SigningSessionCoordinator
   private readonly onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
   private readonly onWalletBudgetTrace?: SigningSessionBudgetDeps['onTrace'];
   private readonly walletBudgetStatusReader?: SigningSessionBudgetStatusReader;
+  private readonly walletBudgetStatusSource: 'provided' | 'material_fallback' | 'none';
   private readonly walletBudgetConsumer?: SigningSessionBudgetConsumer;
   private readonly walletSessionDeps: SigningSessionStatusDeps;
   private readonly walletSessionState: SigningSessionStatusState;
   private readonly walletBudgetState: SigningSessionCoordinatorBudgetState;
   private readonly operationIdBindingState: SigningOperationIdBindingState;
 
-  constructor(deps: SigningSessionCoordinatorDeps = {}) {
+  constructor(deps: SigningSessionCoordinatorDeps) {
     this.onPlannerTrace = deps.onPlannerTrace;
     this.onWalletBudgetTrace = deps.onWalletBudgetTrace || deps.onTrace;
     this.walletSessionDeps = {
@@ -172,13 +185,9 @@ export class SigningSessionCoordinator
     this.operationIdBindingState = {
       callerProvidedOperationFingerprintsById: new Map(),
     };
-    const canReadWalletSessionStatus = hasWalletSigningSessionReadinessDeps(deps);
     const canConsumeWalletSessionUses = hasWalletSigningSessionConsumeDeps(deps);
-    this.walletBudgetStatusReader = Object.prototype.hasOwnProperty.call(deps, 'getStatus')
-      ? deps.getStatus
-      : canReadWalletSessionStatus
-        ? (statusArgs) => this.getStatus(statusArgs)
-        : undefined;
+    this.walletBudgetStatusReader = deps.getStatus;
+    this.walletBudgetStatusSource = 'provided';
     this.walletBudgetConsumer = Object.prototype.hasOwnProperty.call(deps, 'consumeUse')
       ? deps.consumeUse
       : canConsumeWalletSessionUses
@@ -220,11 +229,6 @@ export class SigningSessionCoordinator
     args: Parameters<SigningSessionStatusPort['getStatus']>[0],
   ): ReturnType<SigningSessionStatusPort['getStatus']> {
     const walletSigningSessionIdFilter = normalizeNonEmpty(args.walletSigningSessionId);
-    const lanes = discoverLanesForAccount(this.walletSessionDeps, args.nearAccountId).filter(
-      (lane) => !walletSigningSessionIdFilter || lane.walletSigningSessionId === walletSigningSessionIdFilter,
-    );
-    if (!lanes.length) return null;
-    const walletSigningSessionId = walletSigningSessionIdFilter || lanes[0].walletSigningSessionId;
     const targetBacking = new Set(
       (args.targetBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
     );
@@ -232,6 +236,23 @@ export class SigningSessionCoordinator
       (args.targetThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
     );
     const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
+    const readDirectTargetStatus = async (): Promise<SigningSessionStatus | null> => {
+      if (!hasExplicitTarget || !walletSigningSessionIdFilter) return null;
+      // Budget reservation already carries the exact selected material ids.
+      // Use those ids directly so a missing volatile lane projection cannot
+      // hide a restored, usable session.
+      return await readDirectSigningSessionStatusForTargets({
+        deps: this.walletSessionDeps,
+        walletSigningSessionId: walletSigningSessionIdFilter,
+        targetBackingMaterialSessionIds: targetBacking,
+        targetThresholdSessionIds: targetThreshold,
+      });
+    };
+    const lanes = discoverLanesForAccount(this.walletSessionDeps, args.nearAccountId).filter(
+      (lane) => !walletSigningSessionIdFilter || lane.walletSigningSessionId === walletSigningSessionIdFilter,
+    );
+    if (!lanes.length) return await readDirectTargetStatus();
+    const walletSigningSessionId = walletSigningSessionIdFilter || lanes[0].walletSigningSessionId;
     const statusLanes = hasExplicitTarget
       ? lanes.filter(
           (lane) =>
@@ -240,7 +261,7 @@ export class SigningSessionCoordinator
         )
       : lanes;
     if (hasExplicitTarget && !statusLanes.length) {
-      return {
+      return (await readDirectTargetStatus()) || {
         sessionId: walletSigningSessionId,
         status: 'not_found',
       };
@@ -269,11 +290,9 @@ export class SigningSessionCoordinator
   async getLaneClaimsForAccount(
     nearAccountId: Parameters<SigningSessionStatusPort['getLaneClaimsForAccount']>[0],
   ): ReturnType<SigningSessionStatusPort['getLaneClaimsForAccount']> {
-    const lanes = discoverLanesForAccount(this.walletSessionDeps, nearAccountId);
-    const rawClaims = await readClaimsForLanes({ deps: this.walletSessionDeps, lanes });
-    return walletScopedClaimsForLanes({
-      lanes,
-      claimsByThresholdSessionId: rawClaims,
+    return await readWalletScopedLaneClaimsForAccount({
+      deps: this.walletSessionDeps,
+      nearAccountId,
       statusOverrides: this.walletSessionState.statusOverrides,
     });
   }
@@ -281,10 +300,19 @@ export class SigningSessionCoordinator
   async consumeUse(
     args: WalletSigningSessionConsumeUseArgs,
   ): ReturnType<SigningSessionStatusPort['consumeUse']> {
+    const hasAlreadyConsumedMaterial =
+      (args.alreadyConsumedBackingMaterialSessionIds || []).length > 0 ||
+      (args.alreadyConsumedThresholdSessionIds || []).length > 0;
     return await consumeWalletSigningSessionUse({
       deps: this.walletSessionDeps,
       statusOverrides: this.walletSessionState.statusOverrides,
-      readStatus: (statusArgs) => this.getStatus(statusArgs),
+      readStatus: async (statusArgs) => {
+        if (hasAlreadyConsumedMaterial) {
+          const trustedStatus = await this.readWalletBudgetStatus(statusArgs).catch(() => null);
+          if (trustedStatus && trustedStatus.status !== 'budget_unknown') return trustedStatus;
+        }
+        return await this.getStatus(statusArgs);
+      },
       input: args,
     });
   }
@@ -360,7 +388,7 @@ export class SigningSessionCoordinator
       this.emitWalletBudgetTrace(normalizedInput, 'wallet_signing_budget_reservation_started');
       try {
         await assertSigningSessionBudgetReservationAvailable({
-          getStatus: this.walletBudgetStatusReader,
+          getStatus: (statusArgs) => this.readWalletBudgetStatus(statusArgs),
           input: normalizedInput,
           reservedUsesByWalletSessionId: this.walletBudgetState.reservedUsesByWalletSessionId,
         });
@@ -391,23 +419,108 @@ export class SigningSessionCoordinator
       input.walletSigningSessionId,
       'walletSigningSessionId',
     );
-    if (!this.walletBudgetStatusReader) return null;
-    const status = await this.walletBudgetStatusReader({
+    const status = await this.readWalletBudgetStatus({
       nearAccountId: input.nearAccountId,
       walletSigningSessionId,
       targetBackingMaterialSessionIds: normalizeStringList(input.targetBackingMaterialSessionIds),
       targetThresholdSessionIds: normalizeStringList(input.targetThresholdSessionIds),
+      trustedStatusAuth: input.trustedStatusAuth,
     });
-    if (!status) {
-      return {
-        sessionId: walletSigningSessionId,
-        status: 'not_found',
-      };
-    }
     return applySigningSessionBudgetReservationsToStatus({
       status,
       walletSigningSessionId,
       reservedUsesByWalletSessionId: this.walletBudgetState.reservedUsesByWalletSessionId,
+    });
+  }
+
+  async prepareBudgetIdentity(input: {
+    nearAccountId: AccountId | string;
+    lane: SigningLaneContext;
+    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+    operationUsesNeeded?: number;
+  }): Promise<SigningSessionPreparedBudgetIdentity> {
+    const walletSigningSessionId = normalizeRequired(
+      input.lane.walletSigningSessionId,
+      'walletSigningSessionId',
+    );
+    const status = await this.getAvailableStatus({
+      nearAccountId: input.nearAccountId,
+      walletSigningSessionId,
+      ...(input.lane.backingMaterialSessionId
+        ? { targetBackingMaterialSessionIds: [input.lane.backingMaterialSessionId] }
+        : {}),
+      ...(input.lane.thresholdSessionId
+        ? { targetThresholdSessionIds: [input.lane.thresholdSessionId] }
+        : {}),
+      ...(input.trustedStatusAuth ? { trustedStatusAuth: input.trustedStatusAuth } : {}),
+    });
+    if (!status || status.status === 'budget_unknown') {
+      throw new Error(SIGNING_SESSION_BUDGET_UNKNOWN_ERROR);
+    }
+    if (status.status !== 'active') {
+      throw new Error(`[SigningSessionBudget] wallet signing-session budget is ${status.status}`);
+    }
+    const usesNeeded = Math.max(1, Math.floor(Number(input.operationUsesNeeded) || 1));
+    const availableUsesRaw = Number(status.availableUses);
+    const availableUses = Number.isFinite(availableUsesRaw)
+      ? Math.max(0, Math.floor(availableUsesRaw))
+      : Math.max(0, Math.floor(Number(status.remainingUses) || 0));
+    if (availableUses < usesNeeded) {
+      throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+    }
+    const projectionVersion = String(status.projectionVersion || '').trim();
+    if (!projectionVersion) {
+      throw new Error('[SigningSessionBudget] trusted budget status is missing projection version');
+    }
+    return {
+      walletSigningSessionId,
+      projectionVersion,
+      status: status as SigningSessionPreparedBudgetIdentity['status'],
+    };
+  }
+
+  private async readWalletBudgetStatus(args: {
+    nearAccountId: AccountId | string;
+    walletSigningSessionId?: string;
+    targetBackingMaterialSessionIds?: string[];
+    targetThresholdSessionIds?: string[];
+    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  }): Promise<SigningSessionStatus> {
+    const walletSigningSessionId = normalizeRequired(
+      args.walletSigningSessionId,
+      'walletSigningSessionId',
+    );
+    if (!this.walletBudgetStatusReader) {
+      return budgetUnknownSigningSessionStatus({
+        walletSigningSessionId,
+        reason: 'adapter_unavailable',
+      });
+    }
+    const status = await this.walletBudgetStatusReader(args);
+    if (!status) {
+      return budgetUnknownSigningSessionStatus({
+        walletSigningSessionId,
+        reason: 'missing_trusted_status',
+      });
+    }
+    if (
+      this.walletBudgetStatusSource !== 'provided' &&
+      (status.status === 'not_found' || status.status === 'unavailable')
+    ) {
+      // The material fallback reports hot-material availability, not authoritative
+      // wallet budget. Keep missing/unavailable material separate from terminal
+      // wallet budget states so restored lanes do not become false not_found.
+      return budgetUnknownSigningSessionStatus({
+        walletSigningSessionId,
+        reason:
+          status.status === 'unavailable' ? 'status_unavailable' : 'missing_trusted_status',
+      });
+    }
+    return withBudgetProjectionVersion({
+      status,
+      walletSigningSessionId,
+      targetBackingMaterialSessionIds: args.targetBackingMaterialSessionIds,
+      targetThresholdSessionIds: args.targetThresholdSessionIds,
     });
   }
 
@@ -428,27 +541,61 @@ export class SigningSessionCoordinator
       return await existing.promise;
     }
     const reservation = reservationsByOperationId.get(operationId);
+    let spendInput = normalizedInput;
     if (reservation) {
       assertWalletSigningOperationFingerprintMatches({
         operationId,
         existingFingerprint: resolveWalletSigningOperationFingerprint(reservation.spend),
         nextFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
       });
+      // A reservation is the checked budget boundary for this operation. If a
+      // later finalizer is reconstructed after local reservation accounting has
+      // changed the available projection, keep consuming against the reserved
+      // projection instead of treating the operation's own reservation as stale.
+      spendInput = {
+        ...normalizedInput,
+        expectedBudgetProjectionVersion: reservation.expectedBudgetProjectionVersion,
+      };
+    }
+    if (!reservation) {
+      const status = await this.readWalletBudgetStatus({
+        nearAccountId: normalizedInput.spend.nearAccountId,
+        walletSigningSessionId: normalizedInput.spend.walletSigningSessionId,
+        targetBackingMaterialSessionIds: normalizeStringList(
+          normalizedInput.spend.backingMaterialSessionIds,
+        ),
+        targetThresholdSessionIds: normalizeStringList(normalizedInput.spend.thresholdSessionIds),
+        trustedStatusAuth: normalizedInput.trustedStatusAuth,
+      });
+      if (status.status === 'budget_unknown') {
+        throw new Error(SIGNING_SESSION_BUDGET_UNKNOWN_ERROR);
+      }
+      const hasAuthoritativeExternalSpend =
+        Boolean(
+          normalizeStringList(normalizedInput.alreadyConsumedBackingMaterialSessionIds)?.length,
+        ) ||
+        Boolean(normalizeStringList(normalizedInput.alreadyConsumedThresholdSessionIds)?.length);
+      if (!hasAuthoritativeExternalSpend) {
+        assertPreparedBudgetProjectionVersion({
+          status,
+          expectedBudgetProjectionVersion: normalizedInput.expectedBudgetProjectionVersion,
+        });
+      }
     }
 
-    const spendPromise = this.recordWalletSigningSpend(normalizedInput)
+    const spendPromise = this.recordWalletSigningSpend(spendInput)
       .catch((error) => {
         successfulSpendsByOperationId.delete(operationId);
-        this.emitWalletBudgetTrace(normalizedInput, 'wallet_signing_budget_spend_failed', {
+        this.emitWalletBudgetTrace(spendInput, 'wallet_signing_budget_spend_failed', {
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
         throw error;
       })
       .finally(() => {
-        this.releaseWalletBudgetReservation(normalizedInput);
+        this.releaseWalletBudgetReservation(spendInput);
       });
     successfulSpendsByOperationId.set(operationId, {
-      operationFingerprint: resolveWalletSigningOperationFingerprint(normalizedInput.spend),
+      operationFingerprint: resolveWalletSigningOperationFingerprint(spendInput.spend),
       promise: spendPromise,
     });
     return await spendPromise;
@@ -600,6 +747,9 @@ export class SigningSessionCoordinator
     }
     if (status.status === 'not_found') {
       throw new Error('[SigningSessionBudget] wallet signing-session spend returned not_found');
+    }
+    if (status.status === 'budget_unknown') {
+      throw new Error('[SigningSessionBudget] wallet signing-session spend returned budget_unknown');
     }
     const statusSummary = status ? summarizeWalletSigningSessionStatus(status) : undefined;
     this.emitWalletBudgetTrace(

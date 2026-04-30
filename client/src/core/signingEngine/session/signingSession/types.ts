@@ -168,6 +168,7 @@ export type SigningSessionNotReadyReason =
   | 'missing_session'
   | 'expired'
   | 'exhausted'
+  | 'budget_unknown'
   | 'auth_unavailable'
   | 'status_unavailable'
   | 'policy_blocked';
@@ -267,6 +268,50 @@ export function summarizeSigningLane(lane: SigningLaneContext): SigningLaneSumma
     storageSource: lane.storageSource,
     retention: lane.retention,
   };
+}
+
+function normalizeLaneIdentityField(value: unknown): string {
+  return value == null ? '' : String(value).trim();
+}
+
+export function findSigningLaneIdentityMismatch(
+  a: SigningLaneContext,
+  b: SigningLaneContext,
+): string | null {
+  const fields: Array<keyof SigningLaneContext> = [
+    'accountId',
+    'authMethod',
+    'curve',
+    'keyKind',
+    'chainFamily',
+    'walletSigningSessionId',
+    'thresholdSessionId',
+    'backingMaterialSessionId',
+    'sessionOrigin',
+    'storageSource',
+    'retention',
+    'activeSignerSlot',
+    'signingRootId',
+    'signingRootVersion',
+  ];
+  for (const field of fields) {
+    if (normalizeLaneIdentityField(a[field]) !== normalizeLaneIdentityField(b[field])) {
+      return String(field);
+    }
+  }
+  return null;
+}
+
+export function assertSameSigningLaneIdentity(args: {
+  expected: SigningLaneContext;
+  actual: SigningLaneContext;
+  context: string;
+}): void {
+  const mismatch = findSigningLaneIdentityMismatch(args.expected, args.actual);
+  if (!mismatch) return;
+  throw new Error(
+    `[SigningSession] signing lane identity changed before ${args.context}: ${mismatch}`,
+  );
 }
 
 export function normalizeWalletSigningSpendPlan(

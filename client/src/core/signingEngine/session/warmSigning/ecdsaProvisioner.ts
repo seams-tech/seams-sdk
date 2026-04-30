@@ -90,6 +90,13 @@ type EcdsaKeyRefCandidate = {
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
 };
 
+function hasEcdsaKeyRefSigningMaterial(keyRef: ThresholdEcdsaSecp256k1KeyRef | null): boolean {
+  const binding = keyRef?.backendBinding;
+  if (!binding) return false;
+  if (String(binding.clientAdditiveShare32B64u || '').trim()) return true;
+  return binding.clientAdditiveShareHandle?.kind === 'email_otp_worker_session';
+}
+
 function readEcdsaKeyRefCandidates(
   deps: Pick<WarmSessionEcdsaProvisionerDeps, 'listThresholdEcdsaKeyRefsForLookup'>,
   args: {
@@ -146,6 +153,9 @@ export async function tryReuseReadyWarmEcdsaBootstrap(
   if (!keyRefCandidates.length) return null;
   const warmSession = await deps.getWarmSession(nearAccountId);
   for (const candidate of keyRefCandidates) {
+    if (!hasEcdsaKeyRefSigningMaterial(candidate.keyRef)) {
+      continue;
+    }
     const capability = getMatchingReadyEcdsaCapability({
       warmSession,
       chain: args.chain,
@@ -213,18 +223,24 @@ export async function provisionWarmEcdsaCapability(
   if (
     !resolvedBootstrapRequest.clientRootShare32 &&
     !resolvedBootstrapRequest.clientRootShare32B64u &&
-    resolvedBootstrapRequest.thresholdRouteAuth &&
     resolvedBootstrapRequest.sessionId
   ) {
     if (typeof deps.claimPrfFirstByThresholdSessionId !== 'function') {
       throw new Error(
-        '[WarmSessionStore] claimPrfFirstByThresholdSessionId is required for threshold-ecdsa authorization bootstrap',
+        '[WarmSessionStore] claimPrfFirstByThresholdSessionId is required for threshold-ecdsa restored-session bootstrap',
       );
     }
+    // A restored passkey/OTP signing session may be cookie-backed and have no
+    // threshold-route JWT. The sealed PRF is still the reload-safe material, so
+    // reconnect must claim it directly instead of falling through to WebAuthn.
     resolvedBootstrapRequest.clientRootShare32B64u = await deps.claimPrfFirstByThresholdSessionId({
       thresholdSessionId: resolvedBootstrapRequest.sessionId,
-      errorContext: 'threshold-ecdsa authorization bootstrap',
+      errorContext: 'threshold-ecdsa restored-session bootstrap',
       uses: 1,
+      // ECDSA reconnect needs the hot PRF to recreate the client additive share,
+      // but the transaction finalizer is the authoritative budget-consume
+      // boundary. Reading this material must not spend a signing use itself.
+      consume: false,
       walletId: nearAccountId,
       authMethod: args.source === 'email_otp' ? 'email_otp' : 'passkey',
       curve: 'ecdsa',
@@ -293,15 +309,18 @@ function buildEcdsaCapabilityInflightKey(args: {
   nearAccountId: AccountId;
   chain: ThresholdEcdsaActivationChain;
   usesNeeded?: number;
+  sessionBudgetUses?: number;
   keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
 }): string {
   const keyId = String(args.keyRef?.ecdsaThresholdKeyId || '').trim() || 'auto';
   const sessionId = String(args.keyRef?.thresholdSessionId || '').trim() || 'auto';
   const usesNeeded = Math.floor(Number(args.usesNeeded) || 0);
+  const sessionBudgetUses = Math.floor(Number(args.sessionBudgetUses) || 0);
   return [
     String(args.nearAccountId),
     args.chain,
     String(usesNeeded > 0 ? usesNeeded : 1),
+    String(sessionBudgetUses > 0 ? sessionBudgetUses : usesNeeded > 0 ? usesNeeded : 1),
     keyId,
     sessionId,
   ].join('::');
@@ -321,6 +340,7 @@ export async function ensureWarmEcdsaCapabilityReady(
         ...(args.source ? { source: args.source } : {}),
       });
   let keyRef: ThresholdEcdsaSecp256k1KeyRef | null = null;
+  let keyRefSource: ThresholdEcdsaSessionStoreSource | undefined;
   for (const candidate of keyRefCandidates) {
     const capability = getMatchingReadyEcdsaCapability({
       warmSession,
@@ -328,8 +348,11 @@ export async function ensureWarmEcdsaCapabilityReady(
       keyRef: candidate.keyRef,
       usesNeeded: args.usesNeeded,
     });
-    if (!capability) {
-      keyRef ||= candidate.keyRef;
+    if (!capability || !hasEcdsaKeyRefSigningMaterial(candidate.keyRef)) {
+      if (!keyRef) {
+        keyRef = candidate.keyRef;
+        keyRefSource = candidate.source;
+      }
       continue;
     }
     return {
@@ -339,7 +362,10 @@ export async function ensureWarmEcdsaCapabilityReady(
       reconnected: false,
     };
   }
-  keyRef ||= keyRefCandidates[0]?.keyRef || null;
+  if (!keyRef && keyRefCandidates[0]) {
+    keyRef = keyRefCandidates[0].keyRef;
+    keyRefSource = keyRefCandidates[0].source;
+  }
 
   for (const candidate of keyRefCandidates) {
     const keyRefSessionId = String(candidate.keyRef.thresholdSessionId || '').trim();
@@ -350,12 +376,18 @@ export async function ensureWarmEcdsaCapabilityReady(
       directCapability.state === 'ready' &&
       hasSufficientWarmClaim(directCapability.prfClaim, args.usesNeeded)
     ) {
-      return {
-        keyRef: candidate.keyRef,
-        warmSession,
-        capability: directCapability,
-        reconnected: false,
-      };
+      if (hasEcdsaKeyRefSigningMaterial(candidate.keyRef)) {
+        return {
+          keyRef: candidate.keyRef,
+          warmSession,
+          capability: directCapability,
+          reconnected: false,
+        };
+      }
+      if (!keyRef) {
+        keyRef = candidate.keyRef;
+        keyRefSource = candidate.source;
+      }
     }
   }
 
@@ -408,19 +440,60 @@ export async function ensureWarmEcdsaCapabilityReady(
     nearAccountId,
     chain: args.chain,
     usesNeeded: args.usesNeeded,
+    sessionBudgetUses: args.sessionBudgetUses,
     keyRef,
   });
   let reconnectPromise = deps.reconnectInFlightByCapability.get(inflightKey);
   if (!reconnectPromise) {
     reconnectPromise = (async (): Promise<EnsureWarmEcdsaCapabilityReadyResult> => {
-      const reconnectUses = Math.max(1, Math.floor(Number(args.usesNeeded) || 1));
+      const reconnectUses = Math.max(
+        1,
+        Math.floor(Number(args.sessionBudgetUses ?? args.usesNeeded) || 1),
+      );
+      const reconnectThresholdSessionJwt = toOptionalNonEmptyString(
+        keyRef?.thresholdSessionJwt || reconnectRecord?.thresholdSessionJwt,
+      );
+      const reconnectThresholdKeyId = toOptionalNonEmptyString(
+        keyRef?.ecdsaThresholdKeyId || reconnectRecord?.ecdsaThresholdKeyId,
+      );
+      const reconnectParticipantIds =
+        normalizeParticipantIds(keyRef?.participantIds) ||
+        normalizeParticipantIds(reconnectRecord?.participantIds);
+      const reconnectSessionId = toOptionalNonEmptyString(
+        args.sessionId || keyRef?.thresholdSessionId || reconnectRecord?.thresholdSessionId,
+      );
+      const reconnectWalletSigningSessionId = toOptionalNonEmptyString(
+        args.walletSigningSessionId ||
+          keyRef?.walletSigningSessionId ||
+          reconnectRecord?.walletSigningSessionId,
+      );
       const provisioned = await deps.provisionEcdsaCapability({
         nearAccountId,
         chain: args.chain,
-        source: inheritedEmailOtpRecord ? 'email_otp' : 'manual-bootstrap',
-        ...(args.sessionId ? { sessionId: args.sessionId } : {}),
-        ...(args.walletSigningSessionId
-          ? { walletSigningSessionId: args.walletSigningSessionId }
+        source: inheritedEmailOtpRecord ? 'email_otp' : keyRefSource || args.source || 'login',
+        // Reconnect starts from a selected key ref when worker memory was lost.
+        // Preserve that exact lane identity so sealed PRF restore cannot fall
+        // back to a generic WebAuthn bootstrap.
+        ...(reconnectSessionId ? { sessionId: reconnectSessionId } : {}),
+        ...(reconnectWalletSigningSessionId
+          ? { walletSigningSessionId: reconnectWalletSigningSessionId }
+          : {}),
+        ...(reconnectThresholdKeyId ? { ecdsaThresholdKeyId: reconnectThresholdKeyId } : {}),
+        ...(reconnectParticipantIds ? { participantIds: reconnectParticipantIds } : {}),
+        ...(toOptionalNonEmptyString(keyRef?.thresholdSessionKind || reconnectRecord?.thresholdSessionKind)
+          ? {
+              sessionKind: toOptionalNonEmptyString(
+                keyRef?.thresholdSessionKind || reconnectRecord?.thresholdSessionKind,
+              ) as 'jwt' | 'cookie',
+            }
+          : {}),
+        ...(reconnectThresholdSessionJwt
+          ? {
+              thresholdRouteAuth: {
+                kind: 'threshold_session',
+                jwt: reconnectThresholdSessionJwt,
+              },
+            }
           : {}),
         ...(args.clientRootShare32B64u ? { clientRootShare32B64u: args.clientRootShare32B64u } : {}),
         ...(args.webauthnAuthentication
@@ -582,9 +655,15 @@ export function buildReusableEcdsaBootstrapResult(args: {
   if (!record || !auth || !prfClaim || prfClaim.state !== 'warm') return null;
 
   const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
+  const clientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
   const relayerKeyId = String(record.relayerKeyId || '').trim();
   const sessionId = String(record.thresholdSessionId || '').trim();
-  if (!clientVerifyingShareB64u || !relayerKeyId || !sessionId) return null;
+  // A warm ECDSA capability is only directly reusable when the canonical
+  // keyRef already carries local signing material. Restored passkey lanes
+  // often have only the PRF/JWT until reconnect recreates the additive share.
+  if (!clientVerifyingShareB64u || !clientAdditiveShare32B64u || !relayerKeyId || !sessionId) {
+    return null;
+  }
 
   return {
     thresholdEcdsaKeyRef: {
@@ -605,9 +684,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
       ecdsaThresholdKeyId: String(record.ecdsaThresholdKeyId || '').trim(),
       relayerKeyId,
       clientVerifyingShareB64u,
-      ...(String(record.clientAdditiveShare32B64u || '').trim()
-        ? { clientAdditiveShare32B64u: String(record.clientAdditiveShare32B64u || '').trim() }
-        : {}),
+      clientAdditiveShare32B64u,
       participantIds: record.participantIds,
       thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
       ethereumAddress: record.ethereumAddress,

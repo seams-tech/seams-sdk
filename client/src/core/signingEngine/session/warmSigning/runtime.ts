@@ -14,7 +14,10 @@ export type WarmSessionRuntimePorts =
   | Partial<
       Pick<
         WarmSessionStatusReader & WarmSessionMaterialClaimer & WarmSessionSealPersister,
-        'getWarmSessionStatus' | 'claimWarmSessionMaterial' | 'sealAndPersistWarmSessionMaterial'
+        | 'getWarmSessionStatus'
+        | 'claimWarmSessionMaterial'
+        | 'sealAndPersistWarmSessionMaterial'
+        | 'persistSigningSessionSealForThresholdSession'
       >
     >
   | undefined;
@@ -24,6 +27,9 @@ export async function claimWarmSessionPrfFirst(args: {
   thresholdSessionId: string;
   errorContext: string;
   uses?: number;
+  consume?: boolean;
+  curve?: 'ed25519' | 'ecdsa';
+  chain?: 'near' | 'tempo' | 'evm';
   restoreBeforeClaim?: () => Promise<void>;
 }): Promise<string> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
@@ -49,6 +55,9 @@ export async function claimWarmSessionPrfFirst(args: {
   const claimedMaterial = await args.touchConfirm.claimWarmSessionMaterial({
     sessionId: thresholdSessionId,
     uses: args.uses,
+    ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
+    ...(args.curve ? { curve: args.curve } : {}),
+    ...(args.chain ? { chain: args.chain } : {}),
   });
   if (!claimedMaterial.ok) {
     if (
@@ -106,7 +115,9 @@ export async function ensureEcdsaPrfSealPersisted(args: {
   required?: boolean;
   errorContext?: string;
   sealPersistInFlightBySessionId: Map<string, Promise<void>>;
-  resolveSealTransport: (thresholdSessionId: string) => ThresholdSessionSealTransportAuthMaterial | null;
+  resolveSealTransport: (
+    thresholdSessionId: string,
+  ) => ThresholdSessionSealTransportAuthMaterial | null;
 }): Promise<void> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return;
@@ -115,12 +126,18 @@ export async function ensureEcdsaPrfSealPersisted(args: {
     persistPromise = (async (): Promise<void> => {
       const errorContext = String(args.errorContext || 'threshold session seal persistence').trim();
       const sealTransport = args.resolveSealTransport(thresholdSessionId);
-      const persistFn = args.touchConfirm?.sealAndPersistWarmSessionMaterial;
-      if (typeof persistFn === 'function' && sealTransport) {
-        const persisted = await persistFn({
+      const exactPersistFn = args.touchConfirm?.persistSigningSessionSealForThresholdSession;
+      if (typeof exactPersistFn === 'function' && sealTransport) {
+        // Use the high-level persist boundary after the ECDSA record exists; it
+        // writes both the server seal and the local exact-purpose restore record.
+        const persisted = await exactPersistFn({
           sessionId: thresholdSessionId,
           transport: {
+            curve: sealTransport.curve,
             relayerUrl: sealTransport.relayerUrl,
+            ...(sealTransport.walletSigningSessionId
+              ? { walletSigningSessionId: sealTransport.walletSigningSessionId }
+              : {}),
             ...(sealTransport.thresholdSessionJwt
               ? { thresholdSessionJwt: sealTransport.thresholdSessionJwt }
               : {}),
@@ -136,6 +153,31 @@ export async function ensureEcdsaPrfSealPersisted(args: {
           );
         }
         if (persisted.ok) return;
+      }
+      const persistFn = args.touchConfirm?.sealAndPersistWarmSessionMaterial;
+      if (typeof persistFn === 'function' && sealTransport) {
+        const persisted = await persistFn({
+          sessionId: thresholdSessionId,
+          transport: {
+            curve: sealTransport.curve,
+            relayerUrl: sealTransport.relayerUrl,
+            ...(sealTransport.walletSigningSessionId
+              ? { walletSigningSessionId: sealTransport.walletSigningSessionId }
+              : {}),
+            ...(sealTransport.thresholdSessionJwt
+              ? { thresholdSessionJwt: sealTransport.thresholdSessionJwt }
+              : {}),
+            ...(sealTransport.keyVersion ? { keyVersion: sealTransport.keyVersion } : {}),
+            ...(sealTransport.shamirPrimeB64u
+              ? { shamirPrimeB64u: sealTransport.shamirPrimeB64u }
+              : {}),
+          },
+        });
+        if (!persisted.ok && persisted.code !== 'not_enabled' && args.required) {
+          throw new Error(
+            `[WarmSessionStore] ${errorContext} failed (${persisted.code}): ${persisted.message}`,
+          );
+        }
       }
     })();
     args.sealPersistInFlightBySessionId.set(thresholdSessionId, persistPromise);

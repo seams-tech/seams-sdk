@@ -77,6 +77,12 @@ export type SigningSessionSnapshot = {
       evm: SigningSessionSnapshotEcdsaLane;
     };
   };
+  candidates: {
+    ecdsa: {
+      tempo: SigningSessionSnapshotEcdsaLane[];
+      evm: SigningSessionSnapshotEcdsaLane[];
+    };
+  };
 };
 
 export type ReadSigningSessionSnapshotInput = {
@@ -206,13 +212,14 @@ export function warmStatusToSigningSessionSnapshotRuntimeClaim(args: {
 
 function runtimeClaimToLaneState(
   claim: SigningSessionSnapshotRuntimeClaim | null,
+  durableLane?: SigningSessionSnapshotEcdsaLane | SigningSessionSnapshotEd25519Lane,
 ): SigningSessionSnapshotLaneState {
-  if (!claim) return 'deferred';
+  if (!claim) return durableLane?.state || 'deferred';
   if (claim.state === 'warm') return 'ready';
   if (claim.state === 'expired') return 'expired';
   if (claim.state === 'exhausted') return 'exhausted';
-  if (claim.state === 'missing') return 'missing';
-  return 'deferred';
+  if (claim.state === 'missing') return durableLane?.state || 'missing';
+  return durableLane?.state || 'deferred';
 }
 
 function runtimeRecordToEcdsaLane(args: {
@@ -230,7 +237,7 @@ function runtimeRecordToEcdsaLane(args: {
     authMethod: args.record.authMethod,
     curve: 'ecdsa',
     chain: args.record.chain,
-    state: runtimeClaimToLaneState(claim),
+    state: runtimeClaimToLaneState(claim, hasMatchingDurableLane ? args.durableLane : undefined),
     source: hasMatchingDurableLane ? 'runtime_and_durable' : 'runtime_session_record',
     ...(args.record.walletSigningSessionId
       ? { walletSigningSessionId: args.record.walletSigningSessionId }
@@ -256,7 +263,7 @@ function runtimeRecordToEd25519Lane(args: {
     authMethod: args.record.authMethod,
     curve: 'ed25519',
     chain: 'near',
-    state: runtimeClaimToLaneState(claim),
+    state: runtimeClaimToLaneState(claim, hasMatchingDurableLane ? args.durableLane : undefined),
     source: hasMatchingDurableLane ? 'runtime_and_durable' : 'runtime_session_record',
     ...(args.record.walletSigningSessionId
       ? { walletSigningSessionId: args.record.walletSigningSessionId }
@@ -303,6 +310,13 @@ export async function readSigningSessionSnapshot(
     tempo: emptyEcdsaLane('tempo'),
     evm: emptyEcdsaLane('evm'),
   };
+  const ecdsaCandidates: {
+    tempo: SigningSessionSnapshotEcdsaLane[];
+    evm: SigningSessionSnapshotEcdsaLane[];
+  } = {
+    tempo: [],
+    evm: [],
+  };
   let ed25519Lane = emptyEd25519Lane();
   const laneUpdatedAtMs = {
     tempo: 0,
@@ -312,18 +326,20 @@ export async function readSigningSessionSnapshot(
   let generation = 0;
 
   for (const record of ecdsaRecords) {
-    if (record.curve !== 'ecdsa') continue;
+    if (!record.thresholdSessionIds.ecdsa) continue;
     const chain = record.ecdsaRestore?.chain;
     if (chain !== 'tempo' && chain !== 'evm') continue;
     const updatedAtMs = Math.floor(Number(record.updatedAtMs) || 0);
     generation = Math.max(generation, updatedAtMs);
+    const lane = recordToEcdsaLane({ chain, record });
+    ecdsaCandidates[chain].push(lane);
     if (updatedAtMs < laneUpdatedAtMs[chain]) continue;
-    ecdsaLanes[chain] = recordToEcdsaLane({ chain, record });
+    ecdsaLanes[chain] = lane;
     laneUpdatedAtMs[chain] = updatedAtMs;
   }
 
   for (const record of ed25519Records) {
-    if (record.curve !== 'ed25519') continue;
+    if (!record.thresholdSessionIds.ed25519) continue;
     const updatedAtMs = Math.floor(Number(record.updatedAtMs) || 0);
     generation = Math.max(generation, updatedAtMs);
     if (updatedAtMs < ed25519LaneUpdatedAtMs) continue;
@@ -354,11 +370,24 @@ export async function readSigningSessionSnapshot(
     if (chain !== 'tempo' && chain !== 'evm') continue;
     const thresholdSessionId = String(runtimeRecord.thresholdSessionId || '').trim();
     if (!thresholdSessionId) continue;
-    ecdsaLanes[chain] = runtimeRecordToEcdsaLane({
+    const durableLane =
+      ecdsaCandidates[chain].find(
+        (lane) => String(lane.thresholdSessionId || '').trim() === thresholdSessionId,
+      ) || ecdsaLanes[chain];
+    const runtimeLane = runtimeRecordToEcdsaLane({
       record: runtimeRecord,
       claim: claimsBySessionId.get(thresholdSessionId) || null,
-      durableLane: ecdsaLanes[chain],
+      durableLane,
     });
+    const candidateIndex = ecdsaCandidates[chain].findIndex(
+      (lane) => String(lane.thresholdSessionId || '').trim() === thresholdSessionId,
+    );
+    if (candidateIndex >= 0) {
+      ecdsaCandidates[chain][candidateIndex] = runtimeLane;
+    } else {
+      ecdsaCandidates[chain].push(runtimeLane);
+    }
+    ecdsaLanes[chain] = runtimeLane;
   }
 
   for (const runtimeRecord of runtimeEd25519Records) {
@@ -379,6 +408,9 @@ export async function readSigningSessionSnapshot(
         near: ed25519Lane,
       },
       ecdsa: ecdsaLanes,
+    },
+    candidates: {
+      ecdsa: ecdsaCandidates,
     },
   };
 }

@@ -142,6 +142,9 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
     if (walletBudgetStatus.status === 'not_found') {
       status = 'missing_session';
       remainingUses = 0;
+    } else if (walletBudgetStatus.status === 'budget_unknown' && status === 'ready') {
+      status = 'budget_unknown';
+      remainingUses = 0;
     } else if (walletBudgetStatus.status === 'unavailable') {
       status = 'status_unavailable';
       remainingUses = 0;
@@ -151,14 +154,23 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
     } else if (walletBudgetStatus.status === 'exhausted') {
       status = 'exhausted';
       remainingUses = 0;
-    } else if (status === 'ready') {
+    } else if (walletBudgetStatus.status === 'active') {
       const budgetRemainingUses = Math.max(
         0,
         Math.floor(Number(walletBudgetStatus.remainingUses) || 0),
       );
+      const budgetAvailableUsesRaw = Number(walletBudgetStatus.availableUses);
+      const budgetAvailableUses = Number.isFinite(budgetAvailableUsesRaw)
+        ? Math.max(0, Math.floor(budgetAvailableUsesRaw))
+        : budgetRemainingUses;
       const budgetExpiresAtMs = Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0);
-      remainingUses = Math.min(remainingUses, budgetRemainingUses);
-      if (budgetExpiresAtMs > 0) expiresAtMs = Math.min(expiresAtMs, budgetExpiresAtMs);
+      // Local/session-store counters are availability hints after restore. The
+      // wallet budget service is the trusted source for terminal budget state.
+      remainingUses = budgetAvailableUses;
+      if (budgetExpiresAtMs > 0) expiresAtMs = budgetExpiresAtMs;
+      if (status === 'exhausted') {
+        status = 'ready';
+      }
     }
   }
   const usesNeeded = Math.max(1, Math.floor(Number(args.usesNeeded) || 1));
@@ -174,9 +186,7 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
       : {}),
   };
   const readiness: SigningSessionReadiness =
-    status === 'ready'
-      ? { status: 'ready', ...readinessBase }
-      : { status, ...readinessBase };
+    status === 'ready' ? { status: 'ready', ...readinessBase } : { status, ...readinessBase };
   return {
     readiness,
     expiresAtMs,
@@ -207,10 +217,13 @@ export function resolveEmailOtpEcdsaWorkerSessionId(record: ThresholdEcdsaSessio
     if (ed25519Companion?.source === 'email_otp') {
       // A stale cross-curve companion id here causes sealed restore to read the
       // Ed25519 half of the seal as if it were the ECDSA lane.
-      console.warn('[SigningSessionCoordinator] ignoring mismatched Email OTP ECDSA worker session id', {
-        thresholdSessionId,
-        workerSessionId,
-      });
+      console.debug(
+        '[SigningSessionCoordinator] ignoring mismatched Email OTP ECDSA worker session id',
+        {
+          thresholdSessionId,
+          workerSessionId,
+        },
+      );
     } else if (workerSessionId) {
       return workerSessionId;
     }
@@ -336,49 +349,79 @@ export function walletScopedClaimsForLanes(args: {
       lane,
       claim: args.claimsByThresholdSessionId.get(lane.thresholdSessionId) || null,
     }));
+    const applyRawScopedClaims = (
+      rawEntries: Array<{
+        lane: DiscoveredSigningSessionLane;
+        claim: WarmSessionPrfClaim | null;
+      }>,
+    ): void => {
+      if (!rawEntries.length) return;
+      const terminal =
+        rawEntries.find((entry) => entry.claim?.state === 'expired')?.claim ||
+        rawEntries.find((entry) => entry.claim?.state === 'exhausted')?.claim ||
+        null;
+      const warmClaims = rawEntries
+        .map((entry) => entry.claim)
+        .filter(
+          (claim): claim is WarmSessionPrfClaim & { state: 'warm' } => claim?.state === 'warm',
+        );
+      const walletRemainingUses = warmClaims.length
+        ? Math.min(...warmClaims.map((claim) => Math.floor(Number(claim.remainingUses) || 0)))
+        : undefined;
+      const walletExpiresAtMs = warmClaims.length
+        ? Math.min(...warmClaims.map((claim) => Math.floor(Number(claim.expiresAtMs) || 0)))
+        : undefined;
+
+      for (const entry of rawEntries) {
+        if (terminal) {
+          scoped.set(entry.lane.thresholdSessionId, {
+            ...terminal,
+            sessionId: entry.lane.thresholdSessionId,
+          });
+          continue;
+        }
+        if (entry.claim?.state === 'warm') {
+          scoped.set(entry.lane.thresholdSessionId, {
+            state: 'warm',
+            sessionId: entry.lane.thresholdSessionId,
+            remainingUses: walletRemainingUses ?? entry.claim.remainingUses,
+            expiresAtMs: walletExpiresAtMs ?? entry.claim.expiresAtMs,
+          });
+          continue;
+        }
+        scoped.set(entry.lane.thresholdSessionId, entry.claim);
+      }
+    };
     if (applicableOverride) {
       const overrideClaim = claimFromWalletSigningSessionStatusOverride(applicableOverride);
-      for (const entry of entries) {
+      const overrideEntries = entries.filter((entry) =>
+        applicableOverride.thresholdSessionIds.has(normalizeNonEmpty(entry.lane.thresholdSessionId)),
+      );
+      const rawEntries = entries.filter(
+        (entry) =>
+          !applicableOverride.thresholdSessionIds.has(
+            normalizeNonEmpty(entry.lane.thresholdSessionId),
+          ),
+      );
+      if (overrideEntries.length === entries.length) {
+        for (const entry of entries) {
+          scoped.set(
+            entry.lane.thresholdSessionId,
+            overrideClaim ? { ...overrideClaim, sessionId: entry.lane.thresholdSessionId } : null,
+          );
+        }
+        continue;
+      }
+      for (const entry of overrideEntries) {
         scoped.set(
           entry.lane.thresholdSessionId,
           overrideClaim ? { ...overrideClaim, sessionId: entry.lane.thresholdSessionId } : null,
         );
       }
+      applyRawScopedClaims(rawEntries);
       continue;
     }
-    const terminal =
-      entries.find((entry) => entry.claim?.state === 'expired')?.claim ||
-      entries.find((entry) => entry.claim?.state === 'exhausted')?.claim ||
-      null;
-    const warmClaims = entries
-      .map((entry) => entry.claim)
-      .filter((claim): claim is WarmSessionPrfClaim & { state: 'warm' } => claim?.state === 'warm');
-    const walletRemainingUses = warmClaims.length
-      ? Math.min(...warmClaims.map((claim) => Math.floor(Number(claim.remainingUses) || 0)))
-      : undefined;
-    const walletExpiresAtMs = warmClaims.length
-      ? Math.min(...warmClaims.map((claim) => Math.floor(Number(claim.expiresAtMs) || 0)))
-      : undefined;
-
-    for (const entry of entries) {
-      if (terminal) {
-        scoped.set(entry.lane.thresholdSessionId, {
-          ...terminal,
-          sessionId: entry.lane.thresholdSessionId,
-        });
-        continue;
-      }
-      if (entry.claim?.state === 'warm') {
-        scoped.set(entry.lane.thresholdSessionId, {
-          state: 'warm',
-          sessionId: entry.lane.thresholdSessionId,
-          remainingUses: walletRemainingUses ?? entry.claim.remainingUses,
-          expiresAtMs: walletExpiresAtMs ?? entry.claim.expiresAtMs,
-        });
-        continue;
-      }
-      scoped.set(entry.lane.thresholdSessionId, entry.claim);
-    }
+    applyRawScopedClaims(entries);
   }
   return scoped;
 }
@@ -524,6 +567,62 @@ export async function readClaimsForLanes(args: {
   return claims;
 }
 
+export async function readWalletScopedLaneClaimsForAccount(args: {
+  deps: WalletSigningSessionReadinessDeps;
+  nearAccountId: AccountId | string;
+  statusOverrides?: Map<string, WalletSigningSessionStatusOverride>;
+}): Promise<Map<string, WarmSessionPrfClaim | null>> {
+  const lanes = discoverLanesForAccount(args.deps, args.nearAccountId);
+  const rawClaims = await readClaimsForLanes({ deps: args.deps, lanes });
+  return walletScopedClaimsForLanes({
+    lanes,
+    claimsByThresholdSessionId: rawClaims,
+    statusOverrides: args.statusOverrides,
+  });
+}
+
+export async function readDirectSigningSessionStatusForTargets(args: {
+  deps: WalletSigningSessionReadinessDeps;
+  walletSigningSessionId: string;
+  targetBackingMaterialSessionIds?: Iterable<string>;
+  targetThresholdSessionIds?: Iterable<string>;
+}): Promise<SigningSessionStatus | null> {
+  const walletSigningSessionId = normalizeNonEmpty(args.walletSigningSessionId);
+  if (!walletSigningSessionId) return null;
+  const targetSessionIds = Array.from(
+    new Set(
+      [
+        ...(args.targetBackingMaterialSessionIds || []),
+        ...(args.targetThresholdSessionIds || []),
+      ]
+        .map(normalizeNonEmpty)
+        .filter(Boolean),
+    ),
+  );
+  if (!targetSessionIds.length) return null;
+
+  const claims = await Promise.all(
+    targetSessionIds.map(async (sessionId) => {
+      const status = await args.deps.touchConfirm
+        ?.getWarmSessionStatus?.({ sessionId })
+        .catch(() => null);
+      return status
+        ? toWarmSessionClaimFromStatusResult({ sessionId, status })
+        : null;
+    }),
+  );
+  const claim =
+    claims.find((candidate) => candidate?.state === 'expired') ||
+    claims.find((candidate) => candidate?.state === 'exhausted') ||
+    claims.find((candidate) => candidate?.state === 'unavailable') ||
+    claims.find((candidate) => candidate?.state === 'warm') ||
+    null;
+  return toSigningSessionStatus({
+    sessionId: walletSigningSessionId,
+    claim,
+  });
+}
+
 export function statusFromClaim(args: {
   walletSigningSessionId: string;
   lanes: DiscoveredSigningSessionLane[];
@@ -645,9 +744,7 @@ export async function consumeWalletSigningSessionUse(args: {
   }
   const uses = Math.max(1, Math.floor(Number(input.uses) || 1));
   const alreadyConsumedBacking = new Set(
-    (input.alreadyConsumedBackingMaterialSessionIds || [])
-      .map(normalizeNonEmpty)
-      .filter(Boolean),
+    (input.alreadyConsumedBackingMaterialSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
   );
   const alreadyConsumedThreshold = new Set(
     (input.alreadyConsumedThresholdSessionIds || []).map(normalizeNonEmpty).filter(Boolean),
@@ -689,6 +786,13 @@ export async function consumeWalletSigningSessionUse(args: {
       !hasExplicitTarget ||
       targetBacking.has(lane.backingMaterialSessionId) ||
       targetThreshold.has(lane.thresholdSessionId);
+    if (!laneIsExplicitTarget) {
+      // Explicit spend targets are the operation boundary. Companion lanes may
+      // share a wallet session id, but spending them locally here can create a
+      // false exhausted state while the server still reports the requested lane
+      // as active.
+      continue;
+    }
     const thresholdAlreadyConsumed = alreadyConsumedThreshold.has(lane.thresholdSessionId);
     const backingAlreadyConsumed =
       thresholdAlreadyConsumed || alreadyConsumedBacking.has(lane.backingMaterialSessionId);
@@ -714,6 +818,8 @@ export async function consumeWalletSigningSessionUse(args: {
       const result = await args.deps.touchConfirm?.consumeWarmSessionUses?.({
         sessionId: lane.backingMaterialSessionId,
         uses,
+        curve: lane.curve,
+        ...(lane.chain ? { chain: lane.chain } : {}),
       });
       if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
       assertConsumeResult({
@@ -725,8 +831,18 @@ export async function consumeWalletSigningSessionUse(args: {
     consumedBacking.add(lane.backingMaterialSessionId);
   }
 
-  const ed25519EmailOtpLane = lanes.find(
-    (lane) => lane.curve === 'ed25519' && lane.source === 'email_otp',
+  const consumedOrTargetedLanes = hasExplicitTarget
+    ? lanes.filter(
+        (lane) =>
+          targetBacking.has(lane.backingMaterialSessionId) ||
+          targetThreshold.has(lane.thresholdSessionId),
+      )
+    : lanes;
+  const ed25519EmailOtpLane = consumedOrTargetedLanes.find(
+    (lane) =>
+      lane.curve === 'ed25519' &&
+      lane.source === 'email_otp' &&
+      !alreadyConsumedThreshold.has(lane.thresholdSessionId),
   );
   if (ed25519EmailOtpLane) {
     args.deps.markThresholdEd25519EmailOtpSessionConsumedForAccount?.({
@@ -739,6 +855,8 @@ export async function consumeWalletSigningSessionUse(args: {
   const status = (await args.readStatus({
     nearAccountId: input.nearAccountId,
     walletSigningSessionId,
+    targetBackingMaterialSessionIds: input.targetBackingMaterialSessionIds,
+    targetThresholdSessionIds: input.targetThresholdSessionIds,
   })) || {
     sessionId: walletSigningSessionId,
     status: 'not_found',
@@ -760,11 +878,11 @@ export async function consumeWalletSigningSessionUse(args: {
     overrides: args.statusOverrides,
     nearAccountId: input.nearAccountId,
     walletSigningSessionId,
-    lanes,
+    lanes: consumedOrTargetedLanes,
     status: resolvedStatus,
   });
   await syncSealedRefreshPolicyForLanes({
-    lanes,
+    lanes: consumedOrTargetedLanes,
     status: resolvedStatus,
     updatePolicy: args.deps.updateExactSealedSessionPolicy,
     deleteRecord: args.deps.deleteExactSealedSession,
@@ -858,10 +976,40 @@ export async function syncSealedRefreshPolicyForLanes(args: {
   if (!updatePolicy || !deleteRecord) return;
   const remainingUses = Math.floor(Number(args.status.remainingUses) || 0);
   const expiresAtMs = Math.floor(Number(args.status.expiresAtMs) || 0);
-  if (args.status.status !== 'active' || remainingUses <= 0 || expiresAtMs <= Date.now()) {
+  const nowMs = Date.now();
+  const laneExpiresAtMs = Math.min(
+    ...sealedLanes
+      .map((lane) => Math.floor(Number(lane.record.expiresAtMs) || 0))
+      .filter((value) => value > 0),
+  );
+  const policyExpiresAtMs =
+    expiresAtMs > 0
+      ? expiresAtMs
+      : Number.isFinite(laneExpiresAtMs) && laneExpiresAtMs > 0
+        ? laneExpiresAtMs
+        : 0;
+  if (args.status.status === 'expired' || (expiresAtMs > 0 && expiresAtMs <= nowMs)) {
     await Promise.all(
       sealedLanes.map((lane) =>
         deleteRecord(lane.thresholdSessionId, filterForLane(lane)!).catch(() => undefined),
+      ),
+    );
+    return;
+  }
+  if (args.status.status !== 'active' || remainingUses <= 0) {
+    if (policyExpiresAtMs <= nowMs) return;
+    // Exhaustion is a budget state, not a restore-identity lifecycle event.
+    // Keep durable lane identity so the next command can select the exact
+    // step-up auth lane after page reload or worker-memory loss.
+    await Promise.all(
+      sealedLanes.map((lane) =>
+        updatePolicy({
+          thresholdSessionId: lane.thresholdSessionId,
+          filter: filterForLane(lane)!,
+          remainingUses: 0,
+          expiresAtMs: policyExpiresAtMs,
+          updatedAtMs: Date.now(),
+        }).catch(() => undefined),
       ),
     );
     return;

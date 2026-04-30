@@ -274,6 +274,7 @@ export type EnsureWarmEcdsaCapabilityReadyArgs = {
     publishableKey: string;
   };
   usesNeeded?: number;
+  sessionBudgetUses?: number;
   operationIntent?: SigningOperationIntent;
   sessionId?: string;
   walletSigningSessionId?: string;
@@ -295,6 +296,7 @@ export type ApplyWarmEcdsaPostSignPolicyArgs = {
   chain: ThresholdEcdsaActivationChain;
   thresholdSessionId?: string;
   source?: ThresholdEcdsaSessionStoreSource;
+  selectedRecord?: ThresholdEcdsaSessionRecord;
 };
 
 export type AssertWarmEcdsaOperationAllowedArgs = {
@@ -363,6 +365,7 @@ export type ClaimWarmSessionPrfArgs = {
   thresholdSessionId: string;
   errorContext: string;
   uses?: number;
+  consume?: boolean;
   walletId?: string;
   authMethod?: 'passkey' | 'email_otp';
   curve?: 'ed25519' | 'ecdsa';

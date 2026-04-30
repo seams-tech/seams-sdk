@@ -37,6 +37,28 @@ export type RestorePersistedSessionForSigningResult = {
   deferred: number;
 };
 
+export type RestorePersistedSessionPurpose = {
+  walletId: string;
+  authMethod: 'email_otp' | 'passkey';
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+  reason: 'transaction' | 'export' | 'session_status';
+} & (
+  | {
+      curve: 'ed25519';
+      chain: 'near';
+    }
+  | {
+      curve: 'ecdsa';
+      chain: 'tempo' | 'evm';
+    }
+);
+
+export type RestorePersistedSessionWorkItem = {
+  record: SigningSessionSealedStoreRecord;
+  purpose: RestorePersistedSessionPurpose;
+};
+
 export type RestorePersistedSessionsForAccountInput = {
   walletId: string;
   authMethod?: 'email_otp' | 'passkey';
@@ -75,6 +97,7 @@ export type RestorePersistedSessionForSigningPorts = {
   restoreSealedRecordForAccount: (args: {
     accountId: string;
     record: SigningSessionSealedStoreRecord;
+    purpose: RestorePersistedSessionPurpose;
   }) => Promise<RestoreSealedRecordForAccountResult>;
   onListError?: (args: {
     accountId: string;
@@ -92,6 +115,7 @@ export type RestorePersistedSessionsForAccountPorts = {
   restoreSealedRecordForAccount: (args: {
     accountId: string;
     record: SigningSessionSealedStoreRecord;
+    purpose: RestorePersistedSessionPurpose;
   }) => Promise<RestoreSealedRecordForAccountResult>;
   onListError?: (args: { accountId: string; error: unknown }) => void;
   cache?: SigningSessionRestoreCache;
@@ -127,6 +151,101 @@ function successfulRestoreCacheKey(
     record.updatedAtMs,
     'restored',
   ].join('|');
+}
+
+function purposeCacheKey(purpose: RestorePersistedSessionPurpose, record: SigningSessionSealedStoreRecord): string {
+  return [
+    purpose.walletId,
+    purpose.authMethod,
+    purpose.curve,
+    purpose.chain,
+    purpose.walletSigningSessionId,
+    purpose.thresholdSessionId,
+    record.updatedAtMs,
+  ].join('|');
+}
+
+function workItemForRecord(
+  input: RestorePersistedSessionForSigningInput,
+  record: SigningSessionSealedStoreRecord,
+): RestorePersistedSessionWorkItem | null {
+  const thresholdSessionId = String(record.thresholdSessionIds[input.curve] || '').trim();
+  const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
+  if (!thresholdSessionId || !walletSigningSessionId) return null;
+  if (record.authMethod !== input.authMethod) return null;
+  if (input.walletSigningSessionId && walletSigningSessionId !== input.walletSigningSessionId) {
+    return null;
+  }
+  if (input.thresholdSessionId && thresholdSessionId !== input.thresholdSessionId) {
+    return null;
+  }
+  if (
+    input.curve === 'ecdsa' &&
+    (input.chain === 'tempo' || input.chain === 'evm') &&
+    record.ecdsaRestore?.chain !== input.chain
+  ) {
+    return null;
+  }
+  return {
+    record,
+    purpose: {
+      walletId: input.walletId,
+      authMethod: input.authMethod,
+      curve: input.curve,
+      chain: input.chain,
+      walletSigningSessionId,
+      thresholdSessionId,
+      reason: input.reason,
+    } as RestorePersistedSessionPurpose,
+  };
+}
+
+function workItemsForAccountRecord(args: {
+  walletId: string;
+  record: SigningSessionSealedStoreRecord;
+  reason: 'session_status';
+  requestedCurve: 'ed25519' | 'ecdsa';
+  requestedChain?: 'tempo' | 'evm';
+}): RestorePersistedSessionWorkItem[] {
+  const record = args.record;
+  const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
+  if (!walletSigningSessionId) return [];
+  if (args.requestedCurve === 'ed25519') {
+    const thresholdSessionId = String(record.thresholdSessionIds.ed25519 || '').trim();
+    if (!thresholdSessionId) return [];
+    return [
+      {
+        record,
+        purpose: {
+          walletId: args.walletId,
+          authMethod: record.authMethod,
+          curve: 'ed25519',
+          chain: 'near',
+          walletSigningSessionId,
+          thresholdSessionId,
+          reason: args.reason,
+        },
+      },
+    ];
+  }
+  const chain = args.requestedChain;
+  const thresholdSessionId = String(record.thresholdSessionIds.ecdsa || '').trim();
+  if (!thresholdSessionId || (chain !== 'tempo' && chain !== 'evm')) return [];
+  if (record.ecdsaRestore?.chain !== chain) return [];
+  return [
+    {
+      record,
+      purpose: {
+        walletId: args.walletId,
+        authMethod: record.authMethod,
+        curve: 'ecdsa',
+        chain,
+        walletSigningSessionId,
+        thresholdSessionId,
+        reason: args.reason,
+      },
+    },
+  ];
 }
 
 export function createSigningSessionRestoreCache(): SigningSessionRestoreCache {
@@ -189,31 +308,10 @@ export async function restorePersistedSessionForSigningCommand(
     return { attempted: 0, restored: 0, deferred: 0 };
   }
 
-  const exactPurposeRecords = records.filter((record) => {
-    if (record.authMethod !== normalizedInput.authMethod) return false;
-    if (record.curve !== normalizedInput.curve) return false;
-    if (
-      normalizedInput.curve === 'ecdsa' &&
-      (normalizedInput.chain === 'tempo' || normalizedInput.chain === 'evm') &&
-      record.ecdsaRestore?.chain !== normalizedInput.chain
-    ) {
-      return false;
-    }
-    if (
-      normalizedInput.walletSigningSessionId &&
-      record.walletSigningSessionId !== normalizedInput.walletSigningSessionId
-    ) {
-      return false;
-    }
-    if (
-      normalizedInput.thresholdSessionId &&
-      record.thresholdSessionIds[normalizedInput.curve] !== normalizedInput.thresholdSessionId
-    ) {
-      return false;
-    }
-    return true;
-  });
-  if (!exactPurposeRecords.length) {
+  const exactPurposeWorkItems = records
+    .map((record) => workItemForRecord(normalizedInput, record))
+    .filter((item): item is RestorePersistedSessionWorkItem => Boolean(item));
+  if (!exactPurposeWorkItems.length) {
     ports.cache?.rememberKnownMissing(normalizedInput);
     return { attempted: 0, restored: 0, deferred: 0 };
   }
@@ -221,10 +319,10 @@ export async function restorePersistedSessionForSigningCommand(
   let restored = 0;
   let deferred = 0;
   await Promise.all(
-    exactPurposeRecords.map(async (record) => {
+    exactPurposeWorkItems.map(async ({ record, purpose }) => {
       if (ports.cache?.hasSuccessfulRestore(normalizedInput, record)) return;
       attempted += 1;
-      const result = await ports.restoreSealedRecordForAccount({ accountId, record });
+      const result = await ports.restoreSealedRecordForAccount({ accountId, record, purpose });
       if (result === 'restored') {
         restored += 1;
         ports.cache?.rememberSuccessfulRestore(normalizedInput, record);
@@ -273,77 +371,64 @@ export async function restorePersistedSessionsForAccountCommand(
         }),
       ]),
     );
-    const seen = new Set<string>();
-    records = listed.flat().filter((record) => {
-      const key = String(
-        record.storeKey ||
-          [
-            record.authMethod,
-            record.curve,
-            record.ecdsaRestore?.chain || 'near',
-            record.walletSigningSessionId,
-            record.thresholdSessionIds[record.curve] || '',
-          ].join('|'),
-      );
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    records = listed.flat();
   } catch (error) {
     ports.onListError?.({ accountId, error });
     return empty;
   }
 
-  const boundedRecords = records
+  const seenWorkItems = new Set<string>();
+  const workItems = records
+    .flatMap((record) => [
+      ...workItemsForAccountRecord({
+        walletId: accountId,
+        record,
+        reason: 'session_status',
+        requestedCurve: 'ed25519',
+      }),
+      ...workItemsForAccountRecord({
+        walletId: accountId,
+        record,
+        reason: 'session_status',
+        requestedCurve: 'ecdsa',
+        requestedChain: 'tempo',
+      }),
+      ...workItemsForAccountRecord({
+        walletId: accountId,
+        record,
+        reason: 'session_status',
+        requestedCurve: 'ecdsa',
+        requestedChain: 'evm',
+      }),
+    ])
+    .filter((item) => {
+      const key = purposeCacheKey(item.purpose, item.record);
+      if (seenWorkItems.has(key)) return false;
+      seenWorkItems.add(key);
+      return true;
+    });
+
+  const boundedWorkItems = workItems
     .slice()
-    .sort((left, right) => Number(right.updatedAtMs || 0) - Number(left.updatedAtMs || 0))
+    .sort((left, right) => Number(right.record.updatedAtMs || 0) - Number(left.record.updatedAtMs || 0))
     .slice(0, maxRecords);
   let attempted = 0;
   let restored = 0;
   let deferred = 0;
   let skipped = 0;
   await Promise.all(
-    boundedRecords.map(async (record) => {
+    boundedWorkItems.map(async ({ record, purpose }) => {
       if (record.authMethod !== 'email_otp' && record.authMethod !== 'passkey') {
         skipped += 1;
         return;
       }
-      let restoreInput: RestorePersistedSessionForSigningInput;
-      if (record.curve === 'ed25519') {
-        restoreInput = {
-          walletId: accountId,
-          authMethod: record.authMethod,
-          curve: 'ed25519',
-          chain: 'near',
-          thresholdSessionId: record.thresholdSessionIds.ed25519,
-          walletSigningSessionId: record.walletSigningSessionId,
-          reason: 'session_status',
-        };
-      } else if (record.curve === 'ecdsa') {
-        const chain = record.ecdsaRestore?.chain;
-        if (chain !== 'tempo' && chain !== 'evm') {
-          skipped += 1;
-          return;
-        }
-        restoreInput = {
-          walletId: accountId,
-          authMethod: record.authMethod,
-          curve: 'ecdsa',
-          chain,
-          thresholdSessionId: record.thresholdSessionIds.ecdsa,
-          walletSigningSessionId: record.walletSigningSessionId,
-          reason: 'session_status',
-        };
-      } else {
-        skipped += 1;
-        return;
-      }
+      const restoreInput: RestorePersistedSessionForSigningInput = purpose;
       if (ports.cache?.hasSuccessfulRestore(restoreInput, record)) {
         skipped += 1;
         return;
       }
       attempted += 1;
-      const result = await ports.restoreSealedRecordForAccount({ accountId, record });
+      const result = await ports.restoreSealedRecordForAccount({ accountId, record, purpose });
       if (result === 'restored') {
         restored += 1;
         ports.cache?.rememberSuccessfulRestore(restoreInput, record);
@@ -361,6 +446,6 @@ export async function restorePersistedSessionsForAccountCommand(
     restored,
     deferred,
     skipped,
-    truncated: Math.max(0, records.length - boundedRecords.length),
+    truncated: Math.max(0, workItems.length - boundedWorkItems.length),
   };
 }

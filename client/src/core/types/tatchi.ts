@@ -413,13 +413,22 @@ export interface LoginResult {
 
 export interface SigningSessionStatus {
   sessionId: string;
-  status: 'active' | 'exhausted' | 'expired' | 'not_found' | 'unavailable';
+  status:
+    | 'active'
+    | 'exhausted'
+    | 'expired'
+    | 'not_found'
+    | 'unavailable'
+    | 'budget_unknown';
   statusCode?: string;
   authMethod?: WalletAuthMethod | null;
   retention?: SigningSessionRetention | null;
+  availableUses?: number;
+  locallyReservedUses?: number;
   remainingUses?: number;
   expiresAtMs?: number;
   createdAtMs?: number;
+  projectionVersion?: string;
 }
 
 export interface LoginAndCreateSessionResult extends LoginResult {

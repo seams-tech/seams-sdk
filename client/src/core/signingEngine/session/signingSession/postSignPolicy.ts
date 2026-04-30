@@ -27,6 +27,7 @@ export async function applyEcdsaPostSignPolicy(args: {
   markEmailOtpSessionConsumed?: (args: {
     nearAccountId: AccountId;
     chain: ThresholdEcdsaActivationChain;
+    uses?: number;
   }) => void;
   clearEcdsaEphemeralMaterial: EcdsaPostSignPolicyMaterialClearer;
 }): Promise<void> {
@@ -64,6 +65,7 @@ export async function applyEcdsaPostSignPolicy(args: {
   args.markEmailOtpSessionConsumed?.({
     nearAccountId: args.nearAccountId,
     chain: args.chain,
+    uses: 1,
   });
 
   const selectedThresholdSessionId = String(
@@ -146,8 +148,7 @@ export function assertEcdsaOperationAllowed(args: {
       mode: 'per_operation',
     });
   }
-  const sensitivePolicy =
-    args.sensitivePolicy || SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy;
+  const sensitivePolicy = args.sensitivePolicy || SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy;
   if (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.inheritSessionPolicy) return;
   if (sensitivePolicy === SENSITIVE_OPERATION_POLICIES.requireFreshSameMethod) {
     if (effectiveRecord.emailOtpAuthContext?.retention === 'single_use') return;

@@ -393,6 +393,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       sessionId: string;
       uses?: number;
+      consume?: boolean;
     };
     result:
       | { ok: true; prfFirstB64u: string; remainingUses: number; expiresAtMs: number }

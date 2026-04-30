@@ -11,6 +11,7 @@ import {
   type ThresholdSessionId,
   type WalletSigningSpendPlan,
 } from './types';
+import { budgetUnknownSigningSessionStatus } from './budgetProjection';
 
 export type SigningSessionBudgetZeroSpendReason =
   | 'confirmation_cancelled'
@@ -45,6 +46,8 @@ export type SigningSessionBudgetTraceEvent = {
 
 export type SigningSessionBudgetRecordSuccessInput = {
   spend: WalletSigningSpendPlan;
+  expectedBudgetProjectionVersion?: string;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   alreadyConsumedBackingMaterialSessionIds?: readonly string[];
   alreadyConsumedThresholdSessionIds?: readonly string[];
 };
@@ -65,7 +68,14 @@ export type SigningSessionBudgetStatusReader = (args: {
   walletSigningSessionId?: string;
   targetBackingMaterialSessionIds?: string[];
   targetThresholdSessionIds?: string[];
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 }) => Promise<SigningSessionStatus | null>;
+
+export type SigningSessionBudgetStatusAuth = {
+  relayerUrl: string;
+  thresholdSessionId: string;
+  thresholdSessionJwt?: string;
+};
 
 export type SigningSessionBudgetConsumer = (args: {
   nearAccountId: AccountId | string;
@@ -79,9 +89,15 @@ export type SigningSessionBudgetConsumer = (args: {
 }) => Promise<SigningSessionStatus>;
 
 export type SigningSessionBudgetDeps = {
-  getStatus?: SigningSessionBudgetStatusReader;
+  getStatus: SigningSessionBudgetStatusReader;
   consumeUse?: SigningSessionBudgetConsumer;
   onTrace?: (event: SigningSessionBudgetTraceEvent) => void;
+};
+
+export type SigningSessionPreparedBudgetIdentity = {
+  walletSigningSessionId: string;
+  projectionVersion: string;
+  status: SigningSessionStatus & { status: 'active'; projectionVersion: string };
 };
 
 export type SigningSessionBudget = {
@@ -93,6 +109,7 @@ export type SigningSessionBudget = {
     walletSigningSessionId: string;
     targetBackingMaterialSessionIds?: readonly string[];
     targetThresholdSessionIds?: readonly string[];
+    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   }): Promise<SigningSessionStatus | null>;
   recordSuccess(
     input: SigningSessionBudgetRecordSuccessInput,
@@ -103,10 +120,17 @@ export type SigningSessionBudget = {
 
 export const SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR =
   '[SigningSessionBudget] wallet signing-session budget is exhausted';
+export const SIGNING_SESSION_BUDGET_UNKNOWN_ERROR =
+  '[SigningSessionBudget] wallet signing-session budget is budget_unknown';
 
 export function isSigningSessionBudgetExhaustedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || '');
   return message.includes(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+}
+
+export function isSigningSessionBudgetUnknownError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return message.includes(SIGNING_SESSION_BUDGET_UNKNOWN_ERROR);
 }
 
 export function applySigningSessionBudgetReservationsToStatus(args: {
@@ -116,21 +140,18 @@ export function applySigningSessionBudgetReservationsToStatus(args: {
 }): SigningSessionStatus {
   if (args.status.status !== 'active') return args.status;
   const remainingUses = Math.max(0, Math.floor(Number(args.status.remainingUses) || 0));
-  const reservedUses = Math.max(
+  const locallyReservedUses = Math.max(
     0,
     Math.floor(Number(args.reservedUsesByWalletSessionId.get(args.walletSigningSessionId)) || 0),
   );
-  const availableUses = Math.max(0, remainingUses - reservedUses);
-  if (availableUses <= 0) {
-    return {
-      ...args.status,
-      status: 'exhausted',
-      remainingUses: 0,
-    };
-  }
+  const availableUses = Math.max(0, remainingUses - locallyReservedUses);
+  // remainingUses is the server-trusted budget. Local reservations are only
+  // in-flight availability hints and must not make status/UI look refunded.
   return {
     ...args.status,
-    remainingUses: availableUses,
+    remainingUses,
+    locallyReservedUses,
+    availableUses,
   };
 }
 
@@ -140,15 +161,29 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
   reservedUsesByWalletSessionId: Map<string, number>;
 }): Promise<void> {
   const spend = args.input.spend;
-  if (!args.getStatus) return;
+  if (!args.getStatus) {
+    throw budgetUnknownError(spend, 'adapter_unavailable');
+  }
   const status = await args.getStatus({
     nearAccountId: spend.nearAccountId,
     walletSigningSessionId: spend.walletSigningSessionId,
     targetBackingMaterialSessionIds: normalizeStringList(spend.backingMaterialSessionIds),
     targetThresholdSessionIds: normalizeStringList(spend.thresholdSessionIds),
+    trustedStatusAuth: args.input.trustedStatusAuth,
   });
-  if (!status || status.status === 'not_found') {
-    throw new Error('[SigningSessionBudget] wallet signing-session budget is not available');
+  if (!status) {
+    throw budgetUnknownError(spend, 'missing_trusted_status');
+  }
+  if (status.status === 'budget_unknown') {
+    throw budgetUnknownError(spend, status.statusCode || 'missing_trusted_status');
+  }
+  if (status.status === 'not_found') {
+    throw new Error(
+      [
+        '[SigningSessionBudget] wallet signing-session budget is not_found',
+        formatSpendIdentityForError(spend),
+      ].join(' '),
+    );
   }
   if (status.status !== 'active') {
     throw new Error(
@@ -160,6 +195,43 @@ export async function assertSigningSessionBudgetReservationAvailable(args: {
   if (remainingUses - reservedUses < spend.uses) {
     throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
   }
+  assertPreparedBudgetProjectionVersion({
+    status,
+    expectedBudgetProjectionVersion: args.input.expectedBudgetProjectionVersion,
+  });
+}
+
+export function budgetUnknownStatusForSpend(
+  spend: WalletSigningSpendPlan,
+  reason: string = 'missing_trusted_status',
+): SigningSessionStatus {
+  return budgetUnknownSigningSessionStatus({
+    walletSigningSessionId: spend.walletSigningSessionId,
+    reason:
+      reason === 'adapter_unavailable' ||
+      reason === 'status_unavailable' ||
+      reason === 'missing_trusted_status'
+        ? reason
+        : 'missing_trusted_status',
+  });
+}
+
+function budgetUnknownError(spend: WalletSigningSpendPlan, reason: string): Error {
+  return new Error(
+    [
+      SIGNING_SESSION_BUDGET_UNKNOWN_ERROR,
+      `reason=${reason || 'missing_trusted_status'}`,
+      formatSpendIdentityForError(spend),
+    ].join(' '),
+  );
+}
+
+function formatSpendIdentityForError(spend: WalletSigningSpendPlan): string {
+  return [
+    `walletSigningSessionId=${spend.walletSigningSessionId}`,
+    `thresholdSessionIds=${normalizeStringList(spend.thresholdSessionIds)?.join(',') || 'none'}`,
+    `backingMaterialSessionIds=${normalizeStringList(spend.backingMaterialSessionIds)?.join(',') || 'none'}`,
+  ].join(' ');
 }
 
 export function normalizeSigningSessionBudgetRecordSuccessInput(
@@ -194,6 +266,60 @@ export function summarizeWalletSigningSessionStatus(
     remainingUses: status.remainingUses,
     expiresAtMs: status.expiresAtMs,
   };
+}
+
+export function normalizeBudgetProjectionVersion(args: {
+  status: SigningSessionStatus;
+  walletSigningSessionId: string;
+  targetBackingMaterialSessionIds?: readonly string[];
+  targetThresholdSessionIds?: readonly string[];
+}): string {
+  const existing = String(args.status.projectionVersion || '').trim();
+  if (existing) return existing;
+  const targetBacking = normalizeStringList(args.targetBackingMaterialSessionIds)?.join(',') || '';
+  const targetThreshold = normalizeStringList(args.targetThresholdSessionIds)?.join(',') || '';
+  // The server does not yet return a dedicated version. Until it does, derive a
+  // deterministic budget projection from trusted status fields so prepared,
+  // reserved, and finalized signing all agree on the same observed state.
+  return [
+    'derived',
+    args.walletSigningSessionId,
+    args.status.status,
+    Math.floor(Number(args.status.remainingUses) || 0),
+    Math.floor(Number(args.status.expiresAtMs) || 0),
+    Math.floor(Number(args.status.createdAtMs) || 0),
+    targetBacking,
+    targetThreshold,
+  ].join(':');
+}
+
+export function withBudgetProjectionVersion(args: {
+  status: SigningSessionStatus;
+  walletSigningSessionId: string;
+  targetBackingMaterialSessionIds?: readonly string[];
+  targetThresholdSessionIds?: readonly string[];
+}): SigningSessionStatus & { projectionVersion: string } {
+  return {
+    ...args.status,
+    projectionVersion: normalizeBudgetProjectionVersion(args),
+  };
+}
+
+export function assertPreparedBudgetProjectionVersion(args: {
+  status: SigningSessionStatus;
+  expectedBudgetProjectionVersion?: string;
+}): void {
+  const expected = String(args.expectedBudgetProjectionVersion || '').trim();
+  if (!expected) {
+    throw new Error('[SigningSessionBudget] prepared budget projection version is required');
+  }
+  const actual = String(args.status.projectionVersion || '').trim();
+  if (!actual) {
+    throw new Error('[SigningSessionBudget] trusted budget status is missing projection version');
+  }
+  if (actual !== expected) {
+    throw new Error('[SigningSessionBudget] prepared budget projection is stale');
+  }
 }
 
 export function createSigningSessionBudgetTraceEvent(

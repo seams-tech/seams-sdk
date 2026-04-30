@@ -22,7 +22,7 @@ type ReauthableNotReadyReason = Extract<
 
 type TerminalNotReadyReason = Extract<
   SigningSessionNotReadyReason,
-  'auth_unavailable' | 'status_unavailable'
+  'auth_unavailable' | 'status_unavailable' | 'budget_unknown'
 >;
 
 export type SigningSessionReadiness =
@@ -90,7 +90,11 @@ export function planSigningSession(input: SigningSessionPlannerInput): SigningSe
     };
   }
 
-  if (readiness.status === 'auth_unavailable' || readiness.status === 'status_unavailable') {
+  if (
+    readiness.status === 'auth_unavailable' ||
+    readiness.status === 'status_unavailable' ||
+    readiness.status === 'budget_unknown'
+  ) {
     return {
       kind: SigningSessionPlanKind.NotReady,
       lane,

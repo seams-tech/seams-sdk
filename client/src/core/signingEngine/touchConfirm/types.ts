@@ -81,6 +81,7 @@ export interface WarmSessionMaterialWriter {
     transport?: {
       curve?: 'ed25519' | 'ecdsa';
       relayerUrl?: string;
+      walletSigningSessionId?: string;
       thresholdSessionJwt?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
@@ -89,21 +90,20 @@ export interface WarmSessionMaterialWriter {
 }
 
 export interface WarmSessionStatusReader {
-  getWarmSessionStatus(args: {
-    sessionId: string;
-  }): Promise<WarmSessionStatusResult>;
+  getWarmSessionStatus(args: { sessionId: string }): Promise<WarmSessionStatusResult>;
 }
 
 export interface WarmSessionStatusBatchReader {
-  getWarmSessionStatuses(args: {
-    sessionIds: string[];
-  }): Promise<WarmSessionStatusBatchResult>;
+  getWarmSessionStatuses(args: { sessionIds: string[] }): Promise<WarmSessionStatusBatchResult>;
 }
 
 export interface WarmSessionMaterialClaimer {
   claimWarmSessionMaterial(args: {
     sessionId: string;
     uses?: number;
+    consume?: boolean;
+    curve?: 'ed25519' | 'ecdsa';
+    chain?: 'near' | 'tempo' | 'evm';
   }): Promise<WarmSessionClaimResult>;
 }
 
@@ -111,6 +111,8 @@ export interface WarmSessionMaterialConsumer {
   consumeWarmSessionUses(args: {
     sessionId: string;
     uses?: number;
+    curve?: 'ed25519' | 'ecdsa';
+    chain?: 'near' | 'tempo' | 'evm';
   }): Promise<WarmSessionStatusResult>;
 }
 
@@ -126,6 +128,17 @@ export interface WarmSessionSealPersister {
   sealAndPersistWarmSessionMaterial(
     args: WarmSessionSealAndPersistPayload,
   ): Promise<WarmSessionSealAndPersistResult>;
+  persistSigningSessionSealForThresholdSession(args: {
+    sessionId: string;
+    transport?: {
+      curve?: 'ed25519' | 'ecdsa';
+      relayerUrl?: string;
+      walletSigningSessionId?: string;
+      thresholdSessionJwt?: string;
+      keyVersion?: string;
+      shamirPrimeB64u?: string;
+    };
+  }): Promise<WarmSessionSealAndPersistResult>;
 }
 
 export interface WarmSessionRehydrator {
@@ -152,9 +165,7 @@ export interface WarmSessionPersistedRestorer {
 }
 
 export interface WarmSessionPersistedRecordDeleter {
-  deletePersistedWarmSessionMaterial(
-    args: WarmSessionDeletePersistedPayload,
-  ): Promise<void>;
+  deletePersistedWarmSessionMaterial(args: WarmSessionDeletePersistedPayload): Promise<void>;
 }
 
 export type WarmSessionMaterialPort = WarmSessionMaterialWriter &

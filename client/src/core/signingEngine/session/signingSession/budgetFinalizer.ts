@@ -2,6 +2,8 @@ import type {
   SigningSessionBudget,
   SigningSessionBudgetRecordSuccessInput,
   SigningSessionBudgetReservation,
+  SigningSessionPreparedBudgetIdentity,
+  SigningSessionBudgetStatusAuth,
   SigningSessionBudgetZeroSpendReason,
 } from './budget';
 import { buildWalletSigningSpendPlan } from './budget';
@@ -22,6 +24,8 @@ export type SigningSessionBudgetFinalizer = {
 
 export function createSigningSessionBudgetFinalizer(args: {
   signingSessionBudget?: SigningSessionBudget;
+  budgetIdentity: SigningSessionPreparedBudgetIdentity;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   operation: SigningOperationContext;
   lane: SelectedSigningLaneContext;
   backingMaterialSessionId?: BackingMaterialSessionId;
@@ -34,16 +38,28 @@ export function createSigningSessionBudgetFinalizer(args: {
       : {}),
   });
   const budget = args.signingSessionBudget;
+  if (args.budgetIdentity.walletSigningSessionId !== String(spend.walletSigningSessionId)) {
+    throw new Error('[SigningSessionBudget] prepared budget identity does not match spend lane');
+  }
 
   return {
     spend,
     async reserve() {
       if (!budget) return null;
-      return await budget.reserve({ spend });
+      return await budget.reserve({
+        spend,
+        expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
+        ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+      });
     },
     async recordSuccess(input = {}) {
       if (!budget) return;
-      await budget.recordSuccess({ ...input, spend }).catch((error) => {
+      await budget.recordSuccess({
+        ...input,
+        spend,
+        expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
+        ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+      }).catch((error) => {
         args.onRecordSuccessError?.(error, spend);
         // Do not fail open here. A previous regression logged spend failures and
         // still reported signing success, leaving the next operation to hit

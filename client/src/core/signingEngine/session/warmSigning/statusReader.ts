@@ -6,8 +6,10 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
-import { SigningSessionCoordinator } from '../SigningSessionCoordinator';
-import { resolveEmailOtpEcdsaWorkerSessionId } from '../signingSession/readiness';
+import {
+  readWalletScopedLaneClaimsForAccount as readWalletScopedLaneClaimsForAccountCore,
+  resolveEmailOtpEcdsaWorkerSessionId,
+} from '../signingSession/readiness';
 import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
@@ -19,10 +21,7 @@ import {
   toWarmSessionClaimFromStatusResult,
 } from './readModel';
 import type { WarmSessionPrfClaim } from './types';
-import type {
-  ThresholdWarmSessionStatusReader,
-  WarmEcdsaSigningSessionStatus,
-} from './types';
+import type { ThresholdWarmSessionStatusReader, WarmEcdsaSigningSessionStatus } from './types';
 
 type WarmSessionEcdsaPolicyRecordHint = ThresholdEcdsaSessionRecord;
 
@@ -59,7 +58,7 @@ export function normalizeUsesNeeded(usesNeededRaw: unknown): number {
 
 export type WarmSessionStatusReaderDeps = {
   touchConfirm?: Parameters<typeof readWarmSessionClaim>[0];
-  signingSessionCoordinator?: Pick<SigningSessionCoordinator, 'getLaneClaimsForAccount'>;
+  readWalletScopedLaneClaimsForAccount?: typeof readWalletScopedLaneClaimsForAccountCore;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
   listThresholdEcdsaSessionRecordsForLookup?: (args: {
     nearAccountId: AccountId | string;
@@ -89,13 +88,8 @@ export type WarmSessionStatusReader = ThresholdWarmSessionStatusReader & {
 export function createWarmSessionStatusReader(
   deps: WarmSessionStatusReaderDeps,
 ): WarmSessionStatusReader {
-  const signingSessionCoordinator =
-    deps.signingSessionCoordinator ||
-    new SigningSessionCoordinator({
-      touchConfirm: deps.touchConfirm,
-      getEmailOtpWarmSessionStatus: deps.getEmailOtpWarmSessionStatus,
-      listThresholdEcdsaSessionRecordsForLookup: deps.listThresholdEcdsaSessionRecordsForLookup,
-    });
+  const readWalletScopedLaneClaimsForAccount =
+    deps.readWalletScopedLaneClaimsForAccount || readWalletScopedLaneClaimsForAccountCore;
 
   async function readEcdsaWarmSessionClaimForRecord(
     record: ThresholdEcdsaSessionRecord,
@@ -121,9 +115,10 @@ export function createWarmSessionStatusReader(
     evmClaim: WarmSessionPrfClaim | null;
     tempoClaim: WarmSessionPrfClaim | null;
   }> {
-    const walletScopedClaims = await signingSessionCoordinator.getLaneClaimsForAccount(
+    const walletScopedClaims = await readWalletScopedLaneClaimsForAccount({
+      deps,
       nearAccountId,
-    );
+    });
     return {
       ed25519Claim:
         walletScopedClaims.get(String(records.ed25519?.thresholdSessionId || '').trim()) || null,
@@ -144,8 +139,8 @@ export function createWarmSessionStatusReader(
     if (typeof deps.listThresholdEcdsaSessionRecordsForLookup === 'function') {
       try {
         for (const candidate of deps.listThresholdEcdsaSessionRecordsForLookup({
-            nearAccountId: args.nearAccountId,
-            chain: args.chain,
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
         })) {
           if (args.source && candidate.source !== args.source) continue;
           const sessionId = String(candidate.thresholdSessionId || '').trim();
@@ -159,7 +154,8 @@ export function createWarmSessionStatusReader(
     ];
     if (fallback && (!args.source || fallback.source === args.source)) {
       const sessionId = String(fallback.thresholdSessionId || '').trim();
-      if (sessionId) recordsBySession.set(`${fallback.chain}:${fallback.source}:${sessionId}`, fallback);
+      if (sessionId)
+        recordsBySession.set(`${fallback.chain}:${fallback.source}:${sessionId}`, fallback);
     }
     return [...recordsBySession.values()];
   }
@@ -260,24 +256,49 @@ export function createWarmSessionStatusReader(
         authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
         ...(record?.emailOtpAuthContext?.retention
           ? { retention: record.emailOtpAuthContext.retention }
-        : {}),
+          : {}),
       };
     }
     const records = readWarmSessionCapabilityRecordsForAccount(toAccountId(args.nearAccountId));
     const { ed25519Claim } = await readWalletScopedClaimsForRecords(args.nearAccountId, records);
-    return toSigningSessionStatus({
+    const status = toSigningSessionStatus({
       sessionId: normalizedThresholdSessionId,
       claim: ed25519Claim,
       authMethod: record?.source === 'email_otp' ? 'email_otp' : 'passkey',
       retention: record?.emailOtpAuthContext?.retention || null,
     });
+    if (
+      (status.status === 'not_found' || status.status === 'exhausted') &&
+      record?.source === 'email_otp' &&
+      record.emailOtpAuthContext?.retention === 'session' &&
+      record.xClientBaseB64u
+    ) {
+      const remainingUses = Math.floor(Number(record.remainingUses) || 0);
+      const expiresAtMs = Math.floor(Number(record.expiresAtMs) || 0);
+      // Email OTP Ed25519 material is record-backed, not PRF-claim-backed.
+      // Missing/exhausted worker material should not become terminal here:
+      // the wallet budget route is the authority for remaining uses and will
+      // force step-up when the selected wallet session is actually exhausted.
+      return {
+        sessionId: normalizedThresholdSessionId,
+        status: expiresAtMs > 0 && Date.now() >= expiresAtMs ? 'expired' : 'active',
+        authMethod: 'email_otp',
+        retention: record.emailOtpAuthContext.retention,
+        ...(remainingUses > 0 ? { remainingUses } : {}),
+        ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
+      };
+    }
+    return status;
   }
 
   async function getEd25519SigningSessionStatus(
     nearAccountId: AccountId | string,
   ): Promise<SigningSessionStatus | null> {
     const records = readWarmSessionCapabilityRecordsForAccount(toAccountId(nearAccountId));
-    return await getEd25519SigningSessionStatusForRecord({ nearAccountId, record: records.ed25519 });
+    return await getEd25519SigningSessionStatusForRecord({
+      nearAccountId,
+      record: records.ed25519,
+    });
   }
 
   async function getEd25519SigningSessionStatusForSession(args: {
@@ -286,7 +307,9 @@ export function createWarmSessionStatusReader(
   }): Promise<SigningSessionStatus | null> {
     const thresholdSessionId = String(args.thresholdSessionId || '').trim();
     if (!thresholdSessionId) {
-      throw new Error('[WarmSessionStatusReader] thresholdSessionId is required for Ed25519 status');
+      throw new Error(
+        '[WarmSessionStatusReader] thresholdSessionId is required for Ed25519 status',
+      );
     }
     const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
     if (!record || String(record.nearAccountId) !== String(args.nearAccountId)) {
@@ -327,12 +350,15 @@ export function createWarmSessionStatusReader(
     const accountId = toAccountId(args.nearAccountId);
     const records = listCurrentEcdsaRecords({ nearAccountId: accountId, chain: args.chain });
     if (!records.length) return [];
-    const claimsByThresholdSessionId =
-      await signingSessionCoordinator.getLaneClaimsForAccount(accountId);
+    const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForAccount({
+      deps,
+      nearAccountId: accountId,
+    });
     return records.map((record) =>
       toEcdsaSigningSessionStatus({
         record,
-        claim: claimsByThresholdSessionId.get(String(record.thresholdSessionId || '').trim()) || null,
+        claim:
+          claimsByThresholdSessionId.get(String(record.thresholdSessionId || '').trim()) || null,
       }),
     );
   }
@@ -359,8 +385,10 @@ export function createWarmSessionStatusReader(
         chain: args.chain,
       };
     }
-    const claimsByThresholdSessionId =
-      await signingSessionCoordinator.getLaneClaimsForAccount(accountId);
+    const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForAccount({
+      deps,
+      nearAccountId: accountId,
+    });
     return toEcdsaSigningSessionStatus({
       record,
       claim:

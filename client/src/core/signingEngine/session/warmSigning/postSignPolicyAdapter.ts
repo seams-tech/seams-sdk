@@ -5,10 +5,12 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
-import {
-  getPrimaryAndSecondaryEcdsaCapabilities,
-} from './ecdsaProvisioner';
-import type { WarmSessionEcdsaCapabilityRef, WarmSessionEnvelope } from './types';
+import { getPrimaryAndSecondaryEcdsaCapabilities } from './ecdsaProvisioner';
+import type {
+  ApplyWarmEcdsaPostSignPolicyArgs,
+  WarmSessionEcdsaCapabilityRef,
+  WarmSessionEnvelope,
+} from './types';
 import {
   applyEcdsaPostSignPolicy as applySigningEcdsaPostSignPolicy,
   assertEcdsaOperationAllowed as assertSigningEcdsaOperationAllowed,
@@ -24,6 +26,7 @@ export type WarmSessionPostSignPolicyAdapterDeps = {
   markEmailOtpSessionConsumed?: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
+    uses?: number;
   }) => void;
   clearEcdsaEphemeralMaterial: (args: {
     nearAccountId: AccountId;
@@ -50,16 +53,16 @@ async function resolveSecondaryEcdsaRecord(args: {
 
 export async function applyWarmSessionEcdsaPostSignPolicy(
   deps: WarmSessionPostSignPolicyAdapterDeps,
-  args: WarmSessionEcdsaCapabilityRef & {
-    source?: ThresholdEcdsaSessionStoreSource;
-  },
+  args: ApplyWarmEcdsaPostSignPolicyArgs,
 ): Promise<void> {
   const accountId = toAccountId(args.nearAccountId);
-  const record = deps.resolveCurrentEcdsaRecord({
-    nearAccountId: accountId,
-    chain: args.chain,
-    ...(args.source ? { source: args.source } : {}),
-  });
+  const record =
+    args.selectedRecord ||
+    deps.resolveCurrentEcdsaRecord({
+      nearAccountId: accountId,
+      chain: args.chain,
+      ...(args.source ? { source: args.source } : {}),
+    });
   const secondaryRecord = await resolveSecondaryEcdsaRecord({
     getWarmSession: deps.getWarmSession,
     accountId,

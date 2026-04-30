@@ -8,9 +8,7 @@ import type {
   WarmSessionStatusReader,
   WarmSessionStatusResult,
 } from '../../touchConfirm';
-import type {
-  ThresholdSessionSealTransportAuthMaterial,
-} from '../../api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdSessionSealTransportAuthMaterial } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import type {
   WarmSessionEd25519AuthMaterial,
   WarmSessionEcdsaAuthMaterial,
@@ -20,7 +18,12 @@ import type {
 } from './types';
 
 export type WarmSessionReadPorts =
-  | Partial<Pick<WarmSessionStatusReader & WarmSessionStatusBatchReader, 'getWarmSessionStatus' | 'getWarmSessionStatuses'>>
+  | Partial<
+      Pick<
+        WarmSessionStatusReader & WarmSessionStatusBatchReader,
+        'getWarmSessionStatus' | 'getWarmSessionStatuses'
+      >
+    >
   | undefined;
 
 export function reportWarmSessionAvailabilityFailure(args: {
@@ -162,10 +165,7 @@ export function deriveEd25519CapabilityState(args: {
   ) {
     return 'prf_missing';
   }
-  if (
-    args.record.source === 'email_otp' &&
-    String(args.record.xClientBaseB64u || '').trim()
-  ) {
+  if (args.record.source === 'email_otp' && String(args.record.xClientBaseB64u || '').trim()) {
     return 'ready';
   }
   if (!args.prfClaim) return 'prf_missing';
@@ -181,7 +181,10 @@ export function deriveEcdsaCapabilityState(args: {
   emailOtpAuthContext?: WarmSessionEcdsaCapabilityState['emailOtpAuthContext'];
 }): WarmSessionEcdsaCapabilityState['state'] {
   if (!args.record) return 'missing';
-  if (args.record.thresholdSessionKind === 'jwt' && (!args.auth || !args.auth.thresholdSessionJwt)) {
+  if (
+    args.record.thresholdSessionKind === 'jwt' &&
+    (!args.auth || !args.auth.thresholdSessionJwt)
+  ) {
     return 'auth_missing';
   }
   if (
@@ -211,8 +214,7 @@ export function formatMissingWarmPrfMaterialError(args: {
   errorContext: string;
   code?: string;
 }): Error {
-  const suffix =
-    typeof args.code === 'string' && args.code.trim() ? ` (${args.code.trim()})` : '';
+  const suffix = typeof args.code === 'string' && args.code.trim() ? ` (${args.code.trim()})` : '';
   return new Error(`Missing warm PRF material for ${args.errorContext}${suffix}`);
 }
 
@@ -220,8 +222,7 @@ export function formatWarmSessionClaimUnavailableError(args: {
   errorContext: string;
   code?: string;
 }): Error {
-  const suffix =
-    typeof args.code === 'string' && args.code.trim() ? ` (${args.code.trim()})` : '';
+  const suffix = typeof args.code === 'string' && args.code.trim() ? ` (${args.code.trim()})` : '';
   return new Error(`Warm-session claim unavailable for ${args.errorContext}${suffix}`);
 }
 
@@ -283,6 +284,9 @@ export function resolveEcdsaSealTransport(args: {
   return {
     curve: 'ecdsa',
     relayerUrl,
+    ...(String(args.record.walletSigningSessionId || '').trim()
+      ? { walletSigningSessionId: String(args.record.walletSigningSessionId || '').trim() }
+      : {}),
     ...(String(args.auth?.thresholdSessionJwt || '').trim()
       ? { thresholdSessionJwt: String(args.auth?.thresholdSessionJwt || '').trim() }
       : {}),

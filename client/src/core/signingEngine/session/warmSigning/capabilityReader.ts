@@ -34,7 +34,6 @@ export function createWarmSessionCapabilityReader(
     });
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: deps.touchConfirm,
-    signingSessionCoordinator: deps.signingSessionCoordinator,
     getEmailOtpWarmSessionStatus,
     listThresholdEcdsaSessionRecordsForLookup: deps.listThresholdEcdsaSessionRecordsForLookup,
   });

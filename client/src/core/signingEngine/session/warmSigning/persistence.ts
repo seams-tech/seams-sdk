@@ -13,6 +13,7 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '../../threshold/session/sessionPolicy';
 import type { Ed25519SessionKind } from '../../threshold/session/ed25519SessionTypes';
+import { publishResolvedIdentity } from '../sealedSessionStore';
 
 export type PersistWarmSessionEd25519CapabilityArgs = {
   nearAccountId: AccountId | string;
@@ -92,6 +93,16 @@ export function persistWarmSessionEd25519Capability(
   });
   if (!record) {
     throw new Error('Failed to persist warm threshold-ed25519 capability');
+  }
+  if (record.walletSigningSessionId) {
+    publishResolvedIdentity({
+      walletId: record.nearAccountId,
+      authMethod: record.source === 'email_otp' ? 'email_otp' : 'passkey',
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId: record.walletSigningSessionId,
+      thresholdSessionId: record.thresholdSessionId,
+    });
   }
   return record;
 }
