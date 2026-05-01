@@ -425,3 +425,13 @@ export function recordTransactionBudgetAdmission(
     operation,
   };
 }
+
+export function recordTransactionSigned<TLane extends TransactionLane>(
+  operation: BudgetAdmittedOperation<TLane>,
+  result: unknown,
+): SignedTransactionOperation<TLane> {
+  return {
+    ...operation,
+    result,
+  };
+}

@@ -1005,10 +1005,18 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       transactionsFlow.indexOf('const recordSuccessfulWalletSigningSessionSpend'),
       transactionsFlow.indexOf('const recordFailedWalletSigningSessionSpend'),
     );
+    const budgetFinalizerBody = transactionsFlow.slice(
+      transactionsFlow.indexOf('const createNearBudgetFinalizer'),
+      transactionsFlow.indexOf('const recordSuccessfulWalletSigningSessionSpend'),
+    );
 
     expect(recordSuccessBody).toContain(
       'alreadyConsumedThresholdSessionIds: [canonicalThresholdSessionId]',
     );
+    expect(recordSuccessBody).toContain('SignedTransactionOperation<NearEd25519TransactionLane>');
+    expect(transactionsFlow).toContain('recordTransactionSigned(');
+    expect(budgetFinalizerBody).toContain('operationState.budgetAdmission.budgetIdentity');
+    expect(budgetFinalizerBody).not.toContain('admitBudgetForSelectedSpendLane');
     expect(recordSuccessBody).not.toContain('ed25519WarmSessionBudgetClaimed');
     expect(transactionsFlow).not.toContain('reserveWalletSigningSessionBudget');
     expect(transactionsFlow).not.toContain('await finalizer.reserve()');

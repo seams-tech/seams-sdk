@@ -680,7 +680,10 @@ Acceptance:
    - [x] NEAR Ed25519 reauth-created sessions return a replacement
      `BudgetAdmittedOperation` immediately after OTP/passkey mint.
 7. [ ] `sign(...)` accepts only `BudgetAdmittedTransactionOperation`.
+   - [x] NEAR Ed25519 worker requests now require `BudgetAdmittedOperation`.
 8. [ ] `finalize(...)` accepts only `SignedTransactionOperation`.
+   - [x] NEAR Ed25519 success finalization now records a
+     `SignedTransactionOperation` from the admitted worker state.
 9. [ ] NEAR/EVM/Tempo transaction flows receive state-machine operation types only.
 10. [x] NEAR Ed25519 lower flow no longer plans auth, selects lanes, or restores sessions.
 11. [ ] Lower flows no longer discover
@@ -734,9 +737,9 @@ Acceptance:
      reauth-created lanes are minted.
    - [x] NEAR Ed25519 signing must require the admitted type for every worker
      request at the payload type boundary.
-4. For Ed25519, mark finalization as reconciliation of the already-consumed
+4. [x] For NEAR Ed25519, mark finalization as reconciliation of the already-consumed
    selected threshold session.
-5. Remove budget-identity preparation from post-sign finalization.
+5. [x] Remove budget-identity preparation from NEAR Ed25519 post-sign finalization.
 6. Reprepare budget identity on stale projection if the server still has enough
    remaining budget; do not step up because of local projection staleness.
 
