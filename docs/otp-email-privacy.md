@@ -42,7 +42,8 @@ This should be fixed before real customer wallets are created.
 - This does not define Email OTP signing-secret recovery. Deterministic account
   ID recovery from verified identity is separate from recovering device-local
   enrollment escrow `enc_s(S)`, which requires the recovery-key
-  model in `otp-restore-threshold-property.md`.
+  model summarized in
+  [email-otp-secret-restore.md](./email-otp-secret-restore.md).
 
 ## Threat Model
 

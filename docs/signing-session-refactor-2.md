@@ -8,6 +8,23 @@ This plan replaces the incremental signing-session restore cleanup with a simple
 architecture target: transaction signing is a deterministic state machine over one
 concrete signing lane.
 
+## Document Authority
+
+Active signing-session docs:
+
+1. Product intent:
+   [signing-session-refresh-intent.md](signing-session-refresh-intent.md).
+2. Architecture summary:
+   [signing-session-architecture.md](signing-session-architecture.md).
+3. Auth and wallet-budget model:
+   [signing-session-auth-and-budget.md](signing-session-auth-and-budget.md).
+4. Email OTP secret and restore model:
+   [email-otp-secret-restore.md](email-otp-secret-restore.md).
+
+Legacy migration logs that conflicted with this state-machine design were
+deleted. Current implementation work should start from the active docs listed
+above.
+
 The product intent remains the same as
 [`docs/signing-session-refresh-intent.md`](signing-session-refresh-intent.md):
 
@@ -31,15 +48,17 @@ identity rediscovery. Those behaviors must be deleted, not wrapped.
 1. Transaction signing selects exactly one lane before auth, budget, signing, or
    finalization can mutate state.
 2. Once selected, that lane is the only lane that may be restored, reauthed,
-   published, reserved, signed, finalized, or cleaned up for the operation.
+   published, budget-admitted, signed, finalized, or cleaned up for the
+   operation.
 3. A transaction lane is concrete by type. It cannot have optional
    `walletSigningSessionId` or optional `thresholdSessionId`.
 4. Raw reads may contain missing fields. Resolved transaction state may not.
-5. Account auth metadata is a pre-selection policy input only. It cannot override
-   a selected concrete lane.
-6. Runtime records are not authoritative selectors. They may anchor a lane if
-   they exactly match policy, but they cannot cause fallback to another auth
-   method.
+5. Hard account policy may exclude lanes before selection. Account preference,
+   primary-auth metadata, and profile hints may not hide or override a concrete
+   current runtime lane.
+6. A current runtime record is a lane anchor when present. It must be considered
+   before account preference filters, and mismatch is a typed selection failure,
+   not permission to choose another auth method.
 7. Restore is exact-purpose for transaction signing. No transaction path may
    restore by only `authMethod + curve + chain`.
 8. Missing hot material for a selected lane is a readiness state, not permission
@@ -48,7 +67,7 @@ identity rediscovery. Those behaviors must be deleted, not wrapped.
    operation behind its back.
 10. Budget identity must be captured before the operation's authoritative spend,
     including sessions minted during OTP/passkey step-up.
-11. Transaction step-up mints a single-operation session by default:
+11. Transaction step-up mints a single-operation session:
     `sessionBudgetUses = operationUsesNeeded`, normally `1`.
 12. Reusable signing sessions are created only through an explicit reusable-session
     command, never as a side effect of transaction step-up.
@@ -60,7 +79,7 @@ authority. The transaction path can still be influenced by:
 
 1. account auth metadata
 2. collapsed snapshot lanes
-3. candidate lists
+3. collapsed lanes mixed with candidate lists
 4. stored runtime records
 5. durable sealed records
 6. restore side effects
@@ -86,9 +105,14 @@ type TransactionSigningIntent = {
   walletId: string;
   curve: 'ed25519' | 'ecdsa';
   chain: 'near' | 'tempo' | 'evm';
+  authSelectionPolicy: AuthSelectionPolicy;
   operationUsesNeeded: number;
-  reusableSessionRequested: false;
 };
+
+type AuthSelectionPolicy =
+  | { kind: 'explicit'; authMethod: 'email_otp' | 'passkey' }
+  | { kind: 'account_class'; authMethod: 'email_otp' | 'passkey' }
+  | { kind: 'current_lane'; authMethod: 'email_otp' | 'passkey' };
 
 type BaseTransactionLane = {
   walletId: string;
@@ -115,13 +139,26 @@ type EcdsaTransactionLane = BaseTransactionLane & {
 
 type TransactionLane = Ed25519TransactionLane | EcdsaTransactionLane;
 
+type ConcreteKeyExportLane = BaseTransactionLane & {
+  operation: 'key_export';
+  curve: 'ed25519' | 'ecdsa';
+  chain: 'near' | 'tempo' | 'evm';
+};
+
 type PreparedTransactionOperation = {
   intent: TransactionSigningIntent;
   lane: TransactionLane;
   readiness: TransactionReadiness;
   authPlan: TransactionAuthPlan;
-  budgetIdentity?: PreparedBudgetIdentity;
   snapshotGeneration: number;
+};
+
+type BudgetAdmittedTransactionOperation = PreparedTransactionOperation & {
+  budgetAdmission: BudgetAdmission;
+};
+
+type SignedTransactionOperation = BudgetAdmittedTransactionOperation & {
+  result: SigningResult;
 };
 ```
 
@@ -131,10 +168,94 @@ If a field is not available, the result is not a `TransactionLane`. It is a
 ```ts
 type LaneSelectionFailure =
   | { kind: 'no_candidate'; authMethod?: 'email_otp' | 'passkey' }
-  | { kind: 'ambiguous_candidates'; authMethod?: 'email_otp' | 'passkey' }
+  | {
+      kind: 'ambiguous_candidates';
+      allowedAuthMethods: readonly ('email_otp' | 'passkey')[];
+    }
   | { kind: 'incomplete_candidate'; missing: readonly string[] }
   | { kind: 'policy_blocked'; reason: string };
 ```
+
+Snapshots must expose concrete candidate lists for both curves:
+
+```ts
+type TransactionSigningSnapshot = {
+  candidates: {
+    ed25519: {
+      near: readonly RawEd25519LaneCandidate[];
+    };
+    ecdsa: {
+      tempo: readonly RawEcdsaLaneCandidate[];
+      evm: readonly RawEcdsaLaneCandidate[];
+    };
+  };
+};
+```
+
+Collapsed `snapshot.lanes.*` values are status summaries only. They are not
+transaction-selection authority.
+
+### State Types And Transition Functions
+
+Use a state-machine architecture implemented with TypeScript discriminated
+unions and boring transition functions. Do not introduce a generic state-machine
+framework unless it makes illegal transitions compile-time impossible.
+
+```ts
+type SigningState =
+  | { tag: 'IntentReceived'; intent: TransactionSigningIntent }
+  | {
+      tag: 'SnapshotRead';
+      intent: TransactionSigningIntent;
+      snapshot: TransactionSigningSnapshot;
+    }
+  | { tag: 'LaneSelected'; intent: TransactionSigningIntent; lane: TransactionLane }
+  | {
+      tag: 'RestoreAttempted';
+      intent: TransactionSigningIntent;
+      lane: TransactionLane;
+      restore: RestoreResult;
+    }
+  | {
+      tag: 'ReadinessClassified';
+      intent: TransactionSigningIntent;
+      lane: TransactionLane;
+      readiness: TransactionReadiness;
+    }
+  | {
+      tag: 'AuthPlanned';
+      intent: TransactionSigningIntent;
+      lane: TransactionLane;
+      authPlan: TransactionAuthPlan;
+    }
+  | {
+      tag: 'AuthMaterialReady';
+      operation: PreparedTransactionOperation;
+      authMaterial: TransactionAuthMaterial;
+    }
+  | {
+      tag: 'BudgetAdmitted';
+      operation: BudgetAdmittedTransactionOperation;
+    }
+  | { tag: 'Signed'; operation: SignedTransactionOperation };
+```
+
+Transition functions should be explicit and exhaustive:
+
+```ts
+function selectLane(state: SnapshotRead): LaneSelected | SelectionFailed;
+function restoreLane(state: LaneSelected): RestoreAttempted | RestoreFailed;
+function classifyReadiness(state: RestoreAttempted): ReadinessClassified;
+function planAuth(state: ReadinessClassified): AuthPlanned | TerminalFailure;
+function admitBudget(state: AuthMaterialReady): BudgetAdmitted | BudgetUnavailable;
+function sign(state: BudgetAdmitted): Signed | SigningFailed;
+function finalize(state: Signed): Finalized | FinalizationFailed;
+```
+
+The module should be one owner of legal transaction transitions. NEAR/EVM/Tempo
+curve adapters may restore exact lane material and perform curve-specific
+signing, but they cannot select lanes, re-plan auth, discover budget identity, or
+finalize a different lane.
 
 ## State Machine
 
@@ -217,8 +338,8 @@ Inputs:
 
 1. transaction intent
 2. side-effect-free snapshot candidates
-3. account policy/auth preference
-4. optional current runtime record as a candidate, not as an override
+3. hard account eligibility policy
+4. current runtime record, when present
 
 Outputs:
 
@@ -228,36 +349,108 @@ Outputs:
 Selection rules:
 
 1. Filter by `walletId`, `curve`, and `chain`.
-2. Filter by account policy before ranking candidates.
-3. If a current runtime record exists for the selected auth method, it anchors
-   selection only when the snapshot contains the same concrete identity or the
-   runtime record itself can be normalized into a concrete candidate.
-4. If a current runtime record exists but does not match any candidate, return
-   `LaneSelectionFailure`; do not choose another candidate.
-5. If multiple candidates remain, choose by explicit policy:
+2. Read only concrete candidate lists. Transaction selection must not consume
+   collapsed `snapshot.lanes.*` summaries.
+3. Hard policy may exclude impossible or disallowed lanes. Account preference,
+   primary-auth metadata, and profile hints are not hard policy.
+4. Define "current runtime record" as a verified concrete runtime candidate. An
+   invalid or stale runtime record is not a selector anchor.
+5. If runtime state is invalid or stale, the selector may run one cleanup/re-read
+   pass that discards the invalid runtime hint and re-reads the side-effect-free
+   snapshot. This cleanup pass must not restore, prompt, consume, publish a new
+   lane, or switch auth method.
+6. If a verified current runtime record exists, anchor selection to its exact
+   concrete identity when that identity is present in the candidate list or can
+   be normalized into a concrete candidate.
+7. If a verified current runtime record exists but conflicts with the selected
+   candidate set after cleanup/re-read, return `LaneSelectionFailure`; do not
+   choose another candidate.
+8. If multiple candidates remain, choose by explicit policy:
    ready runtime candidate, then restorable durable candidate, then newest stable
    metadata only if the ordering field is defined for all candidates.
-6. If ordering metadata is missing or mixed, return `ambiguous_candidates`.
-7. Never fall back from OTP to passkey or from passkey to OTP.
-8. Never fall back to `candidates[0]` unless the candidate list was already
-   filtered and deterministically sorted by the selector.
+9. If ordering metadata is missing or mixed, return `ambiguous_candidates`.
+10. Never fall back from OTP to passkey or from passkey to OTP.
+11. Never fall back to `candidates[0]`. Candidate ordering is an implementation
+   detail unless the selector's policy explicitly defines it.
+
+### Linked-Auth Selection Policy
+
+Accounts may eventually have both passkey and Email OTP registered at the same
+time. That must be modeled as explicit selection policy, not as a fallback.
+
+If both auth methods have valid concrete lanes, either method can work, but the
+choice must happen before restore, auth planning, budget admission, signing, or
+finalization. Once selected, the operation cannot switch auth method.
+
+Current implementation policy should stay minimal:
+
+1. `{ kind: 'explicit' }`: select that auth method or return `no_candidate`.
+2. `{ kind: 'account_class' }`: select the auth method implied by the current
+   account class when it has a valid concrete candidate.
+3. `{ kind: 'current_lane' }`: keep using the exact current lane's auth method
+   when the lane has already been verified as concrete.
+
+Future linked-auth UI can add explicit user-choice and persisted last-used
+policy, but those should be added only when the product surface exists. Until
+then, do not introduce unused policy variants in production types.
+
+Future policy order:
+
+1. explicit user-selected auth method
+2. persisted last-used method, recorded only after successful finalization
+3. product default method
+4. typed ambiguity requiring user choice
+
+Rules:
+
+1. Future `last_used` must be persisted policy input. It must not be inferred
+   from whichever runtime record happens to exist after restore or reauth side
+   effects.
+2. Explicit user choice outranks last-used, default, and current-account policy.
+3. Last-used/default/account-class/current-lane policy may choose between valid
+   lanes, but may not hide a selected concrete runtime lane mismatch.
+4. If a policy-selected auth method has no concrete lane, selection returns a
+   typed failure. It does not silently try the other auth method.
+5. Ambiguity is a valid selector result. The UI can resolve it by resubmitting the
+   same signing intent with `{ kind: 'explicit', authMethod }`.
+6. Same-lane invariants remain unchanged after selection: OTP lanes can only plan
+   OTP reauth, and passkey lanes can only plan passkey reauth.
+
+Example:
+
+```text
+intent(authSelectionPolicy = { kind: 'explicit', authMethod: 'email_otp' })
+  -> select concrete Email OTP lane
+  -> exact Email OTP restore
+  -> Email OTP readiness/auth/budget/sign/finalize
+```
+
+```text
+intent(authSelectionPolicy = { kind: 'account_class', authMethod: 'passkey' })
+  -> select concrete passkey lane if present
+  -> exact passkey restore
+  -> passkey readiness/auth/budget/sign/finalize
+```
 
 ## Restore Model
 
-Transaction restore has one input shape:
+Exact operation restore has concrete input shapes:
 
 ```ts
-type TransactionRestoreInput = {
-  reason: 'transaction';
-  lane: TransactionLane;
-};
+type ExactRestoreInput =
+  | { reason: 'transaction'; lane: TransactionLane }
+  | { reason: 'key_export'; lane: ConcreteKeyExportLane };
 ```
+
+Key export is exact-purpose, like transaction signing. It must use an exact
+export lane and same-method auth policy; it must not use broad maintenance
+restore.
 
 Broad restore belongs only to maintenance commands:
 
 ```ts
 type MaintenanceRestoreInput = {
-  reason: 'session_status' | 'export' | 'startup_maintenance';
+  reason: 'session_status' | 'startup_maintenance';
   walletId: string;
   authMethod?: 'email_otp' | 'passkey';
   curve?: 'ed25519' | 'ecdsa';
@@ -272,7 +465,8 @@ Rules:
 3. Restore success publishes hot material for the selected lane only.
 4. Restore failure returns `restore_failed` or `missing_hot_material` for the
    selected lane. It does not broaden.
-5. Maintenance restore cannot be imported by transaction signing modules.
+5. Maintenance restore cannot be imported by transaction signing or key-export
+   modules.
 
 ## Reauth Model
 
@@ -303,9 +497,9 @@ Budget accounting is deterministic and server-authoritative.
 Definitions:
 
 1. `operationUsesNeeded`: cost of the current signing operation, normally `1`.
-2. `sessionBudgetUses`: capacity minted by step-up or reusable-session creation.
+2. `sessionBudgetUses`: capacity minted by transaction step-up.
 3. `remainingUses`: trusted server remaining budget.
-4. `availableUses`: local planning hint after same-projection in-flight holds.
+4. `availableUses`: local admission hint after same-projection in-flight holds.
 5. `projectionVersion`: opaque causal token for the trusted server status.
 
 Rules:
@@ -314,18 +508,22 @@ Rules:
    explicitly changes the definition of a signing operation.
 2. NEAR batched transactions remain one signing operation by default.
 3. Transaction step-up uses `sessionBudgetUses = operationUsesNeeded`.
-4. Reusable sessions require a separate explicit reusable-session intent.
+4. Reusable sessions are out of scope for transaction intent. They require a
+   separate command and specs.
 5. Warm-session budget identity is captured before signing.
 6. Reauth-created budget identity is captured immediately after mint/reconnect
    and before signing.
-7. Ed25519 server-side signing may consume the authoritative budget during the
+7. `BudgetAdmitted` is the common state-machine phase. Curve adapters define
+   whether admission means local in-flight hold, server consume, or
+   already-consumed reconciliation.
+8. Ed25519 server-side signing may consume the authoritative budget during the
    signing ceremony. Finalization reconciles an already-consumed selected lane; it
    must not prepare budget identity after signing.
-8. Local reservations never change `remainingUses`. They produce
+9. Local in-flight holds never change `remainingUses`. They produce
    `inFlightReservedUses` and `availableUses`.
-9. Projection-version comparison is equality only. Opaque versions are not
+10. Projection-version comparison is equality only. Opaque versions are not
    ordered.
-10. A stale prepared projection causes refresh/reprepare of budget identity, not
+11. A stale prepared projection causes refresh/reprepare of budget identity, not
     same-method reauth.
 
 ## Storage Ownership
@@ -390,22 +588,38 @@ Add failing tests before moving code:
 8. Missing worker memory with valid durable state signs without auth.
 9. Missing worker memory with exhausted server budget shows same-method step-up.
 10. Three fast sequential txs behave the same as three slow sequential txs.
+11. Linked-auth account with both valid OTP and passkey candidates honors an
+    explicit OTP selection and never prompts passkey.
+12. Linked-auth account with both valid OTP and passkey candidates honors an
+    explicit passkey selection and never prompts OTP.
+13. Linked-auth account using account-class OTP policy selects OTP
+    deterministically.
+14. Future linked-auth user-choice mode returns typed `ambiguous_candidates`
+    instead of silently choosing a method when policy requires user choice.
 
 ### Phase 2: Introduce Concrete Transaction Types
 
 1. Add `TransactionSigningIntent`.
-2. Add `TransactionLane`.
-3. Add `PreparedTransactionOperation`.
-4. Add `LaneSelectionFailure`.
-5. Convert transaction restore input to `TransactionRestoreInput`.
-6. Convert transaction budget/finalizer inputs to accept `TransactionLane`.
-7. Keep raw snapshot and storage types separate from resolved transaction types.
+2. Add the minimal `AuthSelectionPolicy` and make it part of
+   `TransactionSigningIntent`.
+3. Add `TransactionLane`.
+4. Add `PreparedTransactionOperation`.
+5. Add `BudgetAdmittedTransactionOperation`.
+6. Add `SignedTransactionOperation`.
+7. Add `LaneSelectionFailure`.
+8. Convert transaction restore input to `TransactionRestoreInput`.
+9. Convert transaction budget/finalizer inputs to accept `TransactionLane`.
+10. Keep raw snapshot and storage types separate from resolved transaction types.
 
 Acceptance:
 
 1. No transaction module can compile with optional `walletSigningSessionId`.
 2. No transaction module can compile with optional `thresholdSessionId`.
 3. No transaction restore call can compile with only `authMethod + curve + chain`.
+4. No transaction selector can run without an explicit `AuthSelectionPolicy`.
+5. Signing cannot compile with a pre-budget `PreparedTransactionOperation`; it
+   requires `BudgetAdmittedTransactionOperation`.
+6. Finalization cannot compile without a `SignedTransactionOperation`.
 
 ### Phase 3: Build The Pure Selector
 
@@ -416,21 +630,48 @@ Acceptance:
 5. Delete `candidates[0]` fallback after runtime mismatch.
 6. Delete account-primary fallback after concrete candidate selection.
 7. Delete OTP/passkey probing.
+8. Delete transaction selection from collapsed `snapshot.lanes.*` summaries.
+9. Implement the minimal linked-auth policy surface:
+   - explicit auth method
+   - account-class auth method
+   - current-lane auth method
+10. Keep persisted last-used, product default, and user-choice ambiguity as
+    future extensions until the linked-auth UI ships.
+11. Add the one allowed runtime cleanup path:
+    - discard invalid/stale runtime hint
+    - re-read side-effect-free snapshot once
+    - continue only from a concrete durable candidate or typed failure
+    - no restore, prompt, consume, publish, or auth-method switch during cleanup
 
 Acceptance:
 
 1. Given the same intent, snapshot, and policy, selection is deterministic.
 2. Linked-auth accounts cannot drift to the other auth method.
 3. Selection failures are typed and visible in tests.
+4. Snapshot readers expose concrete Ed25519 and ECDSA candidate lists.
+5. Transaction selection never treats collapsed lanes as authority.
+6. If both OTP and passkey are valid, selector output is determined only by
+   explicit, account-class, or current-lane policy for now.
+7. Future user-choice mode returns `ambiguous_candidates` with both allowed auth
+   methods.
+8. Invalid runtime state can be cleaned up once without broadening restore or
+   switching auth method.
 
 ### Phase 4: Collapse Prepare Into The State Machine
 
-1. Create one `prepareTransactionSigningOperation(intent)` path.
-2. It performs snapshot read, lane selection, exact restore, readiness
-   classification, auth planning, and warm budget identity capture.
-3. It returns `PreparedTransactionOperation`.
-4. NEAR/EVM/Tempo transaction flows receive prepared operations only.
-5. Lower flows no longer plan auth, select lanes, or restore sessions.
+1. Create one transaction state-machine module with discriminated-union states
+   and explicit transition functions.
+2. Create one `prepareTransactionSigningOperation(intent)` path.
+3. It performs snapshot read, lane selection, exact restore, readiness
+   classification, and auth planning.
+4. It returns `PreparedTransactionOperation`.
+5. `admitBudget(...)` converts `PreparedTransactionOperation` into
+   `BudgetAdmittedTransactionOperation`.
+6. `sign(...)` accepts only `BudgetAdmittedTransactionOperation`.
+7. `finalize(...)` accepts only `SignedTransactionOperation`.
+8. NEAR/EVM/Tempo transaction flows receive state-machine operation types only.
+9. Lower flows no longer plan auth, select lanes, restore sessions, or discover
+   budget identity.
 
 Acceptance:
 
@@ -438,6 +679,10 @@ Acceptance:
 2. EVM-family execution cannot run without a prepared operation.
 3. There is no production transaction path that calls the planner with an
    already-mutated or re-selected lane.
+4. There is no generic state-machine framework; the implementation is a small
+   module of typed states and boring transition functions.
+5. Curve adapters cannot compile if they attempt to select lanes, plan auth, or
+   discover budget identity.
 
 ### Phase 5: Make Reauth Replace Prepared Operations
 
@@ -451,17 +696,21 @@ Acceptance:
 
 1. Old prepared lanes cannot be finalized after fresh auth.
 2. Post-reauth signing and finalization use the new wallet/threshold session IDs.
-3. Step-up sessions mint `sessionBudgetUses = operationUsesNeeded` unless the
-   intent explicitly requests a reusable session.
+3. Transaction step-up sessions mint `sessionBudgetUses = operationUsesNeeded`.
+4. Reusable sessions are not represented by transaction intent and cannot be
+   minted by transaction step-up.
 
 ### Phase 6: Fix Budget Timing
 
-1. Capture budget identity before signing for warm lanes.
-2. Capture budget identity immediately after OTP/passkey mint for reauth lanes.
-3. For Ed25519, mark finalization as reconciliation of the already-consumed
+1. Capture budget admission before signing for warm lanes.
+2. Capture budget admission immediately after OTP/passkey mint for reauth lanes.
+3. Split pre-admission and post-admission types:
+   `PreparedTransactionOperation` cannot be signed directly;
+   `BudgetAdmittedTransactionOperation` is required.
+4. For Ed25519, mark finalization as reconciliation of the already-consumed
    selected threshold session.
-4. Remove budget-identity preparation from post-sign finalization.
-5. Reprepare budget identity on stale projection if the server still has enough
+5. Remove budget-identity preparation from post-sign finalization.
+6. Reprepare budget identity on stale projection if the server still has enough
    remaining budget; do not step up because of local projection staleness.
 
 Acceptance:
@@ -470,6 +719,8 @@ Acceptance:
    budget exhausted.
 2. OTP Ed25519 step-up has the same budget behavior as passkey Ed25519 step-up.
 3. Fast and slow signing use the same readiness and auth classification.
+4. No signer accepts a state before `BudgetAdmitted`.
+5. No finalizer accepts a state before `Signed`.
 
 ### Phase 7: Delete Discovery-Mode Transaction Code
 
@@ -484,6 +735,11 @@ Delete or move to maintenance-only modules:
 7. transaction helper APIs with optional resolved IDs
 8. transaction paths that silently swallow exact restore failure
 9. transaction paths that publish companion lanes as current lanes
+10. transaction `providedSessionId` overrides that do not equal prepared identity
+11. account-level session lookup after prepare
+12. key-export paths that import maintenance restore
+13. transaction step-up paths that mint reusable-session capacity
+14. generic state-machine framework code if it adds hidden callback authority
 
 Acceptance:
 
@@ -493,10 +749,15 @@ Acceptance:
 
 ### Phase 8: Update Docs And Ownership
 
-1. Mark `signing-session-restore-refactor.md` as historical.
-2. Update `signing-session-architecture.md` to point to this state-machine plan.
+1. Delete stale migration logs instead of keeping them as parallel design
+   authority.
+2. Keep `signing-session-architecture.md` as a short pointer to this
+   state-machine plan.
 3. Keep `signing-session-refresh-intent.md` as the product intent.
-4. Remove duplicate architecture specs that contradict the state machine.
+4. Keep `signing-session-auth-and-budget.md` as the active auth/budget model.
+5. Keep `email-otp-secret-restore.md` as the active Email OTP secret/restore
+   model.
+6. Remove duplicate architecture specs that contradict the state machine.
 
 ## Static Guards
 
@@ -511,8 +772,16 @@ Add architecture guards for:
 7. no transaction finalizer that reads mutable current session state
 8. no transaction step-up path using configured reusable-session defaults
 9. no transaction module importing maintenance restore helpers
-10. no transaction path that catches exact restore failure and continues to a
+10. no key-export module importing maintenance restore helpers
+11. no account-level session lookup after `PreparedTransactionOperation`
+12. no `providedSessionId` override unless it equals prepared
+    `thresholdSessionId`
+13. no transaction selector reading collapsed `snapshot.lanes.*` as authority
+14. no transaction path that catches exact restore failure and continues to a
     generic not-ready error
+
+Prefer compile-time boundaries over text guards. Keep grep/static guards only for
+historical footguns that the type system cannot easily prevent.
 
 ## Definition Of Done
 

@@ -13,7 +13,10 @@ Supported secret sources:
 1. passkey accounts: passkey PRF-derived signing-session secret.
 2. Email OTP accounts: `signing_session_secret32` derived inside the Email OTP worker after OTP-authorized `shamir3pass` unseal of `S`.
 
-The detailed Email OTP plan and status live in [otp-persist-session.md](./otp-persist-session.md). The app-session vs threshold-session authority model lives in [signing-sessions.md](./signing-sessions.md).
+The active Email OTP secret/restore model lives in
+[email-otp-secret-restore.md](./email-otp-secret-restore.md). The app-session,
+threshold-session, and wallet-budget authority model lives in
+[signing-session-auth-and-budget.md](./signing-session-auth-and-budget.md).
 
 ## Current Model
 

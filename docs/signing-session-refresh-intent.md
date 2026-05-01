@@ -43,7 +43,7 @@ exact intent
 exact restore
 exact lane selection
 trusted budget status
-reserve
+budget admit
 sign
 authoritative consume/finalize
 Reads/snapshots only report state. They must not repair state as a side effect.

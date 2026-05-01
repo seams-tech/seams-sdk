@@ -2,6 +2,12 @@
 
 Date updated: April 17, 2026
 
+Status: future product plan. This document is not authoritative for current
+transaction signing behavior. Current transaction auth selection and
+signing-session rules live in
+[signing-session-refactor-2.md](signing-session-refactor-2.md) and
+[signing-session-auth-and-budget.md](signing-session-auth-and-budget.md).
+
 ## Objective
 
 Define the product and technical plan for letting existing wallets add a second login/signing method across Passkey and Google SSO + Email OTP accounts.

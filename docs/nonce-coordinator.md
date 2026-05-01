@@ -1059,5 +1059,5 @@ are internal unless explicitly re-exported by that facade.
 ## Related Docs
 
 1. [Signing Session Architecture](./signing-session-architecture.md)
-2. [Signing Session Coordinator Tests](./signing-session-coordinator-tests.md)
-3. [Email OTP Signing Sessions](./email-otp-sessions.md)
+2. [Signing Session Refactor 2](./signing-session-refactor-2.md)
+3. [Signing Session Auth And Budget](./signing-session-auth-and-budget.md)
