@@ -181,7 +181,7 @@ export function applySigningSessionBudgetReservationsToStatus(args: {
 
 export async function assertSigningSessionBudgetReservationAvailable(args: {
   getStatus?: SigningSessionBudgetStatusReader;
-  input: SigningSessionBudgetRecordSuccessInput;
+  input: SigningSessionBudgetReserveInput;
   reservationsByOperationId: Map<string, SigningSessionBudgetReservationRecord>;
 }): Promise<SigningSessionStatus & { status: 'active'; projectionVersion: string }> {
   const spend = args.input.spend;
@@ -287,9 +287,9 @@ function formatSpendIdentityForError(spend: WalletSigningSpendPlan): string {
   ].join(' ');
 }
 
-export function normalizeSigningSessionBudgetRecordSuccessInput(
-  input: SigningSessionBudgetRecordSuccessInput,
-): SigningSessionBudgetRecordSuccessInput {
+export function normalizeSigningSessionBudgetRecordSuccessInput<
+  TInput extends SigningSessionBudgetRecordSuccessInput,
+>(input: TInput): TInput {
   return {
     ...input,
     spend: normalizeWalletSigningSpendPlan(input.spend),

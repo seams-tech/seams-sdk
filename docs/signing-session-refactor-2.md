@@ -740,7 +740,7 @@ Acceptance:
 4. [x] For NEAR Ed25519, mark finalization as reconciliation of the already-consumed
    selected threshold session.
 5. [x] Remove budget-identity preparation from NEAR Ed25519 post-sign finalization.
-6. Reprepare budget identity on stale projection if the server still has enough
+6. [x] Reprepare budget identity on stale projection if the server still has enough
    remaining budget; do not step up because of local projection staleness.
 
 Acceptance:

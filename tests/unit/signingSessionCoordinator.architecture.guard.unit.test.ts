@@ -814,6 +814,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(budget).toContain('expectedBudgetProjectionVersion?: string;');
     expect(budget).toContain('export type SigningSessionBudgetReserveInput');
     expect(budget).toContain('expectedBudgetProjectionVersion: string;');
+    expect(budget).toContain('input: SigningSessionBudgetReserveInput;');
     expect(budget).toContain('assertPreparedBudgetProjectionVersion');
     expect(budget).toContain('prepared budget projection version is required');
     expect(coordinator).toContain('async prepareBudgetIdentity(');
