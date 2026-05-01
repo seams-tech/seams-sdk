@@ -640,8 +640,7 @@ export async function signTransactionsWithActions({
     durationMs: Math.round(performance.now() - signingStartedAt),
   });
   let activeBudgetIdentity = providedBudgetIdentity;
-  const createNearBudgetFinalizer = async (): Promise<SigningSessionBudgetFinalizer | undefined> => {
-    if (!signingContext.threshold || !sessionCoordinator) return;
+  const buildSelectedBudgetSpendLane = (): SelectedSigningLaneContext => {
     const walletSigningSessionId = String(
       thresholdSessionState.record.walletSigningSessionId || '',
     ).trim();
@@ -651,7 +650,7 @@ export async function signTransactionsWithActions({
       );
     }
     const recordSource = thresholdSessionState.record.source;
-    const spendLane = requireSelectedNearSigningLane(
+    return requireSelectedNearSigningLane(
       recordSource === 'email_otp'
         ? buildNearTransactionSigningLane({
             accountId: nearAccountId,
@@ -676,6 +675,19 @@ export async function signTransactionsWithActions({
             storageSource: recordSource,
           }),
     );
+  };
+  if (refreshedBudgetIdentityRequired) {
+    activeBudgetIdentity = await sessionCoordinator.prepareBudgetIdentity({
+      nearAccountId,
+      lane: buildSelectedBudgetSpendLane(),
+      trustedStatusAuth: trustedBudgetStatusAuth,
+      operationUsesNeeded: usesNeeded,
+    });
+    refreshedBudgetIdentityRequired = false;
+  }
+  const createNearBudgetFinalizer = async (): Promise<SigningSessionBudgetFinalizer | undefined> => {
+    if (!signingContext.threshold || !sessionCoordinator) return;
+    const spendLane = buildSelectedBudgetSpendLane();
     const operation = {
       operationId: confirmationOperationId,
       operationFingerprint,
@@ -698,7 +710,7 @@ export async function signTransactionsWithActions({
               '[SigningEngine][near] failed to sync consumed wallet signing-session budget',
               {
                 nearAccountId,
-                walletSigningSessionId,
+                walletSigningSessionId: String(spendLane.walletSigningSessionId),
                 thresholdSessionId: canonicalThresholdSessionId,
                 error: error instanceof Error ? error.message : String(error || 'unknown error'),
               },
@@ -738,7 +750,6 @@ export async function signTransactionsWithActions({
     }
     activeBudgetIdentity =
       activeBudgetIdentity &&
-      !refreshedBudgetIdentityRequired &&
       activeBudgetIdentity.walletSigningSessionId === String(spendLane.walletSigningSessionId)
         ? activeBudgetIdentity
         : await sessionCoordinator.prepareBudgetIdentity({
@@ -747,7 +758,6 @@ export async function signTransactionsWithActions({
             trustedStatusAuth: trustedBudgetStatusAuth,
             operationUsesNeeded: usesNeeded,
           });
-    refreshedBudgetIdentityRequired = false;
     return createSigningSessionBudgetFinalizer({
       signingSessionBudget: sessionCoordinator,
       budgetIdentity: activeBudgetIdentity,
@@ -757,7 +767,7 @@ export async function signTransactionsWithActions({
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][near] failed to update wallet signing-session budget', {
           nearAccountId,
-          walletSigningSessionId,
+          walletSigningSessionId: String(spendLane.walletSigningSessionId),
           thresholdSessionId: canonicalThresholdSessionId,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });

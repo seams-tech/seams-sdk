@@ -719,6 +719,11 @@ Acceptance:
    - [x] NEAR Ed25519 warm lanes carry `BudgetAdmittedOperation` before the
      budget identity is passed into transaction execution.
 2. Capture budget admission immediately after OTP/passkey mint for reauth lanes.
+   - [x] NEAR Ed25519 reauth-created lanes now prepare trusted budget identity
+     before the signer worker request instead of rediscovering it only during
+     finalization.
+   - [ ] Wrap that refreshed identity in a replacement `BudgetAdmittedOperation`
+     so reauth and warm lanes use the same state-machine object.
 3. Split pre-admission and post-admission types:
    `PreparedTransactionOperation` cannot be signed directly;
    `BudgetAdmittedTransactionOperation` is required.

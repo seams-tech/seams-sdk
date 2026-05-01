@@ -40,12 +40,14 @@ function createBudgetBackedSigningSessionCoordinator(args: {
   walletSigningSessionId: string;
   activeRemainingUses: number;
   exhaustedThresholdSessionIds?: readonly string[];
+  onGetStatus?: (statusArgs: any) => void;
 }): SigningSessionCoordinator {
   const exhaustedThresholdSessionIds = new Set(args.exhaustedThresholdSessionIds || []);
   const normalizeThresholdSessionId = (sessionId: string): string =>
     sessionId.replace(/^threshold-ed25519:/, '');
   return new SigningSessionCoordinator({
     getStatus: async (statusArgs: any) => {
+      args.onGetStatus?.(statusArgs);
       const walletSigningSessionId = String(
         statusArgs.walletSigningSessionId || args.walletSigningSessionId,
       );
@@ -491,6 +493,14 @@ test.describe('near signing session selection', () => {
             walletSigningSessionId,
             activeRemainingUses: 1,
             exhaustedThresholdSessionIds: [staleSessionId],
+            onGetStatus: (statusArgs) => {
+              const targetThresholdIds = (statusArgs.targetThresholdSessionIds || []).map(
+                (sessionId: any) => String(sessionId).replace(/^threshold-ed25519:/, ''),
+              );
+              if (targetThresholdIds.includes(refreshedSessionId)) {
+                order.push('budget');
+              }
+            },
           }),
           resolveThresholdEd25519SessionId: () => staleSessionId,
           getWarmThresholdEd25519SessionStatusForSession: async () => ({
@@ -610,6 +620,7 @@ test.describe('near signing session selection', () => {
                 },
               },
               requestWorkerOperation: async ({ request }: any) => {
+                order.push('worker');
                 workerSessionId = String(request?.sessionId || '').trim();
                 expect(String(request?.payload?.threshold?.thresholdSessionJwt || '')).toBe(
                   'otp-confirmation-order-refreshed-jwt',
@@ -647,7 +658,15 @@ test.describe('near signing session selection', () => {
 
       expect(result).toHaveLength(1);
       expect(workerSessionId).toBe(refreshedSessionId);
-      expect(order).toEqual(['display', 'challenge', 'confirm', 'complete:246810']);
+      expect(order.slice(0, 6)).toEqual([
+        'display',
+        'challenge',
+        'confirm',
+        'complete:246810',
+        'budget',
+        'worker',
+      ]);
+      expect(order.indexOf('budget')).toBeLessThan(order.indexOf('worker'));
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
       sessionStorage.clear();

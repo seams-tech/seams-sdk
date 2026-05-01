@@ -1010,6 +1010,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(recordSuccessBody).not.toContain('ed25519WarmSessionBudgetClaimed');
     expect(transactionsFlow).not.toContain('reserveWalletSigningSessionBudget');
     expect(transactionsFlow).not.toContain('await finalizer.reserve()');
+    const reauthAdmissionIndex = transactionsFlow.indexOf('if (refreshedBudgetIdentityRequired) {');
+    const signerRequestIndex = transactionsFlow.indexOf(
+      'const okResponse = await executeSignRequest(requestPayload);',
+    );
+    expect(reauthAdmissionIndex).toBeGreaterThan(-1);
+    expect(reauthAdmissionIndex).toBeLessThan(signerRequestIndex);
   });
 
   test('Phase 14 keeps lifecycle decisions in the prepared operation boundary', () => {
