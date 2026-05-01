@@ -85,6 +85,7 @@ import {
 import {
   selectTransactionLane,
   type NearEd25519ConcreteSnapshotLane,
+  type NearEd25519TransactionLane,
   type TransactionAuthSelectionPolicy,
 } from '../session/signingSession/transactionState';
 
@@ -297,10 +298,16 @@ type NearEd25519SelectedIdentity = SelectedSigningLaneIdentity & {
 
 type NearEd25519PreparedIdentity = ResolvedEd25519SigningSessionIdentity;
 
+type NearEd25519SelectedTransactionLane = {
+  lane: NearEd25519TransactionLane;
+  snapshotLane: NearEd25519ConcreteSnapshotLane;
+};
+
 type PreparedNearEd25519TransactionSigningSession = {
   thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
   signingAuthPlan: SigningAuthPlan;
   signingLane: SigningLaneContext;
+  transactionLane: NearEd25519TransactionLane;
   identity: NearEd25519PreparedIdentity;
   resolvedSessionId: string;
   snapshotGeneration: number;
@@ -316,6 +323,7 @@ type PreparedNearEd25519TransactionSigningSession = {
 
 type NearEd25519LifecycleMetadata = {
   thresholdSessionRecord: ThresholdEd25519SessionRecord;
+  transactionLane: NearEd25519TransactionLane;
   identity: NearEd25519PreparedIdentity;
   snapshotGeneration: number;
   readiness: ThresholdSigningReadinessInput;
@@ -390,6 +398,26 @@ function buildNearTransactionLaneFromPreparedIdentity(args: {
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(sessionId),
     storageSource: resolveEd25519PasskeyStorageSource(args.record.source),
   });
+}
+
+function assertSigningLaneMatchesSelectedTransactionLane(args: {
+  signingLane: SigningLaneContext;
+  transactionLane: NearEd25519TransactionLane;
+}): void {
+  const signingThresholdSessionId = String(args.signingLane.thresholdSessionId || '').trim();
+  const transactionThresholdSessionId = String(args.transactionLane.thresholdSessionId || '').trim();
+  if (
+    String(args.signingLane.accountId || '').trim() !==
+      String(args.transactionLane.accountId || '').trim() ||
+    args.signingLane.authMethod !== args.transactionLane.authMethod ||
+    args.signingLane.curve !== args.transactionLane.curve ||
+    args.signingLane.chainFamily !== args.transactionLane.chain ||
+    String(args.signingLane.walletSigningSessionId || '').trim() !==
+      String(args.transactionLane.walletSigningSessionId || '').trim() ||
+    signingThresholdSessionId !== transactionThresholdSessionId
+  ) {
+    throw new Error('[SigningEngine][near] prepared signing lane drifted from selected transaction lane');
+  }
 }
 
 function requireResolvedNearEd25519SigningLane(
@@ -810,7 +838,7 @@ function selectNearEd25519TransactionCandidate(args: {
   authSelectionPolicy: TransactionAuthSelectionPolicy | null;
   runtimeRecord: ThresholdEd25519SessionRecord | null;
   nearAccountId: AccountId;
-}): NearEd25519ConcreteSnapshotLane | null {
+}): NearEd25519SelectedTransactionLane | null {
   const runtimeLane = args.runtimeRecord
     ? concreteEd25519LaneFromRuntimeRecord({
         record: args.runtimeRecord,
@@ -838,30 +866,29 @@ function selectNearEd25519TransactionCandidate(args: {
     snapshot: args.snapshot,
     currentRuntimeLane: runtimeLane,
   });
-  if (selection.ok) return selection.snapshotLane;
+  if (selection.ok) {
+    return {
+      lane: selection.lane,
+      snapshotLane: selection.snapshotLane,
+    };
+  }
   if (selection.failure.kind === 'no_candidate') return null;
   throw new Error(
     `[SigningEngine][near] Ed25519 transaction lane selection failed: ${selection.failure.kind}`,
   );
 }
 
-function resolveNearEd25519SelectedIdentityFromSnapshot(args: {
-  nearAccountId: AccountId;
-  snapshot: SigningSessionSnapshot | null;
-  candidate: NearEd25519ConcreteSnapshotLane | null;
+function resolveNearEd25519SelectedIdentityFromTransactionLane(args: {
+  transactionLane: NearEd25519TransactionLane | null;
 }): NearEd25519SelectedIdentity | null {
-  if (!args.candidate) return null;
+  if (!args.transactionLane) return null;
   return {
-    accountId: toAccountId(args.snapshot?.walletId || args.nearAccountId),
-    authMethod: args.candidate.authMethod,
+    accountId: args.transactionLane.accountId,
+    authMethod: args.transactionLane.authMethod,
     curve: 'ed25519',
     chainFamily: 'near',
-    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-      args.candidate.thresholdSessionId,
-    ),
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(
-      args.candidate.walletSigningSessionId,
-    ),
+    thresholdSessionId: args.transactionLane.thresholdSessionId,
+    walletSigningSessionId: args.transactionLane.walletSigningSessionId,
   };
 }
 
@@ -1159,16 +1186,14 @@ async function prepareNearEd25519TransactionSigningSession(args: {
             authSelectionPolicy.authMethod
             ? recordForLifecycle
             : null;
-        const selectedSnapshotLane = selectNearEd25519TransactionCandidate({
+        const selectedLane = selectNearEd25519TransactionCandidate({
           snapshot,
           authSelectionPolicy,
           runtimeRecord: selectedAuthRuntimeRecord,
           nearAccountId: args.nearAccountId,
         });
-        const selectedIdentity = resolveNearEd25519SelectedIdentityFromSnapshot({
-          nearAccountId: args.nearAccountId,
-          snapshot,
-          candidate: selectedSnapshotLane,
+        const selectedIdentity = resolveNearEd25519SelectedIdentityFromTransactionLane({
+          transactionLane: selectedLane?.lane || null,
         });
         if (
           authSelectionPolicy &&
@@ -1184,7 +1209,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
           deps: args.deps,
           nearAccountId: args.nearAccountId,
           identity: selectedIdentity,
-          snapshotLane: selectedSnapshotLane,
+          snapshotLane: selectedLane?.snapshotLane || null,
         });
         recordForLifecycle = resolveNearEd25519RuntimeRecordForSelectedIdentity({
           identity: selectedIdentity,
@@ -1219,14 +1244,21 @@ async function prepareNearEd25519TransactionSigningSession(args: {
                 }
               : null,
             snapshotLane: snapshot?.lanes.ed25519.near || null,
-            snapshotCandidate: selectedSnapshotLane,
+            snapshotCandidate: selectedLane?.snapshotLane || null,
           });
           throw new Error('[SigningEngine][near] signing session is not ready: missing_session');
+        }
+        if (!selectedLane) {
+          throw new Error('[SigningEngine][near] signing session is not ready: missing_lane');
         }
         const lane = buildNearTransactionLaneFromPreparedIdentity({
           nearAccountId: args.nearAccountId,
           record: recordForLifecycle,
           identity: selectedIdentity,
+        });
+        assertSigningLaneMatchesSelectedTransactionLane({
+          signingLane: lane,
+          transactionLane: selectedLane.lane,
         });
         const readiness = await resolveNearTransactionPlannerReadiness({
           preConfirmDeps: {
@@ -1260,6 +1292,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
           snapshotGeneration: snapshot?.generation || 0,
           metadata: {
             thresholdSessionRecord: recordForLifecycle,
+            transactionLane: selectedLane.lane,
             identity,
             snapshotGeneration: snapshot?.generation || 0,
             readiness: {
@@ -1276,6 +1309,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
   });
   thresholdSessionRecord = preparedOperation.metadata.thresholdSessionRecord;
   const signingLane = preparedOperation.lane;
+  const transactionLane = preparedOperation.metadata.transactionLane;
   const identity = preparedOperation.metadata.identity;
 
   const { signingAuthPlan, emailOtpSigning, budgetIdentity } = await resolveNearTransactionWalletAuth({
@@ -1296,6 +1330,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     thresholdSessionRecord,
     signingAuthPlan,
     signingLane,
+    transactionLane,
     identity,
     resolvedSessionId: resolvePreparedSigningRequestSessionId({
       providedSessionId: args.input.sessionId,
@@ -1345,11 +1380,16 @@ export async function signTransactionsWithActions(
   const thresholdSessionRecord = preparedSigningSession.thresholdSessionRecord;
   const signingAuthPlan = preparedSigningSession.signingAuthPlan;
   const signingLane = preparedSigningSession.signingLane;
+  const transactionLane = preparedSigningSession.transactionLane;
   const emailOtpSigning = preparedSigningSession.emailOtpSigning;
   const ed25519Warmup = preparedSigningSession.ed25519Warmup;
   const resolvedSessionId = preparedSigningSession.resolvedSessionId;
   const budgetIdentity = preparedSigningSession.budgetIdentity;
   const preparedOperation = preparedSigningSession.preparedOperation;
+  assertSigningLaneMatchesSelectedTransactionLane({
+    signingLane,
+    transactionLane,
+  });
   try {
     return await withThresholdEd25519CommitQueue({
       deps,

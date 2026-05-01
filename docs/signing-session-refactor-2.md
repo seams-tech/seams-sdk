@@ -576,40 +576,40 @@ Naming rules:
 
 Add failing tests before moving code:
 
-1. OTP account, Ed25519 session exhausted, next NEAR tx shows OTP and succeeds.
-2. Passkey account, Ed25519 session exhausted, next NEAR tx shows passkey and
+1. [x] OTP account, Ed25519 session exhausted, next NEAR tx shows OTP and succeeds.
+2. [x] Passkey account, Ed25519 session exhausted, next NEAR tx shows passkey and
    succeeds.
-3. Passkey Ed25519 step-up mints one operation use and does not fail post-sign
+3. [x] Passkey Ed25519 step-up mints one operation use and does not fail post-sign
    budget finalization.
-4. OTP ECDSA step-up does not publish a current Ed25519 transaction lane.
-5. OTP account with passkey durable state never shows passkey for NEAR Ed25519.
-6. Passkey account with OTP durable state never shows OTP for NEAR Ed25519.
-7. Refresh with durable sealed state and valid server budget signs without auth.
-8. Missing worker memory with valid durable state signs without auth.
-9. Missing worker memory with exhausted server budget shows same-method step-up.
-10. Three fast sequential txs behave the same as three slow sequential txs.
-11. Linked-auth account with both valid OTP and passkey candidates honors an
+4. [ ] OTP ECDSA step-up does not publish a current Ed25519 transaction lane.
+5. [x] OTP account with passkey durable state never shows passkey for NEAR Ed25519.
+6. [ ] Passkey account with OTP durable state never shows OTP for NEAR Ed25519.
+7. [ ] Refresh with durable sealed state and valid server budget signs without auth.
+8. [ ] Missing worker memory with valid durable state signs without auth.
+9. [ ] Missing worker memory with exhausted server budget shows same-method step-up.
+10. [ ] Three fast sequential txs behave the same as three slow sequential txs.
+11. [ ] Linked-auth account with both valid OTP and passkey candidates honors an
     explicit OTP selection and never prompts passkey.
-12. Linked-auth account with both valid OTP and passkey candidates honors an
+12. [ ] Linked-auth account with both valid OTP and passkey candidates honors an
     explicit passkey selection and never prompts OTP.
-13. Linked-auth account using account-class OTP policy selects OTP
+13. [ ] Linked-auth account using account-class OTP policy selects OTP
     deterministically.
-14. Future linked-auth user-choice mode returns typed `ambiguous_candidates`
+14. [ ] Future linked-auth user-choice mode returns typed `ambiguous_candidates`
     instead of silently choosing a method when policy requires user choice.
 
 ### Phase 2: Introduce Concrete Transaction Types
 
-1. Add `TransactionSigningIntent`.
-2. Add the minimal `AuthSelectionPolicy` and make it part of
+1. [x] Add `TransactionSigningIntent`.
+2. [x] Add the minimal `AuthSelectionPolicy` and make it part of
    `TransactionSigningIntent`.
-3. Add `TransactionLane`.
-4. Add `PreparedTransactionOperation`.
-5. Add `BudgetAdmittedTransactionOperation`.
-6. Add `SignedTransactionOperation`.
-7. Add `LaneSelectionFailure`.
-8. Convert transaction restore input to `TransactionRestoreInput`.
-9. Convert transaction budget/finalizer inputs to accept `TransactionLane`.
-10. Keep raw snapshot and storage types separate from resolved transaction types.
+3. [x] Add `TransactionLane`.
+4. [x] Add `PreparedTransactionOperation`.
+5. [x] Add `BudgetAdmittedTransactionOperation`.
+6. [x] Add `SignedTransactionOperation`.
+7. [x] Add `LaneSelectionFailure`.
+8. [x] Convert transaction restore input to `TransactionRestoreInput`.
+9. [ ] Convert transaction budget/finalizer inputs to accept `TransactionLane`.
+10. [x] Keep raw snapshot and storage types separate from resolved transaction types.
 
 Acceptance:
 
@@ -623,21 +623,21 @@ Acceptance:
 
 ### Phase 3: Build The Pure Selector
 
-1. Implement `selectTransactionLane(intent, snapshot, policy)`.
-2. Move NEAR Ed25519 selection into this selector.
-3. Move ECDSA selection into this selector.
-4. Remove selection from lower transaction flows.
-5. Delete `candidates[0]` fallback after runtime mismatch.
-6. Delete account-primary fallback after concrete candidate selection.
-7. Delete OTP/passkey probing.
-8. Delete transaction selection from collapsed `snapshot.lanes.*` summaries.
-9. Implement the minimal linked-auth policy surface:
+1. [x] Implement `selectTransactionLane(intent, snapshot, policy)`.
+2. [x] Move NEAR Ed25519 selection into this selector.
+3. [ ] Move ECDSA selection into this selector.
+4. [ ] Remove selection from lower transaction flows.
+5. [x] Delete `candidates[0]` fallback after runtime mismatch.
+6. [x] Delete account-primary fallback after concrete candidate selection.
+7. [x] Delete OTP/passkey probing.
+8. [x] Delete transaction selection from collapsed `snapshot.lanes.*` summaries for NEAR Ed25519.
+9. [x] Implement the minimal linked-auth policy surface:
    - explicit auth method
    - account-class auth method
    - current-lane auth method
-10. Keep persisted last-used, product default, and user-choice ambiguity as
+10. [x] Keep persisted last-used, product default, and user-choice ambiguity as
     future extensions until the linked-auth UI ships.
-11. Add the one allowed runtime cleanup path:
+11. [ ] Add the one allowed runtime cleanup path:
     - discard invalid/stale runtime hint
     - re-read side-effect-free snapshot once
     - continue only from a concrete durable candidate or typed failure
@@ -659,18 +659,21 @@ Acceptance:
 
 ### Phase 4: Collapse Prepare Into The State Machine
 
-1. Create one transaction state-machine module with discriminated-union states
-   and explicit transition functions.
-2. Create one `prepareTransactionSigningOperation(intent)` path.
-3. It performs snapshot read, lane selection, exact restore, readiness
+1. [x] Create the initial transaction state module with typed intent, lane,
+   prepared/admitted operation, and lane-selection failures.
+2. [ ] Add full discriminated-union transition states and explicit transition
+   functions.
+3. [ ] Create one `prepareTransactionSigningOperation(intent)` path.
+4. [x] NEAR Ed25519 prepare performs snapshot read, lane selection, exact restore, readiness
    classification, and auth planning.
-4. It returns `PreparedTransactionOperation`.
-5. `admitBudget(...)` converts `PreparedTransactionOperation` into
+5. [ ] It returns `PreparedTransactionOperation`.
+6. [ ] `admitBudget(...)` converts `PreparedTransactionOperation` into
    `BudgetAdmittedTransactionOperation`.
-6. `sign(...)` accepts only `BudgetAdmittedTransactionOperation`.
-7. `finalize(...)` accepts only `SignedTransactionOperation`.
-8. NEAR/EVM/Tempo transaction flows receive state-machine operation types only.
-9. Lower flows no longer plan auth, select lanes, restore sessions, or discover
+7. [ ] `sign(...)` accepts only `BudgetAdmittedTransactionOperation`.
+8. [ ] `finalize(...)` accepts only `SignedTransactionOperation`.
+9. [ ] NEAR/EVM/Tempo transaction flows receive state-machine operation types only.
+10. [x] NEAR Ed25519 lower flow no longer plans auth, selects lanes, or restores sessions.
+11. [ ] Lower flows no longer discover
    budget identity.
 
 Acceptance:
