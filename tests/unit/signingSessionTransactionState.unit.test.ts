@@ -151,6 +151,35 @@ test.describe('transaction signing state selector', () => {
     expect(selection.lane.thresholdSessionId).toBe('tsess-current-otp');
   });
 
+  test('reports incomplete runtime lane instead of falling back to durable candidates', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ed25519.near = [
+      ed25519Candidate({
+        authMethod: 'passkey',
+        thresholdSessionId: 'tsess-passkey-durable',
+        walletSigningSessionId: 'wss-passkey-durable',
+      }),
+    ];
+
+    const selection = selectTransactionLane({
+      intent: nearIntent('passkey'),
+      snapshot,
+      currentRuntimeLane: {
+        authMethod: 'email_otp',
+        curve: 'ed25519',
+        chain: 'near',
+        state: 'ready',
+        source: 'runtime_session_record',
+        thresholdSessionId: 'tsess-incomplete-runtime',
+      } as any,
+    });
+
+    expect(selection).toEqual({
+      ok: false,
+      failure: { kind: 'incomplete_candidate', missing: ['walletSigningSessionId'] },
+    });
+  });
+
   test('explicit auth choice fails instead of probing the other auth method', () => {
     const snapshot = emptySnapshot();
     snapshot.candidates.ed25519.near = [

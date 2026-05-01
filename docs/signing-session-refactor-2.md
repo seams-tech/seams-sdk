@@ -637,9 +637,9 @@ Acceptance:
    - current-lane auth method
 10. [x] Keep persisted last-used, product default, and user-choice ambiguity as
     future extensions until the linked-auth UI ships.
-11. [ ] Add the one allowed runtime cleanup path:
-    - discard invalid/stale runtime hint
-    - re-read side-effect-free snapshot once
+11. [x] Add the one allowed runtime cleanup path for NEAR Ed25519:
+    - discard invalid/stale runtime hint before transaction selection
+    - read the side-effect-free snapshot once after cleanup
     - continue only from a concrete durable candidate or typed failure
     - no restore, prompt, consume, publish, or auth-method switch during cleanup
 

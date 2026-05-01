@@ -1122,6 +1122,8 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(transactionState).not.toContain('last_used');
     expect(transactionState).not.toContain('require_user_choice');
     expect(nearSigning).toContain('selectNearEd25519TransactionCandidate');
+    expect(nearSigning).toContain('discardInvalidNearEd25519RuntimeHint');
+    expect(nearSigning).toContain('clearStoredThresholdEd25519SessionRecordForAccount');
     expect(nearSigning).toContain('transactionOperation: preparedOperation.metadata.transactionOperation');
     expect(nearSigning).toContain('budgetAdmittedOperation');
     expect(transactionsFlow).toContain('activeBudgetAdmittedOperation');

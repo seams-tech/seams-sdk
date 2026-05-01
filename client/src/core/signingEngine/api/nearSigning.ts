@@ -31,6 +31,7 @@ import type { SignerWorkerManagerContext } from '../workerManager';
 import { signNearWithTouchConfirm } from '../orchestration/near/nearSigningFlow';
 import { resolveThresholdEd25519CommitQueueKey } from './thresholdLifecycle/thresholdEd25519CommitQueue';
 import {
+  clearStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordForAccount,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   upsertStoredThresholdEd25519SessionRecord,
@@ -859,6 +860,32 @@ function concreteEd25519LaneFromRuntimeRecord(args: {
   };
 }
 
+function discardInvalidNearEd25519RuntimeHint(args: {
+  record: ThresholdEd25519SessionRecord | null;
+  nearAccountId: AccountId;
+}): ThresholdEd25519SessionRecord | null {
+  if (!args.record) return null;
+  if (
+    concreteEd25519LaneFromRuntimeRecord({
+      record: args.record,
+      nearAccountId: args.nearAccountId,
+    })
+  ) {
+    return args.record;
+  }
+  // This is the only transaction-path runtime cleanup: discard a malformed
+  // volatile Ed25519 hint before selection. Durable candidates are still
+  // selected by the side-effect-free snapshot and exact transaction policy.
+  clearStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
+  console.warn('[SigningEngine][near] discarded invalid Ed25519 runtime session hint', {
+    nearAccountId: args.nearAccountId,
+    source: args.record.source,
+    thresholdSessionId: String(args.record.thresholdSessionId || ''),
+    walletSigningSessionId: String(args.record.walletSigningSessionId || ''),
+  });
+  return null;
+}
+
 function thresholdEd25519RecordMatchesSelectedIdentity(args: {
   record: ThresholdEd25519SessionRecord;
   identity: NearEd25519SelectedIdentity;
@@ -1162,7 +1189,10 @@ async function prepareNearEd25519TransactionOperation(args: {
   signingSessionCoordinator: SigningSessionCoordinator;
   ed25519Warmup?: NearEd25519Warmup;
 }): Promise<NearEd25519TransactionOperationPrepareResult> {
-  let recordForLifecycle = getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
+  let recordForLifecycle = discardInvalidNearEd25519RuntimeHint({
+    record: getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId),
+    nearAccountId: args.nearAccountId,
+  });
   const authSelectionPolicy = await resolveNearEd25519AuthSelectionPolicy({
     deps: args.deps,
     nearAccountId: args.nearAccountId,
