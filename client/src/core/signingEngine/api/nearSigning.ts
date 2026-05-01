@@ -83,12 +83,17 @@ import {
   type ThresholdSigningReadinessInput,
 } from '../session/signingSession/preparedOperation';
 import {
+  classifyTransactionReadiness,
   receiveTransactionIntent,
+  recordExactRestoreAttempt,
   recordTransactionSnapshot,
   selectTransactionLaneFromSnapshot,
   type NearEd25519ConcreteSnapshotLane,
   type NearEd25519TransactionLane,
   type TransactionAuthSelectionPolicy,
+  type TransactionLaneSelectedState,
+  type TransactionReadiness,
+  type TransactionReadinessClassifiedState,
 } from '../session/signingSession/transactionState';
 
 export type SignDelegateActionResult = {
@@ -300,10 +305,7 @@ type NearEd25519SelectedIdentity = SelectedSigningLaneIdentity & {
 
 type NearEd25519PreparedIdentity = ResolvedEd25519SigningSessionIdentity;
 
-type NearEd25519SelectedTransactionLane = {
-  lane: NearEd25519TransactionLane;
-  snapshotLane: NearEd25519ConcreteSnapshotLane;
-};
+type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState;
 
 type PreparedNearEd25519TransactionSigningSession = {
   thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
@@ -326,6 +328,7 @@ type PreparedNearEd25519TransactionSigningSession = {
 type NearEd25519LifecycleMetadata = {
   thresholdSessionRecord: ThresholdEd25519SessionRecord;
   transactionLane: NearEd25519TransactionLane;
+  transactionReadinessState: TransactionReadinessClassifiedState;
   identity: NearEd25519PreparedIdentity;
   snapshotGeneration: number;
   readiness: ThresholdSigningReadinessInput;
@@ -420,6 +423,28 @@ function assertSigningLaneMatchesSelectedTransactionLane(args: {
   ) {
     throw new Error('[SigningEngine][near] prepared signing lane drifted from selected transaction lane');
   }
+}
+
+function transactionReadinessFromPlannerInput(
+  readiness: ThresholdSigningReadinessInput,
+): TransactionReadiness {
+  const status = readiness.readiness.status;
+  if (status === 'ready') {
+    return {
+      status: 'ready',
+      remainingUses: Math.max(0, Math.floor(Number(readiness.remainingUses) || 0)),
+      expiresAtMs: Math.max(0, Math.floor(Number(readiness.expiresAtMs) || 0)),
+    };
+  }
+  if (status === 'expired' || status === 'exhausted' || status === 'budget_unknown') {
+    return status === 'budget_unknown'
+      ? { status, reason: 'trusted wallet budget status is unavailable' }
+      : { status };
+  }
+  if (status === 'auth_unavailable' || status === 'status_unavailable') {
+    return { status, reason: status };
+  }
+  return { status: 'missing_hot_material' };
 }
 
 function requireResolvedNearEd25519SigningLane(
@@ -870,10 +895,7 @@ function selectNearEd25519TransactionCandidate(args: {
   });
   const selectionState = selectTransactionLaneFromSnapshot(snapshotState);
   if (selectionState.tag === 'LaneSelected') {
-    return {
-      lane: selectionState.lane,
-      snapshotLane: selectionState.snapshotLane,
-    };
+    return selectionState;
   }
   if (selectionState.failure.kind === 'no_candidate') return null;
   throw new Error(
@@ -1214,6 +1236,9 @@ async function prepareNearEd25519TransactionSigningSession(args: {
           identity: selectedIdentity,
           snapshotLane: selectedLane?.snapshotLane || null,
         });
+        const restoreState = selectedLane
+          ? recordExactRestoreAttempt(selectedLane, { restored: Boolean(selectedIdentity) })
+          : null;
         recordForLifecycle = resolveNearEd25519RuntimeRecordForSelectedIdentity({
           identity: selectedIdentity,
           fallback: getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId),
@@ -1283,6 +1308,15 @@ async function prepareNearEd25519TransactionSigningSession(args: {
             phase: 'pre_confirm',
           }),
         );
+        const transactionReadinessState = classifyTransactionReadiness(
+          restoreState || selectedLane,
+          transactionReadinessFromPlannerInput({
+            readiness: readiness.readiness,
+            expiresAtMs: readiness.expiresAtMs,
+            remainingUses: readiness.remainingUses,
+            usesNeeded: 1,
+          }),
+        );
         const identity = requireResolvedNearEd25519SigningLane(lane);
         return {
           lane,
@@ -1296,6 +1330,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
           metadata: {
             thresholdSessionRecord: recordForLifecycle,
             transactionLane: selectedLane.lane,
+            transactionReadinessState,
             identity,
             snapshotGeneration: snapshot?.generation || 0,
             readiness: {

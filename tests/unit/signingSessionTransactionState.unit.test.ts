@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
   receiveTransactionIntent,
+  classifyTransactionReadiness,
+  recordExactRestoreAttempt,
   recordTransactionSnapshot,
   selectTransactionLane,
   selectTransactionLaneFromSnapshot,
@@ -186,5 +188,37 @@ test.describe('transaction signing state selector', () => {
     expect(selected.tag).toBe('LaneSelected');
     if (selected.tag !== 'LaneSelected') throw new Error('expected selected lane');
     expect(selected.lane.thresholdSessionId).toBe('tsess-otp');
+  });
+
+  test('records exact restore and readiness as follow-on state transitions', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ed25519.near = [
+      ed25519Candidate({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-otp',
+        walletSigningSessionId: 'wss-otp',
+      }),
+    ];
+
+    const intent = receiveTransactionIntent(nearIntent('email_otp'));
+    const snapshotState = recordTransactionSnapshot(intent, { snapshot });
+    const selected = selectTransactionLaneFromSnapshot(snapshotState);
+    if (selected.tag !== 'LaneSelected') throw new Error('expected selected lane');
+
+    const restored = recordExactRestoreAttempt(selected, { restored: true });
+    const readiness = classifyTransactionReadiness(restored, {
+      status: 'ready',
+      remainingUses: 1,
+      expiresAtMs: 123,
+    });
+
+    expect(restored.tag).toBe('ExactRestoreAttempted');
+    expect(restored.lane.thresholdSessionId).toBe(selected.lane.thresholdSessionId);
+    expect(readiness.tag).toBe('ReadinessClassified');
+    expect(readiness.readiness).toEqual({
+      status: 'ready',
+      remainingUses: 1,
+      expiresAtMs: 123,
+    });
   });
 });

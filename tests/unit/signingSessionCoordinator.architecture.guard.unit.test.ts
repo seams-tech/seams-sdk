@@ -1083,8 +1083,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(transactionState).toContain("tag: 'IntentReceived'");
     expect(transactionState).toContain("tag: 'SnapshotRead'");
     expect(transactionState).toContain("tag: 'LaneSelected'");
+    expect(transactionState).toContain("tag: 'ExactRestoreAttempted'");
+    expect(transactionState).toContain("tag: 'ReadinessClassified'");
     expect(transactionState).toContain('export function selectTransactionLane');
     expect(transactionState).toContain('export function selectTransactionLaneFromSnapshot');
+    expect(transactionState).toContain('export function recordExactRestoreAttempt');
+    expect(transactionState).toContain('export function classifyTransactionReadiness');
     expect(transactionState).toContain('function isConcreteNearEd25519Lane');
     expect(transactionState).toContain("kind: 'current_lane'");
     expect(transactionState).toContain("kind: 'account_class'");

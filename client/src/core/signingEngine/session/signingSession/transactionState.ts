@@ -47,6 +47,8 @@ export type TransactionReadiness =
   | { status: 'expired' }
   | { status: 'exhausted' }
   | { status: 'restore_failed'; reason: string }
+  | { status: 'auth_unavailable'; reason: string }
+  | { status: 'status_unavailable'; reason: string }
   | { status: 'budget_unknown'; reason: string }
   | { status: 'policy_blocked'; reason: string };
 
