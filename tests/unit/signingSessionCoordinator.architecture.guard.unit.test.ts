@@ -1091,12 +1091,17 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(transactionState).toContain('export function selectTransactionLaneFromSnapshot');
     expect(transactionState).toContain('export function recordExactRestoreAttempt');
     expect(transactionState).toContain('export function classifyTransactionReadiness');
+    expect(transactionState).toContain('export function prepareTransactionOperationFromReadiness');
+    expect(transactionState).toContain('export function admitTransactionBudget');
+    expect(transactionState).toContain('export function recordTransactionBudgetAdmission');
     expect(transactionState).toContain('function isConcreteNearEd25519Lane');
     expect(transactionState).toContain("kind: 'current_lane'");
     expect(transactionState).toContain("kind: 'account_class'");
     expect(transactionState).not.toContain('last_used');
     expect(transactionState).not.toContain('require_user_choice');
     expect(nearSigning).toContain('selectNearEd25519TransactionCandidate');
+    expect(nearSigning).toContain('transactionOperation: preparedOperation.metadata.transactionOperation');
+    expect(nearSigning).toContain('budgetAdmittedOperation.budgetAdmission.budgetIdentity');
     expect(nearSigning).toContain('resolveNearEd25519AuthSelectionPolicy');
     expect(nearSigning).toContain("if (args.record?.source === 'email_otp')");
     expect(nearSigning).toContain("kind: 'account_class'");

@@ -670,8 +670,15 @@ Acceptance:
 4. [x] NEAR Ed25519 prepare performs snapshot read, lane selection, exact restore, readiness
    classification, and auth planning.
 5. [ ] It returns `PreparedTransactionOperation`.
+   - [x] NEAR Ed25519 prepare now produces a `PreparedTransactionOperation`
+     from the typed readiness state.
+   - [ ] Generalize that return type across transaction curves.
 6. [ ] `admitBudget(...)` converts `PreparedTransactionOperation` into
    `BudgetAdmittedTransactionOperation`.
+   - [x] NEAR Ed25519 warm-session budget identity is converted into an
+     explicit `BudgetAdmittedOperation` before the worker payload sees it.
+   - [ ] Reauth-created sessions must return a replacement
+     `BudgetAdmittedOperation` immediately after OTP/passkey mint.
 7. [ ] `sign(...)` accepts only `BudgetAdmittedTransactionOperation`.
 8. [ ] `finalize(...)` accepts only `SignedTransactionOperation`.
 9. [ ] NEAR/EVM/Tempo transaction flows receive state-machine operation types only.
@@ -709,10 +716,16 @@ Acceptance:
 ### Phase 6: Fix Budget Timing
 
 1. Capture budget admission before signing for warm lanes.
+   - [x] NEAR Ed25519 warm lanes carry `BudgetAdmittedOperation` before the
+     budget identity is passed into transaction execution.
 2. Capture budget admission immediately after OTP/passkey mint for reauth lanes.
 3. Split pre-admission and post-admission types:
    `PreparedTransactionOperation` cannot be signed directly;
    `BudgetAdmittedTransactionOperation` is required.
+   - [x] NEAR Ed25519 exposes both `PreparedTransactionOperation` and
+     `BudgetAdmittedOperation` in the prepared session type.
+   - [ ] NEAR Ed25519 signing must require the admitted type for every path,
+     including reauth-created lanes.
 4. For Ed25519, mark finalization as reconciliation of the already-consumed
    selected threshold session.
 5. Remove budget-identity preparation from post-sign finalization.

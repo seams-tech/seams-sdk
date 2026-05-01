@@ -15,6 +15,7 @@ import {
   type ThresholdEd25519SessionId,
   type WalletSigningSessionId,
 } from './types';
+import type { SigningSessionPreparedBudgetIdentity } from './budget';
 
 export type TransactionSigningIntent = {
   operationId?: SigningOperationId;
@@ -58,9 +59,13 @@ export type PreparedTransactionOperation<TLane extends TransactionLane = Transac
   readiness: TransactionReadiness;
 };
 
+export type TransactionBudgetAdmission = {
+  budgetIdentity: SigningSessionPreparedBudgetIdentity;
+};
+
 export type BudgetAdmittedOperation<TLane extends TransactionLane = TransactionLane> =
   PreparedTransactionOperation<TLane> & {
-    budgetAdmission: unknown;
+    budgetAdmission: TransactionBudgetAdmission;
   };
 
 export type SignedTransactionOperation<TLane extends TransactionLane = TransactionLane> =
@@ -375,5 +380,34 @@ export function classifyTransactionReadiness(
     lane: state.lane,
     snapshotLane: state.snapshotLane,
     readiness,
+  };
+}
+
+export function prepareTransactionOperationFromReadiness(
+  state: TransactionReadinessClassifiedState,
+): PreparedTransactionOperation<NearEd25519TransactionLane> {
+  return {
+    intent: state.intent,
+    lane: state.lane,
+    readiness: state.readiness,
+  };
+}
+
+export function admitTransactionBudget(
+  operation: PreparedTransactionOperation<NearEd25519TransactionLane>,
+  budgetAdmission: TransactionBudgetAdmission,
+): BudgetAdmittedOperation<NearEd25519TransactionLane> {
+  return {
+    ...operation,
+    budgetAdmission,
+  };
+}
+
+export function recordTransactionBudgetAdmission(
+  operation: BudgetAdmittedOperation<NearEd25519TransactionLane>,
+): TransactionBudgetAdmittedState {
+  return {
+    tag: 'BudgetAdmitted',
+    operation,
   };
 }

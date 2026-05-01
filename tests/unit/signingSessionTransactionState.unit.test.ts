@@ -1,8 +1,11 @@
 import { expect, test } from '@playwright/test';
 import {
+  admitTransactionBudget,
   receiveTransactionIntent,
   classifyTransactionReadiness,
+  prepareTransactionOperationFromReadiness,
   recordExactRestoreAttempt,
+  recordTransactionBudgetAdmission,
   recordTransactionSnapshot,
   selectTransactionLane,
   selectTransactionLaneFromSnapshot,
@@ -220,5 +223,46 @@ test.describe('transaction signing state selector', () => {
       remainingUses: 1,
       expiresAtMs: 123,
     });
+  });
+
+  test('moves ready operation into an explicit budget-admitted state', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ed25519.near = [
+      ed25519Candidate({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-otp',
+        walletSigningSessionId: 'wss-otp',
+      }),
+    ];
+
+    const intent = receiveTransactionIntent(nearIntent('email_otp'));
+    const snapshotState = recordTransactionSnapshot(intent, { snapshot });
+    const selected = selectTransactionLaneFromSnapshot(snapshotState);
+    if (selected.tag !== 'LaneSelected') throw new Error('expected selected lane');
+    const readiness = classifyTransactionReadiness(recordExactRestoreAttempt(selected, { restored: true }), {
+      status: 'ready',
+      remainingUses: 1,
+      expiresAtMs: 123,
+    });
+
+    const prepared = prepareTransactionOperationFromReadiness(readiness);
+    const admitted = admitTransactionBudget(prepared, {
+      budgetIdentity: {
+        walletSigningSessionId: 'wss-otp',
+        projectionVersion: 'budget-rev-1',
+        status: {
+          status: 'active',
+          projectionVersion: 'budget-rev-1',
+          remainingUses: 1,
+          expiresAtMs: 123,
+        },
+      } as any,
+    });
+    const admittedState = recordTransactionBudgetAdmission(admitted);
+
+    expect(prepared.lane.thresholdSessionId).toBe('tsess-otp');
+    expect(admitted.budgetAdmission.budgetIdentity.projectionVersion).toBe('budget-rev-1');
+    expect(admittedState.tag).toBe('BudgetAdmitted');
+    expect(admittedState.operation.lane).toEqual(prepared.lane);
   });
 });

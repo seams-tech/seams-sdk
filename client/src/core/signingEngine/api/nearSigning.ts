@@ -84,16 +84,22 @@ import {
 } from '../session/signingSession/preparedOperation';
 import {
   classifyTransactionReadiness,
+  admitTransactionBudget,
+  prepareTransactionOperationFromReadiness,
   receiveTransactionIntent,
   recordExactRestoreAttempt,
+  recordTransactionBudgetAdmission,
   recordTransactionSnapshot,
   selectTransactionLaneFromSnapshot,
+  type BudgetAdmittedOperation,
   type NearEd25519ConcreteSnapshotLane,
   type NearEd25519TransactionLane,
+  type PreparedTransactionOperation,
   type TransactionAuthSelectionPolicy,
   type TransactionLaneSelectedState,
   type TransactionReadiness,
   type TransactionReadinessClassifiedState,
+  type TransactionBudgetAdmittedState,
 } from '../session/signingSession/transactionState';
 
 export type SignDelegateActionResult = {
@@ -321,6 +327,9 @@ type PreparedNearEd25519TransactionSigningSession = {
   resolvedSessionId: string;
   snapshotGeneration: number;
   preparedOperation: PreparedNearEd25519Operation;
+  transactionOperation: PreparedTransactionOperation<NearEd25519TransactionLane>;
+  budgetAdmittedOperation?: BudgetAdmittedOperation<NearEd25519TransactionLane>;
+  budgetAdmittedState?: TransactionBudgetAdmittedState;
   budgetIdentity?: SigningSessionPreparedBudgetIdentity;
   budgetProjectionVersion?: string;
   ed25519Warmup?: NearEd25519Warmup;
@@ -330,6 +339,7 @@ type PreparedNearEd25519TransactionSigningSession = {
 type NearEd25519LifecycleMetadata = {
   thresholdSessionRecord: ThresholdEd25519SessionRecord;
   transactionLane: NearEd25519TransactionLane;
+  transactionOperation: PreparedTransactionOperation<NearEd25519TransactionLane>;
   transactionReadinessState: TransactionReadinessClassifiedState;
   identity: NearEd25519PreparedIdentity;
   snapshotGeneration: number;
@@ -1279,6 +1289,8 @@ async function prepareNearEd25519TransactionOperation(args: {
       usesNeeded: 1,
     }),
   );
+  const transactionOperation =
+    prepareTransactionOperationFromReadiness(transactionReadinessState);
   const identity = requireResolvedNearEd25519SigningLane(lane);
   const readinessInput = {
     readiness: readiness.readiness,
@@ -1293,6 +1305,7 @@ async function prepareNearEd25519TransactionOperation(args: {
     metadata: {
       thresholdSessionRecord: recordForLifecycle,
       transactionLane: selectedLane.lane,
+      transactionOperation,
       transactionReadinessState,
       identity,
       snapshotGeneration: snapshot?.generation || 0,
@@ -1378,6 +1391,14 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     onEvent: args.input.onEvent,
     usesNeeded: 1,
   });
+  const budgetAdmittedOperation = budgetIdentity
+    ? admitTransactionBudget(preparedOperation.metadata.transactionOperation, {
+        budgetIdentity,
+      })
+    : undefined;
+  const budgetAdmittedState = budgetAdmittedOperation
+    ? recordTransactionBudgetAdmission(budgetAdmittedOperation)
+    : undefined;
   return {
     thresholdSessionRecord,
     signingAuthPlan,
@@ -1390,6 +1411,13 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     }),
     snapshotGeneration: preparedOperation.snapshotGeneration,
     preparedOperation,
+    transactionOperation: preparedOperation.metadata.transactionOperation,
+    ...(budgetAdmittedOperation
+      ? {
+          budgetAdmittedOperation,
+          budgetAdmittedState,
+        }
+      : {}),
     ...(budgetIdentity
       ? {
           budgetIdentity,
@@ -1437,11 +1465,17 @@ export async function signTransactionsWithActions(
   const ed25519Warmup = preparedSigningSession.ed25519Warmup;
   const resolvedSessionId = preparedSigningSession.resolvedSessionId;
   const budgetIdentity = preparedSigningSession.budgetIdentity;
+  const budgetAdmittedOperation = preparedSigningSession.budgetAdmittedOperation;
   const preparedOperation = preparedSigningSession.preparedOperation;
   assertSigningLaneMatchesSelectedTransactionLane({
     signingLane,
     transactionLane,
   });
+  if (budgetIdentity && !budgetAdmittedOperation) {
+    throw new Error(
+      '[SigningEngine][near] prepared Ed25519 budget identity was not admitted into transaction state',
+    );
+  }
   try {
     return await withThresholdEd25519CommitQueue({
       deps,
@@ -1465,7 +1499,11 @@ export async function signTransactionsWithActions(
           ...(emailOtpSigning ? { emailOtpSigning } : {}),
           signingOperationId: confirmationOperationId,
           signingSessionCoordinator,
-          ...(budgetIdentity ? { budgetIdentity } : {}),
+          ...(budgetAdmittedOperation
+            ? {
+                budgetIdentity: budgetAdmittedOperation.budgetAdmission.budgetIdentity,
+              }
+            : {}),
           finalizePreparedSigningSession: async ({ status, hooks, result, error }) => {
             await finalizePreparedThresholdSigning(preparedOperation, result || null, {
               ...(status === 'success'
