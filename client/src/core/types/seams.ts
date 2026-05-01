@@ -424,7 +424,7 @@ export interface SigningSessionStatus {
   authMethod?: WalletAuthMethod | null;
   retention?: SigningSessionRetention | null;
   availableUses?: number;
-  locallyReservedUses?: number;
+  inFlightReservedUses?: number;
   remainingUses?: number;
   expiresAtMs?: number;
   createdAtMs?: number;

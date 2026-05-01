@@ -274,7 +274,7 @@ export type EnsureWarmEcdsaCapabilityReadyArgs = {
     publishableKey: string;
   };
   usesNeeded?: number;
-  sessionBudgetUses?: number;
+  sessionBudgetUses: number;
   operationIntent?: SigningOperationIntent;
   sessionId?: string;
   walletSigningSessionId?: string;

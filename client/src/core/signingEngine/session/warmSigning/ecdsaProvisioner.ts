@@ -309,7 +309,7 @@ function buildEcdsaCapabilityInflightKey(args: {
   nearAccountId: AccountId;
   chain: ThresholdEcdsaActivationChain;
   usesNeeded?: number;
-  sessionBudgetUses?: number;
+  sessionBudgetUses: number;
   keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
 }): string {
   const keyId = String(args.keyRef?.ecdsaThresholdKeyId || '').trim() || 'auto';
@@ -320,7 +320,7 @@ function buildEcdsaCapabilityInflightKey(args: {
     String(args.nearAccountId),
     args.chain,
     String(usesNeeded > 0 ? usesNeeded : 1),
-    String(sessionBudgetUses > 0 ? sessionBudgetUses : usesNeeded > 0 ? usesNeeded : 1),
+    String(sessionBudgetUses > 0 ? sessionBudgetUses : 1),
     keyId,
     sessionId,
   ].join('::');
@@ -448,7 +448,7 @@ export async function ensureWarmEcdsaCapabilityReady(
     reconnectPromise = (async (): Promise<EnsureWarmEcdsaCapabilityReadyResult> => {
       const reconnectUses = Math.max(
         1,
-        Math.floor(Number(args.sessionBudgetUses ?? args.usesNeeded) || 1),
+        Math.floor(Number(args.sessionBudgetUses) || 1),
       );
       const reconnectThresholdSessionJwt = toOptionalNonEmptyString(
         keyRef?.thresholdSessionJwt || reconnectRecord?.thresholdSessionJwt,

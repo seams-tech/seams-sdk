@@ -28,6 +28,7 @@ import {
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
 } from '../warmSigning/readModel';
+import type { SigningSessionBudgetStatusAuth } from './budget';
 import type { SigningSessionReadiness } from './planner';
 
 export type SigningSessionLane = {
@@ -104,6 +105,7 @@ export type WalletSigningSessionConsumeUseInput = {
   targetThresholdSessionIds?: string[];
   alreadyConsumedBackingMaterialSessionIds?: string[];
   alreadyConsumedThresholdSessionIds?: string[];
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 };
 
 export type WalletSigningSessionStatusReader = (args: {
@@ -111,6 +113,7 @@ export type WalletSigningSessionStatusReader = (args: {
   walletSigningSessionId?: string;
   targetBackingMaterialSessionIds?: string[];
   targetThresholdSessionIds?: string[];
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 }) => Promise<SigningSessionStatus | null>;
 
 export type SigningSessionReadinessWithBudget = {
@@ -159,14 +162,12 @@ export function applyWalletBudgetStatusToSigningSessionReadiness(args: {
         0,
         Math.floor(Number(walletBudgetStatus.remainingUses) || 0),
       );
-      const budgetAvailableUsesRaw = Number(walletBudgetStatus.availableUses);
-      const budgetAvailableUses = Number.isFinite(budgetAvailableUsesRaw)
-        ? Math.max(0, Math.floor(budgetAvailableUsesRaw))
-        : budgetRemainingUses;
       const budgetExpiresAtMs = Math.floor(Number(walletBudgetStatus.expiresAtMs) || 0);
       // Local/session-store counters are availability hints after restore. The
       // wallet budget service is the trusted source for terminal budget state.
-      remainingUses = budgetAvailableUses;
+      // Same-projection local availability can gate admission, but it must not
+      // turn a server-active session into step-up reauth.
+      remainingUses = budgetRemainingUses;
       if (budgetExpiresAtMs > 0) expiresAtMs = budgetExpiresAtMs;
       if (status === 'exhausted') {
         status = 'ready';
@@ -760,12 +761,16 @@ export async function consumeWalletSigningSessionUse(args: {
     nearAccountId: input.nearAccountId,
     walletSigningSessionId,
   });
-  if (!lanes.length) {
+  const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
+  const alreadyConsumedCoversExplicitTarget =
+    hasExplicitTarget &&
+    Array.from(targetBacking).every((sessionId) => alreadyConsumedBacking.has(sessionId)) &&
+    Array.from(targetThreshold).every((sessionId) => alreadyConsumedThreshold.has(sessionId));
+  if (!lanes.length && !alreadyConsumedCoversExplicitTarget) {
     throw new Error(
       '[SigningSessionCoordinator] wallet signing-session has no matching signing lanes for account',
     );
   }
-  const hasExplicitTarget = targetBacking.size > 0 || targetThreshold.size > 0;
   const hasMatchingTarget =
     !hasExplicitTarget ||
     lanes.some(
@@ -773,7 +778,7 @@ export async function consumeWalletSigningSessionUse(args: {
         targetBacking.has(lane.backingMaterialSessionId) ||
         targetThreshold.has(lane.thresholdSessionId),
     );
-  if (!hasMatchingTarget) {
+  if (!hasMatchingTarget && !alreadyConsumedCoversExplicitTarget) {
     throw new Error(
       '[SigningSessionCoordinator] wallet signing-session has no matching target signing lane for account',
     );
@@ -857,6 +862,7 @@ export async function consumeWalletSigningSessionUse(args: {
     walletSigningSessionId,
     targetBackingMaterialSessionIds: input.targetBackingMaterialSessionIds,
     targetThresholdSessionIds: input.targetThresholdSessionIds,
+    trustedStatusAuth: input.trustedStatusAuth,
   })) || {
     sessionId: walletSigningSessionId,
     status: 'not_found',

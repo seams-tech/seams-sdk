@@ -19,7 +19,6 @@ import {
   createSigningSessionBudgetTraceEvent,
   isSigningSessionBudgetExhaustedError,
   isSigningSessionBudgetUnknownError,
-  withBudgetProjectionVersion,
   normalizeRequired,
   normalizeStringList,
   normalizeSigningSessionBudgetRecordSuccessInput,
@@ -34,6 +33,8 @@ import {
   type SigningSessionBudgetTraceEvent,
   type SigningSessionBudgetZeroSpendReason,
   type SigningSessionBudgetReservation,
+  type SigningSessionBudgetReserveInput,
+  type SigningSessionBudgetReservationRecord,
   type SigningSessionPreparedBudgetIdentity,
   type SigningSessionBudgetConsumer,
   type SigningSessionBudgetStatusReader,
@@ -106,6 +107,7 @@ export type WalletSigningSessionConsumeUseArgs = {
   targetThresholdSessionIds?: string[];
   alreadyConsumedBackingMaterialSessionIds?: string[];
   alreadyConsumedThresholdSessionIds?: string[];
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 };
 
 export type SigningSessionStatusPort = {
@@ -143,8 +145,7 @@ type SigningSessionCoordinatorBudgetState = {
       promise: Promise<SigningSessionStatus | null>;
     }
   >;
-  reservationsByOperationId: Map<string, SigningSessionBudgetRecordSuccessInput>;
-  reservedUsesByWalletSessionId: Map<string, number>;
+  reservationsByOperationId: Map<string, SigningSessionBudgetReservationRecord>;
   walletReservationQueues: Map<string, Promise<unknown>>;
 };
 
@@ -179,7 +180,6 @@ export class SigningSessionCoordinator
       // the payload fingerprint prevents a retry from hiding a different spend.
       successfulSpendsByOperationId: new Map(),
       reservationsByOperationId: new Map(),
-      reservedUsesByWalletSessionId: new Map(),
       walletReservationQueues: new Map(),
     };
     this.operationIdBindingState = {
@@ -340,7 +340,7 @@ export class SigningSessionCoordinator
   }
 
   async reserve(
-    input: SigningSessionBudgetRecordSuccessInput,
+    input: SigningSessionBudgetReserveInput,
   ): ReturnType<SigningSessionBudget['reserve']> {
     const normalizedInput = normalizeSigningSessionBudgetRecordSuccessInput(input);
     const spend = normalizedInput.spend;
@@ -386,11 +386,14 @@ export class SigningSessionCoordinator
       }
 
       this.emitWalletBudgetTrace(normalizedInput, 'wallet_signing_budget_reservation_started');
+      let admittedStatus: Awaited<
+        ReturnType<typeof assertSigningSessionBudgetReservationAvailable>
+      >;
       try {
-        await assertSigningSessionBudgetReservationAvailable({
+        admittedStatus = await assertSigningSessionBudgetReservationAvailable({
           getStatus: (statusArgs) => this.readWalletBudgetStatus(statusArgs),
           input: normalizedInput,
-          reservedUsesByWalletSessionId: this.walletBudgetState.reservedUsesByWalletSessionId,
+          reservationsByOperationId: this.walletBudgetState.reservationsByOperationId,
         });
       } catch (error) {
         this.emitWalletBudgetTrace(normalizedInput, 'wallet_signing_budget_reservation_failed', {
@@ -399,12 +402,18 @@ export class SigningSessionCoordinator
         throw error;
       }
 
-      reservationsByOperationId.set(operationId, normalizedInput);
-      this.walletBudgetState.reservedUsesByWalletSessionId.set(
+      reservationsByOperationId.set(operationId, {
+        ...normalizedInput,
+        expectedBudgetProjectionVersion: admittedStatus.projectionVersion,
+        operationFingerprint: resolveWalletSigningOperationFingerprint(spend),
         walletSigningSessionId,
-        (this.walletBudgetState.reservedUsesByWalletSessionId.get(walletSigningSessionId) || 0) +
-          spend.uses,
-      );
+        reservedAgainstProjectionVersion: admittedStatus.projectionVersion,
+        reservedAgainstRemainingUses: Math.max(
+          0,
+          Math.floor(Number(admittedStatus.remainingUses) || 0),
+        ),
+        createdAtMs: Date.now(),
+      });
       this.emitWalletBudgetTrace(normalizedInput, 'wallet_signing_budget_reservation_succeeded');
       return this.createWalletBudgetReservation(spend.operationId, (reason) => {
         this.releaseWalletBudgetReservation(normalizedInput, reason);
@@ -429,7 +438,7 @@ export class SigningSessionCoordinator
     return applySigningSessionBudgetReservationsToStatus({
       status,
       walletSigningSessionId,
-      reservedUsesByWalletSessionId: this.walletBudgetState.reservedUsesByWalletSessionId,
+      reservationsByOperationId: this.walletBudgetState.reservationsByOperationId,
     });
   }
 
@@ -461,11 +470,8 @@ export class SigningSessionCoordinator
       throw new Error(`[SigningSessionBudget] wallet signing-session budget is ${status.status}`);
     }
     const usesNeeded = Math.max(1, Math.floor(Number(input.operationUsesNeeded) || 1));
-    const availableUsesRaw = Number(status.availableUses);
-    const availableUses = Number.isFinite(availableUsesRaw)
-      ? Math.max(0, Math.floor(availableUsesRaw))
-      : Math.max(0, Math.floor(Number(status.remainingUses) || 0));
-    if (availableUses < usesNeeded) {
+    const remainingUses = Math.max(0, Math.floor(Number(status.remainingUses) || 0));
+    if (remainingUses < usesNeeded) {
       throw new Error(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
     }
     const projectionVersion = String(status.projectionVersion || '').trim();
@@ -516,12 +522,14 @@ export class SigningSessionCoordinator
           status.status === 'unavailable' ? 'status_unavailable' : 'missing_trusted_status',
       });
     }
-    return withBudgetProjectionVersion({
-      status,
-      walletSigningSessionId,
-      targetBackingMaterialSessionIds: args.targetBackingMaterialSessionIds,
-      targetThresholdSessionIds: args.targetThresholdSessionIds,
-    });
+    const projectionVersion = String(status.projectionVersion || '').trim();
+    if (status.status === 'active' && !projectionVersion) {
+      return budgetUnknownSigningSessionStatus({
+        walletSigningSessionId,
+        reason: 'missing_trusted_status',
+      });
+    }
+    return projectionVersion ? { ...status, projectionVersion } : status;
   }
 
   async recordSuccess(
@@ -689,23 +697,6 @@ export class SigningSessionCoordinator
     const reservation = this.walletBudgetState.reservationsByOperationId.get(operationId);
     if (!reservation) return;
     this.walletBudgetState.reservationsByOperationId.delete(operationId);
-    const walletSigningSessionId = normalizeRequired(
-      reservation.spend.walletSigningSessionId,
-      'walletSigningSessionId',
-    );
-    const nextReservedUses = Math.max(
-      0,
-      (this.walletBudgetState.reservedUsesByWalletSessionId.get(walletSigningSessionId) || 0) -
-        reservation.spend.uses,
-    );
-    if (nextReservedUses > 0) {
-      this.walletBudgetState.reservedUsesByWalletSessionId.set(
-        walletSigningSessionId,
-        nextReservedUses,
-      );
-    } else {
-      this.walletBudgetState.reservedUsesByWalletSessionId.delete(walletSigningSessionId);
-    }
     this.emitWalletBudgetTrace(
       reservation,
       'wallet_signing_budget_reservation_released',
@@ -741,6 +732,7 @@ export class SigningSessionCoordinator
       alreadyConsumedThresholdSessionIds: normalizeStringList(
         input.alreadyConsumedThresholdSessionIds,
       ),
+      trustedStatusAuth: input.trustedStatusAuth,
     });
     if (!status) {
       throw new Error('[SigningSessionBudget] wallet signing-session spend returned no status');

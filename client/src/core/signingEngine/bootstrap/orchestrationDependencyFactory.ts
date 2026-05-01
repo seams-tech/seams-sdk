@@ -55,11 +55,6 @@ import type { SigningSessionBudgetStatusAuth } from '../session/signingSession/b
 import type { SigningSessionSnapshot } from '../session/snapshotReader';
 import type { RestorePersistedSessionForSigningInput } from '../session/restoreCoordinator';
 
-function resolveConfiguredSigningSessionBudgetUses(configs: SeamsConfigsReadonly): number {
-  const remainingUses = Math.floor(Number(configs.signing.sessionDefaults?.remainingUses) || 0);
-  return remainingUses > 0 ? remainingUses : 1;
-}
-
 export type OrchestrationSignTempoInput = {
   nearAccountId: string;
   request: TempoSigningRequest | EvmSigningRequest;
@@ -351,9 +346,11 @@ export function createOrchestrationDependencyBundle(
       nearAccountId,
       record,
       localPrfCredential,
+      remainingUses,
       sessionId,
       walletSigningSessionId,
     }) => {
+      const reconnectRemainingUses = Math.max(1, Math.floor(Number(remainingUses) || 1));
       const provisioned = await args.provisionThresholdEd25519Session({
         nearAccountId,
         relayerUrl: record.relayerUrl,
@@ -368,7 +365,7 @@ export function createOrchestrationDependencyBundle(
         ...(walletSigningSessionId || record.walletSigningSessionId
           ? { walletSigningSessionId: walletSigningSessionId || record.walletSigningSessionId }
           : {}),
-        remainingUses: resolveConfiguredSigningSessionBudgetUses(args.seamsPasskeyConfigs),
+        remainingUses: reconnectRemainingUses,
       });
       if (!provisioned.ok || !provisioned.sessionId) {
         throw new Error(
@@ -383,8 +380,6 @@ export function createOrchestrationDependencyBundle(
         ...(refreshedRecord ? { record: refreshedRecord } : {}),
       };
     },
-    getSigningSessionBudgetUses: () =>
-      resolveConfiguredSigningSessionBudgetUses(args.seamsPasskeyConfigs),
     signingSessionCoordinator,
     getWarmThresholdEd25519SessionStatusForSession: ({ nearAccountId, thresholdSessionId }) =>
       createWarmSessionStatusReader({

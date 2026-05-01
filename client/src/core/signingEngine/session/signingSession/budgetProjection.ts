@@ -54,6 +54,9 @@ export type WalletBudgetReservationProjection = {
   operationId: SigningOperationId | string;
   operationFingerprint: SigningOperationFingerprint | string;
   uses: number;
+  reservedAgainstProjectionVersion: string;
+  reservedAgainstRemainingUses?: number;
+  createdAtMs?: number;
 };
 
 export type WalletBudgetProjection = {
@@ -224,8 +227,9 @@ export function projectionToSigningSessionStatus(
     sessionId: String(trustedStatus.sessionId),
     status: 'active',
     remainingUses: Math.max(0, Math.floor(Number(trustedStatus.remainingUses) || 0)),
-    locallyReservedUses: projection.localReservedUses,
+    inFlightReservedUses: projection.localReservedUses,
     availableUses: Math.max(0, Math.floor(Number(projection.effectiveRemainingUses) || 0)),
+    ...(trustedStatus.projectionVersion ? { projectionVersion: trustedStatus.projectionVersion } : {}),
     ...(trustedStatus.expiresAtMs ? { expiresAtMs: trustedStatus.expiresAtMs } : {}),
   };
 }
@@ -243,11 +247,16 @@ function withTrustedStatus(
 }
 
 function recalculate(projection: WalletBudgetProjection): WalletBudgetProjection {
-  const localReservedUses = Array.from(projection.reservationsByOperationId.values()).reduce(
-    (sum, reservation) => sum + Math.max(0, Math.floor(Number(reservation.uses) || 0)),
-    0,
-  );
   const trustedStatus = projection.trustedStatus;
+  const projectionVersion = String(trustedStatus?.projectionVersion || '').trim();
+  const localReservedUses = projectionVersion
+    ? Array.from(projection.reservationsByOperationId.values()).reduce((sum, reservation) => {
+        if (String(reservation.reservedAgainstProjectionVersion || '').trim() !== projectionVersion) {
+          return sum;
+        }
+        return sum + Math.max(0, Math.floor(Number(reservation.uses) || 0));
+      }, 0)
+    : 0;
   const effectiveRemainingUses =
     trustedStatus?.status === 'active'
       ? Math.max(0, Math.floor(Number(trustedStatus.remainingUses) || 0) - localReservedUses)

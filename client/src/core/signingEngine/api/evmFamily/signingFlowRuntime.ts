@@ -35,16 +35,9 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import { getPrfFirstB64uFromCredential } from '../../signers/webauthn/credentials/credentialExtensions';
 import { buildEcdsaSessionPolicy } from '../../threshold/session/sessionPolicy';
 
-function resolveConfiguredSigningSessionBudgetUses(args: {
-  deps: EvmFamilySigningDeps;
-  fallback?: number;
-}): number {
-  const configured = Math.floor(
-    Number(args.deps.seamsPasskeyConfigs.signing.sessionDefaults?.remainingUses) || 0,
-  );
-  if (configured > 0) return configured;
-  const fallback = Math.floor(Number(args.fallback) || 0);
-  return fallback > 0 ? fallback : 1;
+function resolveTransactionStepUpSessionUses(operationUsesNeeded?: number): number {
+  const normalized = Math.floor(Number(operationUsesNeeded) || 0);
+  return normalized > 0 ? normalized : 1;
 }
 
 type ThresholdEcdsaPresignRefillEvent = {
@@ -202,10 +195,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         // Exhausted ECDSA passkey sessions must use this planned policy digest as the
         // confirmation challenge. Otherwise confirmation collects one WebAuthn assertion,
         // then generic reconnect collects a second assertion and falls back to default uses.
-        const remainingUses = resolveConfiguredSigningSessionBudgetUses({
-          deps: args.deps,
-          fallback: usesNeeded,
-        });
+        const remainingUses = resolveTransactionStepUpSessionUses(usesNeeded);
         const { policy, sessionPolicyDigest32 } = await buildEcdsaSessionPolicy({
           userId: args.nearAccountId,
           rpId,
@@ -254,10 +244,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               clientRootShare32B64u,
               webauthnAuthentication: credential,
               operationUsesNeeded: Math.max(1, Math.floor(Number(usesNeeded) || 1)),
-              sessionBudgetUses: resolveConfiguredSigningSessionBudgetUses({
-                deps: args.deps,
-                fallback: usesNeeded,
-              }),
+              sessionBudgetUses: resolveTransactionStepUpSessionUses(usesNeeded),
               shouldAbort: args.shouldAbort,
               onEvent: args.onEvent,
             }),
@@ -390,10 +377,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
                   lane: args.getResolvedEcdsaSigningLane(),
                   keyRef: args.getThresholdEcdsaKeyRef(),
                   operationUsesNeeded: 1,
-                  sessionBudgetUses: resolveConfiguredSigningSessionBudgetUses({
-                    deps: args.deps,
-                    fallback: 1,
-                  }),
+                  sessionBudgetUses: resolveTransactionStepUpSessionUses(1),
                   shouldAbort: args.shouldAbort,
                   onEvent: args.onEvent,
                 }),

@@ -67,6 +67,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
     otpCode: string;
     record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
+    remainingUses?: number;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
 };
 
@@ -293,6 +294,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(
         otpCode: code,
         ...(emailOtpRecord ? { record: emailOtpRecord } : {}),
         ...(authLane ? { authLane } : {}),
+        remainingUses: 1,
       });
       return {
         method: 'email_otp',

@@ -8,7 +8,7 @@ export type DemoSigningSessionStatus = {
   authMethod?: string | null;
   retention?: string | null;
   availableUses?: number;
-  locallyReservedUses?: number;
+  inFlightReservedUses?: number;
   remainingUses?: number;
   expiresAtMs?: number;
   createdAtMs?: number;

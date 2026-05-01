@@ -6,7 +6,10 @@ import type {
   SigningSessionBudgetStatusAuth,
   SigningSessionBudgetZeroSpendReason,
 } from './budget';
-import { buildWalletSigningSpendPlan } from './budget';
+import {
+  buildWalletSigningSpendPlan,
+  isSigningSessionBudgetInFlightError,
+} from './budget';
 import type {
   BackingMaterialSessionId,
   SigningAuthMethod,
@@ -46,11 +49,13 @@ export function createSigningSessionBudgetFinalizer(args: {
     spend,
     async reserve() {
       if (!budget) return null;
-      return await budget.reserve({
-        spend,
-        expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
-        ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
-      });
+      return await reserveWithLocalContentionRetry(async () =>
+        await budget.reserve({
+          spend,
+          expectedBudgetProjectionVersion: args.budgetIdentity.projectionVersion,
+          ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
+        }),
+      );
     },
     async recordSuccess(input = {}) {
       if (!budget) return;
@@ -83,6 +88,24 @@ export function createSigningSessionBudgetFinalizer(args: {
       }
     },
   };
+}
+
+async function reserveWithLocalContentionRetry(
+  reserve: () => Promise<SigningSessionBudgetReservation | null>,
+): Promise<SigningSessionBudgetReservation | null> {
+  const delaysMs = [20, 50, 100];
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await reserve();
+    } catch (error) {
+      if (!isSigningSessionBudgetInFlightError(error) || attempt >= delaysMs.length) {
+        throw error;
+      }
+      // Same-projection holds are local admission control, not auth failure.
+      // Give the signer finalizer a short window to release completed holds.
+      await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]));
+    }
+  }
 }
 
 export function inferSigningSessionBudgetZeroSpendReason(args: {

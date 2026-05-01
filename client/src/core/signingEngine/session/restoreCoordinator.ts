@@ -16,17 +16,36 @@ type RestoreSealedSessionListInput =
 type RestorePersistedSessionForSigningBaseInput = {
   walletId: string;
   authMethod: 'email_otp' | 'passkey';
-  walletSigningSessionId?: string;
-  thresholdSessionId?: string;
-  reason: 'transaction' | 'export' | 'session_status';
 };
 
+type RestorePersistedSessionForSigningTransactionInput =
+  RestorePersistedSessionForSigningBaseInput & {
+    walletSigningSessionId: string;
+    thresholdSessionId: string;
+    reason: 'transaction';
+  };
+
+type RestorePersistedSessionForSigningMaintenanceInput =
+  RestorePersistedSessionForSigningBaseInput & {
+    walletSigningSessionId?: string;
+    thresholdSessionId?: string;
+    reason: 'export' | 'session_status';
+  };
+
 export type RestorePersistedSessionForSigningInput =
-  | (RestorePersistedSessionForSigningBaseInput & {
+  | (RestorePersistedSessionForSigningTransactionInput & {
       curve: 'ed25519';
       chain: 'near';
     })
-  | (RestorePersistedSessionForSigningBaseInput & {
+  | (RestorePersistedSessionForSigningTransactionInput & {
+      curve: 'ecdsa';
+      chain: 'tempo' | 'evm';
+    })
+  | (RestorePersistedSessionForSigningMaintenanceInput & {
+      curve: 'ed25519';
+      chain: 'near';
+    })
+  | (RestorePersistedSessionForSigningMaintenanceInput & {
       curve: 'ecdsa';
       chain: 'tempo' | 'evm';
     });

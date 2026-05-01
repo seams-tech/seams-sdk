@@ -25,6 +25,7 @@ export type SigningSessionSnapshotEcdsaLane = {
   remainingUses?: number;
   expiresAtMs?: number;
   policyHint?: SigningSessionSnapshotPolicyHint;
+  updatedAtMs?: number;
   source?: 'durable_sealed_record' | 'runtime_session_record' | 'runtime_and_durable';
 };
 
@@ -38,6 +39,7 @@ export type SigningSessionSnapshotEd25519Lane = {
   remainingUses?: number;
   expiresAtMs?: number;
   policyHint?: SigningSessionSnapshotPolicyHint;
+  updatedAtMs?: number;
   source?: 'durable_sealed_record' | 'runtime_session_record' | 'runtime_and_durable';
 };
 
@@ -78,11 +80,23 @@ export type SigningSessionSnapshot = {
     };
   };
   candidates: {
+    ed25519: {
+      near: SigningSessionSnapshotEd25519Lane[];
+    };
     ecdsa: {
       tempo: SigningSessionSnapshotEcdsaLane[];
       evm: SigningSessionSnapshotEcdsaLane[];
     };
   };
+};
+
+export type ConcreteSigningSessionSnapshotLane = (
+  | SigningSessionSnapshotEcdsaLane
+  | SigningSessionSnapshotEd25519Lane
+) & {
+  authMethod: 'email_otp' | 'passkey';
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
 };
 
 export type ReadSigningSessionSnapshotInput = {
@@ -115,6 +129,44 @@ export type ReadSigningSessionSnapshotPorts = {
     sessionIds: string[],
   ) => Promise<Map<string, SigningSessionSnapshotRuntimeClaim | null>>;
 };
+
+export function isConcreteSigningSessionSnapshotLane(
+  lane: SigningSessionSnapshotEcdsaLane | SigningSessionSnapshotEd25519Lane,
+): lane is ConcreteSigningSessionSnapshotLane {
+  const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
+  const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
+  if (lane.thresholdSessionId !== thresholdSessionId) return false;
+  if (lane.walletSigningSessionId !== walletSigningSessionId) return false;
+  return (
+    (lane.authMethod === 'email_otp' || lane.authMethod === 'passkey') &&
+    Boolean(thresholdSessionId) &&
+    Boolean(walletSigningSessionId)
+  );
+}
+
+function comparePreferred(leftPreferred: boolean, rightPreferred: boolean): number {
+  if (leftPreferred === rightPreferred) return 0;
+  return leftPreferred ? -1 : 1;
+}
+
+function snapshotLaneStableId(lane: ConcreteSigningSessionSnapshotLane): string {
+  return `${lane.walletSigningSessionId}:${lane.thresholdSessionId}`;
+}
+
+export function compareSnapshotCandidates(
+  left: ConcreteSigningSessionSnapshotLane,
+  right: ConcreteSigningSessionSnapshotLane,
+  preferredAuthMethod?: 'email_otp' | 'passkey' | null,
+): number {
+  return (
+    comparePreferred(
+      Boolean(preferredAuthMethod && left.authMethod === preferredAuthMethod),
+      Boolean(preferredAuthMethod && right.authMethod === preferredAuthMethod),
+    ) ||
+    comparePreferred(left.state === 'ready', right.state === 'ready') ||
+    snapshotLaneStableId(left).localeCompare(snapshotLaneStableId(right))
+  );
+}
 
 function emptyEcdsaLane(chain: 'tempo' | 'evm'): SigningSessionSnapshotEcdsaLane {
   return {
@@ -163,6 +215,7 @@ function recordToEcdsaLane(args: {
     state: thresholdSessionId ? 'restorable' : 'deferred',
     source: 'durable_sealed_record',
     walletSigningSessionId: args.record.walletSigningSessionId,
+    updatedAtMs: Math.floor(Number(args.record.updatedAtMs) || 0),
     ...(thresholdSessionId ? { thresholdSessionId } : {}),
     ...(policyHint ? { policyHint } : {}),
   };
@@ -183,6 +236,7 @@ function recordToEd25519Lane(args: {
     state: thresholdSessionId ? 'restorable' : 'deferred',
     source: 'durable_sealed_record',
     walletSigningSessionId: args.record.walletSigningSessionId,
+    updatedAtMs: Math.floor(Number(args.record.updatedAtMs) || 0),
     ...(thresholdSessionId ? { thresholdSessionId } : {}),
     ...(policyHint ? { policyHint } : {}),
   };
@@ -245,6 +299,9 @@ function runtimeRecordToEcdsaLane(args: {
     ...(thresholdSessionId ? { thresholdSessionId } : {}),
     ...(claim?.remainingUses ? { remainingUses: claim.remainingUses } : {}),
     ...(claim?.expiresAtMs ? { expiresAtMs: claim.expiresAtMs } : {}),
+    ...(hasMatchingDurableLane && args.durableLane.updatedAtMs
+      ? { updatedAtMs: args.durableLane.updatedAtMs }
+      : {}),
   };
 }
 
@@ -271,6 +328,9 @@ function runtimeRecordToEd25519Lane(args: {
     ...(thresholdSessionId ? { thresholdSessionId } : {}),
     ...(claim?.remainingUses ? { remainingUses: claim.remainingUses } : {}),
     ...(claim?.expiresAtMs ? { expiresAtMs: claim.expiresAtMs } : {}),
+    ...(hasMatchingDurableLane && args.durableLane.updatedAtMs
+      ? { updatedAtMs: args.durableLane.updatedAtMs }
+      : {}),
   };
 }
 
@@ -317,6 +377,7 @@ export async function readSigningSessionSnapshot(
     tempo: [],
     evm: [],
   };
+  const ed25519Candidates: SigningSessionSnapshotEd25519Lane[] = [];
   let ed25519Lane = emptyEd25519Lane();
   const laneUpdatedAtMs = {
     tempo: 0,
@@ -342,8 +403,10 @@ export async function readSigningSessionSnapshot(
     if (!record.thresholdSessionIds.ed25519) continue;
     const updatedAtMs = Math.floor(Number(record.updatedAtMs) || 0);
     generation = Math.max(generation, updatedAtMs);
+    const lane = recordToEd25519Lane({ record });
+    ed25519Candidates.push(lane);
     if (updatedAtMs < ed25519LaneUpdatedAtMs) continue;
-    ed25519Lane = recordToEd25519Lane({ record });
+    ed25519Lane = lane;
     ed25519LaneUpdatedAtMs = updatedAtMs;
   }
 
@@ -393,12 +456,30 @@ export async function readSigningSessionSnapshot(
   for (const runtimeRecord of runtimeEd25519Records) {
     const thresholdSessionId = String(runtimeRecord.thresholdSessionId || '').trim();
     if (!thresholdSessionId) continue;
-    ed25519Lane = runtimeRecordToEd25519Lane({
+    const durableLane =
+      ed25519Candidates.find(
+        (lane) => String(lane.thresholdSessionId || '').trim() === thresholdSessionId,
+      ) || ed25519Lane;
+    const runtimeLane = runtimeRecordToEd25519Lane({
       record: runtimeRecord,
       claim: claimsBySessionId.get(thresholdSessionId) || null,
-      durableLane: ed25519Lane,
+      durableLane,
     });
+    const candidateIndex = ed25519Candidates.findIndex(
+      (lane) => String(lane.thresholdSessionId || '').trim() === thresholdSessionId,
+    );
+    if (candidateIndex >= 0) {
+      ed25519Candidates[candidateIndex] = runtimeLane;
+    } else {
+      ed25519Candidates.push(runtimeLane);
+    }
+    ed25519Lane = runtimeLane;
   }
+
+  const byNewestCandidate = (
+    left: SigningSessionSnapshotEcdsaLane | SigningSessionSnapshotEd25519Lane,
+    right: SigningSessionSnapshotEcdsaLane | SigningSessionSnapshotEd25519Lane,
+  ): number => Math.floor(Number(right.updatedAtMs) || 0) - Math.floor(Number(left.updatedAtMs) || 0);
 
   return {
     walletId,
@@ -410,6 +491,9 @@ export async function readSigningSessionSnapshot(
       ecdsa: ecdsaLanes,
     },
     candidates: {
+      ed25519: {
+        near: ed25519Candidates.sort(byNewestCandidate),
+      },
       ecdsa: ecdsaCandidates,
     },
   };

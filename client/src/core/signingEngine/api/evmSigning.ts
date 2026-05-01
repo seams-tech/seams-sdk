@@ -10,6 +10,7 @@ import type { TempoSigningRequest } from '../chainAdaptors/tempo/types';
 import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
 import type { SigningSessionSnapshot } from '../session/snapshotReader';
+import type { RestorePersistedSessionForSigningInput } from '../session/restoreCoordinator';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
@@ -145,13 +146,9 @@ export type EvmFamilySigningDeps = {
     record?: ThresholdEcdsaSessionRecord;
     authLane?: EmailOtpAuthLane;
   }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
-  restorePersistedSessionForSigning: (args: {
-    walletId: string;
-    authMethod: 'email_otp' | 'passkey';
-    curve: 'ecdsa';
-    chain: EvmFamilyChain;
-    reason: 'transaction' | 'export' | 'session_status';
-  }) => Promise<unknown>;
+  restorePersistedSessionForSigning: (
+    args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,
+  ) => Promise<unknown>;
   readSigningSessionSnapshotForSigning: (args: {
     walletId: string;
     authMethod?: 'email_otp' | 'passkey';
