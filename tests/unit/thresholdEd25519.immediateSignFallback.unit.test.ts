@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { signTransactionsWithActions } from '@/core/signingEngine/orchestration/near/transactionsFlow';
+import { signTransactionsWithActions as signPreparedTransactionsWithActions } from '@/core/signingEngine/orchestration/near/transactionsFlow';
 import { connectEd25519Session } from '@/core/signingEngine/threshold/workflows/connectEd25519Session';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
 import {
@@ -169,6 +169,65 @@ function createActiveSigningSessionCoordinator(
     getStatus: async () => activeBudgetStatus(walletSigningSessionId, remainingUses),
     consumeUse: async ({ uses }) =>
       activeBudgetStatus(walletSigningSessionId, Math.max(0, remainingUses - uses)),
+  });
+}
+
+async function signTransactionsWithActions(args: any) {
+  if (args.signingAuthPlan && args.signingLane && args.signingSessionCoordinator) {
+    return await signPreparedTransactionsWithActions(args);
+  }
+
+  const nearAccountId = String(args.rpcCall?.nearAccountId || '').trim();
+  const sessionId = String(args.sessionId || '').trim();
+  const record = nearAccountId
+    ? getStoredThresholdEd25519SessionRecordForAccount(nearAccountId)
+    : null;
+  const thresholdSessionId = sessionId || String(record?.thresholdSessionId || '').trim();
+  const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
+  if (!nearAccountId || !thresholdSessionId || !walletSigningSessionId) {
+    return await signPreparedTransactionsWithActions(args);
+  }
+
+  const authMethod = record?.source === 'email_otp' ? 'email_otp' : 'passkey';
+  const signingLane = buildNearTransactionSigningLane({
+    accountId: nearAccountId,
+    authMethod,
+    walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+    ...(authMethod === 'email_otp'
+      ? { retention: record?.emailOtpAuthContext?.retention || 'session' }
+      : {
+          storageSource:
+            record?.source && record.source !== 'email_otp' ? record.source : 'login',
+        }),
+  });
+  const requiresFreshAuth = args.emailOtpSigning || !String(record?.xClientBaseB64u || '').trim();
+  const signingAuthPlan = requiresFreshAuth
+    ? authMethod === 'email_otp'
+      ? { kind: 'emailOtpReauth', method: 'email_otp' }
+      : { kind: 'passkeyReauth', method: 'passkey' }
+    : {
+        kind: 'warmSession',
+        method: authMethod,
+        accountId: nearAccountId,
+        intent: 'transaction_sign',
+        curve: 'ed25519',
+        sessionId: thresholdSessionId,
+        expiresAtMs: Math.floor(Number(record?.expiresAtMs) || Date.now() + 60_000),
+        remainingUses: Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
+      };
+
+  return await signPreparedTransactionsWithActions({
+    ...args,
+    sessionId: thresholdSessionId,
+    signingLane,
+    signingAuthPlan,
+    signingSessionCoordinator:
+      args.signingSessionCoordinator ||
+      createActiveSigningSessionCoordinator(
+        walletSigningSessionId,
+        Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
+      ),
   });
 }
 
@@ -838,7 +897,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
     }
   });
 
-  test('falls back to WebAuthn when the warm session cache is missing but the persisted session remains valid', async () => {
+  test('uses persisted Ed25519 session material when the warm session cache is missing', async () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
     const originalFetch = globalThis.fetch;
     const sessionStorage = new MemorySessionStorage();
@@ -911,6 +970,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       let claimCalls = 0;
       let workerThresholdSessionJwt = '';
       let workerCredentialJson = '';
+      let workerXClientBaseB64u = '';
 
       const signed = await signTransactionsWithActions({
         ctx: {
@@ -989,6 +1049,9 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               request?.payload?.threshold?.thresholdSessionJwt || '',
             ).trim();
             workerCredentialJson = String(request?.payload?.credential || '').trim();
+            workerXClientBaseB64u = String(
+              request?.payload?.threshold?.xClientBaseB64u || '',
+            ).trim();
             return {
               type: WorkerResponseType.SignTransactionsWithActionsSuccess,
               payload: {
@@ -1019,10 +1082,11 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       expect(Array.isArray(signed)).toBe(true);
       expect(signed).toHaveLength(1);
       expect(resolvedSigningAuthMode).toBe('');
-      expect(resolvedSigningAuthPlanKind).toBe('passkeyReauth');
+      expect(resolvedSigningAuthPlanKind).toBe('warmSession');
       expect(claimCalls).toBe(0);
       expect(workerThresholdSessionJwt).toBe('persisted-threshold-jwt');
       expect(workerCredentialJson).toContain('cred-id');
+      expect(workerXClientBaseB64u).toBe('persisted-x-client-base');
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
       sessionStorage.clear();
@@ -1202,6 +1266,155 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           delete (globalThis as { localStorage?: Storage }).localStorage;
         }
       }
+    });
+  });
+
+  test('syncs passkey Ed25519 step-up spend after the server consumes its single use', async () => {
+    await withNearThresholdTestEnv(async () => {
+      const nearAccountId = 'near-passkey-stepup-consumed.testnet';
+      const thresholdSessionId = 'near-passkey-stepup-consumed-session';
+      const walletSigningSessionId = 'wallet-near-passkey-stepup-consumed';
+      const relayerUrl = 'https://relay.example.test';
+      const relayerKeyId = 'ed25519:relayer-key-id';
+      const rpId = 'example.localhost';
+      const dummyCredential = {
+        id: 'cred-id',
+        rawId: 'cred-rawid-b64u',
+        type: 'public-key',
+        authenticatorAttachment: 'platform',
+        response: {
+          clientDataJSON: 'clientDataJSON-b64u',
+          authenticatorData: 'authenticatorData-b64u',
+          signature: 'signature-b64u',
+          userHandle: '',
+        },
+        clientExtensionResults: {
+          prf: { results: { first: 'AQ', second: undefined } },
+        },
+      };
+
+      const refreshedRecord = persistWarmSessionEd25519Capability({
+        nearAccountId,
+        rpId,
+        relayerUrl,
+        relayerKeyId,
+        participantIds: [1, 2],
+        runtimePolicyScope: {
+          orgId: 'org-test',
+          projectId: 'project-test',
+          envId: 'dev',
+          signingRootVersion: 'default',
+        },
+        sessionId: thresholdSessionId,
+        walletSigningSessionId,
+        expiresAtMs: Date.now() + 60_000,
+        remainingUses: 1,
+        jwt: 'near-passkey-stepup-consumed-threshold-jwt',
+        xClientBaseB64u: 'near-passkey-stepup-consumed-x-client-base',
+        source: 'registration',
+      });
+
+      let workerSigned = false;
+      let consumeCalls = 0;
+      const signingSessionCoordinator = new SigningSessionCoordinator({
+        getStatus: async ({ targetThresholdSessionIds }) => {
+          const targetIds = (targetThresholdSessionIds || []).map((id: string) =>
+            String(id).replace(/^threshold-ed25519:/, ''),
+          );
+          if (workerSigned && targetIds.includes(thresholdSessionId)) {
+            return {
+              sessionId: walletSigningSessionId,
+              status: 'exhausted' as const,
+              remainingUses: 0,
+              expiresAtMs: Date.now() + 60_000,
+              projectionVersion: `projection:${walletSigningSessionId}:consumed`,
+            };
+          }
+          return activeBudgetStatus(walletSigningSessionId, 1);
+        },
+        consumeUse: async ({ alreadyConsumedThresholdSessionIds }) => {
+          consumeCalls += 1;
+          expect(
+            (alreadyConsumedThresholdSessionIds || []).map((id: string) =>
+              String(id).replace(/^threshold-ed25519:/, ''),
+            ),
+          ).toContain(thresholdSessionId);
+          return {
+            sessionId: walletSigningSessionId,
+            status: 'exhausted' as const,
+            remainingUses: 0,
+            expiresAtMs: Date.now() + 60_000,
+            projectionVersion: `projection:${walletSigningSessionId}:consumed`,
+          };
+        },
+      } as any);
+
+      const signingLane = buildNearTransactionSigningLane({
+        accountId: nearAccountId as any,
+        authMethod: 'passkey',
+        walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+        thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+        storageSource: 'registration',
+      });
+
+      const signed = await signTransactionsWithActions({
+        ctx: createNearThresholdRuntimeCtx({
+          nearAccountId,
+          relayerUrl,
+          relayerKeyId,
+          rpId,
+          orchestrateSigningConfirmation: async () => ({
+            intentDigest: 'intent-digest-b64u',
+            transactionContext: {
+              nearPublicKeyStr: 'ed25519:threshold-public-key',
+              nextNonce: '1',
+              txBlockHeight: '1',
+              txBlockHash: 'blockhash',
+              accessKeyInfo: { nonce: 0 },
+            },
+            credential: dummyCredential,
+          }),
+          requestWorkerOperation: async () => {
+            workerSigned = true;
+            return {
+              type: WorkerResponseType.SignTransactionsWithActionsSuccess,
+              payload: {
+                success: true,
+                signedTransactions: [
+                  { transaction: {}, signature: {}, borshBytes: new Uint8Array([1]) },
+                ],
+                logs: [],
+              },
+            };
+          },
+        }),
+        transactions: [
+          {
+            receiverId: nearAccountId,
+            actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+          },
+        ],
+        rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
+        signerSlot: 1,
+        sessionId: thresholdSessionId,
+        signingAuthPlan: {
+          kind: 'passkeyReauth',
+          method: 'passkey',
+        },
+        signingLane,
+        passkeyEd25519Reconnect: {
+          prepare: async () => ({
+            sessionId: thresholdSessionId,
+            walletSigningSessionId,
+            sessionPolicyDigest32: 'planned-ed25519-session-policy-digest',
+          }),
+          reconnect: async () => ({ sessionId: thresholdSessionId, record: refreshedRecord }),
+        },
+        signingSessionCoordinator,
+      });
+
+      expect(signed).toHaveLength(1);
+      expect(consumeCalls).toBe(1);
     });
   });
 

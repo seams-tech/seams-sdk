@@ -652,6 +652,119 @@ test.describe('SigningSessionCoordinator', () => {
     });
   });
 
+  test('syncs an already-spent refreshed Email OTP Ed25519 target before lane discovery catches up', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const expiresAtMs = Date.now() + 120_000;
+    const nearAccountId = 'email-ed25519-refreshed-target.testnet';
+    const walletSigningSessionId = 'ws-email-ed25519-refreshed-target';
+    const oldThresholdSessionId = 'ed-email-refreshed-target-old';
+    const freshThresholdSessionId = 'ed-email-refreshed-target-fresh';
+    seedEd25519WarmSessionRecord({
+      nearAccountId,
+      thresholdSessionId: oldThresholdSessionId,
+      walletSigningSessionId,
+      thresholdSessionJwt: 'jwt:ed-email-refreshed-target-old',
+      remainingUses: 0,
+      expiresAtMs,
+      xClientBaseB64u: 'old-x-client-base',
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'sign',
+        authMethod: 'email_otp',
+      },
+    });
+
+    const getStatusCalls: any[] = [];
+    const coordinator = new SigningSessionCoordinator({
+      getStatus: async (args: any) => {
+        getStatusCalls.push(args);
+        return {
+          sessionId: walletSigningSessionId,
+          status: 'active' as const,
+          remainingUses: 2,
+          expiresAtMs,
+          projectionVersion: 'projection:refreshed-target:2',
+        };
+      },
+      getEmailOtpWarmSessionStatus: async () => ({
+        ok: false,
+        code: 'exhausted',
+        message: 'old local lane is exhausted',
+      }),
+      consumeEmailOtpWarmSessionUses: async () => {
+        throw new Error('already-consumed refreshed target must not be locally consumed');
+      },
+    });
+
+    const status = await coordinator.consumeUse({
+      nearAccountId,
+      walletSigningSessionId,
+      uses: 1,
+      reason: 'transaction_sign',
+      targetThresholdSessionIds: [freshThresholdSessionId],
+      alreadyConsumedThresholdSessionIds: [freshThresholdSessionId],
+      trustedStatusAuth: {
+        relayerUrl: 'https://relay.example.test',
+        thresholdSessionId: freshThresholdSessionId,
+        thresholdSessionJwt: 'jwt:ed-email-refreshed-target-fresh',
+      },
+    });
+
+    expect(status).toMatchObject({
+      sessionId: walletSigningSessionId,
+      status: 'active',
+      remainingUses: 2,
+    });
+    expect(getStatusCalls[0]?.trustedStatusAuth).toMatchObject({
+      thresholdSessionId: freshThresholdSessionId,
+      thresholdSessionJwt: 'jwt:ed-email-refreshed-target-fresh',
+    });
+  });
+
+  test('syncs an already-spent refreshed Ed25519 target when no local lane is discoverable yet', async () => {
+    const ecdsaStore = createThresholdEcdsaStoreFixture();
+    resetWarmSessionFixtureState(ecdsaStore);
+    const expiresAtMs = Date.now() + 120_000;
+    const nearAccountId = 'ed25519-refreshed-no-local-lane.testnet';
+    const walletSigningSessionId = 'ws-ed25519-refreshed-no-local-lane';
+    const freshThresholdSessionId = 'ed25519-refreshed-no-local-lane';
+    const coordinator = new SigningSessionCoordinator({
+      getStatus: async (args: any) => {
+        expect(args.trustedStatusAuth?.thresholdSessionId).toBe(freshThresholdSessionId);
+        return {
+          sessionId: walletSigningSessionId,
+          status: 'active' as const,
+          remainingUses: 2,
+          expiresAtMs,
+          projectionVersion: 'projection:no-local-lane:2',
+        };
+      },
+    });
+
+    const status = await coordinator.consumeUse({
+      nearAccountId,
+      walletSigningSessionId,
+      uses: 1,
+      reason: 'transaction_sign',
+      targetThresholdSessionIds: [freshThresholdSessionId],
+      alreadyConsumedThresholdSessionIds: [freshThresholdSessionId],
+      trustedStatusAuth: {
+        relayerUrl: 'https://relay.example.test',
+        thresholdSessionId: freshThresholdSessionId,
+        thresholdSessionJwt: 'jwt:ed25519-refreshed-no-local-lane',
+      },
+    });
+
+    expect(status).toMatchObject({
+      sessionId: walletSigningSessionId,
+      status: 'active',
+      remainingUses: 2,
+    });
+  });
+
   test('uses trusted budget status after an already-spent passkey Ed25519 lane drops local material', async () => {
     const expiresAtMs = Date.now() + 120_000;
     const nearAccountId = 'passkey-ed25519-trusted-budget.testnet';

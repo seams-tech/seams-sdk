@@ -231,12 +231,15 @@ test.describe('Email OTP operation split guard', () => {
       preparedStart,
     );
     const selectionCall = preparedSigning.indexOf(
-      'const selection = await resolveEvmFamilyEcdsaSigningSelection',
+      'selection =\n          selection ||',
       preparedStart,
     );
 
     expect(evmSigning.slice(depsStart, attemptStart)).toContain(
-      "restorePersistedSessionForSigning: (args: {\n    walletId: string;\n    authMethod: 'email_otp' | 'passkey';\n    curve: 'ecdsa';",
+      'restorePersistedSessionForSigning: (',
+    );
+    expect(evmSigning.slice(depsStart, attemptStart)).toContain(
+      "Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>",
     );
     expect(evmSigning.slice(depsStart, attemptStart)).not.toContain(
       'restorePersistedEmailOtpSessionsForRead',

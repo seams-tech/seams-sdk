@@ -52,6 +52,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       nearAccountId: 'reuse-ready.testnet',
       chain: 'evm',
       usesNeeded: 2,
+      sessionBudgetUses: 2,
     });
 
     expect(provisionCalls).toBe(0);
@@ -129,6 +130,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       nearAccountId: 'reconnect.testnet',
       chain: 'evm',
       usesNeeded: 1,
+      sessionBudgetUses: 1,
     });
 
     expect(provisionCalls).toBe(1);

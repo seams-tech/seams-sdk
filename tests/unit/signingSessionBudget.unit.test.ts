@@ -49,6 +49,7 @@ test.describe('SigningSessionBudget', () => {
         status: 'active',
         remainingUses: 1,
         expiresAtMs: Date.now() + 60_000,
+        projectionVersion: 'projection:wsess-projection:1',
       },
     });
     const reserved = reduceWalletBudgetProjection(withServerStatus, {
@@ -59,6 +60,8 @@ test.describe('SigningSessionBudget', () => {
           'sha256:projection',
         ),
         uses: 1,
+        reservedAgainstProjectionVersion: 'projection:wsess-projection:1',
+        reservedAgainstRemainingUses: 1,
       },
     });
 
@@ -67,8 +70,9 @@ test.describe('SigningSessionBudget', () => {
     expect(projectionToSigningSessionStatus(reserved)).toMatchObject({
       status: 'active',
       remainingUses: 1,
-      locallyReservedUses: 1,
+      inFlightReservedUses: 1,
       availableUses: 0,
+      projectionVersion: 'projection:wsess-projection:1',
     });
 
     const released = reduceWalletBudgetProjection(reserved, {
@@ -123,6 +127,24 @@ test.describe('SigningSessionBudget', () => {
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 0,
       walletBudgetStatus: activeBudgetStatus('wsess-active-budget', 1),
+      usesNeeded: 1,
+    });
+
+    expect(merged.readiness.status).toBe('ready');
+    expect(merged.remainingUses).toBe(1);
+  });
+
+  test('readiness does not turn local availability into terminal exhaustion', async () => {
+    const merged = applyWalletBudgetStatusToSigningSessionReadiness({
+      status: 'ready',
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session('tsess-local-hold'),
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 1,
+      walletBudgetStatus: {
+        ...activeBudgetStatus('wsess-local-hold', 1),
+        inFlightReservedUses: 1,
+        availableUses: 0,
+      },
       usesNeeded: 1,
     });
 
@@ -622,7 +644,7 @@ test.describe('SigningSessionBudget', () => {
 
     const reservation = await budget.reserve(preparedBudgetInput(firstSpend, 1));
     await expect(budget.reserve(preparedBudgetInput(secondSpend, 1))).rejects.toThrow(
-      'wallet signing-session budget is exhausted',
+      'wallet signing-session budget is reserved by in-flight operations',
     );
     reservation?.release('confirmation_cancelled');
     await budget.reserve(preparedBudgetInput(secondSpend, 1));
@@ -696,7 +718,9 @@ test.describe('SigningSessionBudget', () => {
     expect(results[2]).toMatchObject({
       status: 'rejected',
       reason: expect.objectContaining({
-        message: expect.stringContaining('wallet signing-session budget is exhausted'),
+        message: expect.stringContaining(
+          'wallet signing-session budget is reserved by in-flight operations',
+        ),
       }),
     });
 
@@ -749,7 +773,7 @@ test.describe('SigningSessionBudget', () => {
     ).resolves.toMatchObject({
       status: 'active',
       remainingUses: 2,
-      locallyReservedUses: 1,
+      inFlightReservedUses: 1,
       availableUses: 1,
     });
 
@@ -762,9 +786,164 @@ test.describe('SigningSessionBudget', () => {
     ).resolves.toMatchObject({
       status: 'active',
       remainingUses: 2,
-      locallyReservedUses: 2,
+      inFlightReservedUses: 2,
       availableUses: 0,
     });
+
+    firstReservation?.release('confirmation_cancelled');
+    secondReservation?.release('confirmation_cancelled');
+  });
+
+  test('does not subtract stale reservations from a newer server projection', async () => {
+    let serverRemainingUses = 3;
+    const lane = buildTempoTransactionSigningLane({
+      accountId: toAccountId('budget.testnet'),
+      authMethod: 'passkey',
+      storageSource: 'login',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-causal'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-causal'),
+      signingRootId: 'proj_budget:dev',
+      signingRootVersion: 'default',
+    });
+    const firstSpend = buildWalletSigningSpendPlan(
+      {
+        operationId: SigningSessionIds.signingOperation('op-budget-causal-first'),
+        intent: 'transaction_sign',
+      },
+      lane,
+    );
+    const secondSpend = buildWalletSigningSpendPlan(
+      {
+        operationId: SigningSessionIds.signingOperation('op-budget-causal-second'),
+        intent: 'transaction_sign',
+      },
+      lane,
+    );
+    const budget = new SigningSessionCoordinator({
+      getStatus: async (args) =>
+        activeBudgetStatus(String(args.walletSigningSessionId), serverRemainingUses),
+    });
+
+    const firstReservation = await budget.reserve(preparedBudgetInput(firstSpend, 3));
+    serverRemainingUses = 2;
+
+    await expect(
+      budget.getAvailableStatus({
+        nearAccountId: 'budget.testnet',
+        walletSigningSessionId: 'wsess-budget-causal',
+      }),
+    ).resolves.toMatchObject({
+      status: 'active',
+      remainingUses: 2,
+      inFlightReservedUses: 0,
+      availableUses: 2,
+    });
+    const secondReservation = await budget.reserve(preparedBudgetInput(secondSpend, 2));
+
+    firstReservation?.release('confirmation_cancelled');
+    secondReservation?.release('confirmation_cancelled');
+  });
+
+  test('admits a stale prepared projection when fresh trusted budget still has capacity', async () => {
+    let serverRemainingUses = 3;
+    const lane = buildTempoTransactionSigningLane({
+      accountId: toAccountId('budget.testnet'),
+      authMethod: 'passkey',
+      storageSource: 'login',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-stale-prepare'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-stale-prepare'),
+      signingRootId: 'proj_budget:dev',
+      signingRootVersion: 'default',
+    });
+    const firstSpend = buildWalletSigningSpendPlan(
+      {
+        operationId: SigningSessionIds.signingOperation('op-budget-stale-prepare-first'),
+        intent: 'transaction_sign',
+      },
+      lane,
+    );
+    const secondSpend = buildWalletSigningSpendPlan(
+      {
+        operationId: SigningSessionIds.signingOperation('op-budget-stale-prepare-second'),
+        intent: 'transaction_sign',
+      },
+      lane,
+    );
+    const budget = new SigningSessionCoordinator({
+      getStatus: async (args) =>
+        activeBudgetStatus(String(args.walletSigningSessionId), serverRemainingUses),
+    });
+
+    const firstReservation = await budget.reserve(preparedBudgetInput(firstSpend, 3));
+    serverRemainingUses = 2;
+
+    const secondReservation = await budget.reserve(preparedBudgetInput(secondSpend, 3));
+    await expect(
+      budget.getAvailableStatus({
+        nearAccountId: 'budget.testnet',
+        walletSigningSessionId: 'wsess-budget-stale-prepare',
+      }),
+    ).resolves.toMatchObject({
+      status: 'active',
+      remainingUses: 2,
+      inFlightReservedUses: 1,
+      availableUses: 1,
+    });
+
+    firstReservation?.release('confirmation_cancelled');
+    secondReservation?.release('confirmation_cancelled');
+  });
+
+  test('keeps the third fast operation warm when server reports one remaining use', async () => {
+    let serverRemainingUses = 3;
+    const lane = buildTempoTransactionSigningLane({
+      accountId: toAccountId('budget.testnet'),
+      authMethod: 'passkey',
+      storageSource: 'login',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession('wsess-budget-fast-third'),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession('tsess-budget-fast-third'),
+      signingRootId: 'proj_budget:dev',
+      signingRootVersion: 'default',
+    });
+    const spends = ['first', 'second'].map((label) =>
+      buildWalletSigningSpendPlan(
+        {
+          operationId: SigningSessionIds.signingOperation(`op-budget-fast-third-${label}`),
+          intent: 'transaction_sign',
+        },
+        lane,
+      ),
+    );
+    const budget = new SigningSessionCoordinator({
+      getStatus: async (args) =>
+        activeBudgetStatus(String(args.walletSigningSessionId), serverRemainingUses),
+    });
+
+    const firstReservation = await budget.reserve(preparedBudgetInput(spends[0]!, 3));
+    serverRemainingUses = 2;
+    const secondReservation = await budget.reserve(preparedBudgetInput(spends[1]!, 2));
+    serverRemainingUses = 1;
+
+    const status = await budget.getAvailableStatus({
+      nearAccountId: 'budget.testnet',
+      walletSigningSessionId: 'wsess-budget-fast-third',
+    });
+    const merged = applyWalletBudgetStatusToSigningSessionReadiness({
+      status: 'ready',
+      thresholdSessionId: lane.thresholdSessionId,
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 1,
+      walletBudgetStatus: status,
+      usesNeeded: 1,
+    });
+
+    expect(status).toMatchObject({
+      status: 'active',
+      remainingUses: 1,
+      inFlightReservedUses: 0,
+      availableUses: 1,
+    });
+    expect(merged.readiness.status).toBe('ready');
 
     firstReservation?.release('confirmation_cancelled');
     secondReservation?.release('confirmation_cancelled');
@@ -825,7 +1004,9 @@ test.describe('SigningSessionBudget', () => {
     expect(results[2]).toMatchObject({
       status: 'rejected',
       reason: expect.objectContaining({
-        message: expect.stringContaining('wallet signing-session budget is exhausted'),
+        message: expect.stringContaining(
+          'wallet signing-session budget is reserved by in-flight operations',
+        ),
       }),
     });
   });

@@ -5,6 +5,7 @@ import {
   buildTempoTransactionSigningLane,
 } from '@/core/signingEngine/session/signingSession/lanes';
 import { createSigningSessionBudgetFinalizer } from '@/core/signingEngine/session/signingSession/budgetFinalizer';
+import { SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR } from '@/core/signingEngine/session/signingSession/budget';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import {
   SigningOperationIntent,
@@ -34,6 +35,52 @@ function budgetIdentity(walletSigningSessionId: string) {
 }
 
 test.describe('SigningSessionBudgetFinalizer', () => {
+  test('retries local in-flight budget contention before surfacing a reservation failure', async () => {
+    const lane = selectedLane(buildTempoTransactionSigningLane({
+      accountId: toAccountId('budget-finalizer-in-flight.testnet'),
+      authMethod: 'passkey',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession(
+        'wsess-budget-finalizer-in-flight',
+      ),
+      thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
+        'tsess-budget-finalizer-in-flight',
+      ),
+      signingRootId: 'proj_budget:tempo',
+      signingRootVersion: 'default',
+    }) as SelectedSigningLaneContext);
+    let attempts = 0;
+    const finalizer = createSigningSessionBudgetFinalizer({
+      signingSessionBudget: {
+        reserve: async () => {
+          attempts += 1;
+          if (attempts === 1) throw new Error(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
+          return {
+            operationId: SigningSessionIds.signingOperation('op-budget-finalizer-in-flight'),
+            release: () => undefined,
+          };
+        },
+        getAvailableStatus: async () => null,
+        recordSuccess: async () => null,
+        recordZeroSpend: () => {},
+        hasRecorded: () => false,
+      },
+      operation: {
+        operationId: SigningSessionIds.signingOperation('op-budget-finalizer-in-flight'),
+        operationFingerprint: SigningSessionIds.signingOperationFingerprint(
+          'sha256:budget-finalizer-in-flight',
+        ),
+        intent: 'transaction_sign',
+      },
+      lane,
+      budgetIdentity: budgetIdentity(String(lane.walletSigningSessionId)),
+    });
+
+    await expect(finalizer.reserve()).resolves.toMatchObject({
+      operationId: 'op-budget-finalizer-in-flight',
+    });
+    expect(attempts).toBe(2);
+  });
+
   test('fails closed after produced signatures when authoritative budget recording fails', async () => {
     const rows: Array<{ name: string; lane: SelectedSigningLaneContext }> = [
       {
@@ -186,7 +233,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
     ).resolves.toMatchObject({
       status: 'active',
       remainingUses: 1,
-      locallyReservedUses: 1,
+      inFlightReservedUses: 1,
       availableUses: 0,
     });
 
@@ -237,7 +284,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
     ).resolves.toMatchObject({
       status: 'active',
       remainingUses: 1,
-      locallyReservedUses: 0,
+      inFlightReservedUses: 0,
       availableUses: 1,
     });
   });

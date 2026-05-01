@@ -57,7 +57,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const nearSigning = readNearSigningSource();
 
     expect(nearSigning).toContain('hasThresholdEd25519RouteAuth(args.record)');
-    expect(nearSigning).toContain('new SigningSessionCoordinator()');
+    expect(nearSigning).not.toContain('new SigningSessionCoordinator()');
     expect(nearSigning).toContain("emitSigningPlannerDecisionTrace('near', event)");
     expect(nearSigning).not.toContain('readExactSealedSession');
   });

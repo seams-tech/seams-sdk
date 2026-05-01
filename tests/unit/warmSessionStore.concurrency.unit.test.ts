@@ -98,11 +98,13 @@ test.describe('WarmSessionStore concurrency', () => {
       nearAccountId: 'concurrent-ready.testnet',
       chain: 'evm',
       usesNeeded: 1,
+      sessionBudgetUses: 1,
     });
     const readyPromiseB = store.ensureEcdsaCapabilityReady({
       nearAccountId: 'concurrent-ready.testnet',
       chain: 'evm',
       usesNeeded: 1,
+      sessionBudgetUses: 1,
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));

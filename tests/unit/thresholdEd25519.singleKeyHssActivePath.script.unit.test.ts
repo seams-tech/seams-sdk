@@ -9,6 +9,7 @@ import {
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '@/core/signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
+import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { signTransactionsWithActions } from '@/core/signingEngine/orchestration/near/transactionsFlow';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';
 import {
@@ -97,7 +98,22 @@ const SIGNING_ROOT_ID = `${RUNTIME_SCOPE.projectId}:${RUNTIME_SCOPE.envId}`;
 
 function buildTestWarmSigningAuth() {
   const expiresAtMs = Date.now() + 60_000;
+  const activeBudgetStatus = {
+    sessionId: WALLET_SIGNING_SESSION_ID,
+    status: 'active' as const,
+    authMethod: 'passkey' as const,
+    retention: 'session' as const,
+    remainingUses: 5,
+    availableUses: 5,
+    inFlightReservedUses: 0,
+    expiresAtMs,
+    projectionVersion: 'test-ed25519-budget-projection',
+  };
   return {
+    signingSessionCoordinator: new SigningSessionCoordinator({
+      getStatus: async () => activeBudgetStatus,
+      consumeUse: async () => activeBudgetStatus,
+    }),
     signingAuthPlan: {
       kind: 'warm_session',
       method: 'passkey',

@@ -311,7 +311,14 @@ test.describe('wallet signing-session budget parity', () => {
         [...ecdsaStore.recordsByLane.values()].filter((record) => record.chain === chain),
     });
     const ledger = new SigningSessionCoordinator({
-      getStatus: (args) => coordinator.getStatus(args),
+      getStatus: async (args) => {
+        const status = await coordinator.getStatus(args);
+        if (status?.status !== 'active') return status;
+        return {
+          ...status,
+          projectionVersion: `projection:${String(args.walletSigningSessionId || status.sessionId)}:${status.remainingUses}`,
+        };
+      },
       consumeUse: (args) => coordinator.consumeUse(args),
     });
     const lane = buildEvmTransactionSigningLane({
@@ -333,15 +340,14 @@ test.describe('wallet signing-session budget parity', () => {
       lane,
     );
 
-    const reservation = await ledger.reserve({ spend });
+    const reservation = await ledger.reserve({
+      spend,
+      expectedBudgetProjectionVersion: `projection:${walletSigningSessionId}:1`,
+    });
     expect(reservation).toBeTruthy();
     await expect(ledger.recordSuccess({ spend })).resolves.toMatchObject({
       status: 'exhausted',
     });
-    expect(consumedSessionIds).toEqual([
-      ed25519SessionId,
-      evmSessionId,
-      tempoSessionId,
-    ]);
+    expect(consumedSessionIds).toEqual([evmSessionId]);
   });
 });

@@ -154,6 +154,13 @@ test.describe('readSigningSessionSnapshot', () => {
         expiresAtMs: 10_000,
       },
     });
+    expect(snapshot.candidates.ed25519.near).toEqual([
+      expect.objectContaining({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-ed25519-ready',
+        walletSigningSessionId: 'wsess-ed25519-ready',
+      }),
+    ]);
     expect(snapshot.lanes.ecdsa.tempo.state).toBe('missing');
     expect(snapshot.lanes.ecdsa.evm.state).toBe('missing');
   });
@@ -194,6 +201,58 @@ test.describe('readSigningSessionSnapshot', () => {
       thresholdSessionId: 'tsess-ed25519-companion',
       walletSigningSessionId: 'wsess-companion',
     });
+    expect(snapshot.candidates.ed25519.near).toEqual([
+      expect.objectContaining({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-ed25519-companion',
+        walletSigningSessionId: 'wsess-companion',
+      }),
+    ]);
+  });
+
+  test('exposes linked Email OTP and passkey Ed25519 candidates instead of only the merged lane', async () => {
+    const snapshot = await readSigningSessionSnapshot(
+      {
+        walletId: 'snapshot.testnet',
+        nowMs: 5_000,
+      },
+      {
+        listSealedRecordsForAccount: async ({ filter }) =>
+          filter.curve === 'ed25519'
+            ? [
+                makeEd25519SealedRecord({
+                  authMethod: 'email_otp',
+                  thresholdSessionId: 'tsess-email-ed25519',
+                  walletSigningSessionId: 'wsess-email-ed25519',
+                  updatedAtMs: 1,
+                }),
+                makeEd25519SealedRecord({
+                  authMethod: 'passkey',
+                  thresholdSessionId: 'tsess-passkey-ed25519',
+                  walletSigningSessionId: 'wsess-passkey-ed25519',
+                  updatedAtMs: 2,
+                }),
+              ]
+            : [],
+      },
+    );
+
+    expect(snapshot.lanes.ed25519.near).toMatchObject({
+      authMethod: 'passkey',
+      thresholdSessionId: 'tsess-passkey-ed25519',
+    });
+    expect(snapshot.candidates.ed25519.near).toEqual([
+      expect.objectContaining({
+        authMethod: 'passkey',
+        thresholdSessionId: 'tsess-passkey-ed25519',
+        walletSigningSessionId: 'wsess-passkey-ed25519',
+      }),
+      expect.objectContaining({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-email-ed25519',
+        walletSigningSessionId: 'wsess-email-ed25519',
+      }),
+    ]);
   });
 
   test('reports raw durable expired and exhausted policy as hints until trusted', async () => {

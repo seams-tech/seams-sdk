@@ -342,6 +342,7 @@ test.describe('WarmSessionStore Email OTP policy enforcement', () => {
       nearAccountId,
       chain: 'tempo',
       keyRef: recordToKeyRef(emailOtpRecord),
+      sessionBudgetUses: 1,
     });
 
     expect(passkeyStatus).toMatchObject({
@@ -437,6 +438,7 @@ test.describe('WarmSessionStore Email OTP policy enforcement', () => {
       nearAccountId,
       chain: 'tempo',
       source: 'email_otp',
+      sessionBudgetUses: 1,
     });
 
     expect(ready.reconnected).toBe(false);
@@ -565,6 +567,7 @@ test.describe('WarmSessionStore Email OTP policy enforcement', () => {
       store.ensureEcdsaCapabilityReady({
         nearAccountId: 'erin.testnet',
         chain: 'evm',
+        sessionBudgetUses: 1,
       }),
     ).rejects.toMatchObject({
       name: 'WalletAuthPolicyError',
@@ -631,6 +634,7 @@ test.describe('WarmSessionStore Email OTP policy enforcement', () => {
       store.ensureEcdsaCapabilityReady({
         nearAccountId: 'tempo-erin.testnet',
         chain: 'tempo',
+        sessionBudgetUses: 1,
       }),
     ).rejects.toMatchObject({
       name: 'WalletAuthPolicyError',

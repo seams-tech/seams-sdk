@@ -175,6 +175,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       nearAccountId: 'transition-ecdsa.testnet',
       chain: 'evm',
       usesNeeded: 1,
+      sessionBudgetUses: 1,
     });
 
     expect(transitions.map((event) => event.type)).toEqual([

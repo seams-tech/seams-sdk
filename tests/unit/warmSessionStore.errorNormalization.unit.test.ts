@@ -129,6 +129,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         nearAccountId: 'reconnect-error.testnet',
         chain: 'evm',
         usesNeeded: 1,
+        sessionBudgetUses: 1,
       }),
     ).rejects.toThrow(
       '[WarmSessionStore] provisioned ECDSA capability was not persisted for reconnect-error.testnet (expected sessionId=reconnect-error-fresh-session, found=reconnect-error-stale-session)',
