@@ -330,8 +330,6 @@ type PreparedNearEd25519TransactionSigningSession = {
   transactionOperation: PreparedTransactionOperation<NearEd25519TransactionLane>;
   budgetAdmittedOperation?: BudgetAdmittedOperation<NearEd25519TransactionLane>;
   budgetAdmittedState?: TransactionBudgetAdmittedState;
-  budgetIdentity?: SigningSessionPreparedBudgetIdentity;
-  budgetProjectionVersion?: string;
   ed25519Warmup?: NearEd25519Warmup;
   emailOtpSigning?: NearEd25519EmailOtpSigning;
 };
@@ -1418,12 +1416,6 @@ async function prepareNearEd25519TransactionSigningSession(args: {
           budgetAdmittedState,
         }
       : {}),
-    ...(budgetIdentity
-      ? {
-          budgetIdentity,
-          budgetProjectionVersion: budgetIdentity.projectionVersion,
-        }
-      : {}),
     ...(preparedOperation.metadata.ed25519Warmup
       ? { ed25519Warmup: preparedOperation.metadata.ed25519Warmup }
       : {}),
@@ -1464,18 +1456,12 @@ export async function signTransactionsWithActions(
   const emailOtpSigning = preparedSigningSession.emailOtpSigning;
   const ed25519Warmup = preparedSigningSession.ed25519Warmup;
   const resolvedSessionId = preparedSigningSession.resolvedSessionId;
-  const budgetIdentity = preparedSigningSession.budgetIdentity;
   const budgetAdmittedOperation = preparedSigningSession.budgetAdmittedOperation;
   const preparedOperation = preparedSigningSession.preparedOperation;
   assertSigningLaneMatchesSelectedTransactionLane({
     signingLane,
     transactionLane,
   });
-  if (budgetIdentity && !budgetAdmittedOperation) {
-    throw new Error(
-      '[SigningEngine][near] prepared Ed25519 budget identity was not admitted into transaction state',
-    );
-  }
   try {
     return await withThresholdEd25519CommitQueue({
       deps,
@@ -1499,11 +1485,8 @@ export async function signTransactionsWithActions(
           ...(emailOtpSigning ? { emailOtpSigning } : {}),
           signingOperationId: confirmationOperationId,
           signingSessionCoordinator,
-          ...(budgetAdmittedOperation
-            ? {
-                budgetIdentity: budgetAdmittedOperation.budgetAdmission.budgetIdentity,
-              }
-            : {}),
+          transactionOperation: preparedSigningSession.transactionOperation,
+          ...(budgetAdmittedOperation ? { budgetAdmittedOperation } : {}),
           finalizePreparedSigningSession: async ({ status, hooks, result, error }) => {
             await finalizePreparedThresholdSigning(preparedOperation, result || null, {
               ...(status === 'success'

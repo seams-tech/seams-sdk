@@ -393,6 +393,20 @@ export function prepareTransactionOperationFromReadiness(
   };
 }
 
+export function replacePreparedTransactionLane(
+  operation: PreparedTransactionOperation<NearEd25519TransactionLane>,
+  args: {
+    lane: NearEd25519TransactionLane;
+    readiness: TransactionReadiness;
+  },
+): PreparedTransactionOperation<NearEd25519TransactionLane> {
+  return {
+    intent: operation.intent,
+    lane: args.lane,
+    readiness: args.readiness,
+  };
+}
+
 export function admitTransactionBudget(
   operation: PreparedTransactionOperation<NearEd25519TransactionLane>,
   budgetAdmission: TransactionBudgetAdmission,

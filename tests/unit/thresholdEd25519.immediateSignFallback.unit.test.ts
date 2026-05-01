@@ -173,7 +173,12 @@ function createActiveSigningSessionCoordinator(
 }
 
 async function signTransactionsWithActions(args: any) {
-  if (args.signingAuthPlan && args.signingLane && args.signingSessionCoordinator) {
+  if (
+    args.signingAuthPlan &&
+    args.signingLane &&
+    args.signingSessionCoordinator &&
+    args.transactionOperation
+  ) {
     return await signPreparedTransactionsWithActions(args);
   }
 
@@ -189,39 +194,70 @@ async function signTransactionsWithActions(args: any) {
   }
 
   const authMethod = record?.source === 'email_otp' ? 'email_otp' : 'passkey';
-  const signingLane = buildNearTransactionSigningLane({
+  const signingLane =
+    args.signingLane ||
+    buildNearTransactionSigningLane({
+      accountId: nearAccountId,
+      authMethod,
+      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+      ...(authMethod === 'email_otp'
+        ? { retention: record?.emailOtpAuthContext?.retention || 'session' }
+        : {
+            storageSource:
+              record?.source && record.source !== 'email_otp' ? record.source : 'login',
+          }),
+    });
+  const requiresFreshAuth = args.emailOtpSigning || !String(record?.xClientBaseB64u || '').trim();
+  const signingAuthPlan =
+    args.signingAuthPlan ||
+    (requiresFreshAuth
+      ? authMethod === 'email_otp'
+        ? { kind: 'emailOtpReauth', method: 'email_otp' }
+        : { kind: 'passkeyReauth', method: 'passkey' }
+      : {
+          kind: 'warmSession',
+          method: authMethod,
+          accountId: nearAccountId,
+          intent: 'transaction_sign',
+          curve: 'ed25519',
+          sessionId: thresholdSessionId,
+          expiresAtMs: Math.floor(Number(record?.expiresAtMs) || Date.now() + 60_000),
+          remainingUses: Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
+        });
+  const transactionLane = {
     accountId: nearAccountId,
     authMethod,
+    curve: 'ed25519',
+    chain: 'near',
     walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
-    ...(authMethod === 'email_otp'
-      ? { retention: record?.emailOtpAuthContext?.retention || 'session' }
-      : {
-          storageSource:
-            record?.source && record.source !== 'email_otp' ? record.source : 'login',
-        }),
-  });
-  const requiresFreshAuth = args.emailOtpSigning || !String(record?.xClientBaseB64u || '').trim();
-  const signingAuthPlan = requiresFreshAuth
-    ? authMethod === 'email_otp'
-      ? { kind: 'emailOtpReauth', method: 'email_otp' }
-      : { kind: 'passkeyReauth', method: 'passkey' }
-    : {
-        kind: 'warmSession',
-        method: authMethod,
-        accountId: nearAccountId,
-        intent: 'transaction_sign',
-        curve: 'ed25519',
-        sessionId: thresholdSessionId,
-        expiresAtMs: Math.floor(Number(record?.expiresAtMs) || Date.now() + 60_000),
-        remainingUses: Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
-      };
+  };
 
   return await signPreparedTransactionsWithActions({
     ...args,
     sessionId: thresholdSessionId,
     signingLane,
     signingAuthPlan,
+    transactionOperation: args.transactionOperation || {
+      intent: {
+        walletId: nearAccountId,
+        curve: 'ed25519',
+        chain: 'near',
+        authSelectionPolicy: { kind: 'current_lane', authMethod },
+        operationUsesNeeded: 1,
+      },
+      lane: transactionLane,
+      readiness: {
+        status: requiresFreshAuth ? 'auth_unavailable' : 'ready',
+        ...(requiresFreshAuth
+          ? { reason: 'fresh_auth_required' }
+          : {
+              remainingUses: Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
+              expiresAtMs: Math.floor(Number(record?.expiresAtMs) || Date.now() + 60_000),
+            }),
+      },
+    },
     signingSessionCoordinator:
       args.signingSessionCoordinator ||
       createActiveSigningSessionCoordinator(

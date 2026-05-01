@@ -66,6 +66,14 @@ import {
   type SelectedSigningLaneContext,
   type SigningOperationId,
 } from '../../session/signingSession/types';
+import {
+  admitTransactionBudget,
+  replacePreparedTransactionLane,
+  type BudgetAdmittedOperation,
+  type NearEd25519TransactionLane,
+  type PreparedTransactionOperation,
+  type TransactionReadiness,
+} from '../../session/signingSession/transactionState';
 import type { NonceLeaseRef } from '../../nonce/NonceCoordinator';
 import {
   createSigningBoundaryTraceEvent,
@@ -106,6 +114,36 @@ function requireSelectedNearSigningLane(lane: SigningLaneContext): SelectedSigni
     throw new Error('[SigningEngine][near] signing lane is missing resolved session identity');
   }
   return lane as SelectedSigningLaneContext;
+}
+
+function nearTransactionLaneFromSelectedSigningLane(
+  lane: SelectedSigningLaneContext,
+): NearEd25519TransactionLane {
+  if (lane.curve !== 'ed25519' || lane.chainFamily !== 'near') {
+    throw new Error('[SigningEngine][near] expected selected NEAR Ed25519 signing lane');
+  }
+  return {
+    accountId: lane.accountId,
+    authMethod: lane.authMethod,
+    curve: 'ed25519',
+    chain: 'near',
+    walletSigningSessionId: SigningSessionIds.walletSigningSession(
+      String(lane.walletSigningSessionId),
+    ),
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+      String(lane.thresholdSessionId),
+    ),
+  };
+}
+
+function readinessFromPreparedBudgetIdentity(
+  budgetIdentity: SigningSessionPreparedBudgetIdentity,
+): TransactionReadiness {
+  return {
+    status: 'ready',
+    remainingUses: Math.max(0, Math.floor(Number(budgetIdentity.status.remainingUses) || 0)),
+    expiresAtMs: Math.max(0, Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0)),
+  };
 }
 
 function resolvedEd25519SessionStateFromRecord(
@@ -192,7 +230,8 @@ export async function signTransactionsWithActions({
   emailOtpSigning,
   signingOperationId: providedSigningOperationId,
   signingSessionCoordinator: sessionCoordinator,
-  budgetIdentity: providedBudgetIdentity,
+  transactionOperation,
+  budgetAdmittedOperation: providedBudgetAdmittedOperation,
   finalizePreparedSigningSession,
   ed25519Warmup,
   passkeyEd25519Reconnect,
@@ -212,7 +251,8 @@ export async function signTransactionsWithActions({
   emailOtpSigning?: NearEmailOtpSigningHook;
   signingOperationId?: SigningOperationId;
   signingSessionCoordinator?: SigningSessionCoordinator;
-  budgetIdentity?: SigningSessionPreparedBudgetIdentity;
+  transactionOperation: PreparedTransactionOperation<NearEd25519TransactionLane>;
+  budgetAdmittedOperation?: BudgetAdmittedOperation<NearEd25519TransactionLane>;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
@@ -337,6 +377,11 @@ export async function signTransactionsWithActions({
   if (!providedSessionId || !providedSigningAuthPlan || !signingLane) {
     throw new Error(
       '[SigningEngine][near] threshold transaction signing requires prepared session identity',
+    );
+  }
+  if (!transactionOperation) {
+    throw new Error(
+      '[SigningEngine][near] threshold transaction signing requires prepared transaction operation',
     );
   }
   if (
@@ -639,7 +684,7 @@ export async function signTransactionsWithActions({
     thresholdSessionId: canonicalThresholdSessionId,
     durationMs: Math.round(performance.now() - signingStartedAt),
   });
-  let activeBudgetIdentity = providedBudgetIdentity;
+  let activeBudgetAdmittedOperation = providedBudgetAdmittedOperation;
   const buildSelectedBudgetSpendLane = (): SelectedSigningLaneContext => {
     const walletSigningSessionId = String(
       thresholdSessionState.record.walletSigningSessionId || '',
@@ -676,13 +721,25 @@ export async function signTransactionsWithActions({
           }),
     );
   };
-  if (refreshedBudgetIdentityRequired) {
-    activeBudgetIdentity = await sessionCoordinator.prepareBudgetIdentity({
+  const admitBudgetForSelectedSpendLane = async (
+    spendLane: SelectedSigningLaneContext,
+  ): Promise<BudgetAdmittedOperation<NearEd25519TransactionLane>> => {
+    const budgetIdentity = await sessionCoordinator.prepareBudgetIdentity({
       nearAccountId,
-      lane: buildSelectedBudgetSpendLane(),
+      lane: spendLane,
       trustedStatusAuth: trustedBudgetStatusAuth,
       operationUsesNeeded: usesNeeded,
     });
+    const refreshedPreparedOperation = replacePreparedTransactionLane(transactionOperation, {
+      lane: nearTransactionLaneFromSelectedSigningLane(spendLane),
+      readiness: readinessFromPreparedBudgetIdentity(budgetIdentity),
+    });
+    return admitTransactionBudget(refreshedPreparedOperation, { budgetIdentity });
+  };
+  if (refreshedBudgetIdentityRequired) {
+    activeBudgetAdmittedOperation = await admitBudgetForSelectedSpendLane(
+      buildSelectedBudgetSpendLane(),
+    );
     refreshedBudgetIdentityRequired = false;
   }
   const createNearBudgetFinalizer = async (): Promise<SigningSessionBudgetFinalizer | undefined> => {
@@ -741,26 +798,22 @@ export async function signTransactionsWithActions({
         },
       };
     };
-    if (!activeBudgetIdentity && thresholdSignatureCreated) {
+    if (!activeBudgetAdmittedOperation && thresholdSignatureCreated) {
       // Ed25519 server authorization consumes the selected wallet budget during
       // signing. After a single-use step-up, a post-sign active-status check can
       // legitimately read exhausted; finalization should sync that consumed
       // result instead of requiring another active projection.
       return createAlreadyConsumedFinalizer();
     }
-    activeBudgetIdentity =
-      activeBudgetIdentity &&
-      activeBudgetIdentity.walletSigningSessionId === String(spendLane.walletSigningSessionId)
-        ? activeBudgetIdentity
-        : await sessionCoordinator.prepareBudgetIdentity({
-            nearAccountId,
-            lane: spendLane,
-            trustedStatusAuth: trustedBudgetStatusAuth,
-            operationUsesNeeded: usesNeeded,
-          });
+    activeBudgetAdmittedOperation =
+      activeBudgetAdmittedOperation &&
+      activeBudgetAdmittedOperation.budgetAdmission.budgetIdentity.walletSigningSessionId ===
+        String(spendLane.walletSigningSessionId)
+        ? activeBudgetAdmittedOperation
+        : await admitBudgetForSelectedSpendLane(spendLane);
     return createSigningSessionBudgetFinalizer({
       signingSessionBudget: sessionCoordinator,
-      budgetIdentity: activeBudgetIdentity,
+      budgetIdentity: activeBudgetAdmittedOperation.budgetAdmission.budgetIdentity,
       trustedStatusAuth: trustedBudgetStatusAuth,
       operation,
       lane: spendLane,

@@ -677,7 +677,7 @@ Acceptance:
    `BudgetAdmittedTransactionOperation`.
    - [x] NEAR Ed25519 warm-session budget identity is converted into an
      explicit `BudgetAdmittedOperation` before the worker payload sees it.
-   - [ ] Reauth-created sessions must return a replacement
+   - [x] NEAR Ed25519 reauth-created sessions return a replacement
      `BudgetAdmittedOperation` immediately after OTP/passkey mint.
 7. [ ] `sign(...)` accepts only `BudgetAdmittedTransactionOperation`.
 8. [ ] `finalize(...)` accepts only `SignedTransactionOperation`.
@@ -722,15 +722,18 @@ Acceptance:
    - [x] NEAR Ed25519 reauth-created lanes now prepare trusted budget identity
      before the signer worker request instead of rediscovering it only during
      finalization.
-   - [ ] Wrap that refreshed identity in a replacement `BudgetAdmittedOperation`
+   - [x] Wrap that refreshed identity in a replacement `BudgetAdmittedOperation`
      so reauth and warm lanes use the same state-machine object.
 3. Split pre-admission and post-admission types:
    `PreparedTransactionOperation` cannot be signed directly;
    `BudgetAdmittedTransactionOperation` is required.
    - [x] NEAR Ed25519 exposes both `PreparedTransactionOperation` and
      `BudgetAdmittedOperation` in the prepared session type.
-   - [ ] NEAR Ed25519 signing must require the admitted type for every path,
-     including reauth-created lanes.
+   - [x] NEAR Ed25519 lower signing now requires a prepared transaction
+     operation and replaces it with a budget-admitted operation after
+     reauth-created lanes are minted.
+   - [ ] NEAR Ed25519 signing must require the admitted type for every worker
+     request at the payload type boundary.
 4. For Ed25519, mark finalization as reconciliation of the already-consumed
    selected threshold session.
 5. Remove budget-identity preparation from post-sign finalization.

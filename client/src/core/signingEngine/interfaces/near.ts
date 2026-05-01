@@ -14,9 +14,13 @@ import type { SigningAuthPlan } from '../touchConfirm/shared/confirmTypes';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
-import type { SigningSessionPreparedBudgetIdentity } from '../session/signingSession/budget';
 import type { SigningLaneContext, SigningOperationId } from '../session/signingSession/types';
 import type { ThresholdEd25519SessionRecord } from '../api/thresholdLifecycle/thresholdSessionStore';
+import type {
+  BudgetAdmittedOperation,
+  NearEd25519TransactionLane,
+  PreparedTransactionOperation,
+} from '../session/signingSession/transactionState';
 
 export type NearEmailOtpSigningHook = {
   prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
@@ -71,7 +75,8 @@ export type NearTransactionsWithActionsPayload = {
   emailOtpSigning?: NearEmailOtpSigningHook;
   signingOperationId?: SigningOperationId;
   signingSessionCoordinator: SigningSessionCoordinator;
-  budgetIdentity?: SigningSessionPreparedBudgetIdentity;
+  transactionOperation: PreparedTransactionOperation<NearEd25519TransactionLane>;
+  budgetAdmittedOperation?: BudgetAdmittedOperation<NearEd25519TransactionLane>;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
