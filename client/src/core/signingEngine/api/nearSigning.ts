@@ -83,7 +83,9 @@ import {
   type ThresholdSigningReadinessInput,
 } from '../session/signingSession/preparedOperation';
 import {
-  selectTransactionLane,
+  receiveTransactionIntent,
+  recordTransactionSnapshot,
+  selectTransactionLaneFromSnapshot,
   type NearEd25519ConcreteSnapshotLane,
   type NearEd25519TransactionLane,
   type TransactionAuthSelectionPolicy,
@@ -855,26 +857,27 @@ function selectNearEd25519TransactionCandidate(args: {
       : null);
   if (!authSelectionPolicy) return null;
 
-  const selection = selectTransactionLane({
-    intent: {
-      walletId: args.nearAccountId,
-      curve: 'ed25519',
-      chain: 'near',
-      authSelectionPolicy,
-      operationUsesNeeded: 1,
-    },
+  const intentState = receiveTransactionIntent({
+    walletId: args.nearAccountId,
+    curve: 'ed25519',
+    chain: 'near',
+    authSelectionPolicy,
+    operationUsesNeeded: 1,
+  });
+  const snapshotState = recordTransactionSnapshot(intentState, {
     snapshot: args.snapshot,
     currentRuntimeLane: runtimeLane,
   });
-  if (selection.ok) {
+  const selectionState = selectTransactionLaneFromSnapshot(snapshotState);
+  if (selectionState.tag === 'LaneSelected') {
     return {
-      lane: selection.lane,
-      snapshotLane: selection.snapshotLane,
+      lane: selectionState.lane,
+      snapshotLane: selectionState.snapshotLane,
     };
   }
-  if (selection.failure.kind === 'no_candidate') return null;
+  if (selectionState.failure.kind === 'no_candidate') return null;
   throw new Error(
-    `[SigningEngine][near] Ed25519 transaction lane selection failed: ${selection.failure.kind}`,
+    `[SigningEngine][near] Ed25519 transaction lane selection failed: ${selectionState.failure.kind}`,
   );
 }
 

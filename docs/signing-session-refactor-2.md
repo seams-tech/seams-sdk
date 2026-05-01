@@ -661,7 +661,7 @@ Acceptance:
 
 1. [x] Create the initial transaction state module with typed intent, lane,
    prepared/admitted operation, and lane-selection failures.
-2. [ ] Add full discriminated-union transition states and explicit transition
+2. [x] Add full discriminated-union transition states and explicit transition
    functions.
 3. [ ] Create one `prepareTransactionSigningOperation(intent)` path.
 4. [x] NEAR Ed25519 prepare performs snapshot read, lane selection, exact restore, readiness

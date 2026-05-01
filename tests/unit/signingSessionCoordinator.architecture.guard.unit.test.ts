@@ -1079,7 +1079,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(transactionState).toContain('export type TransactionLane');
     expect(transactionState).toContain('export type PreparedTransactionOperation');
     expect(transactionState).toContain('export type BudgetAdmittedOperation');
+    expect(transactionState).toContain('export type TransactionSigningState');
+    expect(transactionState).toContain("tag: 'IntentReceived'");
+    expect(transactionState).toContain("tag: 'SnapshotRead'");
+    expect(transactionState).toContain("tag: 'LaneSelected'");
     expect(transactionState).toContain('export function selectTransactionLane');
+    expect(transactionState).toContain('export function selectTransactionLaneFromSnapshot');
     expect(transactionState).toContain('function isConcreteNearEd25519Lane');
     expect(transactionState).toContain("kind: 'current_lane'");
     expect(transactionState).toContain("kind: 'account_class'");
@@ -1097,7 +1102,10 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(
       nearSigning.indexOf('if (args.record) {'),
     ).toBeGreaterThan(nearSigning.indexOf('resolveAccountAuthMethodForSigning?.({'));
-    expect(nearSigning).toContain('selectTransactionLane({');
+    expect(nearSigning).toContain('receiveTransactionIntent({');
+    expect(nearSigning).toContain('recordTransactionSnapshot(intentState');
+    expect(nearSigning).toContain('selectTransactionLaneFromSnapshot(snapshotState)');
+    expect(nearSigning).not.toContain('selectTransactionLane({');
     expect(nearEd25519RestoreBody).toContain('authMethod: identity.authMethod');
     expect(nearEd25519RestoreBody).toContain('walletSigningSessionId: identity.walletSigningSessionId');
     expect(nearEd25519RestoreBody).toContain('thresholdSessionId: identity.thresholdSessionId');

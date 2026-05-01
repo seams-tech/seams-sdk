@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
+  receiveTransactionIntent,
+  recordTransactionSnapshot,
   selectTransactionLane,
+  selectTransactionLaneFromSnapshot,
   type TransactionSigningIntent,
 } from '@/core/signingEngine/session/signingSession/transactionState';
 import type { SigningSessionSnapshot } from '@/core/signingEngine/session/snapshotReader';
@@ -162,5 +165,26 @@ test.describe('transaction signing state selector', () => {
       ok: false,
       failure: { kind: 'no_candidate', authMethod: 'passkey' },
     });
+  });
+
+  test('moves from intent to snapshot to selected lane with explicit state tags', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ed25519.near = [
+      ed25519Candidate({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-otp',
+        walletSigningSessionId: 'wss-otp',
+      }),
+    ];
+
+    const intent = receiveTransactionIntent(nearIntent('email_otp'));
+    const snapshotState = recordTransactionSnapshot(intent, { snapshot });
+    const selected = selectTransactionLaneFromSnapshot(snapshotState);
+
+    expect(intent.tag).toBe('IntentReceived');
+    expect(snapshotState.tag).toBe('SnapshotRead');
+    expect(selected.tag).toBe('LaneSelected');
+    if (selected.tag !== 'LaneSelected') throw new Error('expected selected lane');
+    expect(selected.lane.thresholdSessionId).toBe('tsess-otp');
   });
 });

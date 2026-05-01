@@ -87,11 +87,103 @@ export type TransactionLaneSelectionResult =
     }
   | { ok: false; failure: TransactionLaneSelectionFailure };
 
+export type TransactionIntentReceivedState = {
+  tag: 'IntentReceived';
+  intent: TransactionSigningIntent;
+};
+
+export type TransactionSnapshotReadState = {
+  tag: 'SnapshotRead';
+  intent: TransactionSigningIntent;
+  snapshot: SigningSessionSnapshot | null;
+  currentRuntimeLane?: SigningSessionSnapshotEd25519Lane | null;
+};
+
+export type TransactionLaneSelectedState = {
+  tag: 'LaneSelected';
+  intent: TransactionSigningIntent;
+  lane: NearEd25519TransactionLane;
+  snapshotLane: NearEd25519ConcreteSnapshotLane;
+};
+
+export type TransactionLaneSelectionFailedState = {
+  tag: 'LaneSelectionFailed';
+  intent: TransactionSigningIntent;
+  failure: TransactionLaneSelectionFailure;
+};
+
+export type TransactionExactRestoreAttemptedState = {
+  tag: 'ExactRestoreAttempted';
+  intent: TransactionSigningIntent;
+  lane: NearEd25519TransactionLane;
+  snapshotLane: NearEd25519ConcreteSnapshotLane;
+  restored: boolean;
+  failureReason?: string;
+};
+
+export type TransactionReadinessClassifiedState = {
+  tag: 'ReadinessClassified';
+  intent: TransactionSigningIntent;
+  lane: NearEd25519TransactionLane;
+  snapshotLane: NearEd25519ConcreteSnapshotLane;
+  readiness: TransactionReadiness;
+};
+
+export type TransactionAuthPlannedState = {
+  tag: 'AuthPlanned';
+  operation: PreparedTransactionOperation<NearEd25519TransactionLane>;
+  authPlan: unknown;
+};
+
+export type TransactionBudgetAdmittedState = {
+  tag: 'BudgetAdmitted';
+  operation: BudgetAdmittedOperation<NearEd25519TransactionLane>;
+};
+
+export type TransactionSignedState = {
+  tag: 'Signed';
+  operation: SignedTransactionOperation<NearEd25519TransactionLane>;
+};
+
+export type TransactionSigningState =
+  | TransactionIntentReceivedState
+  | TransactionSnapshotReadState
+  | TransactionLaneSelectedState
+  | TransactionLaneSelectionFailedState
+  | TransactionExactRestoreAttemptedState
+  | TransactionReadinessClassifiedState
+  | TransactionAuthPlannedState
+  | TransactionBudgetAdmittedState
+  | TransactionSignedState;
+
 export type SelectTransactionLaneInput = {
   intent: TransactionSigningIntent;
   snapshot: SigningSessionSnapshot | null;
   currentRuntimeLane?: SigningSessionSnapshotEd25519Lane | null;
 };
+
+export function receiveTransactionIntent(
+  intent: TransactionSigningIntent,
+): TransactionIntentReceivedState {
+  return { tag: 'IntentReceived', intent };
+}
+
+export function recordTransactionSnapshot(
+  state: TransactionIntentReceivedState,
+  args: {
+    snapshot: SigningSessionSnapshot | null;
+    currentRuntimeLane?: SigningSessionSnapshotEd25519Lane | null;
+  },
+): TransactionSnapshotReadState {
+  return {
+    tag: 'SnapshotRead',
+    intent: state.intent,
+    snapshot: args.snapshot,
+    ...(args.currentRuntimeLane !== undefined
+      ? { currentRuntimeLane: args.currentRuntimeLane }
+      : {}),
+  };
+}
 
 function isConcreteNearEd25519Lane(
   lane: SigningSessionSnapshotEd25519Lane | null | undefined,
@@ -231,5 +323,55 @@ export function selectTransactionLane(
       lane: selected,
     }),
     snapshotLane: selected,
+  };
+}
+
+export function selectTransactionLaneFromSnapshot(
+  state: TransactionSnapshotReadState,
+): TransactionLaneSelectedState | TransactionLaneSelectionFailedState {
+  const selection = selectTransactionLane({
+    intent: state.intent,
+    snapshot: state.snapshot,
+    currentRuntimeLane: state.currentRuntimeLane,
+  });
+  if (!selection.ok) {
+    return {
+      tag: 'LaneSelectionFailed',
+      intent: state.intent,
+      failure: selection.failure,
+    };
+  }
+  return {
+    tag: 'LaneSelected',
+    intent: state.intent,
+    lane: selection.lane,
+    snapshotLane: selection.snapshotLane,
+  };
+}
+
+export function recordExactRestoreAttempt(
+  state: TransactionLaneSelectedState,
+  result: { restored: boolean; failureReason?: string },
+): TransactionExactRestoreAttemptedState {
+  return {
+    tag: 'ExactRestoreAttempted',
+    intent: state.intent,
+    lane: state.lane,
+    snapshotLane: state.snapshotLane,
+    restored: result.restored,
+    ...(result.failureReason ? { failureReason: result.failureReason } : {}),
+  };
+}
+
+export function classifyTransactionReadiness(
+  state: TransactionLaneSelectedState | TransactionExactRestoreAttemptedState,
+  readiness: TransactionReadiness,
+): TransactionReadinessClassifiedState {
+  return {
+    tag: 'ReadinessClassified',
+    intent: state.intent,
+    lane: state.lane,
+    snapshotLane: state.snapshotLane,
+    readiness,
   };
 }
