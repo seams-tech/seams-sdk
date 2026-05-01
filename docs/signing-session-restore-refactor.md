@@ -1639,7 +1639,7 @@ Todo:
        prepare, lane selection and readiness classification still happen before
        the shared boundary and the old bug class survives.
 4. [ ] Move restore behind the shared prepare boundary:
-       - [ ] NEAR Ed25519 transaction signing must stop calling Ed25519 restore
+       - [x] NEAR Ed25519 transaction signing must stop calling Ed25519 restore
              before `prepareThresholdSigningOperation(...)`.
        - [ ] ECDSA transaction signing must stop calling ECDSA restore in a
              separate prepared-signing helper before the shared prepare step.
@@ -1729,14 +1729,27 @@ Todo:
        - [ ] curve adapters cannot compile if they attempt direct lane, budget,
              or restore decisions
 17. [ ] Add focused regression coverage for the boundary ownership itself:
-       - [ ] a production transaction path cannot restore before shared prepare
+       - [x] a production transaction path cannot restore before shared prepare
        - [ ] a production transaction path cannot compute readiness before
              shared prepare
        - [ ] ECDSA transaction signing restores only the selected exact auth
              method, not both `email_otp` and `passkey`
        - [ ] a helper-name-only implementation fails guards if production
              transaction paths do not use shared execute/finalize
-18. [ ] Delete obsolete lifecycle code as each path moves:
+18. [x] Close remaining Phase 14 identity leaks:
+       - [x] NEAR Ed25519 reads a side-effect-free snapshot before restore.
+       - [x] NEAR Ed25519 restores only the selected snapshot identity with
+             exact `authMethod`, `walletSigningSessionId`, and
+             `thresholdSessionId`.
+       - [x] NEAR Ed25519 no longer probes fallback auth methods such as
+             `email_otp` then `passkey`.
+       - [x] ECDSA reconnect/provisioning requires explicit
+             `sessionBudgetUses` when minting a refreshed wallet signing
+             session; lower-level provision code no longer treats
+             `usesNeeded` as minted capacity.
+       - [x] Static guards enforce the exact Ed25519 restore boundary and the
+             ECDSA minted-capacity invariant.
+19. [ ] Delete obsolete lifecycle code as each path moves:
        - [ ] Ed25519 per-path readiness/auth planner
        - [ ] ECDSA transaction entrypoint budget/readiness fallback lookups
        - [ ] export-specific auth/session lookup branches that duplicate the
@@ -1776,6 +1789,609 @@ Acceptance checks:
 6. [ ] The old Ed25519 and ECDSA lifecycle branches are deleted as their paths
        migrate; there is no compatibility flag or duplicate fallback pipeline.
 
+### Phase 15: Causal Wallet Budget Projection
+
+Goal: fix the fast-sign race where the third operation can incorrectly trigger
+step-up even though the server still has one trusted wallet signing-session use
+remaining.
+
+Problem statement:
+
+The budget layer currently mixes two clocks. `remainingUses` comes from the
+server and can already include earlier fast in-flight consumes. At the same
+time, the client keeps local reservations for those same operations until
+finalization releases them. `getAvailableStatus(...)` overlays local
+reservations on top of a fresh server status, then readiness consumes
+`availableUses` and can classify the session as exhausted. That can double count
+one operation:
+
+```text
+server starts: remainingUses = 3
+
+op1 starts: local reserved = 1
+op1 server consume lands: server remainingUses = 2
+op1 local reservation has not released yet
+
+op2 starts: local reserved = 2
+op3 prepares quickly:
+  server remainingUses = 2
+  local reserved = 2
+  projection-mixed availableUses = 0
+  planner classifies as exhausted
+  step-up prompt appears
+```
+
+Slow signing works because finalization has time to release local reservations
+before the next prepare. Fast signing fails because stale local reservations are
+subtracted from a newer authoritative server projection.
+
+Target model:
+
+```ts
+operationUsesNeeded = 1;        // one approved signing operation
+displayTransactionCount = txs.length;
+displayActionCount = totalActions;
+sessionBudgetUses = 3;          // minted capacity after unlock/reauth
+remainingUses = server truth;   // authoritative remaining budget
+inFlightReservedUses = local holds tied to one server projection
+availableUses = remainingUses - sameProjectionReservedUses;
+```
+
+Important invariant:
+
+```ts
+remainingUses = trusted server truth
+availableUses = trusted server truth minus local holds from the same projection only
+```
+
+`availableUses` is useful for admission control only inside a coherent budget
+projection. It must not be used as terminal exhaustion when it combines fresh
+server state with stale reservations.
+
+Design:
+
+1. Reservation records must store causal metadata:
+   - `operationId`
+   - `operationFingerprint`
+   - `walletSigningSessionId`
+   - `uses`
+   - `reservedAgainstProjectionVersion`
+   - `reservedAgainstRemainingUses`
+   - `createdAtMs`
+2. `reserve(...)` must create reservations only after reading trusted server
+   status with a non-empty projection version.
+3. `getAvailableStatus(...)` must compute:
+   - `remainingUses` from trusted server status only
+   - `inFlightReservedUses` from same-projection reservations only
+   - `availableUses` as `remainingUses - inFlightReservedUses`
+4. Keep the name `projectionVersion` for the causal budget token. It is an
+   opaque equality token for this phase, not an ordered revision. A reservation
+   is subtractable only when
+   `reservedAgainstProjectionVersion === trustedStatus.projectionVersion`. Any
+   mismatch is non-subtracting for local availability and admission.
+5. Reservation admission must use the same causal rule. Reserve checks may
+   subtract only same-projection reservations from the trusted server
+   `remainingUses`. If admission is blocked only by same-projection local holds,
+   return or surface local contention/admission-control behavior; do not classify
+   the wallet session as terminally exhausted or trigger step-up.
+   If the caller prepared against an older projection but the fresh trusted
+   server status still has capacity, admit against the fresh projection and
+   store that projection on the reservation for finalization.
+6. Readiness/step-up classification must use trusted `remainingUses` for
+   terminal `exhausted` decisions. A same-projection `availableUses` shortfall is
+   local contention and should wait, retry, or report a local admission-control
+   state; it must not prompt step-up.
+7. UI/status should display `remainingUses` as server truth. It may display
+   `inFlightReservedUses` and `availableUses` as local planning hints, but must
+   not conflate them with the server budget.
+
+Todo:
+
+1. [x] Replace `reservedUsesByWalletSessionId: Map<string, number>` with a
+       reservation ledger keyed by operation id and grouped by wallet session id.
+       Each entry must include the projection version and remaining-use count
+       observed when the hold was admitted.
+2. [x] Rename local reservation output from `locallyReservedUses` to
+       `inFlightReservedUses` in internal status/projection code. Keep API JSON
+       camelCase; do not introduce snake_case unless doing a separate API
+       cleanup.
+3. [x] Make `applySigningSessionBudgetReservationsToStatus(...)` subtract only
+       reservations whose `reservedAgainstProjectionVersion` equals the trusted
+       status `projectionVersion`.
+4. [x] Make `assertSigningSessionBudgetReservationAvailable(...)` use the same
+       same-projection subtraction rule. It must not subtract stale reservations
+       from fresh server `remainingUses`.
+5. [x] Add an explicit admission-control result/error for local contention:
+       - [x] same-projection holds can block a new same-runtime operation
+       - [x] local contention must not be mapped to terminal `exhausted`
+       - [x] local contention must not render OTP/passkey step-up
+6. [x] Add a reconciliation step for trusted projection changes:
+       - [x] if server `projectionVersion` differs from the reservation's
+             projection version, do not subtract it from `availableUses` or
+             reserve/admission checks
+       - [ ] if the operation has already been recorded successful, release it
+       - [x] if the server projection differs and the operation is still
+             unresolved, keep it in the ledger for zero-spend cleanup but mark it
+             non-subtracting for availability/admission
+7. [x] Split status projection from auth readiness:
+       - [x] `remainingUses < operationUsesNeeded` from trusted server status can
+             produce terminal `exhausted`
+       - [x] same-projection `availableUses < operationUsesNeeded` can only
+             produce local contention/admission-control behavior
+       - [x] projection-mixed `availableUses` must never produce step-up
+8. [x] Add a planner/readiness state or return channel for local budget
+       contention if needed, for example `budget_in_flight`, and ensure the UI
+       does not render it as OTP/passkey step-up.
+9. [x] Ensure Ed25519 server-authoritative consume still does not create a
+       duplicate visible spend. Its finalizer should sync/release any local hold
+       and record already-consumed threshold session ids without reducing
+       `remainingUses` twice.
+10. [x] Ensure ECDSA pre-sign reservation still protects same-runtime concurrent
+       admission, but only within the reservation's trusted projection.
+11. [x] Add a focused unit test for causal projection:
+       - [x] reserve op1 against projection `P0: remainingUses = 3`
+       - [x] observe server projection `P1: remainingUses = 2`
+       - [x] keep op1 unresolved locally
+       - [x] assert status reports `remainingUses = 2`
+       - [x] assert op1's stale reservation is not subtracted from `availableUses`
+12. [x] Add a reservation admission test for stale projection holds:
+       - [x] reserve op1 against projection `P0: remainingUses = 3`
+       - [x] observe server projection `P1: remainingUses = 2`
+       - [x] assert admitting op2 subtracts only same-projection holds
+       - [x] assert stale `P0` holds do not produce terminal exhausted
+13. [x] Add a signing planner test for the manual bug:
+       - [x] three session uses minted
+       - [x] two quick operations leave stale local reservations while server
+             reports `remainingUses = 1`
+       - [x] third operation plans as warm/session-ready, not step-up
+14. [ ] Add wallet-iframe regression coverage:
+       - [ ] OTP account: quickly sign three NEAR Ed25519 operations; third does
+             not show OTP step-up
+       - [ ] passkey account: quickly sign three NEAR Ed25519 operations; third
+             does not show TouchID step-up
+       - [ ] repeat with ECDSA transaction signing where the path uses pre-sign
+             reservations
+15. [x] Add architecture/static guards:
+       - [x] readiness cannot inspect `availableUses` for terminal exhaustion
+       - [x] reservation admission cannot subtract reservations without
+             matching projection versions
+       - [x] status/UI cannot overwrite server `remainingUses` with local
+             availability
+       - [x] reservation records cannot be stored without projection version
+16. [x] Delete legacy raw reservation counters after the projection-versioned
+       ledger is wired. Do not leave compatibility fallbacks.
+17. [x] Refresh stale prepared budget projections during reservation admission:
+       - [x] require the caller to provide a prepared projection token
+       - [x] if the fresh trusted server projection differs but has capacity,
+             admit against the fresh projection instead of throwing stale
+             projection
+       - [x] store the fresh projection on the reservation so finalization uses
+             the admitted budget identity
+18. [x] Upgrade `budgetProjection.ts` to the same causal model:
+       - [x] reservation projections include `reservedAgainstProjectionVersion`
+       - [x] status projection subtracts only same-projection holds
+       - [x] static guards prevent reintroducing unversioned reservation
+             subtraction
+19. [x] Handle local in-flight contention as admission control:
+       - [x] shared budget finalizer retries short-lived
+             `SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR` contention
+       - [x] unit coverage proves local contention can clear without surfacing
+             as a signing/auth failure
+
+Acceptance checks:
+
+1. [ ] A fast third signature with `sessionBudgetUses = 3` does not prompt
+       step-up when trusted server `remainingUses = 1`.
+2. [ ] A genuinely exhausted server status still prompts the correct auth method
+       for step-up.
+3. [ ] `remainingUses` is never reduced by local reservations in status/UI.
+4. [x] `availableUses` is reported only when it is causally tied to the same
+       server projection as the local reservations.
+5. [x] Reservations with projection-version mismatch are non-subtracting.
+6. [ ] Slow signing and fast signing produce the same auth plan for the same
+       server budget state.
+7. [ ] Ed25519 batched NEAR transaction signing remains one wallet budget use
+       per approved signing operation, not one use per transaction/action.
+8. [x] Reservation admission and status projection apply the same causal
+       projection rule.
+
+### Phase 16: Exact Transaction Lane Identity
+
+Problem:
+
+The restore and budget fixes now depend on a concrete lane identity:
+`walletSigningSessionId` plus `thresholdSessionId`. That pair is what prevents
+the bad behaviors seen during the refactor: OTP/passkey probing, restoring the
+wrong auth method, charging or finalizing a stale lane, and refreshing with the
+wrong budget scope.
+
+The remaining risk is partial adoption. If any transaction path can still enter
+restore/signing with only `authMethod + curve + chain`, optional session ids, a
+collapsed snapshot lane, or fallback auth selection, then the same class of bugs
+can return. Broad restore remains acceptable only for explicit non-transaction
+maintenance flows such as status and export. Transaction signing must receive a
+resolved lane identity where both ids are mandatory before restore, auth,
+budget, execution, or finalization runs.
+
+Target invariant:
+
+```ts
+type TransactionSigningLaneIdentity = {
+  walletId: string;
+  authMethod: 'email_otp' | 'passkey';
+  curve: 'ed25519' | 'ecdsa';
+  chain: 'near' | 'tempo' | 'evm';
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+};
+
+const identity = await selectExactTransactionLane(intent);
+await restorePersistedSessionForSigning({
+  ...identity,
+  reason: 'transaction',
+});
+const prepared = await prepareThresholdSigningOperation({ intent, identity });
+```
+
+Design:
+
+1. Transaction restore has a distinct input variant where
+   `reason: 'transaction'` requires both `walletSigningSessionId` and
+   `thresholdSessionId`.
+2. Export/status/session-maintenance restore may keep broader inputs, but those
+   paths must not be callable from transaction signing.
+3. Snapshot reads expose enough candidates to select one exact transaction lane
+   before restore:
+   - ECDSA candidates remain per chain.
+   - Ed25519 needs an equivalent candidate list, not only one collapsed
+     `lanes.ed25519.near` value.
+4. Transaction lane selection must be explicit and policy-driven:
+   - apply account auth selection before candidate collapse
+   - reject ambiguous multi-auth candidates instead of probing both auth methods
+   - never fall back from an intended OTP lane to passkey, or from passkey to OTP
+5. Prepared-operation identity, restore input, budget identity, runtime material,
+   and finalization target must all carry the same canonical pair. If any
+   boundary re-selects or recomputes identity, it must assert equality with the
+   prepared identity before mutating budget or cleanup state.
+6. Partial candidate ids are invalid for transaction signing. If a candidate is
+   missing either id, classify it as missing/deferred and prompt the correct
+   reauth path; do not broaden restore.
+
+Todo:
+
+1. [x] Split `RestorePersistedSessionForSigningInput` so
+       `reason: 'transaction'` requires `walletSigningSessionId` and
+       `thresholdSessionId`, while `export` and `session_status` retain broader
+       maintenance semantics.
+2. [x] Make ECDSA transaction restore fail before restore when the selected
+       snapshot candidate lacks either required id.
+3. [x] Remove conditional spreading of transaction restore ids from ECDSA
+       prepare. The transaction call must always pass both ids.
+4. [x] Add `candidates.ed25519.near` to `SigningSessionSnapshot`, with entries
+       that include:
+       - [x] `authMethod`
+       - [x] `walletSigningSessionId`
+       - [x] `thresholdSessionId`
+       - [x] `state`
+       - [x] `source`
+       - [x] `updatedAtMs` or equivalent ordering metadata
+5. [x] Update `snapshotReader.ts` so Ed25519 candidate enumeration preserves
+       multiple OTP/passkey durable/runtime candidates instead of collapsing to
+       one lane first.
+6. [x] Update NEAR Ed25519 transaction prepare to select from
+       `candidates.ed25519.near` using the account auth selector and explicit
+       transaction policy. The collapsed `lanes.ed25519.near` value may be used
+       for display/status, but not as the transaction restore selector.
+7. [x] Until Ed25519 candidates exist, filter the Ed25519 signing snapshot by
+       the selected auth method before reading the collapsed lane, and reject
+       ambiguous cached identities when no selector is available.
+8. [ ] Add a canonical transaction identity type shared by NEAR/EVM signing
+       prepare and restore, for example `TransactionSigningLaneIdentity`.
+9. [ ] Make `prepareThresholdSigningOperation(...)` accept the resolved
+       transaction identity or return one in its prepared output, and require
+       budget/finalization to use that same identity.
+10. [ ] Strengthen lane assertions to compare the full canonical transaction
+       identity, not only the wallet/threshold session ids and auth method.
+11. [ ] Delete fallback auth selection in transaction signing paths once
+       candidate selection is wired:
+       - no OTP then passkey probing
+       - no passkey then OTP probing
+       - no account-primary fallback after a concrete transaction candidate was
+         selected
+12. [ ] Add linked-auth regression coverage:
+       - OTP and passkey Ed25519 durable lanes both exist; OTP account signs
+         after refresh using the OTP lane
+       - OTP and passkey ECDSA durable lanes both exist; selected EVM/Tempo
+         transaction uses the intended lane after refresh
+       - stale runtime record exists for the other auth method; transaction
+         restore still uses the selected candidate ids
+13. [x] Add architecture guards:
+       - [x] transaction restore calls must pass both session ids
+       - [x] transaction restore types cannot make those ids optional
+       - [x] NEAR Ed25519 transaction prepare cannot select directly from collapsed
+         `lanes.ed25519.near` after candidates are introduced
+       - [x] transaction signing modules cannot contain broad restore calls scoped
+         only by `authMethod + curve + chain`
+14. [ ] Remove compatibility code that accepts partial transaction identity once
+       tests pass. Do not leave optional-id transaction fallbacks behind.
+
+Acceptance checks:
+
+1. [x] Every transaction restore call is exact by type and by call site.
+2. [ ] An OTP account with both OTP and passkey durable lanes never shows a
+       passkey prompt for OTP Ed25519 transaction signing after refresh.
+3. [ ] A passkey account with both passkey and OTP durable lanes never shows an
+       OTP prompt for passkey transaction signing after refresh.
+4. [x] ECDSA transaction prepare cannot restore unless the selected candidate
+       has both `walletSigningSessionId` and `thresholdSessionId`.
+5. [x] NEAR Ed25519 transaction prepare selects an explicit candidate before
+       restore; it does not depend on the collapsed snapshot lane.
+6. [ ] Budget reservation/finalization receives the same canonical pair that
+       restore selected.
+7. [ ] Fresh-auth retry returns or replaces a prepared identity with the new
+       canonical pair; it cannot finalize against the stale prepared lane.
+8. [x] Static guards fail if any transaction path reintroduces broad restore,
+       optional transaction ids, or auth-method probing.
+
+### Phase 17: Transaction Lifecycle Ownership Consolidation
+
+Problem:
+
+The remaining regressions are not isolated Ed25519 or ECDSA bugs. They come from
+distributed lifecycle ownership: transaction paths can still mint, publish,
+restore, select, classify, reserve, and finalize signing sessions in separate
+places. That means the active transaction lane can become whichever side effect
+won most recently instead of the lane selected by the transaction prepare
+boundary.
+
+The observable failures all fit that model:
+
+1. Passkey transaction step-up can mint a reusable session because reconnect
+   paths use configured warm-session capacity instead of the operation cost.
+2. OTP ECDSA transaction step-up can publish an Ed25519 companion as selectable
+   current state, allowing the next Ed25519 transaction to skip OTP even though
+   the user only stepped up for ECDSA.
+3. The leaked companion can then fail on the next Ed25519 transaction as
+   `missing_session`, because it was per-operation, single-use, or missing
+   volatile auth material.
+4. OTP accounts can still show passkey if transaction selection falls back from
+   the exact OTP lane to account metadata, a stale passkey runtime record, or a
+   broad durable candidate.
+
+Target rule:
+
+For transaction signing, `prepareThresholdSigningOperation(...)` owns the
+transaction lifecycle. The selected exact transaction lane is the only lane that
+may be restored, published as current transaction runtime state, refreshed,
+reserved, executed, and finalized. Curve-specific code may perform crypto, but
+it must not rediscover or replace lifecycle identity.
+
+Design:
+
+1. Treat transaction step-up as a single confirmed operation by default:
+   `sessionBudgetUses = operationUsesNeeded`, normally `1`.
+2. Mint a reusable signing session only through an explicit reusable-session
+   creation flow, not as a side effect of transaction step-up.
+3. Split durable companion persistence from current transaction runtime
+   publication. ECDSA OTP may persist Ed25519 companion material for later
+   exact-purpose restore, but it must not publish that companion as the current
+   NEAR transaction lane unless the prepared operation intent is Ed25519.
+4. Make transaction publication command-scoped. A transaction path may publish
+   only the prepared lane identity for its own `curve`, `chain`, `authMethod`,
+   `walletSigningSessionId`, and `thresholdSessionId`.
+5. Make transaction restore command-scoped. Restore receives the prepared
+   identity and cannot broaden to `authMethod + curve + chain` discovery.
+6. Make transaction selection fail closed. If the exact selected lane is
+   unavailable, the lifecycle returns a typed not-ready reason that maps to the
+   selected lane's auth method. It must not select another auth method, another
+   curve, or another durable record.
+7. Keep account-auth metadata as a pre-selection policy input only. After a
+   concrete transaction candidate is selected, account metadata cannot override
+   the candidate.
+8. Keep companion lanes out of transaction readiness unless they are selected by
+   the transaction prepare policy. Companion state can be visible to status or
+   startup maintenance, but not to transaction lane selection by default.
+9. Carry the same prepared identity through budget reservation, confirmation,
+   execution, finalization, post-sign cleanup, and retry. Fresh-auth retry must
+   return or replace the prepared operation; it cannot update mutable lane state
+   behind an existing prepared operation.
+
+Todo:
+
+1. [ ] Inventory every transaction lifecycle mutation:
+       - [ ] session mint/reconnect
+       - [ ] runtime identity publication
+       - [ ] durable companion persistence
+       - [ ] restore
+       - [ ] snapshot/candidate selection
+       - [ ] readiness classification
+       - [ ] budget reservation/finalization
+       - [ ] post-sign cleanup
+2. [ ] Introduce a transaction-scoped lifecycle identity type used by both
+       Ed25519 and ECDSA:
+       - [ ] `operationId`
+       - [ ] `walletId`
+       - [ ] `authMethod`
+       - [ ] `curve`
+       - [ ] `chain`
+       - [ ] `walletSigningSessionId`
+       - [ ] `thresholdSessionId`
+       - [ ] `operationUsesNeeded`
+       - [ ] `sessionBudgetUses`
+       - [ ] `reusableSessionRequested`
+3. [ ] Make transaction step-up minting explicit:
+       - [ ] transaction step-up sets `sessionBudgetUses =
+             operationUsesNeeded`
+       - [ ] reusable warm-session creation is a separate command
+       - [ ] no transaction reconnect path reads configured warm-session
+             defaults unless `reusableSessionRequested === true`
+4. [ ] Split "persist companion" from "publish current transaction lane":
+       - [ ] ECDSA OTP can persist Ed25519 companion material as durable
+             restorable state
+       - [ ] ECDSA OTP cannot publish Ed25519 as current NEAR transaction
+             runtime identity
+       - [ ] Ed25519 transaction prepare can publish only the selected Ed25519
+             lane
+       - [ ] ECDSA transaction prepare can publish only the selected ECDSA lane
+5. [ ] Replace broad transaction publication helpers with scoped commands:
+       - [ ] `publishPreparedTransactionLaneIdentity(prepared)`
+       - [ ] `publishDurableCompanionOnly(...)`
+       - [ ] delete generic transaction writes that accept only account/auth
+             metadata
+6. [ ] Tighten NEAR Ed25519 selection:
+       - [ ] if a current OTP runtime record exists for the selected account,
+             it anchors OTP lane selection
+       - [ ] if account policy selects OTP, stale passkey runtime state cannot
+             win
+       - [ ] if the exact OTP lane is unavailable, return OTP reauth/not-ready,
+             not passkey
+       - [ ] remove fallback from missing exact lane to the first durable
+             candidate
+       - [ ] remove fallback from account primary auth after a concrete
+             transaction candidate was selected
+7. [ ] Tighten ECDSA selection:
+       - [ ] require a concrete ECDSA transaction candidate by type
+       - [ ] use `candidate.authMethod` directly
+       - [ ] do not fall back to account auth after candidate selection
+       - [ ] exact restore failure for a durable/restorable candidate becomes
+             a restore failure or reauth plan, not a swallowed warning
+8. [ ] Ensure fresh-auth retry replaces the prepared identity:
+       - [ ] ECDSA passkey retry returns a fresh prepared operation
+       - [ ] ECDSA OTP retry returns a fresh prepared operation
+       - [ ] Ed25519 passkey retry returns a fresh prepared operation
+       - [ ] Ed25519 OTP retry returns a fresh prepared operation
+       - [ ] finalization always targets the refreshed prepared identity
+9. [ ] Update budget integration:
+       - [ ] reserve/finalize only with prepared identity
+       - [ ] step-up single-use sessions report `remainingUses = 1`
+       - [ ] local display never treats companion records as available
+             transaction budget unless selected
+10. [ ] Add static guards:
+       - [ ] transaction code cannot call generic publish identity helpers
+       - [ ] ECDSA transaction paths cannot publish Ed25519 as current runtime
+             identity
+       - [ ] Ed25519 transaction paths cannot publish ECDSA as current runtime
+             identity
+       - [ ] transaction reconnect paths cannot read warm-session default
+             budget capacity
+       - [ ] transaction selection cannot contain OTP/passkey probing arrays
+       - [ ] transaction restore cannot omit `walletSigningSessionId` or
+             `thresholdSessionId`
+11. [ ] Add regression tests:
+       - [ ] passkey account: exhaustion -> passkey step-up mints one-use
+             transaction session
+       - [ ] OTP account: exhaustion -> Ed25519 shows OTP, never passkey
+       - [ ] OTP account: ECDSA OTP step-up does not let the next Ed25519
+             transaction skip OTP via a companion leak
+       - [ ] OTP account: after ECDSA OTP step-up and spend, Ed25519 maps exact
+             missing lane to OTP reauth, not `missing_session`
+       - [ ] linked-auth account with stale passkey runtime and OTP durable lane
+             selects OTP for OTP transaction signing
+       - [ ] linked-auth account with stale OTP runtime and passkey durable lane
+             selects passkey for passkey transaction signing
+       - [ ] fresh-auth retry finalizes against the refreshed prepared identity
+             for Ed25519 and ECDSA
+
+Acceptance checks:
+
+1. [ ] Transaction step-up mints one operation use unless an explicit reusable
+       session command is used.
+2. [ ] No ECDSA transaction auth path can publish an Ed25519 lane as the current
+       transaction runtime identity.
+3. [ ] No Ed25519 transaction auth path can publish an ECDSA lane as the current
+       transaction runtime identity.
+4. [ ] A durable companion written by one curve cannot become selectable by
+       another curve without that curve's transaction prepare selecting it
+       explicitly.
+5. [ ] OTP Ed25519 transaction signing never falls through to passkey when the
+       selected exact OTP lane is unavailable.
+6. [ ] Passkey Ed25519 transaction signing never falls through to OTP when the
+       selected exact passkey lane is unavailable.
+7. [ ] Missing exact lane state maps to the selected lane's reauth plan or a
+       typed restore failure, not generic `missing_session`.
+8. [ ] Budget reservation, execution, finalization, and cleanup all receive the
+       same prepared lane identity.
+9. [ ] Fresh-auth retry returns or replaces the prepared operation before
+       finalization.
+10. [ ] Static guards fail if a transaction path reintroduces broad restore,
+       broad publication, cross-curve runtime publication, account-auth fallback
+       after candidate selection, or warm-session default minting.
+
+### Phase 18: Cross-Context Wallet Budget Leases
+
+Problem:
+
+Phase 15 makes budget reservations causally correct inside one
+`SigningSessionCoordinator` instance. That protects normal same-tab signing and
+prevents stale local reservations from triggering step-up. It does not provide a
+pre-confirm guarantee across multiple runtimes, tabs, iframes, or a page refresh
+that starts a new coordinator instance while another operation is still in
+flight.
+
+Server-side budget consume remains the source of truth and must stay atomic and
+idempotent, so cross-context drift should not overspend the wallet session. The
+remaining issue is UX: two contexts can both believe the final use is available,
+both show confirmation, and one later fails after the user approves. That is not
+the same severity as the same-runtime fast-sign race, but it should be handled
+explicitly instead of being an accidental limitation.
+
+Design:
+
+1. Keep server `remainingUses` as authoritative. Cross-context leases are
+   admission hints, not budget truth.
+2. Add a durable or broadcast lease keyed by:
+   - `walletSigningSessionId`
+   - `projectionVersion`
+   - `operationId`
+3. Use IndexedDB for crash/reload visibility and `BroadcastChannel` for low
+   latency updates between active contexts.
+4. Leases must expire quickly and be releasable on cancellation/finalization.
+5. A lease is subtractable only when its `projectionVersion` equals the trusted
+   server status projection. Do not introduce ordering assumptions for opaque
+   projection versions.
+6. If a cross-context lease blocks admission, report local contention/wait/retry.
+   Do not render OTP/passkey step-up unless fresh trusted server status is truly
+   exhausted.
+7. If the server projection changes, stale leases become non-subtracting and
+   are eligible for cleanup.
+
+Todo:
+
+1. [ ] Decide whether same-tab protection plus server idempotency is sufficient
+       for the current release. If yes, document cross-context contention as a
+       known UX limitation and stop here.
+2. [ ] If pre-confirm cross-tab guarantees are required, add a
+       `walletSigningSessionBudgetLeaseStore` in IndexedDB.
+3. [ ] Add a `BroadcastChannel` notifier for lease acquire/release/finalize so
+       active contexts can retry promptly.
+4. [ ] Extend reservation admission to include same-projection durable leases in
+       `inFlightReservedUses`, separate from server `remainingUses`.
+5. [ ] Ensure lease acquisition is best-effort and cannot override server truth:
+       failed lease writes should fail closed or retry, not silently proceed as
+       if there were no contention.
+6. [ ] Add stale lease cleanup:
+       - [ ] TTL expiry
+       - [ ] operation finalized
+       - [ ] projection version mismatch observed
+       - [ ] explicit logout/session clear
+7. [ ] Add tests for two coordinator instances sharing one wallet session:
+       - [ ] same projection, final use, second context sees local contention
+       - [ ] projection changes after first server consume, stale lease becomes
+             non-subtracting
+       - [ ] canceled operation releases its lease
+       - [ ] refresh/new coordinator does not forget an active lease until TTL
+
+Acceptance checks:
+
+1. [ ] Two tabs cannot both present the same final use as freely available when
+       they observe the same projection.
+2. [ ] A stale cross-context lease cannot force step-up after the server reports
+       a newer projection with remaining capacity.
+3. [ ] Server consume remains authoritative and idempotent; the lease layer is
+       only local admission control.
+4. [ ] Cross-context contention is surfaced as wait/retry/local contention, not
+       as OTP/passkey reauth.
+
 ## Completion Status
 
 Status: implementation complete through Phase 13 as of 2026-04-29. Phase 14 is
@@ -1803,6 +2419,10 @@ remaining non-restore hardening tracked in
 13. Phase 12: server-authoritative budget projection.
 14. Phase 13: remove sessionStorage session identity.
 15. Phase 14: unify threshold signing operation lifecycle.
+16. Phase 15: causal wallet budget projection.
+17. Phase 16: exact transaction lane identity.
+18. Phase 17: transaction lifecycle ownership consolidation.
+19. Phase 18: cross-context wallet budget leases.
 
 Do not remove read-side restore/write behavior until the explicit restore
 command, policy-write commands, and snapshot reader are all wired and covered by
@@ -1845,3 +2465,14 @@ compatibility layers behind a flag.
     sessionStorage.
 16. Ed25519 and ECDSA transaction/export flows share one prepared signing
     operation lifecycle, with curve-specific behavior isolated to adapters.
+17. Wallet signing-session local reservations are causally tied to trusted
+    server projection versions, and stale local holds cannot trigger step-up.
+18. Transaction signing cannot restore, reserve, execute, or finalize without a
+    mandatory `walletSigningSessionId` and `thresholdSessionId` pair selected by
+    the transaction lane policy.
+19. Transaction signing lifecycle ownership is centralized in prepared
+    operation identity; curve-specific code cannot publish, restore, refresh, or
+    finalize a lane other than the selected transaction lane.
+20. Cross-context budget contention is either explicitly deferred as a known UX
+    limitation or protected by a same-projection IndexedDB/BroadcastChannel lease
+    that never overrides server budget truth.
