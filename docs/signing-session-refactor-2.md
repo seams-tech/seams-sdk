@@ -732,7 +732,7 @@ Acceptance:
    - [x] NEAR Ed25519 lower signing now requires a prepared transaction
      operation and replaces it with a budget-admitted operation after
      reauth-created lanes are minted.
-   - [ ] NEAR Ed25519 signing must require the admitted type for every worker
+   - [x] NEAR Ed25519 signing must require the admitted type for every worker
      request at the payload type boundary.
 4. For Ed25519, mark finalization as reconciliation of the already-consumed
    selected threshold session.

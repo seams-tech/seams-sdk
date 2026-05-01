@@ -920,11 +920,31 @@ export async function signTransactionsWithActions({
       credential: credentialForRelayJson,
     };
   };
+  if (!activeBudgetAdmittedOperation) {
+    // Non-warm confirmed-auth lanes can only become budget-admitted after the
+    // confirmation step has produced fresh auth material. Admit them here, still
+    // before the signer worker can consume the threshold session.
+    activeBudgetAdmittedOperation = await admitBudgetForSelectedSpendLane(
+      buildSelectedBudgetSpendLane(),
+    );
+  }
+  const budgetAdmittedOperationForWorker = activeBudgetAdmittedOperation;
+  if (String(budgetAdmittedOperationForWorker.lane.thresholdSessionId) !== canonicalThresholdSessionId) {
+    throw new Error(
+      '[SigningEngine][near] budget-admitted transaction lane does not match worker session',
+    );
+  }
   let requestPayload = buildRequestPayload(xClientBaseB64u);
 
   const executeSignRequest = async (
+    admittedOperation: BudgetAdmittedOperation<NearEd25519TransactionLane>,
     payload: Omit<WasmSignTransactionsWithActionsRequest, 'sessionId'>,
   ) => {
+    if (String(admittedOperation.lane.thresholdSessionId) !== canonicalThresholdSessionId) {
+      throw new Error(
+        '[SigningEngine][near] budget-admitted transaction lane does not match worker session',
+      );
+    }
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_10_COMMIT_STARTED,
       status: 'running',
@@ -946,7 +966,7 @@ export async function signTransactionsWithActions({
     // Ed25519 threshold signing consumes the wallet session on the server as
     // part of the signing ceremony. A local pre-sign reservation would double
     // count in UI projections until finalization reconciles it.
-    const okResponse = await executeSignRequest(requestPayload);
+    const okResponse = await executeSignRequest(budgetAdmittedOperationForWorker, requestPayload);
     thresholdSignatureCreated = true;
     await markNearNonceLeasesSigned(ctx, nonceLeaseRefs);
     const signedResults = toSignedTransactionResults({
@@ -1019,7 +1039,10 @@ export async function signTransactionsWithActions({
             : {}),
         });
         requestPayload = buildRequestPayload(repairedXClientBaseB64u);
-        const okResponse = await executeSignRequest(requestPayload);
+        const okResponse = await executeSignRequest(
+          budgetAdmittedOperationForWorker,
+          requestPayload,
+        );
         thresholdSignatureCreated = true;
         await markNearNonceLeasesSigned(ctx, nonceLeaseRefs);
         const signedResults = toSignedTransactionResults({

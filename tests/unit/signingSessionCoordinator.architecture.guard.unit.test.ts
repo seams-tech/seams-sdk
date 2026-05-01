@@ -1014,9 +1014,10 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(transactionsFlow).not.toContain('await finalizer.reserve()');
     const reauthAdmissionIndex = transactionsFlow.indexOf('if (refreshedBudgetIdentityRequired) {');
     const signerRequestIndex = transactionsFlow.indexOf(
-      'const okResponse = await executeSignRequest(requestPayload);',
+      'const okResponse = await executeSignRequest(budgetAdmittedOperationForWorker',
     );
     expect(reauthAdmissionIndex).toBeGreaterThan(-1);
+    expect(signerRequestIndex).toBeGreaterThan(-1);
     expect(reauthAdmissionIndex).toBeLessThan(signerRequestIndex);
   });
 
@@ -1079,6 +1080,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(transactionsFlow).toContain(
       'threshold transaction signing requires prepared transaction operation',
     );
+    expect(transactionsFlow).toContain('const budgetAdmittedOperationForWorker');
     expect(transactionsFlow).not.toContain('resolveNearThresholdSigningAuthContext');
     expect(transactionsFlow).not.toContain('buildNearThresholdSigningAuthPlan');
     expect(transactionsFlow).not.toContain('passkeySigningAuthPlan');
@@ -1117,6 +1119,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(transactionsFlow).toContain('activeBudgetAdmittedOperation');
     expect(transactionsFlow).toContain('replacePreparedTransactionLane(transactionOperation');
     expect(transactionsFlow).toContain('budgetAdmission.budgetIdentity');
+    expect(transactionsFlow).toContain(
+      'const okResponse = await executeSignRequest(budgetAdmittedOperationForWorker',
+    );
     expect(nearSigning).toContain('resolveNearEd25519AuthSelectionPolicy');
     expect(nearSigning).toContain("if (args.record?.source === 'email_otp')");
     expect(nearSigning).toContain("kind: 'account_class'");

@@ -233,29 +233,44 @@ async function signTransactionsWithActions(args: any) {
     walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
   };
+  const transactionOperation = args.transactionOperation || {
+    intent: {
+      walletId: nearAccountId,
+      curve: 'ed25519',
+      chain: 'near',
+      authSelectionPolicy: { kind: 'current_lane', authMethod },
+      operationUsesNeeded: 1,
+    },
+    lane: transactionLane,
+    readiness: {
+      status: requiresFreshAuth ? 'auth_unavailable' : 'ready',
+      ...(requiresFreshAuth
+        ? { reason: 'fresh_auth_required' }
+        : {
+            remainingUses: Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
+            expiresAtMs: Math.floor(Number(record?.expiresAtMs) || Date.now() + 60_000),
+          }),
+    },
+  };
+  const budgetStatus = activeBudgetStatus(
+    walletSigningSessionId,
+    Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
+  );
 
   return await signPreparedTransactionsWithActions({
     ...args,
     sessionId: thresholdSessionId,
     signingLane,
     signingAuthPlan,
-    transactionOperation: args.transactionOperation || {
-      intent: {
-        walletId: nearAccountId,
-        curve: 'ed25519',
-        chain: 'near',
-        authSelectionPolicy: { kind: 'current_lane', authMethod },
-        operationUsesNeeded: 1,
-      },
-      lane: transactionLane,
-      readiness: {
-        status: requiresFreshAuth ? 'auth_unavailable' : 'ready',
-        ...(requiresFreshAuth
-          ? { reason: 'fresh_auth_required' }
-          : {
-              remainingUses: Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
-              expiresAtMs: Math.floor(Number(record?.expiresAtMs) || Date.now() + 60_000),
-            }),
+    transactionOperation,
+    budgetAdmittedOperation: args.budgetAdmittedOperation || {
+      ...transactionOperation,
+      budgetAdmission: {
+        budgetIdentity: {
+          walletSigningSessionId,
+          projectionVersion: budgetStatus.projectionVersion,
+          status: budgetStatus,
+        },
       },
     },
     signingSessionCoordinator:
