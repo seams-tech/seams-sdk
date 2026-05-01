@@ -307,6 +307,11 @@ type NearEd25519PreparedIdentity = ResolvedEd25519SigningSessionIdentity;
 
 type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState;
 
+type NearEd25519Warmup = {
+  isPending: () => boolean;
+  waitForReady: () => Promise<boolean>;
+};
+
 type PreparedNearEd25519TransactionSigningSession = {
   thresholdSessionRecord: ThresholdEd25519SessionRecord | null;
   signingAuthPlan: SigningAuthPlan;
@@ -318,10 +323,7 @@ type PreparedNearEd25519TransactionSigningSession = {
   preparedOperation: PreparedNearEd25519Operation;
   budgetIdentity?: SigningSessionPreparedBudgetIdentity;
   budgetProjectionVersion?: string;
-  ed25519Warmup?: {
-    isPending: () => boolean;
-    waitForReady: () => Promise<boolean>;
-  };
+  ed25519Warmup?: NearEd25519Warmup;
   emailOtpSigning?: NearEd25519EmailOtpSigning;
 };
 
@@ -332,16 +334,20 @@ type NearEd25519LifecycleMetadata = {
   identity: NearEd25519PreparedIdentity;
   snapshotGeneration: number;
   readiness: ThresholdSigningReadinessInput;
-  ed25519Warmup?: {
-    isPending: () => boolean;
-    waitForReady: () => Promise<boolean>;
-  };
+  ed25519Warmup?: NearEd25519Warmup;
 };
 
 type PreparedNearEd25519Operation = PreparedThresholdSigningOperation<
   SigningLaneContext,
   NearEd25519LifecycleMetadata
 >;
+
+type NearEd25519TransactionOperationPrepareResult = {
+  lane: SigningLaneContext;
+  readiness: ThresholdSigningReadinessInput;
+  snapshotGeneration: number;
+  metadata: NearEd25519LifecycleMetadata;
+};
 
 function createNearTransactionSigningOperationId(): SigningOperationId {
   const cryptoObj = globalThis as { crypto?: { randomUUID?: () => string } };
@@ -1142,6 +1148,160 @@ async function restoreNearEd25519SelectedSigningSession(args: {
   });
 }
 
+async function prepareNearEd25519TransactionOperation(args: {
+  deps: NearSigningApiDeps;
+  nearAccountId: AccountId;
+  signingSessionCoordinator: SigningSessionCoordinator;
+  ed25519Warmup?: NearEd25519Warmup;
+}): Promise<NearEd25519TransactionOperationPrepareResult> {
+  let recordForLifecycle = getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
+  const authSelectionPolicy = await resolveNearEd25519AuthSelectionPolicy({
+    deps: args.deps,
+    nearAccountId: args.nearAccountId,
+    record: recordForLifecycle,
+  });
+  const snapshot = await readNearEd25519SigningSnapshot({
+    deps: args.deps,
+    nearAccountId: args.nearAccountId,
+    record: recordForLifecycle,
+    authMethod: authSelectionPolicy?.authMethod || null,
+  });
+  const selectedAuthRuntimeRecord =
+    recordForLifecycle &&
+    authSelectionPolicy &&
+    authSelectionPolicy.kind === 'current_lane' &&
+    authMethodForThresholdEd25519Record(recordForLifecycle) === authSelectionPolicy.authMethod
+      ? recordForLifecycle
+      : null;
+  const selectedLane = selectNearEd25519TransactionCandidate({
+    snapshot,
+    authSelectionPolicy,
+    runtimeRecord: selectedAuthRuntimeRecord,
+    nearAccountId: args.nearAccountId,
+  });
+  const selectedIdentity = resolveNearEd25519SelectedIdentityFromTransactionLane({
+    transactionLane: selectedLane?.lane || null,
+  });
+  if (
+    authSelectionPolicy &&
+    authSelectionPolicy.kind === 'explicit' &&
+    selectedIdentity &&
+    selectedIdentity.authMethod !== authSelectionPolicy.authMethod
+  ) {
+    throw new Error(
+      `[SigningEngine][near] Ed25519 snapshot selected ${selectedIdentity.authMethod} after ${authSelectionPolicy.authMethod} filter`,
+    );
+  }
+  await restoreNearEd25519SelectedSigningSession({
+    deps: args.deps,
+    nearAccountId: args.nearAccountId,
+    identity: selectedIdentity,
+    snapshotLane: selectedLane?.snapshotLane || null,
+  });
+  const restoreState = selectedLane
+    ? recordExactRestoreAttempt(selectedLane, { restored: Boolean(selectedIdentity) })
+    : null;
+  recordForLifecycle = resolveNearEd25519RuntimeRecordForSelectedIdentity({
+    identity: selectedIdentity,
+    fallback: getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId),
+    nearAccountId: args.nearAccountId,
+  });
+  publishNearEd25519RuntimeIdentityForRecord(recordForLifecycle);
+  assertNearEd25519SelectedIdentityMatchesRecord({
+    identity: selectedIdentity,
+    record: recordForLifecycle,
+    nearAccountId: args.nearAccountId,
+  });
+  if (!selectedIdentity || !recordForLifecycle) {
+    console.warn('[SigningEngine][near] Ed25519 signing lane selection missing session', {
+      nearAccountId: args.nearAccountId,
+      hasSelectedIdentity: Boolean(selectedIdentity),
+      selectedIdentity: selectedIdentity
+        ? {
+            authMethod: selectedIdentity.authMethod,
+            thresholdSessionId: String(selectedIdentity.thresholdSessionId || ''),
+            walletSigningSessionId: String(selectedIdentity.walletSigningSessionId || ''),
+          }
+        : null,
+      hasRuntimeRecord: Boolean(recordForLifecycle),
+      runtimeRecord: recordForLifecycle
+        ? {
+            source: recordForLifecycle.source,
+            thresholdSessionId: recordForLifecycle.thresholdSessionId,
+            walletSigningSessionId: recordForLifecycle.walletSigningSessionId,
+            remainingUses: recordForLifecycle.remainingUses,
+            expiresAtMs: recordForLifecycle.expiresAtMs,
+          }
+        : null,
+      snapshotLane: snapshot?.lanes.ed25519.near || null,
+      snapshotCandidate: selectedLane?.snapshotLane || null,
+    });
+    throw new Error('[SigningEngine][near] signing session is not ready: missing_session');
+  }
+  if (!selectedLane) {
+    throw new Error('[SigningEngine][near] signing session is not ready: missing_lane');
+  }
+  const lane = buildNearTransactionLaneFromPreparedIdentity({
+    nearAccountId: args.nearAccountId,
+    record: recordForLifecycle,
+    identity: selectedIdentity,
+  });
+  assertSigningLaneMatchesSelectedTransactionLane({
+    signingLane: lane,
+    transactionLane: selectedLane.lane,
+  });
+  const readiness = await resolveNearTransactionPlannerReadiness({
+    preConfirmDeps: {
+      getWarmThresholdEd25519SessionStatusForSession:
+        args.deps.getWarmThresholdEd25519SessionStatusForSession,
+      signingSessionCoordinator: args.signingSessionCoordinator,
+      hasTouchConfirm: () => Boolean(args.deps.getSignerWorkerContext().touchConfirm),
+    },
+    nearAccountId: args.nearAccountId,
+    record: recordForLifecycle,
+    usesNeeded: 1,
+  });
+  emitSigningBoundaryTrace(
+    'near',
+    createSigningBoundaryTraceEvent({
+      event: 'pre_confirm_readiness_checked',
+      lane,
+      readinessStatus: readiness.readiness.status,
+      phase: 'pre_confirm',
+    }),
+  );
+  const transactionReadinessState = classifyTransactionReadiness(
+    restoreState || selectedLane,
+    transactionReadinessFromPlannerInput({
+      readiness: readiness.readiness,
+      expiresAtMs: readiness.expiresAtMs,
+      remainingUses: readiness.remainingUses,
+      usesNeeded: 1,
+    }),
+  );
+  const identity = requireResolvedNearEd25519SigningLane(lane);
+  const readinessInput = {
+    readiness: readiness.readiness,
+    expiresAtMs: readiness.expiresAtMs,
+    remainingUses: readiness.remainingUses,
+    usesNeeded: 1,
+  };
+  return {
+    lane,
+    readiness: readinessInput,
+    snapshotGeneration: snapshot?.generation || 0,
+    metadata: {
+      thresholdSessionRecord: recordForLifecycle,
+      transactionLane: selectedLane.lane,
+      transactionReadinessState,
+      identity,
+      snapshotGeneration: snapshot?.generation || 0,
+      readiness: readinessInput,
+      ...(args.ed25519Warmup ? { ed25519Warmup: args.ed25519Warmup } : {}),
+    },
+  };
+}
+
 async function prepareNearEd25519TransactionSigningSession(args: {
   deps: NearSigningApiDeps;
   input: SignTransactionsWithActionsInput;
@@ -1190,159 +1350,13 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     prepareBudgetIdentity: true,
     onPlannerTrace: (event) => emitSigningPlannerDecisionTrace('near', event),
     lifecycleAdapter: {
-      prepare: async () => {
-        let recordForLifecycle = getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
-        const authSelectionPolicy = await resolveNearEd25519AuthSelectionPolicy({
+      prepare: async () =>
+        await prepareNearEd25519TransactionOperation({
           deps: args.deps,
           nearAccountId: args.nearAccountId,
-          record: recordForLifecycle,
-        });
-        const snapshot = await readNearEd25519SigningSnapshot({
-          deps: args.deps,
-          nearAccountId: args.nearAccountId,
-          record: recordForLifecycle,
-          authMethod: authSelectionPolicy?.authMethod || null,
-        });
-        const selectedAuthRuntimeRecord =
-          recordForLifecycle &&
-          authSelectionPolicy &&
-          authSelectionPolicy.kind === 'current_lane' &&
-          authMethodForThresholdEd25519Record(recordForLifecycle) ===
-            authSelectionPolicy.authMethod
-            ? recordForLifecycle
-            : null;
-        const selectedLane = selectNearEd25519TransactionCandidate({
-          snapshot,
-          authSelectionPolicy,
-          runtimeRecord: selectedAuthRuntimeRecord,
-          nearAccountId: args.nearAccountId,
-        });
-        const selectedIdentity = resolveNearEd25519SelectedIdentityFromTransactionLane({
-          transactionLane: selectedLane?.lane || null,
-        });
-        if (
-          authSelectionPolicy &&
-          authSelectionPolicy.kind === 'explicit' &&
-          selectedIdentity &&
-          selectedIdentity.authMethod !== authSelectionPolicy.authMethod
-        ) {
-          throw new Error(
-            `[SigningEngine][near] Ed25519 snapshot selected ${selectedIdentity.authMethod} after ${authSelectionPolicy.authMethod} filter`,
-          );
-        }
-        await restoreNearEd25519SelectedSigningSession({
-          deps: args.deps,
-          nearAccountId: args.nearAccountId,
-          identity: selectedIdentity,
-          snapshotLane: selectedLane?.snapshotLane || null,
-        });
-        const restoreState = selectedLane
-          ? recordExactRestoreAttempt(selectedLane, { restored: Boolean(selectedIdentity) })
-          : null;
-        recordForLifecycle = resolveNearEd25519RuntimeRecordForSelectedIdentity({
-          identity: selectedIdentity,
-          fallback: getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId),
-          nearAccountId: args.nearAccountId,
-        });
-        publishNearEd25519RuntimeIdentityForRecord(recordForLifecycle);
-        assertNearEd25519SelectedIdentityMatchesRecord({
-          identity: selectedIdentity,
-          record: recordForLifecycle,
-          nearAccountId: args.nearAccountId,
-        });
-        if (!selectedIdentity || !recordForLifecycle) {
-          console.warn('[SigningEngine][near] Ed25519 signing lane selection missing session', {
-            nearAccountId: args.nearAccountId,
-            hasSelectedIdentity: Boolean(selectedIdentity),
-            selectedIdentity: selectedIdentity
-              ? {
-                  authMethod: selectedIdentity.authMethod,
-                  thresholdSessionId: String(selectedIdentity.thresholdSessionId || ''),
-                  walletSigningSessionId: String(selectedIdentity.walletSigningSessionId || ''),
-                }
-              : null,
-            hasRuntimeRecord: Boolean(recordForLifecycle),
-            runtimeRecord: recordForLifecycle
-              ? {
-                  source: recordForLifecycle.source,
-                  thresholdSessionId: recordForLifecycle.thresholdSessionId,
-                  walletSigningSessionId: recordForLifecycle.walletSigningSessionId,
-                  remainingUses: recordForLifecycle.remainingUses,
-                  expiresAtMs: recordForLifecycle.expiresAtMs,
-                }
-              : null,
-            snapshotLane: snapshot?.lanes.ed25519.near || null,
-            snapshotCandidate: selectedLane?.snapshotLane || null,
-          });
-          throw new Error('[SigningEngine][near] signing session is not ready: missing_session');
-        }
-        if (!selectedLane) {
-          throw new Error('[SigningEngine][near] signing session is not ready: missing_lane');
-        }
-        const lane = buildNearTransactionLaneFromPreparedIdentity({
-          nearAccountId: args.nearAccountId,
-          record: recordForLifecycle,
-          identity: selectedIdentity,
-        });
-        assertSigningLaneMatchesSelectedTransactionLane({
-          signingLane: lane,
-          transactionLane: selectedLane.lane,
-        });
-        const readiness = await resolveNearTransactionPlannerReadiness({
-          preConfirmDeps: {
-            getWarmThresholdEd25519SessionStatusForSession:
-              args.deps.getWarmThresholdEd25519SessionStatusForSession,
-            signingSessionCoordinator: args.signingSessionCoordinator,
-            hasTouchConfirm: () => Boolean(args.deps.getSignerWorkerContext().touchConfirm),
-          },
-          nearAccountId: args.nearAccountId,
-          record: recordForLifecycle,
-          usesNeeded: 1,
-        });
-        emitSigningBoundaryTrace(
-          'near',
-          createSigningBoundaryTraceEvent({
-            event: 'pre_confirm_readiness_checked',
-            lane,
-            readinessStatus: readiness.readiness.status,
-            phase: 'pre_confirm',
-          }),
-        );
-        const transactionReadinessState = classifyTransactionReadiness(
-          restoreState || selectedLane,
-          transactionReadinessFromPlannerInput({
-            readiness: readiness.readiness,
-            expiresAtMs: readiness.expiresAtMs,
-            remainingUses: readiness.remainingUses,
-            usesNeeded: 1,
-          }),
-        );
-        const identity = requireResolvedNearEd25519SigningLane(lane);
-        return {
-          lane,
-          readiness: {
-            readiness: readiness.readiness,
-            expiresAtMs: readiness.expiresAtMs,
-            remainingUses: readiness.remainingUses,
-            usesNeeded: 1,
-          },
-          snapshotGeneration: snapshot?.generation || 0,
-          metadata: {
-            thresholdSessionRecord: recordForLifecycle,
-            transactionLane: selectedLane.lane,
-            transactionReadinessState,
-            identity,
-            snapshotGeneration: snapshot?.generation || 0,
-            readiness: {
-              readiness: readiness.readiness,
-              expiresAtMs: readiness.expiresAtMs,
-              remainingUses: readiness.remainingUses,
-              usesNeeded: 1,
-            },
-            ...(ed25519Warmup ? { ed25519Warmup } : {}),
-          },
-        };
-      },
+          signingSessionCoordinator: args.signingSessionCoordinator,
+          ...(ed25519Warmup ? { ed25519Warmup } : {}),
+        }),
     },
   });
   thresholdSessionRecord = preparedOperation.metadata.thresholdSessionRecord;

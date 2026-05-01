@@ -1061,6 +1061,8 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(preparedOperation).not.toContain('restoreCoordinator');
     expect(preparedOperation).not.toContain('snapshotReader');
     expect(nearSigning).toContain('prepareThresholdSigningOperation');
+    expect(nearSigning).toContain('async function prepareNearEd25519TransactionOperation');
+    expect(nearSigning).toContain('await prepareNearEd25519TransactionOperation({');
     expect(nearSigning).toContain('executePreparedThresholdSigning');
     expect(nearSigning).toContain('finalizePreparedThresholdSigning');
     expect(transactionsFlow).toContain(

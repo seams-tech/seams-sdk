@@ -664,6 +664,9 @@ Acceptance:
 2. [x] Add full discriminated-union transition states and explicit transition
    functions.
 3. [ ] Create one `prepareTransactionSigningOperation(intent)` path.
+   - [x] NEAR Ed25519 transaction prepare is isolated behind a named
+     `prepareNearEd25519TransactionOperation(...)` path.
+   - [ ] Generalize that boundary across transaction curves.
 4. [x] NEAR Ed25519 prepare performs snapshot read, lane selection, exact restore, readiness
    classification, and auth planning.
 5. [ ] It returns `PreparedTransactionOperation`.
