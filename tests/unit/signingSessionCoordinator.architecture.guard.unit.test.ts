@@ -1177,8 +1177,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(evmPreparedSigning.indexOf('readSigningSessionSnapshotForSigning')).toBeLessThan(
       evmPreparedSigning.indexOf('restorePersistedSessionForSigning({'),
     );
-    expect(evmPreparedSigning).toContain("reason: 'no_exact_snapshot_candidate'");
-    expect(evmPreparedSigning).toContain('let lane selection prove the runtime identity');
+    expect(evmPreparedSigning).toContain(
+      'transaction restore requires an exact snapshot lane',
+    );
+    expect(evmPreparedSigning).toContain("reason: 'selected_snapshot_candidate_ready'");
+    expect(evmPreparedSigning).not.toContain("reason: 'no_exact_snapshot_candidate'");
+    expect(evmPreparedSigning).not.toContain('let lane selection prove the runtime identity');
     expect(evmPreparedSigning).toContain('walletSigningSessionId,');
     expect(evmPreparedSigning).toContain('thresholdSessionId,');
     expect(evmPreparedSigning).not.toContain("(['email_otp', 'passkey'] as const).map");

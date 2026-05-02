@@ -236,7 +236,7 @@ test.describe('Email OTP operation split guard', () => {
       preparedStart,
     );
     const selectionCall = preparedSigning.indexOf(
-      'selection =\n          selection ||',
+      'const selection = await resolveEvmFamilyEcdsaSigningSelection',
       preparedStart,
     );
 

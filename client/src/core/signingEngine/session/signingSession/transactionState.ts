@@ -368,7 +368,7 @@ function selectNearEd25519TransactionLane(
   }
 
   const concreteCandidates =
-    input.snapshot?.candidates.ed25519.near.filter(isConcreteNearEd25519Lane) || [];
+    input.snapshot?.candidates?.ed25519?.near?.filter(isConcreteNearEd25519Lane) || [];
   return selectConcreteTransactionCandidate({
     intent,
     candidates: concreteCandidates,
@@ -421,7 +421,7 @@ function selectEvmFamilyEcdsaTransactionLane(
 
   const chain = intent.chain === 'tempo' || intent.chain === 'evm' ? intent.chain : 'evm';
   const concreteCandidates =
-    input.snapshot?.candidates.ecdsa[chain].filter(isConcreteEvmFamilyEcdsaLane) || [];
+    input.snapshot?.candidates?.ecdsa?.[chain]?.filter(isConcreteEvmFamilyEcdsaLane) || [];
   return selectConcreteTransactionCandidate({
     intent,
     candidates: concreteCandidates,

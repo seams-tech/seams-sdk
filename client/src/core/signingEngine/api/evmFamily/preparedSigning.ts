@@ -192,17 +192,18 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         });
         const snapshotCandidate = snapshotSelection?.snapshotLane || null;
         const transactionLane = snapshotSelection?.lane || null;
-        const primaryAuthMethod =
-          accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
-        const authMethod = transactionLane?.authMethod || primaryAuthMethod;
-        let selection:
-          | Awaited<ReturnType<typeof resolveEvmFamilyEcdsaSigningSelection>>
-          | null = null;
+        if (!snapshotCandidate || !transactionLane) {
+          throw new Error(
+            `[SigningEngine][ecdsa] transaction restore requires an exact snapshot lane for ${args.chain}`,
+          );
+        }
+        const authMethod = transactionLane.authMethod;
         // Transaction prepare first reads the side-effect-free signing-session
         // snapshot, then restores only the selected exact auth-method lane.
         // Broad probing belongs to startup/session-status maintenance paths.
         const restoreResults: Record<string, unknown> = {};
-        if (snapshotCandidate) {
+        const shouldRestoreSnapshotCandidate = snapshotCandidate.state !== 'ready';
+        if (shouldRestoreSnapshotCandidate) {
           args.diagnostics.sealedRestoreBeforeSelection = {
             attempted: true,
             completed: false,
@@ -238,50 +239,36 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               },
             );
         } else {
-          // Fresh unlocks can have runtime lane material before the side-effect-free
-          // snapshot has a durable exact candidate. In that case, skip restore and
-          // let lane selection prove the runtime identity below.
           args.diagnostics.sealedRestoreBeforeSelection = {
             attempted: false,
             completed: true,
             authMethod,
-            reason: 'no_exact_snapshot_candidate',
+            reason: 'selected_snapshot_candidate_ready',
           };
-          selection = await resolveEvmFamilyEcdsaSigningSelection({
-            deps: args.deps,
-            nearAccountId: args.nearAccountId,
-            chain: args.chain,
-            senderSignatureAlgorithm: 'secp256k1',
-            authMethod,
-          });
         }
         args.diagnostics.sealedRestoreBeforeSelection = {
-          attempted: !!snapshotCandidate,
+          attempted: shouldRestoreSnapshotCandidate,
           completed: true,
           authMethod,
           results: restoreResults,
-          selectedSnapshotCandidate: snapshotCandidate
-            ? {
-                authMethod: snapshotCandidate.authMethod,
-                state: snapshotCandidate.state,
-                thresholdSessionId: snapshotCandidate.thresholdSessionId,
-                walletSigningSessionId: snapshotCandidate.walletSigningSessionId,
-                source: snapshotCandidate.source,
-              }
-            : null,
+          selectedSnapshotCandidate: {
+            authMethod: snapshotCandidate.authMethod,
+            state: snapshotCandidate.state,
+            thresholdSessionId: snapshotCandidate.thresholdSessionId,
+            walletSigningSessionId: snapshotCandidate.walletSigningSessionId,
+            source: snapshotCandidate.source,
+          },
         };
 
-        selection =
-          selection ||
-          (await resolveEvmFamilyEcdsaSigningSelection({
-            deps: args.deps,
-            nearAccountId: args.nearAccountId,
-            chain: args.chain,
-            senderSignatureAlgorithm: 'secp256k1',
-            authMethod,
-            ...(transactionLane ? { transactionLane } : {}),
-            ...(snapshotCandidate ? { snapshotCandidate } : {}),
-          }));
+        const selection = await resolveEvmFamilyEcdsaSigningSelection({
+          deps: args.deps,
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+          senderSignatureAlgorithm: 'secp256k1',
+          authMethod,
+          transactionLane,
+          snapshotCandidate,
+        });
         const snapshot = await args.deps.readSigningSessionSnapshotForSigning({
           walletId: args.nearAccountId,
           authMethod: selection.authMethod,

@@ -444,12 +444,33 @@ test.describe('tempo signing auth-mode resolution', () => {
               ed25519: { near: { curve: 'ed25519', chain: 'near', state: 'missing' } },
               ecdsa: {
                 tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
-                evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+                evm: {
+                  authMethod: 'email_otp',
+                  curve: 'ecdsa',
+                  chain: 'evm',
+                  state: 'ready',
+                  source: 'runtime_session_record',
+                  thresholdSessionId: emailRecord.thresholdSessionId,
+                  walletSigningSessionId: emailRecord.walletSigningSessionId,
+                },
               },
             },
             candidates: {
               ed25519: { near: [] },
-              ecdsa: { tempo: [], evm: [] },
+              ecdsa: {
+                tempo: [],
+                evm: [
+                  {
+                    authMethod: 'email_otp',
+                    curve: 'ecdsa',
+                    chain: 'evm',
+                    state: 'ready',
+                    source: 'runtime_session_record',
+                    thresholdSessionId: emailRecord.thresholdSessionId,
+                    walletSigningSessionId: emailRecord.walletSigningSessionId,
+                  },
+                ],
+              },
             },
           }),
           indexedDB: {
@@ -2501,6 +2522,23 @@ test.describe('tempo signing auth-mode resolution', () => {
                 evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
               },
             },
+            candidates: {
+              ed25519: { near: [] },
+              ecdsa: {
+                tempo: [
+                  {
+                    authMethod: 'email_otp',
+                    curve: 'ecdsa',
+                    chain: 'tempo',
+                    state: 'ready',
+                    source: 'runtime_session_record',
+                    thresholdSessionId: emailOtpRecord.thresholdSessionId,
+                    walletSigningSessionId,
+                  },
+                ],
+                evm: [],
+              },
+            },
           }),
           indexedDB: {
             clientDB: {
@@ -2802,6 +2840,32 @@ test.describe('tempo signing auth-mode resolution', () => {
               ecdsa: {
                 tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
                 evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+              },
+            },
+            candidates: {
+              ed25519: { near: [] },
+              ecdsa: {
+                tempo: [
+                  {
+                    authMethod: 'passkey',
+                    curve: 'ecdsa',
+                    chain: 'tempo',
+                    state: 'ready',
+                    source: 'runtime_session_record',
+                    thresholdSessionId: passkeyRecord.thresholdSessionId,
+                    walletSigningSessionId: passkeyRecord.walletSigningSessionId,
+                  },
+                  {
+                    authMethod: 'email_otp',
+                    curve: 'ecdsa',
+                    chain: 'tempo',
+                    state: 'ready',
+                    source: 'runtime_session_record',
+                    thresholdSessionId: emailOtpRecord.thresholdSessionId,
+                    walletSigningSessionId,
+                  },
+                ],
+                evm: [],
               },
             },
           }),
@@ -3518,6 +3582,23 @@ test.describe('tempo signing auth-mode resolution', () => {
                 evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
               },
             },
+            candidates: {
+              ed25519: { near: [] },
+              ecdsa: {
+                tempo: [
+                  {
+                    authMethod: 'email_otp',
+                    curve: 'ecdsa',
+                    chain: 'tempo',
+                    state: 'ready',
+                    source: 'runtime_session_record',
+                    thresholdSessionId: initialRecord.thresholdSessionId,
+                    walletSigningSessionId,
+                  },
+                ],
+                evm: [],
+              },
+            },
           }),
           indexedDB: {
             clientDB: {
@@ -3879,6 +3960,39 @@ test.describe('tempo signing auth-mode resolution', () => {
                   evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
                 },
               },
+              candidates: {
+                ed25519: { near: [] },
+                ecdsa: {
+                  tempo:
+                    chain === 'tempo'
+                      ? [
+                          {
+                            authMethod: 'email_otp',
+                            curve: 'ecdsa',
+                            chain: 'tempo',
+                            state: 'ready',
+                            source: 'runtime_session_record',
+                            thresholdSessionId,
+                            walletSigningSessionId,
+                          },
+                        ]
+                      : [],
+                  evm:
+                    chain === 'evm'
+                      ? [
+                          {
+                            authMethod: 'email_otp',
+                            curve: 'ecdsa',
+                            chain: 'evm',
+                            state: 'ready',
+                            source: 'runtime_session_record',
+                            thresholdSessionId,
+                            walletSigningSessionId,
+                          },
+                        ]
+                      : [],
+                },
+              },
             }),
             indexedDB: {
               clientDB: {
@@ -4197,6 +4311,39 @@ test.describe('tempo signing auth-mode resolution', () => {
                 ecdsa: {
                   tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
                   evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+                },
+              },
+              candidates: {
+                ed25519: { near: [] },
+                ecdsa: {
+                  tempo:
+                    chain === 'tempo'
+                      ? [
+                          {
+                            authMethod: 'email_otp',
+                            curve: 'ecdsa',
+                            chain: 'tempo',
+                            state: 'ready',
+                            source: 'runtime_session_record',
+                            thresholdSessionId: emailOtpRecord.thresholdSessionId,
+                            walletSigningSessionId,
+                          },
+                        ]
+                      : [],
+                  evm:
+                    chain === 'evm'
+                      ? [
+                          {
+                            authMethod: 'email_otp',
+                            curve: 'ecdsa',
+                            chain: 'evm',
+                            state: 'ready',
+                            source: 'runtime_session_record',
+                            thresholdSessionId: emailOtpRecord.thresholdSessionId,
+                            walletSigningSessionId,
+                          },
+                        ]
+                      : [],
                 },
               },
             }),
@@ -4557,6 +4704,51 @@ test.describe('tempo signing auth-mode resolution', () => {
               ecdsa: {
                 tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
                 evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+              },
+            },
+            candidates: {
+              ed25519: { near: [] },
+              ecdsa: {
+                tempo: [
+                  {
+                    authMethod: 'passkey',
+                    curve: 'ecdsa',
+                    chain: 'tempo',
+                    state: 'ready',
+                    source: 'runtime_session_record',
+                    thresholdSessionId: passkeyRecords.tempo.thresholdSessionId,
+                    walletSigningSessionId: passkeyRecords.tempo.walletSigningSessionId,
+                  },
+                  {
+                    authMethod: 'email_otp',
+                    curve: 'ecdsa',
+                    chain: 'tempo',
+                    state: 'ready',
+                    source: 'runtime_session_record',
+                    thresholdSessionId: emailOtpRecords.tempo.thresholdSessionId,
+                    walletSigningSessionId: emailOtpRecords.tempo.walletSigningSessionId,
+                  },
+                ],
+                evm: [
+                  {
+                    authMethod: 'passkey',
+                    curve: 'ecdsa',
+                    chain: 'evm',
+                    state: 'ready',
+                    source: 'runtime_session_record',
+                    thresholdSessionId: passkeyRecords.evm.thresholdSessionId,
+                    walletSigningSessionId: passkeyRecords.evm.walletSigningSessionId,
+                  },
+                  {
+                    authMethod: 'email_otp',
+                    curve: 'ecdsa',
+                    chain: 'evm',
+                    state: 'ready',
+                    source: 'runtime_session_record',
+                    thresholdSessionId: emailOtpRecords.evm.thresholdSessionId,
+                    walletSigningSessionId: emailOtpRecords.evm.walletSigningSessionId,
+                  },
+                ],
               },
             },
           }),
