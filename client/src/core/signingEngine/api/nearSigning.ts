@@ -68,7 +68,10 @@ import {
   SigningSessionCoordinator,
   type SigningSessionReadiness,
 } from '../session/SigningSessionCoordinator';
-import type { SigningSessionPreparedBudgetIdentity } from '../session/signingSession/budget';
+import type {
+  SigningSessionBudgetStatusAuth,
+  SigningSessionPreparedBudgetIdentity,
+} from '../session/signingSession/budget';
 import { signingAuthPlanFromSigningSessionPlan } from '../orchestration/shared/touchConfirmSigning';
 import {
   createSigningBoundaryTraceEvent,
@@ -92,6 +95,7 @@ import {
   recordTransactionBudgetAdmission,
   recordTransactionSnapshot,
   selectTransactionLaneFromSnapshot,
+  replacePreparedTransactionLane,
   type BudgetAdmittedOperation,
   type NearEd25519ConcreteSnapshotLane,
   type NearEd25519TransactionLane,
@@ -562,6 +566,16 @@ async function resolveNearTransactionPlannerReadiness(args: {
 function hasThresholdEd25519RouteAuth(record: ThresholdEd25519SessionRecord): boolean {
   if (record.thresholdSessionKind === 'cookie') return true;
   return Boolean(String(record.thresholdSessionJwt || '').trim());
+}
+
+function readinessFromPreparedBudgetIdentity(
+  budgetIdentity: SigningSessionPreparedBudgetIdentity,
+): TransactionReadiness {
+  return {
+    status: 'ready',
+    remainingUses: Math.max(0, Math.floor(Number(budgetIdentity.status.remainingUses) || 0)),
+    expiresAtMs: Math.max(0, Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0)),
+  };
 }
 
 function emailOtpEd25519AuthLaneFromRecord(
@@ -1509,6 +1523,27 @@ export async function signTransactionsWithActions(
       task: async () => {
         const ctx = deps.getSignerWorkerContext();
         const confirmationOperationId = ensureOperationId();
+        const admitBudgetForTransactionLane = async (admission: {
+          lane: NearEd25519TransactionLane;
+          trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+        }): Promise<BudgetAdmittedOperation<NearEd25519TransactionLane>> => {
+          const budgetIdentity = await signingSessionCoordinator.prepareBudgetIdentity({
+            nearAccountId,
+            lane: admission.lane,
+            ...(admission.trustedStatusAuth
+              ? { trustedStatusAuth: admission.trustedStatusAuth }
+              : {}),
+            operationUsesNeeded: 1,
+          });
+          const refreshedPreparedOperation = replacePreparedTransactionLane(
+            preparedSigningSession.transactionOperation,
+            {
+              lane: admission.lane,
+              readiness: readinessFromPreparedBudgetIdentity(budgetIdentity),
+            },
+          );
+          return admitTransactionBudget(refreshedPreparedOperation, { budgetIdentity });
+        };
         const payload: NearTransactionsWithActionsPayload = {
           ctx,
           transactions: inputWithConfirmationTracking.transactions,
@@ -1526,6 +1561,7 @@ export async function signTransactionsWithActions(
           signingSessionCoordinator,
           transactionOperation: preparedSigningSession.transactionOperation,
           ...(budgetAdmittedOperation ? { budgetAdmittedOperation } : {}),
+          admitBudgetForTransactionLane,
           finalizePreparedSigningSession: async ({ status, hooks, result, error }) => {
             await finalizePreparedThresholdSigning(preparedOperation, result || null, {
               ...(status === 'success'

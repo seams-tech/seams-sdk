@@ -640,10 +640,12 @@ Acceptance:
      transaction lane identity for exact snapshot candidates.
    - [x] EVM-family prepare now fails without an exact snapshot lane instead of
      falling back to curve-specific runtime lane discovery.
-4. [ ] Remove selection from lower transaction flows.
+4. [x] Remove selection from lower transaction flows.
    - [x] EVM/Tempo lower signing flows now hard-fail threshold ECDSA
      execution without a prepared signing auth plan instead of defaulting to
      passkey/WebAuthn selection.
+   - [x] NEAR Ed25519 lower signing flow receives the prepared auth plan and
+     no longer selects lanes or plans threshold auth itself.
 5. [x] Delete `candidates[0]` fallback after runtime mismatch.
 6. [x] Delete account-primary fallback after concrete candidate selection.
 7. [x] Delete OTP/passkey probing.
@@ -703,8 +705,11 @@ Acceptance:
      `SignedTransactionOperation` from the admitted worker state.
 9. [ ] NEAR/EVM/Tempo transaction flows receive state-machine operation types only.
 10. [x] NEAR Ed25519 lower flow no longer plans auth, selects lanes, or restores sessions.
-11. [ ] Lower flows no longer discover
+11. [x] Lower flows no longer discover
    budget identity.
+   - [x] NEAR Ed25519 post-confirm reauth asks the API prepare boundary to
+     admit an exact transaction lane instead of calling budget discovery
+     directly.
 
 Acceptance:
 

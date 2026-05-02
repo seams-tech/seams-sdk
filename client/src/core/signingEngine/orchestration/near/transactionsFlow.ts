@@ -65,14 +65,11 @@ import {
   type SigningOperationId,
 } from '../../session/signingSession/types';
 import {
-  admitTransactionBudget,
   recordTransactionSigned,
-  replacePreparedTransactionLane,
   type BudgetAdmittedOperation,
   type NearEd25519TransactionLane,
   type PreparedTransactionOperation,
   type SignedTransactionOperation,
-  type TransactionReadiness,
 } from '../../session/signingSession/transactionState';
 import type { NonceLeaseRef } from '../../nonce/NonceCoordinator';
 import {
@@ -80,10 +77,7 @@ import {
   emitSigningBoundaryTrace,
 } from '../../session/signingSession/trace';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type {
-  SigningSessionBudgetStatusAuth,
-  SigningSessionPreparedBudgetIdentity,
-} from '../../session/signingSession/budget';
+import type { SigningSessionBudgetStatusAuth } from '../../session/signingSession/budget';
 import {
   createSigningSessionBudgetFinalizer,
   type SigningSessionBudgetFinalizer,
@@ -104,16 +98,6 @@ function emitNearSigningEvent(
       }),
     );
   } catch {}
-}
-
-function readinessFromPreparedBudgetIdentity(
-  budgetIdentity: SigningSessionPreparedBudgetIdentity,
-): TransactionReadiness {
-  return {
-    status: 'ready',
-    remainingUses: Math.max(0, Math.floor(Number(budgetIdentity.status.remainingUses) || 0)),
-    expiresAtMs: Math.max(0, Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0)),
-  };
 }
 
 function resolvedEd25519SessionStateFromRecord(
@@ -202,6 +186,7 @@ export async function signTransactionsWithActions({
   signingSessionCoordinator: sessionCoordinator,
   transactionOperation,
   budgetAdmittedOperation: providedBudgetAdmittedOperation,
+  admitBudgetForTransactionLane: providedAdmitBudgetForTransactionLane,
   finalizePreparedSigningSession,
   ed25519Warmup,
   passkeyEd25519Reconnect,
@@ -223,6 +208,10 @@ export async function signTransactionsWithActions({
   signingSessionCoordinator?: SigningSessionCoordinator;
   transactionOperation: PreparedTransactionOperation<NearEd25519TransactionLane>;
   budgetAdmittedOperation?: BudgetAdmittedOperation<NearEd25519TransactionLane>;
+  admitBudgetForTransactionLane?: (args: {
+    lane: NearEd25519TransactionLane;
+    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
+  }) => Promise<BudgetAdmittedOperation<NearEd25519TransactionLane>>;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
@@ -678,17 +667,13 @@ export async function signTransactionsWithActions({
   const admitBudgetForTransactionLane = async (
     lane: NearEd25519TransactionLane,
   ): Promise<BudgetAdmittedOperation<NearEd25519TransactionLane>> => {
-    const budgetIdentity = await sessionCoordinator.prepareBudgetIdentity({
-      nearAccountId,
+    if (!providedAdmitBudgetForTransactionLane) {
+      throw new Error('[SigningEngine][near] missing prepared budget admission boundary');
+    }
+    return await providedAdmitBudgetForTransactionLane({
       lane,
       trustedStatusAuth: trustedBudgetStatusAuth,
-      operationUsesNeeded: usesNeeded,
     });
-    const refreshedPreparedOperation = replacePreparedTransactionLane(transactionOperation, {
-      lane,
-      readiness: readinessFromPreparedBudgetIdentity(budgetIdentity),
-    });
-    return admitTransactionBudget(refreshedPreparedOperation, { budgetIdentity });
   };
   if (refreshedBudgetIdentityRequired) {
     activeBudgetAdmittedOperation = await admitBudgetForTransactionLane(
