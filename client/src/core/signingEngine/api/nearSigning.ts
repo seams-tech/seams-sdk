@@ -312,7 +312,10 @@ type NearEd25519SelectedIdentity = SelectedSigningLaneIdentity & {
 
 type NearEd25519PreparedIdentity = ResolvedEd25519SigningSessionIdentity;
 
-type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState;
+type NearEd25519SelectedTransactionLane = TransactionLaneSelectedState<
+  NearEd25519TransactionLane,
+  NearEd25519ConcreteSnapshotLane
+>;
 
 type NearEd25519Warmup = {
   isPending: () => boolean;
@@ -936,7 +939,13 @@ function selectNearEd25519TransactionCandidate(args: {
   });
   const selectionState = selectTransactionLaneFromSnapshot(snapshotState);
   if (selectionState.tag === 'LaneSelected') {
-    return selectionState;
+    if (
+      selectionState.lane.curve !== 'ed25519' ||
+      selectionState.snapshotLane.curve !== 'ed25519'
+    ) {
+      throw new Error('[SigningEngine][near] Ed25519 selector returned a non-Ed25519 lane');
+    }
+    return selectionState as NearEd25519SelectedTransactionLane;
   }
   if (selectionState.failure.kind === 'no_candidate') return null;
   throw new Error(

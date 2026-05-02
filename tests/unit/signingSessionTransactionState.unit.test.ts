@@ -24,6 +24,18 @@ const nearIntent = (
   operationUsesNeeded: 1,
 });
 
+const ecdsaIntent = (
+  authMethod: 'email_otp' | 'passkey',
+  chain: 'tempo' | 'evm' = 'evm',
+  kind: 'explicit' | 'account_class' | 'current_lane' = 'account_class',
+): TransactionSigningIntent => ({
+  walletId: 'alice.testnet',
+  curve: 'ecdsa',
+  chain,
+  authSelectionPolicy: { kind, authMethod },
+  operationUsesNeeded: 1,
+});
+
 const emptySnapshot = (): SigningSessionSnapshot => ({
   walletId: 'alice.testnet' as any,
   generation: 1,
@@ -58,6 +70,25 @@ function ed25519Candidate(args: {
     authMethod: args.authMethod,
     curve: 'ed25519' as const,
     chain: 'near' as const,
+    state: args.state || 'restorable',
+    source: args.source || 'durable_sealed_record',
+    thresholdSessionId: args.thresholdSessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
+  };
+}
+
+function ecdsaCandidate(args: {
+  authMethod: 'email_otp' | 'passkey';
+  chain?: 'tempo' | 'evm';
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  state?: 'ready' | 'restorable';
+  source?: 'runtime_session_record' | 'durable_sealed_record' | 'runtime_and_durable';
+}) {
+  return {
+    authMethod: args.authMethod,
+    curve: 'ecdsa' as const,
+    chain: args.chain || 'evm',
     state: args.state || 'restorable',
     source: args.source || 'durable_sealed_record',
     thresholdSessionId: args.thresholdSessionId,
@@ -199,6 +230,72 @@ test.describe('transaction signing state selector', () => {
       ok: false,
       failure: { kind: 'no_candidate', authMethod: 'passkey' },
     });
+  });
+
+  test('selects a concrete EVM ECDSA candidate by account-class policy', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ecdsa.evm = [
+      ecdsaCandidate({
+        authMethod: 'passkey',
+        thresholdSessionId: 'tsess-ecdsa-passkey',
+        walletSigningSessionId: 'wss-ecdsa-passkey',
+      }),
+      ecdsaCandidate({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-ecdsa-otp',
+        walletSigningSessionId: 'wss-ecdsa-otp',
+      }),
+    ];
+
+    const selection = selectTransactionLane({
+      intent: ecdsaIntent('email_otp', 'evm'),
+      snapshot,
+    });
+
+    expect(selection.ok).toBe(true);
+    if (!selection.ok) throw new Error('expected selection');
+    expect(selection.lane).toMatchObject({
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+      chain: 'evm',
+      thresholdSessionId: 'tsess-ecdsa-otp',
+      walletSigningSessionId: 'wss-ecdsa-otp',
+    });
+  });
+
+  test('selects ECDSA candidates deterministically by ready state and stable identity', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ecdsa.tempo = [
+      ecdsaCandidate({
+        authMethod: 'passkey',
+        chain: 'tempo',
+        thresholdSessionId: 'tsess-z-restorable',
+        walletSigningSessionId: 'wss-z-restorable',
+      }),
+      ecdsaCandidate({
+        authMethod: 'passkey',
+        chain: 'tempo',
+        thresholdSessionId: 'tsess-b-ready',
+        walletSigningSessionId: 'wss-b-ready',
+        state: 'ready',
+      }),
+      ecdsaCandidate({
+        authMethod: 'passkey',
+        chain: 'tempo',
+        thresholdSessionId: 'tsess-a-ready',
+        walletSigningSessionId: 'wss-a-ready',
+        state: 'ready',
+      }),
+    ];
+
+    const selection = selectTransactionLane({
+      intent: ecdsaIntent('passkey', 'tempo'),
+      snapshot,
+    });
+
+    expect(selection.ok).toBe(true);
+    if (!selection.ok) throw new Error('expected selection');
+    expect(selection.lane.thresholdSessionId).toBe('tsess-a-ready');
   });
 
   test('moves from intent to snapshot to selected lane with explicit state tags', () => {

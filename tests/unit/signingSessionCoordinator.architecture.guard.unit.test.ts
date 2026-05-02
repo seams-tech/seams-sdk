@@ -1101,6 +1101,8 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(snapshotReader).toContain('near: SigningSessionSnapshotEd25519Lane[];');
     expect(transactionState).toContain('export type TransactionSigningIntent');
     expect(transactionState).toContain('export type TransactionLane');
+    expect(transactionState).toContain('export type EvmFamilyEcdsaTransactionLane');
+    expect(transactionState).toContain('function isConcreteEvmFamilyEcdsaLane');
     expect(transactionState).toContain('export type PreparedTransactionOperation');
     expect(transactionState).toContain('export type BudgetAdmittedOperation');
     expect(transactionState).toContain('export type TransactionSigningState');
@@ -1167,6 +1169,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(evmSigningBody).not.toContain('restorePersistedSessionForSigning(');
     expect(evmPreparedSigning).toContain('prepareThresholdSigningOperation');
     expect(evmPreparedSigning).toContain('lifecycleAdapter');
+    expect(evmPreparedSigning).toContain('selectTransactionLane');
     expect(evmPreparedSigning).toContain('assertSelectionMatchesSnapshotCandidate');
     expect(evmPreparedSigning).toContain('authMethod,');
     expect(evmEcdsaSelection).toContain('authMethod: typeof SIGNER_AUTH_METHODS.emailOtp');

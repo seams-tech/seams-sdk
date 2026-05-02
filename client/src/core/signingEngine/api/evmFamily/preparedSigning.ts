@@ -8,14 +8,13 @@ import type {
   SigningSessionSnapshot,
   SigningSessionSnapshotEcdsaLane,
 } from '../../session/snapshotReader';
-import {
-  compareSnapshotCandidates,
-  isConcreteSigningSessionSnapshotLane,
-  type ConcreteSigningSessionSnapshotLane,
-} from '../../session/snapshotReader';
 import type { SigningSessionPreparedBudgetIdentity } from '../../session/signingSession/budget';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { RestorePersistedSessionForSigningInput } from '../../session/restoreCoordinator';
+import {
+  selectTransactionLane,
+  type EvmFamilyEcdsaConcreteSnapshotLane,
+} from '../../session/signingSession/transactionState';
 import {
   prepareThresholdSigningOperation,
   type PreparedThresholdSigningOperation,
@@ -47,37 +46,34 @@ import {
 import { resolveEvmFamilyTransactionAccountAuth } from './accountAuth';
 import type { EvmFamilyChain } from './types';
 
-type ConcreteEcdsaSnapshotLane = SigningSessionSnapshotEcdsaLane &
-  ConcreteSigningSessionSnapshotLane;
-
-function isConcreteEcdsaSnapshotLane(
-  lane: SigningSessionSnapshotEcdsaLane,
-): lane is ConcreteEcdsaSnapshotLane {
-  return lane.curve === 'ecdsa' && isConcreteSigningSessionSnapshotLane(lane);
-}
-
 function resolveEcdsaSnapshotCandidate(args: {
   snapshot: SigningSessionSnapshot;
+  nearAccountId: string;
   chain: EvmFamilyChain;
   accountAuth: AccountAuthMetadata;
-}): ConcreteEcdsaSnapshotLane | null {
-  const snapshotCandidates = args.snapshot.candidates?.ecdsa?.[args.chain] || [];
-  const candidates =
-    snapshotCandidates.length > 0
-      ? snapshotCandidates
-      : [args.snapshot.lanes.ecdsa[args.chain]];
-  const concreteCandidates = candidates.filter(
-    (lane): lane is ConcreteEcdsaSnapshotLane =>
-      lane.state !== 'missing' && isConcreteEcdsaSnapshotLane(lane),
-  );
-  if (concreteCandidates.length === 0) return null;
+}): EvmFamilyEcdsaConcreteSnapshotLane | null {
   const primaryAuthMethod =
     args.accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
-  return (
-    concreteCandidates.sort((left, right) =>
-      compareSnapshotCandidates(left, right, primaryAuthMethod),
-    )[0] || null
-  );
+  const selection = selectTransactionLane({
+    intent: {
+      walletId: args.nearAccountId,
+      curve: 'ecdsa',
+      chain: args.chain,
+      authSelectionPolicy: { kind: 'account_class', authMethod: primaryAuthMethod },
+      operationUsesNeeded: 1,
+    },
+    snapshot: args.snapshot,
+  });
+  if (!selection.ok) {
+    if (selection.failure.kind === 'no_candidate') return null;
+    throw new Error(
+      `[SigningEngine][ecdsa] transaction lane selection failed: ${selection.failure.kind}`,
+    );
+  }
+  if (selection.lane.curve !== 'ecdsa' || selection.snapshotLane.curve !== 'ecdsa') {
+    throw new Error('[SigningEngine][ecdsa] selector returned a non-ECDSA lane');
+  }
+  return selection.snapshotLane as EvmFamilyEcdsaConcreteSnapshotLane;
 }
 
 function assertSelectionMatchesSnapshotCandidate(args: {
@@ -183,6 +179,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         });
         const snapshotCandidate = resolveEcdsaSnapshotCandidate({
           snapshot: candidateSnapshot,
+          nearAccountId: args.nearAccountId,
           chain: args.chain,
           accountAuth,
         });

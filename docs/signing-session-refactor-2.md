@@ -626,6 +626,10 @@ Acceptance:
 1. [x] Implement `selectTransactionLane(intent, snapshot, policy)`.
 2. [x] Move NEAR Ed25519 selection into this selector.
 3. [ ] Move ECDSA selection into this selector.
+   - [x] EVM-family ECDSA snapshot candidate selection now uses the shared
+     transaction selector.
+   - [ ] EVM-family runtime lane selection still needs to move out of the
+     curve-specific selection helper.
 4. [ ] Remove selection from lower transaction flows.
 5. [x] Delete `candidates[0]` fallback after runtime mismatch.
 6. [x] Delete account-primary fallback after concrete candidate selection.

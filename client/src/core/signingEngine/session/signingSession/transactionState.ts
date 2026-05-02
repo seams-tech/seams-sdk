@@ -2,6 +2,7 @@ import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type {
   ConcreteSigningSessionSnapshotLane,
   SigningSessionSnapshot,
+  SigningSessionSnapshotEcdsaLane,
   SigningSessionSnapshotEd25519Lane,
 } from '../snapshotReader';
 import {
@@ -12,6 +13,7 @@ import {
   SigningSessionIds,
   type SigningAuthMethod,
   type SigningOperationId,
+  type ThresholdEcdsaSessionId,
   type ThresholdEd25519SessionId,
   type WalletSigningSessionId,
 } from './types';
@@ -40,7 +42,16 @@ export type NearEd25519TransactionLane = {
   thresholdSessionId: ThresholdEd25519SessionId;
 };
 
-export type TransactionLane = NearEd25519TransactionLane;
+export type EvmFamilyEcdsaTransactionLane = {
+  accountId: AccountId;
+  authMethod: SigningAuthMethod;
+  curve: 'ecdsa';
+  chain: 'tempo' | 'evm';
+  walletSigningSessionId: WalletSigningSessionId;
+  thresholdSessionId: ThresholdEcdsaSessionId;
+};
+
+export type TransactionLane = NearEd25519TransactionLane | EvmFamilyEcdsaTransactionLane;
 
 export type TransactionReadiness =
   | { status: 'ready'; remainingUses: number; expiresAtMs: number }
@@ -86,11 +97,21 @@ export type NearEd25519ConcreteSnapshotLane = SigningSessionSnapshotEd25519Lane 
     chain: 'near';
   };
 
+export type EvmFamilyEcdsaConcreteSnapshotLane = SigningSessionSnapshotEcdsaLane &
+  ConcreteSigningSessionSnapshotLane & {
+    curve: 'ecdsa';
+    chain: 'tempo' | 'evm';
+  };
+
+export type TransactionConcreteSnapshotLane =
+  | NearEd25519ConcreteSnapshotLane
+  | EvmFamilyEcdsaConcreteSnapshotLane;
+
 export type TransactionLaneSelectionResult =
   | {
       ok: true;
-      lane: NearEd25519TransactionLane;
-      snapshotLane: NearEd25519ConcreteSnapshotLane;
+      lane: TransactionLane;
+      snapshotLane: TransactionConcreteSnapshotLane;
     }
   | { ok: false; failure: TransactionLaneSelectionFailure };
 
@@ -103,14 +124,17 @@ export type TransactionSnapshotReadState = {
   tag: 'SnapshotRead';
   intent: TransactionSigningIntent;
   snapshot: SigningSessionSnapshot | null;
-  currentRuntimeLane?: SigningSessionSnapshotEd25519Lane | null;
+  currentRuntimeLane?: SigningSessionSnapshotEd25519Lane | SigningSessionSnapshotEcdsaLane | null;
 };
 
-export type TransactionLaneSelectedState = {
+export type TransactionLaneSelectedState<
+  TLane extends TransactionLane = TransactionLane,
+  TSnapshotLane extends TransactionConcreteSnapshotLane = TransactionConcreteSnapshotLane,
+> = {
   tag: 'LaneSelected';
   intent: TransactionSigningIntent;
-  lane: NearEd25519TransactionLane;
-  snapshotLane: NearEd25519ConcreteSnapshotLane;
+  lane: TLane;
+  snapshotLane: TSnapshotLane;
 };
 
 export type TransactionLaneSelectionFailedState = {
@@ -119,20 +143,25 @@ export type TransactionLaneSelectionFailedState = {
   failure: TransactionLaneSelectionFailure;
 };
 
-export type TransactionExactRestoreAttemptedState = {
+export type TransactionExactRestoreAttemptedState<
+  TLane extends TransactionLane = TransactionLane,
+  TSnapshotLane extends TransactionConcreteSnapshotLane = TransactionConcreteSnapshotLane,
+> = {
   tag: 'ExactRestoreAttempted';
   intent: TransactionSigningIntent;
-  lane: NearEd25519TransactionLane;
-  snapshotLane: NearEd25519ConcreteSnapshotLane;
+  lane: TLane;
+  snapshotLane: TSnapshotLane;
   restored: boolean;
   failureReason?: string;
 };
 
-export type TransactionReadinessClassifiedState = {
+export type TransactionReadinessClassifiedState<
+  TLane extends TransactionLane = TransactionLane,
+> = {
   tag: 'ReadinessClassified';
   intent: TransactionSigningIntent;
-  lane: NearEd25519TransactionLane;
-  snapshotLane: NearEd25519ConcreteSnapshotLane;
+  lane: TLane;
+  snapshotLane: TransactionConcreteSnapshotLane;
   readiness: TransactionReadiness;
 };
 
@@ -166,7 +195,7 @@ export type TransactionSigningState =
 export type SelectTransactionLaneInput = {
   intent: TransactionSigningIntent;
   snapshot: SigningSessionSnapshot | null;
-  currentRuntimeLane?: SigningSessionSnapshotEd25519Lane | null;
+  currentRuntimeLane?: SigningSessionSnapshotEd25519Lane | SigningSessionSnapshotEcdsaLane | null;
 };
 
 export function receiveTransactionIntent(
@@ -179,7 +208,7 @@ export function recordTransactionSnapshot(
   state: TransactionIntentReceivedState,
   args: {
     snapshot: SigningSessionSnapshot | null;
-    currentRuntimeLane?: SigningSessionSnapshotEd25519Lane | null;
+    currentRuntimeLane?: SigningSessionSnapshotEd25519Lane | SigningSessionSnapshotEcdsaLane | null;
   },
 ): TransactionSnapshotReadState {
   return {
@@ -203,8 +232,19 @@ function isConcreteNearEd25519Lane(
   );
 }
 
+function isConcreteEvmFamilyEcdsaLane(
+  lane: SigningSessionSnapshotEcdsaLane | null | undefined,
+): lane is EvmFamilyEcdsaConcreteSnapshotLane {
+  return (
+    Boolean(lane) &&
+    lane!.curve === 'ecdsa' &&
+    (lane!.chain === 'tempo' || lane!.chain === 'evm') &&
+    isConcreteSigningSessionSnapshotLane(lane!)
+  );
+}
+
 function missingConcreteFields(
-  lane: SigningSessionSnapshotEd25519Lane | null | undefined,
+  lane: SigningSessionSnapshotEd25519Lane | SigningSessionSnapshotEcdsaLane | null | undefined,
 ): string[] {
   if (!lane) return ['lane'];
   const missing: string[] = [];
@@ -238,8 +278,26 @@ function buildNearEd25519TransactionLane(args: {
   };
 }
 
+function buildEvmFamilyEcdsaTransactionLane(args: {
+  walletId: AccountId | string;
+  lane: EvmFamilyEcdsaConcreteSnapshotLane;
+}): EvmFamilyEcdsaTransactionLane {
+  return {
+    accountId: toAccountId(args.walletId),
+    authMethod: args.lane.authMethod,
+    curve: 'ecdsa',
+    chain: args.lane.chain,
+    walletSigningSessionId: SigningSessionIds.walletSigningSession(
+      args.lane.walletSigningSessionId,
+    ),
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
+      args.lane.thresholdSessionId,
+    ),
+  };
+}
+
 function allowedAuthMethods(
-  candidates: readonly NearEd25519ConcreteSnapshotLane[],
+  candidates: readonly TransactionConcreteSnapshotLane[],
 ): SigningAuthMethod[] {
   return [...new Set(candidates.map((candidate) => candidate.authMethod))].sort();
 }
@@ -248,19 +306,31 @@ export function selectTransactionLane(
   input: SelectTransactionLaneInput,
 ): TransactionLaneSelectionResult {
   const intent = input.intent;
-  if (intent.curve !== 'ed25519' || intent.chain !== 'near') {
-    return {
-      ok: false,
-      failure: {
-        kind: 'unsupported_intent',
-        curve: intent.curve,
-        chain: intent.chain,
-      },
-    };
+  if (intent.curve === 'ed25519' && intent.chain === 'near') {
+    return selectNearEd25519TransactionLane(input);
   }
+  if (
+    intent.curve === 'ecdsa' &&
+    (intent.chain === 'tempo' || intent.chain === 'evm')
+  ) {
+    return selectEvmFamilyEcdsaTransactionLane(input);
+  }
+  return {
+    ok: false,
+    failure: {
+      kind: 'unsupported_intent',
+      curve: intent.curve,
+      chain: intent.chain,
+    },
+  };
+}
 
+function selectNearEd25519TransactionLane(
+  input: SelectTransactionLaneInput,
+): TransactionLaneSelectionResult {
+  const intent = input.intent;
   const runtimeLane = input.currentRuntimeLane || null;
-  if (runtimeLane && !isConcreteNearEd25519Lane(runtimeLane)) {
+  if (runtimeLane && !isConcreteNearEd25519Lane(runtimeLane as SigningSessionSnapshotEd25519Lane)) {
     return {
       ok: false,
       failure: {
@@ -270,12 +340,14 @@ export function selectTransactionLane(
     };
   }
 
+  const nearRuntimeLane = runtimeLane as NearEd25519ConcreteSnapshotLane | null;
+
   // Current-lane and account-class policy are hints below a verified runtime
   // lane. Only an explicit user choice may reject a different hot lane.
-  if (runtimeLane) {
+  if (nearRuntimeLane) {
     if (
       intent.authSelectionPolicy.kind === 'explicit' &&
-      runtimeLane.authMethod !== intent.authSelectionPolicy.authMethod
+      nearRuntimeLane.authMethod !== intent.authSelectionPolicy.authMethod
     ) {
       return {
         ok: false,
@@ -289,16 +361,89 @@ export function selectTransactionLane(
       ok: true,
       lane: buildNearEd25519TransactionLane({
         walletId: intent.walletId,
-        lane: runtimeLane,
+        lane: nearRuntimeLane,
       }),
-      snapshotLane: runtimeLane,
+      snapshotLane: nearRuntimeLane,
     };
   }
 
   const concreteCandidates =
     input.snapshot?.candidates.ed25519.near.filter(isConcreteNearEd25519Lane) || [];
+  return selectConcreteTransactionCandidate({
+    intent,
+    candidates: concreteCandidates,
+    buildLane: (lane) =>
+      buildNearEd25519TransactionLane({
+        walletId: intent.walletId,
+        lane,
+      }),
+  });
+}
+
+function selectEvmFamilyEcdsaTransactionLane(
+  input: SelectTransactionLaneInput,
+): TransactionLaneSelectionResult {
+  const intent = input.intent;
+  const runtimeLane = input.currentRuntimeLane || null;
+  if (runtimeLane && !isConcreteEvmFamilyEcdsaLane(runtimeLane as SigningSessionSnapshotEcdsaLane)) {
+    return {
+      ok: false,
+      failure: {
+        kind: 'incomplete_candidate',
+        missing: missingConcreteFields(runtimeLane),
+      },
+    };
+  }
+
+  const ecdsaRuntimeLane = runtimeLane as EvmFamilyEcdsaConcreteSnapshotLane | null;
+  if (ecdsaRuntimeLane) {
+    if (
+      intent.authSelectionPolicy.kind === 'explicit' &&
+      ecdsaRuntimeLane.authMethod !== intent.authSelectionPolicy.authMethod
+    ) {
+      return {
+        ok: false,
+        failure: {
+          kind: 'policy_blocked',
+          reason: 'explicit auth method does not match current runtime lane',
+        },
+      };
+    }
+    return {
+      ok: true,
+      lane: buildEvmFamilyEcdsaTransactionLane({
+        walletId: intent.walletId,
+        lane: ecdsaRuntimeLane,
+      }),
+      snapshotLane: ecdsaRuntimeLane,
+    };
+  }
+
+  const chain = intent.chain === 'tempo' || intent.chain === 'evm' ? intent.chain : 'evm';
+  const concreteCandidates =
+    input.snapshot?.candidates.ecdsa[chain].filter(isConcreteEvmFamilyEcdsaLane) || [];
+  return selectConcreteTransactionCandidate({
+    intent,
+    candidates: concreteCandidates,
+    buildLane: (lane) =>
+      buildEvmFamilyEcdsaTransactionLane({
+        walletId: intent.walletId,
+        lane,
+      }),
+  });
+}
+
+function selectConcreteTransactionCandidate<
+  TSnapshotLane extends TransactionConcreteSnapshotLane,
+  TLane extends TransactionLane,
+>(args: {
+  intent: TransactionSigningIntent;
+  candidates: readonly TSnapshotLane[];
+  buildLane: (lane: TSnapshotLane) => TLane;
+}): TransactionLaneSelectionResult {
+  const { intent } = args;
   const policyAuthMethod = intent.authSelectionPolicy.authMethod;
-  const candidates = concreteCandidates
+  const candidates = args.candidates
     .filter((candidate) => candidate.authMethod === policyAuthMethod)
     .sort((left, right) => compareSnapshotCandidates(left, right, policyAuthMethod));
 
@@ -325,10 +470,7 @@ export function selectTransactionLane(
   }
   return {
     ok: true,
-    lane: buildNearEd25519TransactionLane({
-      walletId: intent.walletId,
-      lane: selected,
-    }),
+    lane: args.buildLane(selected),
     snapshotLane: selected,
   };
 }
@@ -356,10 +498,13 @@ export function selectTransactionLaneFromSnapshot(
   };
 }
 
-export function recordExactRestoreAttempt(
-  state: TransactionLaneSelectedState,
+export function recordExactRestoreAttempt<
+  TLane extends TransactionLane,
+  TSnapshotLane extends TransactionConcreteSnapshotLane,
+>(
+  state: TransactionLaneSelectedState<TLane, TSnapshotLane>,
   result: { restored: boolean; failureReason?: string },
-): TransactionExactRestoreAttemptedState {
+): TransactionExactRestoreAttemptedState<TLane, TSnapshotLane> {
   return {
     tag: 'ExactRestoreAttempted',
     intent: state.intent,
@@ -370,10 +515,12 @@ export function recordExactRestoreAttempt(
   };
 }
 
-export function classifyTransactionReadiness(
-  state: TransactionLaneSelectedState | TransactionExactRestoreAttemptedState,
+export function classifyTransactionReadiness<TLane extends TransactionLane>(
+  state:
+    | TransactionLaneSelectedState<TLane>
+    | TransactionExactRestoreAttemptedState<TLane>,
   readiness: TransactionReadiness,
-): TransactionReadinessClassifiedState {
+): TransactionReadinessClassifiedState<TLane> {
   return {
     tag: 'ReadinessClassified',
     intent: state.intent,
@@ -383,9 +530,9 @@ export function classifyTransactionReadiness(
   };
 }
 
-export function prepareTransactionOperationFromReadiness(
-  state: TransactionReadinessClassifiedState,
-): PreparedTransactionOperation<NearEd25519TransactionLane> {
+export function prepareTransactionOperationFromReadiness<TLane extends TransactionLane>(
+  state: TransactionReadinessClassifiedState<TLane>,
+): PreparedTransactionOperation<TLane> {
   return {
     intent: state.intent,
     lane: state.lane,
@@ -393,13 +540,13 @@ export function prepareTransactionOperationFromReadiness(
   };
 }
 
-export function replacePreparedTransactionLane(
-  operation: PreparedTransactionOperation<NearEd25519TransactionLane>,
+export function replacePreparedTransactionLane<TLane extends TransactionLane>(
+  operation: PreparedTransactionOperation<TLane>,
   args: {
-    lane: NearEd25519TransactionLane;
+    lane: TLane;
     readiness: TransactionReadiness;
   },
-): PreparedTransactionOperation<NearEd25519TransactionLane> {
+): PreparedTransactionOperation<TLane> {
   return {
     intent: operation.intent,
     lane: args.lane,
@@ -407,10 +554,10 @@ export function replacePreparedTransactionLane(
   };
 }
 
-export function admitTransactionBudget(
-  operation: PreparedTransactionOperation<NearEd25519TransactionLane>,
+export function admitTransactionBudget<TLane extends TransactionLane>(
+  operation: PreparedTransactionOperation<TLane>,
   budgetAdmission: TransactionBudgetAdmission,
-): BudgetAdmittedOperation<NearEd25519TransactionLane> {
+): BudgetAdmittedOperation<TLane> {
   return {
     ...operation,
     budgetAdmission,
