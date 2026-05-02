@@ -2,7 +2,10 @@ import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { SigningLaneContext } from '../../session/signingSession/types';
-import type { EvmFamilyEcdsaConcreteSnapshotLane } from '../../session/signingSession/transactionState';
+import type {
+  EvmFamilyEcdsaConcreteSnapshotLane,
+  EvmFamilyEcdsaTransactionLane,
+} from '../../session/signingSession/transactionState';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
@@ -158,6 +161,22 @@ function requireExactEcdsaCandidateMaterial(args: {
   throw new Error('[SigningEngine][ecdsa] exact snapshot lane is unavailable after restore');
 }
 
+function assertTransactionLaneMatchesSnapshotCandidate(args: {
+  transactionLane?: EvmFamilyEcdsaTransactionLane;
+  candidate?: EvmFamilyEcdsaConcreteSnapshotLane;
+}): void {
+  if (!args.transactionLane || !args.candidate) return;
+  if (
+    args.transactionLane.authMethod !== args.candidate.authMethod ||
+    args.transactionLane.chain !== args.candidate.chain ||
+    String(args.transactionLane.walletSigningSessionId) !==
+      String(args.candidate.walletSigningSessionId) ||
+    String(args.transactionLane.thresholdSessionId) !== String(args.candidate.thresholdSessionId)
+  ) {
+    throw new Error('[SigningEngine][ecdsa] transaction lane does not match snapshot candidate');
+  }
+}
+
 function listPasskeyEcdsaSigningCandidates(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
   nearAccountId: string;
@@ -201,8 +220,13 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   chain: EvmFamilyChain;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey;
+  transactionLane?: EvmFamilyEcdsaTransactionLane;
   snapshotCandidate?: EvmFamilyEcdsaConcreteSnapshotLane;
 }): Promise<EvmFamilyEcdsaSigningSelection> {
+  assertTransactionLaneMatchesSnapshotCandidate({
+    ...(args.transactionLane ? { transactionLane: args.transactionLane } : {}),
+    ...(args.snapshotCandidate ? { candidate: args.snapshotCandidate } : {}),
+  });
   const emailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
     deps: args.deps,
     nearAccountId: args.nearAccountId,
@@ -245,8 +269,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     ...unambiguousLane,
   });
 
-  const selectedAuthMethod = args.authMethod;
-  const selectedAccountAuth = accountAuthWithSelectedPrimary(accountAuth, args.authMethod);
+  const selectedAuthMethod = args.transactionLane?.authMethod || args.authMethod;
+  const selectedAccountAuth = accountAuthWithSelectedPrimary(accountAuth, selectedAuthMethod);
 
   if (selectedAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
     const exactCandidate = args.snapshotCandidate;

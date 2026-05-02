@@ -120,11 +120,11 @@ test.describe('Email OTP operation split guard', () => {
       'const accountAuth = await resolveEvmFamilyTransactionAccountAuth',
     );
     const snapshotCandidateSelection = preparedSigningSource.indexOf(
-      'const snapshotCandidate = resolveEcdsaSnapshotCandidate',
+      'const snapshotSelection = resolveEcdsaSnapshotLaneSelection',
       preparedAccountAuthResolution,
     );
     const selectedAuthMethod = selectionModule.indexOf(
-      'const selectedAuthMethod = args.authMethod',
+      'const selectedAuthMethod = args.transactionLane?.authMethod || args.authMethod',
       selectionModuleResolver,
     );
     const emailOtpCandidate = selectionModule.indexOf(
@@ -200,6 +200,8 @@ test.describe('Email OTP operation split guard', () => {
     expect(ecdsaSelection).toContain('PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY');
     expect(ecdsaSelection).toContain('listPasskeyEcdsaSigningCandidates');
     expect(ecdsaSelection).toContain('snapshotCandidate?: EvmFamilyEcdsaConcreteSnapshotLane');
+    expect(ecdsaSelection).toContain('transactionLane?: EvmFamilyEcdsaTransactionLane');
+    expect(ecdsaSelection).toContain('assertTransactionLaneMatchesSnapshotCandidate');
     expect(ecdsaSelection).toContain('ecdsaMaterialMatchesSnapshotCandidate');
     expect(ecdsaSelection).toContain('requireExactEcdsaCandidateMaterial');
     expect(ecdsaSelection).toContain('source,');
@@ -251,7 +253,9 @@ test.describe('Email OTP operation split guard', () => {
     expect(restoreCall).toBeGreaterThan(preparedStart);
     expect(selectionCall).toBeGreaterThan(restoreCall);
     const prepareBeforeSelection = preparedSigning.slice(preparedStart, selectionCall);
-    expect(prepareBeforeSelection).toContain('const snapshotCandidate = resolveEcdsaSnapshotCandidate');
+    expect(prepareBeforeSelection).toContain(
+      'const snapshotSelection = resolveEcdsaSnapshotLaneSelection',
+    );
     expect(prepareBeforeSelection).toContain('authMethod,');
     expect(prepareBeforeSelection).toContain('walletSigningSessionId: snapshotCandidate.walletSigningSessionId');
     expect(prepareBeforeSelection).toContain('thresholdSessionId: snapshotCandidate.thresholdSessionId');

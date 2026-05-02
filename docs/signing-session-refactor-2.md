@@ -630,6 +630,8 @@ Acceptance:
      transaction selector.
    - [x] EVM-family ECDSA runtime material lookup is anchored to the selected
      exact snapshot candidate when one exists.
+   - [x] EVM-family ECDSA runtime material lookup receives the shared selector's
+     transaction lane identity for exact snapshot candidates.
    - [ ] EVM-family runtime lane selection still needs to move out of the
      curve-specific selection helper.
 4. [ ] Remove selection from lower transaction flows.

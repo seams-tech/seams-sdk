@@ -14,6 +14,7 @@ import type { RestorePersistedSessionForSigningInput } from '../../session/resto
 import {
   selectTransactionLane,
   type EvmFamilyEcdsaConcreteSnapshotLane,
+  type EvmFamilyEcdsaTransactionLane,
 } from '../../session/signingSession/transactionState';
 import {
   prepareThresholdSigningOperation,
@@ -46,12 +47,15 @@ import {
 import { resolveEvmFamilyTransactionAccountAuth } from './accountAuth';
 import type { EvmFamilyChain } from './types';
 
-function resolveEcdsaSnapshotCandidate(args: {
+function resolveEcdsaSnapshotLaneSelection(args: {
   snapshot: SigningSessionSnapshot;
   nearAccountId: string;
   chain: EvmFamilyChain;
   accountAuth: AccountAuthMetadata;
-}): EvmFamilyEcdsaConcreteSnapshotLane | null {
+}): {
+  lane: EvmFamilyEcdsaTransactionLane;
+  snapshotLane: EvmFamilyEcdsaConcreteSnapshotLane;
+} | null {
   const primaryAuthMethod =
     args.accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
   const selection = selectTransactionLane({
@@ -73,7 +77,10 @@ function resolveEcdsaSnapshotCandidate(args: {
   if (selection.lane.curve !== 'ecdsa' || selection.snapshotLane.curve !== 'ecdsa') {
     throw new Error('[SigningEngine][ecdsa] selector returned a non-ECDSA lane');
   }
-  return selection.snapshotLane as EvmFamilyEcdsaConcreteSnapshotLane;
+  return {
+    lane: selection.lane as EvmFamilyEcdsaTransactionLane,
+    snapshotLane: selection.snapshotLane as EvmFamilyEcdsaConcreteSnapshotLane,
+  };
 }
 
 function assertSelectionMatchesSnapshotCandidate(args: {
@@ -177,15 +184,17 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           nearAccountId: args.nearAccountId,
           senderSignatureAlgorithm: 'secp256k1',
         });
-        const snapshotCandidate = resolveEcdsaSnapshotCandidate({
+        const snapshotSelection = resolveEcdsaSnapshotLaneSelection({
           snapshot: candidateSnapshot,
           nearAccountId: args.nearAccountId,
           chain: args.chain,
           accountAuth,
         });
+        const snapshotCandidate = snapshotSelection?.snapshotLane || null;
+        const transactionLane = snapshotSelection?.lane || null;
         const primaryAuthMethod =
           accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
-        const authMethod = snapshotCandidate?.authMethod || primaryAuthMethod;
+        const authMethod = transactionLane?.authMethod || primaryAuthMethod;
         let selection:
           | Awaited<ReturnType<typeof resolveEvmFamilyEcdsaSigningSelection>>
           | null = null;
@@ -270,6 +279,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             chain: args.chain,
             senderSignatureAlgorithm: 'secp256k1',
             authMethod,
+            ...(transactionLane ? { transactionLane } : {}),
             ...(snapshotCandidate ? { snapshotCandidate } : {}),
           }));
         const snapshot = await args.deps.readSigningSessionSnapshotForSigning({
