@@ -587,7 +587,7 @@ Add failing tests before moving code:
 7. [ ] Refresh with durable sealed state and valid server budget signs without auth.
 8. [ ] Missing worker memory with valid durable state signs without auth.
 9. [ ] Missing worker memory with exhausted server budget shows same-method step-up.
-10. [ ] Three fast sequential txs behave the same as three slow sequential txs.
+10. [x] Three fast sequential txs behave the same as three slow sequential txs.
 11. [x] Linked-auth account with both valid OTP and passkey candidates honors an
     explicit OTP selection and never prompts passkey.
 12. [x] Linked-auth account with both valid OTP and passkey candidates honors an
