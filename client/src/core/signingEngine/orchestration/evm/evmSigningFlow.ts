@@ -246,8 +246,14 @@ export async function signEvmWithTouchConfirm(args: {
           ...(args.emailOtpSigning?.resend ? { onResend: args.emailOtpSigning.resend } : {}),
         }
       : undefined;
+    const hasThresholdEcdsaRequest = args.request.senderSignatureAlgorithm === 'secp256k1';
+    if (hasThresholdEcdsaRequest && !args.signingAuthPlan) {
+      throw new Error(
+        '[chains] threshold ECDSA transaction signing requires a prepared signing auth plan',
+      );
+    }
     const { touchConfirmAuthPayload } = await resolveTouchConfirmSigningAuth({
-      needsWebAuthn: !args.signingAuthPlan && !emailOtpPrompt,
+      needsWebAuthn: !hasThresholdEcdsaRequest && !args.signingAuthPlan && !emailOtpPrompt,
       ...(args.signingAuthPlan ? { signingAuthPlan: args.signingAuthPlan } : {}),
       ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
     });
@@ -298,6 +304,9 @@ export async function signEvmWithTouchConfirm(args: {
     });
     const intentPrepared = await intentPreparationTask;
     const intent = intentPrepared.intent;
+    const hasSecp256k1Request = intent.signRequests.some(
+      (signReq) => signReq.algorithm === 'secp256k1',
+    );
 
     let ensuredThresholdKeyRef: ThresholdEcdsaSecp256k1KeyRef | null = null;
     let ensureThresholdKeyRefTask: Promise<ThresholdEcdsaSecp256k1KeyRef> | null = null;
@@ -337,9 +346,6 @@ export async function signEvmWithTouchConfirm(args: {
       ensuredThresholdKeyRef = refreshed;
       await reserveWalletSigningBudgetOnce();
     }
-    const hasSecp256k1Request = intent.signRequests.some(
-      (signReq) => signReq.algorithm === 'secp256k1',
-    );
     if (hasSecp256k1Request && shouldReconnectWithPasskeyEcdsa && args.passkeyEcdsaReconnect) {
       if (!confirmation.credential) {
         throw new Error('[chains] missing WebAuthn credential for threshold ECDSA reconnect');

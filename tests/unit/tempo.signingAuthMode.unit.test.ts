@@ -857,6 +857,10 @@ test.describe('tempo signing auth-mode resolution', () => {
                 thresholdSessionId: 'session-1',
               },
             } as any,
+            signingAuthPlan: {
+              kind: 'passkeyReauth',
+              method: 'passkey',
+            },
             onEvent: (event: any) => events.push(event),
             onAuthSideEffectStarted: (sideEffect: string) => authSideEffects.push(sideEffect),
           });
@@ -987,6 +991,10 @@ test.describe('tempo signing auth-mode resolution', () => {
                 thresholdSessionId: 'email-otp-refreshed-session',
               } as any;
             },
+          },
+          signingAuthPlan: {
+            kind: 'emailOtpReauth',
+            method: 'email_otp',
           },
           ensureThresholdEcdsaKeyRefReady: async () => {
             throw new Error('stale per-operation Email OTP session should not be reconnected');
@@ -1122,6 +1130,10 @@ test.describe('tempo signing auth-mode resolution', () => {
               } as any;
             },
           },
+          signingAuthPlan: {
+            kind: 'emailOtpReauth',
+            method: 'email_otp',
+          },
           ensureThresholdEcdsaKeyRefReady: async () => {
             throw new Error('stale per-operation Email OTP session should not be reconnected');
           },
@@ -1217,6 +1229,10 @@ test.describe('tempo signing auth-mode resolution', () => {
                 throw new Error('complete should not be called after cancellation');
               },
             },
+            signingAuthPlan: {
+              kind: 'emailOtpReauth',
+              method: 'email_otp',
+            },
             engines: {
               secp256k1: {
                 algorithm: 'secp256k1',
@@ -1306,6 +1322,10 @@ test.describe('tempo signing auth-mode resolution', () => {
                 completeCalls += 1;
                 throw new Error('Email OTP challenge expired or invalid');
               },
+            },
+            signingAuthPlan: {
+              kind: 'emailOtpReauth',
+              method: 'email_otp',
             },
             engines: {
               secp256k1: {
@@ -1409,6 +1429,10 @@ test.describe('tempo signing auth-mode resolution', () => {
                   thresholdSessionId: 'email-otp-refreshed-session',
                 } as any;
               },
+            },
+            signingAuthPlan: {
+              kind: 'emailOtpReauth',
+              method: 'email_otp',
             },
             engines: {
               secp256k1: {
@@ -1879,6 +1903,10 @@ test.describe('tempo signing auth-mode resolution', () => {
             order.push('reserve');
             return null;
           },
+          signingAuthPlan: {
+            kind: 'passkeyReauth',
+            method: 'passkey',
+          },
           engines: {
             secp256k1: {
               algorithm: 'secp256k1',
@@ -2268,6 +2296,10 @@ test.describe('tempo signing auth-mode resolution', () => {
                 thresholdSessionId: 'session-1',
               },
             } as any,
+            signingAuthPlan: {
+              kind: 'passkeyReauth',
+              method: 'passkey',
+            },
           });
           return { ok: true, confirmCalls };
         } catch (error: any) {
@@ -2359,6 +2391,10 @@ test.describe('tempo signing auth-mode resolution', () => {
                 thresholdSessionId: 'tempo-email-otp-refreshed-session',
               } as any;
             },
+          },
+          signingAuthPlan: {
+            kind: 'emailOtpReauth',
+            method: 'email_otp',
           },
           engines: {
             secp256k1: {
@@ -5044,6 +5080,10 @@ test.describe('tempo signing auth-mode resolution', () => {
                 thresholdSessionId: 'tempo-email-otp-resent-session',
               } as any;
             },
+          },
+          signingAuthPlan: {
+            kind: 'emailOtpReauth',
+            method: 'email_otp',
           },
           engines: {
             secp256k1: {

@@ -124,6 +124,16 @@ test.describe('managed nonce signing flow integration', () => {
                 thresholdSessionId: 'session-1',
               },
             } as any,
+            signingAuthPlan: {
+              kind: 'warmSession',
+              method: 'passkey',
+              accountId: 'alice.testnet',
+              intent: 'transaction_sign',
+              curve: 'ecdsa',
+              sessionId: 'session-1',
+              expiresAtMs: Date.now() + 30_000,
+              remainingUses: 2,
+            },
             prepareRequestWithManagedNonce: async () => {
               operationCounter += 1;
               const operationId = `op-managed-evm-${operationCounter}`;
@@ -288,6 +298,16 @@ test.describe('managed nonce signing flow integration', () => {
                 thresholdSessionId: 'session-1',
               },
             } as any,
+            signingAuthPlan: {
+              kind: 'warmSession',
+              method: 'passkey',
+              accountId: 'alice.testnet',
+              intent: 'transaction_sign',
+              curve: 'ecdsa',
+              sessionId: 'session-1',
+              expiresAtMs: Date.now() + 30_000,
+              remainingUses: 2,
+            },
             prepareRequestWithManagedNonce: async () => {
               operationCounter += 1;
               const operationId = `op-managed-tempo-${operationCounter}`;

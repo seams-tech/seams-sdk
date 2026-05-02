@@ -1036,6 +1036,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     );
     const nearSigning = readRepoSource('client/src/core/signingEngine/api/nearSigning.ts');
     const evmSigning = readRepoSource('client/src/core/signingEngine/api/evmSigning.ts');
+    const evmSigningFlow = readRepoSource(
+      'client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts',
+    );
+    const tempoSigningFlow = readRepoSource(
+      'client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts',
+    );
     const evmPreparedSigning = readRepoSource(
       'client/src/core/signingEngine/api/evmFamily/preparedSigning.ts',
     );
@@ -1167,6 +1173,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(evmSigning).not.toContain('() => {}');
     expect(evmSigningBody).not.toContain('resolveEvmFamilyEcdsaPlannerReadiness');
     expect(evmSigningBody).not.toContain('restorePersistedSessionForSigning(');
+    for (const lowerFlow of [evmSigningFlow, tempoSigningFlow]) {
+      expect(lowerFlow).toContain("args.request.senderSignatureAlgorithm === 'secp256k1'");
+      expect(lowerFlow).toContain('threshold ECDSA transaction signing requires a prepared signing auth plan');
+      expect(lowerFlow).toContain('if (hasThresholdEcdsaRequest && !args.signingAuthPlan)');
+      expect(lowerFlow).not.toContain('needsWebAuthn: !args.signingAuthPlan && !emailOtpPrompt');
+    }
     expect(evmPreparedSigning).toContain('prepareThresholdSigningOperation');
     expect(evmPreparedSigning).toContain('lifecycleAdapter');
     expect(evmPreparedSigning).toContain('selectTransactionLane');

@@ -635,6 +635,9 @@ Acceptance:
    - [x] EVM-family prepare now fails without an exact snapshot lane instead of
      falling back to curve-specific runtime lane discovery.
 4. [ ] Remove selection from lower transaction flows.
+   - [x] EVM/Tempo lower signing flows now hard-fail threshold ECDSA
+     execution without a prepared signing auth plan instead of defaulting to
+     passkey/WebAuthn selection.
 5. [x] Delete `candidates[0]` fallback after runtime mismatch.
 6. [x] Delete account-primary fallback after concrete candidate selection.
 7. [x] Delete OTP/passkey probing.
