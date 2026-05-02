@@ -124,6 +124,62 @@ test.describe('transaction signing state selector', () => {
     expect(selection.lane.walletSigningSessionId).toBe('wss-otp');
   });
 
+  test('linked-auth explicit OTP selection does not choose passkey', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ed25519.near = [
+      ed25519Candidate({
+        authMethod: 'passkey',
+        thresholdSessionId: 'tsess-passkey',
+        walletSigningSessionId: 'wss-passkey',
+        state: 'ready',
+      }),
+      ed25519Candidate({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-otp',
+        walletSigningSessionId: 'wss-otp',
+        state: 'ready',
+      }),
+    ];
+
+    const selection = selectTransactionLane({
+      intent: nearIntent('email_otp', 'explicit'),
+      snapshot,
+    });
+
+    expect(selection.ok).toBe(true);
+    if (!selection.ok) throw new Error('expected selection');
+    expect(selection.lane.authMethod).toBe('email_otp');
+    expect(selection.lane.thresholdSessionId).toBe('tsess-otp');
+  });
+
+  test('linked-auth explicit passkey selection does not choose OTP', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ed25519.near = [
+      ed25519Candidate({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-otp',
+        walletSigningSessionId: 'wss-otp',
+        state: 'ready',
+      }),
+      ed25519Candidate({
+        authMethod: 'passkey',
+        thresholdSessionId: 'tsess-passkey',
+        walletSigningSessionId: 'wss-passkey',
+        state: 'ready',
+      }),
+    ];
+
+    const selection = selectTransactionLane({
+      intent: nearIntent('passkey', 'explicit'),
+      snapshot,
+    });
+
+    expect(selection.ok).toBe(true);
+    if (!selection.ok) throw new Error('expected selection');
+    expect(selection.lane.authMethod).toBe('passkey');
+    expect(selection.lane.thresholdSessionId).toBe('tsess-passkey');
+  });
+
   test('anchors current OTP runtime lane before passkey account metadata', () => {
     const snapshot = emptySnapshot();
     snapshot.candidates.ed25519.near = [

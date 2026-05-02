@@ -588,11 +588,11 @@ Add failing tests before moving code:
 8. [ ] Missing worker memory with valid durable state signs without auth.
 9. [ ] Missing worker memory with exhausted server budget shows same-method step-up.
 10. [ ] Three fast sequential txs behave the same as three slow sequential txs.
-11. [ ] Linked-auth account with both valid OTP and passkey candidates honors an
+11. [x] Linked-auth account with both valid OTP and passkey candidates honors an
     explicit OTP selection and never prompts passkey.
-12. [ ] Linked-auth account with both valid OTP and passkey candidates honors an
+12. [x] Linked-auth account with both valid OTP and passkey candidates honors an
     explicit passkey selection and never prompts OTP.
-13. [ ] Linked-auth account using account-class OTP policy selects OTP
+13. [x] Linked-auth account using account-class OTP policy selects OTP
     deterministically.
 14. [ ] Future linked-auth user-choice mode returns typed `ambiguous_candidates`
     instead of silently choosing a method when policy requires user choice.
