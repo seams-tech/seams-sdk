@@ -165,20 +165,20 @@ export type TransactionReadinessClassifiedState<
   readiness: TransactionReadiness;
 };
 
-export type TransactionAuthPlannedState = {
+export type TransactionAuthPlannedState<TLane extends TransactionLane = TransactionLane> = {
   tag: 'AuthPlanned';
-  operation: PreparedTransactionOperation<NearEd25519TransactionLane>;
+  operation: PreparedTransactionOperation<TLane>;
   authPlan: unknown;
 };
 
-export type TransactionBudgetAdmittedState = {
+export type TransactionBudgetAdmittedState<TLane extends TransactionLane = TransactionLane> = {
   tag: 'BudgetAdmitted';
-  operation: BudgetAdmittedOperation<NearEd25519TransactionLane>;
+  operation: BudgetAdmittedOperation<TLane>;
 };
 
-export type TransactionSignedState = {
+export type TransactionSignedState<TLane extends TransactionLane = TransactionLane> = {
   tag: 'Signed';
-  operation: SignedTransactionOperation<NearEd25519TransactionLane>;
+  operation: SignedTransactionOperation<TLane>;
 };
 
 export type TransactionSigningState =
@@ -564,9 +564,9 @@ export function admitTransactionBudget<TLane extends TransactionLane>(
   };
 }
 
-export function recordTransactionBudgetAdmission(
-  operation: BudgetAdmittedOperation<NearEd25519TransactionLane>,
-): TransactionBudgetAdmittedState {
+export function recordTransactionBudgetAdmission<TLane extends TransactionLane>(
+  operation: BudgetAdmittedOperation<TLane>,
+): TransactionBudgetAdmittedState<TLane> {
   return {
     tag: 'BudgetAdmitted',
     operation,
