@@ -12,6 +12,7 @@ import {
   SigningSessionIds,
   type SelectedSigningLaneContext,
 } from '@/core/signingEngine/session/signingSession/types';
+import type { NearEd25519TransactionLane } from '@/core/signingEngine/session/signingSession/transactionState';
 import { createNonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import { toAccountId } from '@/core/types/accountIds';
 
@@ -35,6 +36,111 @@ function budgetIdentity(walletSigningSessionId: string) {
 }
 
 test.describe('SigningSessionBudgetFinalizer', () => {
+  test('prepares budget identity from an exact transaction lane', async () => {
+    const accountId = toAccountId('budget-identity-transaction-lane.testnet');
+    const walletSigningSessionId = SigningSessionIds.walletSigningSession(
+      'wsess-budget-identity-transaction-lane',
+    );
+    const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(
+      'tsess-budget-identity-transaction-lane',
+    );
+    const lane: NearEd25519TransactionLane = {
+      accountId,
+      authMethod: 'passkey',
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId,
+      thresholdSessionId,
+    };
+    const observedTargets: unknown[] = [];
+    const ledger = new SigningSessionCoordinator({
+      getStatus: async (input) => {
+        observedTargets.push(input);
+        return {
+          sessionId: walletSigningSessionId,
+          status: 'active',
+          remainingUses: 1,
+          expiresAtMs: Date.now() + 60_000,
+          projectionVersion: 'projection:transaction-lane',
+        };
+      },
+      consumeUse: async () => {
+        throw new Error('not used');
+      },
+    });
+
+    await expect(
+      ledger.prepareBudgetIdentity({
+        nearAccountId: accountId,
+        lane,
+        operationUsesNeeded: 1,
+      }),
+    ).resolves.toMatchObject({
+      walletSigningSessionId,
+      projectionVersion: 'projection:transaction-lane',
+    });
+    expect(observedTargets).toEqual([
+      expect.objectContaining({
+        nearAccountId: accountId,
+        walletSigningSessionId,
+        targetThresholdSessionIds: [thresholdSessionId],
+      }),
+    ]);
+  });
+
+  test('accepts an exact transaction lane for budget finalization', async () => {
+    const accountId = toAccountId('budget-finalizer-transaction-lane.testnet');
+    const walletSigningSessionId = SigningSessionIds.walletSigningSession(
+      'wsess-budget-finalizer-transaction-lane',
+    );
+    const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(
+      'tsess-budget-finalizer-transaction-lane',
+    );
+    const lane: NearEd25519TransactionLane = {
+      accountId,
+      authMethod: 'email_otp',
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId,
+      thresholdSessionId,
+    };
+    const recordedSpends: unknown[] = [];
+    const finalizer = createSigningSessionBudgetFinalizer({
+      signingSessionBudget: {
+        reserve: async () => null,
+        getAvailableStatus: async () => null,
+        recordSuccess: async (input) => {
+          recordedSpends.push(input.spend);
+          return null;
+        },
+        recordZeroSpend: () => {},
+        hasRecorded: () => false,
+      },
+      operation: {
+        operationId: SigningSessionIds.signingOperation(
+          'op-budget-finalizer-transaction-lane',
+        ),
+        operationFingerprint: SigningSessionIds.signingOperationFingerprint(
+          'sha256:budget-finalizer-transaction-lane',
+        ),
+        intent: SigningOperationIntent.TransactionSign,
+      },
+      lane,
+      budgetIdentity: budgetIdentity(String(walletSigningSessionId)),
+    });
+
+    await finalizer.recordSuccess({ alreadyConsumedThresholdSessionIds: [thresholdSessionId] });
+
+    expect(recordedSpends).toEqual([
+      expect.objectContaining({
+        nearAccountId: accountId,
+        walletSigningSessionId,
+        thresholdSessionIds: [thresholdSessionId],
+        uses: 1,
+      }),
+    ]);
+  });
+
   test('retries local in-flight budget contention before surfacing a reservation failure', async () => {
     const lane = selectedLane(buildTempoTransactionSigningLane({
       accountId: toAccountId('budget-finalizer-in-flight.testnet'),

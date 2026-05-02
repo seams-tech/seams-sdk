@@ -13,11 +13,17 @@ import {
   SigningSessionIds,
   type SigningAuthMethod,
   type SigningOperationId,
+  type SelectedSigningLaneContext,
   type ThresholdEcdsaSessionId,
   type ThresholdEd25519SessionId,
   type WalletSigningSessionId,
 } from './types';
 import type { SigningSessionPreparedBudgetIdentity } from './budget';
+import {
+  buildEvmTransactionSigningLane,
+  buildNearTransactionSigningLane,
+  buildTempoTransactionSigningLane,
+} from './lanes';
 
 export type TransactionSigningIntent = {
   operationId?: SigningOperationId;
@@ -581,4 +587,59 @@ export function recordTransactionSigned<TLane extends TransactionLane>(
     ...operation,
     result,
   };
+}
+
+export function selectedSigningLaneContextFromTransactionLane(
+  lane: TransactionLane,
+): SelectedSigningLaneContext {
+  // Transaction lanes intentionally carry only exact signing identity. Budget
+  // tracing still expects the older lane shape, so the adapter fills stable
+  // non-authoritative metadata without changing wallet/threshold identity.
+  if (lane.curve === 'ed25519') {
+    const signingLane = buildNearTransactionSigningLane(
+      lane.authMethod === 'email_otp'
+        ? {
+            accountId: lane.accountId,
+            authMethod: 'email_otp',
+            walletSigningSessionId: lane.walletSigningSessionId,
+            thresholdSessionId: lane.thresholdSessionId,
+            retention: 'session',
+            sessionOrigin: 'per_operation',
+          }
+        : {
+            accountId: lane.accountId,
+            authMethod: 'passkey',
+            walletSigningSessionId: lane.walletSigningSessionId,
+            thresholdSessionId: lane.thresholdSessionId,
+            storageSource: 'bootstrap',
+            retention: 'session',
+            sessionOrigin: 'per_operation',
+          },
+    );
+    return signingLane as SelectedSigningLaneContext;
+  }
+
+  const buildLane =
+    lane.chain === 'tempo' ? buildTempoTransactionSigningLane : buildEvmTransactionSigningLane;
+  const signingLane = buildLane(
+    lane.authMethod === 'email_otp'
+      ? {
+          accountId: lane.accountId,
+          authMethod: 'email_otp',
+          walletSigningSessionId: lane.walletSigningSessionId,
+          thresholdSessionId: lane.thresholdSessionId,
+          retention: 'session',
+          sessionOrigin: 'per_operation',
+        }
+      : {
+          accountId: lane.accountId,
+          authMethod: 'passkey',
+          walletSigningSessionId: lane.walletSigningSessionId,
+          thresholdSessionId: lane.thresholdSessionId,
+          storageSource: 'manual-bootstrap',
+          retention: 'session',
+          sessionOrigin: 'per_operation',
+        },
+  );
+  return signingLane as SelectedSigningLaneContext;
 }

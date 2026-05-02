@@ -608,9 +608,13 @@ Add failing tests before moving code:
 6. [x] Add `SignedTransactionOperation`.
 7. [x] Add `LaneSelectionFailure`.
 8. [x] Convert transaction restore input to `TransactionRestoreInput`.
-9. [ ] Convert transaction budget/finalizer inputs to accept `TransactionLane`.
+9. [x] Convert transaction budget/finalizer inputs to accept `TransactionLane`.
    - [x] Transaction-state auth-planned, budget-admitted, and signed states are
      generic over `TransactionLane` instead of being NEAR Ed25519-only.
+   - [x] Budget identity preparation accepts exact `TransactionLane` values.
+   - [x] Budget finalization accepts exact `TransactionLane` values.
+   - [x] NEAR Ed25519 finalization uses the admitted transaction lane instead
+     of rebuilding a spend lane from mutable session state.
 10. [x] Keep raw snapshot and storage types separate from resolved transaction types.
 
 Acceptance:

@@ -58,12 +58,10 @@ import {
 } from './shared/thresholdAuthMode';
 import { ensureThresholdEd25519HssClientBase } from './shared/ensureThresholdEd25519HssClientBase';
 import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThresholdEd25519MissingRelayerKey';
-import { buildNearTransactionSigningLane } from '../../session/signingSession/lanes';
 import {
   SigningOperationIntent,
   SigningSessionIds,
   type SigningLaneContext,
-  type SelectedSigningLaneContext,
   type SigningOperationId,
 } from '../../session/signingSession/types';
 import {
@@ -106,33 +104,6 @@ function emitNearSigningEvent(
       }),
     );
   } catch {}
-}
-
-function requireSelectedNearSigningLane(lane: SigningLaneContext): SelectedSigningLaneContext {
-  if (!lane.walletSigningSessionId || !lane.thresholdSessionId) {
-    throw new Error('[SigningEngine][near] signing lane is missing resolved session identity');
-  }
-  return lane as SelectedSigningLaneContext;
-}
-
-function nearTransactionLaneFromSelectedSigningLane(
-  lane: SelectedSigningLaneContext,
-): NearEd25519TransactionLane {
-  if (lane.curve !== 'ed25519' || lane.chainFamily !== 'near') {
-    throw new Error('[SigningEngine][near] expected selected NEAR Ed25519 signing lane');
-  }
-  return {
-    accountId: lane.accountId,
-    authMethod: lane.authMethod,
-    curve: 'ed25519',
-    chain: 'near',
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(
-      String(lane.walletSigningSessionId),
-    ),
-    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-      String(lane.thresholdSessionId),
-    ),
-  };
 }
 
 function readinessFromPreparedBudgetIdentity(
@@ -686,7 +657,7 @@ export async function signTransactionsWithActions({
     durationMs: Math.round(performance.now() - signingStartedAt),
   });
   let activeBudgetAdmittedOperation = providedBudgetAdmittedOperation;
-  const buildSelectedBudgetSpendLane = (): SelectedSigningLaneContext => {
+  const buildBudgetTransactionLane = (): NearEd25519TransactionLane => {
     const walletSigningSessionId = String(
       thresholdSessionState.record.walletSigningSessionId || '',
     ).trim();
@@ -695,51 +666,33 @@ export async function signTransactionsWithActions({
         '[SigningEngine][near] missing wallet signing session id for transaction budget spend',
       );
     }
-    const recordSource = thresholdSessionState.record.source;
-    return requireSelectedNearSigningLane(
-      recordSource === 'email_otp'
-        ? buildNearTransactionSigningLane({
-            accountId: nearAccountId,
-            authMethod: 'email_otp',
-            walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
-            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-              canonicalThresholdSessionId,
-            ),
-            retention: thresholdSessionState.record.emailOtpAuthContext?.retention || 'session',
-            sessionOrigin:
-              thresholdSessionState.record.emailOtpAuthContext?.reason === 'login'
-                ? 'login'
-                : 'per_operation',
-          })
-        : buildNearTransactionSigningLane({
-            accountId: nearAccountId,
-            authMethod: 'passkey',
-            walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
-            thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-              canonicalThresholdSessionId,
-            ),
-            storageSource: recordSource,
-          }),
-    );
+    return {
+      accountId: toAccountId(nearAccountId),
+      authMethod: thresholdSessionState.record.source === 'email_otp' ? 'email_otp' : 'passkey',
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(canonicalThresholdSessionId),
+    };
   };
-  const admitBudgetForSelectedSpendLane = async (
-    spendLane: SelectedSigningLaneContext,
+  const admitBudgetForTransactionLane = async (
+    lane: NearEd25519TransactionLane,
   ): Promise<BudgetAdmittedOperation<NearEd25519TransactionLane>> => {
     const budgetIdentity = await sessionCoordinator.prepareBudgetIdentity({
       nearAccountId,
-      lane: spendLane,
+      lane,
       trustedStatusAuth: trustedBudgetStatusAuth,
       operationUsesNeeded: usesNeeded,
     });
     const refreshedPreparedOperation = replacePreparedTransactionLane(transactionOperation, {
-      lane: nearTransactionLaneFromSelectedSigningLane(spendLane),
+      lane,
       readiness: readinessFromPreparedBudgetIdentity(budgetIdentity),
     });
     return admitTransactionBudget(refreshedPreparedOperation, { budgetIdentity });
   };
   if (refreshedBudgetIdentityRequired) {
-    activeBudgetAdmittedOperation = await admitBudgetForSelectedSpendLane(
-      buildSelectedBudgetSpendLane(),
+    activeBudgetAdmittedOperation = await admitBudgetForTransactionLane(
+      buildBudgetTransactionLane(),
     );
     refreshedBudgetIdentityRequired = false;
   }
@@ -747,17 +700,6 @@ export async function signTransactionsWithActions({
     operationState: BudgetAdmittedOperation<NearEd25519TransactionLane>,
   ): SigningSessionBudgetFinalizer | undefined => {
     if (!signingContext.threshold || !sessionCoordinator) return;
-    const spendLane = buildSelectedBudgetSpendLane();
-    if (
-      String(operationState.lane.walletSigningSessionId) !==
-        String(spendLane.walletSigningSessionId) ||
-      String(operationState.lane.thresholdSessionId) !== String(spendLane.thresholdSessionId) ||
-      operationState.lane.authMethod !== spendLane.authMethod
-    ) {
-      throw new Error(
-        '[SigningEngine][near] admitted transaction lane does not match selected spend lane',
-      );
-    }
     const operation = {
       operationId: confirmationOperationId,
       operationFingerprint,
@@ -768,19 +710,19 @@ export async function signTransactionsWithActions({
       budgetIdentity: operationState.budgetAdmission.budgetIdentity,
       trustedStatusAuth: trustedBudgetStatusAuth,
       operation,
-      lane: spendLane,
+      lane: operationState.lane,
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][near] failed to update wallet signing-session budget', {
           nearAccountId,
-          walletSigningSessionId: String(spendLane.walletSigningSessionId),
-          thresholdSessionId: canonicalThresholdSessionId,
+          walletSigningSessionId: String(operationState.lane.walletSigningSessionId),
+          thresholdSessionId: String(operationState.lane.thresholdSessionId),
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
       },
       onRecordZeroSpendError: (ledgerError) => {
         console.warn('[SigningEngine][near] failed to record wallet signing-session zero spend', {
           nearAccountId,
-          thresholdSessionId: canonicalThresholdSessionId,
+          thresholdSessionId: String(operationState.lane.thresholdSessionId),
           error:
             ledgerError instanceof Error
               ? ledgerError.message
@@ -802,7 +744,7 @@ export async function signTransactionsWithActions({
       // The threshold Ed25519 signing ceremony is the authoritative spend
       // boundary. Finalization should sync status and local hints, not consume
       // the same selected session again.
-      alreadyConsumedThresholdSessionIds: [canonicalThresholdSessionId],
+      alreadyConsumedThresholdSessionIds: [String(operationState.lane.thresholdSessionId)],
     };
     if (finalizePreparedSigningSession) {
       await finalizePreparedSigningSession({
@@ -882,8 +824,8 @@ export async function signTransactionsWithActions({
     // Non-warm confirmed-auth lanes can only become budget-admitted after the
     // confirmation step has produced fresh auth material. Admit them here, still
     // before the signer worker can consume the threshold session.
-    activeBudgetAdmittedOperation = await admitBudgetForSelectedSpendLane(
-      buildSelectedBudgetSpendLane(),
+    activeBudgetAdmittedOperation = await admitBudgetForTransactionLane(
+      buildBudgetTransactionLane(),
     );
   }
   const budgetAdmittedOperationForWorker = activeBudgetAdmittedOperation;

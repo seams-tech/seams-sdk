@@ -17,6 +17,12 @@ import type {
   SelectedSigningLaneContext,
   WalletSigningSpendPlan,
 } from './types';
+import {
+  selectedSigningLaneContextFromTransactionLane,
+  type TransactionLane,
+} from './transactionState';
+
+export type SigningSessionBudgetFinalizerLane = SelectedSigningLaneContext | TransactionLane;
 
 export type SigningSessionBudgetFinalizer = {
   spend?: WalletSigningSpendPlan;
@@ -30,12 +36,13 @@ export function createSigningSessionBudgetFinalizer(args: {
   budgetIdentity: SigningSessionPreparedBudgetIdentity;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
   operation: SigningOperationContext;
-  lane: SelectedSigningLaneContext;
+  lane: SigningSessionBudgetFinalizerLane;
   backingMaterialSessionId?: BackingMaterialSessionId;
   onRecordSuccessError?: (error: unknown, spend: WalletSigningSpendPlan) => void;
   onRecordZeroSpendError?: (error: unknown) => void;
 }): SigningSessionBudgetFinalizer {
-  const spend = buildWalletSigningSpendPlan(args.operation, args.lane, {
+  const lane = normalizeBudgetFinalizerLane(args.lane);
+  const spend = buildWalletSigningSpendPlan(args.operation, lane, {
     ...(args.backingMaterialSessionId
       ? { backingMaterialSessionId: args.backingMaterialSessionId }
       : {}),
@@ -88,6 +95,15 @@ export function createSigningSessionBudgetFinalizer(args: {
       }
     },
   };
+}
+
+function normalizeBudgetFinalizerLane(
+  lane: SigningSessionBudgetFinalizerLane,
+): SelectedSigningLaneContext {
+  if ('chain' in lane) {
+    return selectedSigningLaneContextFromTransactionLane(lane);
+  }
+  return lane;
 }
 
 async function reserveWithLocalContentionRetry(

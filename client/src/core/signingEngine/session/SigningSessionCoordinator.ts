@@ -74,6 +74,10 @@ import type {
   SigningOperationIntent,
   SigningSessionPlan,
 } from './signingSession/types';
+import {
+  selectedSigningLaneContextFromTransactionLane,
+  type TransactionLane,
+} from './signingSession/transactionState';
 import type { WarmSessionPrfClaim } from './warmSigning/types';
 
 export type { SigningSessionReadiness };
@@ -444,22 +448,26 @@ export class SigningSessionCoordinator
 
   async prepareBudgetIdentity(input: {
     nearAccountId: AccountId | string;
-    lane: SigningLaneContext;
+    lane: SigningLaneContext | TransactionLane;
     trustedStatusAuth?: SigningSessionBudgetStatusAuth;
     operationUsesNeeded?: number;
   }): Promise<SigningSessionPreparedBudgetIdentity> {
+    const lane =
+      'chain' in input.lane
+        ? selectedSigningLaneContextFromTransactionLane(input.lane)
+        : input.lane;
     const walletSigningSessionId = normalizeRequired(
-      input.lane.walletSigningSessionId,
+      lane.walletSigningSessionId,
       'walletSigningSessionId',
     );
     const status = await this.getAvailableStatus({
       nearAccountId: input.nearAccountId,
       walletSigningSessionId,
-      ...(input.lane.backingMaterialSessionId
-        ? { targetBackingMaterialSessionIds: [input.lane.backingMaterialSessionId] }
+      ...(lane.backingMaterialSessionId
+        ? { targetBackingMaterialSessionIds: [lane.backingMaterialSessionId] }
         : {}),
-      ...(input.lane.thresholdSessionId
-        ? { targetThresholdSessionIds: [input.lane.thresholdSessionId] }
+      ...(lane.thresholdSessionId
+        ? { targetThresholdSessionIds: [lane.thresholdSessionId] }
         : {}),
       ...(input.trustedStatusAuth ? { trustedStatusAuth: input.trustedStatusAuth } : {}),
     });
