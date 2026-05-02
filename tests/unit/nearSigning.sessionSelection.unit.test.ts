@@ -963,6 +963,247 @@ test.describe('near signing session selection', () => {
     }
   });
 
+  test('restores durable Ed25519 lane with valid budget and signs without step-up', async () => {
+    const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
+    const originalFetch = globalThis.fetch;
+    const sessionStorage = new MemorySessionStorage();
+    (
+      globalThis as {
+        sessionStorage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'clear'>;
+      }
+    ).sessionStorage = sessionStorage;
+
+    clearAllStoredThresholdEd25519SessionRecords();
+
+    try {
+      globalThis.fetch = (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/threshold-ed25519/healthz')) {
+          return new Response(JSON.stringify({ ok: true, configured: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        throw new Error(`unexpected fetch in test: ${url}`);
+      }) as typeof fetch;
+
+      const nearAccountId = 'durable-ed25519-valid-budget.testnet';
+      const restoredSessionId = 'durable-ed25519-restored-session';
+      const walletSigningSessionId = 'wallet-durable-ed25519-valid-budget';
+      const relayerUrl = 'https://relay.example.test';
+      const relayerKeyId = 'ed25519:relayer-key-id';
+      const rpId = 'example.localhost';
+      const restoreCalls: any[] = [];
+      const confirmationAuthPlans: string[] = [];
+      const emailOtpPrompts: string[] = [];
+      let workerSessionId = '';
+
+      const result = await signTransactionsWithActions(
+        {
+          nearRpcUrl: 'https://rpc.example.test',
+          signingSessionCoordinator: createBudgetBackedSigningSessionCoordinator({
+            walletSigningSessionId,
+            activeRemainingUses: 3,
+          }),
+          resolveAccountAuthMethodForSigning: async () => 'email_otp',
+          readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
+            expect(authMethod).toBe('email_otp');
+            return {
+              walletId: nearAccountId,
+              generation: Date.now(),
+              lanes: {
+                ed25519: {
+                  near: {
+                    authMethod: 'email_otp' as const,
+                    curve: 'ed25519' as const,
+                    chain: 'near' as const,
+                    state: 'restorable' as const,
+                    source: 'durable_sealed_record' as const,
+                    walletSigningSessionId,
+                    thresholdSessionId: restoredSessionId,
+                  },
+                },
+                ecdsa: {
+                  tempo: { curve: 'ecdsa' as const, chain: 'tempo' as const, state: 'missing' as const },
+                  evm: { curve: 'ecdsa' as const, chain: 'evm' as const, state: 'missing' as const },
+                },
+              },
+              candidates: {
+                ed25519: {
+                  near: [
+                    {
+                      authMethod: 'email_otp' as const,
+                      curve: 'ed25519' as const,
+                      chain: 'near' as const,
+                      state: 'restorable' as const,
+                      source: 'durable_sealed_record' as const,
+                      walletSigningSessionId,
+                      thresholdSessionId: restoredSessionId,
+                    },
+                  ],
+                },
+                ecdsa: { tempo: [], evm: [] },
+              },
+            };
+          },
+          restorePersistedSessionForSigning: async (restoreArgs) => {
+            restoreCalls.push({
+              authMethod: restoreArgs.authMethod,
+              walletSigningSessionId: restoreArgs.walletSigningSessionId,
+              thresholdSessionId: restoreArgs.thresholdSessionId,
+            });
+            persistWarmSessionEd25519Capability({
+              nearAccountId,
+              rpId,
+              relayerUrl,
+              relayerKeyId,
+              participantIds: [1, 2],
+              sessionId: restoredSessionId,
+              walletSigningSessionId,
+              expiresAtMs: Date.now() + 60_000,
+              remainingUses: 3,
+              jwt: 'durable-ed25519-restored-jwt',
+              xClientBaseB64u: 'durable-ed25519-restored-client-base',
+              source: 'email_otp',
+              emailOtpAuthContext: {
+                policy: 'session',
+                retention: 'session',
+                reason: 'login',
+                authMethod: 'email_otp',
+              },
+            });
+          },
+          getWarmThresholdEd25519SessionStatusForSession: async ({ thresholdSessionId }) => ({
+            sessionId: thresholdSessionId,
+            status: 'active' as const,
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 60_000,
+          }),
+          requestEmailOtpTransactionSigningChallenge: async () => {
+            throw new Error('valid restored budget must not prompt Email OTP');
+          },
+          getSignerWorkerContext: () =>
+            ({
+              indexedDB: {
+                clientDB: {
+                  resolveProfileAccountContext: async () => ({
+                    profileId: 'profile-durable-ed25519-valid-budget',
+                    accountRef: {
+                      chainIdKey: 'near:testnet',
+                      accountAddress: nearAccountId,
+                    },
+                  }),
+                },
+                accountKeyMaterialDB: {
+                  getKeyMaterial: async () => ({
+                    profileId: 'profile-durable-ed25519-valid-budget',
+                    signerSlot: 1,
+                    chainIdKey: 'near:testnet',
+                    keyKind: 'threshold_share_v1' as const,
+                    algorithm: 'ed25519' as const,
+                    publicKey: 'ed25519:threshold-public-key',
+                    payload: {
+                      relayerKeyId,
+                      keyVersion: 'threshold-ed25519-hss-v1',
+                      participants: [
+                        { id: 1, role: 'client' },
+                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
+                      ],
+                    },
+                    timestamp: Date.now(),
+                    schemaVersion: 1,
+                  }),
+                },
+              },
+              nearContextFixture: {
+                initializeUser: () => undefined,
+              },
+              touchIdPrompt: {
+                getRpId: () => rpId,
+              },
+              relayerUrl,
+              touchConfirm: {
+                getWarmSessionStatus: async () => ({
+                  ok: false as const,
+                  code: 'not_found',
+                  message: 'warm-session status missing',
+                }),
+                claimWarmSessionMaterial: async () => ({
+                  ok: false as const,
+                  code: 'unexpected',
+                  message: 'should not claim',
+                }),
+                clearWarmSessionMaterial: async () => undefined,
+                orchestrateSigningConfirmation: async (params: any) => {
+                  confirmationAuthPlans.push(String(params?.signingAuthPlan?.kind || ''));
+                  emailOtpPrompts.push(String(params?.emailOtpPrompt?.challengeId || ''));
+                  return {
+                    intentDigest: 'intent-digest-b64u',
+                    transactionContext: {
+                      nearPublicKeyStr: 'ed25519:threshold-public-key',
+                      nextNonce: '1',
+                      txBlockHeight: '1',
+                      txBlockHash: 'blockhash',
+                      accessKeyInfo: { nonce: 0 },
+                    },
+                    credential: undefined,
+                  };
+                },
+              },
+              requestWorkerOperation: async ({ request }: any) => {
+                workerSessionId = String(request?.sessionId || '').trim();
+                expect(String(request?.payload?.threshold?.thresholdSessionJwt || '')).toBe(
+                  'durable-ed25519-restored-jwt',
+                );
+                return {
+                  type: WorkerResponseType.SignTransactionsWithActionsSuccess,
+                  payload: {
+                    success: true,
+                    signedTransactions: [
+                      { transaction: {}, signature: {}, borshBytes: new Uint8Array([1]) },
+                    ],
+                    logs: [],
+                  },
+                };
+              },
+            }) as any,
+          withThresholdEd25519CommitQueue: async ({ task }) => await task(),
+        },
+        {
+          rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
+          signerSlot: 1,
+          transactions: [
+            {
+              receiverId: nearAccountId,
+              actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+            },
+          ],
+        },
+      );
+
+      expect(result).toHaveLength(1);
+      expect(workerSessionId).toBe(restoredSessionId);
+      expect(confirmationAuthPlans).toEqual([SigningAuthPlanKind.WarmSession]);
+      expect(emailOtpPrompts).toEqual(['']);
+      expect(restoreCalls).toEqual([
+        {
+          authMethod: 'email_otp',
+          walletSigningSessionId,
+          thresholdSessionId: restoredSessionId,
+        },
+      ]);
+    } finally {
+      clearAllStoredThresholdEd25519SessionRecords();
+      sessionStorage.clear();
+      if (originalSessionStorage) {
+        (globalThis as { sessionStorage?: Storage }).sessionStorage = originalSessionStorage;
+      } else {
+        delete (globalThis as { sessionStorage?: Storage }).sessionStorage;
+      }
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('keeps Ed25519 snapshot selection on the current OTP runtime record when account auth points at passkey', async () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
     const originalFetch = globalThis.fetch;
