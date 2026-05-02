@@ -4,13 +4,21 @@ import {
   receiveTransactionIntent,
   classifyTransactionReadiness,
   prepareTransactionOperationFromReadiness,
+  prepareTransactionSigningOperation,
   recordExactRestoreAttempt,
   recordTransactionBudgetAdmission,
   recordTransactionSnapshot,
   selectTransactionLane,
   selectTransactionLaneFromSnapshot,
+  signPreparedTransactionOperation,
+  finalizeSignedTransactionOperation,
   type TransactionSigningIntent,
 } from '@/core/signingEngine/session/signingSession/transactionState';
+import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/signingSession/lanes';
+import {
+  SigningSessionIds,
+  type SigningOperationId,
+} from '@/core/signingEngine/session/signingSession/types';
 import type { SigningSessionSnapshot } from '@/core/signingEngine/session/snapshotReader';
 
 const nearIntent = (
@@ -467,5 +475,138 @@ test.describe('transaction signing state selector', () => {
     expect(admitted.budgetAdmission.budgetIdentity.projectionVersion).toBe('budget-rev-1');
     expect(admittedState.tag).toBe('BudgetAdmitted');
     expect(admittedState.operation.lane).toEqual(prepared.lane);
+  });
+
+  test('prepares a transaction operation through the shared transaction boundary', async () => {
+    const accountId = 'alice.testnet';
+    const walletSigningSessionId =
+      SigningSessionIds.walletSigningSession('wss-shared-prepare');
+    const thresholdSessionId =
+      SigningSessionIds.thresholdEd25519Session('tsess-shared-prepare');
+    const transactionLane = {
+      accountId: accountId as any,
+      authMethod: 'email_otp' as const,
+      curve: 'ed25519' as const,
+      chain: 'near' as const,
+      walletSigningSessionId,
+      thresholdSessionId,
+    };
+    const signingLane = buildNearTransactionSigningLane({
+      accountId: accountId as any,
+      authMethod: 'email_otp',
+      walletSigningSessionId,
+      thresholdSessionId,
+    });
+
+    const prepared = await prepareTransactionSigningOperation({
+      intent: nearIntent('email_otp'),
+      coordinator: {
+        resolveAuthPlanFromReadiness: async ({ lane, readiness, expiresAtMs, remainingUses }) => ({
+          signingSessionPlan: {
+            kind: 'warm_session',
+            lane,
+            keyRef: {
+              kind: 'cached',
+              thresholdSessionId,
+            },
+          } as any,
+          readiness,
+          expiresAtMs: Number(expiresAtMs) || 123,
+          remainingUses: Number(remainingUses) || 1,
+        }),
+        prepareBudgetIdentity: async () => ({
+          walletSigningSessionId,
+          projectionVersion: 'budget-rev-shared-prepare',
+          status: {
+            status: 'active',
+            projectionVersion: 'budget-rev-shared-prepare',
+            remainingUses: 1,
+            expiresAtMs: 123,
+          } as any,
+        }),
+      },
+      prepareBudgetIdentity: true,
+      operation: {
+        operationId: SigningSessionIds.signingOperation(
+          'op-shared-prepare',
+        ) as SigningOperationId,
+        intent: 'transaction_sign',
+      },
+      lifecycleAdapter: {
+        prepare: async () => ({
+          lane: signingLane,
+          transactionLane,
+          readiness: {
+            readiness: {
+              status: 'ready',
+              thresholdSessionId,
+            },
+            expiresAtMs: 123,
+            remainingUses: 1,
+            usesNeeded: 1,
+          },
+          snapshotGeneration: 7,
+          metadata: { source: 'test' },
+        }),
+      },
+    });
+
+    expect(prepared.transactionOperation).toMatchObject({
+      lane: transactionLane,
+      readiness: { status: 'ready', remainingUses: 1, expiresAtMs: 123 },
+    });
+    expect(prepared.thresholdOperation.metadata.transactionOperation).toBe(
+      prepared.transactionOperation,
+    );
+    expect(prepared.budgetAdmittedOperation?.budgetAdmission.budgetIdentity.projectionVersion).toBe(
+      'budget-rev-shared-prepare',
+    );
+    expect(prepared.budgetAdmittedState?.tag).toBe('BudgetAdmitted');
+  });
+
+  test('signs and finalizes only after budget admission', async () => {
+    const prepared = {
+      intent: nearIntent('email_otp'),
+      lane: {
+        accountId: 'alice.testnet' as any,
+        authMethod: 'email_otp' as const,
+        curve: 'ed25519' as const,
+        chain: 'near' as const,
+        walletSigningSessionId: SigningSessionIds.walletSigningSession('wss-signed-op'),
+        thresholdSessionId: SigningSessionIds.thresholdEd25519Session('tsess-signed-op'),
+      },
+      readiness: { status: 'ready' as const, remainingUses: 1, expiresAtMs: 123 },
+    };
+    const admitted = admitTransactionBudget(prepared, {
+      budgetIdentity: {
+        walletSigningSessionId: 'wss-signed-op',
+        projectionVersion: 'budget-rev-signed-op',
+        status: {
+          status: 'active',
+          projectionVersion: 'budget-rev-signed-op',
+          remainingUses: 1,
+          expiresAtMs: 123,
+        },
+      } as any,
+    });
+    const finalized: string[] = [];
+
+    const signed = await signPreparedTransactionOperation(admitted, { payload: 'tx' }, {
+      sign: async (operation, payload) => ({
+        thresholdSessionId: String(operation.lane.thresholdSessionId),
+        payload,
+      }),
+    });
+    await finalizeSignedTransactionOperation(signed, {
+      recordSuccess: (operation) => {
+        finalized.push(String(operation.lane.thresholdSessionId));
+      },
+    });
+
+    expect(signed.result).toEqual({
+      thresholdSessionId: 'tsess-signed-op',
+      payload: { payload: 'tx' },
+    });
+    expect(finalized).toEqual(['tsess-signed-op']);
   });
 });

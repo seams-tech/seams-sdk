@@ -682,27 +682,37 @@ Acceptance:
    prepared/admitted operation, and lane-selection failures.
 2. [x] Add full discriminated-union transition states and explicit transition
    functions.
-3. [ ] Create one `prepareTransactionSigningOperation(intent)` path.
+3. [x] Create one `prepareTransactionSigningOperation(intent)` path.
    - [x] NEAR Ed25519 transaction prepare is isolated behind a named
      `prepareNearEd25519TransactionOperation(...)` path.
-   - [ ] Generalize that boundary across transaction curves.
+   - [x] Generalize that boundary across transaction curves.
+   - [x] NEAR Ed25519 and EVM-family ECDSA transaction prepare now both call
+     the shared `prepareTransactionSigningOperation(...)` boundary.
 4. [x] NEAR Ed25519 prepare performs snapshot read, lane selection, exact restore, readiness
    classification, and auth planning.
-5. [ ] It returns `PreparedTransactionOperation`.
+5. [x] It returns `PreparedTransactionOperation`.
    - [x] NEAR Ed25519 prepare now produces a `PreparedTransactionOperation`
      from the typed readiness state.
-   - [ ] Generalize that return type across transaction curves.
-6. [ ] `admitBudget(...)` converts `PreparedTransactionOperation` into
+   - [x] Generalize that return type across transaction curves.
+   - [x] EVM-family ECDSA prepare now carries a generic
+     `PreparedTransactionOperation<EvmFamilyEcdsaTransactionLane>`.
+6. [x] `admitBudget(...)` converts `PreparedTransactionOperation` into
    `BudgetAdmittedTransactionOperation`.
    - [x] NEAR Ed25519 warm-session budget identity is converted into an
      explicit `BudgetAdmittedOperation` before the worker payload sees it.
    - [x] NEAR Ed25519 reauth-created sessions return a replacement
      `BudgetAdmittedOperation` immediately after OTP/passkey mint.
+   - [x] Shared transaction prepare returns `BudgetAdmittedOperation` when the
+     threshold planner admits trusted warm-session budget.
 7. [ ] `sign(...)` accepts only `BudgetAdmittedTransactionOperation`.
    - [x] NEAR Ed25519 worker requests now require `BudgetAdmittedOperation`.
+   - [x] NEAR Ed25519 signing now uses the shared
+     `signPreparedTransactionOperation(...)` helper.
 8. [ ] `finalize(...)` accepts only `SignedTransactionOperation`.
    - [x] NEAR Ed25519 success finalization now records a
      `SignedTransactionOperation` from the admitted worker state.
+   - [x] NEAR Ed25519 success finalization now uses the shared
+     `finalizeSignedTransactionOperation(...)` helper.
 9. [ ] NEAR/EVM/Tempo transaction flows receive state-machine operation types only.
 10. [x] NEAR Ed25519 lower flow no longer plans auth, selects lanes, or restores sessions.
 11. [x] Lower flows no longer discover

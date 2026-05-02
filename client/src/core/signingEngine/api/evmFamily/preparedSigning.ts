@@ -12,12 +12,16 @@ import type { SigningSessionPreparedBudgetIdentity } from '../../session/signing
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { RestorePersistedSessionForSigningInput } from '../../session/restoreCoordinator';
 import {
+  prepareTransactionSigningOperation,
   selectTransactionLane,
+  type BudgetAdmittedOperation,
   type EvmFamilyEcdsaConcreteSnapshotLane,
   type EvmFamilyEcdsaTransactionLane,
+  type PreparedTransactionOperation,
+  type TransactionBudgetAdmittedState,
+  type TransactionSigningIntent,
 } from '../../session/signingSession/transactionState';
 import {
-  prepareThresholdSigningOperation,
   type PreparedThresholdSigningOperation,
 } from '../../session/signingSession/preparedOperation';
 import {
@@ -55,17 +59,19 @@ function resolveEcdsaSnapshotLaneSelection(args: {
 }): {
   lane: EvmFamilyEcdsaTransactionLane;
   snapshotLane: EvmFamilyEcdsaConcreteSnapshotLane;
+  intent: TransactionSigningIntent;
 } | null {
   const primaryAuthMethod =
     args.accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
+  const intent: TransactionSigningIntent = {
+    walletId: args.nearAccountId,
+    curve: 'ecdsa',
+    chain: args.chain,
+    authSelectionPolicy: { kind: 'account_class', authMethod: primaryAuthMethod },
+    operationUsesNeeded: 1,
+  };
   const selection = selectTransactionLane({
-    intent: {
-      walletId: args.nearAccountId,
-      curve: 'ecdsa',
-      chain: args.chain,
-      authSelectionPolicy: { kind: 'account_class', authMethod: primaryAuthMethod },
-      operationUsesNeeded: 1,
-    },
+    intent,
     snapshot: args.snapshot,
   });
   if (!selection.ok) {
@@ -80,6 +86,7 @@ function resolveEcdsaSnapshotLaneSelection(args: {
   return {
     lane: selection.lane as EvmFamilyEcdsaTransactionLane,
     snapshotLane: selection.snapshotLane as EvmFamilyEcdsaConcreteSnapshotLane,
+    intent,
   };
 }
 
@@ -125,6 +132,9 @@ export type PreparedEvmFamilyEcdsaSigningSession = {
     ResolvedEvmFamilyEcdsaSigningLane,
     Record<string, unknown>
   >;
+  transactionOperation: PreparedTransactionOperation<EvmFamilyEcdsaTransactionLane>;
+  budgetAdmittedOperation?: BudgetAdmittedOperation<EvmFamilyEcdsaTransactionLane>;
+  budgetAdmittedState?: TransactionBudgetAdmittedState<EvmFamilyEcdsaTransactionLane>;
   warmRecord?: ThresholdEcdsaSessionRecord;
   warmKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
@@ -161,13 +171,13 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
   signingSessionCoordinator: SigningSessionCoordinator;
   forceFreshAuth?: boolean;
 }): Promise<PreparedEvmFamilyEcdsaSigningSession> {
-  const preparedOperation = await prepareThresholdSigningOperation({
+  const preparedTransaction = await prepareTransactionSigningOperation({
     intent: {
-      kind: 'transaction_sign',
-      chain: args.chain,
-      curve: 'ecdsa',
       walletId: args.nearAccountId,
-      reason: 'transaction',
+      curve: 'ecdsa',
+      chain: args.chain,
+      authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
+      operationUsesNeeded: 1,
     },
     coordinator: args.signingSessionCoordinator,
     forceFreshAuth: args.forceFreshAuth === true,
@@ -192,6 +202,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         });
         const snapshotCandidate = snapshotSelection?.snapshotLane || null;
         const transactionLane = snapshotSelection?.lane || null;
+        const transactionIntent = snapshotSelection?.intent || null;
         if (!snapshotCandidate || !transactionLane) {
           throw new Error(
             `[SigningEngine][ecdsa] transaction restore requires an exact snapshot lane for ${args.chain}`,
@@ -320,6 +331,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         );
         return {
           lane: resolvedLane,
+          transactionLane,
+          ...(transactionIntent ? { transactionIntent } : {}),
           readiness: {
             readiness: readiness.readiness,
             expiresAtMs: readiness.expiresAtMs,
@@ -340,6 +353,10 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
       },
     },
   });
+  const preparedOperation = preparedTransaction.thresholdOperation as PreparedThresholdSigningOperation<
+    ResolvedEvmFamilyEcdsaSigningLane,
+    Record<string, unknown>
+  >;
   const metadata = preparedOperation.metadata as {
     accountAuth: AccountAuthMetadata;
     authMethod: EvmFamilyEcdsaAuthMethod;
@@ -357,6 +374,13 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
     snapshotGeneration: metadata.snapshotGeneration,
     signingLane: preparedOperation.lane,
     preparedOperation,
+    transactionOperation: preparedTransaction.transactionOperation,
+    ...(preparedTransaction.budgetAdmittedOperation
+      ? { budgetAdmittedOperation: preparedTransaction.budgetAdmittedOperation }
+      : {}),
+    ...(preparedTransaction.budgetAdmittedState
+      ? { budgetAdmittedState: preparedTransaction.budgetAdmittedState }
+      : {}),
     ...(preparedOperation.budgetIdentity
       ? {
           budgetIdentity: preparedOperation.budgetIdentity,

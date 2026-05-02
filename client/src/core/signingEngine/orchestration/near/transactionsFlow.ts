@@ -65,7 +65,8 @@ import {
   type SigningOperationId,
 } from '../../session/signingSession/types';
 import {
-  recordTransactionSigned,
+  finalizeSignedTransactionOperation,
+  signPreparedTransactionOperation,
   type BudgetAdmittedOperation,
   type NearEd25519TransactionLane,
   type PreparedTransactionOperation,
@@ -851,11 +852,13 @@ export async function signTransactionsWithActions({
     // Ed25519 threshold signing consumes the wallet session on the server as
     // part of the signing ceremony. A local pre-sign reservation would double
     // count in UI projections until finalization reconciles it.
-    const okResponse = await executeSignRequest(budgetAdmittedOperationForWorker, requestPayload);
-    signedTransactionOperation = recordTransactionSigned(
+    const signedOperation = await signPreparedTransactionOperation(
       budgetAdmittedOperationForWorker,
-      okResponse,
+      requestPayload,
+      { sign: executeSignRequest },
     );
+    signedTransactionOperation = signedOperation;
+    const okResponse = signedOperation.result;
     thresholdSignatureCreated = true;
     await markNearNonceLeasesSigned(ctx, nonceLeaseRefs);
     const signedResults = toSignedTransactionResults({
@@ -865,7 +868,10 @@ export async function signTransactionsWithActions({
       warnings,
       nonceLeases: nonceLeaseRefs,
     });
-    await recordSuccessfulWalletSigningSessionSpend(signedTransactionOperation);
+    await finalizeSignedTransactionOperation(signedOperation, {
+      recordSuccess: async (operation) =>
+        await recordSuccessfulWalletSigningSessionSpend(operation),
+    });
     emitNearSigningEvent(onEvent, nearAccountId, {
       phase: SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
       status: 'succeeded',
@@ -928,14 +934,13 @@ export async function signTransactionsWithActions({
             : {}),
         });
         requestPayload = buildRequestPayload(repairedXClientBaseB64u);
-        const okResponse = await executeSignRequest(
+        const signedOperation = await signPreparedTransactionOperation(
           budgetAdmittedOperationForWorker,
           requestPayload,
+          { sign: executeSignRequest },
         );
-        signedTransactionOperation = recordTransactionSigned(
-          budgetAdmittedOperationForWorker,
-          okResponse,
-        );
+        signedTransactionOperation = signedOperation;
+        const okResponse = signedOperation.result;
         thresholdSignatureCreated = true;
         await markNearNonceLeasesSigned(ctx, nonceLeaseRefs);
         const signedResults = toSignedTransactionResults({
@@ -945,7 +950,10 @@ export async function signTransactionsWithActions({
           warnings,
           nonceLeases: nonceLeaseRefs,
         });
-        await recordSuccessfulWalletSigningSessionSpend(signedTransactionOperation);
+        await finalizeSignedTransactionOperation(signedOperation, {
+          recordSuccess: async (operation) =>
+            await recordSuccessfulWalletSigningSessionSpend(operation),
+        });
         emitNearSigningEvent(onEvent, nearAccountId, {
           phase: SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
           status: 'succeeded',

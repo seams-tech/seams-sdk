@@ -82,7 +82,6 @@ import {
 import {
   executePreparedThresholdSigning,
   finalizePreparedThresholdSigning,
-  prepareThresholdSigningOperation,
   type PreparedThresholdSigningOperation,
   type ThresholdSigningReadinessInput,
 } from '../session/signingSession/preparedOperation';
@@ -90,6 +89,7 @@ import {
   classifyTransactionReadiness,
   admitTransactionBudget,
   prepareTransactionOperationFromReadiness,
+  prepareTransactionSigningOperation,
   receiveTransactionIntent,
   recordExactRestoreAttempt,
   recordTransactionBudgetAdmission,
@@ -101,6 +101,7 @@ import {
   type NearEd25519TransactionLane,
   type PreparedTransactionOperation,
   type TransactionAuthSelectionPolicy,
+  type TransactionSigningIntent,
   type TransactionLaneSelectedState,
   type TransactionReadiness,
   type TransactionReadinessClassifiedState,
@@ -360,6 +361,8 @@ type PreparedNearEd25519Operation = PreparedThresholdSigningOperation<
 
 type NearEd25519TransactionOperationPrepareResult = {
   lane: SigningLaneContext;
+  transactionLane: NearEd25519TransactionLane;
+  transactionIntent: TransactionSigningIntent;
   readiness: ThresholdSigningReadinessInput;
   snapshotGeneration: number;
   metadata: NearEd25519LifecycleMetadata;
@@ -1351,6 +1354,8 @@ async function prepareNearEd25519TransactionOperation(args: {
   };
   return {
     lane,
+    transactionLane: selectedLane.lane,
+    transactionIntent: selectedLane.intent,
     readiness: readinessInput,
     snapshotGeneration: snapshot?.generation || 0,
     metadata: {
@@ -1399,13 +1404,13 @@ async function prepareNearEd25519TransactionSigningSession(args: {
         }
       : undefined;
 
-  const preparedOperation = await prepareThresholdSigningOperation({
+  const preparedTransaction = await prepareTransactionSigningOperation({
     intent: {
-      kind: 'transaction_sign',
-      chain: 'near',
-      curve: 'ed25519',
       walletId: String(args.nearAccountId),
-      reason: 'transaction',
+      curve: 'ed25519',
+      chain: 'near',
+      authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
+      operationUsesNeeded: 1,
     },
     coordinator: args.signingSessionCoordinator,
     forceFreshAuth: args.forceFreshAuth === true,
@@ -1414,18 +1419,25 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     prepareBudgetIdentity: true,
     onPlannerTrace: (event) => emitSigningPlannerDecisionTrace('near', event),
     lifecycleAdapter: {
-      prepare: async () =>
-        await prepareNearEd25519TransactionOperation({
+      prepare: async () => {
+        const lifecycle = await prepareNearEd25519TransactionOperation({
           deps: args.deps,
           nearAccountId: args.nearAccountId,
           signingSessionCoordinator: args.signingSessionCoordinator,
           ...(ed25519Warmup ? { ed25519Warmup } : {}),
-        }),
+        });
+        return {
+          ...lifecycle,
+          metadata: lifecycle.metadata,
+        };
+      },
     },
   });
+  const preparedOperation = preparedTransaction.thresholdOperation as PreparedNearEd25519Operation;
+  const transactionOperation = preparedTransaction.transactionOperation;
   thresholdSessionRecord = preparedOperation.metadata.thresholdSessionRecord;
   const signingLane = preparedOperation.lane;
-  const transactionLane = preparedOperation.metadata.transactionLane;
+  const transactionLane = transactionOperation.lane;
   const identity = preparedOperation.metadata.identity;
 
   const { signingAuthPlan, emailOtpSigning, budgetIdentity } = await resolveNearTransactionWalletAuth({
@@ -1442,14 +1454,16 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     onEvent: args.input.onEvent,
     usesNeeded: 1,
   });
-  const budgetAdmittedOperation = budgetIdentity
-    ? admitTransactionBudget(preparedOperation.metadata.transactionOperation, {
+  const budgetAdmittedOperation = preparedTransaction.budgetAdmittedOperation ||
+    (budgetIdentity
+      ? admitTransactionBudget(transactionOperation, {
         budgetIdentity,
       })
-    : undefined;
-  const budgetAdmittedState = budgetAdmittedOperation
-    ? recordTransactionBudgetAdmission(budgetAdmittedOperation)
-    : undefined;
+      : undefined);
+  const budgetAdmittedState = preparedTransaction.budgetAdmittedState ||
+    (budgetAdmittedOperation
+      ? recordTransactionBudgetAdmission(budgetAdmittedOperation)
+      : undefined);
   return {
     thresholdSessionRecord,
     signingAuthPlan,
@@ -1462,7 +1476,7 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     }),
     snapshotGeneration: preparedOperation.snapshotGeneration,
     preparedOperation,
-    transactionOperation: preparedOperation.metadata.transactionOperation,
+    transactionOperation,
     ...(budgetAdmittedOperation
       ? {
           budgetAdmittedOperation,

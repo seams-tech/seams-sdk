@@ -1,4 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type {
   ConcreteSigningSessionSnapshotLane,
   SigningSessionSnapshot,
@@ -12,6 +13,10 @@ import {
 import {
   SigningSessionIds,
   type SigningAuthMethod,
+  type SigningChainFamily,
+  type SigningCurve,
+  type SigningLaneContext,
+  type SigningOperationContext,
   type SigningOperationId,
   type SelectedSigningLaneContext,
   type ThresholdEcdsaSessionId,
@@ -19,6 +24,14 @@ import {
   type WalletSigningSessionId,
 } from './types';
 import type { SigningSessionPreparedBudgetIdentity } from './budget';
+import type { SigningPlannerDecisionTraceEvent } from './planner';
+import {
+  prepareThresholdSigningOperation,
+  type PreparedThresholdSigningOperation,
+  type ThresholdSigningLifecycleAdapter,
+  type ThresholdSigningOperationCoordinator,
+  type ThresholdSigningReadinessInput,
+} from './preparedOperation';
 import {
   buildEvmTransactionSigningLane,
   buildNearTransactionSigningLane,
@@ -85,10 +98,65 @@ export type BudgetAdmittedOperation<TLane extends TransactionLane = TransactionL
     budgetAdmission: TransactionBudgetAdmission;
   };
 
-export type SignedTransactionOperation<TLane extends TransactionLane = TransactionLane> =
+export type SignedTransactionOperation<
+  TLane extends TransactionLane = TransactionLane,
+  TResult = unknown,
+> =
   BudgetAdmittedOperation<TLane> & {
-    result: unknown;
+    result: TResult;
   };
+
+export type TransactionSigningExecutor<TLane extends TransactionLane, TPayload, TResult> = {
+  sign(operation: BudgetAdmittedOperation<TLane>, payload: TPayload): Promise<TResult>;
+};
+
+export type SignedTransactionFinalizer<TLane extends TransactionLane, TResult> = {
+  recordSuccess?: (
+    operation: SignedTransactionOperation<TLane, TResult>,
+  ) => Promise<void> | void;
+  cleanup?: (operation: SignedTransactionOperation<TLane, TResult>) => Promise<void> | void;
+};
+
+export type TransactionSigningLifecycleAdapter<
+  TLane extends TransactionLane,
+  TSigningLane extends SigningLaneContext,
+  TMetadata extends object = Record<string, never>,
+> = {
+  prepare(input: {
+    intent: TransactionSigningIntent;
+    operation?: SigningOperationContext;
+  }): Promise<{
+    lane: TSigningLane;
+    transactionLane: TLane;
+    transactionIntent?: TransactionSigningIntent;
+    readiness: ThresholdSigningReadinessInput;
+    snapshotGeneration?: number;
+    forceFreshAuth?: boolean;
+    metadata?: TMetadata;
+  }>;
+};
+
+export type TransactionPreparedThresholdMetadata<
+  TLane extends TransactionLane,
+  TMetadata extends object = Record<string, never>,
+> = TMetadata & {
+  transactionLane: TLane;
+  transactionOperation: PreparedTransactionOperation<TLane>;
+};
+
+export type PreparedTransactionSigningOperation<
+  TLane extends TransactionLane,
+  TSigningLane extends SigningLaneContext,
+  TMetadata extends object = Record<string, never>,
+> = {
+  thresholdOperation: PreparedThresholdSigningOperation<
+    TSigningLane,
+    TransactionPreparedThresholdMetadata<TLane, TMetadata>
+  >;
+  transactionOperation: PreparedTransactionOperation<TLane>;
+  budgetAdmittedOperation?: BudgetAdmittedOperation<TLane>;
+  budgetAdmittedState?: TransactionBudgetAdmittedState<TLane>;
+};
 
 export type TransactionLaneSelectionFailure =
   | { kind: 'unsupported_intent'; curve: string; chain: string }
@@ -587,6 +655,165 @@ export function recordTransactionSigned<TLane extends TransactionLane>(
     ...operation,
     result,
   };
+}
+
+export async function signPreparedTransactionOperation<
+  TLane extends TransactionLane,
+  TPayload,
+  TResult,
+>(
+  operation: BudgetAdmittedOperation<TLane>,
+  payload: TPayload,
+  executor: TransactionSigningExecutor<TLane, TPayload, TResult>,
+): Promise<SignedTransactionOperation<TLane, TResult>> {
+  return recordTransactionSigned(
+    operation,
+    await executor.sign(operation, payload),
+  ) as SignedTransactionOperation<TLane, TResult>;
+}
+
+export async function finalizeSignedTransactionOperation<
+  TLane extends TransactionLane,
+  TResult,
+>(
+  operation: SignedTransactionOperation<TLane, TResult>,
+  finalizer: SignedTransactionFinalizer<TLane, TResult>,
+): Promise<void> {
+  if (
+    typeof finalizer.recordSuccess !== 'function' &&
+    typeof finalizer.cleanup !== 'function'
+  ) {
+    throw new Error('[SigningSession] signed transaction finalization requires a real finalizer');
+  }
+  await finalizer.recordSuccess?.(operation);
+  await finalizer.cleanup?.(operation);
+}
+
+export async function prepareTransactionSigningOperation<
+  TLane extends TransactionLane,
+  TSigningLane extends SigningLaneContext,
+  TMetadata extends object = Record<string, never>,
+>(args: {
+  intent: TransactionSigningIntent;
+  lifecycleAdapter: TransactionSigningLifecycleAdapter<TLane, TSigningLane, TMetadata>;
+  coordinator: ThresholdSigningOperationCoordinator;
+  operation?: SigningOperationContext;
+  forceFreshAuth?: boolean;
+  sensitiveOperationPolicy?: SensitiveOperationPolicy | null;
+  missingWhenExpiresAtMissing?: boolean;
+  prepareBudgetIdentity?: boolean;
+  onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
+}): Promise<PreparedTransactionSigningOperation<TLane, TSigningLane, TMetadata>> {
+  let transactionLane: TLane | null = null;
+  let transactionIntent: TransactionSigningIntent | null = null;
+  let transactionOperation: PreparedTransactionOperation<TLane> | null = null;
+
+  const thresholdLifecycleAdapter: ThresholdSigningLifecycleAdapter<
+    TSigningLane,
+    TransactionPreparedThresholdMetadata<TLane, TMetadata>
+  > = {
+    prepare: async (input) => {
+      const lifecycle = await args.lifecycleAdapter.prepare({
+        intent: args.intent,
+        ...(input.operation ? { operation: input.operation } : {}),
+      });
+      transactionLane = lifecycle.transactionLane;
+      transactionIntent = lifecycle.transactionIntent || args.intent;
+      return {
+        lane: lifecycle.lane,
+        readiness: lifecycle.readiness,
+        snapshotGeneration: lifecycle.snapshotGeneration,
+        forceFreshAuth: lifecycle.forceFreshAuth,
+        metadata: {
+          ...(lifecycle.metadata || ({} as TMetadata)),
+          transactionLane: lifecycle.transactionLane,
+          // Filled after the threshold planner has normalized readiness below.
+          transactionOperation: null as unknown as PreparedTransactionOperation<TLane>,
+        },
+      };
+    },
+  };
+
+  const thresholdOperation = await prepareThresholdSigningOperation({
+    intent: thresholdIntentFromTransactionIntent(args.intent),
+    lifecycleAdapter: thresholdLifecycleAdapter,
+    coordinator: args.coordinator,
+    ...(args.operation ? { operation: args.operation } : {}),
+    forceFreshAuth: args.forceFreshAuth,
+    sensitiveOperationPolicy: args.sensitiveOperationPolicy,
+    missingWhenExpiresAtMissing: args.missingWhenExpiresAtMissing,
+    prepareBudgetIdentity: args.prepareBudgetIdentity,
+    onPlannerTrace: args.onPlannerTrace,
+  });
+
+  if (!transactionLane) {
+    throw new Error('[SigningSession] transaction prepare did not return a transaction lane');
+  }
+  transactionOperation = {
+    intent: transactionIntent || args.intent,
+    lane: transactionLane,
+    readiness: transactionReadinessFromThresholdOperation(thresholdOperation),
+  };
+  thresholdOperation.metadata.transactionOperation = transactionOperation;
+
+  const budgetAdmittedOperation = thresholdOperation.budgetIdentity
+    ? admitTransactionBudget(transactionOperation, {
+        budgetIdentity: thresholdOperation.budgetIdentity,
+      })
+    : undefined;
+
+  return {
+    thresholdOperation,
+    transactionOperation,
+    ...(budgetAdmittedOperation
+      ? {
+          budgetAdmittedOperation,
+          budgetAdmittedState: recordTransactionBudgetAdmission(budgetAdmittedOperation),
+        }
+      : {}),
+  };
+}
+
+function thresholdIntentFromTransactionIntent(intent: TransactionSigningIntent): {
+  kind: 'transaction_sign';
+  chain: SigningChainFamily;
+  curve: SigningCurve;
+  walletId: string;
+  reason: 'transaction';
+} {
+  return {
+    kind: 'transaction_sign',
+    chain: intent.chain,
+    curve: intent.curve,
+    walletId: String(intent.walletId),
+    reason: 'transaction',
+  };
+}
+
+export function transactionReadinessFromThresholdOperation(
+  operation: PreparedThresholdSigningOperation<SigningLaneContext, object>,
+): TransactionReadiness {
+  const status = operation.readiness.status;
+  if (status === 'ready') {
+    return {
+      status: 'ready',
+      remainingUses: Math.max(0, Math.floor(Number(operation.remainingUses) || 0)),
+      expiresAtMs: Math.max(0, Math.floor(Number(operation.expiresAtMs) || 0)),
+    };
+  }
+  if (status === 'missing_session') return { status: 'missing_hot_material' };
+  if (status === 'expired') return { status: 'expired' };
+  if (status === 'exhausted') return { status: 'exhausted' };
+  if (status === 'auth_unavailable') {
+    return { status: 'auth_unavailable', reason: 'auth_unavailable' };
+  }
+  if (status === 'status_unavailable') {
+    return { status: 'status_unavailable', reason: 'status_unavailable' };
+  }
+  if (status === 'budget_unknown') {
+    return { status: 'budget_unknown', reason: 'budget_unknown' };
+  }
+  return { status: 'policy_blocked', reason: status };
 }
 
 export function selectedSigningLaneContextFromTransactionLane(

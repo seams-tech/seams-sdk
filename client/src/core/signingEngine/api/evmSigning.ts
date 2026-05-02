@@ -72,8 +72,14 @@ import { executeEvmFamilyTransactionSigning } from './evmFamily/transactionExecu
 import {
   executePreparedThresholdSigning,
   finalizePreparedThresholdSigning,
-  prepareThresholdSigningOperation,
 } from '../session/signingSession/preparedOperation';
+import {
+  admitTransactionBudget,
+  prepareTransactionSigningOperation,
+  recordTransactionBudgetAdmission,
+  replacePreparedTransactionLane,
+  type EvmFamilyEcdsaTransactionLane,
+} from '../session/signingSession/transactionState';
 import { completeEvmFamilyEmailOtpSigningRefresh } from './evmFamily/emailOtpRefresh';
 import { createEvmFamilySigningFlowRuntime } from './evmFamily/signingFlowRuntime';
 import { maybeRetryEvmFamilyWithFreshEmailOtpAuth } from './evmFamily/freshEmailOtpRetry';
@@ -93,6 +99,16 @@ export type {
   EvmFamilyNonceLaneStatus,
   EvmFamilyReconcileLaneArgs,
 } from './evmFamily/types';
+
+function ecdsaTransactionReadinessFromBudgetIdentity(
+  budgetIdentity: NonNullable<PreparedEvmFamilyEcdsaSigningSession['budgetIdentity']>,
+) {
+  return {
+    status: 'ready' as const,
+    remainingUses: Math.max(0, Math.floor(Number(budgetIdentity.status.remainingUses) || 0)),
+    expiresAtMs: Math.max(0, Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0)),
+  };
+}
 
 export {
   reconcileEvmFamilyNonceLane,
@@ -419,13 +435,21 @@ async function signEvmFamilyAttempt(
           `[SigningEngine][ecdsa] reauth lane auth method ${resolvedLane.authMethod} did not match ${argsForRefresh.authMethod}`,
         );
       }
-      const preparedOperation = await prepareThresholdSigningOperation({
+      const transactionLane: EvmFamilyEcdsaTransactionLane = {
+        accountId: resolvedLane.accountId,
+        authMethod: resolvedLane.authMethod,
+        curve: 'ecdsa',
+        chain: args.request.chain,
+        walletSigningSessionId: resolvedLane.walletSigningSessionId,
+        thresholdSessionId: resolvedLane.thresholdSessionId,
+      };
+      const preparedTransaction = await prepareTransactionSigningOperation({
         intent: {
-          kind: 'transaction_sign',
-          chain: args.request.chain,
-          curve: 'ecdsa',
           walletId: args.nearAccountId,
-          reason: 'transaction',
+          curve: 'ecdsa',
+          chain: args.request.chain,
+          authSelectionPolicy: { kind: 'explicit', authMethod: resolvedLane.authMethod },
+          operationUsesNeeded: 1,
         },
         coordinator: signingSessionCoordinator,
         missingWhenExpiresAtMissing: true,
@@ -433,6 +457,7 @@ async function signEvmFamilyAttempt(
         lifecycleAdapter: {
           prepare: async () => ({
             lane: resolvedLane,
+            transactionLane,
             readiness: {
               readiness: {
                 status: 'ready',
@@ -454,6 +479,7 @@ async function signEvmFamilyAttempt(
           }),
         },
       });
+      const preparedOperation = preparedTransaction.thresholdOperation;
       const prepared: PreparedEvmFamilyEcdsaSigningSession = {
         accountAuth: resolvedAccountAuth,
         authMethod: argsForRefresh.authMethod,
@@ -461,6 +487,13 @@ async function signEvmFamilyAttempt(
         snapshotGeneration: preparedOperation.snapshotGeneration,
         signingLane: preparedOperation.lane,
         preparedOperation,
+        transactionOperation: preparedTransaction.transactionOperation,
+        ...(preparedTransaction.budgetAdmittedOperation
+          ? { budgetAdmittedOperation: preparedTransaction.budgetAdmittedOperation }
+          : {}),
+        ...(preparedTransaction.budgetAdmittedState
+          ? { budgetAdmittedState: preparedTransaction.budgetAdmittedState }
+          : {}),
         ...(preparedOperation.budgetIdentity
           ? {
               budgetIdentity: preparedOperation.budgetIdentity,
@@ -520,14 +553,24 @@ async function signEvmFamilyAttempt(
       }
       const budgetIdentity = await signingSessionCoordinator.prepareBudgetIdentity({
         nearAccountId: args.nearAccountId,
-        lane: prepared.signingLane,
+        lane: prepared.transactionOperation.lane,
         operationUsesNeeded: 1,
+      });
+      const transactionOperation = replacePreparedTransactionLane(prepared.transactionOperation, {
+        lane: prepared.transactionOperation.lane,
+        readiness: ecdsaTransactionReadinessFromBudgetIdentity(budgetIdentity),
+      });
+      const budgetAdmittedOperation = admitTransactionBudget(transactionOperation, {
+        budgetIdentity,
       });
       const updatedPrepared = {
         ...prepared,
         budgetIdentity,
         budgetProjectionVersion: budgetIdentity.projectionVersion,
         budgetIdentityThresholdSessionId: String(prepared.signingLane.thresholdSessionId),
+        transactionOperation,
+        budgetAdmittedOperation,
+        budgetAdmittedState: recordTransactionBudgetAdmission(budgetAdmittedOperation),
       };
       assertPreparedEcdsaOperationLane(updatedPrepared, 'budget identity preparation');
       if (preparedEcdsaSigningSession?.preparedOperation === prepared.preparedOperation) {
