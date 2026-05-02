@@ -5,6 +5,7 @@ const IMPORT_PATHS = {
   tempoSigningApi: '/sdk/esm/core/signingEngine/api/tempoSigning.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.js',
+  sealedSessionStore: '/sdk/esm/core/signingEngine/session/sealedSessionStore.js',
   signingSessionCoordinator: '/sdk/esm/core/signingEngine/session/SigningSessionCoordinator.js',
   signEvmWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/evm/evmSigningFlow.js',
   signTempoWithTouchConfirm: '/sdk/esm/core/signingEngine/orchestration/tempo/tempoSigningFlow.js',
@@ -3080,6 +3081,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         async ({ paths, chain }) => {
           const { signTempo } = await import(paths.tempoSigningApi);
           const store = await import(paths.thresholdSessionStore);
+          const { listResolvedIdentitiesForAccount } = await import(paths.sealedSessionStore);
           const { SigningSessionCoordinator } = await import(paths.signingSessionCoordinator);
           const accountId = `otp-${chain}-two-tx.testnet`;
           const now = Date.now();
@@ -3492,6 +3494,10 @@ test.describe('tempo signing auth-mode resolution', () => {
             spendCalls,
             markConsumedCalls,
             signedKeyRefs: (globalThis as any).__seamsStubSignedKeyRefs || [],
+            ed25519ResolvedIdentities: listResolvedIdentitiesForAccount({
+              walletId: accountId,
+              curve: 'ed25519',
+            }),
           };
         },
         { paths: IMPORT_PATHS, chain },
@@ -3531,6 +3537,7 @@ test.describe('tempo signing auth-mode resolution', () => {
         `email-${chain}-fresh-session-1`,
         `email-${chain}-fresh-session-2`,
       ]);
+      expect(result.ed25519ResolvedIdentities).toEqual([]);
     });
   }
 

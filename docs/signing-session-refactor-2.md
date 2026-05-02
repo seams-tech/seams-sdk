@@ -581,7 +581,7 @@ Add failing tests before moving code:
    succeeds.
 3. [x] Passkey Ed25519 step-up mints one operation use and does not fail post-sign
    budget finalization.
-4. [ ] OTP ECDSA step-up does not publish a current Ed25519 transaction lane.
+4. [x] OTP ECDSA step-up does not publish a current Ed25519 transaction lane.
 5. [x] OTP account with passkey durable state never shows passkey for NEAR Ed25519.
 6. [x] Passkey account with OTP durable state never shows OTP for NEAR Ed25519.
 7. [ ] Refresh with durable sealed state and valid server budget signs without auth.
