@@ -628,6 +628,8 @@ Acceptance:
 3. [ ] Move ECDSA selection into this selector.
    - [x] EVM-family ECDSA snapshot candidate selection now uses the shared
      transaction selector.
+   - [x] EVM-family ECDSA runtime material lookup is anchored to the selected
+     exact snapshot candidate when one exists.
    - [ ] EVM-family runtime lane selection still needs to move out of the
      curve-specific selection helper.
 4. [ ] Remove selection from lower transaction flows.

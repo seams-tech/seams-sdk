@@ -199,9 +199,12 @@ test.describe('Email OTP operation split guard', () => {
     expect(ecdsaSelection).toContain('source: SIGNER_AUTH_METHODS.emailOtp');
     expect(ecdsaSelection).toContain('PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY');
     expect(ecdsaSelection).toContain('listPasskeyEcdsaSigningCandidates');
+    expect(ecdsaSelection).toContain('snapshotCandidate?: EvmFamilyEcdsaConcreteSnapshotLane');
+    expect(ecdsaSelection).toContain('ecdsaMaterialMatchesSnapshotCandidate');
+    expect(ecdsaSelection).toContain('requireExactEcdsaCandidateMaterial');
     expect(ecdsaSelection).toContain('source,');
     expect(ecdsaSelection).toContain(
-      "const passkeySource = passkeyCandidate?.source || 'manual-bootstrap'",
+      "const passkeySource = selectedPasskeyCandidate?.source || 'manual-bootstrap'",
     );
     expect(emailOtpCoordinator).toContain("chain: candidateChain,\n          source: 'email_otp'");
     expect(warmSessionStatusReader).toContain(

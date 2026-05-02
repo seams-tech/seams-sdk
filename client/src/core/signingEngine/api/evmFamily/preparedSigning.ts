@@ -270,6 +270,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             chain: args.chain,
             senderSignatureAlgorithm: 'secp256k1',
             authMethod,
+            ...(snapshotCandidate ? { snapshotCandidate } : {}),
           }));
         const snapshot = await args.deps.readSigningSessionSnapshotForSigning({
           walletId: args.nearAccountId,
