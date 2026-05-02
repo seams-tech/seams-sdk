@@ -1177,10 +1177,17 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(evmSigningBody).not.toContain('restorePersistedSessionForSigning(');
     for (const lowerFlow of [evmSigningFlow, tempoSigningFlow]) {
       expect(lowerFlow).toContain("args.request.senderSignatureAlgorithm === 'secp256k1'");
-      expect(lowerFlow).toContain('threshold ECDSA transaction signing requires a prepared signing auth plan');
-      expect(lowerFlow).toContain('if (hasThresholdEcdsaRequest && !args.signingAuthPlan)');
+      expect(lowerFlow).toContain('BudgetAdmittedTransactionOperation');
+      expect(lowerFlow).toContain('thresholdEcdsaOperation?:');
+      expect(lowerFlow).toContain(
+        'threshold ECDSA transaction signing requires a budget-admitted operation',
+      );
+      expect(lowerFlow).toContain('if (hasThresholdEcdsaRequest && !args.thresholdEcdsaOperation)');
+      expect(lowerFlow).not.toContain('signingAuthPlan?: SigningAuthPlan');
       expect(lowerFlow).not.toContain('needsWebAuthn: !args.signingAuthPlan && !emailOtpPrompt');
     }
+    expect(evmSigningFlow).not.toContain('args.signingAuthPlan');
+    expect(tempoSigningFlow).not.toContain('args.signingAuthPlan');
     expect(evmPreparedSigning).toContain('prepareTransactionSigningOperation');
     expect(evmPreparedSigning).toContain('lifecycleAdapter');
     expect(evmPreparedSigning).toContain('selectTransactionLane');

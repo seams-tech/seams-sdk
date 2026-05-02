@@ -18,6 +18,16 @@ import {
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { SigningSessionBudgetReservation } from '../../session/signingSession/budget';
+import type {
+  BudgetAdmittedOperation,
+  BudgetAdmittedTransactionOperation,
+  EvmFamilyEcdsaTransactionLane,
+} from '../../session/signingSession/transactionState';
+
+type EvmThresholdEcdsaOperation = BudgetAdmittedTransactionOperation<
+  EvmFamilyEcdsaTransactionLane,
+  SigningAuthPlan
+>;
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
@@ -87,19 +97,22 @@ export async function signEvmWithTouchConfirm(args: {
   }>;
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void | Promise<void>;
   onConfirmationDisplayed?: () => void;
-  reserveWalletSigningSessionBudget?: () => Promise<SigningSessionBudgetReservation | null>;
+  thresholdEcdsaOperation?: EvmThresholdEcdsaOperation;
+  reserveWalletSigningSessionBudget?: (
+    operation: BudgetAdmittedOperation<EvmFamilyEcdsaTransactionLane>,
+  ) => Promise<SigningSessionBudgetReservation | null>;
   emailOtpSigning?: {
     prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
     complete: (otpCode: string, challengeId?: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   };
-  signingAuthPlan?: SigningAuthPlan;
   onAuthSideEffectStarted?: (sideEffect: EvmSigningAuthSideEffect) => void;
 }): Promise<EvmSignedResult> {
   const sessionId = makeRequestId('intent');
   const flowId = `signing:evm:${args.nearAccountId}:${sessionId}`;
+  const signingAuthPlan = args.thresholdEcdsaOperation?.authPlan;
   const authMethod = resolveTouchConfirmSigningAuthMethod(
-    args.signingAuthPlan,
+    signingAuthPlan,
     !!args.emailOtpSigning,
   );
   const emitProgress = (
@@ -158,7 +171,13 @@ export async function signEvmWithTouchConfirm(args: {
   const reserveWalletSigningBudgetOnce = async (): Promise<void> => {
     if (walletBudgetReservationAttempted) return;
     walletBudgetReservationAttempted = true;
-    walletBudgetReservation = (await args.reserveWalletSigningSessionBudget?.()) || null;
+    if (!args.thresholdEcdsaOperation) {
+      throw new Error(
+        '[chains] threshold ECDSA transaction signing requires a budget-admitted operation',
+      );
+    }
+    walletBudgetReservation =
+      (await args.reserveWalletSigningSessionBudget?.(args.thresholdEcdsaOperation)) || null;
   };
   const releaseWalletBudgetReservation = (): void => {
     if (!walletBudgetReservation) return;
@@ -247,14 +266,14 @@ export async function signEvmWithTouchConfirm(args: {
         }
       : undefined;
     const hasThresholdEcdsaRequest = args.request.senderSignatureAlgorithm === 'secp256k1';
-    if (hasThresholdEcdsaRequest && !args.signingAuthPlan) {
+    if (hasThresholdEcdsaRequest && !args.thresholdEcdsaOperation) {
       throw new Error(
-        '[chains] threshold ECDSA transaction signing requires a prepared signing auth plan',
+        '[chains] threshold ECDSA transaction signing requires a budget-admitted operation',
       );
     }
     const { touchConfirmAuthPayload } = await resolveTouchConfirmSigningAuth({
-      needsWebAuthn: !hasThresholdEcdsaRequest && !args.signingAuthPlan && !emailOtpPrompt,
-      ...(args.signingAuthPlan ? { signingAuthPlan: args.signingAuthPlan } : {}),
+      needsWebAuthn: !hasThresholdEcdsaRequest && !emailOtpPrompt,
+      ...(signingAuthPlan ? { signingAuthPlan } : {}),
       ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
     });
     const usesNeeded = 1;
@@ -375,7 +394,7 @@ export async function signEvmWithTouchConfirm(args: {
     if (hasSecp256k1Request && args.ensureThresholdEcdsaKeyRefReady) {
       await ensureThresholdKeyRef();
     }
-    if (!args.emailOtpSigning) {
+    if (hasSecp256k1Request && !args.emailOtpSigning) {
       await reserveWalletSigningBudgetOnce();
     }
 

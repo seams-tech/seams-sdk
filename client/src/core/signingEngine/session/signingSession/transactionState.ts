@@ -98,6 +98,13 @@ export type BudgetAdmittedOperation<TLane extends TransactionLane = TransactionL
     budgetAdmission: TransactionBudgetAdmission;
   };
 
+export type BudgetAdmittedTransactionOperation<
+  TLane extends TransactionLane = TransactionLane,
+  TAuthPlan = unknown,
+> = BudgetAdmittedOperation<TLane> & {
+  authPlan: TAuthPlan;
+};
+
 export type SignedTransactionOperation<
   TLane extends TransactionLane = TransactionLane,
   TResult = unknown,

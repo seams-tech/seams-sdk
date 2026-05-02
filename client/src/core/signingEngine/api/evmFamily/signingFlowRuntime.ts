@@ -1,5 +1,4 @@
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
-import type { SigningAuthPlan } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import { assertThresholdSigningSessionReady } from '../../orchestration/shared/thresholdSigningSessionReadiness';
 import {
@@ -152,7 +151,6 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   nearAccountId: string;
   request: TempoSigningRequest | EvmSigningRequest;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
-  signingAuthPlan?: SigningAuthPlan;
   signingSessionPlan?: SigningSessionPlan;
   emailOtpSigningForFlow?: EvmFamilyEmailOtpSigningForFlow;
   confirmationConfigOverride?: unknown;
@@ -361,7 +359,6 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       ? { keyRefsByAlgorithm: { secp256k1: args.getThresholdEcdsaKeyRef() } }
       : {}),
     ...(emailOtpSigningForFlow ? { emailOtpSigning: emailOtpSigningForFlow } : {}),
-    signingAuthPlan: args.signingAuthPlan,
     confirmationConfigOverride: args.confirmationConfigOverride,
     ...(args.senderSignatureAlgorithm === 'secp256k1'
       ? {

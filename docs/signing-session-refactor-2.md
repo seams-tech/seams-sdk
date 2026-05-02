@@ -642,8 +642,8 @@ Acceptance:
      falling back to curve-specific runtime lane discovery.
 4. [x] Remove selection from lower transaction flows.
    - [x] EVM/Tempo lower signing flows now hard-fail threshold ECDSA
-     execution without a prepared signing auth plan instead of defaulting to
-     passkey/WebAuthn selection.
+     execution without a budget-admitted transaction operation instead of
+     defaulting to passkey/WebAuthn selection.
    - [x] NEAR Ed25519 lower signing flow receives the prepared auth plan and
      no longer selects lanes or plans threshold auth itself.
 5. [x] Delete `candidates[0]` fallback after runtime mismatch.
@@ -708,12 +708,20 @@ Acceptance:
    - [x] NEAR Ed25519 worker requests now require `BudgetAdmittedOperation`.
    - [x] NEAR Ed25519 signing now uses the shared
      `signPreparedTransactionOperation(...)` helper.
+   - [x] EVM/Tempo lower threshold ECDSA flows receive a
+     `BudgetAdmittedTransactionOperation` carrying both the admitted lane and
+     auth plan before they can reserve budget or show confirmation.
 8. [ ] `finalize(...)` accepts only `SignedTransactionOperation`.
    - [x] NEAR Ed25519 success finalization now records a
      `SignedTransactionOperation` from the admitted worker state.
    - [x] NEAR Ed25519 success finalization now uses the shared
      `finalizeSignedTransactionOperation(...)` helper.
-9. [ ] NEAR/EVM/Tempo transaction flows receive state-machine operation types only.
+9. [x] NEAR/EVM/Tempo transaction flows receive state-machine operation types only.
+   - [x] NEAR Ed25519 lower signing receives `PreparedTransactionOperation`
+     and `BudgetAdmittedOperation`.
+   - [x] EVM/Tempo lower threshold ECDSA signing receives
+     `BudgetAdmittedTransactionOperation` instead of loose `signingAuthPlan`
+     plus unscoped budget reservation callbacks.
 10. [x] NEAR Ed25519 lower flow no longer plans auth, selects lanes, or restores sessions.
 11. [x] Lower flows no longer discover
    budget identity.

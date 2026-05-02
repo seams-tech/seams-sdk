@@ -78,6 +78,7 @@ import {
   prepareTransactionSigningOperation,
   recordTransactionBudgetAdmission,
   replacePreparedTransactionLane,
+  type BudgetAdmittedOperation,
   type EvmFamilyEcdsaTransactionLane,
 } from '../session/signingSession/transactionState';
 import { completeEvmFamilyEmailOtpSigningRefresh } from './evmFamily/emailOtpRefresh';
@@ -664,7 +665,6 @@ async function signEvmFamilyAttempt(
     nearAccountId: args.nearAccountId,
     request: args.request,
     senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
-    signingAuthPlan,
     ...(signingSessionPlan ? { signingSessionPlan } : {}),
     ...(emailOtpSigningForFlow ? { emailOtpSigningForFlow } : {}),
     confirmationConfigOverride: args.confirmationConfigOverride,
@@ -760,9 +760,21 @@ async function signEvmFamilyAttempt(
     });
   };
   const reserveWalletSigningSessionBudget =
-    async (): Promise<SigningSessionBudgetReservation | null> => {
+    async (
+      operation: BudgetAdmittedOperation<EvmFamilyEcdsaTransactionLane>,
+    ): Promise<SigningSessionBudgetReservation | null> => {
       if (args.request.senderSignatureAlgorithm !== 'secp256k1') return null;
       const prepared = await ensurePreparedEcdsaBudgetIdentity();
+      if (
+        String(operation.lane.walletSigningSessionId) !==
+          String(prepared.transactionOperation.lane.walletSigningSessionId) ||
+        String(operation.lane.thresholdSessionId) !==
+          String(prepared.transactionOperation.lane.thresholdSessionId)
+      ) {
+        throw new Error(
+          '[SigningEngine][ecdsa] budget reservation operation does not match prepared transaction lane',
+        );
+      }
       return await reserveEvmFamilyWalletSigningSessionBudget({
         signingSessionCoordinator,
         nearAccountId: args.nearAccountId,
@@ -819,6 +831,12 @@ async function signEvmFamilyAttempt(
       : {}),
   };
   const preparedExecutorSession = getPreparedEcdsaSigningSessionIfEcdsa();
+  const thresholdEcdsaOperation = preparedExecutorSession?.budgetAdmittedOperation
+    ? {
+        ...preparedExecutorSession.budgetAdmittedOperation,
+        authPlan: signingAuthPlan,
+      }
+    : undefined;
 
   const executePayload = {
     deps,
@@ -827,6 +845,7 @@ async function signEvmFamilyAttempt(
     flowArgs,
     nonceOperation,
     onConfirmationDisplayed: markConfirmationDisplayed,
+    ...(thresholdEcdsaOperation ? { thresholdEcdsaOperation } : {}),
     reserveWalletSigningSessionBudget,
     recordSuccessfulWalletSigningSessionSpend,
     recordFailedWalletSigningSessionSpend,

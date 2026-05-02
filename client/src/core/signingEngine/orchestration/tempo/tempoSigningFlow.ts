@@ -18,6 +18,11 @@ import {
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { SigningSessionBudgetReservation } from '../../session/signingSession/budget';
+import type {
+  BudgetAdmittedOperation,
+  BudgetAdmittedTransactionOperation,
+  EvmFamilyEcdsaTransactionLane,
+} from '../../session/signingSession/transactionState';
 import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -52,6 +57,10 @@ import {
 } from '../shared/touchConfirmSigning';
 
 type TempoSigningAuthSideEffect = 'passkey_reauth' | 'threshold_reconnect';
+type TempoThresholdEcdsaOperation = BudgetAdmittedTransactionOperation<
+  EvmFamilyEcdsaTransactionLane,
+  SigningAuthPlan
+>;
 type TempoPasskeyEcdsaReconnect = {
   prepare: (args: { usesNeeded: number }) => Promise<{
     sessionId: string;
@@ -86,19 +95,22 @@ export async function signTempoWithTouchConfirm(args: {
   }>;
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void | Promise<void>;
   onConfirmationDisplayed?: () => void;
-  reserveWalletSigningSessionBudget?: () => Promise<SigningSessionBudgetReservation | null>;
+  thresholdEcdsaOperation?: TempoThresholdEcdsaOperation;
+  reserveWalletSigningSessionBudget?: (
+    operation: BudgetAdmittedOperation<EvmFamilyEcdsaTransactionLane>,
+  ) => Promise<SigningSessionBudgetReservation | null>;
   emailOtpSigning?: {
     prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
     complete: (otpCode: string, challengeId?: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
   };
-  signingAuthPlan?: SigningAuthPlan;
   onAuthSideEffectStarted?: (sideEffect: TempoSigningAuthSideEffect) => void;
 }): Promise<TempoSignedResult> {
   const sessionId = makeRequestId('intent');
   const flowId = `signing:tempo:${args.nearAccountId}:${sessionId}`;
+  const signingAuthPlan = args.thresholdEcdsaOperation?.authPlan;
   const authMethod = resolveTouchConfirmSigningAuthMethod(
-    args.signingAuthPlan,
+    signingAuthPlan,
     !!args.emailOtpSigning,
   );
   const emitProgress = (
@@ -158,7 +170,13 @@ export async function signTempoWithTouchConfirm(args: {
   const reserveWalletSigningBudgetOnce = async (): Promise<void> => {
     if (walletBudgetReservationAttempted) return;
     walletBudgetReservationAttempted = true;
-    walletBudgetReservation = (await args.reserveWalletSigningSessionBudget?.()) || null;
+    if (!args.thresholdEcdsaOperation) {
+      throw new Error(
+        '[chains] threshold ECDSA transaction signing requires a budget-admitted operation',
+      );
+    }
+    walletBudgetReservation =
+      (await args.reserveWalletSigningSessionBudget?.(args.thresholdEcdsaOperation)) || null;
   };
   const releaseWalletBudgetReservation = (): void => {
     if (!walletBudgetReservation) return;
@@ -251,15 +269,15 @@ export async function signTempoWithTouchConfirm(args: {
         }
       : undefined;
     const hasThresholdEcdsaRequest = args.request.senderSignatureAlgorithm === 'secp256k1';
-    if (hasThresholdEcdsaRequest && !args.signingAuthPlan) {
+    if (hasThresholdEcdsaRequest && !args.thresholdEcdsaOperation) {
       throw new Error(
-        '[chains] threshold ECDSA transaction signing requires a prepared signing auth plan',
+        '[chains] threshold ECDSA transaction signing requires a budget-admitted operation',
       );
     }
     const { touchConfirmAuthPayload } = await resolveTouchConfirmSigningAuth({
       needsWebAuthn:
-        !hasThresholdEcdsaRequest && (needsWebAuthn || (!args.signingAuthPlan && !emailOtpPrompt)),
-      ...(args.signingAuthPlan ? { signingAuthPlan: args.signingAuthPlan } : {}),
+        !hasThresholdEcdsaRequest && (needsWebAuthn || !emailOtpPrompt),
+      ...(signingAuthPlan ? { signingAuthPlan } : {}),
       ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
     });
     const usesNeeded = 1;
@@ -380,7 +398,7 @@ export async function signTempoWithTouchConfirm(args: {
     if (hasSecp256k1Request && args.ensureThresholdEcdsaKeyRefReady) {
       await ensureThresholdKeyRef();
     }
-    if (!args.emailOtpSigning) {
+    if (hasSecp256k1Request && !args.emailOtpSigning) {
       await reserveWalletSigningBudgetOnce();
     }
 
