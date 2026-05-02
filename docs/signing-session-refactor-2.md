@@ -583,7 +583,7 @@ Add failing tests before moving code:
    budget finalization.
 4. [ ] OTP ECDSA step-up does not publish a current Ed25519 transaction lane.
 5. [x] OTP account with passkey durable state never shows passkey for NEAR Ed25519.
-6. [ ] Passkey account with OTP durable state never shows OTP for NEAR Ed25519.
+6. [x] Passkey account with OTP durable state never shows OTP for NEAR Ed25519.
 7. [ ] Refresh with durable sealed state and valid server budget signs without auth.
 8. [ ] Missing worker memory with valid durable state signs without auth.
 9. [ ] Missing worker memory with exhausted server budget shows same-method step-up.

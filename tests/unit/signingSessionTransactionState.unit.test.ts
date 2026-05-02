@@ -232,6 +232,27 @@ test.describe('transaction signing state selector', () => {
     });
   });
 
+  test('passkey Ed25519 intent does not select an OTP durable candidate', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ed25519.near = [
+      ed25519Candidate({
+        authMethod: 'email_otp',
+        thresholdSessionId: 'tsess-otp-only',
+        walletSigningSessionId: 'wss-otp-only',
+      }),
+    ];
+
+    const selection = selectTransactionLane({
+      intent: nearIntent('passkey'),
+      snapshot,
+    });
+
+    expect(selection).toEqual({
+      ok: false,
+      failure: { kind: 'no_candidate', authMethod: 'passkey' },
+    });
+  });
+
   test('selects a concrete EVM ECDSA candidate by account-class policy', () => {
     const snapshot = emptySnapshot();
     snapshot.candidates.ecdsa.evm = [
