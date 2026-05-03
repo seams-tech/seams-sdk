@@ -1,6 +1,5 @@
 import { BUILD_PATHS } from '@build-paths';
 
-// === CONFIGURATION ===
 export const SIGNER_WORKER_MANAGER_CONFIG = {
   TIMEOUTS: {
     DEFAULT: 60_000, // 60s default fallback for worker operations
@@ -23,7 +22,6 @@ export const SIGNER_WORKER_MANAGER_CONFIG = {
   },
 } as const;
 
-// === DEVICE LINKING CONFIGURATION ===
 export const DEVICE_LINKING_CONFIG = {
   TIMEOUTS: {
     QR_CODE_MAX_AGE_MS: 15 * 60 * 1000, // 15 minutes - QR code expiration

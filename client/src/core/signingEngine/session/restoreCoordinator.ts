@@ -22,14 +22,14 @@ type RestorePersistedSessionForSigningTransactionInput =
   RestorePersistedSessionForSigningBaseInput & {
     walletSigningSessionId: string;
     thresholdSessionId: string;
-    reason: 'transaction';
+    reason: 'transaction' | 'export';
   };
 
 type RestorePersistedSessionForSigningMaintenanceInput =
   RestorePersistedSessionForSigningBaseInput & {
     walletSigningSessionId?: string;
     thresholdSessionId?: string;
-    reason: 'export' | 'session_status';
+    reason: 'session_status';
   };
 
 export type RestorePersistedSessionForSigningInput =

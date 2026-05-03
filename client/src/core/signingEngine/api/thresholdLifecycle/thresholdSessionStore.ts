@@ -170,6 +170,8 @@ const inMemoryEcdsaRecordsByLane = new Map<string, ThresholdEcdsaSessionRecord>(
 const inMemoryEcdsaLaneBySessionId = new Map<string, string>();
 const inMemoryEd25519RecordsByAccount = new Map<string, ThresholdEd25519SessionRecord>();
 const inMemoryEd25519AccountBySessionId = new Map<string, string>();
+const inMemoryEd25519RecordsByLane = new Map<string, ThresholdEd25519SessionRecord>();
+const inMemoryEd25519LaneBySessionId = new Map<string, string>();
 
 function normalizeThresholdEcdsaCanonicalExportArtifact(
   value: unknown,
@@ -530,6 +532,16 @@ function rememberInMemoryThresholdEd25519Record(record: ThresholdEd25519SessionR
 
   inMemoryEd25519RecordsByAccount.set(accountKey, record);
   inMemoryEd25519AccountBySessionId.set(thresholdSessionId, accountKey);
+
+  const laneKey = getThresholdEd25519SessionLaneKeyForRecord(record);
+  if (!laneKey) return;
+  const previousLaneRecord = inMemoryEd25519RecordsByLane.get(laneKey);
+  const previousLaneSessionId = String(previousLaneRecord?.thresholdSessionId || '').trim();
+  if (previousLaneSessionId && previousLaneSessionId !== thresholdSessionId) {
+    inMemoryEd25519LaneBySessionId.delete(previousLaneSessionId);
+  }
+  inMemoryEd25519RecordsByLane.set(laneKey, record);
+  inMemoryEd25519LaneBySessionId.set(thresholdSessionId, laneKey);
 }
 
 function getInMemoryThresholdEd25519SessionRecordForAccount(
@@ -548,6 +560,18 @@ function getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(
 ): ThresholdEd25519SessionRecord | null {
   const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
   if (!thresholdSessionId) return null;
+
+  const indexedLaneKey = String(inMemoryEd25519LaneBySessionId.get(thresholdSessionId) || '').trim();
+  if (indexedLaneKey) {
+    const indexedLaneRecord = inMemoryEd25519RecordsByLane.get(indexedLaneKey) || null;
+    if (
+      indexedLaneRecord &&
+      String(indexedLaneRecord.thresholdSessionId || '').trim() === thresholdSessionId
+    ) {
+      return indexedLaneRecord;
+    }
+    inMemoryEd25519LaneBySessionId.delete(thresholdSessionId);
+  }
 
   const indexedAccountKey = String(
     inMemoryEd25519AccountBySessionId.get(thresholdSessionId) || '',
@@ -570,6 +594,77 @@ function getInMemoryThresholdEd25519SessionRecordByThresholdSessionId(
   }
 
   return null;
+}
+
+type ThresholdEd25519SessionAuthMethod = 'email_otp' | 'passkey';
+
+export type ThresholdEd25519SessionLane = {
+  nearAccountId: AccountId;
+  authMethod: ThresholdEd25519SessionAuthMethod;
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+};
+
+function thresholdEd25519AuthMethodForRecord(
+  record: ThresholdEd25519SessionRecord,
+): ThresholdEd25519SessionAuthMethod {
+  return record.source === 'email_otp' ? 'email_otp' : 'passkey';
+}
+
+export function serializeThresholdEd25519SessionLaneKey(args: {
+  nearAccountId: AccountId | string;
+  authMethod: ThresholdEd25519SessionAuthMethod;
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+}): string {
+  const nearAccountId = String(toAccountId(args.nearAccountId)).trim();
+  const authMethod = String(args.authMethod || '').trim();
+  const walletSigningSessionId = normalizeOptionalNonEmptyString(args.walletSigningSessionId);
+  const thresholdSessionId = normalizeOptionalNonEmptyString(args.thresholdSessionId);
+  if (
+    !nearAccountId ||
+    (authMethod !== 'email_otp' && authMethod !== 'passkey') ||
+    !walletSigningSessionId ||
+    !thresholdSessionId
+  ) {
+    throw new Error('[SigningEngine] invalid threshold Ed25519 lane key input');
+  }
+  return [
+    encodeLaneToken(nearAccountId),
+    encodeLaneToken(authMethod),
+    encodeLaneToken(walletSigningSessionId),
+    encodeLaneToken(thresholdSessionId),
+  ].join('|');
+}
+
+function getThresholdEd25519SessionLaneKeyForRecord(
+  record: ThresholdEd25519SessionRecord,
+): string | null {
+  const walletSigningSessionId = normalizeOptionalNonEmptyString(record.walletSigningSessionId);
+  const thresholdSessionId = normalizeOptionalNonEmptyString(record.thresholdSessionId);
+  if (!walletSigningSessionId || !thresholdSessionId) return null;
+  try {
+    return serializeThresholdEd25519SessionLaneKey({
+      nearAccountId: record.nearAccountId,
+      authMethod: thresholdEd25519AuthMethodForRecord(record),
+      walletSigningSessionId,
+      thresholdSessionId,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function thresholdEd25519RecordMatchesLane(
+  record: ThresholdEd25519SessionRecord,
+  lane: ThresholdEd25519SessionLane,
+): boolean {
+  return (
+    String(record.nearAccountId) === String(lane.nearAccountId) &&
+    thresholdEd25519AuthMethodForRecord(record) === lane.authMethod &&
+    String(record.walletSigningSessionId || '').trim() === lane.walletSigningSessionId &&
+    String(record.thresholdSessionId || '').trim() === lane.thresholdSessionId
+  );
 }
 
 function rememberInMemoryThresholdEcdsaRecord(record: ThresholdEcdsaSessionRecord): void {
@@ -1362,6 +1457,37 @@ export function getStoredThresholdEd25519SessionRecordForAccount(
   return null;
 }
 
+export function getStoredThresholdEd25519SessionRecordForLane(args: {
+  nearAccountId: AccountId | string;
+  authMethod: ThresholdEd25519SessionAuthMethod;
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+}): ThresholdEd25519SessionRecord | null {
+  let lane: ThresholdEd25519SessionLane;
+  let laneKey: string;
+  try {
+    lane = {
+      nearAccountId: toAccountId(args.nearAccountId),
+      authMethod: args.authMethod,
+      walletSigningSessionId: String(args.walletSigningSessionId || '').trim(),
+      thresholdSessionId: String(args.thresholdSessionId || '').trim(),
+    };
+    laneKey = serializeThresholdEd25519SessionLaneKey(lane);
+  } catch {
+    return null;
+  }
+  const record = inMemoryEd25519RecordsByLane.get(laneKey) || null;
+  if (record && thresholdEd25519RecordMatchesLane(record, lane)) return record;
+  if (record) {
+    inMemoryEd25519RecordsByLane.delete(laneKey);
+    const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+    if (thresholdSessionId && inMemoryEd25519LaneBySessionId.get(thresholdSessionId) === laneKey) {
+      inMemoryEd25519LaneBySessionId.delete(thresholdSessionId);
+    }
+  }
+  return null;
+}
+
 export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
   nearAccountId: AccountId | string;
   thresholdSessionId?: string;
@@ -1426,13 +1552,24 @@ export function clearStoredThresholdEd25519SessionRecordForAccount(
   }
   try {
     const nearAccountId = toAccountId(nearAccountIdRaw);
-    inMemoryEd25519RecordsByAccount.delete(String(nearAccountId));
+    const accountKey = String(nearAccountId);
+    inMemoryEd25519RecordsByAccount.delete(accountKey);
+    for (const [laneKey, record] of inMemoryEd25519RecordsByLane.entries()) {
+      if (String(record.nearAccountId || '').trim() !== accountKey) continue;
+      const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+      inMemoryEd25519RecordsByLane.delete(laneKey);
+      if (thresholdSessionId && inMemoryEd25519LaneBySessionId.get(thresholdSessionId) === laneKey) {
+        inMemoryEd25519LaneBySessionId.delete(thresholdSessionId);
+      }
+    }
   } catch {}
 }
 
 export function clearAllStoredThresholdEd25519SessionRecords(): void {
   inMemoryEd25519RecordsByAccount.clear();
   inMemoryEd25519AccountBySessionId.clear();
+  inMemoryEd25519RecordsByLane.clear();
+  inMemoryEd25519LaneBySessionId.clear();
 }
 
 export function getStoredThresholdSessionRecordForAccount<

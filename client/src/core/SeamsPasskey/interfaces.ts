@@ -160,8 +160,9 @@ export type ExecuteEvmFamilyTransactionResult = {
 
 export type BootstrapThresholdEcdsaSessionArgs = {
   nearAccountId: string;
-  options?: {
-    chain?: ThresholdEcdsaActivationChain;
+  options: {
+    chain: ThresholdEcdsaActivationChain;
+    chainId: number;
     relayerUrl?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -235,7 +236,8 @@ export type GoogleEmailOtpSessionExchangeResult = {
 
 export type EmailOtpEcdsaCapabilityArgs = {
   nearAccountId: string;
-  chain?: ThresholdEcdsaActivationChain;
+  chain: ThresholdEcdsaActivationChain;
+  chainId: number;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
   challengeId?: string;
@@ -279,7 +281,7 @@ export interface AuthCapability {
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
   prefillThresholdEcdsaPresignPool(args: {
     nearAccountId: string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;
@@ -300,12 +302,13 @@ export interface AuthCapability {
   }): Promise<EmailOtpChallengeResult>;
   requestEmailOtpSigningSessionChallenge(args: {
     nearAccountId: string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>>;
   refreshEmailOtpSigningSession(args: {
     nearAccountId: string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
+    chainId: number;
     challengeId: string;
     otpCode: string;
     ttlMs?: number;

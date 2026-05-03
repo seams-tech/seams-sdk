@@ -50,6 +50,7 @@ import {
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarmSessionBootstrap';
+import { requireThresholdEcdsaProvisionChainId } from './thresholdEcdsaProvisioning';
 import type {
   SigningSessionSnapshot,
   SigningSessionSnapshotEcdsaLane,
@@ -858,9 +859,14 @@ async function primeThresholdLoginWarmSigners(args: {
                 ? { kind: 'threshold_session', jwt: warmState.jwt }
                 : undefined;
           for (const chain of ['tempo', 'evm'] as const) {
+            const chainId = requireThresholdEcdsaProvisionChainId({
+              chain,
+              chains: args.context.configs.network.chains,
+            });
             await args.signingEngine.bootstrapEcdsaSession({
               nearAccountId: args.nearAccountId,
               chain,
+              chainId,
               source: 'login',
               relayerUrl: args.relayerUrl,
               ...(args.canonicalEcdsaContext.ecdsaThresholdKeyId
@@ -952,73 +958,6 @@ function readWalletSessionNonceDiagnostics(
 }
 
 const THRESHOLD_ECDSA_LOGIN_METADATA_CHAINS: ReadonlyArray<'tempo' | 'evm'> = ['tempo', 'evm'];
-const walletSessionInitRestoreByAccount = new Map<string, Promise<void>>();
-const walletSessionInitRestoreGenerationByAccount = new Map<string, number>();
-
-async function restorePersistedSessionsForWalletSessionInit(
-  context: PasskeyManagerContext,
-  nearAccountId: AccountId | string,
-): Promise<void> {
-  const accountId = String(nearAccountId || '').trim();
-  if (!accountId) return;
-  const signingEngine = context.signingEngine as typeof context.signingEngine & {
-    restorePersistedSessionsForAccount?: typeof context.signingEngine.restorePersistedSessionsForAccount;
-    readPersistedSigningSessionSnapshot?: typeof context.signingEngine.readPersistedSigningSessionSnapshot;
-  };
-  if (
-    typeof signingEngine.restorePersistedSessionsForAccount !== 'function' ||
-    typeof signingEngine.readPersistedSigningSessionSnapshot !== 'function'
-  ) {
-    return;
-  }
-  const snapshotGeneration = Math.max(
-    0,
-    Math.floor(
-      Number(
-        (
-          await signingEngine
-            .readPersistedSigningSessionSnapshot({
-              walletId: accountId,
-            })
-            .catch(() => null)
-        )?.generation,
-      ) || 0,
-    ),
-  );
-  const restoredGeneration = walletSessionInitRestoreGenerationByAccount.get(accountId);
-  if (restoredGeneration === snapshotGeneration) return;
-  const existing = walletSessionInitRestoreByAccount.get(accountId);
-  if (existing) {
-    await existing;
-    return;
-  }
-  const restorePromise = (async () => {
-    // Startup/session polling is a command boundary: restore durable material once,
-    // then consume the side-effect-free snapshot path before status readers run.
-    await signingEngine.restorePersistedSessionsForAccount({
-      walletId: accountId,
-      maxRecords: 12,
-    });
-    const restoredSnapshot = await signingEngine.readPersistedSigningSessionSnapshot({
-      walletId: accountId,
-    });
-    walletSessionInitRestoreGenerationByAccount.set(
-      accountId,
-      Math.max(0, Math.floor(Number(restoredSnapshot.generation) || 0)),
-    );
-  })()
-    .catch((error: unknown) => {
-      console.warn('[WalletSession] persisted signing-session init restore failed', {
-        accountId,
-        error: error instanceof Error ? error.message : String(error || 'unknown error'),
-      });
-    })
-    .finally(() => {
-      walletSessionInitRestoreByAccount.delete(accountId);
-    });
-  walletSessionInitRestoreByAccount.set(accountId, restorePromise);
-  await restorePromise;
-}
 const THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES: readonly ThresholdEcdsaSessionStoreSource[] = [
   'email_otp',
   'login',
@@ -1387,8 +1326,9 @@ async function resolveSigningSessionStatusForUi(
       ? Promise.resolve(hints.snapshot || null)
       : resolveSnapshotSigningSessionStatusForUi(context, nearAccountId).catch(() => null),
   ]);
-  // The snapshot is the side-effect-free public read model after restore; warm
-  // status remains useful as a runtime fallback while the refactor finishes.
+  // Status reads are side-effect-free. The next signing command owns exact
+  // restore; warm status remains useful as a runtime fallback while the
+  // refactor finishes.
   return selectSigningSessionStatusForUi([snapshotStatus, warmStatus]);
 }
 
@@ -1416,8 +1356,6 @@ async function getLoginStateInternal(
         thresholdEcdsaPublicKeyB64u: null,
       };
     }
-
-    await restorePersistedSessionsForWalletSessionInit(context, targetAccountId);
 
     const latestByAccount =
       lastUser && lastUser.nearAccountId === targetAccountId

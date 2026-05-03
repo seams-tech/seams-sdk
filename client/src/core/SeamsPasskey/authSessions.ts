@@ -151,14 +151,14 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
   deps: AuthSessionDomainDeps,
   args: {
     nearAccountId: string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;
     minRemainingUsesBeforePrefill?: number;
   },
 ): Promise<ThresholdEcdsaLoginPrefillResult> {
-  const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
+  const chain = args.chain;
 
   if (deps.walletIframe.shouldUseWalletIframe()) {
     const router = await deps.walletIframe.requireRouter(args.nearAccountId);

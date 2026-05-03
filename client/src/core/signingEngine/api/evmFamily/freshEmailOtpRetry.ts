@@ -12,7 +12,7 @@ import type {
   EvmFamilySenderSignatureAlgorithm,
 } from './types';
 
-export async function maybeRetryEvmFamilyWithFreshEmailOtpAuth(args: {
+export async function retryEvmFamilyWithFreshEmailOtpAuthWhenRequired(args: {
   error: unknown;
   nearAccountId: string;
   chain: EvmFamilyChain;

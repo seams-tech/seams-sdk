@@ -144,28 +144,39 @@ export function isConcreteSigningSessionSnapshotLane(
   );
 }
 
-function comparePreferred(leftPreferred: boolean, rightPreferred: boolean): number {
-  if (leftPreferred === rightPreferred) return 0;
-  return leftPreferred ? -1 : 1;
+type EcdsaSnapshotLaneIdentityInput = Pick<
+  SigningSessionSnapshotEcdsaLane,
+  'authMethod' | 'curve' | 'chain' | 'walletSigningSessionId' | 'thresholdSessionId'
+>;
+
+type Ed25519SnapshotLaneIdentityInput = Pick<
+  SigningSessionSnapshotEd25519Lane,
+  'authMethod' | 'curve' | 'chain' | 'walletSigningSessionId' | 'thresholdSessionId'
+>;
+
+export function ecdsaSnapshotLaneIdentityKey(
+  lane: EcdsaSnapshotLaneIdentityInput | null | undefined,
+): string | null {
+  if (!lane || lane.curve !== 'ecdsa') return null;
+  if (lane.chain !== 'tempo' && lane.chain !== 'evm') return null;
+  const authMethod =
+    lane.authMethod === 'email_otp' || lane.authMethod === 'passkey' ? lane.authMethod : '';
+  const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
+  const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
+  if (!authMethod || !walletSigningSessionId || !thresholdSessionId) return null;
+  return [authMethod, 'ecdsa', lane.chain, walletSigningSessionId, thresholdSessionId].join(':');
 }
 
-function snapshotLaneStableId(lane: ConcreteSigningSessionSnapshotLane): string {
-  return `${lane.walletSigningSessionId}:${lane.thresholdSessionId}`;
-}
-
-export function compareSnapshotCandidates(
-  left: ConcreteSigningSessionSnapshotLane,
-  right: ConcreteSigningSessionSnapshotLane,
-  preferredAuthMethod?: 'email_otp' | 'passkey' | null,
-): number {
-  return (
-    comparePreferred(
-      Boolean(preferredAuthMethod && left.authMethod === preferredAuthMethod),
-      Boolean(preferredAuthMethod && right.authMethod === preferredAuthMethod),
-    ) ||
-    comparePreferred(left.state === 'ready', right.state === 'ready') ||
-    snapshotLaneStableId(left).localeCompare(snapshotLaneStableId(right))
-  );
+export function ed25519SnapshotLaneIdentityKey(
+  lane: Ed25519SnapshotLaneIdentityInput | null | undefined,
+): string | null {
+  if (!lane || lane.curve !== 'ed25519' || lane.chain !== 'near') return null;
+  const authMethod =
+    lane.authMethod === 'email_otp' || lane.authMethod === 'passkey' ? lane.authMethod : '';
+  const walletSigningSessionId = String(lane.walletSigningSessionId || '').trim();
+  const thresholdSessionId = String(lane.thresholdSessionId || '').trim();
+  if (!authMethod || !walletSigningSessionId || !thresholdSessionId) return null;
+  return [authMethod, 'ed25519', 'near', walletSigningSessionId, thresholdSessionId].join(':');
 }
 
 function emptyEcdsaLane(chain: 'tempo' | 'evm'): SigningSessionSnapshotEcdsaLane {
@@ -283,9 +294,12 @@ function runtimeRecordToEcdsaLane(args: {
 }): SigningSessionSnapshotEcdsaLane {
   const thresholdSessionId = String(args.record.thresholdSessionId || '').trim();
   const claim = args.claim;
+  const runtimeLaneKey = ecdsaSnapshotLaneIdentityKey(args.record);
+  const durableLaneKey = ecdsaSnapshotLaneIdentityKey(args.durableLane);
   const hasMatchingDurableLane =
     args.durableLane.source === 'durable_sealed_record' &&
-    String(args.durableLane.thresholdSessionId || '').trim() === thresholdSessionId;
+    Boolean(runtimeLaneKey) &&
+    durableLaneKey === runtimeLaneKey;
 
   return {
     authMethod: args.record.authMethod,
@@ -433,18 +447,23 @@ export async function readSigningSessionSnapshot(
     if (chain !== 'tempo' && chain !== 'evm') continue;
     const thresholdSessionId = String(runtimeRecord.thresholdSessionId || '').trim();
     if (!thresholdSessionId) continue;
+    const runtimeLaneKey = ecdsaSnapshotLaneIdentityKey(runtimeRecord);
     const durableLane =
-      ecdsaCandidates[chain].find(
-        (lane) => String(lane.thresholdSessionId || '').trim() === thresholdSessionId,
-      ) || ecdsaLanes[chain];
+      (runtimeLaneKey
+        ? ecdsaCandidates[chain].find(
+            (lane) => ecdsaSnapshotLaneIdentityKey(lane) === runtimeLaneKey,
+          )
+        : undefined) || ecdsaLanes[chain];
     const runtimeLane = runtimeRecordToEcdsaLane({
       record: runtimeRecord,
       claim: claimsBySessionId.get(thresholdSessionId) || null,
       durableLane,
     });
-    const candidateIndex = ecdsaCandidates[chain].findIndex(
-      (lane) => String(lane.thresholdSessionId || '').trim() === thresholdSessionId,
-    );
+    const candidateIndex = runtimeLaneKey
+      ? ecdsaCandidates[chain].findIndex(
+          (lane) => ecdsaSnapshotLaneIdentityKey(lane) === runtimeLaneKey,
+        )
+      : -1;
     if (candidateIndex >= 0) {
       ecdsaCandidates[chain][candidateIndex] = runtimeLane;
     } else {
@@ -456,18 +475,23 @@ export async function readSigningSessionSnapshot(
   for (const runtimeRecord of runtimeEd25519Records) {
     const thresholdSessionId = String(runtimeRecord.thresholdSessionId || '').trim();
     if (!thresholdSessionId) continue;
+    const runtimeLaneKey = ed25519SnapshotLaneIdentityKey(runtimeRecord);
     const durableLane =
-      ed25519Candidates.find(
-        (lane) => String(lane.thresholdSessionId || '').trim() === thresholdSessionId,
-      ) || ed25519Lane;
+      (runtimeLaneKey
+        ? ed25519Candidates.find(
+            (lane) => ed25519SnapshotLaneIdentityKey(lane) === runtimeLaneKey,
+          )
+        : undefined) || ed25519Lane;
     const runtimeLane = runtimeRecordToEd25519Lane({
       record: runtimeRecord,
       claim: claimsBySessionId.get(thresholdSessionId) || null,
       durableLane,
     });
-    const candidateIndex = ed25519Candidates.findIndex(
-      (lane) => String(lane.thresholdSessionId || '').trim() === thresholdSessionId,
-    );
+    const candidateIndex = runtimeLaneKey
+      ? ed25519Candidates.findIndex(
+          (lane) => ed25519SnapshotLaneIdentityKey(lane) === runtimeLaneKey,
+        )
+      : -1;
     if (candidateIndex >= 0) {
       ed25519Candidates[candidateIndex] = runtimeLane;
     } else {

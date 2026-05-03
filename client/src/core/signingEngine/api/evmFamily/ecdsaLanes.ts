@@ -4,6 +4,7 @@ import {
   buildTempoTransactionSigningLane,
 } from '../../session/signingSession/lanes';
 import type {
+  ThresholdEcdsaKeyRefLookupResult,
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
 } from '../thresholdLifecycle/thresholdSessionStore';
@@ -33,6 +34,14 @@ export type EcdsaSigningLookupArgs = {
   signingRootVersion?: string;
 };
 
+export type EcdsaSigningListLookupArgs = {
+  nearAccountId: string;
+  chain: EvmFamilyChain;
+  source?: ThresholdEcdsaSessionStoreSource;
+  signingRootId?: string;
+  signingRootVersion?: string;
+};
+
 export type PasskeyEcdsaSigningLookupArgs = EcdsaSigningLookupArgs & {
   source: PasskeyEcdsaSessionStoreSource;
 };
@@ -50,6 +59,12 @@ export type EvmFamilyEcdsaSessionReaderDeps = {
   getPasskeyThresholdEcdsaSessionRecordForSigning: (
     args: PasskeyEcdsaSigningLookupArgs,
   ) => ThresholdEcdsaSessionRecord;
+  listThresholdEcdsaSessionRecordsForSigning: (
+    args: EcdsaSigningListLookupArgs,
+  ) => ThresholdEcdsaSessionRecord[];
+  listThresholdEcdsaKeyRefsForSigning: (
+    args: EcdsaSigningListLookupArgs,
+  ) => ThresholdEcdsaKeyRefLookupResult[];
 };
 
 export type EvmFamilyEcdsaAuthMethod =
@@ -572,6 +587,141 @@ export function isSingleUseEmailOtpEcdsaRecord(
     record?.source === SIGNER_AUTH_METHODS.emailOtp &&
     record.emailOtpAuthContext?.retention === 'single_use'
   );
+}
+
+function nonEmptyString(value: unknown): string {
+  return String(value || '').trim();
+}
+
+function ecdsaSessionIdentityMatches(args: {
+  thresholdSessionId: unknown;
+  walletSigningSessionId: unknown;
+  expectedThresholdSessionId: unknown;
+  expectedWalletSigningSessionId: unknown;
+}): boolean {
+  return (
+    nonEmptyString(args.thresholdSessionId) === nonEmptyString(args.expectedThresholdSessionId) &&
+    nonEmptyString(args.walletSigningSessionId) ===
+      nonEmptyString(args.expectedWalletSigningSessionId)
+  );
+}
+
+function ecdsaMaterialSourceMatchesAuth(args: {
+  authMethod: EvmFamilyEcdsaAuthMethod;
+  source: ThresholdEcdsaSessionStoreSource;
+  record?: ThresholdEcdsaSessionRecord;
+  keyRef?: ThresholdEcdsaSecp256k1KeyRef;
+}): boolean {
+  if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+    if (args.source === SIGNER_AUTH_METHODS.emailOtp) return true;
+    return isEmailOtpThresholdEcdsaSigningContext({
+      ...(args.record ? { record: args.record } : {}),
+      ...(args.keyRef ? { keyRef: args.keyRef } : {}),
+    });
+  }
+  if (args.source === SIGNER_AUTH_METHODS.emailOtp) return false;
+  return !isEmailOtpThresholdEcdsaSigningContext({
+    ...(args.record ? { record: args.record } : {}),
+    ...(args.keyRef ? { keyRef: args.keyRef } : {}),
+  });
+}
+
+function sortExactEcdsaRecords(
+  records: ThresholdEcdsaSessionRecord[],
+): ThresholdEcdsaSessionRecord[] {
+  return [...records].sort((a, b) => {
+    const updatedDiff = Number(b.updatedAtMs || 0) - Number(a.updatedAtMs || 0);
+    if (updatedDiff) return updatedDiff;
+    return `${a.source}:${a.thresholdSessionId}:${a.walletSigningSessionId}`.localeCompare(
+      `${b.source}:${b.thresholdSessionId}:${b.walletSigningSessionId}`,
+    );
+  });
+}
+
+export function findExactEcdsaSessionRecordForCandidate(args: {
+  deps: EvmFamilyEcdsaSessionReaderDeps;
+  nearAccountId: string;
+  candidate: {
+    authMethod: EvmFamilyEcdsaAuthMethod;
+    chain: EvmFamilyChain;
+    thresholdSessionId: string;
+    walletSigningSessionId: string;
+  };
+}): ThresholdEcdsaSessionRecord | undefined {
+  const source =
+    args.candidate.authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? SIGNER_AUTH_METHODS.emailOtp
+      : undefined;
+  const records = args.deps
+    .listThresholdEcdsaSessionRecordsForSigning({
+      nearAccountId: args.nearAccountId,
+      chain: args.candidate.chain,
+      ...(source ? { source } : {}),
+    })
+    .filter((record) => {
+      if (record.chain !== args.candidate.chain) return false;
+      if (
+        !ecdsaSessionIdentityMatches({
+          thresholdSessionId: record.thresholdSessionId,
+          walletSigningSessionId: record.walletSigningSessionId,
+          expectedThresholdSessionId: args.candidate.thresholdSessionId,
+          expectedWalletSigningSessionId: args.candidate.walletSigningSessionId,
+        })
+      ) {
+        return false;
+      }
+      return ecdsaMaterialSourceMatchesAuth({
+        authMethod: args.candidate.authMethod,
+        source: record.source,
+        record,
+      });
+    });
+  return sortExactEcdsaRecords(records)[0];
+}
+
+export function findExactEcdsaKeyRefForCandidate(args: {
+  deps: EvmFamilyEcdsaSessionReaderDeps;
+  nearAccountId: string;
+  candidate: {
+    authMethod: EvmFamilyEcdsaAuthMethod;
+    chain: EvmFamilyChain;
+    thresholdSessionId: string;
+    walletSigningSessionId: string;
+  };
+}): { source: ThresholdEcdsaSessionStoreSource; keyRef: ThresholdEcdsaSecp256k1KeyRef } | undefined {
+  const source =
+    args.candidate.authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? SIGNER_AUTH_METHODS.emailOtp
+      : undefined;
+  const matches = args.deps
+    .listThresholdEcdsaKeyRefsForSigning({
+      nearAccountId: args.nearAccountId,
+      chain: args.candidate.chain,
+      ...(source ? { source } : {}),
+    })
+    .filter(({ source, keyRef }) => {
+      if (
+        !ecdsaSessionIdentityMatches({
+          thresholdSessionId: keyRef.thresholdSessionId,
+          walletSigningSessionId: keyRef.walletSigningSessionId,
+          expectedThresholdSessionId: args.candidate.thresholdSessionId,
+          expectedWalletSigningSessionId: args.candidate.walletSigningSessionId,
+        })
+      ) {
+        return false;
+      }
+      return ecdsaMaterialSourceMatchesAuth({
+        authMethod: args.candidate.authMethod,
+        source,
+        keyRef,
+      });
+    })
+    .sort((a, b) =>
+      `${a.source}:${a.keyRef.thresholdSessionId}:${a.keyRef.walletSigningSessionId}`.localeCompare(
+        `${b.source}:${b.keyRef.thresholdSessionId}:${b.keyRef.walletSigningSessionId}`,
+      ),
+    );
+  return matches[0];
 }
 
 export function createEvmFamilySigningCapabilityReader(deps: EvmFamilyEcdsaSessionReaderDeps) {

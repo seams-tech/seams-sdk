@@ -6,10 +6,7 @@ import type {
   SigningSessionSnapshotEcdsaLane,
   SigningSessionSnapshotEd25519Lane,
 } from '../snapshotReader';
-import {
-  compareSnapshotCandidates,
-  isConcreteSigningSessionSnapshotLane,
-} from '../snapshotReader';
+import { isConcreteSigningSessionSnapshotLane } from '../snapshotReader';
 import {
   SigningSessionIds,
   type SigningAuthMethod,
@@ -19,6 +16,7 @@ import {
   type SigningOperationContext,
   type SigningOperationId,
   type SelectedSigningLaneContext,
+  SigningSessionPlanKind,
   type ThresholdEcdsaSessionId,
   type ThresholdEd25519SessionId,
   type WalletSigningSessionId,
@@ -49,8 +47,7 @@ export type TransactionSigningIntent = {
 
 export type TransactionAuthSelectionPolicy =
   | { kind: 'explicit'; authMethod: SigningAuthMethod }
-  | { kind: 'account_class'; authMethod: SigningAuthMethod }
-  | { kind: 'current_lane'; authMethod: SigningAuthMethod };
+  | { kind: 'account_class'; authMethod: SigningAuthMethod };
 
 export type NearEd25519TransactionLane = {
   accountId: AccountId;
@@ -113,6 +110,17 @@ export type SignedTransactionOperation<
     result: TResult;
   };
 
+export type PreparedTransactionBudgetState<TLane extends TransactionLane = TransactionLane> =
+  | {
+      kind: 'admitted';
+      operation: BudgetAdmittedOperation<TLane>;
+      state: TransactionBudgetAdmittedState<TLane>;
+    }
+  | {
+      kind: 'not_admitted';
+      reason: 'budget_identity_not_prepared';
+    };
+
 export type TransactionSigningExecutor<TLane extends TransactionLane, TPayload, TResult> = {
   sign(operation: BudgetAdmittedOperation<TLane>, payload: TPayload): Promise<TResult>;
 };
@@ -161,8 +169,7 @@ export type PreparedTransactionSigningOperation<
     TransactionPreparedThresholdMetadata<TLane, TMetadata>
   >;
   transactionOperation: PreparedTransactionOperation<TLane>;
-  budgetAdmittedOperation?: BudgetAdmittedOperation<TLane>;
-  budgetAdmittedState?: TransactionBudgetAdmittedState<TLane>;
+  budget: PreparedTransactionBudgetState<TLane>;
 };
 
 export type TransactionLaneSelectionFailure =
@@ -383,6 +390,101 @@ function allowedAuthMethods(
   return [...new Set(candidates.map((candidate) => candidate.authMethod))].sort();
 }
 
+function candidateStatePriority(candidate: TransactionConcreteSnapshotLane): number {
+  switch (candidate.state) {
+    case 'ready':
+      return 5;
+    case 'restorable':
+      return 4;
+    case 'deferred':
+      return 3;
+    case 'expired':
+    case 'exhausted':
+      return 2;
+    case 'missing':
+    default:
+      return 1;
+  }
+}
+
+function candidateSourcePriority(candidate: TransactionConcreteSnapshotLane): number {
+  switch (candidate.source) {
+    case 'runtime_and_durable':
+      return 3;
+    case 'runtime_session_record':
+      return 2;
+    case 'durable_sealed_record':
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+function candidateUpdatedAtMs(candidate: TransactionConcreteSnapshotLane): number | null {
+  const value = Math.floor(Number(candidate.updatedAtMs));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function candidatesWithBestPriority<TSnapshotLane extends TransactionConcreteSnapshotLane>(
+  candidates: readonly TSnapshotLane[],
+  priority: (candidate: TSnapshotLane) => number,
+): TSnapshotLane[] {
+  let bestPriority = -Infinity;
+  let bestCandidates: TSnapshotLane[] = [];
+  for (const candidate of candidates) {
+    const value = priority(candidate);
+    if (value > bestPriority) {
+      bestPriority = value;
+      bestCandidates = [candidate];
+      continue;
+    }
+    if (value === bestPriority) {
+      bestCandidates.push(candidate);
+    }
+  }
+  return bestCandidates;
+}
+
+function selectNewestCandidateWhenUnambiguous<
+  TSnapshotLane extends TransactionConcreteSnapshotLane,
+>(candidates: readonly TSnapshotLane[]): TSnapshotLane | null {
+  let selected: TSnapshotLane | null = null;
+  let selectedUpdatedAtMs = -Infinity;
+  let ambiguous = false;
+  for (const candidate of candidates) {
+    const updatedAtMs = candidateUpdatedAtMs(candidate);
+    if (updatedAtMs === null) return null;
+    if (updatedAtMs > selectedUpdatedAtMs) {
+      selected = candidate;
+      selectedUpdatedAtMs = updatedAtMs;
+      ambiguous = false;
+      continue;
+    }
+    if (updatedAtMs === selectedUpdatedAtMs) {
+      ambiguous = true;
+    }
+  }
+  return ambiguous ? null : selected;
+}
+
+function selectBestConcreteTransactionCandidate<
+  TSnapshotLane extends TransactionConcreteSnapshotLane,
+>(candidates: readonly TSnapshotLane[]): TSnapshotLane | null {
+  const bestStateCandidates = candidatesWithBestPriority(candidates, candidateStatePriority);
+  if (bestStateCandidates.length <= 1) return bestStateCandidates[0] || null;
+
+  const bestSourceCandidates = candidatesWithBestPriority(
+    bestStateCandidates,
+    candidateSourcePriority,
+  );
+  if (bestSourceCandidates.length <= 1) return bestSourceCandidates[0] || null;
+
+  // When multiple same-auth lanes remain, updatedAtMs is the only ordering
+  // policy with meaning. Without a unique newest lane the caller must surface
+  // ambiguity instead of picking by opaque session ids.
+  return selectNewestCandidateWhenUnambiguous(bestSourceCandidates);
+}
+
 export function selectTransactionLane(
   input: SelectTransactionLaneInput,
 ): TransactionLaneSelectionResult {
@@ -423,8 +525,8 @@ function selectNearEd25519TransactionLane(
 
   const nearRuntimeLane = runtimeLane as NearEd25519ConcreteSnapshotLane | null;
 
-  // Current-lane and account-class policy are hints below a verified runtime
-  // lane. Only an explicit user choice may reject a different hot lane.
+  // Runtime lanes are accepted only after snapshot construction has produced a
+  // concrete candidate. Account metadata cannot create or override this anchor.
   if (nearRuntimeLane) {
     if (
       intent.authSelectionPolicy.kind === 'explicit' &&
@@ -524,9 +626,9 @@ function selectConcreteTransactionCandidate<
 }): TransactionLaneSelectionResult {
   const { intent } = args;
   const policyAuthMethod = intent.authSelectionPolicy.authMethod;
-  const candidates = args.candidates
-    .filter((candidate) => candidate.authMethod === policyAuthMethod)
-    .sort((left, right) => compareSnapshotCandidates(left, right, policyAuthMethod));
+  const candidates = args.candidates.filter(
+    (candidate) => candidate.authMethod === policyAuthMethod,
+  );
 
   if (!candidates.length) {
     return {
@@ -534,21 +636,18 @@ function selectConcreteTransactionCandidate<
       failure: { kind: 'no_candidate', authMethod: policyAuthMethod },
     };
   }
-  const authMethods = allowedAuthMethods(candidates);
-  if (authMethods.length > 1) {
-    return {
-      ok: false,
-      failure: { kind: 'ambiguous_candidates', allowedAuthMethods: authMethods },
-    };
-  }
 
-  const selected = candidates[0];
+  const selected = selectBestConcreteTransactionCandidate(candidates);
   if (!selected) {
     return {
       ok: false,
-      failure: { kind: 'no_candidate', authMethod: policyAuthMethod },
+      failure: {
+        kind: 'ambiguous_candidates',
+        allowedAuthMethods: allowedAuthMethods(candidates),
+      },
     };
   }
+
   return {
     ok: true,
     lane: args.buildLane(selected),
@@ -654,6 +753,16 @@ export function recordTransactionBudgetAdmission<TLane extends TransactionLane>(
   };
 }
 
+export function recordPreparedTransactionBudgetAdmission<TLane extends TransactionLane>(
+  operation: BudgetAdmittedOperation<TLane>,
+): PreparedTransactionBudgetState<TLane> {
+  return {
+    kind: 'admitted',
+    operation,
+    state: recordTransactionBudgetAdmission(operation),
+  };
+}
+
 export function recordTransactionSigned<TLane extends TransactionLane>(
   operation: BudgetAdmittedOperation<TLane>,
   result: unknown,
@@ -749,7 +858,6 @@ export async function prepareTransactionSigningOperation<
     forceFreshAuth: args.forceFreshAuth,
     sensitiveOperationPolicy: args.sensitiveOperationPolicy,
     missingWhenExpiresAtMissing: args.missingWhenExpiresAtMissing,
-    prepareBudgetIdentity: args.prepareBudgetIdentity,
     onPlannerTrace: args.onPlannerTrace,
   });
 
@@ -763,21 +871,31 @@ export async function prepareTransactionSigningOperation<
   };
   thresholdOperation.metadata.transactionOperation = transactionOperation;
 
-  const budgetAdmittedOperation = thresholdOperation.budgetIdentity
-    ? admitTransactionBudget(transactionOperation, {
-        budgetIdentity: thresholdOperation.budgetIdentity,
-      })
-    : undefined;
+  const budgetIdentity =
+    args.prepareBudgetIdentity &&
+    thresholdOperation.signingSessionPlan.kind === SigningSessionPlanKind.WarmSession
+      ? await args.coordinator.prepareBudgetIdentity({
+          nearAccountId: String(args.intent.walletId),
+          lane: thresholdOperation.lane,
+          operationUsesNeeded: args.intent.operationUsesNeeded,
+        })
+      : undefined;
+
+  const budget = budgetIdentity
+    ? recordPreparedTransactionBudgetAdmission(
+        admitTransactionBudget(transactionOperation, {
+          budgetIdentity,
+        }),
+      )
+    : ({
+        kind: 'not_admitted',
+        reason: 'budget_identity_not_prepared',
+      } satisfies PreparedTransactionBudgetState<TLane>);
 
   return {
     thresholdOperation,
     transactionOperation,
-    ...(budgetAdmittedOperation
-      ? {
-          budgetAdmittedOperation,
-          budgetAdmittedState: recordTransactionBudgetAdmission(budgetAdmittedOperation),
-        }
-      : {}),
+    budget,
   };
 }
 

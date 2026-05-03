@@ -272,7 +272,8 @@ type EmailOtpWorkerRequest =
         shamirPrimeB64u: string;
         otpChannel?: WalletEmailOtpChannel;
         rpId: string;
-        chain?: ThresholdEcdsaActivationChain;
+        chain: ThresholdEcdsaActivationChain;
+        chainId: number;
         ecdsaThresholdKeyId?: string;
         participantIds?: number[];
         sessionKind?: 'jwt' | 'cookie';
@@ -298,6 +299,8 @@ type EmailOtpWorkerRequest =
         otpChannel?: WalletEmailOtpChannel;
         clientSecret32?: ArrayBuffer;
         rpId: string;
+        chain: ThresholdEcdsaActivationChain;
+        chainId: number;
         ecdsaThresholdKeyId?: string;
         participantIds?: number[];
         sessionKind?: 'jwt' | 'cookie';
@@ -364,7 +367,8 @@ type EmailOtpWorkerRequest =
           walletId: string;
           userId?: string;
           rpId: string;
-          chain?: ThresholdEcdsaActivationChain;
+          chain: ThresholdEcdsaActivationChain;
+          chainId: number;
           walletSigningSessionId: string;
           signingRootId: string;
           signingRootVersion?: string;
@@ -1064,7 +1068,8 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
     walletId: string;
     userId?: string;
     rpId: string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
+    chainId: number;
     walletSigningSessionId: string;
     signingRootId: string;
     signingRootVersion?: string;
@@ -1214,6 +1219,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
           args.restore.walletSigningSessionId,
           'walletSigningSessionId',
         ),
+        chainId: Math.floor(Number(args.restore.chainId)),
         routeAuth,
         ...(args.restore.runtimePolicyScope
           ? { runtimePolicyScope: args.restore.runtimePolicyScope }
@@ -2312,6 +2318,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   walletSigningSessionId?: string;
+  chainId: number;
   routeAuth?: AppOrThresholdSessionAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   ttlMs?: number;
@@ -2322,6 +2329,10 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
   const relayerUrl = readString(args.relayUrl, 'relayUrl');
   const userId = readString(args.userId, 'userId');
   const rpId = readString(args.rpId, 'rpId');
+  const chainId = Math.floor(Number(args.chainId));
+  if (!Number.isSafeInteger(chainId) || chainId < 0) {
+    throw new Error('chainId must be a non-negative safe integer');
+  }
   const routeAuth: ThresholdEcdsaHssRouteAuth | undefined =
     args.routeAuth || (args.sessionKind === 'cookie' ? { kind: 'cookie' } : undefined);
   const operation = args.operation || 'session_bootstrap';
@@ -2507,7 +2518,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(args: 
     ethereumAddress: bootstrap.ethereumAddress,
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
     participantIds: resolvedParticipantIds,
-    ...(typeof bootstrap.chainId === 'number' ? { chainId: bootstrap.chainId } : {}),
+    chainId: typeof bootstrap.chainId === 'number' ? bootstrap.chainId : chainId,
     ...(readOptionalString(bootstrap.factory)
       ? { factory: readOptionalString(bootstrap.factory) }
       : {}),
@@ -2845,6 +2856,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             sessionKind: msg.payload.sessionKind,
             sessionId: msg.payload.sessionId,
             walletSigningSessionId: msg.payload.walletSigningSessionId,
+            chainId: msg.payload.chainId,
             ...(routeAuth ? { routeAuth } : {}),
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             ttlMs: msg.payload.ttlMs,
@@ -3052,14 +3064,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const walletId = readString(msg.payload.walletId, 'walletId');
           const relayerUrl = readString(msg.payload.relayUrl, 'relayUrl');
           const rpId = readString(msg.payload.rpId, 'rpId');
-          const chain =
-            msg.payload.chain === 'evm' || msg.payload.chain === 'tempo'
-              ? msg.payload.chain
-              : routePlan.authLane.kind === 'signing_session' &&
-                  routePlan.authLane.curve === 'ecdsa' &&
-                  (routePlan.authLane.chain === 'evm' || routePlan.authLane.chain === 'tempo')
-                ? routePlan.authLane.chain
-                : 'tempo';
+          const chain = msg.payload.chain;
           const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
             relayUrl: relayerUrl,
             userId: walletId,
@@ -3071,6 +3076,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             sessionKind: msg.payload.sessionKind,
             sessionId: msg.payload.sessionId,
             walletSigningSessionId: msg.payload.walletSigningSessionId,
+            chainId: msg.payload.chainId,
             ...(routeAuth ? { routeAuth } : {}),
             ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
             ttlMs: msg.payload.ttlMs,

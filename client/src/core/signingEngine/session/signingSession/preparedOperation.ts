@@ -76,8 +76,6 @@ export type PreparedThresholdSigningOperation<
   expiresAtMs: number;
   remainingUses: number;
   snapshotGeneration: number;
-  budgetIdentity?: SigningSessionPreparedBudgetIdentity;
-  budgetProjectionVersion?: string;
   metadata: TMetadata;
 };
 
@@ -118,7 +116,6 @@ export async function prepareThresholdSigningOperation<
   forceFreshAuth?: boolean;
   sensitiveOperationPolicy?: SensitiveOperationPolicy | null;
   missingWhenExpiresAtMissing?: boolean;
-  prepareBudgetIdentity?: boolean;
   onPlannerTrace?: (event: SigningPlannerDecisionTraceEvent) => void;
 }): Promise<PreparedThresholdSigningOperation<TLane, TMetadata>> {
   const lifecycle = await args.lifecycleAdapter.prepare({
@@ -140,16 +137,6 @@ export async function prepareThresholdSigningOperation<
     args.onPlannerTrace,
   );
 
-  const budgetIdentity =
-    args.prepareBudgetIdentity &&
-    resolved.signingSessionPlan.kind === 'warm_session'
-      ? await args.coordinator.prepareBudgetIdentity({
-        nearAccountId: args.intent.walletId,
-        lane: lifecycle.lane,
-        operationUsesNeeded: lifecycle.readiness.usesNeeded,
-      })
-    : undefined;
-
   return {
     intent: args.intent,
     ...(args.operation ? { operation: args.operation } : {}),
@@ -160,12 +147,6 @@ export async function prepareThresholdSigningOperation<
     expiresAtMs: resolved.expiresAtMs,
     remainingUses: resolved.remainingUses,
     snapshotGeneration: Math.max(0, Math.floor(Number(lifecycle.snapshotGeneration) || 0)),
-    ...(budgetIdentity
-      ? {
-          budgetIdentity,
-          budgetProjectionVersion: budgetIdentity.projectionVersion,
-        }
-      : {}),
     metadata: (lifecycle.metadata || {}) as TMetadata,
   };
 }

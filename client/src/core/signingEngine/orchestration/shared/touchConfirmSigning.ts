@@ -138,15 +138,29 @@ export function passkeySigningAuthPlan(): SigningAuthPlan {
   };
 }
 
-export async function resolveTouchConfirmSigningAuth(args: {
-  needsWebAuthn: boolean;
-  signingAuthPlan?: SigningAuthPlan;
-  walletAuthPlan?: WalletAuthPlan;
-  emailOtpPrompt?: EmailOtpConfirmPrompt;
-}): Promise<{
+export type TouchConfirmSigningAuthInput =
+  | {
+      kind: 'signing_plan';
+      signingAuthPlan: SigningAuthPlan;
+      emailOtpPrompt: EmailOtpConfirmPrompt | null;
+    }
+  | {
+      kind: 'wallet_plan';
+      walletAuthPlan: WalletAuthPlan;
+      emailOtpPrompt: EmailOtpConfirmPrompt | null;
+    }
+  | {
+      kind: 'email_otp';
+      emailOtpPrompt: EmailOtpConfirmPrompt;
+    }
+  | {
+      kind: 'passkey';
+    };
+
+export async function resolveTouchConfirmSigningAuth(args: TouchConfirmSigningAuthInput): Promise<{
   touchConfirmAuthPayload: { signingAuthPlan: SigningAuthPlan };
 }> {
-  if (args.signingAuthPlan) {
+  if (args.kind === 'signing_plan') {
     const signingAuthPlan =
       args.signingAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth && args.emailOtpPrompt
         ? { ...args.signingAuthPlan, emailOtpPrompt: args.emailOtpPrompt }
@@ -155,28 +169,29 @@ export async function resolveTouchConfirmSigningAuth(args: {
       touchConfirmAuthPayload: { signingAuthPlan },
     };
   }
-  if (args.walletAuthPlan) {
+  if (args.kind === 'wallet_plan') {
     const signingAuthPlan = signingAuthPlanFromWalletAuthPlan(
       args.walletAuthPlan,
-      args.emailOtpPrompt,
+      args.emailOtpPrompt || undefined,
     );
     return {
       touchConfirmAuthPayload: { signingAuthPlan },
     };
   }
-  if (args.emailOtpPrompt) {
+  if (args.kind === 'email_otp') {
     const signingAuthPlan = emailOtpSigningAuthPlan(args.emailOtpPrompt);
     return {
       touchConfirmAuthPayload: { signingAuthPlan },
     };
   }
-  if (args.needsWebAuthn) {
+  if (args.kind === 'passkey') {
     const signingAuthPlan = passkeySigningAuthPlan();
     return {
       touchConfirmAuthPayload: { signingAuthPlan },
     };
   }
-  throw new Error('Signing auth resolution requires a concrete SigningAuthPlan');
+  const exhaustive: never = args;
+  throw new Error(`Signing auth resolution received unsupported input ${String(exhaustive)}`);
 }
 
 export function resolveTouchConfirmSigningAuthMethod(

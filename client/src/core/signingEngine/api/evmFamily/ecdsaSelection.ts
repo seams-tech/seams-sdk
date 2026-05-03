@@ -2,10 +2,12 @@ import type { AccountAuthMetadata } from '@/core/signingEngine/auth';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { SigningLaneContext } from '../../session/signingSession/types';
+import { emitSigningSessionFlowFailure } from '../../session/signingSession/trace';
 import type {
   EvmFamilyEcdsaConcreteSnapshotLane,
   EvmFamilyEcdsaTransactionLane,
 } from '../../session/signingSession/transactionState';
+import { selectedSigningLaneContextFromTransactionLane } from '../../session/signingSession/transactionState';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
@@ -13,6 +15,8 @@ import type {
 import { resolveEvmFamilyTransactionAccountAuth, type EvmFamilyAccountMetadataDeps } from './accountAuth';
 import {
   buildEvmFamilyEcdsaSigningLaneContext,
+  findExactEcdsaKeyRefForCandidate,
+  findExactEcdsaSessionRecordForCandidate,
   isSingleUseEmailOtpEcdsaRecord,
   logEvmFamilyEcdsaLaneDiagnostic,
   readSelectedEcdsaKeyRefForLane,
@@ -158,7 +162,40 @@ function requireExactEcdsaCandidateMaterial(args: {
       source: args.candidate.source,
     },
   });
+  emitSigningSessionFlowFailure('evm-family', {
+    stage: 'ecdsa_selection.exact_material_missing',
+    accountId: args.nearAccountId,
+    chain: args.chain,
+    candidate: {
+      authMethod: args.candidate.authMethod,
+      thresholdSessionId: args.candidate.thresholdSessionId,
+      walletSigningSessionId: args.candidate.walletSigningSessionId,
+      state: args.candidate.state,
+      source: args.candidate.source,
+    },
+    record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+    keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
+  });
   throw new Error('[SigningEngine][ecdsa] exact snapshot lane is unavailable after restore');
+}
+
+function exactEcdsaCandidateRequiresHotMaterial(
+  candidate: EvmFamilyEcdsaConcreteSnapshotLane | undefined,
+): boolean {
+  if (!candidate) return false;
+  return (
+    candidate.state === 'ready' ||
+    candidate.state === 'restorable' ||
+    candidate.state === 'deferred'
+  );
+}
+
+function signingLaneFromExactTransactionLane(
+  transactionLane: EvmFamilyEcdsaTransactionLane | undefined,
+): SigningLaneContext | undefined {
+  return transactionLane
+    ? selectedSigningLaneContextFromTransactionLane(transactionLane)
+    : undefined;
 }
 
 function assertTransactionLaneMatchesSnapshotCandidate(args: {
@@ -222,29 +259,67 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey;
   transactionLane?: EvmFamilyEcdsaTransactionLane;
   snapshotCandidate?: EvmFamilyEcdsaConcreteSnapshotLane;
+  allowMissingHotMaterial?: boolean;
 }): Promise<EvmFamilyEcdsaSigningSelection> {
   assertTransactionLaneMatchesSnapshotCandidate({
     ...(args.transactionLane ? { transactionLane: args.transactionLane } : {}),
     ...(args.snapshotCandidate ? { candidate: args.snapshotCandidate } : {}),
   });
-  const emailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
+  const exactRecordForCandidate = args.snapshotCandidate
+    ? findExactEcdsaSessionRecordForCandidate({
+        deps: args.deps,
+        nearAccountId: args.nearAccountId,
+        candidate: args.snapshotCandidate,
+      })
+    : undefined;
+  const exactKeyRefMatchForCandidate = args.snapshotCandidate
+    ? findExactEcdsaKeyRefForCandidate({
+        deps: args.deps,
+        nearAccountId: args.nearAccountId,
+        candidate: args.snapshotCandidate,
+      })
+    : undefined;
+  const exactKeyRefForCandidate = exactKeyRefMatchForCandidate?.keyRef;
+
+  const genericEmailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
     deps: args.deps,
     nearAccountId: args.nearAccountId,
     chain: args.chain,
   });
-  const emailOtpKeyRef = tryGetEmailOtpThresholdEcdsaKeyRefForSigning({
+  const genericEmailOtpKeyRef = tryGetEmailOtpThresholdEcdsaKeyRefForSigning({
     deps: args.deps,
     nearAccountId: args.nearAccountId,
     chain: args.chain,
   });
+  const emailOtpRecord =
+    args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? exactRecordForCandidate
+      : genericEmailOtpRecord;
+  const emailOtpKeyRef =
+    args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? exactKeyRefForCandidate
+      : genericEmailOtpKeyRef;
 
   const passkeyCandidates = listPasskeyEcdsaSigningCandidates({
     deps: args.deps,
     nearAccountId: args.nearAccountId,
     chain: args.chain,
   });
+  const exactPasskeyCandidate =
+    args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey &&
+    (exactRecordForCandidate || exactKeyRefForCandidate) &&
+    exactKeyRefMatchForCandidate?.source !== SIGNER_AUTH_METHODS.emailOtp
+      ? {
+          source: (exactRecordForCandidate?.source ||
+            exactKeyRefMatchForCandidate?.source ||
+            'manual-bootstrap') as PasskeyEcdsaSessionStoreSource,
+          ...(exactRecordForCandidate ? { record: exactRecordForCandidate } : {}),
+          ...(exactKeyRefForCandidate ? { keyRef: exactKeyRefForCandidate } : {}),
+        }
+      : undefined;
   const selectedPasskeyCandidate =
-    args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey
+    exactPasskeyCandidate ||
+    (args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey
       ? passkeyCandidates.find((candidate) =>
           ecdsaMaterialMatchesSnapshotCandidate({
             candidate: args.snapshotCandidate!,
@@ -252,9 +327,53 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
             ...(candidate.keyRef ? { keyRef: candidate.keyRef } : {}),
           }),
         )
-      : passkeyCandidates[0];
+      : passkeyCandidates[0]);
   const passkeyRecord = selectedPasskeyCandidate?.record;
   const passkeyKeyRef = selectedPasskeyCandidate?.keyRef;
+
+  try {
+    console.info('[SigningEngine][ecdsa][post-restore-inventory]', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      requestedAuthMethod: args.authMethod,
+      allowMissingHotMaterial: args.allowMissingHotMaterial === true,
+      selectedSnapshotCandidate: args.snapshotCandidate
+        ? {
+            authMethod: args.snapshotCandidate.authMethod,
+            chain: args.snapshotCandidate.chain,
+            state: args.snapshotCandidate.state,
+            source: args.snapshotCandidate.source,
+            walletSigningSessionId: args.snapshotCandidate.walletSigningSessionId,
+            thresholdSessionId: args.snapshotCandidate.thresholdSessionId,
+            remainingUses: args.snapshotCandidate.remainingUses,
+            expiresAtMs: args.snapshotCandidate.expiresAtMs,
+            updatedAtMs: args.snapshotCandidate.updatedAtMs,
+          }
+        : { present: false },
+      transactionLane: args.transactionLane || null,
+      visibleEmailOtp: {
+        record: summarizeEvmFamilyEcdsaSessionRecord(genericEmailOtpRecord),
+        keyRef: summarizeEvmFamilyEcdsaKeyRef(genericEmailOtpKeyRef),
+      },
+      exactCandidateMaterial: {
+        record: summarizeEvmFamilyEcdsaSessionRecord(exactRecordForCandidate),
+        keyRef: summarizeEvmFamilyEcdsaKeyRef(exactKeyRefForCandidate),
+        keyRefSource: exactKeyRefMatchForCandidate?.source || null,
+      },
+      visiblePasskeyCandidates: passkeyCandidates.map((candidate) => ({
+        source: candidate.source,
+        record: summarizeEvmFamilyEcdsaSessionRecord(candidate.record),
+        keyRef: summarizeEvmFamilyEcdsaKeyRef(candidate.keyRef),
+      })),
+      selectedPasskeyCandidate: selectedPasskeyCandidate
+        ? {
+            source: selectedPasskeyCandidate.source,
+            record: summarizeEvmFamilyEcdsaSessionRecord(selectedPasskeyCandidate.record),
+            keyRef: summarizeEvmFamilyEcdsaKeyRef(selectedPasskeyCandidate.keyRef),
+          }
+        : { present: false },
+    });
+  } catch {}
 
   const unambiguousLane = pickUnambiguousEcdsaAuthRecord({
     ...(emailOtpRecord ? { emailOtpRecord } : {}),
@@ -276,23 +395,29 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     const exactCandidate = args.snapshotCandidate;
     const selectedEmailOtpRecord =
       exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-        ? ecdsaMaterialMatchesSnapshotCandidate({
+        ? exactRecordForCandidate ||
+          (ecdsaMaterialMatchesSnapshotCandidate({
             candidate: exactCandidate,
-            ...(emailOtpRecord ? { record: emailOtpRecord } : {}),
+            ...(genericEmailOtpRecord ? { record: genericEmailOtpRecord } : {}),
           })
-          ? emailOtpRecord
-          : undefined
+            ? genericEmailOtpRecord
+            : undefined)
         : emailOtpRecord;
     const selectedEmailOtpKeyRef =
       exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
-        ? ecdsaMaterialMatchesSnapshotCandidate({
+        ? exactKeyRefForCandidate ||
+          (ecdsaMaterialMatchesSnapshotCandidate({
             candidate: exactCandidate,
-            ...(emailOtpKeyRef ? { keyRef: emailOtpKeyRef } : {}),
+            ...(genericEmailOtpKeyRef ? { keyRef: genericEmailOtpKeyRef } : {}),
           })
-          ? emailOtpKeyRef
-          : undefined
+            ? genericEmailOtpKeyRef
+            : undefined)
         : emailOtpKeyRef;
-    if (exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+    if (
+      !args.allowMissingHotMaterial &&
+      exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
+      exactEcdsaCandidateRequiresHotMaterial(exactCandidate)
+    ) {
       requireExactEcdsaCandidateMaterial({
         nearAccountId: args.nearAccountId,
         chain: args.chain,
@@ -301,20 +426,23 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
         ...(selectedEmailOtpKeyRef ? { keyRef: selectedEmailOtpKeyRef } : {}),
       });
     }
-    const signingLane = buildEvmFamilyEcdsaSigningLaneContext({
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
-      authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      source: SIGNER_AUTH_METHODS.emailOtp,
-      ...(selectedEmailOtpRecord ? { record: selectedEmailOtpRecord } : {}),
-      ...(selectedEmailOtpKeyRef ? { keyRef: selectedEmailOtpKeyRef } : {}),
-    });
+    const signingLane =
+      buildEvmFamilyEcdsaSigningLaneContext({
+        nearAccountId: args.nearAccountId,
+        chain: args.chain,
+        authMethod: SIGNER_AUTH_METHODS.emailOtp,
+        source: SIGNER_AUTH_METHODS.emailOtp,
+        ...(selectedEmailOtpRecord ? { record: selectedEmailOtpRecord } : {}),
+        ...(selectedEmailOtpKeyRef ? { keyRef: selectedEmailOtpKeyRef } : {}),
+      }) || signingLaneFromExactTransactionLane(args.transactionLane);
     const selectedRecord = selectedEmailOtpRecord
       ? validateSelectedEcdsaRecordCandidateForLane({
           lane: signingLane,
           record: selectedEmailOtpRecord,
           context: 'Email OTP ECDSA selection',
         })
+      : exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? undefined
       : readSelectedEcdsaRecordForLane({ deps: args.deps, lane: signingLane });
     const selectedKeyRef = selectedEmailOtpKeyRef
       ? validateSelectedEcdsaKeyRefCandidateForLane({
@@ -322,6 +450,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
           keyRef: selectedEmailOtpKeyRef,
           context: 'Email OTP ECDSA selection',
         })
+      : exactCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
+      ? undefined
       : readSelectedEcdsaKeyRefForLane({ deps: args.deps, lane: signingLane });
     const warmRecord =
       selectedRecord && !isSingleUseEmailOtpEcdsaRecord(selectedRecord)
@@ -351,7 +481,11 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     };
   }
 
-  if (args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey) {
+  if (
+    !args.allowMissingHotMaterial &&
+    args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey &&
+    exactEcdsaCandidateRequiresHotMaterial(args.snapshotCandidate)
+  ) {
     requireExactEcdsaCandidateMaterial({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
@@ -361,20 +495,23 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     });
   }
   const passkeySource = selectedPasskeyCandidate?.source || 'manual-bootstrap';
-  const signingLane = buildEvmFamilyEcdsaSigningLaneContext({
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
-    authMethod: SIGNER_AUTH_METHODS.passkey,
-    source: passkeySource,
-    ...(passkeyRecord ? { record: passkeyRecord } : {}),
-    ...(passkeyKeyRef ? { keyRef: passkeyKeyRef } : {}),
-  });
+  const signingLane =
+    buildEvmFamilyEcdsaSigningLaneContext({
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      authMethod: SIGNER_AUTH_METHODS.passkey,
+      source: passkeySource,
+      ...(passkeyRecord ? { record: passkeyRecord } : {}),
+      ...(passkeyKeyRef ? { keyRef: passkeyKeyRef } : {}),
+    }) || signingLaneFromExactTransactionLane(args.transactionLane);
   const selectedPasskeyRecord = passkeyRecord
     ? validateSelectedEcdsaRecordCandidateForLane({
         lane: signingLane,
         record: passkeyRecord,
         context: 'passkey ECDSA selection',
       })
+    : args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey
+    ? undefined
     : readSelectedEcdsaRecordForLane({
         deps: args.deps,
         lane: signingLane,
@@ -385,6 +522,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
         keyRef: passkeyKeyRef,
         context: 'passkey ECDSA selection',
       })
+    : args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey
+    ? undefined
     : readSelectedEcdsaKeyRefForLane({
         deps: args.deps,
         lane: signingLane,

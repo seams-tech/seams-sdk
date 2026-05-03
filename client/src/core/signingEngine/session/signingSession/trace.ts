@@ -72,7 +72,27 @@ export function emitSigningPlannerDecisionTrace(
   } catch {}
 }
 
-function isSigningSessionTraceEnabled(): boolean {
+export function emitSigningSessionFlowTrace(
+  scope: SigningSessionTraceScope,
+  event: Record<string, unknown>,
+): void {
+  if (!isSigningSessionTraceEnabled()) return;
+
+  try {
+    console.info(`[SigningFlow][${scope}]`, event);
+  } catch {}
+}
+
+export function emitSigningSessionFlowFailure(
+  scope: SigningSessionTraceScope,
+  event: Record<string, unknown>,
+): void {
+  try {
+    console.warn(`[SigningFlow][${scope}][failure]`, event);
+  } catch {}
+}
+
+export function isSigningSessionTraceEnabled(): boolean {
   try {
     const storage = (globalThis as { localStorage?: Storage }).localStorage;
     return storage?.getItem('seams:debug:signing-session') === '1';

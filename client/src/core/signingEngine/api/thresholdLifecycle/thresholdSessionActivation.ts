@@ -23,7 +23,8 @@ import type { SigningOperationIntent } from '../../session/signingSession/types'
 
 export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
-  chain?: ThresholdEcdsaActivationChain;
+  chain: ThresholdEcdsaActivationChain;
+  chainId: number;
   source?: ThresholdEcdsaSessionStoreSource;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
@@ -110,7 +111,7 @@ export async function bootstrapEcdsaSessionValue(
   args: BootstrapEcdsaSessionArgs,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
-  const chain: ThresholdEcdsaActivationChain = args.chain || 'tempo';
+  const chain = args.chain;
   const relayerUrl = resolveRelayerUrl(args.relayerUrl, deps.defaultRelayerUrl);
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
@@ -133,6 +134,7 @@ export async function bootstrapEcdsaSessionValue(
     },
     request: {
       nearAccountId,
+      chainId: args.chainId,
       relayerUrl,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       participantIds: args.participantIds,

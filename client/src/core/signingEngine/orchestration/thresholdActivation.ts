@@ -53,6 +53,69 @@ export async function activateThresholdKeyForChain<
 
 export type ThresholdEcdsaActivationChain = 'evm' | 'tempo';
 
+export type ThresholdEcdsaEvmChainTarget = {
+  chainType: 'evm';
+  chainId: number;
+};
+
+export type ThresholdEcdsaTempoChainTarget = {
+  chainType: 'tempo';
+  chainId: number;
+};
+
+export type ThresholdEcdsaChainTarget =
+  | ThresholdEcdsaEvmChainTarget
+  | ThresholdEcdsaTempoChainTarget;
+
+export const TEMPO_TESTNET_CHAIN_ID = 42431;
+export const TEMPO_ECDSA_CHAIN_TARGET: ThresholdEcdsaTempoChainTarget = {
+  chainType: 'tempo',
+  chainId: TEMPO_TESTNET_CHAIN_ID,
+};
+
+function normalizeEcdsaChainId(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const chainId = Math.floor(Number(value));
+  if (!Number.isSafeInteger(chainId) || chainId < 0) return null;
+  return chainId;
+}
+
+export function thresholdEcdsaChainTargetFromActivationChain(args: {
+  chain: ThresholdEcdsaActivationChain;
+  chainId: number;
+}): ThresholdEcdsaChainTarget {
+  if (args.chain === 'tempo') {
+    const chainId = normalizeEcdsaChainId(args.chainId);
+    if (typeof chainId !== 'number') {
+      throw new Error('[activation] Tempo threshold ECDSA chain target requires numeric chainId');
+    }
+    return { chainType: 'tempo', chainId };
+  }
+
+  const chainId = normalizeEcdsaChainId(args.chainId);
+  if (typeof chainId !== 'number') {
+    throw new Error('[activation] EVM threshold ECDSA chain target requires numeric chainId');
+  }
+  return { chainType: 'evm', chainId };
+}
+
+export function thresholdEcdsaActivationChainForTarget(
+  target: ThresholdEcdsaChainTarget,
+): ThresholdEcdsaActivationChain {
+  return target.chainType;
+}
+
+export function isSameThresholdEcdsaChainTarget(
+  a: ThresholdEcdsaChainTarget,
+  b: ThresholdEcdsaChainTarget,
+): boolean {
+  return a.chainType === b.chainType && a.chainId === b.chainId;
+}
+
+export function describeThresholdEcdsaChainTarget(target: ThresholdEcdsaChainTarget): string {
+  return `${target.chainType}:${target.chainId}`;
+}
+
 export type EcdsaKeygenResult = Awaited<ReturnType<typeof keygenEcdsa>>;
 export type EcdsaSessionResult = Awaited<ReturnType<typeof connectEcdsaSession>>;
 export type EcdsaKeygenSuccess = EcdsaKeygenResult & { ok: true };
@@ -77,6 +140,7 @@ export type ActivateEcdsaSessionDeps = {
 
 export type ActivateEcdsaSessionRequest = {
   nearAccountId: AccountId | string;
+  chainId: number;
   relayerUrl: string;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
@@ -107,6 +171,7 @@ export async function activateEcdsaSession(
     touchIdPrompt: deps.touchIdPrompt,
     prfFirstCache: deps.prfFirstCache,
     relayerUrl: args.relayerUrl,
+    chainId: args.chainId,
     userId: nearAccountId,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     participantIds: args.participantIds,

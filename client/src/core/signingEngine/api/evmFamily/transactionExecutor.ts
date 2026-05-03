@@ -17,10 +17,12 @@ import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/threshol
 import type { SigningSessionBudgetReservation } from '../../session/signingSession/budget';
 import type {
   BudgetAdmittedOperation,
-  BudgetAdmittedTransactionOperation,
   EvmFamilyEcdsaTransactionLane,
 } from '../../session/signingSession/transactionState';
-import type { SigningAuthPlan } from '../../touchConfirm/shared/confirmTypes';
+import type {
+  EvmFamilyThresholdEcdsaAdmissionBoundary,
+  EvmFamilyThresholdEcdsaAuthPlanInput,
+} from '../../orchestration/shared/thresholdEcdsaTransactionAdmission';
 import {
   evmReserveNonceInputToLane,
   type NonceOperationContext,
@@ -56,10 +58,58 @@ type EvmFamilyTransactionExecutorDeps = EvmFamilyAccountMetadataDeps &
   EvmFamilyNonceNetworkDeps;
 
 type EvmFamilySigningFlowArgs = object;
-type EvmFamilyThresholdEcdsaOperation = BudgetAdmittedTransactionOperation<
-  EvmFamilyEcdsaTransactionLane,
-  SigningAuthPlan
->;
+type EvmFamilyTransactionSigningRequest = EvmSigningRequest | TempoSigningRequest;
+type EvmFamilyTransactionSigningResult = EvmSignedResult | TempoSignedResult;
+type EvmFamilyTouchConfirmSigner = (args: unknown) => Promise<EvmFamilyTransactionSigningResult>;
+
+type EvmFamilyTransactionSigningExecutorArgs<
+  TRequest extends EvmFamilyTransactionSigningRequest,
+> = {
+  deps: EvmFamilyTransactionExecutorDeps;
+  nearAccountId: string;
+  request: TRequest;
+  flowArgs: EvmFamilySigningFlowArgs;
+  thresholdEcdsaRecord?: ThresholdEcdsaSessionRecord;
+  emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
+  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
+  signingSessionPlan?: SigningSessionPlan;
+  onConfirmationDisplayed: () => void;
+  thresholdEcdsaBoundary: EvmFamilyThresholdEcdsaAdmissionBoundary;
+  thresholdEcdsaAuthPlan: EvmFamilyThresholdEcdsaAuthPlanInput;
+  reserveWalletSigningSessionBudget: (
+    operation: BudgetAdmittedOperation<EvmFamilyEcdsaTransactionLane>,
+  ) => Promise<SigningSessionBudgetReservation | null>;
+  recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
+  recordFailedWalletSigningSessionSpend: (error: unknown) => void;
+  applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
+  deferSuccessfulSigningSessionFinalization?: boolean;
+  deferFailedSigningSessionFinalization?: boolean;
+  retryWithFreshEmailOtpAuth: (
+    error: unknown,
+  ) => Promise<TempoSignedResult | EvmSignedResult | null>;
+  nonceOperation: NonceOperationContext;
+};
+
+type EvmFamilyTransactionSigningConfig<TRequest extends EvmFamilyTransactionSigningRequest> = {
+  chain: TRequest['chain'];
+  loadSigner: () => Promise<EvmFamilyTouchConfirmSigner>;
+  prepareRequestWithManagedNonce: (args: {
+    deps: EvmFamilyTransactionExecutorDeps;
+    nearAccountId: string;
+    request: TRequest;
+    nonceOperation: NonceOperationContext;
+    ecdsaSignerAddress?: `0x${string}`;
+  }) => Promise<{
+    request: TRequest;
+    reservation: EvmFamilyManagedNonceReservation;
+  }>;
+  reconcileNonceLane?: (args: {
+    deps: EvmFamilyTransactionExecutorDeps;
+    nearAccountId: string;
+    request: TRequest;
+    ecdsaSignerAddress?: `0x${string}`;
+  }) => void;
+};
 
 function resolveThresholdEcdsaSignerAddress(args: {
   record?: ThresholdEcdsaSessionRecord;
@@ -109,141 +159,40 @@ async function runSuccessfulEvmFamilyPostSignCommands(args: {
   }
 }
 
-async function executeEvmTransactionSigning(args: {
-  deps: EvmFamilyTransactionExecutorDeps;
-  nearAccountId: string;
-  request: EvmSigningRequest;
-  flowArgs: EvmFamilySigningFlowArgs;
-  thresholdEcdsaRecord?: ThresholdEcdsaSessionRecord;
-  emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
-  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  signingSessionPlan?: SigningSessionPlan;
-  onConfirmationDisplayed: () => void;
-  thresholdEcdsaOperation?: EvmFamilyThresholdEcdsaOperation;
-  reserveWalletSigningSessionBudget: (
-    operation: BudgetAdmittedOperation<EvmFamilyEcdsaTransactionLane>,
-  ) => Promise<SigningSessionBudgetReservation | null>;
-  recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
-  recordFailedWalletSigningSessionSpend: (error: unknown) => void;
-  applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
-  deferSuccessfulSigningSessionFinalization?: boolean;
-  deferFailedSigningSessionFinalization?: boolean;
-  retryWithFreshEmailOtpAuth: (error: unknown) => Promise<TempoSignedResult | EvmSignedResult | null>;
-  nonceOperation: NonceOperationContext;
-}): Promise<EvmSignedResult | TempoSignedResult> {
-  const signEvmWithTouchConfirm = await loadSignEvmWithTouchConfirm();
+async function executeConfiguredEvmFamilyTransactionSigning<
+  TRequest extends EvmFamilyTransactionSigningRequest,
+>(
+  args: EvmFamilyTransactionSigningExecutorArgs<TRequest>,
+  config: EvmFamilyTransactionSigningConfig<TRequest>,
+): Promise<EvmFamilyTransactionSigningResult> {
+  const signWithTouchConfirm = await config.loadSigner();
   const ecdsaSignerAddress = resolveThresholdEcdsaSignerAddress({
     ...(args.thresholdEcdsaRecord ? { record: args.thresholdEcdsaRecord } : {}),
     ...(args.emailOtpReauthRecord ? { emailOtpReauthRecord: args.emailOtpReauthRecord } : {}),
     ...(args.thresholdEcdsaKeyRef ? { keyRef: args.thresholdEcdsaKeyRef } : {}),
   });
-  const reservationInputPromise = resolveManagedEvmNonceReservationInput({
+  config.reconcileNonceLane?.({
     deps: args.deps,
     nearAccountId: args.nearAccountId,
     request: args.request,
-    ...(ecdsaSignerAddress ? { senderHint: ecdsaSignerAddress } : {}),
-  });
-  void reservationInputPromise
-    .then((reservationInput) =>
-      args.deps.nonceCoordinator.reconcile({
-        lane: evmReserveNonceInputToLane(reservationInput),
-      }),
-    )
-    .catch(() => null);
-
-  try {
-    const result = await signEvmWithTouchConfirm({
-      ...args.flowArgs,
-      request: args.request,
-      onConfirmationDisplayed: args.onConfirmationDisplayed,
-      ...(args.thresholdEcdsaOperation
-        ? { thresholdEcdsaOperation: args.thresholdEcdsaOperation }
-        : {}),
-      reserveWalletSigningSessionBudget: args.reserveWalletSigningSessionBudget,
-      prepareRequestWithManagedNonce: async () =>
-        await reserveManagedEvmNonceForRequest({
-          deps: args.deps,
-          request: args.request,
-          reservationInput: await reservationInputPromise,
-          operation: args.nonceOperation,
-        }),
-      releaseNonceReservation: async (reservation: EvmFamilyManagedNonceReservation) => {
-        await releaseEvmFamilyNonceReservation(args.deps, reservation);
-      },
-    } as unknown);
-    if (!args.deferSuccessfulSigningSessionFinalization) {
-      await runSuccessfulEvmFamilyPostSignCommands({
-        signingSessionPlan: args.signingSessionPlan,
-        chain: 'evm',
-        recordSuccessfulWalletSigningSessionSpend: args.recordSuccessfulWalletSigningSessionSpend,
-        applySuccessfulEcdsaPostSignPolicy: args.applySuccessfulEcdsaPostSignPolicy,
-      });
-    }
-    return result;
-  } catch (error: unknown) {
-    const retried = await args.retryWithFreshEmailOtpAuth(error);
-    if (retried) return retried;
-    const finalError = mapToRetryableNonceStateError({
-      error,
-      chain: 'evm',
-      networkKey: resolveNonceNetworkKeyForError({
-        configs: args.deps.seamsPasskeyConfigs,
-        request: args.request,
-      }),
-      chainId: args.request.tx.chainId,
-    });
-    if (!args.deferFailedSigningSessionFinalization) {
-      args.recordFailedWalletSigningSessionSpend(finalError);
-    }
-    throw finalError;
-  }
-}
-
-async function executeTempoTransactionSigning(args: {
-  deps: EvmFamilyTransactionExecutorDeps;
-  nearAccountId: string;
-  request: TempoSigningRequest;
-  flowArgs: EvmFamilySigningFlowArgs;
-  thresholdEcdsaRecord?: ThresholdEcdsaSessionRecord;
-  emailOtpReauthRecord?: ThresholdEcdsaSessionRecord;
-  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
-  signingSessionPlan?: SigningSessionPlan;
-  onConfirmationDisplayed: () => void;
-  thresholdEcdsaOperation?: EvmFamilyThresholdEcdsaOperation;
-  reserveWalletSigningSessionBudget: (
-    operation: BudgetAdmittedOperation<EvmFamilyEcdsaTransactionLane>,
-  ) => Promise<SigningSessionBudgetReservation | null>;
-  recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
-  recordFailedWalletSigningSessionSpend: (error: unknown) => void;
-  applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
-  deferSuccessfulSigningSessionFinalization?: boolean;
-  deferFailedSigningSessionFinalization?: boolean;
-  retryWithFreshEmailOtpAuth: (error: unknown) => Promise<TempoSignedResult | EvmSignedResult | null>;
-  nonceOperation: NonceOperationContext;
-}): Promise<EvmSignedResult | TempoSignedResult> {
-  const signTempoWithTouchConfirm = await loadSignTempoWithTouchConfirm();
-  const ecdsaSignerAddress = resolveThresholdEcdsaSignerAddress({
-    ...(args.thresholdEcdsaRecord ? { record: args.thresholdEcdsaRecord } : {}),
-    ...(args.emailOtpReauthRecord ? { emailOtpReauthRecord: args.emailOtpReauthRecord } : {}),
-    ...(args.thresholdEcdsaKeyRef ? { keyRef: args.thresholdEcdsaKeyRef } : {}),
+    ...(ecdsaSignerAddress ? { ecdsaSignerAddress } : {}),
   });
 
   try {
-    const result = await signTempoWithTouchConfirm({
+    const result = await signWithTouchConfirm({
       ...args.flowArgs,
       request: args.request,
       onConfirmationDisplayed: args.onConfirmationDisplayed,
-      ...(args.thresholdEcdsaOperation
-        ? { thresholdEcdsaOperation: args.thresholdEcdsaOperation }
-        : {}),
+      thresholdEcdsaBoundary: args.thresholdEcdsaBoundary,
+      thresholdEcdsaAuthPlan: args.thresholdEcdsaAuthPlan,
       reserveWalletSigningSessionBudget: args.reserveWalletSigningSessionBudget,
       prepareRequestWithManagedNonce: async () =>
-        await reserveManagedTempoNonceForRequest({
+        await config.prepareRequestWithManagedNonce({
           deps: args.deps,
           nearAccountId: args.nearAccountId,
           request: args.request,
-          operation: args.nonceOperation,
-          ...(ecdsaSignerAddress ? { senderHint: ecdsaSignerAddress } : {}),
+          nonceOperation: args.nonceOperation,
+          ...(ecdsaSignerAddress ? { ecdsaSignerAddress } : {}),
         }),
       releaseNonceReservation: async (reservation: EvmFamilyManagedNonceReservation) => {
         await releaseEvmFamilyNonceReservation(args.deps, reservation);
@@ -252,7 +201,7 @@ async function executeTempoTransactionSigning(args: {
     if (!args.deferSuccessfulSigningSessionFinalization) {
       await runSuccessfulEvmFamilyPostSignCommands({
         signingSessionPlan: args.signingSessionPlan,
-        chain: 'tempo',
+        chain: config.chain,
         recordSuccessfulWalletSigningSessionSpend: args.recordSuccessfulWalletSigningSessionSpend,
         applySuccessfulEcdsaPostSignPolicy: args.applySuccessfulEcdsaPostSignPolicy,
       });
@@ -263,7 +212,7 @@ async function executeTempoTransactionSigning(args: {
     if (retried) return retried;
     const finalError = mapToRetryableNonceStateError({
       error,
-      chain: 'tempo',
+      chain: config.chain,
       networkKey: resolveNonceNetworkKeyForError({
         configs: args.deps.seamsPasskeyConfigs,
         request: args.request,
@@ -287,7 +236,8 @@ export async function executeEvmFamilyTransactionSigning(args: {
   thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   signingSessionPlan?: SigningSessionPlan;
   onConfirmationDisplayed: () => void;
-  thresholdEcdsaOperation?: EvmFamilyThresholdEcdsaOperation;
+  thresholdEcdsaBoundary: EvmFamilyThresholdEcdsaAdmissionBoundary;
+  thresholdEcdsaAuthPlan: EvmFamilyThresholdEcdsaAuthPlanInput;
   reserveWalletSigningSessionBudget: (
     operation: BudgetAdmittedOperation<EvmFamilyEcdsaTransactionLane>,
   ) => Promise<SigningSessionBudgetReservation | null>;
@@ -300,13 +250,64 @@ export async function executeEvmFamilyTransactionSigning(args: {
   nonceOperation: NonceOperationContext;
 }): Promise<TempoSignedResult | EvmSignedResult> {
   if (args.request.chain === 'evm') {
-    return await executeEvmTransactionSigning({
+    let reservationInputPromise:
+      | ReturnType<typeof resolveManagedEvmNonceReservationInput>
+      | null = null;
+    const getReservationInput = (nonceArgs: {
+      deps: EvmFamilyTransactionExecutorDeps;
+      nearAccountId: string;
+      request: EvmSigningRequest;
+      ecdsaSignerAddress?: `0x${string}`;
+    }) => {
+      if (!reservationInputPromise) {
+        reservationInputPromise = resolveManagedEvmNonceReservationInput({
+          deps: nonceArgs.deps,
+          nearAccountId: nonceArgs.nearAccountId,
+          request: nonceArgs.request,
+          ...(nonceArgs.ecdsaSignerAddress ? { senderHint: nonceArgs.ecdsaSignerAddress } : {}),
+        });
+      }
+      return reservationInputPromise;
+    };
+    return await executeConfiguredEvmFamilyTransactionSigning({
       ...args,
       request: args.request,
+    }, {
+      chain: 'evm',
+      loadSigner: loadSignEvmWithTouchConfirm,
+      reconcileNonceLane: (nonceArgs) => {
+        void getReservationInput(nonceArgs)
+          .then((reservationInput) =>
+            nonceArgs.deps.nonceCoordinator.reconcile({
+              lane: evmReserveNonceInputToLane(reservationInput),
+            }),
+          )
+          .catch(() => null);
+      },
+      prepareRequestWithManagedNonce: async (nonceArgs) => {
+        const reservationInput = await getReservationInput(nonceArgs);
+        return await reserveManagedEvmNonceForRequest({
+          deps: nonceArgs.deps,
+          request: nonceArgs.request,
+          reservationInput,
+          operation: nonceArgs.nonceOperation,
+        });
+      },
     });
   }
-  return await executeTempoTransactionSigning({
+  return await executeConfiguredEvmFamilyTransactionSigning({
     ...args,
     request: args.request,
+  }, {
+    chain: 'tempo',
+    loadSigner: loadSignTempoWithTouchConfirm,
+    prepareRequestWithManagedNonce: async (nonceArgs) =>
+      await reserveManagedTempoNonceForRequest({
+        deps: nonceArgs.deps,
+        nearAccountId: nonceArgs.nearAccountId,
+        request: nonceArgs.request,
+        operation: nonceArgs.nonceOperation,
+        ...(nonceArgs.ecdsaSignerAddress ? { senderHint: nonceArgs.ecdsaSignerAddress } : {}),
+      }),
   });
 }

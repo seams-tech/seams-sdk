@@ -28,6 +28,7 @@ import {
   getPrfFirstB64uFromCredential,
   getPrfResultsFromCredential,
 } from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
+import { requireThresholdEcdsaProvisionChainId } from './thresholdEcdsaProvisioning';
 
 // Registration forces a visible, clickable confirmation for cross‑origin safety
 
@@ -545,10 +546,15 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
 
     let canonicalEcdsaThresholdKeyId = '';
     for (const chain of ['tempo', 'evm'] as const) {
+      const chainId = requireThresholdEcdsaProvisionChainId({
+        chain,
+        chains: args.context.configs.network.chains,
+      });
       const bootstrapStartedAt = performance.now();
       const bootstrap = await args.signingEngine.bootstrapEcdsaSession({
         nearAccountId: args.nearAccountId,
         chain,
+        chainId,
         source: 'registration',
         relayerUrl,
         sessionKind: 'jwt',

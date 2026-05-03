@@ -123,13 +123,13 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
   args: {
     nearAccountId: AccountId | string;
     thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
-    chain?: 'tempo' | 'evm';
+    chain: 'tempo' | 'evm';
     minRemainingUsesBeforePrefill?: number;
   },
 ): Promise<ThresholdEcdsaLoginPrefillResult> {
   let thresholdSessionId: string | undefined;
   try {
-    const chain: 'tempo' | 'evm' = args.chain === 'evm' ? 'evm' : 'tempo';
+    const chain = args.chain;
     const nearAccountId = toAccountId(args.nearAccountId);
     const keyRef = args.thresholdEcdsaKeyRef;
     if (!keyRef || keyRef.type !== 'threshold-ecdsa-secp256k1') {

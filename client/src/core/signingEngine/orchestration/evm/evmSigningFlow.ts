@@ -1,5 +1,4 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   TouchConfirmSigningPort,
   TouchConfirmSecureConfirmationPort,
@@ -15,19 +14,25 @@ import type {
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import {
   SigningAuthPlanKind,
-  type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import type { SigningSessionBudgetReservation } from '../../session/signingSession/budget';
 import type {
   BudgetAdmittedOperation,
-  BudgetAdmittedTransactionOperation,
   EvmFamilyEcdsaTransactionLane,
 } from '../../session/signingSession/transactionState';
-
-type EvmThresholdEcdsaOperation = BudgetAdmittedTransactionOperation<
-  EvmFamilyEcdsaTransactionLane,
-  SigningAuthPlan
->;
+import type {
+  EvmFamilyThresholdEcdsaAdmissionBoundary,
+  EvmFamilyThresholdEcdsaAuthPlanInput,
+  EvmFamilyThresholdEcdsaEmailOtpSigning,
+  EvmFamilyThresholdEcdsaOperation,
+  EvmFamilyThresholdEcdsaPasskeyReconnect,
+  EvmFamilyThresholdEcdsaPasskeyReconnectPlan,
+  EvmFamilyThresholdEcdsaReauthResult,
+} from '../shared/thresholdEcdsaTransactionAdmission';
+import {
+  completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation,
+  resolveEvmFamilyThresholdEcdsaAdmissionMode,
+} from '../shared/thresholdEcdsaTransactionAdmission';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
@@ -69,13 +74,7 @@ type EvmPasskeyEcdsaReconnect = {
     walletSigningSessionId?: string;
     sessionPolicyDigest32: string;
   }>;
-  reconnect: (args: {
-    credential: WebAuthnAuthenticationCredential;
-    usesNeeded: number;
-    sessionId?: string;
-    walletSigningSessionId?: string;
-  }) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
-};
+} & EvmFamilyThresholdEcdsaPasskeyReconnect;
 
 export async function signEvmWithTouchConfirm(args: {
   ctx: TouchConfirmContext;
@@ -89,7 +88,7 @@ export async function signEvmWithTouchConfirm(args: {
   keyRefsByAlgorithm?: Partial<Record<SignRequest['algorithm'], KeyRef>>;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
-  ensureThresholdEcdsaKeyRefReady?: () => Promise<ThresholdEcdsaSecp256k1KeyRef>;
+  ensureThresholdEcdsaKeyRefReady?: () => Promise<EvmFamilyThresholdEcdsaReauthResult>;
   passkeyEcdsaReconnect?: EvmPasskeyEcdsaReconnect;
   prepareRequestWithManagedNonce?: () => Promise<{
     request: EvmSigningRequest;
@@ -97,20 +96,30 @@ export async function signEvmWithTouchConfirm(args: {
   }>;
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void | Promise<void>;
   onConfirmationDisplayed?: () => void;
-  thresholdEcdsaOperation?: EvmThresholdEcdsaOperation;
+  thresholdEcdsaBoundary: EvmFamilyThresholdEcdsaAdmissionBoundary;
+  thresholdEcdsaAuthPlan: EvmFamilyThresholdEcdsaAuthPlanInput;
   reserveWalletSigningSessionBudget?: (
     operation: BudgetAdmittedOperation<EvmFamilyEcdsaTransactionLane>,
   ) => Promise<SigningSessionBudgetReservation | null>;
   emailOtpSigning?: {
     prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
-    complete: (otpCode: string, challengeId?: string) => Promise<ThresholdEcdsaSecp256k1KeyRef>;
-  };
+  } & EvmFamilyThresholdEcdsaEmailOtpSigning;
   onAuthSideEffectStarted?: (sideEffect: EvmSigningAuthSideEffect) => void;
 }): Promise<EvmSignedResult> {
   const sessionId = makeRequestId('intent');
   const flowId = `signing:evm:${args.nearAccountId}:${sessionId}`;
-  const signingAuthPlan = args.thresholdEcdsaOperation?.authPlan;
+  const hasThresholdEcdsaRequest = args.request.senderSignatureAlgorithm === 'secp256k1';
+  const thresholdEcdsaBoundary = args.thresholdEcdsaBoundary;
+  const signingAuthPlan =
+    args.thresholdEcdsaAuthPlan.kind === 'planned'
+      ? args.thresholdEcdsaAuthPlan.signingAuthPlan
+      : undefined;
+  if (hasThresholdEcdsaRequest && !signingAuthPlan) {
+    throw new Error(
+      '[chains] threshold ECDSA transaction signing requires an explicit auth plan',
+    );
+  }
   const authMethod = resolveTouchConfirmSigningAuthMethod(
     signingAuthPlan,
     !!args.emailOtpSigning,
@@ -168,16 +177,22 @@ export async function signEvmWithTouchConfirm(args: {
   let thresholdSignatureCreated = false;
   let walletBudgetReservation: SigningSessionBudgetReservation | null = null;
   let walletBudgetReservationAttempted = false;
+  let activeThresholdEcdsaOperation: EvmFamilyThresholdEcdsaOperation | null =
+    thresholdEcdsaBoundary.kind === 'admitted' ? thresholdEcdsaBoundary.operation : null;
+  const getBudgetAdmittedThresholdEcdsaOperation =
+    async (): Promise<EvmFamilyThresholdEcdsaOperation> => {
+      if (activeThresholdEcdsaOperation) return activeThresholdEcdsaOperation;
+      throw new Error(
+        '[chains] threshold ECDSA transaction signing requires budget-admitted state before signing',
+      );
+    };
   const reserveWalletSigningBudgetOnce = async (): Promise<void> => {
     if (walletBudgetReservationAttempted) return;
     walletBudgetReservationAttempted = true;
-    if (!args.thresholdEcdsaOperation) {
-      throw new Error(
-        '[chains] threshold ECDSA transaction signing requires a budget-admitted operation',
-      );
-    }
+    const thresholdEcdsaOperation = await getBudgetAdmittedThresholdEcdsaOperation();
+    if (!args.reserveWalletSigningSessionBudget) return;
     walletBudgetReservation =
-      (await args.reserveWalletSigningSessionBudget?.(args.thresholdEcdsaOperation)) || null;
+      (await args.reserveWalletSigningSessionBudget?.(thresholdEcdsaOperation)) || null;
   };
   const releaseWalletBudgetReservation = (): void => {
     if (!walletBudgetReservation) return;
@@ -265,22 +280,27 @@ export async function signEvmWithTouchConfirm(args: {
           ...(args.emailOtpSigning?.resend ? { onResend: args.emailOtpSigning.resend } : {}),
         }
       : undefined;
-    const hasThresholdEcdsaRequest = args.request.senderSignatureAlgorithm === 'secp256k1';
-    if (hasThresholdEcdsaRequest && !args.thresholdEcdsaOperation) {
-      throw new Error(
-        '[chains] threshold ECDSA transaction signing requires a budget-admitted operation',
-      );
+    const touchConfirmAuthInput = signingAuthPlan
+      ? ({
+          kind: 'signing_plan' as const,
+          signingAuthPlan,
+          emailOtpPrompt: emailOtpPrompt || null,
+        })
+      : emailOtpPrompt
+        ? ({ kind: 'email_otp' as const, emailOtpPrompt })
+        : !hasThresholdEcdsaRequest
+          ? ({ kind: 'passkey' as const })
+          : null;
+    if (!touchConfirmAuthInput) {
+      throw new Error('[chains] EVM signing requires explicit auth input');
     }
-    const { touchConfirmAuthPayload } = await resolveTouchConfirmSigningAuth({
-      needsWebAuthn: !hasThresholdEcdsaRequest && !emailOtpPrompt,
-      ...(signingAuthPlan ? { signingAuthPlan } : {}),
-      ...(emailOtpPrompt ? { emailOtpPrompt } : {}),
-    });
+    const { touchConfirmAuthPayload } =
+      await resolveTouchConfirmSigningAuth(touchConfirmAuthInput);
     const usesNeeded = 1;
     const shouldReconnectWithPasskeyEcdsa =
       touchConfirmAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
       Boolean(args.passkeyEcdsaReconnect);
-    const plannedPasskeyReconnect =
+    const plannedPasskeyReconnect: EvmFamilyThresholdEcdsaPasskeyReconnectPlan | undefined =
       shouldReconnectWithPasskeyEcdsa && args.passkeyEcdsaReconnect?.prepare
         ? await args.passkeyEcdsaReconnect.prepare({ usesNeeded })
         : undefined;
@@ -336,9 +356,10 @@ export async function signEvmWithTouchConfirm(args: {
         notifyAuthSideEffectStarted('threshold_reconnect');
         ensureThresholdKeyRefTask = (async () => {
           const ensured = await args.ensureThresholdEcdsaKeyRefReady!();
-          thresholdEcdsaKeyRef = ensured;
-          ensuredThresholdKeyRef = ensured;
-          return ensured;
+          thresholdEcdsaKeyRef = ensured.keyRef;
+          ensuredThresholdKeyRef = ensured.keyRef;
+          activeThresholdEcdsaOperation = ensured.operation;
+          return ensured.keyRef;
         })();
         try {
           return await ensureThresholdKeyRefTask;
@@ -352,47 +373,29 @@ export async function signEvmWithTouchConfirm(args: {
       }
       throw new Error('[chains] missing threshold ECDSA keyRef for secp256k1 signing');
     };
-    if (args.emailOtpSigning) {
-      const otpCode = String(confirmation.otpCode || '').trim();
-      if (!/^\d{6}$/.test(otpCode)) {
-        throw new Error('[chains] missing Email OTP code from touchConfirm');
+    const admissionMode = resolveEvmFamilyThresholdEcdsaAdmissionMode({
+      hasSecp256k1Request,
+      signingAuthPlanKind: touchConfirmAuthPayload.signingAuthPlan.kind,
+      ...(args.emailOtpSigning ? { emailOtpSigning: args.emailOtpSigning } : {}),
+      ...(args.passkeyEcdsaReconnect ? { passkeyEcdsaReconnect: args.passkeyEcdsaReconnect } : {}),
+      ...(plannedPasskeyReconnect ? { plannedPasskeyReconnect } : {}),
+      ...(args.ensureThresholdEcdsaKeyRefReady
+        ? { ensureThresholdEcdsaKeyRefReady: args.ensureThresholdEcdsaKeyRefReady }
+        : {}),
+      onThresholdReconnectStarted: () => notifyAuthSideEffectStarted('threshold_reconnect'),
+    });
+    const admissionCompletion = await completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation({
+      mode: admissionMode,
+      confirmation,
+      usesNeeded,
+    });
+    if (admissionCompletion) {
+      thresholdEcdsaKeyRef = admissionCompletion.result.keyRef;
+      ensuredThresholdKeyRef = admissionCompletion.result.keyRef;
+      activeThresholdEcdsaOperation = admissionCompletion.result.operation;
+      if (admissionCompletion.source === 'email_otp') {
+        await reserveWalletSigningBudgetOnce();
       }
-      const refreshed = await args.emailOtpSigning.complete(
-        otpCode,
-        confirmation.emailOtpChallengeId,
-      );
-      thresholdEcdsaKeyRef = refreshed;
-      ensuredThresholdKeyRef = refreshed;
-      await reserveWalletSigningBudgetOnce();
-    }
-    if (hasSecp256k1Request && shouldReconnectWithPasskeyEcdsa && args.passkeyEcdsaReconnect) {
-      if (!confirmation.credential) {
-        throw new Error('[chains] missing WebAuthn credential for threshold ECDSA reconnect');
-      }
-      notifyAuthSideEffectStarted('threshold_reconnect');
-      const refreshed = await args.passkeyEcdsaReconnect.reconnect({
-        credential: confirmation.credential as WebAuthnAuthenticationCredential,
-        usesNeeded,
-        ...(plannedPasskeyReconnect?.sessionId
-          ? { sessionId: plannedPasskeyReconnect.sessionId }
-          : {}),
-        ...(plannedPasskeyReconnect?.walletSigningSessionId
-          ? { walletSigningSessionId: plannedPasskeyReconnect.walletSigningSessionId }
-          : {}),
-      });
-      if (
-        plannedPasskeyReconnect?.sessionId &&
-        String(refreshed.thresholdSessionId || '').trim() !== plannedPasskeyReconnect.sessionId
-      ) {
-        throw new Error(
-          '[chains] threshold ECDSA reconnect returned a different session id than the confirmed session policy',
-        );
-      }
-      thresholdEcdsaKeyRef = refreshed;
-      ensuredThresholdKeyRef = refreshed;
-    }
-    if (hasSecp256k1Request && args.ensureThresholdEcdsaKeyRefReady) {
-      await ensureThresholdKeyRef();
     }
     if (hasSecp256k1Request && !args.emailOtpSigning) {
       await reserveWalletSigningBudgetOnce();

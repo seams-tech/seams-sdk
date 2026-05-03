@@ -26,6 +26,7 @@ export type PreparedLinkDeviceThresholdEcdsa = {
   session?: {
     sessionKind?: string;
     sessionId?: string;
+    walletSigningSessionId?: string;
     expiresAtMs?: number;
     expiresAt?: string;
     participantIds?: number[];
@@ -113,6 +114,7 @@ function buildThresholdEcdsaBootstrap(args: {
     .trim()
     .toLowerCase();
   const sessionId = String(session.sessionId || '').trim();
+  const walletSigningSessionId = String(session.walletSigningSessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   const remainingUses = Number(session.remainingUses);
   const jwt = String(session.jwt || '').trim();
@@ -171,6 +173,7 @@ function buildThresholdEcdsaBootstrap(args: {
     relayerVerifyingShareB64u,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: sessionId,
+    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
     ...(jwt ? { thresholdSessionJwt: jwt } : {}),
   };
 
@@ -190,6 +193,7 @@ function buildThresholdEcdsaBootstrap(args: {
     session: {
       ok: true,
       sessionId,
+      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
       expiresAtMs,
       remainingUses,
       jwt,

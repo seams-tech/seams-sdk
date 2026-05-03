@@ -878,8 +878,9 @@ export class WalletIframeRouter {
 
   async bootstrapEcdsaSession(payload: {
     nearAccountId: string;
-    options?: {
-      chain?: 'evm' | 'tempo';
+    options: {
+      chain: 'evm' | 'tempo';
+      chainId: number;
       relayerUrl?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
@@ -994,7 +995,7 @@ export class WalletIframeRouter {
 
   async requestEmailOtpSigningSessionChallenge(payload: {
     nearAccountId: string;
-    chain?: 'tempo' | 'evm';
+    chain: 'tempo' | 'evm';
     onEvent?: (ev: UnlockFlowEvent) => void;
   }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>> {
     const { onEvent, ...wirePayload } = payload;
@@ -1074,7 +1075,8 @@ export class WalletIframeRouter {
 
   async refreshEmailOtpSigningSession(payload: {
     nearAccountId: string;
-    chain?: 'tempo' | 'evm';
+    chain: 'tempo' | 'evm';
+    chainId: number;
     challengeId: string;
     otpCode: string;
     ttlMs?: number;
@@ -1398,8 +1400,8 @@ export class WalletIframeRouter {
 
   async prefillThresholdEcdsaPresignPool(payload: {
     nearAccountId: string;
-    options?: {
-      chain?: 'tempo' | 'evm';
+    options: {
+      chain: 'tempo' | 'evm';
       waitForPoolReady?: boolean;
       poolReadyTimeoutMs?: number;
       poolReadyPollIntervalMs?: number;

@@ -2,6 +2,7 @@ import { createSigningSessionBudgetFinalizer } from '../../session/signingSessio
 import type {
   SigningSessionBudgetReservation,
   SigningSessionPreparedBudgetIdentity,
+  SigningSessionBudgetStatusAuth,
 } from '../../session/signingSession/budget';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
@@ -26,6 +27,7 @@ type EvmFamilyWalletSigningSessionBudgetArgs = {
   operation: EvmFamilyTransactionSigningOperationContext;
   ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
   budgetIdentity: SigningSessionPreparedBudgetIdentity;
+  trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 };
 
 function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningSessionBudgetArgs) {
@@ -45,6 +47,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
     finalizer: createSigningSessionBudgetFinalizer({
       signingSessionBudget: args.signingSessionCoordinator,
       budgetIdentity: args.budgetIdentity,
+      ...(args.trustedStatusAuth ? { trustedStatusAuth: args.trustedStatusAuth } : {}),
       operation: args.operation,
       // Passkey reauth can replace the ECDSA threshold session after the
       // confirmation. Budget finalization must follow the refreshed keyRef,

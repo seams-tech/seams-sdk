@@ -8,12 +8,19 @@ import {
 } from './warmSessionServices';
 import {
   readSelectedEcdsaKeyRefForLane,
+  readSelectedEcdsaRecordForLane,
+  summarizeEvmFamilyEcdsaKeyRef,
+  summarizeEvmFamilyEcdsaLane,
+  summarizeEvmFamilyEcdsaSessionRecord,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import { emitEvmFamilySigningEvent } from './events';
 import type { EvmFamilyLifecycleEventCallback } from './types';
 import { throwIfEvmFamilySigningCancelled } from './errors';
-import type { ThresholdEcdsaSessionStoreSource } from '../thresholdLifecycle/thresholdSessionStore';
+import type {
+  ThresholdEcdsaSessionRecord,
+  ThresholdEcdsaSessionStoreSource,
+} from '../thresholdLifecycle/thresholdSessionStore';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
 export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilyWarmSessionServicesDeps & {
@@ -48,7 +55,12 @@ function requireEcdsaStoreSource(
 export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   deps: EvmFamilyThresholdEcdsaReadinessDeps;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
+  chainId: number;
   keyRef: ThresholdEcdsaSecp256k1KeyRef | undefined;
+  reconnectSessionIdentity: {
+    thresholdSessionId: string;
+    walletSigningSessionId: string;
+  };
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
   remainingUses?: number;
@@ -62,8 +74,13 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   const chain = args.lane.chainFamily;
   const source = requireEcdsaStoreSource(args.lane);
   const nearAccountId = String(args.lane.accountId);
-  const thresholdSessionId = String(args.lane.thresholdSessionId);
-  const walletSigningSessionId = String(args.lane.walletSigningSessionId);
+  const thresholdSessionId = String(args.reconnectSessionIdentity.thresholdSessionId || '').trim();
+  const walletSigningSessionId = String(
+    args.reconnectSessionIdentity.walletSigningSessionId || '',
+  ).trim();
+  if (!thresholdSessionId || !walletSigningSessionId) {
+    throw new Error('[SigningEngine] ECDSA reconnect requires exact fresh session identity');
+  }
   const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
   const operationUsesNeeded = Math.max(
     1,
@@ -79,10 +96,37 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
       deps: args.deps,
       lane: args.lane,
     });
+  let selectedRecord: ThresholdEcdsaSessionRecord | undefined;
+  try {
+    selectedRecord = readSelectedEcdsaRecordForLane({
+      deps: args.deps,
+      lane: args.lane,
+    });
+  } catch {
+    selectedRecord = undefined;
+  }
+  try {
+    console.info('[SigningEngine][ecdsa][reconnect-selected-lane]', {
+      nearAccountId,
+      chain,
+      chainId: args.chainId,
+      source,
+      selectedLane: summarizeEvmFamilyEcdsaLane(args.lane),
+      requestedReconnectIdentity: {
+        thresholdSessionId,
+        walletSigningSessionId,
+      },
+      selectedKeyRef: summarizeEvmFamilyEcdsaKeyRef(resolvedKeyRef),
+      selectedRecord: summarizeEvmFamilyEcdsaSessionRecord(selectedRecord),
+      operationUsesNeeded,
+      sessionBudgetUses,
+    });
+  } catch {}
 
   const readyCapability = await warmSessionServices.ensureEcdsaCapabilityReady({
     nearAccountId,
     chain,
+    chainId: args.chainId,
     keyRef: resolvedKeyRef,
     source,
     runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.seamsPasskeyConfigs),
@@ -108,6 +152,25 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
       throwIfEvmFamilySigningCancelled(args.shouldAbort);
     },
   });
+
+  const refreshedThresholdSessionId = String(
+    readyCapability.keyRef?.thresholdSessionId || '',
+  ).trim();
+  const refreshedWalletSigningSessionId = String(
+    readyCapability.keyRef?.walletSigningSessionId || '',
+  ).trim();
+  if (
+    refreshedThresholdSessionId !== thresholdSessionId ||
+    refreshedWalletSigningSessionId !== walletSigningSessionId
+  ) {
+    throw new Error(
+      [
+        '[SigningEngine] ECDSA reconnect returned a different exact session identity',
+        `expected=${walletSigningSessionId}:${thresholdSessionId}`,
+        `actual=${refreshedWalletSigningSessionId || 'missing'}:${refreshedThresholdSessionId || 'missing'}`,
+      ].join(' '),
+    );
+  }
 
   emitEvmFamilySigningEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED,

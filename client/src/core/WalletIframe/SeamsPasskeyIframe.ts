@@ -435,7 +435,7 @@ export class SeamsPasskeyIframe {
 
   async prefillThresholdEcdsaPresignPool(args: {
     nearAccountId: string;
-    chain?: ThresholdEcdsaActivationChain;
+    chain: ThresholdEcdsaActivationChain;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;
@@ -445,7 +445,7 @@ export class SeamsPasskeyIframe {
     return await this.router.prefillThresholdEcdsaPresignPool({
       nearAccountId: args.nearAccountId,
       options: {
-        ...(args.chain ? { chain: args.chain } : {}),
+        chain: args.chain,
         ...(typeof args.waitForPoolReady === 'boolean'
           ? { waitForPoolReady: args.waitForPoolReady }
           : {}),

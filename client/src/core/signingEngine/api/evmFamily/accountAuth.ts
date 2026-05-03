@@ -14,7 +14,6 @@ import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type {
   ThresholdEcdsaSessionRecord,
 } from '../thresholdLifecycle/thresholdSessionStore';
-import { getStoredThresholdEd25519SessionRecordForAccount } from '../thresholdLifecycle/thresholdSessionStore';
 import { isEmailOtpThresholdEcdsaSigningContext } from './ecdsaLanes';
 import type { EvmFamilySenderSignatureAlgorithm } from './types';
 
@@ -75,11 +74,6 @@ export async function resolveEvmFamilyTransactionAccountAuth(args: {
         });
       }
     }
-  }
-
-  const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount(accountId);
-  if (ed25519Record) {
-    return resolveAccountAuthMetadataForSignerSource({ source: ed25519Record.source });
   }
 
   if (isEmailOtpThresholdEcdsaSigningContext(args)) {

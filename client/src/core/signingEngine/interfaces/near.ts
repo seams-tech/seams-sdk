@@ -14,7 +14,6 @@ import type { SigningAuthPlan } from '../touchConfirm/shared/confirmTypes';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { SigningSessionCoordinator } from '../session/SigningSessionCoordinator';
-import type { SigningSessionBudgetStatusAuth } from '../session/signingSession/budget';
 import type { SigningLaneContext, SigningOperationId } from '../session/signingSession/types';
 import type { ThresholdEd25519SessionRecord } from '../api/thresholdLifecycle/thresholdSessionStore';
 import type {
@@ -63,9 +62,18 @@ export type NearPreparedSigningSessionFinalizer = (args: {
   error?: unknown;
 }) => Promise<void>;
 
+export type NearEd25519TransactionAdmissionBoundary =
+  {
+    sessionId: string;
+    signingAuthPlan: SigningAuthPlan;
+    signingLane: SigningLaneContext;
+    initialBudgetAdmittedOperation: BudgetAdmittedOperation<NearEd25519TransactionLane> | null;
+  };
+
+export type NearEd25519TransactionSigningBoundary = NearEd25519TransactionAdmissionBoundary;
+
 export type NearTransactionsWithActionsPayload = {
   ctx: SigningRuntimeDeps;
-  sessionId?: string;
   transactions: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
   onEvent?: (update: SigningFlowEvent) => void;
@@ -77,16 +85,10 @@ export type NearTransactionsWithActionsPayload = {
   signingOperationId?: SigningOperationId;
   signingSessionCoordinator: SigningSessionCoordinator;
   transactionOperation: PreparedTransactionOperation<NearEd25519TransactionLane>;
-  budgetAdmittedOperation?: BudgetAdmittedOperation<NearEd25519TransactionLane>;
-  admitBudgetForTransactionLane?: (args: {
-    lane: NearEd25519TransactionLane;
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  }) => Promise<BudgetAdmittedOperation<NearEd25519TransactionLane>>;
+  ed25519SigningBoundary: NearEd25519TransactionSigningBoundary;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
-  signingAuthPlan?: SigningAuthPlan;
-  signingLane?: SigningLaneContext;
   sensitivePolicy?: SensitiveOperationPolicy;
 };
 

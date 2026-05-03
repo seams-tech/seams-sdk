@@ -219,16 +219,16 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const { nearAccountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
 
-      const chain = options?.chain;
+      const chain = options.chain;
       const result =
         chain === 'evm'
           ? await pm.evm.bootstrapEcdsaSession({
               nearAccountId,
-              options: options || {},
+              options,
             })
           : await pm.tempo.bootstrapEcdsaSession({
               nearAccountId,
-              options: options || {},
+              options,
             });
       if (respondIfCancelled(req.requestId)) return;
       respondOkResult(req.requestId, result);
@@ -511,17 +511,17 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.prefillThresholdEcdsaPresignPool({
         nearAccountId,
-        ...(options?.chain ? { chain: options.chain } : {}),
-        ...(typeof options?.waitForPoolReady === 'boolean'
+        chain: options.chain,
+        ...(typeof options.waitForPoolReady === 'boolean'
           ? { waitForPoolReady: options.waitForPoolReady }
           : {}),
-        ...(typeof options?.poolReadyTimeoutMs === 'number'
+        ...(typeof options.poolReadyTimeoutMs === 'number'
           ? { poolReadyTimeoutMs: options.poolReadyTimeoutMs }
           : {}),
-        ...(typeof options?.poolReadyPollIntervalMs === 'number'
+        ...(typeof options.poolReadyPollIntervalMs === 'number'
           ? { poolReadyPollIntervalMs: options.poolReadyPollIntervalMs }
           : {}),
-        ...(typeof options?.minRemainingUsesBeforePrefill === 'number'
+        ...(typeof options.minRemainingUsesBeforePrefill === 'number'
           ? { minRemainingUsesBeforePrefill: options.minRemainingUsesBeforePrefill }
           : {}),
       });

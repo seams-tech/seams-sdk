@@ -68,6 +68,7 @@ export function resolveWarmEcdsaBootstrapRequestFromSession(args: {
   return {
     nearAccountId,
     chain: request.chain,
+    chainId: request.chainId,
     ...(request.emailOtpAuthContext ? { emailOtpAuthContext: request.emailOtpAuthContext } : {}),
     ...(explicitRelayerUrl
       ? { relayerUrl: explicitRelayerUrl }

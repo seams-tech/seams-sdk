@@ -1,4 +1,6 @@
 import type { ThresholdEcdsaActivationChain } from '../signingEngine/SigningEngine';
+import { chainFamilyFromNetwork } from '../config/chains';
+import type { SeamsChainConfig } from '../types/seams';
 import type {
   EcdsaSignerProvisioningDefaults,
   EcdsaSignerProvisioningPolicy,
@@ -8,6 +10,30 @@ export type ThresholdEcdsaProvisionTarget = {
   chain: ThresholdEcdsaActivationChain;
   options: EcdsaSignerProvisioningPolicy;
 };
+
+function normalizeChainId(value: unknown): number | null {
+  const chainId = Math.floor(Number(value));
+  if (!Number.isSafeInteger(chainId) || chainId < 0) return null;
+  return chainId;
+}
+
+export function requireThresholdEcdsaProvisionChainId(args: {
+  chain: ThresholdEcdsaActivationChain;
+  chains: readonly SeamsChainConfig[];
+  explicitChainId?: number;
+  smartAccount?: { chainId: number };
+}): number {
+  const explicit = normalizeChainId(args.explicitChainId);
+  if (explicit !== null) return explicit;
+  const smartAccountChainId = normalizeChainId(args.smartAccount?.chainId);
+  if (smartAccountChainId !== null) return smartAccountChainId;
+  const configured = args.chains.find((chain) => chainFamilyFromNetwork(chain.network) === args.chain);
+  const configuredChainId = normalizeChainId((configured as { chainId?: unknown } | undefined)?.chainId);
+  if (configuredChainId !== null) return configuredChainId;
+  throw new Error(
+    `[threshold-ecdsa] missing numeric chainId for ${args.chain} provisioning target`,
+  );
+}
 
 export function listThresholdEcdsaProvisionTargets(
   signerOptions: EcdsaSignerProvisioningDefaults,

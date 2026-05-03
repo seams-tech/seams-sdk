@@ -311,7 +311,8 @@ export interface EmailOtpWorkerOperationMap {
       shamirPrimeB64u: string;
       otpChannel?: WalletEmailOtpChannel;
       rpId: string;
-      chain?: ThresholdEcdsaActivationChain;
+      chain: ThresholdEcdsaActivationChain;
+      chainId: number;
       ecdsaThresholdKeyId?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
@@ -357,6 +358,8 @@ export interface EmailOtpWorkerOperationMap {
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
       rpId: string;
+      chain: ThresholdEcdsaActivationChain;
+      chainId: number;
       ecdsaThresholdKeyId?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
@@ -444,7 +447,8 @@ export interface EmailOtpWorkerOperationMap {
         walletId: string;
         userId?: string;
         rpId: string;
-        chain?: ThresholdEcdsaActivationChain;
+        chain: ThresholdEcdsaActivationChain;
+        chainId: number;
         walletSigningSessionId: string;
         signingRootId: string;
         signingRootVersion?: string;

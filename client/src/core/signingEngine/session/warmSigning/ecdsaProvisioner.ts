@@ -1,4 +1,5 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import type {
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
@@ -41,6 +42,7 @@ export type WarmSessionEcdsaProvisionerDeps = {
   bootstrapThresholdEcdsaSession?: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
+    chainId: number;
   }) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   claimPrfFirstByThresholdSessionId?: (args: ClaimWarmSessionPrfArgs) => Promise<string>;
   onTransition?: (event: WarmSessionTransitionEvent) => void | Promise<void>;
@@ -89,6 +91,155 @@ type EcdsaKeyRefCandidate = {
   source: ThresholdEcdsaSessionStoreSource;
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
 };
+
+function summarizeReconnectJwtClaims(jwtRaw: string | undefined): Record<string, unknown> {
+  const payload = decodeJwtPayloadRecord(String(jwtRaw || '').trim());
+  if (!payload) return { present: false };
+  return {
+    present: true,
+    kind: payload.kind,
+    sub: payload.sub,
+    walletId: payload.walletId,
+    userId: payload.userId,
+    sessionId: payload.sessionId,
+    walletSigningSessionId: payload.walletSigningSessionId,
+    exp: payload.exp,
+  };
+}
+
+function summarizeReconnectKeyRef(
+  keyRef: ThresholdEcdsaSecp256k1KeyRef | null | undefined,
+): Record<string, unknown> {
+  if (!keyRef) return { present: false };
+  return {
+    present: true,
+    thresholdSessionId: keyRef.thresholdSessionId,
+    walletSigningSessionId: keyRef.walletSigningSessionId,
+    ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
+    signingRootId: keyRef.signingRootId,
+    signingRootVersion: keyRef.signingRootVersion,
+    thresholdSessionKind: keyRef.thresholdSessionKind,
+    hasThresholdSessionJwt: Boolean(String(keyRef.thresholdSessionJwt || '').trim()),
+    hasBackendBinding: Boolean(keyRef.backendBinding),
+    hasRelayerKeyId: Boolean(keyRef.backendBinding?.relayerKeyId),
+  };
+}
+
+function summarizeReconnectRecord(
+  record: ThresholdEcdsaSessionRecord | null | undefined,
+): Record<string, unknown> {
+  if (!record) return { present: false };
+  return {
+    present: true,
+    source: record.source,
+    chain: record.chain,
+    thresholdSessionId: record.thresholdSessionId,
+    walletSigningSessionId: record.walletSigningSessionId,
+    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+    signingRootId: record.signingRootId,
+    signingRootVersion: record.signingRootVersion,
+    thresholdSessionKind: record.thresholdSessionKind,
+    remainingUses: record.remainingUses,
+    expiresAtMs: record.expiresAtMs,
+    updatedAtMs: record.updatedAtMs,
+    emailOtpRetention: record.emailOtpAuthContext?.retention,
+    emailOtpReason: record.emailOtpAuthContext?.reason,
+    hasThresholdSessionJwt: Boolean(String(record.thresholdSessionJwt || '').trim()),
+  };
+}
+
+type ReconnectJwtIdentityMatch =
+  | { kind: 'matched'; jwt: string; source: 'keyRef' | 'record' }
+  | { kind: 'unknown'; jwt: string; source: 'keyRef' | 'record' }
+  | { kind: 'mismatched'; source: 'keyRef' | 'record'; claims: Record<string, unknown> };
+
+function evaluateReconnectJwtIdentity(args: {
+  source: 'keyRef' | 'record';
+  jwtRaw: string | undefined;
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+}): ReconnectJwtIdentityMatch | null {
+  const jwt = toOptionalNonEmptyString(args.jwtRaw);
+  if (!jwt) return null;
+  const claims = decodeJwtPayloadRecord(jwt);
+  if (!claims) return { kind: 'unknown', source: args.source, jwt };
+  const claimSessionId = String(claims.sessionId || '').trim();
+  const claimWalletSigningSessionId = String(claims.walletSigningSessionId || '').trim();
+  if (
+    claimSessionId === args.thresholdSessionId &&
+    claimWalletSigningSessionId === args.walletSigningSessionId
+  ) {
+    return { kind: 'matched', source: args.source, jwt };
+  }
+  return {
+    kind: 'mismatched',
+    source: args.source,
+    claims: {
+      kind: claims.kind,
+      sessionId: claimSessionId || undefined,
+      walletSigningSessionId: claimWalletSigningSessionId || undefined,
+      exp: claims.exp,
+    },
+  };
+}
+
+function selectReconnectThresholdSessionJwt(args: {
+  keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
+  record: ThresholdEcdsaSessionRecord | null | undefined;
+  thresholdSessionId: string | undefined;
+  walletSigningSessionId: string | undefined;
+}): {
+  jwt?: string;
+  source?: 'keyRef' | 'record';
+  mismatches: Record<string, unknown>[];
+} {
+  const thresholdSessionId = toOptionalNonEmptyString(args.thresholdSessionId);
+  const walletSigningSessionId = toOptionalNonEmptyString(args.walletSigningSessionId);
+  const candidates = [
+    evaluateReconnectJwtIdentity({
+      source: 'keyRef',
+      jwtRaw: args.keyRef?.thresholdSessionJwt,
+      thresholdSessionId: thresholdSessionId || '',
+      walletSigningSessionId: walletSigningSessionId || '',
+    }),
+    evaluateReconnectJwtIdentity({
+      source: 'record',
+      jwtRaw: args.record?.thresholdSessionJwt,
+      thresholdSessionId: thresholdSessionId || '',
+      walletSigningSessionId: walletSigningSessionId || '',
+    }),
+  ].filter(Boolean) as ReconnectJwtIdentityMatch[];
+
+  const matched = thresholdSessionId && walletSigningSessionId
+    ? candidates.find((candidate) => candidate.kind === 'matched')
+    : null;
+  if (matched?.kind === 'matched') {
+    return { jwt: matched.jwt, source: matched.source, mismatches: [] };
+  }
+
+  const unknown = candidates.find((candidate) => candidate.kind === 'unknown');
+  if (unknown?.kind === 'unknown') {
+    return {
+      jwt: unknown.jwt,
+      source: unknown.source,
+      mismatches: candidates
+        .filter((candidate) => candidate.kind === 'mismatched')
+        .map((candidate) => ({
+          source: candidate.source,
+          claims: candidate.claims,
+        })),
+    };
+  }
+
+  return {
+    mismatches: candidates
+      .filter((candidate) => candidate.kind === 'mismatched')
+      .map((candidate) => ({
+        source: candidate.source,
+        claims: candidate.claims,
+      })),
+  };
+}
 
 function hasEcdsaKeyRefSigningMaterial(keyRef: ThresholdEcdsaSecp256k1KeyRef | null): boolean {
   const binding = keyRef?.backendBinding;
@@ -205,6 +356,7 @@ export async function provisionWarmEcdsaCapability(
     request: {
       nearAccountId,
       chain: args.chain,
+      chainId: args.chainId,
       relayerUrl: args.relayerUrl,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
       participantIds: args.participantIds,
@@ -262,6 +414,7 @@ export async function provisionWarmEcdsaCapability(
         ? await deps.bootstrapThresholdEcdsaSession({
             nearAccountId,
             chain: args.chain,
+            chainId: args.chainId,
           })
         : null;
 
@@ -308,6 +461,7 @@ export async function provisionWarmEcdsaCapability(
 function buildEcdsaCapabilityInflightKey(args: {
   nearAccountId: AccountId;
   chain: ThresholdEcdsaActivationChain;
+  chainId: number;
   usesNeeded?: number;
   sessionBudgetUses: number;
   keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
@@ -319,11 +473,35 @@ function buildEcdsaCapabilityInflightKey(args: {
   return [
     String(args.nearAccountId),
     args.chain,
+    String(args.chainId),
     String(usesNeeded > 0 ? usesNeeded : 1),
     String(sessionBudgetUses > 0 ? sessionBudgetUses : 1),
     keyId,
     sessionId,
   ].join('::');
+}
+
+function keyRefMatchesRequestedReconnectIdentity(args: {
+  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  sessionId?: string;
+  walletSigningSessionId?: string;
+}): boolean {
+  const requestedSessionId = toOptionalNonEmptyString(args.sessionId);
+  const requestedWalletSigningSessionId = toOptionalNonEmptyString(args.walletSigningSessionId);
+  if (
+    requestedSessionId &&
+    requestedSessionId !== String(args.keyRef.thresholdSessionId || '').trim()
+  ) {
+    return false;
+  }
+  if (
+    requestedWalletSigningSessionId &&
+    requestedWalletSigningSessionId !==
+      String(args.keyRef.walletSigningSessionId || '').trim()
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export async function ensureWarmEcdsaCapabilityReady(
@@ -339,6 +517,9 @@ export async function ensureWarmEcdsaCapabilityReady(
         chain: args.chain,
         ...(args.source ? { source: args.source } : {}),
       });
+  const confirmedReconnectRequested = Boolean(
+    args.webauthnAuthentication || args.clientRootShare32B64u,
+  );
   let keyRef: ThresholdEcdsaSecp256k1KeyRef | null = null;
   let keyRefSource: ThresholdEcdsaSessionStoreSource | undefined;
   for (const candidate of keyRefCandidates) {
@@ -353,6 +534,24 @@ export async function ensureWarmEcdsaCapabilityReady(
         keyRef = candidate.keyRef;
         keyRefSource = candidate.source;
       }
+      continue;
+    }
+    if (
+      !keyRefMatchesRequestedReconnectIdentity({
+        keyRef: candidate.keyRef,
+        sessionId: args.sessionId,
+        walletSigningSessionId: args.walletSigningSessionId,
+      })
+    ) {
+      keyRef = candidate.keyRef;
+      keyRefSource = candidate.source;
+      continue;
+    }
+    // A confirmed step-up must mint/refresh server budget even if local worker
+    // material still looks ready; otherwise stale exhausted wallet budget wins.
+    if (confirmedReconnectRequested) {
+      keyRef = candidate.keyRef;
+      keyRefSource = candidate.source;
       continue;
     }
     return {
@@ -377,6 +576,22 @@ export async function ensureWarmEcdsaCapabilityReady(
       hasSufficientWarmClaim(directCapability.prfClaim, args.usesNeeded)
     ) {
       if (hasEcdsaKeyRefSigningMaterial(candidate.keyRef)) {
+        if (
+          !keyRefMatchesRequestedReconnectIdentity({
+            keyRef: candidate.keyRef,
+            sessionId: args.sessionId,
+            walletSigningSessionId: args.walletSigningSessionId,
+          })
+        ) {
+          keyRef = candidate.keyRef;
+          keyRefSource = candidate.source;
+          continue;
+        }
+        if (confirmedReconnectRequested) {
+          keyRef = candidate.keyRef;
+          keyRefSource = candidate.source;
+          continue;
+        }
         return {
           keyRef: candidate.keyRef,
           warmSession,
@@ -439,6 +654,7 @@ export async function ensureWarmEcdsaCapabilityReady(
   const inflightKey = buildEcdsaCapabilityInflightKey({
     nearAccountId,
     chain: args.chain,
+    chainId: args.chainId,
     usesNeeded: args.usesNeeded,
     sessionBudgetUses: args.sessionBudgetUses,
     keyRef,
@@ -449,9 +665,6 @@ export async function ensureWarmEcdsaCapabilityReady(
       const reconnectUses = Math.max(
         1,
         Math.floor(Number(args.sessionBudgetUses) || 1),
-      );
-      const reconnectThresholdSessionJwt = toOptionalNonEmptyString(
-        keyRef?.thresholdSessionJwt || reconnectRecord?.thresholdSessionJwt,
       );
       const reconnectThresholdKeyId = toOptionalNonEmptyString(
         keyRef?.ecdsaThresholdKeyId || reconnectRecord?.ecdsaThresholdKeyId,
@@ -467,9 +680,71 @@ export async function ensureWarmEcdsaCapabilityReady(
           keyRef?.walletSigningSessionId ||
           reconnectRecord?.walletSigningSessionId,
       );
+      const selectedReconnectJwt = selectReconnectThresholdSessionJwt({
+        keyRef,
+        record: reconnectRecord,
+        thresholdSessionId: reconnectSessionId,
+        walletSigningSessionId: reconnectWalletSigningSessionId,
+      });
+      if (
+        selectedReconnectJwt.mismatches.length > 0 &&
+        !selectedReconnectJwt.jwt &&
+        reconnectSessionId &&
+        reconnectWalletSigningSessionId
+      ) {
+        console.warn('[threshold-ecdsa][reconnect-provision][jwt-mismatch]', {
+          nearAccountId: String(nearAccountId),
+          chain: args.chain,
+          chainId: args.chainId,
+          plannedProvisionIdentity: {
+            thresholdSessionId: reconnectSessionId,
+            walletSigningSessionId: reconnectWalletSigningSessionId,
+          },
+          mismatches: selectedReconnectJwt.mismatches,
+          selectedKeyRef: summarizeReconnectKeyRef(keyRef),
+          reconnectRecord: summarizeReconnectRecord(reconnectRecord),
+        });
+        throw new Error(
+          '[SigningEngine][ecdsa] threshold session auth JWT does not match planned reconnect identity',
+        );
+      }
+      const reconnectThresholdSessionJwt = selectedReconnectJwt.jwt;
+      try {
+        console.info('[threshold-ecdsa][reconnect-provision][diagnostic]', {
+          nearAccountId: String(nearAccountId),
+          chain: args.chain,
+          chainId: args.chainId,
+          requestedLaneIdentity: {
+            thresholdSessionId: args.sessionId || undefined,
+            walletSigningSessionId: args.walletSigningSessionId || undefined,
+          },
+          plannedProvisionIdentity: {
+            thresholdSessionId: reconnectSessionId || undefined,
+            walletSigningSessionId: reconnectWalletSigningSessionId || undefined,
+          },
+          keyRefSource,
+          provisionSource: inheritedEmailOtpRecord
+            ? 'email_otp'
+            : keyRefSource || args.source || 'login',
+          usesNeeded: args.usesNeeded,
+          sessionBudgetUses: args.sessionBudgetUses,
+          selectedKeyRef: summarizeReconnectKeyRef(keyRef),
+          reconnectRecord: summarizeReconnectRecord(reconnectRecord),
+          secondaryRecord: summarizeReconnectRecord(secondaryRecord),
+          inheritedEmailOtpRecord: summarizeReconnectRecord(inheritedEmailOtpRecord),
+          allKeyRefCandidates: keyRefCandidates.map((candidate) => ({
+            source: candidate.source,
+            keyRef: summarizeReconnectKeyRef(candidate.keyRef),
+          })),
+          selectedRouteAuthSource: selectedReconnectJwt.source,
+          routeAuthMismatches: selectedReconnectJwt.mismatches,
+          routeAuthClaims: summarizeReconnectJwtClaims(reconnectThresholdSessionJwt),
+        });
+      } catch {}
       const provisioned = await deps.provisionEcdsaCapability({
         nearAccountId,
         chain: args.chain,
+        chainId: args.chainId,
         source: inheritedEmailOtpRecord ? 'email_otp' : keyRefSource || args.source || 'login',
         // Reconnect starts from a selected key ref when worker memory was lost.
         // Preserve that exact lane identity so sealed PRF restore cannot fall

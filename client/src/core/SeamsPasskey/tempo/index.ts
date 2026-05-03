@@ -16,6 +16,7 @@ import type {
   TempoSignerCapability,
 } from '..';
 import { executeEvmFamilyTransactionLifecycle } from './executeEvmFamilyTransaction';
+import { requireThresholdEcdsaProvisionChainId } from '../thresholdEcdsaProvisioning';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
@@ -257,6 +258,12 @@ export class TempoSigner implements TempoSignerCapability {
       chain: 'tempo' as const,
       ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
     };
+    const chainId = requireThresholdEcdsaProvisionChainId({
+      chain: options.chain,
+      chains: context.configs.network.chains,
+      explicitChainId: options.chainId,
+      smartAccount: options.smartAccount,
+    });
 
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
@@ -271,6 +278,7 @@ export class TempoSigner implements TempoSignerCapability {
         return await context.signingEngine.bootstrapEcdsaSession({
           nearAccountId: toAccountId(args.nearAccountId),
           chain: options.chain,
+          chainId,
           relayerUrl: options.relayerUrl,
           participantIds: options.participantIds,
           sessionKind: options.sessionKind,

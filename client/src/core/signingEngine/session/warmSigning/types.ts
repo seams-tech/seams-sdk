@@ -266,6 +266,7 @@ export type ProvisionWarmEd25519CapabilityResult = {
 export type EnsureWarmEcdsaCapabilityReadyArgs = {
   nearAccountId: AccountId | string;
   chain: ThresholdEcdsaActivationChain;
+  chainId: number;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
   source?: ThresholdEcdsaSessionStoreSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -311,6 +312,7 @@ export type AssertWarmEcdsaOperationAllowedArgs = {
 export type ResolveWarmEcdsaBootstrapRequestArgs = {
   nearAccountId: AccountId | string;
   chain: ThresholdEcdsaActivationChain;
+  chainId: number;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
   ecdsaThresholdKeyId?: string;
@@ -333,6 +335,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
 export type WarmEcdsaBootstrapRequest = {
   nearAccountId: AccountId;
   chain: ThresholdEcdsaActivationChain;
+  chainId: number;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
   ecdsaThresholdKeyId?: string;

@@ -20,6 +20,7 @@ import {
 import { AccountId, toAccountId } from '@/core/types/accountIds';
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
 import type {
+  NearEd25519TransactionSigningBoundary,
   NearEd25519WarmupHook,
   NearEmailOtpSigningHook,
   NearPreparedSigningSessionFinalizer,
@@ -28,7 +29,6 @@ import type {
 import { formatEmailOtpSentText } from '../shared/touchConfirmSigning';
 import {
   SigningAuthPlanKind,
-  type SigningAuthPlan,
   type UserConfirmProgressEvent,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
@@ -61,16 +61,18 @@ import { repairThresholdEd25519MissingRelayerKey } from './shared/repairThreshol
 import {
   SigningOperationIntent,
   SigningSessionIds,
-  type SigningLaneContext,
   type SigningOperationId,
 } from '../../session/signingSession/types';
 import {
+  admitTransactionBudget,
   finalizeSignedTransactionOperation,
+  replacePreparedTransactionLane,
   signPreparedTransactionOperation,
   type BudgetAdmittedOperation,
   type NearEd25519TransactionLane,
   type PreparedTransactionOperation,
   type SignedTransactionOperation,
+  type TransactionReadiness,
 } from '../../session/signingSession/transactionState';
 import type { NonceLeaseRef } from '../../nonce/NonceCoordinator';
 import {
@@ -78,7 +80,10 @@ import {
   emitSigningBoundaryTrace,
 } from '../../session/signingSession/trace';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import type { SigningSessionBudgetStatusAuth } from '../../session/signingSession/budget';
+import type {
+  SigningSessionBudgetStatusAuth,
+  SigningSessionPreparedBudgetIdentity,
+} from '../../session/signingSession/budget';
 import {
   createSigningSessionBudgetFinalizer,
   type SigningSessionBudgetFinalizer,
@@ -133,6 +138,16 @@ function budgetStatusAuthFromEd25519SessionState(
   };
 }
 
+function readinessFromPreparedBudgetIdentity(
+  budgetIdentity: SigningSessionPreparedBudgetIdentity,
+): TransactionReadiness {
+  return {
+    status: 'ready',
+    remainingUses: Math.max(0, Math.floor(Number(budgetIdentity.status.remainingUses) || 0)),
+    expiresAtMs: Math.max(0, Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0)),
+  };
+}
+
 function createNearTransactionSigningOperationId(): SigningOperationId {
   const cryptoObj = globalThis as { crypto?: { randomUUID?: () => string } };
   const randomId =
@@ -174,7 +189,6 @@ function normalizeTransactionSigningRequest(args: {
 
 export async function signTransactionsWithActions({
   ctx,
-  sessionId: providedSessionId,
   transactions,
   rpcCall,
   onEvent,
@@ -186,16 +200,12 @@ export async function signTransactionsWithActions({
   signingOperationId: providedSigningOperationId,
   signingSessionCoordinator: sessionCoordinator,
   transactionOperation,
-  budgetAdmittedOperation: providedBudgetAdmittedOperation,
-  admitBudgetForTransactionLane: providedAdmitBudgetForTransactionLane,
+  ed25519SigningBoundary,
   finalizePreparedSigningSession,
   ed25519Warmup,
   passkeyEd25519Reconnect,
-  signingAuthPlan: providedSigningAuthPlan,
-  signingLane,
 }: {
   ctx: SigningRuntimeDeps;
-  sessionId?: string;
   transactions: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
   onEvent?: (update: SigningFlowEvent) => void;
@@ -208,16 +218,10 @@ export async function signTransactionsWithActions({
   signingOperationId?: SigningOperationId;
   signingSessionCoordinator?: SigningSessionCoordinator;
   transactionOperation: PreparedTransactionOperation<NearEd25519TransactionLane>;
-  budgetAdmittedOperation?: BudgetAdmittedOperation<NearEd25519TransactionLane>;
-  admitBudgetForTransactionLane?: (args: {
-    lane: NearEd25519TransactionLane;
-    trustedStatusAuth?: SigningSessionBudgetStatusAuth;
-  }) => Promise<BudgetAdmittedOperation<NearEd25519TransactionLane>>;
+  ed25519SigningBoundary: NearEd25519TransactionSigningBoundary;
   finalizePreparedSigningSession?: NearPreparedSigningSessionFinalizer;
   ed25519Warmup?: NearEd25519WarmupHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
-  signingAuthPlan?: SigningAuthPlan;
-  signingLane?: SigningLaneContext;
 }): Promise<
   Array<{
     signedTransaction: SignedTransaction;
@@ -225,7 +229,6 @@ export async function signTransactionsWithActions({
     logs?: string[];
   }>
 > {
-  const sessionId = String(providedSessionId || '').trim();
   let signingOperationId = providedSigningOperationId;
   const callerProvidedSigningOperationId = Boolean(providedSigningOperationId);
   const ensureSigningOperationId = (): SigningOperationId => {
@@ -334,11 +337,10 @@ export async function signTransactionsWithActions({
     });
   }
   const usesNeeded = 1;
-  if (!providedSessionId || !providedSigningAuthPlan || !signingLane) {
-    throw new Error(
-      '[SigningEngine][near] threshold transaction signing requires prepared session identity',
-    );
-  }
+  const providedSessionId = ed25519SigningBoundary.sessionId;
+  const sessionId = String(providedSessionId || '').trim();
+  const providedSigningAuthPlan = ed25519SigningBoundary.signingAuthPlan;
+  const signingLane = ed25519SigningBoundary.signingLane;
   if (!transactionOperation) {
     throw new Error(
       '[SigningEngine][near] threshold transaction signing requires prepared transaction operation',
@@ -555,7 +557,8 @@ export async function signTransactionsWithActions({
     });
   }
   const thresholdSessionState =
-    refreshedThresholdSessionState?.record.thresholdSessionId === canonicalThresholdSessionId
+    refreshedThresholdSessionState &&
+    refreshedThresholdSessionState.record.thresholdSessionId === canonicalThresholdSessionId
       ? refreshedThresholdSessionState
       : requireResolvedThresholdEd25519SessionState({
           signingSessionCoordinator,
@@ -646,7 +649,8 @@ export async function signTransactionsWithActions({
     thresholdSessionId: canonicalThresholdSessionId,
     durationMs: Math.round(performance.now() - signingStartedAt),
   });
-  let activeBudgetAdmittedOperation = providedBudgetAdmittedOperation;
+  let activeBudgetAdmittedOperation =
+    ed25519SigningBoundary.initialBudgetAdmittedOperation;
   const buildBudgetTransactionLane = (): NearEd25519TransactionLane => {
     const walletSigningSessionId = String(
       thresholdSessionState.record.walletSigningSessionId || '',
@@ -665,19 +669,23 @@ export async function signTransactionsWithActions({
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session(canonicalThresholdSessionId),
     };
   };
-  const admitBudgetForTransactionLane = async (
+  const admitSelectedNearTransactionLaneBudget = async (
     lane: NearEd25519TransactionLane,
   ): Promise<BudgetAdmittedOperation<NearEd25519TransactionLane>> => {
-    if (!providedAdmitBudgetForTransactionLane) {
-      throw new Error('[SigningEngine][near] missing prepared budget admission boundary');
-    }
-    return await providedAdmitBudgetForTransactionLane({
+    const budgetIdentity = await sessionCoordinator.prepareBudgetIdentity({
+      nearAccountId,
       lane,
-      trustedStatusAuth: trustedBudgetStatusAuth,
+      ...(trustedBudgetStatusAuth ? { trustedStatusAuth: trustedBudgetStatusAuth } : {}),
+      operationUsesNeeded: 1,
     });
+    const refreshedPreparedOperation = replacePreparedTransactionLane(transactionOperation, {
+      lane,
+      readiness: readinessFromPreparedBudgetIdentity(budgetIdentity),
+    });
+    return admitTransactionBudget(refreshedPreparedOperation, { budgetIdentity });
   };
   if (refreshedBudgetIdentityRequired) {
-    activeBudgetAdmittedOperation = await admitBudgetForTransactionLane(
+    activeBudgetAdmittedOperation = await admitSelectedNearTransactionLaneBudget(
       buildBudgetTransactionLane(),
     );
     refreshedBudgetIdentityRequired = false;
@@ -810,7 +818,7 @@ export async function signTransactionsWithActions({
     // Non-warm confirmed-auth lanes can only become budget-admitted after the
     // confirmation step has produced fresh auth material. Admit them here, still
     // before the signer worker can consume the threshold session.
-    activeBudgetAdmittedOperation = await admitBudgetForTransactionLane(
+    activeBudgetAdmittedOperation = await admitSelectedNearTransactionLaneBudget(
       buildBudgetTransactionLane(),
     );
   }

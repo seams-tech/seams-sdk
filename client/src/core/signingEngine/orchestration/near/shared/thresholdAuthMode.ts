@@ -41,7 +41,7 @@ import {
 export type NearThresholdSigningAuthPlan = {
   sessionId: string;
   lane: SigningLaneContext;
-  signingAuthPlan?: SigningAuthPlan;
+  signingAuthPlan: SigningAuthPlan;
   touchConfirmAuthPayload: { signingAuthPlan: SigningAuthPlan };
   warmSessionReady: boolean;
 };

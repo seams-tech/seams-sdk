@@ -123,8 +123,9 @@ export interface PMRegisterPayload {
 
 export interface PMBootstrapThresholdEcdsaSessionPayload {
   nearAccountId: string;
-  options?: {
-    chain?: 'evm' | 'tempo';
+  options: {
+    chain: 'evm' | 'tempo';
+    chainId: number;
     relayerUrl?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -296,7 +297,7 @@ export interface PMEmailOtpChallengePayload {
 
 export interface PMEmailOtpSigningSessionChallengePayload {
   nearAccountId: string;
-  chain?: 'tempo' | 'evm';
+  chain: 'tempo' | 'evm';
 }
 
 export interface PMExchangeGoogleEmailOtpSessionPayload {
@@ -318,7 +319,8 @@ export interface PMEnrollEmailOtpPayload {
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
   nearAccountId: string;
-  chain?: 'tempo' | 'evm';
+  chain: 'tempo' | 'evm';
+  chainId: number;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
   challengeId?: string;
@@ -337,7 +339,8 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
 
 export interface PMRefreshEmailOtpSigningSessionPayload {
   nearAccountId: string;
-  chain?: 'tempo' | 'evm';
+  chain: 'tempo' | 'evm';
+  chainId: number;
   challengeId: string;
   otpCode: string;
   ttlMs?: number;
@@ -349,8 +352,8 @@ export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload
 
 export interface PMPrefillThresholdEcdsaPresignPoolPayload {
   nearAccountId: string;
-  options?: {
-    chain?: 'tempo' | 'evm';
+  options: {
+    chain: 'tempo' | 'evm';
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;

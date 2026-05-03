@@ -115,6 +115,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
   listThresholdEcdsaSessionRecordsForLookup: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
+    source?: ThresholdEcdsaSessionStoreSource;
   }) => ThresholdEcdsaSessionRecord[];
   getEmailOtpThresholdEcdsaKeyRefForSigning: (args: {
     nearAccountId: AccountId | string;
@@ -157,6 +158,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     nearAccountId: AccountId | string;
     chain: 'tempo' | 'evm';
+    chainId: number;
     challengeId: string;
     otpCode: string;
     record?: ThresholdEcdsaSessionRecord;
@@ -440,6 +442,18 @@ export function createOrchestrationDependencyBundle(
           chain,
           source,
         }),
+      listThresholdEcdsaSessionRecordsForSigning: ({ nearAccountId, chain, source }) =>
+        args.listThresholdEcdsaSessionRecordsForLookup({
+          nearAccountId,
+          chain,
+          ...(source ? { source } : {}),
+        }),
+      listThresholdEcdsaKeyRefsForSigning: ({ nearAccountId, chain, source }) =>
+        args.listThresholdEcdsaKeyRefsForLookup({
+          nearAccountId,
+          chain,
+          ...(source ? { source } : {}),
+        }),
       requestEmailOtpTransactionSigningChallenge: ({ nearAccountId, chain, authLane }) =>
         args.requestEmailOtpTransactionSigningChallenge?.({
           nearAccountId,
@@ -453,6 +467,7 @@ export function createOrchestrationDependencyBundle(
       loginWithEmailOtpEcdsaCapabilityForSigning: ({
         nearAccountId,
         chain,
+        chainId,
         challengeId,
         otpCode,
         record,
@@ -461,6 +476,7 @@ export function createOrchestrationDependencyBundle(
         args.loginWithEmailOtpEcdsaCapabilityForSigning?.({
           nearAccountId,
           chain,
+          chainId,
           challengeId,
           otpCode,
           record,

@@ -25,7 +25,6 @@ import {
 } from '../../session/signingSession/trace';
 import type { SigningLaneContext, SigningSessionPlan } from '../../session/signingSession/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/signingSession/types';
-import type { SigningSessionPreparedBudgetIdentity } from '../../session/signingSession/budget';
 import type { PreparedThresholdSigningOperation } from '../../session/signingSession/preparedOperation';
 import { signingAuthPlanFromSigningSessionPlan } from '../../orchestration/shared/touchConfirmSigning';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
@@ -63,6 +62,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     nearAccountId: string;
     chain: EvmFamilyChain;
+    chainId: number;
     challengeId: string;
     otpCode: string;
     record?: ThresholdEcdsaSessionRecord;
@@ -80,6 +80,7 @@ type ResolveEvmFamilyTransactionWalletAuthBaseArgs = {
   confirmedDeps: EvmFamilyConfirmedSigningDeps;
   nearAccountId: string;
   chain: EvmFamilyChain;
+  chainId: number;
   accountAuth: AccountAuthMetadata;
   forceFreshAuth?: boolean;
   onEvent?: EvmFamilyLifecycleEventCallback;
@@ -173,7 +174,6 @@ export async function resolveEvmFamilyTransactionWalletAuth(
 ): Promise<{
   signingAuthPlan: SigningAuthPlan;
   signingSessionPlan?: SigningSessionPlan;
-  budgetIdentity?: SigningSessionPreparedBudgetIdentity;
   emailOtpSigning?: {
     prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
     resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
@@ -290,6 +290,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(
       const refreshed = await confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning({
         nearAccountId: args.nearAccountId,
         chain: args.chain,
+        chainId: args.chainId,
         challengeId,
         otpCode: code,
         ...(emailOtpRecord ? { record: emailOtpRecord } : {}),
@@ -313,11 +314,9 @@ export async function resolveEvmFamilyTransactionWalletAuth(
     ReturnType<typeof emailOtpAuthAdapter.createEmailOtpReauthPlan>
   > | null = null;
   let plannedSigningSessionPlan: SigningSessionPlan | undefined;
-  let plannedBudgetIdentity: SigningSessionPreparedBudgetIdentity | undefined;
   if (args.senderSignatureAlgorithm === 'secp256k1') {
     const preparedOperation = args.preparedOperation;
     const signingSessionPlan = preparedOperation.signingSessionPlan;
-    plannedBudgetIdentity = preparedOperation.budgetIdentity;
     plannedSigningSessionPlan = signingSessionPlan;
     if (signingSessionPlan.kind === SigningSessionPlanKind.WarmSession) {
       plannedEcdsaSigningAuthPlan = signingAuthPlanFromSigningSessionPlan({
@@ -360,7 +359,6 @@ export async function resolveEvmFamilyTransactionWalletAuth(
     return {
       signingAuthPlan,
       ...(plannedSigningSessionPlan ? { signingSessionPlan: plannedSigningSessionPlan } : {}),
-      ...(plannedBudgetIdentity ? { budgetIdentity: plannedBudgetIdentity } : {}),
     };
   }
 
@@ -376,7 +374,6 @@ export async function resolveEvmFamilyTransactionWalletAuth(
   return {
     signingAuthPlan,
     ...(plannedSigningSessionPlan ? { signingSessionPlan: plannedSigningSessionPlan } : {}),
-    ...(plannedBudgetIdentity ? { budgetIdentity: plannedBudgetIdentity } : {}),
     emailOtpSigning: {
       prepare: prepareChallenge,
       resend: async () => {
