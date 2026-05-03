@@ -1457,6 +1457,40 @@ export function getStoredThresholdEd25519SessionRecordForAccount(
   return null;
 }
 
+export function listStoredThresholdEd25519SessionRecordsForAccount(
+  nearAccountIdRaw: AccountId | string,
+): ThresholdEd25519SessionRecord[] {
+  let accountKey = '';
+  try {
+    accountKey = String(toAccountId(nearAccountIdRaw)).trim();
+  } catch {
+    return [];
+  }
+  if (!accountKey) return [];
+
+  const records: ThresholdEd25519SessionRecord[] = [];
+  const seen = new Set<string>();
+  const pushRecord = (record: ThresholdEd25519SessionRecord | null | undefined): void => {
+    if (!record || String(record.nearAccountId || '').trim() !== accountKey) return;
+    const laneKey =
+      getThresholdEd25519SessionLaneKeyForRecord(record) ||
+      String(record.thresholdSessionId || '').trim();
+    if (!laneKey || seen.has(laneKey)) return;
+    seen.add(laneKey);
+    records.push(record);
+  };
+
+  pushRecord(inMemoryEd25519RecordsByAccount.get(accountKey));
+  for (const record of inMemoryEd25519RecordsByLane.values()) {
+    pushRecord(record);
+  }
+
+  return records.sort(
+    (left, right) =>
+      Math.floor(Number(right.updatedAtMs) || 0) - Math.floor(Number(left.updatedAtMs) || 0),
+  );
+}
+
 export function getStoredThresholdEd25519SessionRecordForLane(args: {
   nearAccountId: AccountId | string;
   authMethod: ThresholdEd25519SessionAuthMethod;

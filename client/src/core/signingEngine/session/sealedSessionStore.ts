@@ -454,6 +454,47 @@ function deleteResolvedIdentityForSealedRecord(record: SigningSessionSealedStore
   }
 }
 
+function sealedRecordAccountKeys(record: SigningSessionSealedStoreRecord): Set<string> {
+  const keys = new Set<string>();
+  const walletId = normalizeOptionalNonEmptyString(record.walletId);
+  const userId = normalizeOptionalNonEmptyString(record.userId);
+  if (walletId) keys.add(walletId);
+  if (userId) keys.add(userId);
+  return keys;
+}
+
+function sealedRecordsShareAccount(
+  left: SigningSessionSealedStoreRecord,
+  right: SigningSessionSealedStoreRecord,
+): boolean {
+  const leftKeys = sealedRecordAccountKeys(left);
+  if (!leftKeys.size) return false;
+  for (const key of sealedRecordAccountKeys(right)) {
+    if (leftKeys.has(key)) return true;
+  }
+  return false;
+}
+
+function sealedRecordsHaveSamePurpose(
+  left: SigningSessionSealedStoreRecord,
+  right: SigningSessionSealedStoreRecord,
+): boolean {
+  if (!sealedRecordsShareAccount(left, right)) return false;
+  if (left.authMethod !== right.authMethod || left.curve !== right.curve) return false;
+  if (left.curve === 'ecdsa' && left.ecdsaRestore?.chain !== right.ecdsaRestore?.chain) {
+    return false;
+  }
+
+  const leftSigningRootId = normalizeOptionalNonEmptyString(left.signingRootId);
+  const rightSigningRootId = normalizeOptionalNonEmptyString(right.signingRootId);
+  // Missing signingRootId is legacy/incomplete metadata. Treat it as same scope
+  // so old durable seals cannot keep polluting exact lane selection.
+  if (leftSigningRootId && rightSigningRootId && leftSigningRootId !== rightSigningRootId) {
+    return false;
+  }
+  return true;
+}
+
 export function publishResolvedIdentity(
   input: PublishResolvedIdentityInput,
 ): ResolvedSigningSessionIdentity | null {
@@ -734,29 +775,29 @@ async function deleteRecordByThresholdSessionId(
   }
 }
 
-async function deleteSameScopeRecords(
-  store: IDBObjectStore,
+async function listSameScopeRecords(
+  db: IDBDatabase,
   record: SigningSessionSealedStoreRecord,
-): Promise<void> {
-  if (!record.walletId || !record.signingRootId || !record.authMethod) return;
+): Promise<SigningSessionSealedStoreRecord[]> {
+  if (!sealedRecordAccountKeys(record).size || !record.authMethod) return [];
   try {
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const store = tx.objectStore(STORE_NAME);
     const all = await requestToPromise<unknown[]>(store.getAll());
+    const records: SigningSessionSealedStoreRecord[] = [];
     for (const entry of all) {
       const existing = normalizeSigningSessionSealedStoreRecord(entry);
       if (!existing) continue;
       if (existing.storeKey === record.storeKey) continue;
-      if (
-        existing.walletId === record.walletId &&
-        existing.signingRootId === record.signingRootId &&
-        existing.authMethod === record.authMethod &&
-        existing.curve === record.curve &&
-        (record.curve !== 'ecdsa' || existing.ecdsaRestore?.chain === record.ecdsaRestore?.chain)
-      ) {
-        deleteResolvedIdentityForSealedRecord(existing);
-        store.delete(existing.storeKey);
+      if (sealedRecordsHaveSamePurpose(existing, record)) {
+        records.push(existing);
       }
     }
-  } catch {}
+    await transactionDone(tx).catch(() => undefined);
+    return records;
+  } catch {
+    return [];
+  }
 }
 
 export async function readExactSealedSession(
@@ -924,9 +965,13 @@ export async function writeExactSealedSession(args: {
   const db = await openSigningSessionSealsDb();
   if (!db) return;
   try {
+    const staleRecords = await listSameScopeRecords(db, record);
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    await deleteSameScopeRecords(store, record);
+    for (const staleRecord of staleRecords) {
+      deleteResolvedIdentityForSealedRecord(staleRecord);
+      store.delete(staleRecord.storeKey);
+    }
     store.put(record);
     await transactionDone(tx).catch(() => undefined);
     publishResolvedIdentityForSealedRecord(record);

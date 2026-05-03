@@ -125,6 +125,7 @@ import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId as getStoredThresholdEd25519SessionRecordByThresholdSessionIdValue,
   getStoredThresholdEd25519SessionRecordForAccount as getStoredThresholdEd25519SessionRecordForAccountValue,
   getStoredThresholdEd25519SessionRecordForLane as getStoredThresholdEd25519SessionRecordForLaneValue,
+  listStoredThresholdEd25519SessionRecordsForAccount as listStoredThresholdEd25519SessionRecordsForAccountValue,
   listThresholdEcdsaKeyRefsForLookup as listThresholdEcdsaKeyRefsForLookupValue,
   listThresholdEcdsaSessionRecordsForLookup as listThresholdEcdsaSessionRecordsForLookupValue,
   markThresholdEd25519EmailOtpSessionConsumedForAccount as markThresholdEd25519EmailOtpSessionConsumedForAccountValue,
@@ -289,7 +290,6 @@ import {
 } from './session/signingSession/trace';
 import {
   listExactSealedSessionsForAccount,
-  listResolvedIdentitiesForAccount,
   type SigningSessionSealedStoreRecord,
 } from './session/sealedSessionStore';
 import { resolveEmailOtpEcdsaWorkerSessionId } from './session/signingSession/readiness';
@@ -560,7 +560,8 @@ function selectExactExportSnapshotLane<TLane extends ConcreteExportSnapshotLane>
   candidates: TLane[];
 }): TLane {
   const traceScope = args.context.includes('ed25519') ? 'near' : 'evm-family';
-  if (!args.candidates.length) {
+  const selectableCandidates = args.candidates.filter((candidate) => candidate.state !== 'missing');
+  if (!selectableCandidates.length) {
     emitSigningSessionFlowFailure(traceScope, {
       stage: 'key_export.exact_lane_no_candidate',
       context: args.context,
@@ -570,8 +571,48 @@ function selectExactExportSnapshotLane<TLane extends ConcreteExportSnapshotLane>
     throw new Error(`[SigningEngine][${args.context}] exact lane selection failed: no_candidate`);
   }
 
+  const runtimeCandidates = selectableCandidates.filter(
+    (candidate) =>
+      candidate.source === 'runtime_session_record' ||
+      candidate.source === 'runtime_and_durable',
+  );
+  const runtimeCandidatesByIdentity = new Map<string, TLane[]>();
+  for (const candidate of runtimeCandidates) {
+    const identity = exportLaneIdentity(candidate);
+    runtimeCandidatesByIdentity.set(identity, [
+      ...(runtimeCandidatesByIdentity.get(identity) || []),
+      candidate,
+    ]);
+  }
+  if (runtimeCandidatesByIdentity.size === 1) {
+    const sameIdentityCandidates = [...runtimeCandidatesByIdentity.values()][0]!;
+    const byState = bestExportLaneByPriority(sameIdentityCandidates, exportLaneStatePriority);
+    const bySource = bestExportLaneByPriority(byState, exportLaneSourcePriority);
+    const selectedLane = selectNewestExportLaneWhenUnambiguous(bySource) || bySource[0]!;
+    emitSigningSessionFlowTrace(traceScope, {
+      stage: 'key_export.exact_lane_selected',
+      context: args.context,
+      reason: 'single_runtime_identity',
+      selectedLane: summarizeExportSnapshotLane(selectedLane),
+      candidateCount: args.candidates.length,
+      exactIdentityCount: runtimeCandidatesByIdentity.size,
+    });
+    return selectedLane;
+  }
+  if (runtimeCandidatesByIdentity.size > 1) {
+    emitSigningSessionFlowFailure(traceScope, {
+      stage: 'key_export.exact_lane_ambiguous',
+      context: args.context,
+      candidateCount: args.candidates.length,
+      candidates: args.candidates.map(summarizeExportSnapshotLane),
+    });
+    throw new Error(
+      `[SigningEngine][${args.context}] exact lane selection failed: ambiguous_candidates`,
+    );
+  }
+
   const candidatesByIdentity = new Map<string, TLane[]>();
-  for (const candidate of args.candidates) {
+  for (const candidate of selectableCandidates) {
     const identity = exportLaneIdentity(candidate);
     candidatesByIdentity.set(identity, [...(candidatesByIdentity.get(identity) || []), candidate]);
   }
@@ -1098,17 +1139,18 @@ export class SigningEngine {
             seen.add(identityKey);
             records.push(record);
           };
-          for (const identity of listResolvedIdentitiesForAccount({
-            walletId: recordAccountId,
-            ...(args.authMethod ? { authMethod: args.authMethod } : {}),
-            curve: 'ed25519',
-          })) {
+          for (const runtimeRecord of listStoredThresholdEd25519SessionRecordsForAccountValue(
+            recordAccountId,
+          )) {
+            const authMethod =
+              runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
+            if (args.authMethod && args.authMethod !== authMethod) continue;
             pushRecord({
-              authMethod: identity.authMethod,
+              authMethod,
               curve: 'ed25519',
               chain: 'near',
-              thresholdSessionId: identity.thresholdSessionId,
-              walletSigningSessionId: identity.walletSigningSessionId,
+              thresholdSessionId: runtimeRecord.thresholdSessionId,
+              walletSigningSessionId: runtimeRecord.walletSigningSessionId,
             });
           }
           return records;

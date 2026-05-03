@@ -17,6 +17,7 @@ import type {
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
+  listStoredThresholdEd25519SessionRecordsForAccount,
   upsertStoredThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import type {
@@ -41,6 +42,7 @@ import {
 } from '@/core/signingEngine/session/restoreCoordinator';
 import {
   ecdsaSnapshotLaneIdentityKey,
+  ed25519SnapshotLaneIdentityKey,
   readSigningSessionSnapshot,
   warmStatusToSigningSessionSnapshotRuntimeClaim,
   type ReadSigningSessionSnapshotInput,
@@ -870,22 +872,23 @@ export class EmailOtpThresholdSessionCoordinator {
           const records: SigningSessionSnapshotRuntimeEd25519Record[] = [];
           const seen = new Set<string>();
           const pushRecord = (record: SigningSessionSnapshotRuntimeEd25519Record) => {
-            const thresholdSessionId = String(record.thresholdSessionId || '').trim();
-            if (!thresholdSessionId || seen.has(thresholdSessionId)) return;
-            seen.add(thresholdSessionId);
+            const identityKey = ed25519SnapshotLaneIdentityKey(record);
+            if (!identityKey || seen.has(identityKey)) return;
+            seen.add(identityKey);
             records.push(record);
           };
-          const identities = listResolvedIdentitiesForAccount({
-            walletId: recordAccountId,
-            curve: 'ed25519',
-          });
-          for (const identity of identities) {
+          for (const runtimeRecord of listStoredThresholdEd25519SessionRecordsForAccount(
+            recordAccountId,
+          )) {
+            const authMethod =
+              runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
+            if (args.authMethod && args.authMethod !== authMethod) continue;
             pushRecord({
-              authMethod: identity.authMethod,
+              authMethod,
               curve: 'ed25519',
               chain: 'near',
-              thresholdSessionId: identity.thresholdSessionId,
-              walletSigningSessionId: identity.walletSigningSessionId,
+              thresholdSessionId: runtimeRecord.thresholdSessionId,
+              walletSigningSessionId: runtimeRecord.walletSigningSessionId,
             });
           }
           return records;

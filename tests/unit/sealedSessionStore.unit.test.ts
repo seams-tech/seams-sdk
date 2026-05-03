@@ -453,6 +453,94 @@ test.describe('signing session sealed store', () => {
     });
   });
 
+  test('replaces stale same-purpose sealed records before snapshot selection sees them', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+
+        await mod.writeExactSealedSession({
+          thresholdSessionId: 'old-email-otp-ed25519-session',
+          walletSigningSessionId: 'old-email-otp-ed25519-wallet-session',
+          thresholdSessionIds: { ed25519: 'old-email-otp-ed25519-session' },
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          walletId: 'alice.testnet',
+          userId: 'alice.testnet',
+          sealedSecretB64u: 'old-ed25519',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          updatedAtMs: Date.now() - 1_000,
+        });
+        await mod.writeExactSealedSession({
+          thresholdSessionId: 'new-email-otp-ed25519-session',
+          walletSigningSessionId: 'new-email-otp-ed25519-wallet-session',
+          thresholdSessionIds: { ed25519: 'new-email-otp-ed25519-session' },
+          curve: 'ed25519',
+          authMethod: 'email_otp',
+          walletId: 'alice.testnet',
+          userId: 'alice.testnet',
+          sealedSecretB64u: 'new-ed25519',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          updatedAtMs: Date.now(),
+        });
+
+        await mod.writeExactSealedSession({
+          thresholdSessionId: 'old-email-otp-ecdsa-session',
+          walletSigningSessionId: 'old-email-otp-ecdsa-wallet-session',
+          thresholdSessionIds: { ecdsa: 'old-email-otp-ecdsa-session' },
+          curve: 'ecdsa',
+          authMethod: 'email_otp',
+          ecdsaRestore: ECDSA_RESTORE,
+          walletId: 'alice.testnet',
+          userId: 'alice.testnet',
+          sealedSecretB64u: 'old-ecdsa',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          updatedAtMs: Date.now() - 1_000,
+        });
+        await mod.writeExactSealedSession({
+          thresholdSessionId: 'new-email-otp-ecdsa-session',
+          walletSigningSessionId: 'new-email-otp-ecdsa-wallet-session',
+          thresholdSessionIds: { ecdsa: 'new-email-otp-ecdsa-session' },
+          curve: 'ecdsa',
+          authMethod: 'email_otp',
+          ecdsaRestore: ECDSA_RESTORE,
+          walletId: 'alice.testnet',
+          userId: 'alice.testnet',
+          signingRootId: 'signing-root',
+          sealedSecretB64u: 'new-ecdsa',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          updatedAtMs: Date.now(),
+        });
+
+        const ed25519Records = await mod.listExactSealedSessionsForAccount({
+          accountId: 'alice.testnet',
+          filter: { authMethod: 'email_otp', curve: 'ed25519' },
+        });
+        const ecdsaRecords = await mod.listExactSealedSessionsForAccount({
+          accountId: 'alice.testnet',
+          filter: { authMethod: 'email_otp', curve: 'ecdsa', chain: ECDSA_RESTORE.chain },
+        });
+
+        return {
+          ed25519WalletSessionIds: ed25519Records.map(
+            (record: any) => record.walletSigningSessionId,
+          ),
+          ecdsaWalletSessionIds: ecdsaRecords.map((record: any) => record.walletSigningSessionId),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.ed25519WalletSessionIds).toEqual(['new-email-otp-ed25519-wallet-session']);
+    expect(result.ecdsaWalletSessionIds).toEqual(['new-email-otp-ecdsa-wallet-session']);
+  });
+
   test('keeps passkey and Email OTP sealed records with the same wallet signing session separate', async ({
     page,
   }) => {

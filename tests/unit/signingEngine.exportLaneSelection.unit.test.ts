@@ -103,37 +103,47 @@ function makeEcdsaExportEngine(snapshot: SigningSessionSnapshot) {
   return { engine, selectedLanes };
 }
 
-test('NEAR Ed25519 export rejects multiple exact lanes instead of using account auth metadata', async () => {
+test('NEAR Ed25519 export selects the single active runtime lane over durable history', async () => {
   const { engine, selectedLanes } = makeEngine(
     makeSnapshot([
       {
         curve: 'ed25519',
         chain: 'near',
-        authMethod: 'passkey',
+        authMethod: 'email_otp',
         state: 'ready',
-        source: 'durable_sealed_record',
-        walletSigningSessionId: 'wsess-passkey-durable',
-        thresholdSessionId: 'tsess-passkey-durable',
-        updatedAtMs: 20,
+        source: 'runtime_and_durable',
+        walletSigningSessionId: 'wsess-email-runtime',
+        thresholdSessionId: 'tsess-email-runtime',
+        remainingUses: 1,
+        expiresAtMs: Date.now() + 60_000,
+        updatedAtMs: 30,
       },
       {
         curve: 'ed25519',
         chain: 'near',
-        authMethod: 'email_otp',
-        state: 'ready',
-        source: 'runtime_session_record',
-        walletSigningSessionId: 'wsess-email-runtime',
-        thresholdSessionId: 'tsess-email-runtime',
-        updatedAtMs: 10,
+        authMethod: 'passkey',
+        state: 'restorable',
+        source: 'durable_sealed_record',
+        walletSigningSessionId: 'wsess-passkey-durable',
+        thresholdSessionId: 'tsess-passkey-durable',
+        updatedAtMs: 20,
       },
     ]),
   );
 
   await expect(
     engine.exportKeypairWithUI(ACCOUNT_ID as any, { chain: 'near', variant: 'modal' }),
-  ).rejects.toThrow('ambiguous_candidates');
+  ).resolves.toEqual({
+    accountId: ACCOUNT_ID,
+    exportedSchemes: ['ed25519'],
+  });
 
-  expect(selectedLanes).toHaveLength(0);
+  expect(selectedLanes).toHaveLength(1);
+  expect(selectedLanes[0]).toMatchObject({
+    authMethod: 'email_otp',
+    walletSigningSessionId: 'wsess-email-runtime',
+    thresholdSessionId: 'tsess-email-runtime',
+  });
 });
 
 test('NEAR Ed25519 export succeeds when exactly one concrete lane exists', async () => {
@@ -211,6 +221,50 @@ test('ECDSA export rejects multiple exact lanes instead of filtering by account 
   ).rejects.toThrow('ambiguous_candidates');
 
   expect(selectedLanes).toHaveLength(0);
+});
+
+test('ECDSA export ignores missing runtime inventory when one durable exact lane exists', async () => {
+  const { engine, selectedLanes } = makeEcdsaExportEngine(
+    makeEcdsaSnapshot({
+      chain: 'evm',
+      candidates: [
+        {
+          curve: 'ecdsa',
+          chain: 'evm',
+          authMethod: 'email_otp',
+          state: 'restorable',
+          source: 'durable_sealed_record',
+          walletSigningSessionId: 'wsess-email-durable',
+          thresholdSessionId: 'tsess-email-durable',
+          updatedAtMs: 20,
+        },
+        {
+          curve: 'ecdsa',
+          chain: 'evm',
+          authMethod: 'email_otp',
+          state: 'missing',
+          source: 'runtime_session_record',
+          walletSigningSessionId: 'wsess-email-missing-runtime',
+          thresholdSessionId: 'tsess-email-missing-runtime',
+          updatedAtMs: 30,
+        },
+      ],
+    }),
+  );
+
+  await expect(
+    engine.exportKeypairWithUI(ACCOUNT_ID as any, { chain: 'evm', variant: 'modal' }),
+  ).resolves.toEqual({
+    accountId: ACCOUNT_ID,
+    exportedSchemes: ['secp256k1'],
+  });
+
+  expect(selectedLanes).toHaveLength(1);
+  expect(selectedLanes[0]).toMatchObject({
+    authMethod: 'email_otp',
+    walletSigningSessionId: 'wsess-email-durable',
+    thresholdSessionId: 'tsess-email-durable',
+  });
 });
 
 test('ECDSA export succeeds when exactly one concrete lane exists', async () => {

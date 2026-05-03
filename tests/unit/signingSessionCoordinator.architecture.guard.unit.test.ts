@@ -460,6 +460,10 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       signingEngineSnapshotBody.indexOf('listRuntimeEcdsaRecordsForAccount'),
       signingEngineSnapshotBody.indexOf('listRuntimeEd25519RecordsForAccount'),
     );
+    const signingEngineEd25519RuntimeBody = signingEngineSnapshotBody.slice(
+      signingEngineSnapshotBody.indexOf('listRuntimeEd25519RecordsForAccount'),
+      signingEngineSnapshotBody.indexOf('readRuntimeClaimsForSessions'),
+    );
     const emailOtpSnapshotBody = emailOtpCoordinator.slice(
       emailOtpCoordinator.indexOf('async readPersistedSessionSnapshot'),
       emailOtpCoordinator.indexOf('private async restoreEcdsaSealedRecordForAccount'),
@@ -467,6 +471,10 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     const emailOtpEcdsaRuntimeBody = emailOtpSnapshotBody.slice(
       emailOtpSnapshotBody.indexOf('listRuntimeEcdsaRecordsForAccount'),
       emailOtpSnapshotBody.indexOf('listRuntimeEd25519RecordsForAccount'),
+    );
+    const emailOtpEd25519RuntimeBody = emailOtpSnapshotBody.slice(
+      emailOtpSnapshotBody.indexOf('listRuntimeEd25519RecordsForAccount'),
+      emailOtpSnapshotBody.indexOf('readRuntimeClaimsForSessions'),
     );
 
     expect(snapshotReader).toContain('export function ecdsaSnapshotLaneIdentityKey');
@@ -476,6 +484,16 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     for (const ecdsaRuntimeBody of [signingEngineEcdsaRuntimeBody, emailOtpEcdsaRuntimeBody]) {
       expect(ecdsaRuntimeBody).not.toContain('seen.has(thresholdSessionId)');
       expect(ecdsaRuntimeBody).not.toContain('seen.add(thresholdSessionId)');
+    }
+    for (const ed25519RuntimeBody of [
+      signingEngineEd25519RuntimeBody,
+      emailOtpEd25519RuntimeBody,
+    ]) {
+      expect(ed25519RuntimeBody).toContain('listStoredThresholdEd25519SessionRecordsForAccount');
+      expect(ed25519RuntimeBody).toContain('ed25519SnapshotLaneIdentityKey(record)');
+      expect(ed25519RuntimeBody).not.toContain('listResolvedIdentitiesForAccount');
+      expect(ed25519RuntimeBody).not.toContain('seen.has(thresholdSessionId)');
+      expect(ed25519RuntimeBody).not.toContain('seen.add(thresholdSessionId)');
     }
   });
 
