@@ -1383,6 +1383,413 @@ Acceptance:
 7. Static guards fail on old authority paths and do not require deleted wrapper
    names.
 
+### Phase 12: Make ECDSA Chain Identity Concrete
+
+Current risk: ECDSA session identity still collapses all EVM networks under
+`chain: 'evm'`, while Tempo is modeled as the only separate EVM-like chain. That
+is not precise enough for Arc, Polygon, Ethereum, MegaETH, Base, or their
+testnets. The exact-lane model only remains deterministic if both the protocol
+subject and chain target are part of the lane identity.
+
+Long-term target:
+
+1. ECDSA transaction, export, snapshot, runtime store, durable store, server
+   auth, and budget identity must carry a protocol-neutral wallet subject plus a
+   concrete ECDSA chain target.
+2. NEAR account ids must not be foundational ECDSA identity. Named or implicit
+   NEAR account ids belong only in NEAR-specific Ed25519 paths.
+3. EVM networks are identified by numeric EIP-155 `chainId`; Arc testnet
+   (`5042002`) and Ethereum mainnet (`1`) are different lanes even though both
+   use EVM signing logic.
+4. Tempo remains a separate chain kind because it is EVM-like but has extended
+   behavior.
+5. Implementation paths may be shared by EVM-family chains, but lane identity
+   must never collapse those chains into `evm`.
+
+Core data structures:
+
+```ts
+export type WalletSubjectId = string;
+
+export type NearAccountRef =
+  | { kind: 'named'; accountId: string }
+  | { kind: 'implicit'; accountId: string };
+
+export type EvmEip155ChainTarget = {
+  kind: 'evm';
+  namespace: 'eip155';
+  chainId: number;
+  // Metadata only. Do not use this field in canonical equality.
+  networkSlug: string;
+};
+
+export type TempoChainTarget = {
+  kind: 'tempo';
+  chainId: number;
+  // Metadata only. Do not use this field in canonical equality.
+  networkSlug: string;
+};
+
+export type ThresholdEcdsaChainTarget = EvmEip155ChainTarget | TempoChainTarget;
+
+export type EcdsaLaneIdentity = {
+  subjectId: WalletSubjectId;
+  authMethod: 'email_otp' | 'passkey';
+  curve: 'ecdsa';
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+};
+
+export type Ed25519NearLaneIdentity = {
+  nearAccount: NearAccountRef;
+  authMethod: 'email_otp' | 'passkey';
+  curve: 'ed25519';
+  chain: 'near';
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+};
+
+export type ThresholdEcdsaRuntimeLane = EcdsaLaneIdentity & {
+  source: 'runtime_session_record';
+  remainingUses?: number;
+  expiresAtMs?: number;
+  updatedAtMs?: number;
+};
+```
+
+Canonical identity:
+
+```ts
+export function thresholdEcdsaChainTargetKey(
+  target: ThresholdEcdsaChainTarget,
+): string {
+  if (target.kind === 'evm') return `evm:eip155:${target.chainId}`;
+  return `tempo:${target.chainId}`;
+}
+
+export function thresholdEcdsaLaneKey(lane: EcdsaLaneIdentity): string {
+  return [
+    lane.subjectId,
+    lane.ecdsaThresholdKeyId,
+    lane.authMethod,
+    lane.curve,
+    thresholdEcdsaChainTargetKey(lane.chainTarget),
+    lane.signingRootId,
+    lane.signingRootVersion,
+    lane.walletSigningSessionId,
+    lane.thresholdSessionId,
+  ].join(':');
+}
+```
+
+Rules:
+
+1. Never dedupe ECDSA runtime or durable state by `thresholdSessionId` alone.
+2. Never dedupe ECDSA runtime or durable state by collapsed `chain: 'evm'`.
+3. Never use `NearAccountId` as the global ECDSA account identity. ECDSA lanes
+   use `WalletSubjectId`; NEAR lanes use `NearAccountRef`.
+4. `networkSlug` is display/config/diagnostic metadata only. Canonical equality
+   uses `kind`, namespace when relevant, and numeric `chainId`.
+5. Exact ECDSA lane comparison must include:
+   - `subjectId`
+   - `ecdsaThresholdKeyId`
+   - `authMethod`
+   - `curve`
+   - `chainTarget.kind`
+   - `chainTarget.chainId`
+   - `signingRootId`
+   - `signingRootVersion`
+   - `walletSigningSessionId`
+   - `thresholdSessionId`
+6. Snapshot runtime candidates must come from material-backed runtime lanes, not
+   sealed resolved identities.
+7. Durable sealed records may remain broader only as raw hints; transaction and
+   export selection must resolve them into concrete chain-target lanes before
+   restore/material lookup.
+8. Legacy records that only know collapsed `chain: 'evm'` must be quarantined,
+   deleted, or require fresh bootstrap. Do not infer Arc/Base/Ethereum from
+   config defaults.
+
+Signing targets and publication targets are different concepts:
+
+```ts
+export type EcdsaSessionPublicationTarget =
+  | { kind: 'evm_family'; targets: EvmEip155ChainTarget[] }
+  | { kind: 'tempo'; target: TempoChainTarget };
+
+export type EcdsaSigningTarget = ThresholdEcdsaChainTarget;
+```
+
+Transaction and export commands require one `EcdsaSigningTarget`. Wallet
+unlock/bootstrap may publish multiple explicit lanes through
+`EcdsaSessionPublicationTarget`. Production code must not probe multiple chains
+to discover which one works.
+
+Store APIs:
+
+```ts
+export function listThresholdEcdsaRuntimeLanesForSubject(args: {
+  subjectId: WalletSubjectId;
+  authMethod?: 'email_otp' | 'passkey';
+  chainTarget?: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId?: string;
+  signingRootId?: string;
+  signingRootVersion?: string;
+}): ThresholdEcdsaRuntimeLane[];
+```
+
+This replaces account-wide callers that currently loop over `['tempo', 'evm']`
+inside `SigningEngine.ts`. If the snapshot reader still has a fixed schema
+during migration, prefer a per-chain port:
+
+```ts
+listRuntimeEcdsaRecordsForChain(args: {
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  authMethod?: 'email_otp' | 'passkey';
+}): Promise<SigningSessionSnapshotRuntimeEcdsaRecord[]>;
+```
+
+The enumeration belongs in `snapshotReader.ts` while it owns the snapshot shape.
+The `SigningEngine.ts` adapter should only map material-backed runtime lanes to
+snapshot records; it should not carry hidden chain lists or selection policy.
+
+Snapshot shape:
+
+```ts
+export type SigningSessionSnapshot = {
+  subjectId: WalletSubjectId;
+  generation: number;
+  ecdsa: {
+    byChainTarget: Record<
+      string,
+      {
+        target: ThresholdEcdsaChainTarget;
+        candidates: SigningSessionSnapshotEcdsaLane[];
+        selected?: SigningSessionSnapshotEcdsaLane;
+      }
+    >;
+  };
+  ed25519: {
+    near: {
+      nearAccount: NearAccountRef;
+      candidates: SigningSessionSnapshotEd25519Lane[];
+      selected?: SigningSessionSnapshotEd25519Lane;
+    };
+  };
+};
+```
+
+During migration, keep compatibility accessors only inside the snapshot module:
+
+```ts
+snapshot.lanes.ecdsa.evm
+snapshot.lanes.ecdsa.tempo
+snapshot.candidates.ecdsa.evm
+snapshot.candidates.ecdsa.tempo
+```
+
+Those accessors must be derived from `byChainTarget`; production transaction and
+export flows should accept `ThresholdEcdsaChainTarget` directly.
+
+Implementation steps:
+
+1. [ ] Introduce subject/account reference and chain target types.
+   - Add `WalletSubjectId`, `NearAccountRef`, `ThresholdEcdsaChainTarget`,
+     `EcdsaLaneIdentity`, and `Ed25519NearLaneIdentity`.
+   - Prefer a new `ecdsaChainTarget.ts` or `laneIdentity.ts` module rather than
+     adding more identity rules to `SigningEngine.ts`.
+   - Include normalization helpers:
+     `walletSubjectIdFromAccountContext(...)`,
+     `nearAccountRefFromAccountId(...)`,
+     `thresholdEcdsaChainTargetFromConfig(...)`,
+     `thresholdEcdsaChainTargetFromRequest(...)`,
+     `thresholdEcdsaChainTargetKey(...)`, and
+     `thresholdEcdsaLaneKey(...)`.
+   - Validate numeric `chainId` at API/iframe boundaries.
+2. [ ] Add concrete chain target and subject id to runtime ECDSA state.
+   - `ThresholdEcdsaSessionRecord`
+   - `ThresholdEcdsaSecp256k1KeyRef`
+   - warm-session persistence types
+   - worker bootstrap/request payloads
+   - threshold session activation result types
+   - diagnostic logs
+   - budget identity/admission records
+3. [ ] Add concrete chain target and subject id to durable ECDSA state.
+   - sealed ECDSA restore metadata
+   - resolved signing-session identities
+   - exact sealed-session record filters
+   - durable restore leases
+   - exact restore input types
+   - export lane metadata
+4. [ ] Add `listThresholdEcdsaRuntimeLanesForSubject(...)`.
+   - Return material-backed runtime lanes only.
+   - Filter by `subjectId`, `authMethod`, `chainTarget`,
+     `ecdsaThresholdKeyId`, and signing root.
+   - Dedupe by `thresholdEcdsaLaneKey(...)`.
+   - Do not read sealed resolved identities.
+5. [ ] Refactor `readSigningSessionSnapshot(...)`.
+   - Make the snapshot reader own ECDSA chain-target enumeration.
+   - Replace `listRuntimeEcdsaRecordsForAccount(...)` with either
+     `listRuntimeEcdsaRecordsForChain(...)` during migration or
+     `listThresholdEcdsaRuntimeLanesForSubject(...)` once `byChainTarget`
+     exists.
+   - Remove inline `['tempo', 'evm']` loops from `SigningEngine.ts` snapshot
+     adapters.
+   - Keep NEAR Ed25519 snapshots keyed by `NearAccountRef`, not
+     `WalletSubjectId`.
+6. [ ] Refactor transaction and export intents.
+   - EVM transaction signing input must include a concrete target such as
+     `{ kind: 'evm', namespace: 'eip155', chainId: 5042002, networkSlug:
+     'arc-testnet' }`.
+   - Tempo signing input must include `{ kind: 'tempo', chainId: 42431,
+     networkSlug: 'tempo-moderato' }`.
+   - No transaction/export path may infer a chain target from `chain || 'tempo'`
+     or probe multiple chains.
+7. [ ] Split publication targets from signing targets.
+   - Wallet unlock/bootstrap accepts `EcdsaSessionPublicationTarget`.
+   - Transaction/export accepts exactly one `EcdsaSigningTarget`.
+   - Publishing multiple lanes must be an explicit bootstrap action, not hidden
+     fallback logic in transaction signing.
+8. [ ] Refactor exact lane selection and restore.
+   - `TransactionLane`
+   - `ExactEcdsaExportLane`
+   - `SigningSessionSnapshotEcdsaLane`
+   - restore coordinator inputs
+   - ECDSA material lookup
+   - budget identity and finalization
+   must compare concrete `EcdsaLaneIdentity`.
+9. [ ] Extend concrete identity through server/auth boundaries.
+   - threshold ECDSA bootstrap payloads
+   - `/threshold-ecdsa/hss/prepare`
+   - HSS prepare/respond/finalize request validation
+   - threshold-session JWT/session claims where applicable
+   - session policy creation and server-side mismatch checks
+   - Email OTP worker request payloads
+   - passkey/WebAuthn reconnect payloads
+   Server authorization must reject mismatched `subjectId`, `chainTarget`, and
+   `ecdsaThresholdKeyId`, not only mismatched session ids.
+10. [ ] Remove collapsed EVM identity from production paths.
+    - Delete production use of `chain: 'evm'` as a lane identity.
+    - Keep EVM-family shared implementation naming only for execution adapters,
+      not identity.
+    - Compatibility helpers may exist only at SDK/iframe input boundaries and
+      must return a validated `ThresholdEcdsaChainTarget`.
+11. [ ] Quarantine legacy collapsed ECDSA records.
+    - Detect records that only know `chain: 'evm'` and lack concrete
+      `chainTarget`.
+    - Do not migrate them by guessing from current config.
+    - Delete, quarantine, or force fresh bootstrap with an explicit diagnostic.
+12. [ ] Add tests.
+    - Arc testnet (`chainId: 5042002`) and Ethereum mainnet (`chainId: 1`) can
+      coexist for the same subject without candidate collision.
+    - Arc testnet and MegaETH testnet can share signing root and threshold key
+      metadata but remain separate lanes by `chainId`.
+    - Tempo Moderato (`chainId: 42431`) remains separate from EVM chain targets.
+    - Snapshot exposes separate candidates per target.
+    - Exact restore and export fail when chain target differs even if
+      `walletSigningSessionId` and `thresholdSessionId` match.
+    - Exact restore and export fail when `ecdsaThresholdKeyId` differs even if
+      session ids match.
+    - Budget reservation/finalization uses the same concrete chain target and
+      subject id carried by the admitted operation.
+    - Legacy collapsed EVM records are quarantined or require fresh bootstrap,
+      never guessed into Arc/Base/Ethereum.
+    - Server HSS prepare rejects mismatched subject, chain target, threshold key,
+      or session policy claims.
+13. [ ] Add static guards.
+    - No production `SigningEngine.ts` snapshot adapter loops over
+      `['tempo', 'evm']`.
+    - No ECDSA lane key omits `subjectId`, `ecdsaThresholdKeyId`, or `chainId`.
+    - No transaction/export restore input accepts collapsed `chain: 'evm'` as
+      identity.
+    - No transaction/export path defaults chain input.
+    - No runtime ECDSA list API dedupes by `thresholdSessionId` only.
+    - No ECDSA runtime/session store type uses `nearAccountId` as its primary
+      identity field.
+
+Data structures and functions to edit:
+
+1. `client/src/core/signingEngine/orchestration/thresholdActivation.ts`
+   - current `ThresholdEcdsaActivationChain`
+   - chain target normalization
+   - publication target modeling
+   - activation target descriptions
+2. `client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts`
+   - `ThresholdEcdsaSessionRecord`
+   - `ThresholdEcdsaSecp256k1KeyRef`
+   - ECDSA lane key helpers
+   - runtime lane listing APIs
+   - legacy record quarantine
+3. `client/src/core/signingEngine/session/sealedSessionStore.ts`
+   - sealed ECDSA restore metadata
+   - resolved identity metadata
+   - exact sealed record filters
+4. `shared/src/utils/signingSessionSeal.ts`
+   - shared sealed metadata shape
+5. `client/src/core/signingEngine/session/snapshotReader.ts`
+   - `SigningSessionSnapshotEcdsaLane`
+   - snapshot candidates indexed by chain target
+   - runtime ports
+6. `client/src/core/signingEngine/SigningEngine.ts`
+   - snapshot adapter
+   - export lane selection
+   - chain target input normalization
+   - exact restore/material lookup
+7. `client/src/core/signingEngine/api/evmFamily/**`
+   - prepared signing
+   - readiness
+   - selection
+   - reconnect
+   - budget/finalization
+8. `client/src/core/SeamsPasskey/evm/**`
+   - public EVM signing inputs
+   - iframe message validation
+   - no default chain fallback
+9. `client/src/core/WalletIframe/shared/messages.ts`
+   - require `chainId` for EVM requests
+   - validate chain target at boundary
+10. `server/src/**/threshold-ecdsa/**`
+    - HSS prepare/respond/finalize validation
+    - session policy parsing
+    - JWT/session claims
+    - signing root and chain target checks
+11. `client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+    - concrete chain target in Email OTP ECDSA bootstrap/export payloads
+12. `tests/unit/**`
+    - snapshot reader
+    - transaction state
+    - EVM/Tempo signing mode
+    - export lane selection
+    - architecture guards
+    - server HSS authorization guards
+
+Acceptance:
+
+1. ECDSA exact lane identity includes subject id, ECDSA threshold key id, and
+   concrete chain target everywhere after API boundary validation.
+2. NEAR account ids are not the global ECDSA subject. NEAR account refs exist
+   only in NEAR Ed25519-specific paths.
+3. Arc, Polygon, Ethereum, MegaETH, Base, and their testnets cannot collide in
+   runtime stores, snapshots, restore, export, server authorization, or budget
+   finalization.
+4. Tempo remains a separate chain kind, not an EVM `chainId` alias.
+5. Snapshot reader, not `SigningEngine.ts`, owns any temporary fixed chain-target
+   enumeration.
+6. `SigningEngine.ts` snapshot adapters are dumb material-to-snapshot mappers.
+7. No production exact-purpose ECDSA flow accepts optional or collapsed chain
+   identity.
+8. No production ECDSA flow probes multiple chains to find one that works.
+9. Legacy collapsed EVM records are never guessed into concrete networks.
+10. Server HSS/session authorization validates the same concrete lane identity
+    that the client selected.
+11. All tests and static guards pass with Arc testnet and Tempo Moderato
+    configured by numeric chain id.
+
 ## Static Guards
 
 Add architecture guards for:
