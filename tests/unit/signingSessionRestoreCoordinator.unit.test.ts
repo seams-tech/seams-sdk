@@ -66,6 +66,8 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chain: 'tempo',
+        walletSigningSessionId: 'wsess-restore',
+        thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
       {
@@ -83,6 +85,8 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chain: 'tempo',
+        walletSigningSessionId: 'wsess-restore',
+        thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
       {
@@ -117,6 +121,8 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chain: 'tempo',
+        walletSigningSessionId: 'wsess-restore',
+        thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
       ports,
@@ -127,6 +133,8 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ecdsa',
         chain: 'tempo',
+        walletSigningSessionId: 'wsess-restore',
+        thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
       },
       ports,
@@ -175,6 +183,8 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       authMethod: 'email_otp' as const,
       curve: 'ecdsa' as const,
       chain: 'tempo' as const,
+      walletSigningSessionId: 'wsess-restore',
+      thresholdSessionId: 'tsess-restore',
       reason: 'transaction' as const,
     };
     const ports = {
@@ -202,6 +212,8 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       authMethod: 'email_otp' as const,
       curve: 'ecdsa' as const,
       chain: 'tempo' as const,
+      walletSigningSessionId: 'wsess-restore',
+      thresholdSessionId: 'tsess-restore',
       reason: 'transaction' as const,
     };
 
@@ -290,6 +302,8 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         authMethod: 'email_otp',
         curve: 'ed25519',
         chain: 'near',
+        walletSigningSessionId: 'wsess-companion-purpose',
+        thresholdSessionId: 'tsess-ed25519-purpose',
         reason: 'transaction',
       },
       {

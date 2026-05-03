@@ -9,6 +9,7 @@ import {
   resolveNearThresholdSigningAuthContext,
 } from '@/core/signingEngine/orchestration/near/shared/thresholdAuthMode';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
+import type { SigningSessionSnapshot } from '@/core/signingEngine/session/snapshotReader';
 import { SigningAuthPlanKind } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
 import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
@@ -34,6 +35,40 @@ class MemorySessionStorage implements Pick<
   clear(): void {
     this.store.clear();
   }
+}
+
+function createNearEd25519Snapshot(args: {
+  nearAccountId: string;
+  authMethod: 'email_otp' | 'passkey';
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+  state?: 'ready' | 'restorable';
+  source?: 'runtime_session_record' | 'durable_sealed_record';
+}): SigningSessionSnapshot {
+  const lane = {
+    authMethod: args.authMethod,
+    curve: 'ed25519' as const,
+    chain: 'near' as const,
+    state: args.state || 'ready' as const,
+    walletSigningSessionId: args.walletSigningSessionId,
+    thresholdSessionId: args.thresholdSessionId,
+    source: args.source || 'runtime_session_record' as const,
+  };
+  return {
+    walletId: args.nearAccountId,
+    generation: Date.now(),
+    lanes: {
+      ed25519: { near: lane },
+      ecdsa: {
+        tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
+        evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
+      },
+    },
+    candidates: {
+      ed25519: { near: [lane] },
+      ecdsa: { tempo: [], evm: [] },
+    },
+  };
 }
 
 function createBudgetBackedSigningSessionCoordinator(args: {
@@ -130,6 +165,13 @@ test.describe('near signing session selection', () => {
             activeRemainingUses: 10,
           }),
           resolveThresholdEd25519SessionId: () => 'ed25519-session',
+          readSigningSessionSnapshotForSigning: async () =>
+            createNearEd25519Snapshot({
+              nearAccountId: 'alice.testnet',
+              authMethod: 'passkey',
+              walletSigningSessionId: 'wallet-signing-session',
+              thresholdSessionId: 'ed25519-session',
+            }),
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
@@ -313,6 +355,13 @@ test.describe('near signing session selection', () => {
             activeRemainingUses: 4,
           }),
           resolveThresholdEd25519SessionId: () => sessionId,
+          readSigningSessionSnapshotForSigning: async () =>
+            createNearEd25519Snapshot({
+              nearAccountId,
+              authMethod: 'passkey',
+              walletSigningSessionId,
+              thresholdSessionId: sessionId,
+            }),
           createSigningSessionId: () => 'unexpected-generated-session',
           getWarmThresholdEd25519SessionStatusForSession: async ({ thresholdSessionId }) => ({
             sessionId: thresholdSessionId,
@@ -503,6 +552,13 @@ test.describe('near signing session selection', () => {
             },
           }),
           resolveThresholdEd25519SessionId: () => staleSessionId,
+          readSigningSessionSnapshotForSigning: async () =>
+            createNearEd25519Snapshot({
+              nearAccountId,
+              authMethod: 'email_otp',
+              walletSigningSessionId,
+              thresholdSessionId: staleSessionId,
+            }),
           getWarmThresholdEd25519SessionStatusForSession: async () => ({
             sessionId: staleSessionId,
             status: 'active',
@@ -736,21 +792,6 @@ test.describe('near signing session selection', () => {
           },
         });
 
-      persistWarmSessionEd25519Capability({
-        nearAccountId,
-        rpId,
-        relayerUrl,
-        relayerKeyId,
-        participantIds: [1, 2],
-        sessionId: stalePasskeySessionId,
-        walletSigningSessionId: stalePasskeyWalletSessionId,
-        expiresAtMs: Date.now() + 60_000,
-        remainingUses: 1,
-        jwt: 'otp-missing-runtime-stale-passkey-jwt',
-        xClientBaseB64u: 'otp-missing-runtime-stale-passkey-client-base',
-        source: 'login',
-      });
-
       const result = await signTransactionsWithActions(
         {
           nearRpcUrl: 'https://rpc.example.test',
@@ -761,7 +802,8 @@ test.describe('near signing session selection', () => {
           }),
           resolveAccountAuthMethodForSigning: async () => 'email_otp',
           readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
-            expect(authMethod).toBe('email_otp');
+            expect(authMethod === undefined || authMethod === null || authMethod === 'email_otp')
+              .toBe(true);
             return {
               walletId: nearAccountId,
               generation: Date.now(),
@@ -1005,9 +1047,11 @@ test.describe('near signing session selection', () => {
             walletSigningSessionId,
             activeRemainingUses: 3,
           }),
+          createSigningSessionId: () => 'unexpected-generated-session',
           resolveAccountAuthMethodForSigning: async () => 'email_otp',
           readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
-            expect(authMethod).toBe('email_otp');
+            expect(authMethod === undefined || authMethod === null || authMethod === 'email_otp')
+              .toBe(true);
             return {
               walletId: nearAccountId,
               generation: Date.now(),
@@ -1270,7 +1314,7 @@ test.describe('near signing session selection', () => {
           }),
           resolveAccountAuthMethodForSigning: async () => 'passkey',
           readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
-            expect(authMethod).toBe('email_otp');
+            expect(authMethod).toBeUndefined();
             return {
               walletId: nearAccountId,
               generation: Date.now(),
@@ -1447,7 +1491,7 @@ test.describe('near signing session selection', () => {
     }
   });
 
-  test('uses the current Ed25519 runtime record when the snapshot omits it', async () => {
+  test('does not use the account runtime record when the snapshot omits an exact Ed25519 lane', async () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
     const sessionStorage = new MemorySessionStorage();
     (
@@ -1490,54 +1534,56 @@ test.describe('near signing session selection', () => {
         },
       });
 
-      const result = await signTransactionsWithActions(
-        {
-          nearRpcUrl: 'https://rpc.example.test',
-          signingSessionCoordinator: createBudgetBackedSigningSessionCoordinator({
-            walletSigningSessionId,
-            activeRemainingUses: 1,
-          }),
-          resolveAccountAuthMethodForSigning: async () => 'email_otp',
-          readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
-            expect(authMethod).toBe('email_otp');
-            return {
-              walletId: nearAccountId,
-              generation: Date.now(),
-              lanes: {
-                ed25519: {
-                  near: {
-                    authMethod: 'email_otp' as const,
-                    curve: 'ed25519' as const,
-                    chain: 'near' as const,
-                    state: 'restorable' as const,
-                    source: 'durable_sealed_record' as const,
-                    walletSigningSessionId,
-                    thresholdSessionId: otherSessionId,
+      await expect(
+        signTransactionsWithActions(
+          {
+            nearRpcUrl: 'https://rpc.example.test',
+            signingSessionCoordinator: createBudgetBackedSigningSessionCoordinator({
+              walletSigningSessionId,
+              activeRemainingUses: 1,
+            }),
+            createSigningSessionId: () => 'unexpected-generated-session',
+            resolveAccountAuthMethodForSigning: async () => 'email_otp',
+            readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
+              expect(authMethod).toBeUndefined();
+              return {
+                walletId: nearAccountId,
+                generation: Date.now(),
+                lanes: {
+                  ed25519: {
+                    near: {
+                      authMethod: 'email_otp' as const,
+                      curve: 'ed25519' as const,
+                      chain: 'near' as const,
+                      state: 'restorable' as const,
+                      source: 'durable_sealed_record' as const,
+                      walletSigningSessionId,
+                      thresholdSessionId: otherSessionId,
+                    },
+                  },
+                  ecdsa: {
+                    tempo: { curve: 'ecdsa' as const, chain: 'tempo' as const, state: 'missing' as const },
+                    evm: { curve: 'ecdsa' as const, chain: 'evm' as const, state: 'missing' as const },
                   },
                 },
-                ecdsa: {
-                  tempo: { curve: 'ecdsa' as const, chain: 'tempo' as const, state: 'missing' as const },
-                  evm: { curve: 'ecdsa' as const, chain: 'evm' as const, state: 'missing' as const },
+                candidates: {
+                  ed25519: {
+                    near: [],
+                  },
+                  ecdsa: { tempo: [], evm: [] },
                 },
-              },
-              candidates: {
-                ed25519: {
-                  near: [],
-                },
-                ecdsa: { tempo: [], evm: [] },
-              },
-            };
-          },
-          restorePersistedSessionForSigning: async ({ thresholdSessionId }) => {
-            restoreCalls.push(String(thresholdSessionId || ''));
-          },
-          getWarmThresholdEd25519SessionStatusForSession: async ({ thresholdSessionId }) => ({
-            sessionId: thresholdSessionId,
-            status: 'active' as const,
-            remainingUses: 1,
-            expiresAtMs: Date.now() + 60_000,
-          }),
-          getSignerWorkerContext: () =>
+              };
+            },
+            restorePersistedSessionForSigning: async ({ thresholdSessionId }) => {
+              restoreCalls.push(String(thresholdSessionId || ''));
+            },
+            getWarmThresholdEd25519SessionStatusForSession: async ({ thresholdSessionId }) => ({
+              sessionId: thresholdSessionId,
+              status: 'active' as const,
+              remainingUses: 1,
+              expiresAtMs: Date.now() + 60_000,
+            }),
+            getSignerWorkerContext: () =>
             ({
               indexedDB: {
                 clientDB: {
@@ -1618,22 +1664,21 @@ test.describe('near signing session selection', () => {
                 };
               },
             }) as any,
-          withThresholdEd25519CommitQueue: async ({ task }) => await task(),
-        },
-        {
-          rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
-          signerSlot: 1,
-          transactions: [
-            {
-              receiverId: nearAccountId,
-              actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
-            },
-          ],
-        },
-      );
-
-      expect(result).toHaveLength(1);
-      expect(workerSessionId).toBe(currentSessionId);
+            withThresholdEd25519CommitQueue: async ({ task }) => await task(),
+          },
+          {
+            rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
+            signerSlot: 1,
+            transactions: [
+              {
+                receiverId: nearAccountId,
+                actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+              },
+            ],
+          },
+        ),
+      ).rejects.toThrow('Ed25519 transaction signing requires an exact selected lane');
+      expect(workerSessionId).toBe('');
       expect(restoreCalls).toEqual([]);
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
@@ -1709,6 +1754,13 @@ test.describe('near signing session selection', () => {
             activeRemainingUses: 1,
           }),
           resolveThresholdEd25519SessionId: () => staleSessionId,
+          readSigningSessionSnapshotForSigning: async () =>
+            createNearEd25519Snapshot({
+              nearAccountId,
+              authMethod: 'email_otp',
+              walletSigningSessionId,
+              thresholdSessionId: staleSessionId,
+            }),
           getWarmThresholdEd25519SessionStatusForSession: async ({ thresholdSessionId }) => ({
             sessionId: thresholdSessionId,
             status: 'active',

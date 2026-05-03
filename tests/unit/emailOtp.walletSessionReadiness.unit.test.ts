@@ -153,7 +153,9 @@ test.describe('Email OTP wallet-session readiness', () => {
     expect(result.nonceDiagnostics?.metrics?.staleInFlightLaneCount).toBe(1);
   });
 
-  test('runs startup restore and snapshot before warm-session status reads', async ({ page }) => {
+  test('reads wallet-session snapshot/status without startup restore side effects', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const loginMod = await import(paths.login);
@@ -214,13 +216,9 @@ test.describe('Email OTP wallet-session readiness', () => {
     );
 
     expect(result.walletSession.login?.isLoggedIn).toBe(true);
-    expect(result.events.slice(0, 2)).toEqual([
-      'restore:startup-restore.testnet',
-      'snapshot:startup-restore.testnet',
-    ]);
-    expect(result.events.indexOf('restore:startup-restore.testnet')).toBeLessThan(
-      result.events.indexOf('ed25519-status'),
-    );
+    expect(result.events).not.toContain('restore:startup-restore.testnet');
+    expect(result.events).toContain('snapshot:startup-restore.testnet');
+    expect(result.events).toContain('ed25519-status');
   });
 
   test('treats restored warm signing session as login before ECDSA metadata exists', async ({

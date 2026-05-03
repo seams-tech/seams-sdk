@@ -151,6 +151,7 @@ test.describe('SigningSessionBudgetFinalizer', () => {
       thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
         'tsess-budget-finalizer-in-flight',
       ),
+      storageSource: 'login',
       signingRootId: 'proj_budget:tempo',
       signingRootVersion: 'default',
     }) as SelectedSigningLaneContext);

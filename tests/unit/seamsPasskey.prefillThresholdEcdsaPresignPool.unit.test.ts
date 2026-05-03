@@ -45,6 +45,7 @@ test.describe('prefillThresholdEcdsaPresignPoolDomain', () => {
       },
       {
         nearAccountId: 'alice.testnet',
+        chain: 'tempo',
       },
     );
 

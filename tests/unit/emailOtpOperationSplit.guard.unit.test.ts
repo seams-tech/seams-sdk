@@ -83,7 +83,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(tempoSignIndex).toBeGreaterThanOrEqual(0);
   });
 
-  test('ECDSA transaction signing selects an auth lane before choosing a lane record', () => {
+  test('ECDSA transaction signing selects an exact lane before material lookup', () => {
     const source = readRepoFile('client/src/core/signingEngine/api/evmSigning.ts');
     const preparedSigningSource = readRepoFile(
       'client/src/core/signingEngine/api/evmFamily/preparedSigning.ts',
@@ -106,7 +106,7 @@ test.describe('Email OTP operation split guard', () => {
       authResolver,
     );
     const ed25519Fallback = accountAuthSource.indexOf(
-      'const ed25519Record = getStoredThresholdEd25519SessionRecordForAccount',
+      'getStoredThresholdEd25519SessionRecordForAccount',
       authResolver,
     );
     const selectionResolver = preparedSigningSource.indexOf(
@@ -120,7 +120,7 @@ test.describe('Email OTP operation split guard', () => {
       'const accountAuth = await resolveEvmFamilyTransactionAccountAuth',
     );
     const snapshotCandidateSelection = preparedSigningSource.indexOf(
-      'const snapshotSelection = resolveEcdsaSnapshotLaneSelection',
+      'const selectedLane = selectTransactionLane({',
       preparedAccountAuthResolution,
     );
     const selectedAuthMethod = selectionModule.indexOf(
@@ -145,7 +145,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(selectionSource).not.toContain('genericRecord');
     expect(selectionSource).not.toContain('genericKeyRef');
     expect(profileLookup).toBeGreaterThan(authResolver);
-    expect(ed25519Fallback).toBeGreaterThan(profileLookup);
+    expect(ed25519Fallback).toBe(-1);
     expect(source).toContain('prepareEvmFamilyEcdsaSigningSession({');
     expect(selectionResolver).toBeGreaterThanOrEqual(0);
     expect(preparedAccountAuthResolution).toBeGreaterThanOrEqual(0);
@@ -253,9 +253,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(restoreCall).toBeGreaterThan(preparedStart);
     expect(selectionCall).toBeGreaterThan(restoreCall);
     const prepareBeforeSelection = preparedSigning.slice(preparedStart, selectionCall);
-    expect(prepareBeforeSelection).toContain(
-      'const snapshotSelection = resolveEcdsaSnapshotLaneSelection',
-    );
+    expect(prepareBeforeSelection).toContain('const selectedLane = selectTransactionLane({');
     expect(prepareBeforeSelection).toContain('authMethod,');
     expect(prepareBeforeSelection).toContain('walletSigningSessionId: snapshotCandidate.walletSigningSessionId');
     expect(prepareBeforeSelection).toContain('thresholdSessionId: snapshotCandidate.thresholdSessionId');

@@ -96,6 +96,51 @@ test.describe('managed nonce signing flow integration', () => {
             accessList: [],
           },
         };
+        const warmAuthPlan = {
+          kind: 'warmSession',
+          method: 'passkey',
+          accountId: 'alice.testnet',
+          intent: 'transaction_sign',
+          curve: 'ecdsa',
+          sessionId: 'session-1',
+          expiresAtMs: Date.now() + 30_000,
+          remainingUses: 2,
+        };
+        const thresholdEcdsaOperation = {
+          intent: {
+            walletId: 'alice.testnet',
+            curve: 'ecdsa',
+            chain: 'evm',
+            authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
+            operationUsesNeeded: 1,
+          },
+          lane: {
+            accountId: 'alice.testnet',
+            authMethod: 'passkey',
+            curve: 'ecdsa',
+            chain: 'evm',
+            walletSigningSessionId: 'wallet-session-1',
+            thresholdSessionId: 'session-1',
+          },
+          readiness: {
+            status: 'ready',
+            remainingUses: 2,
+            expiresAtMs: Date.now() + 30_000,
+          },
+          budgetAdmission: {
+            budgetIdentity: {
+              walletSigningSessionId: 'wallet-session-1',
+              projectionVersion: 'projection-1',
+              status: {
+                status: 'active',
+                remainingUses: 2,
+                expiresAtMs: Date.now() + 30_000,
+                projectionVersion: 'projection-1',
+              },
+            },
+          },
+          authPlan: warmAuthPlan,
+        };
 
         const runSign = async () =>
           await signEvmWithTouchConfirm({
@@ -124,15 +169,9 @@ test.describe('managed nonce signing flow integration', () => {
                 thresholdSessionId: 'session-1',
               },
             } as any,
-            signingAuthPlan: {
-              kind: 'warmSession',
-              method: 'passkey',
-              accountId: 'alice.testnet',
-              intent: 'transaction_sign',
-              curve: 'ecdsa',
-              sessionId: 'session-1',
-              expiresAtMs: Date.now() + 30_000,
-              remainingUses: 2,
+            thresholdEcdsaBoundary: {
+              kind: 'admitted',
+              operation: thresholdEcdsaOperation,
             },
             prepareRequestWithManagedNonce: async () => {
               operationCounter += 1;
@@ -270,6 +309,51 @@ test.describe('managed nonce signing flow integration', () => {
             aaAuthorizationList: [],
           },
         };
+        const warmAuthPlan = {
+          kind: 'warmSession',
+          method: 'passkey',
+          accountId: 'alice.testnet',
+          intent: 'transaction_sign',
+          curve: 'ecdsa',
+          sessionId: 'session-1',
+          expiresAtMs: Date.now() + 30_000,
+          remainingUses: 2,
+        };
+        const thresholdEcdsaOperation = {
+          intent: {
+            walletId: 'alice.testnet',
+            curve: 'ecdsa',
+            chain: 'tempo',
+            authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
+            operationUsesNeeded: 1,
+          },
+          lane: {
+            accountId: 'alice.testnet',
+            authMethod: 'passkey',
+            curve: 'ecdsa',
+            chain: 'tempo',
+            walletSigningSessionId: 'wallet-session-1',
+            thresholdSessionId: 'session-1',
+          },
+          readiness: {
+            status: 'ready',
+            remainingUses: 2,
+            expiresAtMs: Date.now() + 30_000,
+          },
+          budgetAdmission: {
+            budgetIdentity: {
+              walletSigningSessionId: 'wallet-session-1',
+              projectionVersion: 'projection-1',
+              status: {
+                status: 'active',
+                remainingUses: 2,
+                expiresAtMs: Date.now() + 30_000,
+                projectionVersion: 'projection-1',
+              },
+            },
+          },
+          authPlan: warmAuthPlan,
+        };
 
         const runSign = async () =>
           await signTempoWithTouchConfirm({
@@ -298,15 +382,9 @@ test.describe('managed nonce signing flow integration', () => {
                 thresholdSessionId: 'session-1',
               },
             } as any,
-            signingAuthPlan: {
-              kind: 'warmSession',
-              method: 'passkey',
-              accountId: 'alice.testnet',
-              intent: 'transaction_sign',
-              curve: 'ecdsa',
-              sessionId: 'session-1',
-              expiresAtMs: Date.now() + 30_000,
-              remainingUses: 2,
+            thresholdEcdsaBoundary: {
+              kind: 'admitted',
+              operation: thresholdEcdsaOperation,
             },
             prepareRequestWithManagedNonce: async () => {
               operationCounter += 1;

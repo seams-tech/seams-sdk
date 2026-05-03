@@ -52,6 +52,10 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '@/core/signingEngine/session/warmSigning/types';
+
+function testEcdsaChainId(chain: ThresholdEcdsaActivationChain): number {
+  return chain === 'tempo' ? 42431 : 11155111;
+}
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmSigning/transitions';
 
 type SessionStorageMock = {
@@ -602,7 +606,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       [key: string]: unknown;
     }) =>
       resolveWarmEcdsaBootstrapRequestFromSession({
-        request: args,
+        request: { ...args, chainId: testEcdsaChainId(args.chain) },
         warmSession: await getWarmSession(args.nearAccountId),
       }),
     provisionEcdsaCapability,
@@ -640,7 +644,11 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           reconnectInFlightByCapability,
           onTransition: deps.onTransition,
         },
-        args,
+        {
+          ...args,
+          chainId: testEcdsaChainId(args.chain),
+          sessionBudgetUses: Number(args.sessionBudgetUses || 1),
+        },
       ),
     assertEcdsaSigningSessionReady: statusReader.assertEcdsaSigningSessionReady,
     getEd25519SigningSessionStatus: statusReader.getEd25519SigningSessionStatus,

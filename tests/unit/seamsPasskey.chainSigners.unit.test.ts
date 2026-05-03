@@ -195,9 +195,28 @@ test.describe('SeamsPasskey chain signer modules', () => {
   test('TempoSigner and EvmSigner force chain during bootstrap', async () => {
     const tempoCalls: any[] = [];
     const evmCalls: any[] = [];
+    const configs = {
+      registration: { mode: 'self' },
+      network: {
+        chains: [
+          {
+            network: 'tempo-testnet',
+            rpcUrl: 'https://rpc.tempo.test',
+            explorerUrl: 'https://explorer.tempo.test',
+            chainId: 42431,
+          },
+          {
+            network: 'arc-testnet',
+            rpcUrl: 'https://rpc.arc.test',
+            explorerUrl: 'https://explorer.arc.test',
+            chainId: 5042002,
+          },
+        ],
+      },
+    };
 
     const tempoSigner = new TempoSigner({
-      getContext: () => ({ configs: { registration: { mode: 'self' } } }) as any,
+      getContext: () => ({ configs }) as any,
       walletIframe: {
         shouldUseWalletIframe: () => true,
         requireRouter: async () =>
@@ -210,7 +229,7 @@ test.describe('SeamsPasskey chain signer modules', () => {
       },
     });
     const evmSigner = new EvmSigner({
-      getContext: () => ({ configs: { registration: { mode: 'self' } } }) as any,
+      getContext: () => ({ configs }) as any,
       walletIframe: {
         shouldUseWalletIframe: () => true,
         requireRouter: async () =>
@@ -225,11 +244,11 @@ test.describe('SeamsPasskey chain signer modules', () => {
 
     await tempoSigner.bootstrapEcdsaSession({
       nearAccountId: 'alice.testnet',
-      options: { chain: 'evm', relayerUrl: 'https://relay.example.test' },
+      options: { chain: 'evm', chainId: 5042002, relayerUrl: 'https://relay.example.test' },
     });
     await evmSigner.bootstrapEcdsaSession({
       nearAccountId: 'alice.testnet',
-      options: { chain: 'tempo', relayerUrl: 'https://relay.example.test' },
+      options: { chain: 'tempo', chainId: 42431, relayerUrl: 'https://relay.example.test' },
     });
 
     expect(tempoCalls[0]?.options?.chain).toBe('tempo');

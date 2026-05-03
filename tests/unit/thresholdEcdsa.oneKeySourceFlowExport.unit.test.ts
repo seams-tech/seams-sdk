@@ -74,6 +74,7 @@ function createBootstrapResult(args?: {
   const ecdsaThresholdKeyId = String(args?.ecdsaThresholdKeyId || 'ehss-key-1').trim();
   const sessionId = String(args?.sessionId || 'ecdsa-session-1').trim();
   const sessionJwt = String(args?.sessionJwt || makeThresholdEcdsaSessionJwt(sessionId)).trim();
+  const walletSigningSessionId = `wss-${sessionId}`;
 
   return {
     thresholdEcdsaKeyRef: {
@@ -93,6 +94,7 @@ function createBootstrapResult(args?: {
       thresholdSessionKind: 'jwt',
       thresholdSessionId: sessionId,
       thresholdSessionJwt: sessionJwt,
+      walletSigningSessionId,
     },
     keygen: {
       ok: true,
@@ -107,6 +109,7 @@ function createBootstrapResult(args?: {
     session: {
       ok: true,
       sessionId,
+      walletSigningSessionId,
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 5,
       jwt: sessionJwt,
@@ -115,10 +118,13 @@ function createBootstrapResult(args?: {
   };
 }
 
-function createExportTestEngine() {
+function createExportTestEngine(args?: {
+  accountAuthMethod?: 'passkey' | 'email_otp';
+}) {
   const exportWorkerCalls: Array<Record<string, unknown>> = [];
   const userConfirmationCalls: Array<Record<string, unknown>> = [];
   const engine: any = Object.create(SigningEngine.prototype);
+  const accountAuthMethod = args?.accountAuthMethod || 'passkey';
 
   ensureSessionStorage().clear();
   engine.seamsPasskeyConfigs = {
@@ -138,6 +144,7 @@ function createExportTestEngine() {
   engine.thresholdEcdsaBootstrapQueueByAccount = new Map();
   engine.thresholdEcdsaSessionByLane = new Map();
   engine.thresholdEcdsaExportArtifactByLane = new Map();
+  engine.clearAllThresholdEcdsaSessionRecords();
   engine.touchIdPrompt = {
     getRpId: () => RP_ID,
   };
@@ -183,6 +190,30 @@ function createExportTestEngine() {
     },
   };
   engine.orchestrationDeps = {
+    indexedDB: {
+      clientDB: {
+        resolveProfileAccountContext: async () => ({
+          profileId: 'profile-1',
+          accountRef: { chainIdKey: 'near:testnet', accountAddress: ACCOUNT_ID },
+        }),
+        getProfile: async () => ({
+          profileId: 'profile-1',
+          defaultSignerSlot: 5,
+        }),
+        listAccountSigners: async () => [
+          {
+            profileId: 'profile-1',
+            signerSlot: 5,
+            signerAuthMethod: accountAuthMethod,
+            status: 'active',
+          },
+        ],
+        getLastProfileState: async () => ({
+          profileId: 'profile-1',
+          activeSignerSlot: 5,
+        }),
+      },
+    },
     privateKeyExportRecoveryDeps: {
       indexedDB: {
         clientDB: {
@@ -513,6 +544,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
         session: {
           sessionKind: 'jwt',
           sessionId: 'ecdsa-link-device-session-1',
+          walletSigningSessionId: 'wss-ecdsa-link-device-session-1',
           expiresAtMs: Date.now() + 60_000,
           participantIds: [...PARTICIPANT_IDS],
           remainingUses: 5,
@@ -574,5 +606,45 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       userConfirmationCalls,
     });
     expect(exportWorkerCalls).toHaveLength(0);
+  });
+
+  test('fails ECDSA export when no exact export lane exists', async () => {
+    const { engine, exportWorkerCalls, userConfirmationCalls } = createExportTestEngine();
+
+    await expect(
+      engine.exportKeypairWithUI(ACCOUNT_ID as any, {
+        chain: 'evm',
+        variant: 'modal',
+      }),
+    ).rejects.toThrow('[SigningEngine][ecdsa-export] exact lane selection failed: no_candidate');
+    expect(exportWorkerCalls).toHaveLength(0);
+    expect(userConfirmationCalls).toHaveLength(0);
+  });
+
+  test('rejects passkey-only ECDSA export when account metadata selects Email OTP', async () => {
+    const { engine, exportWorkerCalls, userConfirmationCalls } = createExportTestEngine({
+      accountAuthMethod: 'email_otp',
+    });
+    const bootstrap = createBootstrapResult({
+      ecdsaThresholdKeyId: 'ehss-passkey-runtime-1',
+      sessionId: 'ecdsa-passkey-runtime-session-1',
+      sessionJwt: makeThresholdEcdsaSessionJwt('ecdsa-passkey-runtime-session-1'),
+    });
+
+    engine.upsertThresholdEcdsaSessionFromBootstrap({
+      nearAccountId: ACCOUNT_ID,
+      chain: 'evm',
+      bootstrap,
+      source: 'login',
+    });
+
+    await expect(
+      engine.exportKeypairWithUI(ACCOUNT_ID as any, {
+        chain: 'evm',
+        variant: 'modal',
+      }),
+    ).rejects.toThrow('[SigningEngine][ecdsa-export] exact lane selection failed: no_candidate');
+    expect(exportWorkerCalls).toHaveLength(0);
+    expect(userConfirmationCalls).toHaveLength(0);
   });
 });

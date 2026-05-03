@@ -458,6 +458,151 @@ test.describe('readSigningSessionSnapshot', () => {
     });
   });
 
+  test('does not mark a sealed ECDSA lane ready without exact runtime material', async () => {
+    const snapshot = await readSigningSessionSnapshot(
+      {
+        walletId: 'snapshot.testnet',
+        authMethod: 'email_otp',
+        nowMs: 5_000,
+      },
+      {
+        listSealedRecordsForAccount: async ({ filter }) =>
+          filter.curve === 'ecdsa' && filter.chain === 'evm'
+            ? [
+                makeSealedRecord({
+                  chain: 'evm',
+                  thresholdSessionId: 'tsess-sealed-only',
+                  walletSigningSessionId: 'wsess-sealed-only',
+                  updatedAtMs: 2,
+                }),
+              ]
+            : [],
+        listRuntimeEcdsaRecordsForAccount: async () => [
+          {
+            authMethod: 'email_otp',
+            curve: 'ecdsa',
+            chain: 'evm',
+            thresholdSessionId: 'tsess-different-runtime',
+            walletSigningSessionId: 'wsess-different-runtime',
+          },
+        ],
+        readRuntimeClaimsForSessions: async () =>
+          new Map([
+            [
+              'tsess-different-runtime',
+              {
+                state: 'warm' as const,
+                sessionId: 'tsess-different-runtime',
+                remainingUses: 1,
+                expiresAtMs: 9_000,
+              },
+            ],
+          ]),
+      },
+    );
+
+    const sealedCandidate = snapshot.candidates.ecdsa.evm.find(
+      (candidate) => candidate.thresholdSessionId === 'tsess-sealed-only',
+    );
+    expect(sealedCandidate).toMatchObject({
+      state: 'restorable',
+      source: 'durable_sealed_record',
+      walletSigningSessionId: 'wsess-sealed-only',
+    });
+    expect(sealedCandidate).not.toMatchObject({
+      state: 'ready',
+      source: 'runtime_and_durable',
+    });
+  });
+
+  test('keeps shared Tempo and EVM ECDSA runtime lanes with the same session ids', async () => {
+    const sharedThresholdSessionId = 'tsess-shared-ecdsa';
+    const sharedWalletSigningSessionId = 'wsess-shared-ecdsa';
+
+    const snapshot = await readSigningSessionSnapshot(
+      {
+        walletId: 'snapshot.testnet',
+        authMethod: 'email_otp',
+        nowMs: 5_000,
+      },
+      {
+        listSealedRecordsForAccount: async ({ filter }) =>
+          filter.curve === 'ecdsa'
+            ? [
+                makeSealedRecord({
+                  authMethod: 'email_otp',
+                  chain: filter.chain,
+                  thresholdSessionId: sharedThresholdSessionId,
+                  walletSigningSessionId: sharedWalletSigningSessionId,
+                  updatedAtMs: filter.chain === 'tempo' ? 10 : 11,
+                }),
+              ]
+            : [],
+        listRuntimeEcdsaRecordsForAccount: async () => [
+          {
+            authMethod: 'email_otp',
+            curve: 'ecdsa',
+            chain: 'tempo',
+            thresholdSessionId: sharedThresholdSessionId,
+            walletSigningSessionId: sharedWalletSigningSessionId,
+          },
+          {
+            authMethod: 'email_otp',
+            curve: 'ecdsa',
+            chain: 'evm',
+            thresholdSessionId: sharedThresholdSessionId,
+            walletSigningSessionId: sharedWalletSigningSessionId,
+          },
+        ],
+        readRuntimeClaimsForSessions: async () =>
+          new Map([
+            [
+              sharedThresholdSessionId,
+              {
+                state: 'warm' as const,
+                sessionId: sharedThresholdSessionId,
+                remainingUses: 3,
+                expiresAtMs: 20_000,
+              },
+            ],
+          ]),
+      },
+    );
+
+    expect(snapshot.candidates.ecdsa.tempo).toEqual([
+      expect.objectContaining({
+        authMethod: 'email_otp',
+        chain: 'tempo',
+        state: 'ready',
+        source: 'runtime_and_durable',
+        thresholdSessionId: sharedThresholdSessionId,
+        walletSigningSessionId: sharedWalletSigningSessionId,
+      }),
+    ]);
+    expect(snapshot.candidates.ecdsa.evm).toEqual([
+      expect.objectContaining({
+        authMethod: 'email_otp',
+        chain: 'evm',
+        state: 'ready',
+        source: 'runtime_and_durable',
+        thresholdSessionId: sharedThresholdSessionId,
+        walletSigningSessionId: sharedWalletSigningSessionId,
+      }),
+    ]);
+    expect(snapshot.lanes.ecdsa.tempo).toMatchObject({
+      chain: 'tempo',
+      state: 'ready',
+      thresholdSessionId: sharedThresholdSessionId,
+      walletSigningSessionId: sharedWalletSigningSessionId,
+    });
+    expect(snapshot.lanes.ecdsa.evm).toMatchObject({
+      chain: 'evm',
+      state: 'ready',
+      thresholdSessionId: sharedThresholdSessionId,
+      walletSigningSessionId: sharedWalletSigningSessionId,
+    });
+  });
+
   test('preserves durable restorable state when matching runtime worker material is missing', async () => {
     const snapshot = await readSigningSessionSnapshot(
       {

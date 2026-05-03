@@ -70,6 +70,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       store.provisionEcdsaCapability({
         nearAccountId: 'bootstrap-error.testnet',
         chain: 'evm',
+        chainId: 11155111,
         source: 'manual-bootstrap',
         sessionId: record.thresholdSessionId,
         thresholdRouteAuth: {

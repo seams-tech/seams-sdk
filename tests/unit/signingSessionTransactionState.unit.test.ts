@@ -23,7 +23,7 @@ import type { SigningSessionSnapshot } from '@/core/signingEngine/session/snapsh
 
 const nearIntent = (
   authMethod: 'email_otp' | 'passkey',
-  kind: 'explicit' | 'account_class' | 'current_lane' = 'account_class',
+  kind: 'explicit' | 'account_class' = 'account_class',
 ): TransactionSigningIntent => ({
   walletId: 'alice.testnet',
   curve: 'ed25519',
@@ -35,7 +35,7 @@ const nearIntent = (
 const ecdsaIntent = (
   authMethod: 'email_otp' | 'passkey',
   chain: 'tempo' | 'evm' = 'evm',
-  kind: 'explicit' | 'account_class' | 'current_lane' = 'account_class',
+  kind: 'explicit' | 'account_class' = 'account_class',
 ): TransactionSigningIntent => ({
   walletId: 'alice.testnet',
   curve: 'ecdsa',
@@ -73,6 +73,7 @@ function ed25519Candidate(args: {
   walletSigningSessionId: string;
   state?: 'ready' | 'restorable';
   source?: 'runtime_session_record' | 'durable_sealed_record' | 'runtime_and_durable';
+  updatedAtMs?: number;
 }) {
   return {
     authMethod: args.authMethod,
@@ -82,6 +83,7 @@ function ed25519Candidate(args: {
     source: args.source || 'durable_sealed_record',
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId: args.walletSigningSessionId,
+    ...(args.updatedAtMs !== undefined ? { updatedAtMs: args.updatedAtMs } : {}),
   };
 }
 
@@ -92,6 +94,7 @@ function ecdsaCandidate(args: {
   walletSigningSessionId: string;
   state?: 'ready' | 'restorable';
   source?: 'runtime_session_record' | 'durable_sealed_record' | 'runtime_and_durable';
+  updatedAtMs?: number;
 }) {
   return {
     authMethod: args.authMethod,
@@ -101,6 +104,7 @@ function ecdsaCandidate(args: {
     source: args.source || 'durable_sealed_record',
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId: args.walletSigningSessionId,
+    ...(args.updatedAtMs !== undefined ? { updatedAtMs: args.updatedAtMs } : {}),
   };
 }
 
@@ -348,7 +352,7 @@ test.describe('transaction signing state selector', () => {
     });
   });
 
-  test('selects ECDSA candidates deterministically by ready state and stable identity', () => {
+  test('selects same-auth ECDSA candidates by readiness and unique newest metadata', () => {
     const snapshot = emptySnapshot();
     snapshot.candidates.ecdsa.tempo = [
       ecdsaCandidate({
@@ -363,6 +367,7 @@ test.describe('transaction signing state selector', () => {
         thresholdSessionId: 'tsess-b-ready',
         walletSigningSessionId: 'wss-b-ready',
         state: 'ready',
+        updatedAtMs: 20,
       }),
       ecdsaCandidate({
         authMethod: 'passkey',
@@ -370,6 +375,7 @@ test.describe('transaction signing state selector', () => {
         thresholdSessionId: 'tsess-a-ready',
         walletSigningSessionId: 'wss-a-ready',
         state: 'ready',
+        updatedAtMs: 10,
       }),
     ];
 
@@ -380,7 +386,37 @@ test.describe('transaction signing state selector', () => {
 
     expect(selection.ok).toBe(true);
     if (!selection.ok) throw new Error('expected selection');
-    expect(selection.lane.thresholdSessionId).toBe('tsess-a-ready');
+    expect(selection.lane.thresholdSessionId).toBe('tsess-b-ready');
+  });
+
+  test('returns ambiguous_candidates for indistinguishable same-auth lanes', () => {
+    const snapshot = emptySnapshot();
+    snapshot.candidates.ecdsa.tempo = [
+      ecdsaCandidate({
+        authMethod: 'passkey',
+        chain: 'tempo',
+        thresholdSessionId: 'tsess-a-ready',
+        walletSigningSessionId: 'wss-a-ready',
+        state: 'ready',
+      }),
+      ecdsaCandidate({
+        authMethod: 'passkey',
+        chain: 'tempo',
+        thresholdSessionId: 'tsess-b-ready',
+        walletSigningSessionId: 'wss-b-ready',
+        state: 'ready',
+      }),
+    ];
+
+    const selection = selectTransactionLane({
+      intent: ecdsaIntent('passkey', 'tempo'),
+      snapshot,
+    });
+
+    expect(selection).toEqual({
+      ok: false,
+      failure: { kind: 'ambiguous_candidates', allowedAuthMethods: ['passkey'] },
+    });
   });
 
   test('moves from intent to snapshot to selected lane with explicit state tags', () => {
@@ -558,10 +594,15 @@ test.describe('transaction signing state selector', () => {
     expect(prepared.thresholdOperation.metadata.transactionOperation).toBe(
       prepared.transactionOperation,
     );
-    expect(prepared.budgetAdmittedOperation?.budgetAdmission.budgetIdentity.projectionVersion).toBe(
-      'budget-rev-shared-prepare',
+    expect(prepared.budget.kind).toBe('admitted');
+    expect(
+      prepared.budget.kind === 'admitted'
+        ? prepared.budget.operation.budgetAdmission.budgetIdentity.projectionVersion
+        : undefined,
+    ).toBe('budget-rev-shared-prepare');
+    expect(prepared.budget.kind === 'admitted' ? prepared.budget.state.tag : undefined).toBe(
+      'BudgetAdmitted',
     );
-    expect(prepared.budgetAdmittedState?.tag).toBe('BudgetAdmitted');
   });
 
   test('signs and finalizes only after budget admission', async () => {

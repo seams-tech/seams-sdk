@@ -38,15 +38,8 @@ test.describe('EVM family threshold reconnect events', () => {
         },
       },
     });
-    const freshBootstrap = createThresholdEcdsaBootstrapFixture({
-      nearAccountId: 'reconnect-events.testnet',
-      chain: 'evm',
-      ecdsaThresholdKeyId: 'ek-reconnect-events',
-      sessionId: 'fresh-reconnect-events-session',
-      sessionJwt: 'jwt:fresh-reconnect-events-session',
-      walletSigningSessionId,
-    });
     const events: any[] = [];
+    const provisionedChainIds: unknown[] = [];
     const lane = {
       accountId: toAccountId('reconnect-events.testnet'),
       authMethod: 'passkey',
@@ -74,10 +67,25 @@ test.describe('EVM family threshold reconnect events', () => {
         provisionThresholdEcdsaSession: async ({
           nearAccountId,
           chain,
+          chainId,
+          sessionId,
+          walletSigningSessionId: requestedWalletSigningSessionId,
         }: {
           nearAccountId: string;
           chain: 'evm' | 'tempo';
+          chainId?: number;
+          sessionId: string;
+          walletSigningSessionId: string;
         }) => {
+          provisionedChainIds.push(chainId);
+          const freshBootstrap = createThresholdEcdsaBootstrapFixture({
+            nearAccountId: 'reconnect-events.testnet',
+            chain,
+            ecdsaThresholdKeyId: 'ek-reconnect-events',
+            sessionId,
+            sessionJwt: `jwt:${sessionId}`,
+            walletSigningSessionId: requestedWalletSigningSessionId,
+          });
           const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
             nearAccountId: String(nearAccountId),
             chain,
@@ -93,14 +101,19 @@ test.describe('EVM family threshold reconnect events', () => {
         },
       } as any,
       lane,
+      chainId: 11_155_111,
       keyRef: undefined,
+      reconnectSessionIdentity: {
+        thresholdSessionId: String(lane.thresholdSessionId),
+        walletSigningSessionId: String(lane.walletSigningSessionId),
+      },
       clientRootShare32B64u: 'test-client-root-share',
       operationUsesNeeded: 1,
       sessionBudgetUses: 3,
       onEvent: (event) => events.push(event),
     });
 
-    expect(readyKeyRef.thresholdSessionId).toBe('fresh-reconnect-events-session');
+    expect(readyKeyRef.thresholdSessionId).toBe('stale-reconnect-events-session');
     expect(events.map((event) => event.phase)).toEqual([
       SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
       SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_SUCCEEDED,
@@ -108,5 +121,6 @@ test.describe('EVM family threshold reconnect events', () => {
     expect(events.map((event) => event.step)).toEqual([9, 9]);
     expect(events.map((event) => event.status)).toEqual(['running', 'succeeded']);
     expect(events.map((event) => event.data?.chain)).toEqual(['evm', 'evm']);
+    expect(provisionedChainIds).toEqual([11_155_111]);
   });
 });

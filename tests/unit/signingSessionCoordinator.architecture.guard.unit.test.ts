@@ -159,7 +159,10 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
         'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts'
       ) {
         expect(source, relativePath).toContain(
-          'threshold transaction signing requires prepared session identity',
+          'ed25519SigningBoundary: NearEd25519TransactionSigningBoundary',
+        );
+        expect(source, relativePath).toContain(
+          'warm-session auth plan must match prepared session identity',
         );
         expect(source, relativePath).not.toContain('.resolveAuthPlanFromReadiness(');
         expect(source, relativePath).not.toContain('signingSession/planner');
@@ -423,7 +426,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(source).not.toContain('writeExactSealedSession');
   });
 
-  test('Email OTP snapshots read runtime identity from the sealed-session owner', () => {
+  test('Email OTP snapshots validate resolved ECDSA identities against runtime material', () => {
     const source = readRepoSource(
       'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
@@ -433,8 +436,45 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     );
 
     expect(snapshotBody).toContain('listResolvedIdentitiesForAccount');
+    expect(snapshotBody).toContain('getThresholdEcdsaSessionRecordByThresholdSessionId');
+    expect(snapshotBody).toContain(
+      "String(runtimeRecord.walletSigningSessionId || '').trim() !== walletSigningSessionId",
+    );
     expect(snapshotBody).not.toContain('listThresholdEcdsaSessionRecordsForLookup');
     expect(snapshotBody).not.toContain('getStoredThresholdEd25519SessionRecordForAccount');
+  });
+
+  test('ECDSA snapshot adapters dedupe runtime records by exact lane identity', () => {
+    const snapshotReader = readRepoSource('client/src/core/signingEngine/session/snapshotReader.ts');
+    const signingEngine = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
+    const emailOtpCoordinator = readRepoSource(
+      'client/src/core/signingEngine/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+    );
+    const signingEngineSnapshotBody = signingEngine.slice(
+      signingEngine.indexOf('async readPersistedSigningSessionSnapshot'),
+      signingEngine.indexOf('private async ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap'),
+    );
+    const signingEngineEcdsaRuntimeBody = signingEngineSnapshotBody.slice(
+      signingEngineSnapshotBody.indexOf('listRuntimeEcdsaRecordsForAccount'),
+      signingEngineSnapshotBody.indexOf('listRuntimeEd25519RecordsForAccount'),
+    );
+    const emailOtpSnapshotBody = emailOtpCoordinator.slice(
+      emailOtpCoordinator.indexOf('async readPersistedSessionSnapshot'),
+      emailOtpCoordinator.indexOf('private async restoreEcdsaSealedRecordForAccount'),
+    );
+    const emailOtpEcdsaRuntimeBody = emailOtpSnapshotBody.slice(
+      emailOtpSnapshotBody.indexOf('listRuntimeEcdsaRecordsForAccount'),
+      emailOtpSnapshotBody.indexOf('listRuntimeEd25519RecordsForAccount'),
+    );
+
+    expect(snapshotReader).toContain('export function ecdsaSnapshotLaneIdentityKey');
+    expect(signingEngineSnapshotBody).toContain('ecdsaSnapshotLaneIdentityKey(record)');
+    expect(emailOtpEcdsaRuntimeBody).toContain('ecdsaSnapshotLaneIdentityKey(record)');
+    expect(signingEngineEcdsaRuntimeBody).not.toContain('listResolvedIdentitiesForAccount');
+    for (const ecdsaRuntimeBody of [signingEngineEcdsaRuntimeBody, emailOtpEcdsaRuntimeBody]) {
+      expect(ecdsaRuntimeBody).not.toContain('seen.has(thresholdSessionId)');
+      expect(ecdsaRuntimeBody).not.toContain('seen.add(thresholdSessionId)');
+    }
   });
 
   test('sealed session store stays storage-only', () => {
@@ -797,6 +837,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     const coordinator = readRepoSource(
       'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
     );
+    const preparedOperation = readRepoSource(
+      'client/src/core/signingEngine/session/signingSession/preparedOperation.ts',
+    );
+    const transactionState = readRepoSource(
+      'client/src/core/signingEngine/session/signingSession/transactionState.ts',
+    );
     const evmBudget = readRepoSource(
       'client/src/core/signingEngine/api/evmFamily/budgetSpending.ts',
     );
@@ -818,6 +864,11 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(budget).toContain('assertPreparedBudgetProjectionVersion');
     expect(budget).toContain('prepared budget projection version is required');
     expect(coordinator).toContain('async prepareBudgetIdentity(');
+    expect(preparedOperation).not.toContain('budgetIdentity?:');
+    expect(preparedOperation).not.toContain('budgetProjectionVersion?:');
+    expect(preparedOperation).not.toContain('prepareBudgetIdentity?:');
+    expect(transactionState).toContain('await args.coordinator.prepareBudgetIdentity({');
+    expect(transactionState).toContain('thresholdOperation.signingSessionPlan.kind');
     expect(coordinator).toContain('SIGNING_SESSION_BUDGET_UNKNOWN_ERROR');
     expect(coordinator).toContain('projectionVersion,');
     expect(budgetFinalizerArgs).toContain('budgetIdentity: SigningSessionPreparedBudgetIdentity;');
@@ -829,16 +880,24 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(budgetFinalizer).toContain('isSigningSessionBudgetInFlightError');
     expect(evmBudget).toContain('budgetIdentity: SigningSessionPreparedBudgetIdentity;');
     expect(evmBudget).toContain('budgetIdentity: args.budgetIdentity');
-    expect(evmSigning).toContain('ensurePreparedEcdsaBudgetIdentity');
-    expect(evmSigning).toContain('budgetIdentity: prepared.budgetIdentity!');
+    const evmPreparedExecutionBody = evmSigning.slice(
+      evmSigning.indexOf('if (preparedExecutorSession)'),
+      evmSigning.indexOf('return await executeEvmFamilyTransactionSigning(executePayload);'),
+    );
+    expect(evmSigning).toContain('requireBudgetAdmittedPreparedEcdsaSession');
+    expect(evmPreparedExecutionBody).not.toContain('ensurePreparedEcdsaBudgetIdentity');
+    expect(evmSigning).not.toContain('budgetIdentity: prepared.budgetIdentity!');
     expect(nearSigning).toContain('prepareTransactionSigningOperation');
     expect(nearSigning).toContain('prepareBudgetIdentity: true');
     expect(nearSigning).toContain('const transactionOperation = preparedTransaction.transactionOperation');
-    expect(nearSigning).toContain('admitTransactionBudget(transactionOperation');
-    expect(nearTransactions).toContain('budgetAdmittedOperation: providedBudgetAdmittedOperation');
-    expect(nearTransactions).toContain('let activeBudgetAdmittedOperation = providedBudgetAdmittedOperation');
+    expect(nearSigning).toContain('const budget = preparedTransaction.budget');
+    expect(nearTransactions).toContain(
+      'ed25519SigningBoundary.initialBudgetAdmittedOperation',
+    );
+    expect(nearTransactions).toContain('let activeBudgetAdmittedOperation =');
     expect(nearTransactions).toContain('budgetAdmission.budgetIdentity');
     expect(nearTransactions).not.toContain('providedBudgetIdentity');
+    expect(nearTransactions).not.toContain('providedBudgetAdmittedOperation');
   });
 
   test('Phase 14 keeps sealed-session purpose mandatory at write boundaries', () => {
@@ -984,6 +1043,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     const preparedSigning = readRepoSource(
       'client/src/core/signingEngine/api/evmFamily/preparedSigning.ts',
     );
+    const accountAuth = readRepoSource('client/src/core/signingEngine/api/evmFamily/accountAuth.ts');
     const nearSigning = readRepoSource('client/src/core/signingEngine/api/nearSigning.ts');
     const signingEngine = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
 
@@ -994,9 +1054,25 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(nearSigning).toContain('prepareTransactionSigningOperation');
     expect(nearSigning).toContain('prepareNearEd25519TransactionSigningSession');
     expect(nearSigning).toContain('PreparedNearEd25519TransactionSigningSession');
-    expect(signingEngine.indexOf('restoreEmailOtpEcdsaSessionForExportBestEffort')).toBeLessThan(
-      signingEngine.indexOf('resolveEmailOtpEcdsaExportTargetFromLocalMetadata'),
-    );
+    expect(signingEngine).toContain('keyRef: ThresholdEcdsaSecp256k1KeyRef;');
+    expect(signingEngine).toContain('exportLane: ExactEcdsaExportLane;');
+    expect(signingEngine).toContain('exportLane,');
+    expect(signingEngine).toContain('assertNearEd25519ExportRecordMatchesLane');
+    expect(signingEngine).toContain('exact lane selection failed: no_candidate');
+    expect(signingEngine).toContain('exact lane selection failed: ambiguous_candidates');
+    expect(signingEngine).toContain('this.touchConfirm.restorePersistedSessionForSigning({');
+    expect(signingEngine).not.toContain('resolveNearEd25519ExportAuthMethod');
+    expect(signingEngine).not.toContain('resolveEcdsaExportAuthMethod');
+    expect(signingEngine).not.toContain('resolveNearEd25519ExportRestoreLane');
+    expect(signingEngine).not.toContain('resolveEcdsaExportRestoreLane');
+    expect(signingEngine).not.toContain('restoreEmailOtpEcdsaSessionForExportBestEffort');
+    expect(signingEngine).not.toContain('resolveEmailOtpEcdsaExportRestoreLane');
+    expect(signingEngine).not.toContain('resolveEmailOtpEcdsaExportTargetFromLocalMetadata');
+    expect(signingEngine).not.toContain('bootstrapAndExportEcdsaKeyWithAuthorization');
+    expect(signingEngine).not.toContain('keyRef?: ThresholdEcdsaSecp256k1KeyRef');
+    expect(signingEngine).not.toContain('exportLane?: ExactEcdsaExportLane');
+    expect(signingEngine).not.toContain('persisted session restore skipped');
+    expect(accountAuth).not.toContain('getStoredThresholdEd25519SessionRecordForAccount');
   });
 
   test('NEAR Ed25519 finalization syncs already-consumed threshold session budget', () => {
@@ -1059,6 +1135,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     const evmAuthPlanning = readRepoSource(
       'client/src/core/signingEngine/api/evmFamily/authPlanning.ts',
     );
+    const evmFamilyTransactionExecutor = readRepoSource(
+      'client/src/core/signingEngine/api/evmFamily/transactionExecutor.ts',
+    );
     const transactionsFlow = readRepoSource(
       'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts',
     );
@@ -1080,20 +1159,19 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(preparedOperation).toContain('coordinator: ThresholdSigningOperationCoordinator');
     expect(preparedOperation).not.toContain('planSigningSession');
     expect(preparedOperation).not.toContain('coordinator?:');
-    expect(preparedOperation).toContain('executePreparedThresholdSigning');
-    expect(preparedOperation).toContain('finalizePreparedThresholdSigning');
-    expect(preparedOperation).toContain('prepared signing finalization requires a real finalizer');
     expect(preparedOperation).not.toContain('SigningSessionCoordinator');
     expect(preparedOperation).not.toContain('restoreCoordinator');
     expect(preparedOperation).not.toContain('snapshotReader');
     expect(nearSigning).toContain('prepareTransactionSigningOperation');
     expect(nearSigning).toContain('async function prepareNearEd25519TransactionOperation');
     expect(nearSigning).toContain('await prepareNearEd25519TransactionOperation({');
-    expect(nearSigning).toContain('executePreparedThresholdSigning');
-    expect(nearSigning).toContain('finalizePreparedThresholdSigning');
+    expect(nearSigning).not.toContain('executePreparedThresholdSigning');
+    expect(nearSigning).not.toContain('finalizePreparedThresholdSigning');
     expect(transactionsFlow).toContain(
-      'threshold transaction signing requires prepared session identity',
+      'ed25519SigningBoundary: NearEd25519TransactionSigningBoundary',
     );
+    expect(transactionsFlow).toContain('signPreparedTransactionOperation');
+    expect(transactionsFlow).toContain('finalizeSignedTransactionOperation');
     expect(transactionsFlow).toContain(
       'threshold transaction signing requires prepared transaction operation',
     );
@@ -1128,36 +1206,33 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(transactionState).toContain('export function admitTransactionBudget');
     expect(transactionState).toContain('export function recordTransactionBudgetAdmission');
     expect(transactionState).toContain('function isConcreteNearEd25519Lane');
-    expect(transactionState).toContain("kind: 'current_lane'");
+    expect(transactionState).not.toContain("kind: 'current_lane'");
     expect(transactionState).toContain("kind: 'account_class'");
     expect(transactionState).not.toContain('last_used');
     expect(transactionState).not.toContain('require_user_choice');
-    expect(nearSigning).toContain('selectNearEd25519TransactionCandidate');
-    expect(nearSigning).toContain('discardInvalidNearEd25519RuntimeHint');
-    expect(nearSigning).toContain('clearStoredThresholdEd25519SessionRecordForAccount');
+    expect(nearSigning).not.toContain('discardInvalidNearEd25519RuntimeHint');
+    expect(nearSigning).not.toContain('clearStoredThresholdEd25519SessionRecordForAccount');
+    expect(nearSigning).not.toContain('getStoredThresholdEd25519SessionRecordForAccount');
     expect(nearSigning).toContain('const transactionOperation = preparedTransaction.transactionOperation');
-    expect(nearSigning).toContain('budgetAdmittedOperation');
+    expect(nearSigning).toContain('initialBudgetAdmittedOperation');
     expect(transactionsFlow).toContain('activeBudgetAdmittedOperation');
-    expect(nearSigning).toContain('replacePreparedTransactionLane(');
+    expect(transactionsFlow).toContain('replacePreparedTransactionLane(');
     expect(transactionsFlow).toContain('budgetAdmission.budgetIdentity');
     expect(transactionsFlow).toContain(
       'const signedOperation = await signPreparedTransactionOperation(',
     );
-    expect(nearSigning).toContain('resolveNearEd25519AuthSelectionPolicy');
-    expect(nearSigning).toContain("if (args.record?.source === 'email_otp')");
+    expect(nearSigning).not.toContain('resolveNearEd25519AuthSelectionPolicy');
+    expect(nearSigning).not.toContain('resolveNearEd25519SnapshotAuthPolicy');
+    expect(nearSigning).not.toContain("if (args.record?.source === 'email_otp')");
     expect(nearSigning).toContain("kind: 'account_class'");
     expect(nearSigning).toContain('authMethod: selected');
-    expect(nearSigning).toContain('if (args.record) {');
-    expect(
-      nearSigning.indexOf("if (args.record?.source === 'email_otp')"),
-    ).toBeLessThan(nearSigning.indexOf('resolveAccountAuthMethodForSigning?.({'));
-    expect(
-      nearSigning.indexOf('if (args.record) {'),
-    ).toBeGreaterThan(nearSigning.indexOf('resolveAccountAuthMethodForSigning?.({'));
     expect(nearSigning).toContain('receiveTransactionIntent({');
     expect(nearSigning).toContain('recordTransactionSnapshot(intentState');
     expect(nearSigning).toContain('selectTransactionLaneFromSnapshot(snapshotState)');
     expect(nearSigning).not.toContain('selectTransactionLane({');
+    expect(evmPreparedSigning).toContain('isRuntimeBackedEcdsaSnapshotLane');
+    expect(evmPreparedSigning).toContain('currentRuntimeLane');
+    expect(evmPreparedSigning).not.toContain('lane.authMethod === args.authMethod');
     expect(nearEd25519RestoreBody).toContain('authMethod: identity.authMethod');
     expect(nearEd25519RestoreBody).toContain('walletSigningSessionId: identity.walletSigningSessionId');
     expect(nearEd25519RestoreBody).toContain('thresholdSessionId: identity.thresholdSessionId');
@@ -1167,31 +1242,71 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(nearEd25519RestoreBody).not.toContain('preferredAuthMethod');
     expect(nearWalletAuthBody).not.toContain('prepareThresholdSigningOperation');
     expect(nearWalletAuthBody).not.toContain('resolveNearTransactionPlannerReadiness');
-    expect(evmSigning).toContain('executePreparedThresholdSigning');
-    expect(evmSigning).toContain('finalizePreparedThresholdSigning');
+    expect(evmSigning).toContain('signPreparedTransactionOperation');
+    expect(evmSigning).toContain('finalizeSignedTransactionOperation');
+    expect(evmSigning.slice(evmSigning.indexOf('if (preparedExecutorSession) {'))).not.toContain(
+      'ensurePreparedEcdsaBudgetIdentity',
+    );
+    expect(evmSigning).not.toContain('executePreparedThresholdSigning');
     expect(evmSigning).toContain('deferSuccessfulSigningSessionFinalization: Boolean');
     expect(evmSigning).toContain('deferFailedSigningSessionFinalization: Boolean');
     expect(evmSigning).toContain('freshAuthRetryHandledFinalization');
+    expect(evmSigning).not.toContain('admitThresholdEcdsaOperation');
+    expect(evmSigning).not.toContain('resolveThresholdEcdsaOperation');
     expect(evmSigning).not.toContain('() => {}');
+    expect(evmFamilyTransactionExecutor).toContain(
+      'executeConfiguredEvmFamilyTransactionSigning',
+    );
+    expect(evmFamilyTransactionExecutor).not.toContain(
+      'async function executeEvmTransactionSigning',
+    );
+    expect(evmFamilyTransactionExecutor).not.toContain(
+      'async function executeTempoTransactionSigning',
+    );
     expect(evmSigningBody).not.toContain('resolveEvmFamilyEcdsaPlannerReadiness');
     expect(evmSigningBody).not.toContain('restorePersistedSessionForSigning(');
     for (const lowerFlow of [evmSigningFlow, tempoSigningFlow]) {
       expect(lowerFlow).toContain("args.request.senderSignatureAlgorithm === 'secp256k1'");
-      expect(lowerFlow).toContain('BudgetAdmittedTransactionOperation');
-      expect(lowerFlow).toContain('thresholdEcdsaOperation?:');
+      expect(lowerFlow).toContain('thresholdEcdsaBoundary:');
+      expect(lowerFlow).toContain('thresholdEcdsaAuthPlan:');
+      expect(lowerFlow).toContain("kind === 'admitted'");
+      expect(lowerFlow).toContain('resolveEvmFamilyThresholdEcdsaAdmissionMode({');
+      expect(lowerFlow).not.toContain("kind === 'confirmed_auth_required'");
+      expect(lowerFlow).not.toContain("kind: 'confirmed_auth_required'");
+      expect(lowerFlow).not.toContain("kind === 'reauth_required'");
       expect(lowerFlow).toContain(
-        'threshold ECDSA transaction signing requires a budget-admitted operation',
+        'threshold ECDSA transaction signing requires budget-admitted state before signing',
       );
-      expect(lowerFlow).toContain('if (hasThresholdEcdsaRequest && !args.thresholdEcdsaOperation)');
+      expect(lowerFlow).not.toContain("kind === 'not_admitted'");
+      expect(lowerFlow).not.toContain("kind: 'not_admitted'");
+      expect(lowerFlow).not.toContain("kind: 'post_reauth_admission'");
+      expect(lowerFlow).not.toContain('thresholdEcdsaBoundary.admit');
+      expect(lowerFlow).not.toContain('thresholdEcdsaOperation?:');
+      expect(lowerFlow).not.toContain('admitThresholdEcdsaOperation?:');
       expect(lowerFlow).not.toContain('signingAuthPlan?: SigningAuthPlan');
+      expect(lowerFlow).not.toContain('resolveThresholdEcdsaOperation');
       expect(lowerFlow).not.toContain('needsWebAuthn: !args.signingAuthPlan && !emailOtpPrompt');
+      expect(lowerFlow).not.toContain('args.emailOtpSigning.complete(');
+      expect(lowerFlow).not.toContain('args.passkeyEcdsaReconnect.reconnect({');
     }
-    expect(evmSigningFlow).not.toContain('args.signingAuthPlan');
-    expect(tempoSigningFlow).not.toContain('args.signingAuthPlan');
+    const admissionHelper = readRepoSource(
+      'client/src/core/signingEngine/orchestration/shared/thresholdEcdsaTransactionAdmission.ts',
+    );
+    const admissionFunctionBody = admissionHelper.slice(
+      admissionHelper.indexOf('export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation'),
+      admissionHelper.indexOf('export function resolveEvmFamilyThresholdEcdsaAdmissionMode'),
+    );
+    expect(admissionHelper).toContain('export type EvmFamilyThresholdEcdsaAdmissionMode');
+    expect(admissionFunctionBody).toContain('mode: EvmFamilyThresholdEcdsaAdmissionMode');
+    expect(admissionFunctionBody).not.toContain('emailOtpSigning?:');
+    expect(admissionFunctionBody).not.toContain('passkeyEcdsaReconnect?:');
+    expect(admissionFunctionBody).not.toContain('ensureThresholdEcdsaKeyRefReady?:');
     expect(evmPreparedSigning).toContain('prepareTransactionSigningOperation');
     expect(evmPreparedSigning).toContain('lifecycleAdapter');
     expect(evmPreparedSigning).toContain('selectTransactionLane');
     expect(evmPreparedSigning).toContain('assertSelectionMatchesSnapshotCandidate');
+    expect(evmPreparedSigning).toContain('args.snapshot.candidates.ecdsa[args.chain]');
+    expect(evmPreparedSigning).not.toContain('args.snapshot.lanes.ecdsa[args.chain]');
     expect(evmPreparedSigning).toContain('authMethod,');
     expect(evmEcdsaSelection).toContain('authMethod: typeof SIGNER_AUTH_METHODS.emailOtp');
     expect(evmEcdsaSelection).not.toContain('authMethod?:');
@@ -1210,7 +1325,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(restoreCoordinator).toContain('type RestorePersistedSessionForSigningTransactionInput');
     expect(restoreCoordinator).toContain('walletSigningSessionId: string;');
     expect(restoreCoordinator).toContain('thresholdSessionId: string;');
-    expect(restoreCoordinator).toContain("reason: 'transaction';");
+    expect(restoreCoordinator).toContain("reason: 'transaction' | 'export';");
     expect(evmAuthPlanning).toContain('preparedOperation: PreparedThresholdSigningOperation');
     expect(evmAuthPlanning).toContain('const preparedEcdsaLane');
     expect(evmAuthPlanning).not.toContain('ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane');

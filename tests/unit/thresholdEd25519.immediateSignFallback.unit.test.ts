@@ -173,15 +173,6 @@ function createActiveSigningSessionCoordinator(
 }
 
 async function signTransactionsWithActions(args: any) {
-  if (
-    args.signingAuthPlan &&
-    args.signingLane &&
-    args.signingSessionCoordinator &&
-    args.transactionOperation
-  ) {
-    return await signPreparedTransactionsWithActions(args);
-  }
-
   const nearAccountId = String(args.rpcCall?.nearAccountId || '').trim();
   const sessionId = String(args.sessionId || '').trim();
   const record = nearAccountId
@@ -195,22 +186,26 @@ async function signTransactionsWithActions(args: any) {
 
   const authMethod = record?.source === 'email_otp' ? 'email_otp' : 'passkey';
   const signingLane =
-    args.signingLane ||
-    buildNearTransactionSigningLane({
-      accountId: nearAccountId,
-      authMethod,
-      walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
-      thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
-      ...(authMethod === 'email_otp'
-        ? { retention: record?.emailOtpAuthContext?.retention || 'session' }
-        : {
-            storageSource:
-              record?.source && record.source !== 'email_otp' ? record.source : 'login',
-          }),
-    });
+    args.signingLane ??
+    (authMethod === 'email_otp'
+      ? buildNearTransactionSigningLane({
+          accountId: nearAccountId,
+          authMethod: 'email_otp',
+          walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+          thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+          retention: record?.emailOtpAuthContext?.retention || 'session',
+        })
+      : buildNearTransactionSigningLane({
+          accountId: nearAccountId,
+          authMethod: 'passkey',
+          walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+          thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
+          storageSource:
+            record?.source && record.source !== 'email_otp' ? record.source : 'login',
+        }));
   const requiresFreshAuth = args.emailOtpSigning || !String(record?.xClientBaseB64u || '').trim();
   const signingAuthPlan =
-    args.signingAuthPlan ||
+    args.signingAuthPlan ??
     (requiresFreshAuth
       ? authMethod === 'email_otp'
         ? { kind: 'emailOtpReauth', method: 'email_otp' }
@@ -233,12 +228,12 @@ async function signTransactionsWithActions(args: any) {
     walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
     thresholdSessionId: SigningSessionIds.thresholdEd25519Session(thresholdSessionId),
   };
-  const transactionOperation = args.transactionOperation || {
+  const transactionOperation = args.transactionOperation ?? {
     intent: {
       walletId: nearAccountId,
       curve: 'ed25519',
       chain: 'near',
-      authSelectionPolicy: { kind: 'current_lane', authMethod },
+      authSelectionPolicy: { kind: 'account_class', authMethod },
       operationUsesNeeded: 1,
     },
     lane: transactionLane,
@@ -249,30 +244,41 @@ async function signTransactionsWithActions(args: any) {
         : {
             remainingUses: Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
             expiresAtMs: Math.floor(Number(record?.expiresAtMs) || Date.now() + 60_000),
-          }),
+      }),
     },
   };
-  const budgetStatus = activeBudgetStatus(
-    walletSigningSessionId,
-    Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
-  );
-
-  return await signPreparedTransactionsWithActions({
-    ...args,
-    sessionId: thresholdSessionId,
-    signingLane,
-    signingAuthPlan,
-    transactionOperation,
-    budgetAdmittedOperation: args.budgetAdmittedOperation || {
+  const makeBudgetAdmittedOperation = (lane: any = transactionLane) => {
+    const admittedWalletSigningSessionId = String(lane.walletSigningSessionId || walletSigningSessionId);
+    const budgetStatus = activeBudgetStatus(
+      admittedWalletSigningSessionId,
+      Math.max(1, Math.floor(Number(record?.remainingUses) || 1)),
+    );
+    return {
       ...transactionOperation,
+      lane,
       budgetAdmission: {
         budgetIdentity: {
-          walletSigningSessionId,
+          walletSigningSessionId: admittedWalletSigningSessionId,
           projectionVersion: budgetStatus.projectionVersion,
           status: budgetStatus,
         },
       },
-    },
+    };
+  };
+  const ed25519SigningBoundary =
+    args.ed25519SigningBoundary ||
+    {
+      sessionId: thresholdSessionId,
+      signingAuthPlan,
+      signingLane,
+      initialBudgetAdmittedOperation:
+        signingAuthPlan.kind === 'warmSession' ? makeBudgetAdmittedOperation() : null,
+    };
+
+  return await signPreparedTransactionsWithActions({
+    ...args,
+    transactionOperation,
+    ed25519SigningBoundary,
     signingSessionCoordinator:
       args.signingSessionCoordinator ||
       createActiveSigningSessionCoordinator(
@@ -454,7 +460,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           walletSigningSessionId,
           10,
         ),
-        onEvent: (event) => progressEvents.push(event),
+        onEvent: (event: any) => progressEvents.push(event),
       });
 
       expect(Array.isArray(signed)).toBe(true);
@@ -708,7 +714,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           },
         ],
         rpcCall: { nearAccountId, nearRpcUrl: 'https://rpc.testnet.test' },
-        onEvent: (event) => {
+        onEvent: (event: any) => {
           if (event.phase === SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED) {
             emailOtpSideEffectOrder.push('display');
           }
@@ -1279,7 +1285,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               walletSigningSessionId,
               sessionPolicyDigest32: 'planned-ed25519-session-policy-digest',
             }),
-            reconnect: async (args) => {
+            reconnect: async (args: any) => {
               reconnectCalls += 1;
               reconnectSessionId = String(args.sessionId || '').trim();
               reconnectWalletSigningSessionId = String(args.walletSigningSessionId || '').trim();
@@ -1368,7 +1374,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       let workerSigned = false;
       let consumeCalls = 0;
       const signingSessionCoordinator = new SigningSessionCoordinator({
-        getStatus: async ({ targetThresholdSessionIds }) => {
+        getStatus: async ({ targetThresholdSessionIds }: any) => {
           const targetIds = (targetThresholdSessionIds || []).map((id: string) =>
             String(id).replace(/^threshold-ed25519:/, ''),
           );
@@ -1383,7 +1389,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           }
           return activeBudgetStatus(walletSigningSessionId, 1);
         },
-        consumeUse: async ({ alreadyConsumedThresholdSessionIds }) => {
+        consumeUse: async ({ alreadyConsumedThresholdSessionIds }: any) => {
           consumeCalls += 1;
           expect(
             (alreadyConsumedThresholdSessionIds || []).map((id: string) =>
