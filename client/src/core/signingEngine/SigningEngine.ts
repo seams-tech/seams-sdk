@@ -558,18 +558,12 @@ function selectNewestExportLaneWhenUnambiguous<TLane extends ConcreteExportSnaps
 function selectExactExportSnapshotLane<TLane extends ConcreteExportSnapshotLane>(args: {
   context: string;
   candidates: TLane[];
-  authMethod?: 'email_otp' | 'passkey';
 }): TLane {
   const traceScope = args.context.includes('ed25519') ? 'near' : 'evm-family';
-  const scopedCandidates = args.authMethod
-    ? args.candidates.filter((candidate) => candidate.authMethod === args.authMethod)
-    : args.candidates;
-
-  if (!scopedCandidates.length) {
+  if (!args.candidates.length) {
     emitSigningSessionFlowFailure(traceScope, {
       stage: 'key_export.exact_lane_no_candidate',
       context: args.context,
-      authMethod: args.authMethod,
       totalCandidateCount: args.candidates.length,
       candidates: args.candidates.map(summarizeExportSnapshotLane),
     });
@@ -577,57 +571,34 @@ function selectExactExportSnapshotLane<TLane extends ConcreteExportSnapshotLane>
   }
 
   const candidatesByIdentity = new Map<string, TLane[]>();
-  for (const candidate of scopedCandidates) {
+  for (const candidate of args.candidates) {
     const identity = exportLaneIdentity(candidate);
     candidatesByIdentity.set(identity, [...(candidatesByIdentity.get(identity) || []), candidate]);
   }
 
-  const dedupedCandidates = [...candidatesByIdentity.values()].map((sameIdentityCandidates) => {
+  if (candidatesByIdentity.size === 1) {
+    const sameIdentityCandidates = [...candidatesByIdentity.values()][0]!;
+    // This only chooses the best metadata representation for the one selected
+    // lane identity. It must not choose between different lane identities.
     const byState = bestExportLaneByPriority(sameIdentityCandidates, exportLaneStatePriority);
     const bySource = bestExportLaneByPriority(byState, exportLaneSourcePriority);
-    return selectNewestExportLaneWhenUnambiguous(bySource) || bySource[0]!;
-  });
-
-  const returnSelected = (selectedLane: TLane, reason: string): TLane => {
+    const selectedLane = selectNewestExportLaneWhenUnambiguous(bySource) || bySource[0]!;
     emitSigningSessionFlowTrace(traceScope, {
       stage: 'key_export.exact_lane_selected',
       context: args.context,
-      authMethod: args.authMethod,
-      reason,
+      reason: 'single_exact_identity',
       selectedLane: summarizeExportSnapshotLane(selectedLane),
-      candidateCount: scopedCandidates.length,
-      dedupedCandidateCount: dedupedCandidates.length,
+      candidateCount: args.candidates.length,
+      exactIdentityCount: candidatesByIdentity.size,
     });
     return selectedLane;
-  };
-
-  if (dedupedCandidates.length === 1) {
-    return returnSelected(dedupedCandidates[0]!, 'single_exact_identity');
   }
-
-  const bestStateCandidates = bestExportLaneByPriority(dedupedCandidates, exportLaneStatePriority);
-  if (bestStateCandidates.length === 1) {
-    return returnSelected(bestStateCandidates[0]!, 'best_state');
-  }
-
-  const bestSourceCandidates = bestExportLaneByPriority(
-    bestStateCandidates,
-    exportLaneSourcePriority,
-  );
-  if (bestSourceCandidates.length === 1) {
-    return returnSelected(bestSourceCandidates[0]!, 'best_source');
-  }
-
-  const newestCandidate = selectNewestExportLaneWhenUnambiguous(bestSourceCandidates);
-  if (newestCandidate) return returnSelected(newestCandidate, 'newest_updated_at');
 
   emitSigningSessionFlowFailure(traceScope, {
     stage: 'key_export.exact_lane_ambiguous',
     context: args.context,
-    authMethod: args.authMethod,
-    candidateCount: scopedCandidates.length,
-    candidates: scopedCandidates.map(summarizeExportSnapshotLane),
-    remainingCandidates: bestSourceCandidates.map(summarizeExportSnapshotLane),
+    candidateCount: args.candidates.length,
+    candidates: args.candidates.map(summarizeExportSnapshotLane),
   });
   throw new Error(
     `[SigningEngine][${args.context}] exact lane selection failed: ambiguous_candidates`,
@@ -1854,51 +1825,9 @@ export class SigningEngine {
     });
   }
 
-  private async resolveKeyExportAuthMethod(
-    nearAccountId: AccountId,
-  ): Promise<'email_otp' | 'passkey'> {
-    const context = await resolveProfileAccountContextFromCandidates(
-      this.orchestrationDeps.indexedDB.clientDB,
-      buildNearAccountRefs(toAccountId(nearAccountId)),
-    ).catch(() => null);
-    if (!context?.profileId) return 'passkey';
-
-    const [profile, activeSigners, lastProfileState] = await Promise.all([
-      this.orchestrationDeps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null),
-      this.orchestrationDeps.indexedDB.clientDB
-        .listAccountSigners({
-          chainIdKey: context.accountRef.chainIdKey,
-          accountAddress: context.accountRef.accountAddress,
-          status: 'active',
-        })
-        .catch(() => []),
-      this.orchestrationDeps.indexedDB.clientDB.getLastProfileState().catch(() => null),
-    ]);
-    if (!profile || !activeSigners.length) return 'passkey';
-    const activeSignerSlot =
-      lastProfileState?.profileId === context.profileId
-        ? Number(lastProfileState.activeSignerSlot)
-        : undefined;
-    const selectedSigner = selectAccountSigner({
-      profile,
-      activeSigners,
-      ...(typeof activeSignerSlot === 'number' &&
-      Number.isSafeInteger(activeSignerSlot) &&
-      activeSignerSlot >= 1
-        ? { signerSlot: activeSignerSlot }
-        : {}),
-    });
-    return selectedSigner?.signerAuthMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? 'email_otp'
-      : 'passkey';
-  }
-
-  private async resolveNearEd25519ExportLane(
-    args: {
-      nearAccountId: AccountId;
-      authMethod: 'email_otp' | 'passkey';
-    },
-  ): Promise<ExactNearEd25519ExportLane> {
+  private async resolveNearEd25519ExportLane(args: {
+    nearAccountId: AccountId;
+  }): Promise<ExactNearEd25519ExportLane> {
     const snapshot = await this.readPersistedSigningSessionSnapshot({
       walletId: args.nearAccountId,
     });
@@ -1909,7 +1838,6 @@ export class SigningEngine {
     const selected = selectExactExportSnapshotLane({
       context: 'ed25519-export',
       candidates: concreteCandidates,
-      authMethod: args.authMethod,
     });
     return {
       curve: 'ed25519',
@@ -1926,7 +1854,6 @@ export class SigningEngine {
   private async resolveEcdsaExportLane(args: {
     nearAccountId: AccountId;
     chain: 'evm' | 'tempo';
-    authMethod: 'email_otp' | 'passkey';
   }): Promise<ExactEcdsaExportLane> {
     const snapshot = await this.readPersistedSigningSessionSnapshot({
       walletId: args.nearAccountId,
@@ -1937,7 +1864,6 @@ export class SigningEngine {
     const selected = selectExactExportSnapshotLane({
       context: 'ecdsa-export',
       candidates: concreteCandidates,
-      authMethod: args.authMethod,
     });
     return {
       curve: 'ecdsa',
@@ -1956,7 +1882,6 @@ export class SigningEngine {
   }): Promise<ExactNearEd25519ExportLane> {
     const restoreLane = await this.resolveNearEd25519ExportLane({
       nearAccountId: args.nearAccountId,
-      authMethod: await this.resolveKeyExportAuthMethod(args.nearAccountId),
     });
     if (
       restoreLane.state === 'ready' ||
@@ -1995,7 +1920,6 @@ export class SigningEngine {
   }): Promise<ExactEcdsaExportLane> {
     const restoreLane = await this.resolveEcdsaExportLane({
       ...args,
-      authMethod: await this.resolveKeyExportAuthMethod(args.nearAccountId),
     });
     if (
       restoreLane.state === 'ready' ||

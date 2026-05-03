@@ -24,12 +24,16 @@ test.describe('modularity lazy signer loading', () => {
       path.resolve(process.cwd(), '../client/src/core/signingEngine/api/evmSigning.ts'),
       'utf8',
     );
+    const signerLoaderSource = fs.readFileSync(
+      path.resolve(process.cwd(), '../client/src/core/signingEngine/api/evmFamily/signerLoader.ts'),
+      'utf8',
+    );
 
     expect(nearSigningSource).toContain("from '../orchestration/near/nearSigningFlow'");
-    expect(evmSigningSource).toContain("import('../orchestration/evm/evmSigningFlow')");
-    expect(evmSigningSource).toContain("import('../orchestration/tempo/tempoSigningFlow')");
-    expect(evmSigningSource).toContain("import('../signers/algorithms/secp256k1')");
-    expect(evmSigningSource).toContain("import('../signers/algorithms/webauthnP256')");
+    expect(signerLoaderSource).toContain("import('../../orchestration/evm/evmSigningFlow')");
+    expect(signerLoaderSource).toContain("import('../../orchestration/tempo/tempoSigningFlow')");
+    expect(signerLoaderSource).toContain("import('../../signers/algorithms/secp256k1')");
+    expect(signerLoaderSource).toContain("import('../../signers/algorithms/webauthnP256')");
 
     expect(nearSigningSource).not.toContain("import('../orchestration/signWithIntent')");
     expect(nearSigningSource).not.toContain("import('../signers/algorithms/ed25519')");

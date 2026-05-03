@@ -580,12 +580,10 @@ async function signEvmFamilyAttempt(
     selectedEcdsaAuthMethod = prepared.authMethod;
     return prepared;
   };
-  const ensurePreparedEcdsaBudgetIdentity =
-    async (
-      expectedPrepared?: PreparedEvmFamilyEcdsaSigningSession,
-      trustedStatusAuth?: SigningSessionBudgetStatusAuth,
-    ): Promise<PreparedEvmFamilyEcdsaSigningSession> => {
-      const prepared = expectedPrepared || getPreparedEcdsaSigningSession();
+  const admitPreparedEcdsaTransactionBudget = async (
+    prepared: PreparedEvmFamilyEcdsaSigningSession,
+    trustedStatusAuth?: SigningSessionBudgetStatusAuth,
+  ): Promise<PreparedEvmFamilyEcdsaSigningSession> => {
       assertPreparedEcdsaOperationLane(prepared, 'budget identity preparation');
       const admittedBudgetIdentity = getAdmittedEcdsaBudgetIdentity(prepared);
       if (
@@ -611,9 +609,6 @@ async function signEvmFamilyAttempt(
         trustedStatusAuth || prepared.budgetStatusAuth,
       );
       assertPreparedEcdsaOperationLane(updatedPrepared, 'budget identity preparation');
-      if (preparedEcdsaSigningSession?.preparedOperation === prepared.preparedOperation) {
-        preparedEcdsaSigningSession = updatedPrepared;
-      }
       return updatedPrepared;
     };
   const requireBudgetAdmittedPreparedEcdsaSession = (
@@ -726,7 +721,7 @@ async function signEvmFamilyAttempt(
               refreshedKeyRef: summarizeEvmFamilyEcdsaKeyRef(refreshed.keyRef),
             },
           });
-          const admittedAfterReauth = await ensurePreparedEcdsaBudgetIdentity(
+          const admittedAfterReauth = await admitPreparedEcdsaTransactionBudget(
             preparedAfterReauth,
             trustedBudgetStatusAuthFromEcdsaKeyRef(refreshed.keyRef),
           );
@@ -749,6 +744,9 @@ async function signEvmFamilyAttempt(
             lane: summarizeEvmFamilyEcdsaLane(admittedAfterReauth.signingLane),
             budgetKind: admittedAfterReauth.budget.kind,
           });
+          preparedEcdsaSigningSession = admittedAfterReauth;
+          ecdsaSigningLane = admittedAfterReauth.signingLane;
+          selectedEcdsaAuthMethod = admittedAfterReauth.authMethod;
           return {
             keyRef: refreshed.keyRef,
             operation: {
@@ -816,7 +814,7 @@ async function signEvmFamilyAttempt(
               },
               forceRefreshBudgetIdentity: true,
             });
-        const admittedPrepared = await ensurePreparedEcdsaBudgetIdentity(
+        const admittedPrepared = await admitPreparedEcdsaTransactionBudget(
           updatedPrepared,
           trustedBudgetStatusAuthFromEcdsaKeyRef(keyRef),
         );
@@ -825,6 +823,9 @@ async function signEvmFamilyAttempt(
             '[SigningEngine][ecdsa] keyRef refresh did not produce budget-admitted operation',
           );
         }
+        preparedEcdsaSigningSession = admittedPrepared;
+        ecdsaSigningLane = admittedPrepared.signingLane;
+        selectedEcdsaAuthMethod = admittedPrepared.authMethod;
         return {
           ...admittedPrepared.budget.operation,
           authPlan: signingAuthPlan,

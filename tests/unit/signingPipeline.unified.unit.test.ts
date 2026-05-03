@@ -260,11 +260,19 @@ test.describe('unified signing pipeline', () => {
       ),
       'utf8',
     );
+    const evmFamilyHandlerSource = fs.readFileSync(
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/orchestration/shared/evmFamilySigningFlow.ts',
+      ),
+      'utf8',
+    );
 
     expect(nearSigningSource).toContain("from '../orchestration/near/nearSigningFlow'");
     expect(nearSigningSource).not.toContain('export async function signNearWithIntent');
-    expect(evmHandlerSource).toContain('executeSigningIntent({');
-    expect(tempoHandlerSource).toContain('executeSigningIntent({');
+    expect(evmHandlerSource).toContain('signEvmFamilyWithTouchConfirm');
+    expect(tempoHandlerSource).toContain('signEvmFamilyWithTouchConfirm');
+    expect(evmFamilyHandlerSource).toContain('executeSigningIntent({');
   });
 
   test('activation helpers stay internal-only and bootstrap-only', () => {

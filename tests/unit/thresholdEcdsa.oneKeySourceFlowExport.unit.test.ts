@@ -621,7 +621,7 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
     expect(userConfirmationCalls).toHaveLength(0);
   });
 
-  test('rejects passkey-only ECDSA export when account metadata selects Email OTP', async () => {
+  test('exports the only exact ECDSA lane even when account metadata selects another auth method', async () => {
     const { engine, exportWorkerCalls, userConfirmationCalls } = createExportTestEngine({
       accountAuthMethod: 'email_otp',
     });
@@ -638,13 +638,12 @@ test.describe('threshold ECDSA one-key source-flow export', () => {
       source: 'login',
     });
 
-    await expect(
-      engine.exportKeypairWithUI(ACCOUNT_ID as any, {
-        chain: 'evm',
-        variant: 'modal',
-      }),
-    ).rejects.toThrow('[SigningEngine][ecdsa-export] exact lane selection failed: no_candidate');
-    expect(exportWorkerCalls).toHaveLength(0);
-    expect(userConfirmationCalls).toHaveLength(0);
+    await expectOneKeyEcdsaExportFromEngine({
+      engine,
+      expectedEcdsaThresholdKeyId: 'ehss-passkey-runtime-1',
+      expectedJwt: makeThresholdEcdsaSessionJwt('ecdsa-passkey-runtime-session-1'),
+      exportWorkerCalls,
+      userConfirmationCalls,
+    });
   });
 });

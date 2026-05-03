@@ -27,6 +27,7 @@ const transactionCoordinatorConstructionGuardFiles = [
   'client/src/core/signingEngine/orchestration/near/nep413Flow.ts',
   'client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts',
   'client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts',
+  'client/src/core/signingEngine/orchestration/shared/evmFamilySigningFlow.ts',
 ] as const;
 
 const evmFamilySecuritySessionFiles = [
@@ -40,6 +41,7 @@ const evmFamilySecuritySessionFiles = [
   'client/src/core/signingEngine/api/evmFamily/transactionExecutor.ts',
   'client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts',
   'client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts',
+  'client/src/core/signingEngine/orchestration/shared/evmFamilySigningFlow.ts',
 ] as const;
 
 const pureSigningSessionHelperFiles = [
@@ -886,6 +888,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     );
     expect(evmSigning).toContain('requireBudgetAdmittedPreparedEcdsaSession');
     expect(evmPreparedExecutionBody).not.toContain('ensurePreparedEcdsaBudgetIdentity');
+    expect(evmSigning).not.toContain('const ensurePreparedEcdsaBudgetIdentity');
     expect(evmSigning).not.toContain('budgetIdentity: prepared.budgetIdentity!');
     expect(nearSigning).toContain('prepareTransactionSigningOperation');
     expect(nearSigning).toContain('prepareBudgetIdentity: true');
@@ -1120,6 +1123,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     const tempoSigningFlow = readRepoSource(
       'client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts',
     );
+    const evmFamilySigningFlow = readRepoSource(
+      'client/src/core/signingEngine/orchestration/shared/evmFamilySigningFlow.ts',
+    );
     const evmPreparedSigning = readRepoSource(
       'client/src/core/signingEngine/api/evmFamily/preparedSigning.ts',
     );
@@ -1265,12 +1271,18 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     );
     expect(evmSigningBody).not.toContain('resolveEvmFamilyEcdsaPlannerReadiness');
     expect(evmSigningBody).not.toContain('restorePersistedSessionForSigning(');
-    for (const lowerFlow of [evmSigningFlow, tempoSigningFlow]) {
-      expect(lowerFlow).toContain("args.request.senderSignatureAlgorithm === 'secp256k1'");
+    expect(evmSigningFlow).toContain('signEvmFamilyWithTouchConfirm');
+    expect(evmSigningFlow).toContain("chain: 'evm'");
+    expect(tempoSigningFlow).toContain('signEvmFamilyWithTouchConfirm');
+    expect(tempoSigningFlow).toContain("chain: 'tempo'");
+    expect(tempoSigningFlow).toContain("request.senderSignatureAlgorithm === 'webauthnP256'");
+    for (const lowerFlow of [evmFamilySigningFlow]) {
+      expect(lowerFlow).toContain("input.request.senderSignatureAlgorithm === 'secp256k1'");
       expect(lowerFlow).toContain('thresholdEcdsaBoundary:');
       expect(lowerFlow).toContain('thresholdEcdsaAuthPlan:');
       expect(lowerFlow).toContain("kind === 'admitted'");
-      expect(lowerFlow).toContain('resolveEvmFamilyThresholdEcdsaAdmissionMode({');
+      expect(lowerFlow).toContain('const admissionMode: EvmFamilyThresholdEcdsaAdmissionMode');
+      expect(lowerFlow).not.toContain('resolveEvmFamilyThresholdEcdsaAdmissionMode({');
       expect(lowerFlow).not.toContain("kind === 'confirmed_auth_required'");
       expect(lowerFlow).not.toContain("kind: 'confirmed_auth_required'");
       expect(lowerFlow).not.toContain("kind === 'reauth_required'");
@@ -1294,9 +1306,10 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     );
     const admissionFunctionBody = admissionHelper.slice(
       admissionHelper.indexOf('export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation'),
-      admissionHelper.indexOf('export function resolveEvmFamilyThresholdEcdsaAdmissionMode'),
+      admissionHelper.length,
     );
     expect(admissionHelper).toContain('export type EvmFamilyThresholdEcdsaAdmissionMode');
+    expect(admissionHelper).not.toContain('export function resolveEvmFamilyThresholdEcdsaAdmissionMode');
     expect(admissionFunctionBody).toContain('mode: EvmFamilyThresholdEcdsaAdmissionMode');
     expect(admissionFunctionBody).not.toContain('emailOtpSigning?:');
     expect(admissionFunctionBody).not.toContain('passkeyEcdsaReconnect?:');

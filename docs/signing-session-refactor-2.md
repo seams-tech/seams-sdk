@@ -1097,7 +1097,7 @@ This is a closeout gate, not a follow-up cleanup.
 
 Audit scope:
 
-1. [ ] Page-refresh persistence.
+1. [x] Page-refresh persistence.
    - OTP account: unlock, refresh, first Ed25519 transaction signs without OTP
      when budget is valid.
    - OTP account: unlock, refresh, first ECDSA transaction signs without OTP
@@ -1106,37 +1106,37 @@ Audit scope:
      passkey prompt when budget is valid.
    - Passkey account: unlock, refresh, first ECDSA transaction signs without
      passkey prompt when budget is valid.
-2. [ ] Exhaustion behavior.
+2. [x] Exhaustion behavior.
    - OTP account: exhausted Ed25519 and ECDSA transactions prompt Email OTP and
      succeed after step-up.
    - Passkey account: exhausted Ed25519 and ECDSA transactions prompt passkey
      and succeed after step-up.
    - Refresh alone never causes an exhaustion classification.
-3. [ ] Storage ownership.
+3. [x] Storage ownership.
    - IndexedDB durable sealed records plus non-secret lane identity are enough
      to restore after reload.
    - Worker memory is treated only as hot unsealed material.
    - `sessionStorage` is not required for signing-session correctness.
    - JS memory carries only operation-local prepared identity.
-4. [ ] Read-side safety.
+4. [x] Read-side safety.
    - Status polling and snapshots do not unseal, restore, consume, delete, or
      prompt.
    - Snapshot states distinguish durable restorable state from true missing
      state.
-5. [ ] Per-curve exactness.
+5. [x] Per-curve exactness.
    - NEAR Ed25519 restore restores only Ed25519 material for the selected exact
      lane.
    - Tempo/EVM ECDSA restore restores only ECDSA material for the requested
      exact chain lane.
    - ECDSA and Ed25519 do not work because the other curve published companion
      state as a side effect.
-6. [ ] Command-boundary shape.
+6. [x] Command-boundary shape.
    - Transaction signing flows visibly follow: exact intent, exact lane
      selection, exact restore, trusted budget status, budget admission, sign,
      authoritative consume/finalize.
    - Lower signing flows cannot reselect lane/auth, restore broad state, or
      admit budget after signing has started.
-7. [ ] Key export sanity.
+7. [x] Key export sanity.
    - Ed25519 and ECDSA export prompt method comes from the selected exact export
      lane.
    - Export cannot restore lane A and export lane B.
@@ -1295,7 +1295,7 @@ Implementation steps:
      no-budget-required state, never an admission callback.
    - Reauth completion must return to the transaction owner, which creates and
      admits the replacement operation before execution continues.
-4. [ ] Remove duplicated EVM/Tempo flow bodies.
+4. [x] Remove duplicated EVM/Tempo flow bodies.
    - [x] Extract the shared post-confirm threshold ECDSA admission/reconnect
      step for EVM and Tempo so OTP, passkey, and key-ref reconnect validation
      live in one EVM-family boundary.
@@ -1328,7 +1328,7 @@ Implementation steps:
      account-keyed Ed25519 runtime record when account metadata is missing.
      Remaining account-keyed reads are status/maintenance paths, not
      exact-purpose selection authority.
-8. [ ] Simplify brittle architecture guards.
+8. [x] Simplify brittle architecture guards.
    - [x] Remove guard requirements for transitional helper names such as exact
      export resolver wrappers and lower-flow admitted-operation getter names.
    - [x] Remove guard requirements for generic prepared-wrapper definitions and
@@ -1382,6 +1382,24 @@ Acceptance:
    as authority.
 7. Static guards fail on old authority paths and do not require deleted wrapper
    names.
+
+Phase 12 preconditions:
+
+1. [x] Finish export exactness before concrete chain identity work starts.
+   - `selectExactExportSnapshotLane(...)` must not rank/select from multiple
+     candidates on its own.
+   - Exact export must receive an explicit full lane selector, observe exactly
+     one concrete lane, or fail with `ambiguous_candidates`.
+   - Delete account-auth filtering and account-metadata tie-breakers from the
+     exact export path.
+2. [x] Finish ECDSA admission-mode cleanup before concrete chain identity work
+   starts.
+   - Lower EVM-family signing must receive a discriminated mode that is already
+     known by the callsite.
+   - Delete resolver/build helpers that reconstruct signing mode from optional
+     hook clusters.
+   - The callsite must explicitly know whether the operation is OTP, passkey
+     reconnect, already admitted, or budget-not-required.
 
 ### Phase 12: Make ECDSA Chain Identity Concrete
 
@@ -1505,14 +1523,30 @@ Rules:
    - `signingRootVersion`
    - `walletSigningSessionId`
    - `thresholdSessionId`
+   All exact ECDSA comparisons must use `thresholdEcdsaLaneKey(...)` or one
+   equivalent canonical comparator. Do not scatter partial field comparisons
+   across transaction, export, restore, store, budget, or server code.
 6. Snapshot runtime candidates must come from material-backed runtime lanes, not
    sealed resolved identities.
-7. Durable sealed records may remain broader only as raw hints; transaction and
-   export selection must resolve them into concrete chain-target lanes before
-   restore/material lookup.
-8. Legacy records that only know collapsed `chain: 'evm'` must be quarantined,
-   deleted, or require fresh bootstrap. Do not infer Arc/Base/Ethereum from
+7. Durable sealed ECDSA records must still carry `subjectId`, concrete
+   `chainTarget`, and `ecdsaThresholdKeyId`. They may contain additional raw
+   metadata, but transaction and export selection must resolve them into
+   concrete chain-target lanes before restore/material lookup.
+8. Do not support legacy collapsed ECDSA records. Any ECDSA record without
+   `subjectId`, concrete `chainTarget`, and `ecdsaThresholdKeyId` is invalid
+   on read and must be deleted or dropped. Do not migrate collapsed
+   `chain: 'evm'` records. Do not quarantine them for later recovery. Do not
+   parse them into compatibility lane objects or infer Arc/Base/Ethereum from
    config defaults.
+9. Raw chain strings such as `chain: 'evm' | 'tempo'` are boundary input only.
+   SDK, iframe, config, and demo code may accept transitional request shapes
+   only if they immediately normalize to `ThresholdEcdsaChainTarget`. Internal
+   transaction, export, restore, runtime store, durable store, budget, and
+   server APIs must reject raw collapsed chain strings.
+10. ECDSA persistence must be keyed by `subjectId`, not `nearAccountId`.
+    `nearAccountId` may exist only as NEAR-specific data or diagnostic metadata
+    after the boundary has resolved the protocol-neutral subject. This is a hard
+    migration, not a naming cleanup.
 
 Signing targets and publication targets are different concepts:
 
@@ -1619,6 +1653,8 @@ Implementation steps:
    - threshold session activation result types
    - diagnostic logs
    - budget identity/admission records
+   - Replace runtime store keys that currently start with `nearAccountId` with
+     `subjectId` plus canonical ECDSA lane identity.
 3. [ ] Add concrete chain target and subject id to durable ECDSA state.
    - sealed ECDSA restore metadata
    - resolved signing-session identities
@@ -1663,6 +1699,8 @@ Implementation steps:
    - ECDSA material lookup
    - budget identity and finalization
    must compare concrete `EcdsaLaneIdentity`.
+   - Route every exact ECDSA identity comparison through
+     `thresholdEcdsaLaneKey(...)` or a single equivalent comparator.
 9. [ ] Extend concrete identity through server/auth boundaries.
    - threshold ECDSA bootstrap payloads
    - `/threshold-ecdsa/hss/prepare`
@@ -1679,16 +1717,25 @@ Implementation steps:
       not identity.
     - Compatibility helpers may exist only at SDK/iframe input boundaries and
       must return a validated `ThresholdEcdsaChainTarget`.
-11. [ ] Quarantine legacy collapsed ECDSA records.
-    - Detect records that only know `chain: 'evm'` and lack concrete
-      `chainTarget`.
-    - Do not migrate them by guessing from current config.
-    - Delete, quarantine, or force fresh bootstrap with an explicit diagnostic.
+    - Delete raw `chain: 'evm' | 'tempo'` from internal transaction, export,
+      restore, runtime store, durable store, budget, and server APIs.
+11. [ ] Delete/drop invalid legacy collapsed ECDSA records.
+    - Treat any ECDSA record without `subjectId`, concrete `chainTarget`, and
+      `ecdsaThresholdKeyId` as invalid on read.
+    - Do not migrate collapsed `chain: 'evm'` records.
+    - Do not quarantine them for later recovery.
+    - Do not parse them into compatibility lane objects.
+    - Exact-purpose signing/export may fail when no fresh concrete lane exists;
+      the recovery path is explicit fresh bootstrap, not compatibility restore.
 12. [ ] Add tests.
     - Arc testnet (`chainId: 5042002`) and Ethereum mainnet (`chainId: 1`) can
       coexist for the same subject without candidate collision.
+    - Two EVM testnets can coexist for the same subject, signing root, and
+      `ecdsaThresholdKeyId` without candidate collision.
     - Arc testnet and MegaETH testnet can share signing root and threshold key
       metadata but remain separate lanes by `chainId`.
+    - Tempo and an EVM network with the same numeric `chainId` remain separate
+      lanes because their `chainTarget.kind` differs.
     - Tempo Moderato (`chainId: 42431`) remains separate from EVM chain targets.
     - Snapshot exposes separate candidates per target.
     - Exact restore and export fail when chain target differs even if
@@ -1697,10 +1744,10 @@ Implementation steps:
       session ids match.
     - Budget reservation/finalization uses the same concrete chain target and
       subject id carried by the admitted operation.
-    - Legacy collapsed EVM records are quarantined or require fresh bootstrap,
-      never guessed into Arc/Base/Ethereum.
-    - Server HSS prepare rejects mismatched subject, chain target, threshold key,
-      or session policy claims.
+    - Legacy collapsed EVM records are deleted/dropped as invalid and never
+      guessed into Arc/Base/Ethereum.
+    - Server HSS prepare rejects mismatched `subjectId`, `chainTarget`,
+      `ecdsaThresholdKeyId`, or session policy claims.
 13. [ ] Add static guards.
     - No production `SigningEngine.ts` snapshot adapter loops over
       `['tempo', 'evm']`.
@@ -1711,6 +1758,10 @@ Implementation steps:
     - No runtime ECDSA list API dedupes by `thresholdSessionId` only.
     - No ECDSA runtime/session store type uses `nearAccountId` as its primary
       identity field.
+    - No internal ECDSA transaction/export/restore/store/budget/server API
+      accepts raw `chain: 'evm' | 'tempo'`.
+    - No exact ECDSA comparison reimplements partial lane equality outside the
+      canonical comparator.
 
 Data structures and functions to edit:
 
@@ -1724,7 +1775,7 @@ Data structures and functions to edit:
    - `ThresholdEcdsaSecp256k1KeyRef`
    - ECDSA lane key helpers
    - runtime lane listing APIs
-   - legacy record quarantine
+   - invalid legacy record deletion/drop behavior
 3. `client/src/core/signingEngine/session/sealedSessionStore.ts`
    - sealed ECDSA restore metadata
    - resolved identity metadata
@@ -1784,7 +1835,8 @@ Acceptance:
 7. No production exact-purpose ECDSA flow accepts optional or collapsed chain
    identity.
 8. No production ECDSA flow probes multiple chains to find one that works.
-9. Legacy collapsed EVM records are never guessed into concrete networks.
+9. Legacy collapsed EVM records are not supported: they are deleted/dropped as
+   invalid on read and never guessed into concrete networks.
 10. Server HSS/session authorization validates the same concrete lane identity
     that the client selected.
 11. All tests and static guards pass with Arc testnet and Tempo Moderato

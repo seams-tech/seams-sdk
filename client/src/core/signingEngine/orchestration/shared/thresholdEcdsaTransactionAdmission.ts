@@ -4,10 +4,7 @@ import type {
   BudgetAdmittedTransactionOperation,
   EvmFamilyEcdsaTransactionLane,
 } from '../../session/signingSession/transactionState';
-import {
-  SigningAuthPlanKind,
-  type SigningAuthPlan,
-} from '../../touchConfirm/shared/confirmTypes';
+import type { SigningAuthPlan } from '../../touchConfirm/shared/confirmTypes';
 
 export type EvmFamilyThresholdEcdsaOperation = BudgetAdmittedTransactionOperation<
   EvmFamilyEcdsaTransactionLane,
@@ -163,47 +160,4 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
 
   args.mode satisfies never;
   return null;
-}
-
-export function resolveEvmFamilyThresholdEcdsaAdmissionMode(args: {
-  hasSecp256k1Request: boolean;
-  signingAuthPlanKind: SigningAuthPlanKind;
-  emailOtpSigning?: EvmFamilyThresholdEcdsaEmailOtpSigning;
-  passkeyEcdsaReconnect?: EvmFamilyThresholdEcdsaPasskeyReconnect;
-  plannedPasskeyReconnect?: EvmFamilyThresholdEcdsaPasskeyReconnectPlan;
-  ensureThresholdEcdsaKeyRefReady?: () => Promise<EvmFamilyThresholdEcdsaReauthResult>;
-  onThresholdReconnectStarted?: () => void;
-}): EvmFamilyThresholdEcdsaAdmissionMode {
-  if (!args.hasSecp256k1Request) return { kind: 'not_required' };
-  if (args.emailOtpSigning) {
-    return {
-      kind: 'email_otp',
-      emailOtpSigning: args.emailOtpSigning,
-    };
-  }
-  if (
-    args.signingAuthPlanKind === SigningAuthPlanKind.PasskeyReauth &&
-    args.passkeyEcdsaReconnect
-  ) {
-    return {
-      kind: 'passkey_reconnect',
-      passkeyEcdsaReconnect: args.passkeyEcdsaReconnect,
-      ...(args.plannedPasskeyReconnect
-        ? { plannedPasskeyReconnect: args.plannedPasskeyReconnect }
-        : {}),
-      ...(args.onThresholdReconnectStarted
-        ? { onThresholdReconnectStarted: args.onThresholdReconnectStarted }
-        : {}),
-    };
-  }
-  if (args.ensureThresholdEcdsaKeyRefReady) {
-    return {
-      kind: 'threshold_reconnect',
-      ensureThresholdEcdsaKeyRefReady: args.ensureThresholdEcdsaKeyRefReady,
-      ...(args.onThresholdReconnectStarted
-        ? { onThresholdReconnectStarted: args.onThresholdReconnectStarted }
-        : {}),
-    };
-  }
-  return { kind: 'already_admitted' };
 }

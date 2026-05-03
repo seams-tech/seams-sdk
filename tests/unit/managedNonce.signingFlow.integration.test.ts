@@ -173,6 +173,10 @@ test.describe('managed nonce signing flow integration', () => {
               kind: 'admitted',
               operation: thresholdEcdsaOperation,
             },
+            thresholdEcdsaAuthPlan: {
+              kind: 'planned',
+              signingAuthPlan: warmAuthPlan,
+            },
             prepareRequestWithManagedNonce: async () => {
               operationCounter += 1;
               const operationId = `op-managed-evm-${operationCounter}`;
@@ -385,6 +389,10 @@ test.describe('managed nonce signing flow integration', () => {
             thresholdEcdsaBoundary: {
               kind: 'admitted',
               operation: thresholdEcdsaOperation,
+            },
+            thresholdEcdsaAuthPlan: {
+              kind: 'planned',
+              signingAuthPlan: warmAuthPlan,
             },
             prepareRequestWithManagedNonce: async () => {
               operationCounter += 1;
