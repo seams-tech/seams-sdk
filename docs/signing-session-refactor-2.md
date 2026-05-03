@@ -704,7 +704,7 @@ Acceptance:
      `BudgetAdmittedOperation` immediately after OTP/passkey mint.
    - [x] Shared transaction prepare returns `BudgetAdmittedOperation` when the
      threshold planner admits trusted warm-session budget.
-7. [ ] `sign(...)` accepts only `BudgetAdmittedTransactionOperation`.
+7. [x] Threshold transaction signing accepts only admitted transaction operation state.
    - [x] NEAR Ed25519 worker requests now require `BudgetAdmittedOperation`.
    - [x] NEAR Ed25519 signing now uses the shared
      `signPreparedTransactionOperation(...)` helper.
@@ -767,7 +767,7 @@ Acceptance:
      finalization.
    - [x] Wrap that refreshed identity in a replacement `BudgetAdmittedOperation`
      so reauth and warm lanes use the same state-machine object.
-3. Split pre-admission and post-admission types:
+3. [x] Split pre-admission and post-admission types:
    `PreparedTransactionOperation` cannot be signed directly;
    `BudgetAdmittedTransactionOperation` is required.
    - [x] NEAR Ed25519 exposes both `PreparedTransactionOperation` and
@@ -777,6 +777,9 @@ Acceptance:
      reauth-created lanes are minted.
    - [x] NEAR Ed25519 signing must require the admitted type for every worker
      request at the payload type boundary.
+   - [x] EVM/Tempo threshold ECDSA signing receives
+     `BudgetAdmittedTransactionOperation` before confirmation and budget
+     reservation.
 4. [x] For NEAR Ed25519, mark finalization as reconciliation of the already-consumed
    selected threshold session.
 5. [x] Remove budget-identity preparation from NEAR Ed25519 post-sign finalization.
@@ -828,6 +831,557 @@ Acceptance:
 5. Keep `email-otp-secret-restore.md` as the active Email OTP secret/restore
    model.
 6. Remove duplicate architecture specs that contradict the state machine.
+
+### Phase 9: Delete Remaining Side-Channel Authorities
+
+Goal: remove the remaining paths that can select, reselect, admit, or finalize
+signing-session state outside the transaction state machine. The transaction
+state machine must be the only owner of lane identity, auth method, exact
+restore, material lookup, budget admission, signing, and finalization.
+
+#### 9.1 Remove Per-Account Ed25519 Runtime Selection
+
+Current risk: `thresholdSessionStore.ts` still exposes a singleton
+`getStoredThresholdEd25519SessionRecordForAccount(...)`. When transaction or
+export prepare reads that record before lane selection, the latest runtime record
+can become the auth-method authority even if it belongs to the wrong auth lane.
+
+Implementation steps:
+
+1. [x] Stop using `getStoredThresholdEd25519SessionRecordForAccount(...)` in
+   pre-selection NEAR transaction code.
+   - Edit `client/src/core/signingEngine/api/nearSigning.ts`.
+   - Remove record-backed calls to `resolveNearEd25519AuthSelectionPolicy(...)`.
+   - Make `prepareNearEd25519TransactionOperation(...)` read
+     `snapshot.candidates.ed25519.near` first, then select a concrete lane.
+2. [x] Replace `resolveNearEd25519AuthSelectionPolicy(...)` with a selector input
+   derived from snapshot candidates.
+   - Keep only explicit policy from caller/product state, account-class policy
+     when no current lane exists, and selected concrete lane policy.
+   - Do not derive `current_lane` from a per-account runtime record.
+3. [x] After `selectTransactionLane(...)` returns a concrete
+   `NearEd25519TransactionLane`, resolve runtime material by full lane identity.
+   - Add or use a lane-keyed lookup:
+     `getStoredThresholdEd25519SessionRecordForLane({ accountId, authMethod,
+     walletSigningSessionId, thresholdSessionId })`.
+   - If the exact runtime record is missing, restore exact durable state or
+     classify readiness as missing/restorable. Do not inspect another account
+     record.
+4. [x] Delete the transaction-path stale-runtime account cleanup path.
+   - Runtime candidates only anchor selection when the exact lane-keyed runtime
+     record exists.
+   - If the snapshot omits the exact lane, transaction selection fails instead
+     of falling back to an account-scoped runtime record.
+
+Data structures and functions to edit:
+
+1. `client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts`
+   - Add lane-keyed Ed25519 runtime accessors.
+   - Deprecate or restrict account-keyed accessors to maintenance/status code.
+2. `client/src/core/signingEngine/api/nearSigning.ts`
+   - `resolveNearEd25519AuthSelectionPolicy(...)`
+   - `prepareNearEd25519TransactionOperation(...)`
+   - `resolveNearEd25519RuntimeRecordForSelectedIdentity(...)`
+   - `publishNearEd25519RuntimeIdentityForRecord(...)`
+3. `client/src/core/signingEngine/session/signingSession/transactionState.ts`
+   - `selectTransactionLane(...)`
+   - `TransactionAuthSelectionPolicy`
+   - `TransactionSnapshotReadState.currentRuntimeLane`
+
+Acceptance:
+
+1. OTP accounts cannot show passkey prompts because a passkey Ed25519 runtime
+   record was last published for the account.
+2. Passkey accounts cannot show OTP prompts because an OTP Ed25519 runtime record
+   was last published for the account.
+3. Runtime material lookup happens only after a concrete lane has been selected.
+4. Transaction selection never calls account-keyed Ed25519 runtime lookup.
+
+#### 9.2 Make Transaction Execution Require Budget-Admitted State
+
+Current risk: NEAR, EVM, and Tempo signing used to have a
+`post_reauth_admission` boundary variant. That kept a callback authority inside
+the lower signing flow: the lower flow could run confirmation/reauth, then ask a
+callback to admit budget before signing. This was better than optional fields,
+but it still meant execution could begin before the object was a
+`BudgetAdmittedTransactionOperation`.
+
+Implementation steps:
+
+1. [x] Delete `post_reauth_admission` from:
+   - `NearEd25519TransactionAdmissionBoundary`
+   - `EvmThresholdEcdsaAdmissionBoundary`
+   - `TempoThresholdEcdsaAdmissionBoundary`
+   - `EvmFamilyThresholdEcdsaAdmissionBoundary`
+2. [x] Delete the lower-flow admission callback authority.
+   - EVM/Tempo reauth callbacks now return `{ keyRef, operation }`, where
+     `operation` is the budget-admitted transaction operation for the fresh
+     exact ECDSA lane.
+   - NEAR no longer accepts a boundary callback; the transaction state-machine
+     flow admits budget directly from the selected exact Ed25519 lane after
+     confirmed reauth.
+   - Guards now reject `post_reauth_admission` and `thresholdEcdsaBoundary.admit`.
+3. [x] Make the lower NEAR/EVM/Tempo threshold signing boundary accept only:
+   - `{ kind: 'not_required' }` for non-threshold signing, or
+   - `{ kind: 'admitted'; operation: BudgetAdmittedTransactionOperation }`
+     for threshold signing.
+   - Pre-sign confirmation orchestration carries the selected auth plan and an
+     `initialBudgetAdmittedOperation` slot, not a separate
+     `confirmed_auth_required` boundary state.
+4. [x] Move reauth completion and post-reauth budget admission before
+   lower threshold signing execution.
+   - NEAR Ed25519 reauth must return a fresh exact Ed25519 lane.
+   - EVM/Tempo ECDSA reauth must return a fresh exact ECDSA lane.
+   - The reauth completion callback immediately prepares/admites a replacement
+     transaction operation for that lane.
+   - Only the admitted replacement operation may enter lower signing.
+5. [x] Remove finalization recovery that calls `ensurePreparedEcdsaBudgetIdentity`
+   after signing.
+   - Successful finalization should receive `SignedTransactionOperation`.
+   - Failed finalization should receive the admitted operation that entered
+     signing.
+
+Data structures and functions to edit:
+
+1. `client/src/core/signingEngine/interfaces/near.ts`
+   - `NearEd25519TransactionAdmissionBoundary`
+2. `client/src/core/signingEngine/orchestration/near/transactionsFlow.ts`
+   - lower flow auth/admission derivation
+   - remove `admitBudgetForTransactionLane(...)` callback authority
+3. `client/src/core/signingEngine/api/nearSigning.ts`
+   - construct admitted NEAR Ed25519 operations before calling
+     `signPreparedTransactionsWithActions(...)`
+   - replace reauth-created lane with a new admitted operation before signing
+4. `client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts`
+   - consumes `EvmFamilyThresholdEcdsaAdmissionBoundary`
+   - lower flow auth/admission derivation
+5. `client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts`
+   - consumes `EvmFamilyThresholdEcdsaAdmissionBoundary`
+   - lower flow auth/admission derivation
+6. `client/src/core/signingEngine/api/evmFamily/transactionExecutor.ts`
+   - `EvmFamilyThresholdEcdsaAdmissionBoundary`
+   - `executeEvmFamilyTransactionSigning(...)`
+7. `client/src/core/signingEngine/orchestration/shared/thresholdEcdsaTransactionAdmission.ts`
+   - shared EVM-family admitted operation, reauth result, and boundary types
+8. `client/src/core/signingEngine/api/evmSigning.ts`
+   - `replacePreparedEcdsaSigningOperationAfterReauth(...)`
+   - `ensurePreparedEcdsaBudgetIdentity(...)`
+   - `thresholdEcdsaBoundary` construction
+   - successful and failed finalization paths
+9. `client/src/core/signingEngine/session/signingSession/transactionState.ts`
+   - `BudgetAdmittedTransactionOperation`
+   - `signPreparedTransactionOperation(...)`
+   - `finalizeSignedTransactionOperation(...)`
+
+Acceptance:
+
+1. NEAR/EVM/Tempo threshold signing cannot call the lower executor without an
+   admitted operation.
+2. Reauth replaces the prepared operation before lower signing is called.
+3. Finalization never prepares budget identity after signing.
+4. The old “execute now, admit later” path does not compile.
+
+#### 9.3 Remove Budget From Generic Prepared Threshold Operation
+
+Current risk: `PreparedThresholdSigningOperation` still has
+`budgetIdentity?` and `budgetProjectionVersion?`. That keeps generic threshold
+prepare coupled to transaction budget admission and permits “maybe budget later”
+behavior.
+
+Implementation steps:
+
+1. [x] Delete `budgetIdentity?` and `budgetProjectionVersion?` from
+   `PreparedThresholdSigningOperation`.
+2. [x] Change `prepareThresholdSigningOperation(...)` so it only returns
+   threshold readiness, lane, plan, snapshot generation, and metadata.
+3. [x] Move transaction budget admission fully into
+   `prepareTransactionSigningOperation(...)`.
+   - If `prepareBudgetIdentity: true`, return `budget.kind === 'admitted'`.
+   - If budget admission is not requested, return `budget.kind ===
+     'not_admitted'`.
+4. [x] Update every caller that reads `thresholdOperation.budgetIdentity` to read
+   `preparedTransaction.budget` instead.
+
+Data structures and functions to edit:
+
+1. `client/src/core/signingEngine/session/signingSession/preparedOperation.ts`
+   - `PreparedThresholdSigningOperation`
+   - `prepareThresholdSigningOperation(...)`
+2. `client/src/core/signingEngine/session/signingSession/transactionState.ts`
+   - `PreparedTransactionSigningOperation`
+   - `PreparedTransactionBudgetState`
+   - `prepareTransactionSigningOperation(...)`
+3. `client/src/core/signingEngine/api/nearSigning.ts`
+   - prepared Ed25519 transaction session construction
+4. `client/src/core/signingEngine/api/evmFamily/preparedSigning.ts`
+   - prepared ECDSA transaction session construction
+5. `client/src/core/signingEngine/api/evmSigning.ts`
+   - ECDSA budget admission and finalization state
+
+Acceptance:
+
+1. Only `BudgetAdmittedOperation` and `BudgetAdmittedTransactionOperation` carry
+   budget identity.
+2. Generic threshold prepare has no transaction budget fields.
+3. No production transaction signer can read `budgetIdentity` from
+   `PreparedThresholdSigningOperation`.
+
+#### 9.4 Make Key Export Exact-Lane First
+
+Current risk: key export still has auth-method-first helpers. Even if exact
+restore exists later, selecting auth before selecting an export lane can restore
+one lane and export from another.
+
+Implementation steps:
+
+1. [x] Delete `resolveNearEd25519ExportAuthMethod(...)`.
+2. [x] Add `resolveNearEd25519ExportLane(accountId)` that returns a concrete
+   export lane or fails with `no_candidate` / `ambiguous_candidates`.
+3. [x] Add `resolveEcdsaExportLane(accountId, chain)` that returns a concrete
+   export lane or fails with `no_candidate` / `ambiguous_candidates`.
+4. [x] Make exact restore, material lookup, prompt selection, and export use that
+   selected lane object.
+5. [x] Reject export if selected lane and resolved material differ in
+   `authMethod`, `walletSigningSessionId`, or `thresholdSessionId`.
+
+Data structures and functions to edit:
+
+1. `client/src/core/signingEngine/SigningEngine.ts`
+   - `resolveNearEd25519ExportAuthMethod(...)`
+   - `resolveNearEd25519ExportRestoreLane(...)`
+   - `resolveEcdsaExportRestoreLane(...)`
+   - `exportThresholdEcdsaKeyWithAuthorization(...)`
+   - NEAR Ed25519 key export path
+2. `client/src/core/signingEngine/session/signingSession/transactionState.ts`
+   - add or reuse exact lane types for export, separate from transaction if
+     export policy differs.
+3. `client/src/core/signingEngine/session/restoreCoordinator.ts`
+   - keep `reason: 'export'` exact-lane input mandatory when export uses a
+     selected lane.
+
+Acceptance:
+
+1. Export prompt method is derived from the selected concrete export lane.
+2. Export cannot broad-restore by auth method alone.
+3. Export cannot restore lane A and export lane B.
+
+#### 9.5 Add Guards For The Deleted Paths
+
+Invert stale guards and add/tighten guards in
+`tests/unit/signingSessionCoordinator.architecture.guard.unit.test.ts`.
+
+Guard targets:
+
+1. [x] `nearSigning.ts` transaction prepare does not call
+   `getStoredThresholdEd25519SessionRecordForAccount(...)` before lane
+   selection.
+2. [x] `nearSigning.ts` does not expect or contain
+   `resolveNearEd25519AuthSelectionPolicy(... record ...)`.
+3. [x] `PreparedThresholdSigningOperation` does not contain `budgetIdentity?` or
+   `budgetProjectionVersion?`.
+4. [x] NEAR/EVM/Tempo lower execution boundaries do not contain
+   `post_reauth_admission`.
+5. [x] Export code does not contain auth-method-first helpers:
+   `resolveNearEd25519ExportAuthMethod(...)` or equivalent.
+6. [x] Transaction/export code does not use account-keyed Ed25519 runtime record
+   lookup as selection authority.
+7. [x] Existing guard expectations that currently require
+   `resolveNearEd25519AuthSelectionPolicy` or `post_reauth_admission` are
+   inverted in the same patch that deletes those paths.
+
+#### 9.6 Closeout Audit Against Refresh Intent
+
+After Phase 9.2 is fully implemented, audit the refactored flows against
+`docs/signing-session-refresh-intent.md` before declaring Phase 9 complete.
+This is a closeout gate, not a follow-up cleanup.
+
+Audit scope:
+
+1. [ ] Page-refresh persistence.
+   - OTP account: unlock, refresh, first Ed25519 transaction signs without OTP
+     when budget is valid.
+   - OTP account: unlock, refresh, first ECDSA transaction signs without OTP
+     when budget is valid.
+   - Passkey account: unlock, refresh, first Ed25519 transaction signs without
+     passkey prompt when budget is valid.
+   - Passkey account: unlock, refresh, first ECDSA transaction signs without
+     passkey prompt when budget is valid.
+2. [ ] Exhaustion behavior.
+   - OTP account: exhausted Ed25519 and ECDSA transactions prompt Email OTP and
+     succeed after step-up.
+   - Passkey account: exhausted Ed25519 and ECDSA transactions prompt passkey
+     and succeed after step-up.
+   - Refresh alone never causes an exhaustion classification.
+3. [ ] Storage ownership.
+   - IndexedDB durable sealed records plus non-secret lane identity are enough
+     to restore after reload.
+   - Worker memory is treated only as hot unsealed material.
+   - `sessionStorage` is not required for signing-session correctness.
+   - JS memory carries only operation-local prepared identity.
+4. [ ] Read-side safety.
+   - Status polling and snapshots do not unseal, restore, consume, delete, or
+     prompt.
+   - Snapshot states distinguish durable restorable state from true missing
+     state.
+5. [ ] Per-curve exactness.
+   - NEAR Ed25519 restore restores only Ed25519 material for the selected exact
+     lane.
+   - Tempo/EVM ECDSA restore restores only ECDSA material for the requested
+     exact chain lane.
+   - ECDSA and Ed25519 do not work because the other curve published companion
+     state as a side effect.
+6. [ ] Command-boundary shape.
+   - Transaction signing flows visibly follow: exact intent, exact lane
+     selection, exact restore, trusted budget status, budget admission, sign,
+     authoritative consume/finalize.
+   - Lower signing flows cannot reselect lane/auth, restore broad state, or
+     admit budget after signing has started.
+7. [ ] Key export sanity.
+   - Ed25519 and ECDSA export prompt method comes from the selected exact export
+     lane.
+   - Export cannot restore lane A and export lane B.
+
+Verification commands:
+
+1. `pnpm build:sdk`
+2. Focused unit suites covering transaction state, architecture guards,
+   Ed25519 selection, ECDSA export, Email OTP bootstrap, and immediate Ed25519
+   fallback.
+3. Manual smoke tests for OTP and passkey accounts across refresh and
+   exhaustion for Ed25519 and ECDSA.
+
+### Phase 10: Delete Opaque Lane-Resolution Helpers
+
+Current risk: some helpers look like plumbing, but still choose partial identity
+such as `authMethod`, account class, or reauth/admission behavior. That obscures
+the real lane-resolution flow and lets old loose paths re-enter through helper
+boundaries. Exact-purpose code should make the selected concrete lane the first
+authority-bearing value, then carry that same lane through restore, material
+lookup, prompt selection, admission, signing, finalization, and export.
+
+Implementation rules:
+
+1. Helpers may be small, but they must be either pure or exact-lane based.
+2. A helper must not choose only `authMethod`, account metadata class, current
+   account record, or fallback session identity as a substitute for a concrete
+   lane.
+3. A helper that chooses authority must return the full concrete lane selection
+   result, including failure kind, not a partial hint for another helper to
+   reinterpret.
+4. Restore, prompt, material, and export helpers must accept the selected lane
+   object. They must not internally reselect auth method or lane.
+5. Budget/admission helpers must not hide “admit later” callback authority below
+   the transaction execution boundary.
+
+Implementation steps:
+
+1. [x] Replace export auth-method helpers with exact lane resolvers.
+   - Delete `resolveNearEd25519ExportAuthMethod(...)`.
+   - Delete `resolveEcdsaExportAuthMethod(...)`.
+   - Add `resolveNearEd25519ExportLane(...)`.
+   - Add `resolveEcdsaExportLane(...)`.
+2. [x] Make key export read as a visible linear flow:
+   - resolve exact export lane
+   - restore that exact lane when needed
+   - resolve material for that exact lane
+   - select the prompt from that exact lane
+   - export using that exact lane
+3. [x] Delete or inline helpers that choose partial identity before lane
+   selection.
+   - No helper should return only `authMethod` when the caller really needs a
+     lane.
+   - No helper should use account metadata as lane-selection authority after a
+     concrete runtime lane exists.
+   - NEAR transaction selection now returns a selected Ed25519 lane directly via
+     `selectNearEd25519TransactionLaneFromSnapshot(...)`.
+   - ECDSA transaction prepare now calls `selectTransactionLane(...)` directly
+     after deriving its candidate snapshot and runtime anchor.
+4. [x] Keep pure helpers and exact-lane assertions.
+   - Keep predicates such as `isConcrete...Lane(...)`.
+   - Keep assertions such as `assert...MatchesLane(...)`.
+   - Keep material lookup helpers only when they require full lane identity.
+5. [x] Rename remaining helpers so their authority is obvious.
+   - `resolve...Lane(...)` may select a lane and must return a full lane or a
+     typed selection failure.
+   - `assert...MatchesLane(...)` may only validate.
+   - `get...ForLane(...)` may only perform exact-identity lookup.
+   - Avoid names like `resolve...AuthMethod(...)` in exact-purpose flows.
+   - Runtime-anchor lookup is named `getSingleRuntimeBackedEcdsaSnapshotLane(...)`
+     to make clear it does not select a transaction lane by itself.
+6. [x] Make ECDSA transaction prepare show the lane-resolution order directly.
+   The code should make the sequence easy to audit:
+   - read snapshot
+   - derive concrete runtime anchor from candidates
+   - derive fallback policy only when no runtime anchor or explicit selector
+     applies
+   - select concrete lane
+   - exact restore
+   - material lookup
+7. [x] Remove lower-flow admission callback authority.
+   Transaction execution should receive `admitted` or `not_required`; reauth
+   that creates a new lane must return to the owner that can admit it before
+   execution continues.
+   - Phase 9.2 removed `post_reauth_admission`, `reauth_required`, and
+     `confirmed_auth_required` as executable boundary states.
+
+Data structures and functions to audit:
+
+1. `client/src/core/signingEngine/SigningEngine.ts`
+   - key export lane resolution
+   - exact restore helpers
+   - material lookup helpers
+   - `exportThresholdEcdsaKeyWithAuthorization(...)`
+2. `client/src/core/signingEngine/api/evmFamily/preparedSigning.ts`
+   - ECDSA runtime-anchor and fallback-policy ordering
+   - exact transaction restore boundary
+3. `client/src/core/signingEngine/api/evmSigning.ts`
+   - ECDSA admission boundary
+4. `client/src/core/signingEngine/api/nearSigning.ts`
+   - Ed25519 transaction and export lane preparation
+5. `client/src/core/signingEngine/orchestration/**`
+   - any lower-flow `post_reauth_admission` or equivalent callback authority
+
+Acceptance:
+
+1. Export code never selects an auth method before selecting a concrete export
+   lane.
+2. Export code never restores by auth method alone.
+3. Export prompt method, material lookup, and authorization all come from the
+   same selected lane.
+4. Transaction prepare code has one visible lane-resolution sequence per curve.
+5. Remaining helpers are pure predicates/assertions or exact-lane lookups.
+6. No exact-purpose flow contains helper boundaries that can silently fall back
+   to account metadata, account-keyed runtime records, or bootstrap behavior.
+
+### Phase 11: Delete Transitional Cleanup Bloat
+
+Current risk: after the deterministic lane model lands, transitional wrappers can
+keep the old architecture alive under new names. The cleanup target is deletion,
+not another abstraction layer. If a helper exists only to translate old partial
+state into new exact-lane state, remove it and make callers pass the exact lane or
+admitted operation directly.
+
+Prune rule:
+
+1. Delete helpers that exist only to translate partial identity into exact-lane
+   identity.
+2. Keep helpers only when they are pure predicates, exact-lane assertions,
+   exact-lane lookups, or real shared algorithms.
+3. Prefer compile-time boundaries over helper-name conventions.
+4. After each phase lands, run a deletion pass before adding new wrappers.
+
+Implementation steps:
+
+1. [x] Remove partial-identity export selection entirely.
+   - `selectExactExportSnapshotLane(...)` must not accept `accountAuthMethod` or
+     use account metadata as a tie-breaker.
+   - Exact export should resolve one concrete lane, receive an explicit selector,
+     or fail with `ambiguous_candidates`.
+   - Do not let export select an auth-method hint before lane selection.
+2. [x] Collapse export into one visible lane-first flow.
+   - Resolve exact export lane.
+   - Restore that exact lane.
+   - Resolve material for that exact lane.
+   - Authorize using that exact lane.
+   - Export using that exact lane.
+   - Keep pure assertions, but delete helper chains that hide those phases.
+3. [x] Delete lower execution-boundary reauth states.
+   - [x] Remove `reauth_required` and `post_reauth_admission` callback states.
+   - [x] Split EVM/Tempo auth-plan input from the budget-admission boundary so
+     confirmed auth cannot masquerade as admitted budget state.
+   - [x] Remove remaining lower-flow pre-sign reauth/admission states such as
+     EVM/Tempo `not_admitted` and NEAR `confirmed_auth_required`.
+   - NEAR, EVM, and Tempo lower execution must receive admitted state or a
+     no-budget-required state, never an admission callback.
+   - Reauth completion must return to the transaction owner, which creates and
+     admits the replacement operation before execution continues.
+4. [ ] Remove duplicated EVM/Tempo flow bodies.
+   - [x] Extract the shared post-confirm threshold ECDSA admission/reconnect
+     step for EVM and Tempo so OTP, passkey, and key-ref reconnect validation
+     live in one EVM-family boundary.
+   - [x] Collapse the duplicated EVM/Tempo transaction-executor shell into one
+     configured EVM-family executor while keeping nonce reservation explicit per
+     chain.
+   - Keep Tempo as a separate chain family when behavior differs.
+   - Share one EVM-family signing executor with explicit chain config for
+     adapter, display model, WebAuthn support, nonce handling, and copy.
+   - Chain config must be explicit; do not probe chains to see which one works.
+5. [x] Delete generic prepared-signing wrappers from transaction paths.
+   - Remove transaction use of `executePreparedThresholdSigning(...)`.
+   - Remove transaction use of `finalizePreparedThresholdSigning(...)`.
+   - Transaction paths should use `signPreparedTransactionOperation(...)` and
+     `finalizeSignedTransactionOperation(...)` only.
+6. [x] Remove duplicated budget fields from ECDSA prepared session state.
+   - Delete `budgetIdentity?`, `budgetProjectionVersion?`, and
+     `budgetIdentityThresholdSessionId?` from
+     `PreparedEvmFamilyEcdsaSigningSession`.
+   - Budget data must live only in the budget-admitted transaction operation.
+   - Signing and finalization must not read derived budget fields from mutable
+     ECDSA prepared-session objects.
+7. [x] Prune account-keyed Ed25519 runtime state as selection authority.
+   - Keep lane-keyed Ed25519 records as the authoritative runtime state.
+   - Replace account-level reads with status-only scans or explicit maintenance
+     APIs.
+   - Transaction and export selection must not read account-keyed Ed25519
+     runtime state before selecting a concrete lane.
+   - `resolveEvmFamilyTransactionAccountAuth(...)` no longer falls back to the
+     account-keyed Ed25519 runtime record when account metadata is missing.
+     Remaining account-keyed reads are status/maintenance paths, not
+     exact-purpose selection authority.
+8. [ ] Simplify brittle architecture guards.
+   - [x] Remove guard requirements for transitional helper names such as exact
+     export resolver wrappers and lower-flow admitted-operation getter names.
+   - [x] Remove guard requirements for generic prepared-wrapper definitions and
+     concrete lane-selector helper names; guards now focus on transaction paths
+     not calling those wrappers or fallback selectors.
+   - Guards should forbid old authority paths, not require specific wrapper
+     names.
+   - Keep guards for historical footguns that types cannot easily prevent:
+     partial export auth selection, lower-flow reauth admission, transaction
+     generic prepared wrappers, account-keyed runtime selection, and mutable
+     budget fields.
+   - Delete guards that preserve transitional helper names after the helper is
+     removed.
+
+Data structures and functions to edit:
+
+1. `client/src/core/signingEngine/SigningEngine.ts`
+   - `selectExactExportSnapshotLane(...)`
+   - exact export lane resolvers
+   - export restore/material/authorization helpers
+   - `exportThresholdEcdsaKeyWithAuthorization(...)`
+2. `client/src/core/signingEngine/session/signingSession/preparedOperation.ts`
+   - generic prepared-signing wrappers
+   - transaction operation type boundaries
+3. `client/src/core/signingEngine/api/evmFamily/preparedSigning.ts`
+   - `PreparedEvmFamilyEcdsaSigningSession`
+   - duplicated budget fields
+4. `client/src/core/signingEngine/api/evmSigning.ts`
+   - lower ECDSA execution/admission boundary
+5. `client/src/core/signingEngine/orchestration/evm/evmSigningFlow.ts`
+   - EVM lower execution body
+6. `client/src/core/signingEngine/orchestration/tempo/tempoSigningFlow.ts`
+   - Tempo lower execution body
+7. `client/src/core/signingEngine/orchestration/near/transactionsFlow.ts`
+   - NEAR lower execution/admission boundary
+8. `client/src/core/signingEngine/session/thresholdSessionStore.ts`
+   - account-keyed Ed25519 runtime state
+   - lane-keyed Ed25519 runtime state
+9. `tests/unit/signingSessionCoordinator.architecture.guard.unit.test.ts`
+   - convert helper-name guards into old-path prohibition guards
+
+Acceptance:
+
+1. No exact-purpose export path accepts partial auth identity.
+2. No transaction path executes through generic prepared-signing wrappers.
+3. No lower NEAR/EVM/Tempo signing flow can admit budget after signing starts.
+4. EVM and Tempo do not have duplicated flow bodies for shared EVM-family logic.
+5. ECDSA prepared-session state does not duplicate budget-admitted operation
+   fields.
+6. Ed25519 transaction/export selection does not use account-keyed runtime state
+   as authority.
+7. Static guards fail on old authority paths and do not require deleted wrapper
+   names.
 
 ## Static Guards
 
