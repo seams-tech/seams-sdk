@@ -593,7 +593,6 @@ These still match the current design well enough and should remain:
 - `tests/relayer/threshold-ecdsa.signature-harness.test.ts`
 - `tests/unit/thresholdEcdsa.hssBootstrapPolicy.unit.test.ts`
 - `tests/unit/thresholdEcdsa.integratedKeyStore.unit.test.ts`
-- `tests/unit/thresholdEcdsa.oneKeySourceFlowExport.unit.test.ts`
 - `tests/unit/thresholdEcdsa.noLegacySurface.guard.unit.test.ts`
 - `tests/unit/thresholdEcdsa.registrationBootstrapParity.unit.test.ts`
 
@@ -619,7 +618,6 @@ tests, not product-boundary identity tests:
 - `tests/unit/thresholdEcdsa.presignPoolRefill.unit.test.ts`
 - `tests/unit/thresholdEcdsa.presignDistributed.unit.test.ts`
 - `tests/unit/thresholdEcdsa.requestTimeout.unit.test.ts`
-- `tests/unit/thresholdEcdsaSessionStore.lanes.unit.test.ts`
 - `tests/unit/thresholdEcdsaSessionAuthMaterial.unit.test.ts`
 
 ### Tightening Todo
