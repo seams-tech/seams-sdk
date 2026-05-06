@@ -10,9 +10,67 @@ import {
 } from '@/core/signingEngine/orchestration/near/shared/thresholdAuthMode';
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import type { SigningSessionSnapshot } from '@/core/signingEngine/session/snapshotReader';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  thresholdEcdsaChainTargetKey,
+} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
 import { SigningAuthPlanKind } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmSigning/persistence';
 import { clearAllStoredThresholdEd25519SessionRecords } from '@/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore';
+
+const TEST_ECDSA_CHAIN_TARGETS = {
+  tempo: thresholdEcdsaChainTargetFromChainFamily({
+    chain: 'tempo',
+    chainId: 42431,
+    networkSlug: 'tempo-testnet',
+  }),
+  evm: thresholdEcdsaChainTargetFromChainFamily({
+    chain: 'evm',
+    chainId: 11155111,
+    networkSlug: 'ethereum-sepolia',
+  }),
+};
+
+function emptyEcdsaSnapshotFields(): Pick<SigningSessionSnapshot, 'ecdsa'> & {
+  lanes: Pick<SigningSessionSnapshot['lanes'], 'ecdsa'>;
+  candidates: Pick<SigningSessionSnapshot['candidates'], 'ecdsa'>;
+} {
+  const tempoLane = {
+    curve: 'ecdsa' as const,
+    chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+    state: 'missing' as const,
+  };
+  const evmLane = {
+    curve: 'ecdsa' as const,
+    chainTarget: TEST_ECDSA_CHAIN_TARGETS.evm,
+    state: 'missing' as const,
+  };
+  return {
+    ecdsa: {
+      targets: [TEST_ECDSA_CHAIN_TARGETS.tempo, TEST_ECDSA_CHAIN_TARGETS.evm],
+      lanesByTarget: {
+        [thresholdEcdsaChainTargetKey(TEST_ECDSA_CHAIN_TARGETS.tempo)]: tempoLane,
+        [thresholdEcdsaChainTargetKey(TEST_ECDSA_CHAIN_TARGETS.evm)]: evmLane,
+      },
+      candidatesByTarget: {
+        [thresholdEcdsaChainTargetKey(TEST_ECDSA_CHAIN_TARGETS.tempo)]: [],
+        [thresholdEcdsaChainTargetKey(TEST_ECDSA_CHAIN_TARGETS.evm)]: [],
+      },
+    },
+    lanes: {
+      ecdsa: {
+        tempo: tempoLane,
+        evm: evmLane,
+      },
+    },
+    candidates: {
+      ecdsa: {
+        tempo: [],
+        evm: [],
+      },
+    },
+  };
+}
 
 class MemorySessionStorage implements Pick<
   Storage,
@@ -54,19 +112,18 @@ function createNearEd25519Snapshot(args: {
     thresholdSessionId: args.thresholdSessionId,
     source: args.source || 'runtime_session_record' as const,
   };
+  const ecdsa = emptyEcdsaSnapshotFields();
   return {
     walletId: args.nearAccountId,
     generation: Date.now(),
+    ecdsa: ecdsa.ecdsa,
     lanes: {
       ed25519: { near: lane },
-      ecdsa: {
-        tempo: { curve: 'ecdsa', chain: 'tempo', state: 'missing' },
-        evm: { curve: 'ecdsa', chain: 'evm', state: 'missing' },
-      },
+      ecdsa: ecdsa.lanes.ecdsa,
     },
     candidates: {
       ed25519: { near: [lane] },
-      ecdsa: { tempo: [], evm: [] },
+      ecdsa: ecdsa.candidates.ecdsa,
     },
   };
 }
@@ -804,9 +861,11 @@ test.describe('near signing session selection', () => {
           readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
             expect(authMethod === undefined || authMethod === null || authMethod === 'email_otp')
               .toBe(true);
+            const ecdsa = emptyEcdsaSnapshotFields();
             return {
               walletId: nearAccountId,
               generation: Date.now(),
+              ecdsa: ecdsa.ecdsa,
               lanes: {
                 ed25519: {
                   near: {
@@ -819,10 +878,7 @@ test.describe('near signing session selection', () => {
                     thresholdSessionId: restoredSessionId,
                   },
                 },
-                ecdsa: {
-                  tempo: { curve: 'ecdsa' as const, chain: 'tempo' as const, state: 'missing' as const },
-                  evm: { curve: 'ecdsa' as const, chain: 'evm' as const, state: 'missing' as const },
-                },
+                ecdsa: ecdsa.lanes.ecdsa,
               },
               candidates: {
                 ed25519: {
@@ -847,7 +903,7 @@ test.describe('near signing session selection', () => {
                     },
                   ],
                 },
-                ecdsa: { tempo: [], evm: [] },
+                ecdsa: ecdsa.candidates.ecdsa,
               },
             };
           },
@@ -1052,9 +1108,11 @@ test.describe('near signing session selection', () => {
           readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
             expect(authMethod === undefined || authMethod === null || authMethod === 'email_otp')
               .toBe(true);
+            const ecdsa = emptyEcdsaSnapshotFields();
             return {
               walletId: nearAccountId,
               generation: Date.now(),
+              ecdsa: ecdsa.ecdsa,
               lanes: {
                 ed25519: {
                   near: {
@@ -1067,10 +1125,7 @@ test.describe('near signing session selection', () => {
                     thresholdSessionId: restoredSessionId,
                   },
                 },
-                ecdsa: {
-                  tempo: { curve: 'ecdsa' as const, chain: 'tempo' as const, state: 'missing' as const },
-                  evm: { curve: 'ecdsa' as const, chain: 'evm' as const, state: 'missing' as const },
-                },
+                ecdsa: ecdsa.lanes.ecdsa,
               },
               candidates: {
                 ed25519: {
@@ -1086,7 +1141,7 @@ test.describe('near signing session selection', () => {
                     },
                   ],
                 },
-                ecdsa: { tempo: [], evm: [] },
+                ecdsa: ecdsa.candidates.ecdsa,
               },
             };
           },
@@ -1315,9 +1370,11 @@ test.describe('near signing session selection', () => {
           resolveAccountAuthMethodForSigning: async () => 'passkey',
           readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
             expect(authMethod).toBeUndefined();
+            const ecdsa = emptyEcdsaSnapshotFields();
             return {
               walletId: nearAccountId,
               generation: Date.now(),
+              ecdsa: ecdsa.ecdsa,
               lanes: {
                 ed25519: {
                   near: {
@@ -1330,10 +1387,7 @@ test.describe('near signing session selection', () => {
                     thresholdSessionId: otherDurableSessionId,
                   },
                 },
-                ecdsa: {
-                  tempo: { curve: 'ecdsa' as const, chain: 'tempo' as const, state: 'missing' as const },
-                  evm: { curve: 'ecdsa' as const, chain: 'evm' as const, state: 'missing' as const },
-                },
+                ecdsa: ecdsa.lanes.ecdsa,
               },
               candidates: {
                 ed25519: {
@@ -1367,7 +1421,7 @@ test.describe('near signing session selection', () => {
                     },
                   ],
                 },
-                ecdsa: { tempo: [], evm: [] },
+                ecdsa: ecdsa.candidates.ecdsa,
               },
             };
           },
@@ -1546,9 +1600,11 @@ test.describe('near signing session selection', () => {
             resolveAccountAuthMethodForSigning: async () => 'email_otp',
             readSigningSessionSnapshotForSigning: async ({ authMethod }) => {
               expect(authMethod).toBeUndefined();
+              const ecdsa = emptyEcdsaSnapshotFields();
               return {
                 walletId: nearAccountId,
                 generation: Date.now(),
+                ecdsa: ecdsa.ecdsa,
                 lanes: {
                   ed25519: {
                     near: {
@@ -1561,16 +1617,13 @@ test.describe('near signing session selection', () => {
                       thresholdSessionId: otherSessionId,
                     },
                   },
-                  ecdsa: {
-                    tempo: { curve: 'ecdsa' as const, chain: 'tempo' as const, state: 'missing' as const },
-                    evm: { curve: 'ecdsa' as const, chain: 'evm' as const, state: 'missing' as const },
-                  },
+                  ecdsa: ecdsa.lanes.ecdsa,
                 },
                 candidates: {
                   ed25519: {
                     near: [],
                   },
-                  ecdsa: { tempo: [], evm: [] },
+                  ecdsa: ecdsa.candidates.ecdsa,
                 },
               };
             },

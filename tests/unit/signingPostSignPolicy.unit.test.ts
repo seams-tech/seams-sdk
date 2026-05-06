@@ -37,10 +37,8 @@ test.describe('SigningPostSignPolicy', () => {
   test('clears single-use selected Email OTP material and marks the lane consumed', async () => {
     const consumed: Array<{ nearAccountId: string; chain: string }> = [];
     const cleared: Array<{
-      nearAccountId: string;
-      chain: string;
+      recordThresholdSessionId: string;
       thresholdSessionId: string;
-      source?: string;
     }> = [];
 
     await applyEcdsaPostSignPolicy({
@@ -50,27 +48,26 @@ test.describe('SigningPostSignPolicy', () => {
       selectedRecord: ecdsaRecord({ thresholdSessionId: 'otp-session' }),
       markEmailOtpSessionConsumed: (args) => consumed.push(args),
       clearEcdsaEphemeralMaterial: async (args) => {
-        cleared.push(args);
+        cleared.push({
+          recordThresholdSessionId: args.record.thresholdSessionId,
+          thresholdSessionId: args.thresholdSessionId || '',
+        });
       },
     });
 
-    expect(consumed).toEqual([{ nearAccountId: 'alice.testnet', chain: 'evm' }]);
+    expect(consumed).toEqual([{ nearAccountId: 'alice.testnet', chain: 'evm', uses: 1 }]);
     expect(cleared).toEqual([
       {
-        nearAccountId: 'alice.testnet',
-        chain: 'evm',
+        recordThresholdSessionId: 'otp-session',
         thresholdSessionId: 'otp-session',
-        source: 'email_otp',
       },
     ]);
   });
 
   test('clears stale secondary Email OTP material when the selected lane is passkey', async () => {
     const cleared: Array<{
-      nearAccountId: string;
-      chain: string;
+      recordThresholdSessionId: string;
       thresholdSessionId: string;
-      source?: string;
     }> = [];
 
     await applyEcdsaPostSignPolicy({
@@ -82,22 +79,17 @@ test.describe('SigningPostSignPolicy', () => {
       }),
       secondaryRecord: ecdsaRecord({ thresholdSessionId: 'otp-session' }),
       clearEcdsaEphemeralMaterial: async (args) => {
-        cleared.push(args);
+        cleared.push({
+          recordThresholdSessionId: args.record.thresholdSessionId,
+          thresholdSessionId: args.thresholdSessionId || '',
+        });
       },
     });
 
     expect(cleared).toEqual([
       {
-        nearAccountId: 'alice.testnet',
-        chain: 'tempo',
-        thresholdSessionId: 'passkey-session',
-        source: 'email_otp',
-      },
-      {
-        nearAccountId: 'alice.testnet',
-        chain: 'evm',
+        recordThresholdSessionId: 'otp-session',
         thresholdSessionId: 'otp-session',
-        source: 'email_otp',
       },
     ]);
   });

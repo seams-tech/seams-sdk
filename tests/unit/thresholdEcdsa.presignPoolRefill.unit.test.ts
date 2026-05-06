@@ -10,14 +10,25 @@ import {
   signThresholdEcdsaDigestWithPool,
 } from '@/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator';
 import { Secp256k1Engine } from '@/core/signingEngine/signers/algorithms/secp256k1';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletSubjectId,
+} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
 
 const RELAYER_URL = 'https://relay.example';
 const ECDSA_THRESHOLD_KEY_ID = 'ecdsa-hss-test-key-1';
 const BACKEND_RELAYER_KEY_ID = 'rk-1';
 const USER_ID = 'alice.testnet';
+const USER_SUBJECT_ID = toWalletSubjectId(USER_ID);
+const EVM_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'evm',
+  chainId: 5042002,
+  networkSlug: 'arc-testnet',
+});
 const RP_ID = 'example.localhost';
 const PARTICIPANT_IDS = [1, 2];
 const SESSION_ID = 'session-1';
+const WALLET_SIGNING_SESSION_ID = 'wallet-session-1';
 
 const CLIENT_SIGNING_SHARE_32 = new Uint8Array(32).fill(7);
 const CLIENT_VERIFYING_SHARE_33 = (() => {
@@ -715,6 +726,8 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         {
           type: 'threshold-ecdsa-secp256k1',
           userId: USER_ID,
+          subjectId: USER_SUBJECT_ID,
+          chainTarget: EVM_CHAIN_TARGET,
           relayerUrl: RELAYER_URL,
           ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
           signingRootId: 'proj_local:dev',
@@ -727,6 +740,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
           thresholdSessionKind: 'cookie',
           thresholdSessionId: SESSION_ID,
+          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
         },
       );
 
@@ -811,6 +825,8 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         {
           type: 'threshold-ecdsa-secp256k1',
           userId: USER_ID,
+          subjectId: USER_SUBJECT_ID,
+          chainTarget: EVM_CHAIN_TARGET,
           relayerUrl: RELAYER_URL,
           ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
           signingRootId: 'proj_local:dev',
@@ -823,6 +839,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
           thresholdSessionKind: 'cookie',
           thresholdSessionId: SESSION_ID,
+          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
         },
       );
 
@@ -941,6 +958,8 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
         {
           type: 'threshold-ecdsa-secp256k1',
           userId: USER_ID,
+          subjectId: USER_SUBJECT_ID,
+          chainTarget: EVM_CHAIN_TARGET,
           relayerUrl: RELAYER_URL,
           ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
           signingRootId: 'proj_local:dev',
@@ -953,6 +972,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
           thresholdSessionKind: 'jwt',
           thresholdSessionId: SESSION_ID,
+          walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
           thresholdSessionJwt,
         },
       );

@@ -102,18 +102,18 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       listThresholdEcdsaKeyRefsForLookup: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
-      provisionThresholdEcdsaSession: async ({ nearAccountId, chain }) => {
+      provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
         provisionCalls += 1;
         const refreshedBootstrap = createThresholdEcdsaBootstrapFixture({
           nearAccountId: String(nearAccountId),
-          chain,
+          chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-reconnect',
           sessionId: 'fresh-evm-session',
           sessionJwt: 'jwt:fresh-evm-session',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
           nearAccountId: String(nearAccountId),
-          chain,
+          chain: chainTarget.kind,
           source: 'manual-bootstrap',
           bootstrap: refreshedBootstrap,
         });

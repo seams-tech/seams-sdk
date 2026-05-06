@@ -147,10 +147,10 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       listThresholdEcdsaKeyRefsForLookup: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
-      provisionThresholdEcdsaSession: async ({ nearAccountId, chain }) => {
+      provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
         const refreshedBootstrap = createThresholdEcdsaBootstrapFixture({
           nearAccountId: String(nearAccountId),
-          chain,
+          chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-transition-stale',
           sessionId: 'ecdsa-fresh-session',
           sessionJwt: 'jwt:ecdsa-fresh-session',
@@ -158,7 +158,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
           nearAccountId: String(nearAccountId),
-          chain,
+          chain: chainTarget.kind,
           source: 'login',
           bootstrap: refreshedBootstrap,
         });

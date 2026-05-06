@@ -1,8 +1,18 @@
 import { buildCanonicalSmartAccountDeploymentManifest } from '../../server/src/core/smartAccountDeploymentManifest.ts';
 import { syncCanonicalSmartAccountDeploymentManifest } from '../../server/src/router/smartAccountDeploymentManifest.ts';
 import { buildThresholdEcdsaBootstrapUndeployedSignerSet } from '../../client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence.ts';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletSubjectId,
+} from '../../client/src/core/signingEngine/session/signingSession/ecdsaChainTarget.ts';
 
 const accountAddress = `0x${'11'.repeat(20)}`;
+const userId = 'alice.testnet';
+const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
+  chain: 'evm',
+  chainId: 11155111,
+  networkSlug: 'ethereum-sepolia',
+});
 
 const manifest = buildCanonicalSmartAccountDeploymentManifest({
   recoverySubject: {
@@ -47,7 +57,9 @@ const clientUndeployedSignerSet = buildThresholdEcdsaBootstrapUndeployedSignerSe
   bootstrap: {
     thresholdEcdsaKeyRef: {
       type: 'threshold-ecdsa-secp256k1',
-      userId: 'alice.testnet',
+      userId,
+      subjectId: toWalletSubjectId(userId),
+      chainTarget,
       relayerUrl: 'https://relayer.example',
       ecdsaThresholdKeyId: 'ehss-1',
       signingRootId: 'proj_local:dev',
@@ -56,6 +68,8 @@ const clientUndeployedSignerSet = buildThresholdEcdsaBootstrapUndeployedSignerSe
         clientVerifyingShareB64u: 'client-share',
       },
       participantIds: [1, 2],
+      thresholdSessionId: 'session-1',
+      walletSigningSessionId: 'wallet-session-1',
     },
     keygen: {
       ok: true,
@@ -68,6 +82,7 @@ const clientUndeployedSignerSet = buildThresholdEcdsaBootstrapUndeployedSignerSe
     session: {
       ok: true,
       sessionId: 'session-1',
+      walletSigningSessionId: 'wallet-session-1',
       expiresAtMs: 1,
       remainingUses: 1,
       clientVerifyingShareB64u: 'client-share',

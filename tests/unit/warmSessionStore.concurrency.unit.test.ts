@@ -76,12 +76,12 @@ test.describe('WarmSessionStore concurrency', () => {
       listThresholdEcdsaKeyRefsForLookup: () => [
         { source: 'manual-bootstrap', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
-      provisionThresholdEcdsaSession: async ({ nearAccountId, chain }) => {
+      provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
         provisionCalls += 1;
         const bootstrap = await provisionDeferred.promise;
         seedEcdsaWarmSessionRecord(ecdsaStore, {
           nearAccountId: String(nearAccountId),
-          chain,
+          chain: chainTarget.kind,
           source: 'manual-bootstrap',
           bootstrap,
         });

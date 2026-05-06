@@ -18,6 +18,7 @@ import {
   resetWarmSessionFixtureState,
   seedEd25519WarmSessionRecord,
   seedEcdsaWarmSessionRecord,
+  testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
 
 async function resolveNearThresholdSigningAuthForTest(args: Parameters<
@@ -69,8 +70,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     await expect(
       store.provisionEcdsaCapability({
         nearAccountId: 'bootstrap-error.testnet',
-        chain: 'evm',
-        chainId: 11155111,
+        chainTarget: testEcdsaChainTarget('evm'),
         source: 'manual-bootstrap',
         sessionId: record.thresholdSessionId,
         thresholdRouteAuth: {
@@ -114,10 +114,10 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       listThresholdEcdsaKeyRefsForLookup: () => [
         { source: 'login', keyRef: staleBootstrap.thresholdEcdsaKeyRef },
       ],
-      provisionThresholdEcdsaSession: async ({ nearAccountId, chain }) => {
+      provisionThresholdEcdsaSession: async ({ nearAccountId, chainTarget }) => {
         return createThresholdEcdsaBootstrapFixture({
           nearAccountId: String(nearAccountId),
-          chain,
+          chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-reconnect-error',
           sessionId: 'reconnect-error-fresh-session',
           sessionJwt: 'jwt:reconnect-error-fresh-session',

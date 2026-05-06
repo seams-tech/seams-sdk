@@ -15,6 +15,8 @@ import type { WarmSessionSealAndPersistPayload } from '@/core/types/secure-confi
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   clearAllThresholdEcdsaSessionRecords,
+  listConcreteThresholdEcdsaSessionRecordsForSubject,
+  type ConcreteThresholdEcdsaSessionRecord,
   upsertStoredThresholdEd25519SessionRecord,
   upsertThresholdEcdsaSessionFromBootstrap,
   type ThresholdEcdsaEmailOtpAuthContext,
@@ -52,9 +54,23 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '@/core/signingEngine/session/warmSigning/types';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletSubjectId,
+  type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
+} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
 
 function testEcdsaChainId(chain: ThresholdEcdsaActivationChain): number {
   return chain === 'tempo' ? 42431 : 11155111;
+}
+export function testEcdsaChainTarget(
+  chain: ThresholdEcdsaActivationChain,
+): ThresholdEcdsaChainTarget {
+  return thresholdEcdsaChainTargetFromChainFamily({
+    chain,
+    chainId: testEcdsaChainId(chain),
+  });
 }
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmSigning/transitions';
 
@@ -200,6 +216,11 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     thresholdEcdsaKeyRef: {
       type: 'threshold-ecdsa-secp256k1',
       userId: args.nearAccountId,
+      subjectId: toWalletSubjectId(args.nearAccountId),
+      chainTarget: thresholdEcdsaChainTargetFromChainFamily({
+        chain: args.chain,
+        chainId: testEcdsaChainId(args.chain),
+      }),
       relayerUrl,
       ecdsaThresholdKeyId,
       signingRootId,
@@ -211,7 +232,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       },
       thresholdSessionKind: sessionKind,
       thresholdSessionId: sessionId,
-      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+      walletSigningSessionId,
       ...(sessionJwt ? { thresholdSessionJwt: sessionJwt } : {}),
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: `pub-${chainLabel}-b64u`,
@@ -230,7 +251,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     session: {
       ok: true,
       sessionId,
-      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+      walletSigningSessionId,
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 5,
       ...(sessionJwt ? { jwt: sessionJwt } : {}),
@@ -457,8 +478,8 @@ type WarmSessionTestServicesDeps = {
     >
   >;
   clearThresholdEcdsaSessionRecordForLane?: (args: {
-    nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
+    subjectId: WalletSubjectId;
+    chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => void;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
@@ -466,14 +487,18 @@ type WarmSessionTestServicesDeps = {
     chain: ThresholdEcdsaActivationChain;
   }) => void;
   clearThresholdEcdsaSigningArtifactsForLane?: (args: {
-    nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
-    source?: ThresholdEcdsaSessionStoreSource;
+    record: ThresholdEcdsaSessionRecord;
   }) => void | Promise<void>;
   listThresholdEcdsaSessionRecordsForLookup?: (args: {
     nearAccountId: AccountId | string;
     chain: ThresholdEcdsaActivationChain;
   }) => ThresholdEcdsaSessionRecord[];
+  listConcreteThresholdEcdsaSessionRecordsForSubject?: (args: {
+    subjectId: WalletSubjectId;
+  }) => ConcreteThresholdEcdsaSessionRecord[];
+  getThresholdEcdsaSessionRecordByThresholdSessionId?: (
+    thresholdSessionId: string,
+  ) => ThresholdEcdsaSessionRecord | null;
   signingSessionSeal?: {
     keyVersion?: string;
     shamirPrimeB64u?: string;
@@ -497,6 +522,11 @@ type WarmSessionTestServicesDeps = {
   onTransition?: (event: WarmSessionTransitionEvent) => void | Promise<void>;
 };
 
+const emptyThresholdEcdsaStoreDeps = (): ThresholdEcdsaSessionStoreDeps => ({
+  recordsByLane: new Map(),
+  exportArtifactsByLane: new Map(),
+});
+
 export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps = {}) {
   const reconnectInFlightByCapability = new Map<
     string,
@@ -519,20 +549,21 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     touchConfirm: deps.touchConfirm,
     getEmailOtpWarmSessionStatus,
     listThresholdEcdsaSessionRecordsForLookup: deps.listThresholdEcdsaSessionRecordsForLookup,
+    listConcreteThresholdEcdsaSessionRecordsForSubject:
+      deps.listConcreteThresholdEcdsaSessionRecordsForSubject ||
+      ((args) => listConcreteThresholdEcdsaSessionRecordsForSubject(emptyThresholdEcdsaStoreDeps(), args)),
+    getThresholdEcdsaSessionRecordByThresholdSessionId:
+      deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
   });
   const clearEcdsaEphemeralMaterial = async (args: {
-    nearAccountId: AccountId;
-    chain: ThresholdEcdsaActivationChain;
+    record: ThresholdEcdsaSessionRecord;
     thresholdSessionId?: string;
-    source?: ThresholdEcdsaSessionStoreSource;
   }): Promise<void> => {
     const thresholdSessionId = String(args.thresholdSessionId || '').trim();
     if (typeof deps.clearThresholdEcdsaSigningArtifactsForLane === 'function') {
       await Promise.resolve(
         deps.clearThresholdEcdsaSigningArtifactsForLane({
-          nearAccountId: args.nearAccountId,
-          chain: args.chain,
-          ...(args.source ? { source: args.source } : {}),
+          record: args.record,
         }),
       ).catch(() => undefined);
     }
@@ -547,6 +578,11 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     signingSessionSeal: deps.signingSessionSeal,
     getEmailOtpWarmSessionStatus,
     listThresholdEcdsaSessionRecordsForLookup: deps.listThresholdEcdsaSessionRecordsForLookup,
+    listConcreteThresholdEcdsaSessionRecordsForSubject:
+      deps.listConcreteThresholdEcdsaSessionRecordsForSubject ||
+      ((args) => listConcreteThresholdEcdsaSessionRecordsForSubject(emptyThresholdEcdsaStoreDeps(), args)),
+    getThresholdEcdsaSessionRecordByThresholdSessionId:
+      deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
   });
   const getWarmSession = (nearAccountId: AccountId | string) =>
     capabilityReader.getWarmSession(nearAccountId);
@@ -606,7 +642,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       [key: string]: unknown;
     }) =>
       resolveWarmEcdsaBootstrapRequestFromSession({
-        request: { ...args, chainId: testEcdsaChainId(args.chain) },
+        request: { ...args, chainTarget: testEcdsaChainTarget(args.chain) },
         warmSession: await getWarmSession(args.nearAccountId),
       }),
     provisionEcdsaCapability,
@@ -646,7 +682,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
         },
         {
           ...args,
-          chainId: testEcdsaChainId(args.chain),
+          chainTarget: testEcdsaChainTarget(args.chain),
           sessionBudgetUses: Number(args.sessionBudgetUses || 1),
         },
       ),
@@ -676,6 +712,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       chain: ThresholdEcdsaActivationChain;
       thresholdSessionId?: string;
       source?: ThresholdEcdsaSessionStoreSource;
+      selectedRecord: ThresholdEcdsaSessionRecord;
     }) =>
       applyWarmSessionEcdsaPostSignPolicy(
         {

@@ -616,7 +616,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           authMethod: 'passkey',
           ecdsaRestore: {
-            chain: 'tempo',
+            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
             thresholdSessionJwt: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
@@ -645,6 +645,7 @@ test.describe('UserConfirm worker router', () => {
           authMethod: 'passkey',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
           walletSigningSessionId: 'wallet-session-rehydrate',
           thresholdSessionId: 'session-rehydrate',
           reason: 'transaction',
@@ -689,7 +690,11 @@ test.describe('UserConfirm worker router', () => {
         const statusResult = await statusPromise;
         const persisted = await sealedStoreMod.readExactSealedSession(
           'session-rehydrate',
-          { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' },
+          {
+            authMethod: 'passkey',
+            curve: 'ecdsa',
+            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
+          },
         );
 
         return {
@@ -895,6 +900,12 @@ test.describe('UserConfirm worker router', () => {
               thresholdSessionId: 'session-ecdsa-record',
               walletSigningSessionId: 'wallet-session-ecdsa-record',
               thresholdSessionJwt: 'jwt:session-ecdsa-record',
+              chainTarget: {
+                kind: 'evm',
+                namespace: 'eip155',
+                chainId: 5042002,
+                networkSlug: 'arc-testnet',
+              },
               ethereumAddress: '0x1111111111111111111111111111111111111111',
               thresholdEcdsaPublicKeyB64u: 'pub-ecdsa-b64u',
               relayerVerifyingShareB64u: 'relayer-ecdsa-share-b64u',
@@ -1011,7 +1022,12 @@ test.describe('UserConfirm worker router', () => {
             await sealedStoreMod.readExactSealedSession('session-ecdsa-record', {
               authMethod: 'passkey',
               curve: 'ecdsa',
-              chain: 'evm',
+              chainTarget: {
+                kind: 'evm',
+                namespace: 'eip155',
+                chainId: 5042002,
+                networkSlug: 'arc-testnet',
+              },
             }),
         };
       },
@@ -1337,7 +1353,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           authMethod: 'passkey',
           ecdsaRestore: {
-            chain: 'tempo',
+            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
             thresholdSessionJwt: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
@@ -1367,6 +1383,7 @@ test.describe('UserConfirm worker router', () => {
           authMethod: 'passkey' as const,
           curve: 'ecdsa' as const,
           chain: 'tempo' as const,
+          chainTarget: { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-moderato' },
           walletSigningSessionId: 'wallet-session-single-flight-remove',
           thresholdSessionId: 'session-single-flight-remove',
           reason: 'transaction' as const,
@@ -1498,7 +1515,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           authMethod: 'passkey',
           ecdsaRestore: {
-            chain: 'tempo',
+            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
             thresholdSessionJwt: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
@@ -1538,6 +1555,7 @@ test.describe('UserConfirm worker router', () => {
           authMethod: 'passkey' as const,
           curve: 'ecdsa' as const,
           chain: 'tempo' as const,
+          chainTarget: { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-moderato' },
           walletSigningSessionId: 'wallet-session-cross-manager-remove',
           thresholdSessionId: 'session-cross-manager-remove',
           reason: 'transaction' as const,
@@ -1653,7 +1671,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           authMethod: 'passkey',
           ecdsaRestore: {
-            chain: 'tempo',
+            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
             thresholdSessionJwt: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
@@ -1846,7 +1864,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           authMethod: 'passkey',
           ecdsaRestore: {
-            chain: 'tempo',
+            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
             thresholdSessionJwt: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
@@ -1875,6 +1893,7 @@ test.describe('UserConfirm worker router', () => {
           authMethod: 'passkey',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
           walletSigningSessionId: 'wallet-session-expired',
           thresholdSessionId: 'session-expired',
           reason: 'transaction',
@@ -1895,7 +1914,7 @@ test.describe('UserConfirm worker router', () => {
           await sealedStoreMod.readExactSealedSession('session-expired', {
             authMethod: 'passkey',
             curve: 'ecdsa',
-            chain: 'tempo',
+            chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
           });
 
         return {

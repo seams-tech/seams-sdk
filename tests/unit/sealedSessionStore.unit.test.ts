@@ -8,6 +8,7 @@ const IMPORT_PATHS = {
 
 const ECDSA_RESTORE = {
   chain: 'tempo',
+  chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
   sessionKind: 'jwt',
   ecdsaThresholdKeyId: 'ecdsa-key',
   relayerKeyId: 'relayer-key',
@@ -48,7 +49,7 @@ test.describe('signing session sealed store', () => {
           updatedAtMs: Date.now(),
         });
 
-        const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' };
+        const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget };
         const record = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
         const rawRecord = await new Promise<unknown>((resolve, reject) => {
           const openReq = indexedDB.open('seams_wallet_v1');
@@ -155,7 +156,7 @@ test.describe('signing session sealed store', () => {
         });
         db.close();
 
-        const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' };
+        const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget };
         const read = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
         await mod.deleteExactSealedSession(thresholdSessionId, passkeyEcdsa);
         const afterDelete = await mod.readExactSealedSession(
@@ -170,6 +171,45 @@ test.describe('signing session sealed store', () => {
 
     expect(result.read).toBeNull();
     expect(result.afterDelete).toBeNull();
+  });
+
+  test('drops chain-only ECDSA sealed records instead of inferring a concrete target', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        await mod.clearAllSealedSessions();
+
+        await mod.writeExactSealedSession({
+          thresholdSessionId: 'legacy-chain-only-session',
+          walletSigningSessionId: 'legacy-chain-only-wallet-session',
+          curve: 'ecdsa',
+          authMethod: 'email_otp',
+          ecdsaRestore: {
+            chain: 'evm',
+            sessionKind: 'jwt',
+            ecdsaThresholdKeyId: 'legacy-ecdsa-key',
+            relayerKeyId: 'legacy-relayer-key',
+            participantIds: [1, 2],
+          },
+          sealedSecretB64u: 'sealed-legacy-chain-only',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 1,
+          updatedAtMs: Date.now(),
+        });
+
+        return await mod.readExactSealedSession('legacy-chain-only-session', {
+          authMethod: 'email_otp',
+          curve: 'ecdsa',
+          chain: 'evm',
+          chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 5042002, networkSlug: 'arc-testnet' },
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toBeNull();
   });
 
   test('validates Email OTP sealed record schema and rejects malformed Email OTP records', async ({
@@ -201,7 +241,7 @@ test.describe('signing session sealed store', () => {
           remainingUses: 2,
           updatedAtMs: Date.now(),
         });
-        const emailOtpEcdsa = { authMethod: 'email_otp', curve: 'ecdsa', chain: 'tempo' };
+        const emailOtpEcdsa = { authMethod: 'email_otp', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget };
         const emailOtpEd25519 = { authMethod: 'email_otp', curve: 'ed25519' };
         const validByEcdsa = await mod.readExactSealedSession(
           'email-otp-ecdsa-session',
@@ -314,6 +354,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
         });
         const passkey = await mod.readExactSealedSession(thresholdSessionId, {
           authMethod: 'passkey',
@@ -324,6 +365,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
           ownerId: 'unit-test',
           ttlMs: 15_000,
         });
@@ -331,11 +373,13 @@ test.describe('signing session sealed store', () => {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
         });
         const emailAfterDelete = await mod.readExactSealedSession(thresholdSessionId, {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
         });
         const passkeyAfterDelete = await mod.readExactSealedSession(thresholdSessionId, {
           authMethod: 'passkey',
@@ -432,7 +476,7 @@ test.describe('signing session sealed store', () => {
 
         const records = await mod.listExactSealedSessionsForAccount({
           accountId: 'alice.testnet',
-          filter: { authMethod: 'email_otp', curve: 'ecdsa', chain: 'tempo' },
+          filter: { authMethod: 'email_otp', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget },
         });
 
         return {
@@ -524,7 +568,7 @@ test.describe('signing session sealed store', () => {
         });
         const ecdsaRecords = await mod.listExactSealedSessionsForAccount({
           accountId: 'alice.testnet',
-          filter: { authMethod: 'email_otp', curve: 'ecdsa', chain: ECDSA_RESTORE.chain },
+          filter: { authMethod: 'email_otp', curve: 'ecdsa', chain: ECDSA_RESTORE.chain, chainTarget: ECDSA_RESTORE.chainTarget },
         });
 
         return {
@@ -594,6 +638,7 @@ test.describe('signing session sealed store', () => {
             authMethod: 'email_otp',
             curve: 'ecdsa',
             chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
           }),
         };
       },
@@ -605,7 +650,7 @@ test.describe('signing session sealed store', () => {
     expect(result.emailOtpEd25519?.sealedSecretB64u).toBe('sealed-email-otp-ecdsa');
     expect(result.emailOtpEcdsa?.sealedSecretB64u).toBe('sealed-email-otp-ecdsa');
     expect(result.emailOtpEcdsa?.storeKey).toBe(
-      'shared-wallet-signing-session:email_otp:ecdsa:tempo',
+      'shared-wallet-signing-session:email_otp:ecdsa:tempo%3A42431',
     );
   });
 
@@ -641,11 +686,13 @@ test.describe('signing session sealed store', () => {
             authMethod: 'passkey',
             curve: 'ecdsa',
             chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
           }),
           b: await mod.readExactSealedSession('sess-b', {
             authMethod: 'passkey',
             curve: 'ecdsa',
             chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
           }),
         };
         await mod.clearAllSealedSessions();
@@ -654,11 +701,13 @@ test.describe('signing session sealed store', () => {
             authMethod: 'passkey',
             curve: 'ecdsa',
             chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
           }),
           b: await mod.readExactSealedSession('sess-b', {
             authMethod: 'passkey',
             curve: 'ecdsa',
             chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
           }),
         };
         return { before, after };
@@ -699,6 +748,7 @@ test.describe('signing session sealed store', () => {
             authMethod: 'passkey',
             curve: 'ecdsa',
             chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
           });
           return {
             record,
@@ -759,6 +809,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
         });
         await mod.clearAllSealedSessions();
         const databaseNames =
@@ -798,13 +849,13 @@ test.describe('signing session sealed store', () => {
           remainingUses: 2,
           updatedAtMs: Date.now(),
         });
-        const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' };
+        const passkeyEcdsa = { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget };
         const before = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
         sessionStorage.removeItem('seams:signing-session-sealed:runtime-session-id:v1');
         const after = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
         const exactAfterMarkerRemoved = await mod.listExactSealedSessionsForAccount({
           accountId: 'restart.testnet',
-          filter: { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo' },
+          filter: { authMethod: 'passkey', curve: 'ecdsa', chain: 'tempo', chainTarget: ECDSA_RESTORE.chainTarget },
         });
         const readAfterMarkerRestored = await mod.readExactSealedSession(
           thresholdSessionId,
@@ -845,6 +896,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
           ownerId: 'tab-a',
           nowMs: 1_000,
           ttlMs: 5_000,
@@ -854,6 +906,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
           ownerId: 'tab-b',
           nowMs: 2_000,
           ttlMs: 5_000,
@@ -864,6 +917,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
           ownerId: 'tab-b',
           nowMs: 3_000,
           ttlMs: 5_000,
@@ -873,6 +927,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
           ownerId: 'tab-c',
           nowMs: 9_000,
           ttlMs: 5_000,
@@ -883,6 +938,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
           ownerId: 'tab-d',
           nowMs: 10_000,
           ttlMs: 5_000,
@@ -939,6 +995,7 @@ test.describe('signing session sealed store', () => {
             authMethod: 'email_otp',
             curve: 'ecdsa',
             chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
           },
           expiresAtMs: Date.now() + 10_000,
           remainingUses: 0,
@@ -948,11 +1005,13 @@ test.describe('signing session sealed store', () => {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
         });
         await mod.deleteExactSealedSession('add-signer-operation-session', {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
         });
 
         return {
@@ -960,6 +1019,7 @@ test.describe('signing session sealed store', () => {
             authMethod: 'email_otp',
             curve: 'ecdsa',
             chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
           }),
           byEd25519: await mod.readExactSealedSession('transaction-ed25519-session', {
             authMethod: 'email_otp',
@@ -969,6 +1029,7 @@ test.describe('signing session sealed store', () => {
             authMethod: 'email_otp',
             curve: 'ecdsa',
             chain: 'tempo',
+            chainTarget: ECDSA_RESTORE.chainTarget,
           }),
         };
       },
@@ -982,7 +1043,7 @@ test.describe('signing session sealed store', () => {
     expect(result.byExport).toBeNull();
   });
 
-  test('owns resolved runtime identity by exact signing purpose', async ({ page }) => {
+  test('owns durable sealed identity by exact signing purpose', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.sealedSessionStore);
@@ -1007,79 +1068,70 @@ test.describe('signing session sealed store', () => {
           updatedAtMs: 12_345,
         });
 
-        const exact = {
-          walletId: 'identity.testnet',
+        const ecdsaAfterWrite = await mod.readExactSealedSession('identity-ecdsa-session', {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
+        });
+        const wrongChainRecord = await mod.readExactSealedSession('identity-ecdsa-session', {
+          authMethod: 'email_otp',
+          curve: 'ecdsa',
+          chain: 'evm',
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 5042002,
+            networkSlug: 'arc-testnet',
+          },
+        });
+        const companionEd25519Record = await mod.readExactSealedSession(
+          'identity-ed25519-session',
+          {
+            authMethod: 'email_otp',
+            curve: 'ed25519',
+          },
+        );
+        const published = mod.publishResolvedIdentity({
+          walletId: 'identity.testnet',
+          authMethod: 'email_otp',
+          curve: 'ecdsa',
+          chainTarget: ECDSA_RESTORE.chainTarget,
           walletSigningSessionId: 'identity-wallet-session',
           thresholdSessionId: 'identity-ecdsa-session',
-        } as const;
-        const wrongChain = {
-          ...exact,
-          chain: 'evm',
-        } as const;
-
-        const listedAfterWrite = mod.listResolvedIdentitiesForAccount({
-          walletId: 'identity.testnet',
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chain: 'tempo',
-        });
-        const wrongChainList = mod.listResolvedIdentitiesForAccount({
-          walletId: wrongChain.walletId,
-          authMethod: wrongChain.authMethod,
-          curve: wrongChain.curve,
-          chain: wrongChain.chain,
-        });
-        const companionEd25519List = mod.listResolvedIdentitiesForAccount({
-          walletId: 'identity.testnet',
-          authMethod: 'email_otp',
-          curve: 'ed25519',
-        });
-        const published = mod.publishResolvedIdentity({
-          ...exact,
           updatedAtMs: 22_222,
         });
-        const listedAfterPublish = mod.listResolvedIdentitiesForAccount({
-          walletId: 'identity.testnet',
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          chain: 'tempo',
-        });
         await mod.clearAllSealedSessions();
-        const listedAfterClear = mod.listResolvedIdentitiesForAccount({
-          walletId: 'identity.testnet',
+        const ecdsaAfterClear = await mod.readExactSealedSession('identity-ecdsa-session', {
           authMethod: 'email_otp',
           curve: 'ecdsa',
           chain: 'tempo',
+          chainTarget: ECDSA_RESTORE.chainTarget,
         });
 
         return {
-          listedAfterWrite,
-          wrongChainList,
-          companionEd25519List,
+          ecdsaAfterWrite,
+          wrongChainRecord,
+          companionEd25519Record,
           published,
-          listedAfterPublish,
-          listedAfterClear,
+          ecdsaAfterClear,
         };
       },
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.listedAfterWrite).toHaveLength(1);
-    expect(result.listedAfterWrite[0]?.walletSigningSessionId).toBe('identity-wallet-session');
-    expect(result.listedAfterWrite[0]?.thresholdSessionId).toBe('identity-ecdsa-session');
-    expect(result.listedAfterWrite[0]?.updatedAtMs).toBe(12_345);
-    expect(result.wrongChainList).toEqual([]);
-    expect(result.companionEd25519List).toHaveLength(1);
-    expect(result.companionEd25519List[0]?.thresholdSessionId).toBe('identity-ed25519-session');
+    expect(result.ecdsaAfterWrite?.walletSigningSessionId).toBe('identity-wallet-session');
+    expect(result.ecdsaAfterWrite?.thresholdSessionIds.ecdsa).toBe('identity-ecdsa-session');
+    expect(result.ecdsaAfterWrite?.updatedAtMs).toBe(12_345);
+    expect(result.wrongChainRecord).toBeNull();
+    expect(result.companionEd25519Record?.thresholdSessionIds.ed25519).toBe(
+      'identity-ed25519-session',
+    );
     expect(result.published?.updatedAtMs).toBe(22_222);
-    expect(result.listedAfterPublish[0]?.updatedAtMs).toBe(22_222);
-    expect(result.listedAfterClear).toEqual([]);
+    expect(result.ecdsaAfterClear).toBeNull();
   });
 
-  test('can delete durable sealed record while preserving active runtime identity', async ({
+  test('can delete durable sealed record through explicit exact-purpose options', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -1122,11 +1174,6 @@ test.describe('signing session sealed store', () => {
             curve: 'ed25519',
           },
         );
-        const identitiesAfterPolicyDelete = mod.listResolvedIdentitiesForAccount({
-          walletId: 'preserve-identity.testnet',
-          authMethod: 'passkey',
-          curve: 'ed25519',
-        });
 
         await mod.writeExactSealedSession({
           thresholdSessionId: 'preserve-identity-ed25519-session',
@@ -1149,29 +1196,23 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           curve: 'ed25519',
         });
-        const identitiesAfterExplicitDelete = mod.listResolvedIdentitiesForAccount({
-          walletId: 'preserve-identity.testnet',
-          authMethod: 'passkey',
-          curve: 'ed25519',
-        });
+        const recordAfterExplicitDelete = await mod.readExactSealedSession(
+          'preserve-identity-ed25519-session',
+          {
+            authMethod: 'passkey',
+            curve: 'ed25519',
+          },
+        );
 
         return {
           durableRecord,
-          identitiesAfterPolicyDelete,
-          identitiesAfterExplicitDelete,
+          recordAfterExplicitDelete,
         };
       },
       { paths: IMPORT_PATHS },
     );
 
     expect(result.durableRecord).toBeNull();
-    expect(result.identitiesAfterPolicyDelete).toHaveLength(1);
-    expect(result.identitiesAfterPolicyDelete[0]?.walletSigningSessionId).toBe(
-      'preserve-identity-wallet-session',
-    );
-    expect(result.identitiesAfterPolicyDelete[0]?.thresholdSessionId).toBe(
-      'preserve-identity-ed25519-session',
-    );
-    expect(result.identitiesAfterExplicitDelete).toEqual([]);
+    expect(result.recordAfterExplicitDelete).toBeNull();
   });
 });

@@ -6,6 +6,20 @@ import {
   restorePersistedSessionForSigningCommand,
 } from '@/core/signingEngine/session/restoreCoordinator';
 
+const TEST_ECDSA_CHAIN_TARGETS = {
+  tempo: { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-moderato' },
+  evm: {
+    kind: 'evm' as const,
+    namespace: 'eip155' as const,
+    chainId: 5042002,
+    networkSlug: 'arc-testnet',
+  },
+};
+const TEST_ECDSA_CHAIN_TARGET_LIST = [
+  TEST_ECDSA_CHAIN_TARGETS.tempo,
+  TEST_ECDSA_CHAIN_TARGETS.evm,
+];
+
 function makeSealedRecord(args: {
   authMethod?: 'email_otp' | 'passkey';
   chain?: 'tempo' | 'evm';
@@ -21,6 +35,8 @@ function makeSealedRecord(args: {
   const authMethod = args.authMethod || 'email_otp';
   const curve = args.curve || 'ecdsa';
   const thresholdSessionId = args.thresholdSessionId || 'tsess-restore';
+  const chain = args.chain || 'tempo';
+  const chainTarget = TEST_ECDSA_CHAIN_TARGETS[chain];
   return {
     v: 1,
     alg: 'shamir3pass-v1',
@@ -39,7 +55,7 @@ function makeSealedRecord(args: {
     ...(curve === 'ecdsa'
       ? {
           ecdsaRestore: {
-            chain: args.chain || 'tempo',
+            chainTarget,
             sessionKind: 'jwt' as const,
             thresholdSessionJwt: 'jwt-restore',
             ecdsaThresholdKeyId: 'ecdsa-key-restore',
@@ -65,7 +81,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         walletId: 'restore.testnet',
         authMethod: 'email_otp',
         curve: 'ecdsa',
-        chain: 'tempo',
+        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
         walletSigningSessionId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
@@ -84,7 +100,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         walletId: 'restore.testnet',
         authMethod: 'email_otp',
         curve: 'ecdsa',
-        chain: 'tempo',
+        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
         walletSigningSessionId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
@@ -120,7 +136,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         walletId: 'restore.testnet',
         authMethod: 'email_otp',
         curve: 'ecdsa',
-        chain: 'tempo',
+        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
         walletSigningSessionId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
@@ -132,7 +148,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
         walletId: 'restore.testnet',
         authMethod: 'email_otp',
         curve: 'ecdsa',
-        chain: 'tempo',
+        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
         walletSigningSessionId: 'wsess-restore',
         thresholdSessionId: 'tsess-restore',
         reason: 'transaction',
@@ -152,7 +168,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       walletId: 'restore.testnet',
       authMethod: 'email_otp' as const,
       curve: 'ecdsa' as const,
-      chain: 'tempo' as const,
+      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
       reason: 'session_status' as const,
     };
     const ports = {
@@ -182,7 +198,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       walletId: 'restore.testnet',
       authMethod: 'email_otp' as const,
       curve: 'ecdsa' as const,
-      chain: 'tempo' as const,
+      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
       walletSigningSessionId: 'wsess-restore',
       thresholdSessionId: 'tsess-restore',
       reason: 'transaction' as const,
@@ -212,6 +228,7 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
       authMethod: 'email_otp' as const,
       curve: 'ecdsa' as const,
       chain: 'tempo' as const,
+      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
       walletSigningSessionId: 'wsess-restore',
       thresholdSessionId: 'tsess-restore',
       reason: 'transaction' as const,
@@ -346,6 +363,7 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
     const result = await restorePersistedSessionsForAccountCommand(
       {
         walletId: 'restore.testnet',
+        ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
         authMethod: 'email_otp',
         maxRecords: 2,
       },
@@ -354,7 +372,9 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
           records.filter((record) => {
             if (record.authMethod !== filter.authMethod) return false;
             if (record.curve !== filter.curve) return false;
-            if (filter.curve === 'ecdsa') return record.ecdsaRestore?.chain === filter.chain;
+            if (filter.curve === 'ecdsa') {
+              return record.ecdsaRestore?.chainTarget?.kind === filter.chainTarget.kind;
+            }
             return true;
           }),
         restoreSealedRecordForAccount: async () => {
@@ -381,13 +401,14 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
 
     const input = {
       walletId: 'restore.testnet',
+      ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
       authMethod: 'email_otp' as const,
       maxRecords: 10,
     };
     const ports = {
       cache,
       listExactSealedSessionsForAccount: async (filter: any) =>
-        filter.curve === 'ecdsa' && filter.chain === 'tempo'
+        filter.curve === 'ecdsa' && filter.chainTarget?.kind === 'tempo'
           ? [makeSealedRecord({ chain: 'tempo' })]
           : [],
       restoreSealedRecordForAccount: async () => {
@@ -426,12 +447,14 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
       authMethod: string;
       curve: string;
       chain?: string;
+      chainTarget?: unknown;
       thresholdSessionId?: string;
     }> = [];
 
     const result = await restorePersistedSessionsForAccountCommand(
       {
         walletId: 'restore.testnet',
+        ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
         authMethod: 'passkey',
         maxRecords: 10,
       },
@@ -440,14 +463,17 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
           records.filter((record) => {
             if (record.authMethod !== filter.authMethod) return false;
             if (record.curve !== filter.curve) return false;
-            if (filter.curve === 'ecdsa') return record.ecdsaRestore?.chain === filter.chain;
+            if (filter.curve === 'ecdsa') {
+              return record.ecdsaRestore?.chainTarget?.kind === filter.chainTarget.kind;
+            }
             return true;
           }),
         restoreSealedRecordForAccount: async ({ record }) => {
           restored.push({
             authMethod: record.authMethod,
             curve: record.curve,
-            chain: record.ecdsaRestore?.chain,
+            chain: record.ecdsaRestore?.chainTarget?.kind,
+            chainTarget: record.ecdsaRestore?.chainTarget,
             thresholdSessionId: record.thresholdSessionIds[record.curve],
           });
           return 'restored';
@@ -465,17 +491,17 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
     });
     expect(restored).toEqual(
       expect.arrayContaining([
-        {
+        expect.objectContaining({
           authMethod: 'passkey',
           curve: 'ed25519',
           thresholdSessionId: 'tsess-passkey-ed25519',
-        },
-        {
+        }),
+        expect.objectContaining({
           authMethod: 'passkey',
           curve: 'ecdsa',
-          chain: 'tempo',
+          chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
           thresholdSessionId: 'tsess-passkey-tempo',
-        },
+        }),
       ]),
     );
   });
@@ -497,13 +523,16 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
     const result = await restorePersistedSessionsForAccountCommand(
       {
         walletId: 'restore.testnet',
+        ecdsaChainTargets: TEST_ECDSA_CHAIN_TARGET_LIST,
         authMethod: 'email_otp',
         maxRecords: 10,
       },
       {
         listExactSealedSessionsForAccount: async (filter) => {
           if (filter.curve === 'ed25519') return [companionRecord];
-          if (filter.curve === 'ecdsa' && filter.chain === 'tempo') return [companionRecord];
+          if (filter.curve === 'ecdsa' && filter.chainTarget.kind === 'tempo') {
+            return [companionRecord];
+          }
           return [];
         },
         restoreSealedRecordForAccount: async ({ purpose }) => {
@@ -524,7 +553,7 @@ test.describe('restorePersistedSessionsForAccountCommand', () => {
       expect.arrayContaining([
         expect.objectContaining({
           curve: 'ecdsa',
-          chain: 'tempo',
+          chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
           thresholdSessionId: 'tsess-ecdsa-account',
         }),
         expect.objectContaining({

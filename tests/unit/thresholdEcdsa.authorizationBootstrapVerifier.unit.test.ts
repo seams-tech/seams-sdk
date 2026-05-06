@@ -49,6 +49,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         participantIds: [1, 2],
         sessionKind: 'jwt',
         sessionId: 'ecdsa-session-1',
+        walletSigningSessionId: 'wallet-session-1',
         bootstrapAuth: { kind: 'app_session', jwt: appSessionJwt },
         clientRootShare32B64u,
         workerCtx: {
@@ -64,7 +65,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
       expect(requests[0]?.url).toBe('https://relay.example/threshold-ecdsa/hss/prepare');
       expect(requests[0]?.headers.get('Authorization')).toBe(`Bearer ${appSessionJwt}`);
       expect(requests[0]?.body).toMatchObject({
-        userId: 'alice.testnet',
+        walletSessionUserId: 'alice.testnet',
         rpId: 'wallet.example.test',
         operation: 'session_bootstrap',
         ecdsaThresholdKeyId: 'ecdsa-key-1',
@@ -110,6 +111,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
         participantIds: [1, 2],
         sessionKind: 'jwt',
         sessionId: 'ecdsa-session-1',
+        walletSigningSessionId: 'wallet-session-1',
         bootstrapAuth: { kind: 'app_session', jwt: appSessionJwt },
         runtimeScopeBootstrap: {
           environmentId: 'env-test',

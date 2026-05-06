@@ -97,7 +97,12 @@ test.describe('privateKeyExportRecovery method binding', () => {
         nearAccountId: 'alice.testnet' as any,
         artifact: {
           artifactKind: 'ecdsa-hss-secp256k1-key-v1',
-          chain: 'evm',
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 5042002,
+            networkSlug: 'arc-testnet',
+          },
           publicKeyHex: `0x${'02'}${'11'.repeat(32)}`,
           privateKeyHex: `0x${'22'.repeat(32)}`,
           ethereumAddress: `0x${'33'.repeat(20)}`,

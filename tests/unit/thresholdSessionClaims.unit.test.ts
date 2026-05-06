@@ -5,7 +5,7 @@ import {
 } from '@server/core/ThresholdService/validation';
 
 function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1') {
-  return {
+  const claims = {
     kind,
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
@@ -15,6 +15,13 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
     rpId: 'example.localhost',
     thresholdExpiresAtMs: Date.now() + 60_000,
     participantIds: [1, 2],
+  };
+  if (kind !== 'threshold_ecdsa_session_v1') return claims;
+  return {
+    ...claims,
+    subjectId: 'wallet-subject-alice',
+    chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 5042002 },
+    ecdsaThresholdKeyId: 'threshold-ecdsa-key-1',
   };
 }
 
@@ -59,6 +66,21 @@ test.describe('threshold session JWT claims', () => {
       parseThresholdEcdsaSessionClaims({
         ...baseClaims('threshold_ecdsa_session_v1'),
         walletId: 'bob.testnet',
+      }),
+    ).toBeNull();
+  });
+
+  test('threshold-ecdsa session tokens require concrete lane identity claims', () => {
+    const claims = baseClaims('threshold_ecdsa_session_v1');
+
+    expect(parseThresholdEcdsaSessionClaims(claims)?.subjectId).toBe('wallet-subject-alice');
+    expect(parseThresholdEcdsaSessionClaims({ ...claims, subjectId: undefined })).toBeNull();
+    expect(parseThresholdEcdsaSessionClaims({ ...claims, chainTarget: undefined })).toBeNull();
+    expect(parseThresholdEcdsaSessionClaims({ ...claims, ecdsaThresholdKeyId: undefined })).toBeNull();
+    expect(
+      parseThresholdEcdsaSessionClaims({
+        ...claims,
+        chainTarget: { kind: 'evm', namespace: 'eip155', chainId: '5042002' },
       }),
     ).toBeNull();
   });

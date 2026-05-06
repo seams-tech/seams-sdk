@@ -15,6 +15,127 @@ test.describe('threshold Ed25519 threshold-session state', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
+  test('publishing a fresh Ed25519 runtime lane replaces stale account runtime lanes', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const storeMod = await import(paths.thresholdSessionStore);
+        const nearAccountId = 'alice.testnet';
+        const common = {
+          nearAccountId,
+          rpId: 'example.localhost',
+          relayerUrl: 'https://relay.example',
+          relayerKeyId: 'rk-ed25519',
+          participantIds: [1, 2],
+          thresholdSessionKind: 'jwt' as const,
+          expiresAtMs: Date.now() + 60_000,
+        };
+
+        storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        try {
+          storeMod.upsertStoredThresholdEd25519SessionRecord({
+            ...common,
+            thresholdSessionId: 'old-passkey-session',
+            walletSigningSessionId: 'old-passkey-wallet-session',
+            thresholdSessionJwt: 'jwt-old-passkey',
+            remainingUses: 0,
+            updatedAtMs: 1,
+            source: 'login',
+          });
+          storeMod.upsertStoredThresholdEd25519SessionRecord({
+            ...common,
+            thresholdSessionId: 'old-otp-session',
+            walletSigningSessionId: 'old-otp-wallet-session',
+            thresholdSessionJwt: 'jwt-old-otp',
+            remainingUses: 0,
+            updatedAtMs: 2,
+            emailOtpAuthContext: {
+              policy: 'per_operation',
+              retention: 'single_use',
+              reason: 'sign',
+              authMethod: 'email_otp',
+            },
+            source: 'email_otp',
+          });
+          storeMod.upsertStoredThresholdEd25519SessionRecord({
+            ...common,
+            thresholdSessionId: 'fresh-otp-session',
+            walletSigningSessionId: 'fresh-otp-wallet-session',
+            thresholdSessionJwt: 'jwt-fresh-otp',
+            remainingUses: 1,
+            updatedAtMs: 3,
+            emailOtpAuthContext: {
+              policy: 'per_operation',
+              retention: 'single_use',
+              reason: 'sign',
+              authMethod: 'email_otp',
+            },
+            source: 'email_otp',
+          });
+
+          const records = storeMod.listStoredThresholdEd25519SessionRecordsForAccount(nearAccountId);
+          return {
+            records: records.map(
+              (record: {
+                source: string;
+                thresholdSessionId: string;
+                walletSigningSessionId?: string;
+                remainingUses: number;
+              }) => ({
+                source: record.source,
+                thresholdSessionId: record.thresholdSessionId,
+                walletSigningSessionId: record.walletSigningSessionId,
+                remainingUses: record.remainingUses,
+              }),
+            ),
+            oldPasskeyLanePresent: Boolean(
+              storeMod.getStoredThresholdEd25519SessionRecordForLane({
+                nearAccountId,
+                authMethod: 'passkey',
+                walletSigningSessionId: 'old-passkey-wallet-session',
+                thresholdSessionId: 'old-passkey-session',
+              }),
+            ),
+            oldOtpLanePresent: Boolean(
+              storeMod.getStoredThresholdEd25519SessionRecordForLane({
+                nearAccountId,
+                authMethod: 'email_otp',
+                walletSigningSessionId: 'old-otp-wallet-session',
+                thresholdSessionId: 'old-otp-session',
+              }),
+            ),
+            freshOtpLanePresent: Boolean(
+              storeMod.getStoredThresholdEd25519SessionRecordForLane({
+                nearAccountId,
+                authMethod: 'email_otp',
+                walletSigningSessionId: 'fresh-otp-wallet-session',
+                thresholdSessionId: 'fresh-otp-session',
+              }),
+            ),
+          };
+        } finally {
+          storeMod.clearAllStoredThresholdEd25519SessionRecords();
+        }
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result).toEqual({
+      records: [
+        {
+          source: 'email_otp',
+          thresholdSessionId: 'fresh-otp-session',
+          walletSigningSessionId: 'fresh-otp-wallet-session',
+          remainingUses: 1,
+        },
+      ],
+      oldPasskeyLanePresent: false,
+      oldOtpLanePresent: false,
+      freshOtpLanePresent: true,
+    });
+  });
+
   test('resolves canonical threshold session state from the warm-session record', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
