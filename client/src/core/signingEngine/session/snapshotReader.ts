@@ -1,7 +1,10 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { decodeJwtPayloadRecord, THRESHOLD_ECDSA_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import {
+  decodeJwtPayloadRecord,
+  THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
+} from '@shared/utils/sessionTokens';
 import type { SigningSessionSealedStoreRecord } from './sealedSessionStore';
 import {
   thresholdEcdsaChainTargetKey,
@@ -351,7 +354,7 @@ function durableEcdsaJwtMatchesRecord(args: {
   const jwt = String(args.record.ecdsaRestore?.thresholdSessionAuthToken || '').trim();
   if (!jwt) return true;
   const payload = decodeJwtPayloadRecord(jwt);
-  if (!payload || payload.kind !== THRESHOLD_ECDSA_SESSION_JWT_KIND) return false;
+  if (!payload || payload.kind !== THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND) return false;
   let jwtChainTarget: ThresholdEcdsaChainTarget;
   try {
     jwtChainTarget = thresholdEcdsaChainTargetFromRequest(

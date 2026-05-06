@@ -59,7 +59,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   }
   if (hasCanonicalRuntimeScope && !thresholdSessionAuthToken) {
     throw new Error(
-      'Threshold Ed25519 session is bound to canonical single-key HSS scope but is missing threshold session JWT for reconstruction',
+      'Threshold Ed25519 session is bound to canonical single-key HSS scope but is missing threshold session auth token for reconstruction',
     );
   }
   if (!signingRootId) {
@@ -69,7 +69,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   }
   if (!thresholdSessionAuthToken) {
     throw new Error(
-      'Threshold Ed25519 session is missing threshold session JWT for single-key HSS reconstruction',
+      'Threshold Ed25519 session is missing threshold session auth token for single-key HSS reconstruction',
     );
   }
 

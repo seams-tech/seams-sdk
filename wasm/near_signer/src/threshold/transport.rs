@@ -10,7 +10,7 @@ pub(super) struct ThresholdEd25519SignInitOk {
 
 pub(super) struct ThresholdEd25519SessionMintOk {
     pub(super) expires_at: Option<String>,
-    pub(super) jwt: Option<String>,
+    pub(super) auth_token: Option<String>,
 }
 
 pub(super) trait ThresholdEd25519Transport {
@@ -89,7 +89,7 @@ impl ThresholdEd25519Transport for HttpThresholdEd25519Transport {
 
         Ok(ThresholdEd25519SessionMintOk {
             expires_at: out.expires_at,
-            jwt: out.jwt,
+            auth_token: out.jwt,
         })
     }
 

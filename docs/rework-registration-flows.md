@@ -8,7 +8,7 @@ Registration should support three first-class modes with one WebAuthn `create()`
 - ECDSA only.
 - Ed25519 and ECDSA together.
 
-Later signer creation should use a fresh WebAuthn `get()` assertion or an explicitly approved app-session policy. Initial registration should not require a threshold-session JWT, an Ed25519 session token, or a registration continuation JWT to create ECDSA key material.
+Later signer creation should use a fresh WebAuthn `get()` assertion or an explicitly approved app-session policy. Initial registration should not require a threshold-session auth token, an Ed25519 session token, or a registration continuation JWT to create ECDSA key material.
 
 ## Current Shape
 
@@ -16,7 +16,7 @@ The current passkey registration path is NEAR-account and Ed25519 anchored:
 
 1. Client creates a WebAuthn credential.
 2. Client prepares threshold Ed25519 HSS material.
-3. Server creates the NEAR account and returns an Ed25519 threshold-session JWT.
+3. Server creates the NEAR account and returns an Ed25519 threshold-session auth token.
 4. Server can also return `registrationContinuation.token`.
 5. Client uses the continuation token to provision ECDSA through `/threshold-ecdsa/hss/*`.
 
@@ -578,8 +578,8 @@ Tests to edit or add:
 - [ ] Delete `{ kind: 'registration_continuation' }` from `client/src/core/rpcClients/relayer/thresholdEcdsa.ts`.
 - [ ] Delete raw `threshold_ecdsa.client_root_share32_b64u` registration support from server and client code.
 - [ ] Delete `/registration/bootstrap` and `/registration/threshold-ed25519/hss/*` routes in the same refactor that moves wrappers to `/wallets/register/*`.
-- [ ] Delete mixed paths that derive ECDSA authority from Ed25519 threshold-session JWTs.
-- [ ] Rename threshold signing-session JWT fields to opaque auth-token names as covered by `docs/signing-session-architecture/threshold-session-auth-token.md`.
+- [ ] Delete mixed paths that derive ECDSA authority from Ed25519 threshold-session auth tokens.
+- [ ] Rename threshold signing-session auth fields to opaque auth-token names as covered by `docs/signing-session-architecture/threshold-session-auth-token.md`.
 - [ ] Update route definitions, architecture guards, and tests so deleted continuation symbols are absent from production code.
 
 ### Phase 6: Test And Verification

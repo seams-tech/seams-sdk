@@ -30,7 +30,7 @@ export type ThresholdEcdsaLoginPrefillSkippedReason =
   | 'pool_disabled'
   | 'pool_already_warm'
   | 'missing_threshold_session_id'
-  | 'missing_threshold_session_jwt'
+  | 'missing_threshold_session_auth_token'
   | 'invalid_key_ref'
   | 'warm_session_not_active'
   | 'threshold_session_mismatch'
@@ -171,7 +171,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
     if (sessionKind === 'jwt' && !thresholdSessionAuthToken) {
       return {
         status: 'skipped',
-        reason: 'missing_threshold_session_jwt',
+        reason: 'missing_threshold_session_auth_token',
         thresholdSessionId,
       };
     }

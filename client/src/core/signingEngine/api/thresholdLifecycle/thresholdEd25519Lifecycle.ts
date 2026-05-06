@@ -389,7 +389,7 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
     const operation = String(args.operation || '').trim();
     if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server prepare');
     if (!thresholdSessionAuthToken) {
-      throw new Error('Missing threshold session JWT for Ed25519 HSS server prepare');
+      throw new Error('Missing threshold session auth token for Ed25519 HSS server prepare');
     }
     if (!relayerKeyId) throw new Error('Missing relayerKeyId for Ed25519 HSS server prepare');
     if (!operation) throw new Error('Missing operation for Ed25519 HSS server prepare');
@@ -502,7 +502,7 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
     const ceremonyHandle = String(args.ceremonyHandle || '').trim();
     if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server respond');
     if (!thresholdSessionAuthToken) {
-      throw new Error('Missing threshold session JWT for Ed25519 HSS server respond');
+      throw new Error('Missing threshold session auth token for Ed25519 HSS server respond');
     }
     if (!ceremonyHandle) throw new Error('Missing ceremonyHandle for Ed25519 HSS server respond');
     if (typeof fetch !== 'function') {
@@ -586,7 +586,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
     const ceremonyHandle = String(args.ceremonyHandle || '').trim();
     if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server finalize');
     if (!thresholdSessionAuthToken) {
-      throw new Error('Missing threshold session JWT for Ed25519 HSS server finalize');
+      throw new Error('Missing threshold session auth token for Ed25519 HSS server finalize');
     }
     if (!ceremonyHandle) throw new Error('Missing ceremonyHandle for Ed25519 HSS server finalize');
     if (typeof fetch !== 'function') {

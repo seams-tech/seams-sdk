@@ -20,7 +20,7 @@ enum ThresholdAuthSessionKind {
 #[derive(Clone, Debug)]
 struct CachedThresholdAuthSession {
     kind: ThresholdAuthSessionKind,
-    jwt: Option<String>,
+    auth_token: Option<String>,
     expires_at_ms: Option<f64>,
 }
 
@@ -129,7 +129,7 @@ async fn authorize_mpc_session_id_with_cached_threshold_auth_session_strict(
     }
 
     let bearer = match sess.kind {
-        ThresholdAuthSessionKind::Jwt => sess.jwt.as_deref(),
+        ThresholdAuthSessionKind::Jwt => sess.auth_token.as_deref(),
         ThresholdAuthSessionKind::Cookie => None,
     };
 
@@ -167,7 +167,7 @@ async fn try_authorize_mpc_session_id_with_cached_threshold_auth_session(
     }
 
     let bearer = match sess.kind {
-        ThresholdAuthSessionKind::Jwt => sess.jwt.as_deref(),
+        ThresholdAuthSessionKind::Jwt => sess.auth_token.as_deref(),
         ThresholdAuthSessionKind::Cookie => None,
     };
 
@@ -203,17 +203,17 @@ async fn resolve_mpc_session_id(
         return Ok(id.to_string());
     }
 
-    // If the caller provided a threshold session JWT (persisted outside this worker), prefer it
+    // If the caller provided a threshold session auth token, prefer it
     // over any in-worker cache so session-style authorization works across one-shot signer worker
     // instances.
-    if let Some(jwt) = trim_nonempty(cfg.threshold_session_jwt.as_deref()) {
+    if let Some(auth_token) = trim_nonempty(cfg.threshold_session_auth_token.as_deref()) {
         return transport
             .authorize_mpc_session_id_with_threshold_session(
                 cfg,
                 purpose,
                 signing_digest_32,
                 signing_payload_json,
-                Some(jwt),
+                Some(auth_token),
             )
             .await;
     }
@@ -234,7 +234,7 @@ async fn resolve_mpc_session_id(
 
     // No cached session token: mint one if policy JSON is configured, then authorize.
     let policy_json = trim_nonempty(cfg.threshold_session_policy_json.as_deref()).ok_or_else(|| {
-        "threshold-signer: missing thresholdSessionJwt and no thresholdSessionPolicyJson to mint one".to_string()
+        "threshold-signer: missing thresholdSessionAuthToken and no thresholdSessionPolicyJson to mint one".to_string()
     })?;
     let credential_json = credential_json_opt.ok_or_else(|| {
         "threshold-signer: missing credential and no cached threshold session token".to_string()
@@ -257,8 +257,8 @@ async fn resolve_mpc_session_id(
             .filter(|ms| !ms.is_nan());
         let cached = CachedThresholdAuthSession {
             kind,
-            jwt: sess
-                .jwt
+            auth_token: sess
+                .auth_token
                 .as_ref()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty()),

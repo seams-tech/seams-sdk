@@ -23,7 +23,7 @@ The SDK owns a single threshold ECDSA session record keyed by wallet/account con
 - `relayerUrl`
 - `ecdsaThresholdKeyId`
 - `participantIds` (required)
-- `thresholdSessionKind`, `thresholdSessionId`, `thresholdSessionJwt` (when JWT mode is used)
+- `thresholdSessionKind`, `thresholdSessionId`, `thresholdSessionAuthToken`
 - `expiresAtMs`, `remainingUses`
 - `groupPublicKeyB64u`
 - `ethereumAddress`

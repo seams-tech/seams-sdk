@@ -35,7 +35,7 @@ plaintext signing_session_secret32
 plaintext Email OTP S
 device-local Email OTP enrollment escrow enc_s(S)
 raw app-session JWTs in sealed-refresh records
-raw threshold-session JWTs in sealed-refresh records
+raw threshold-session auth tokens in sealed-refresh records
 ```
 
 The sealed artifact is useful only with live server participation and valid server-side signing-session state.

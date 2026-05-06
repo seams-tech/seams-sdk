@@ -25,7 +25,7 @@ function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_sess
   };
 }
 
-test.describe('threshold session JWT claims', () => {
+test.describe('threshold session auth token claims', () => {
   test('requires explicit walletId on threshold-ed25519 session tokens', () => {
     const claims = baseClaims('threshold_ed25519_session_v1');
 

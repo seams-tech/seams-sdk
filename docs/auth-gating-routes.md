@@ -109,7 +109,7 @@ Required properties:
 
 Use for threshold authorization and continuation routes that are authenticated by threshold session claims.
 
-- authenticated via threshold session JWTs or equivalent threshold signing session claims
+- authenticated via threshold session auth tokens or equivalent threshold signing session claims
 - scoped to the threshold signing flow, not reused as a general user session
 
 ### 5. Explicit public route
@@ -603,7 +603,7 @@ Required rule:
 
 #### Threshold session routes
 
-Use threshold session JWTs:
+Use threshold session auth tokens:
 
 - `/threshold-ed25519/authorize`
 - `/threshold-ed25519/hss/prepare`

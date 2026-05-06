@@ -627,7 +627,7 @@ tests, not product-boundary identity tests:
       input and instead assert the staged/root-share bootstrap seam plus
       canonical `ecdsaThresholdKeyId`
 - [x] move `tests/helpers/thresholdEcdsaTempoFlow.ts` onto managed registration
-      transport and real threshold-session JWT issuance so the Tempo harness is
+      transport and real threshold-session auth-token issuance so the Tempo harness is
       exercising the current registration seam instead of the removed direct
       bootstrap path
 - [x] update `tests/unit/thresholdEcdsa.tempoHighLevel.unit.test.ts` and

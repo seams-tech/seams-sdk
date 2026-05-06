@@ -56,7 +56,7 @@ This is separate future work. Do not implement registration continuation token s
 ### 2. Inventory Names
 
 - [x] Run:
-  `rg "thresholdSessionJwt|hasThresholdSessionJwt|sessionKind.*jwt|thresholdRouteAuth|sessionJwt|threshold.*jwt|jwt.*threshold" client server shared tests`.
+  `rg "thresholdSessionJwt|hasThresholdSessionJwt|thresholdRouteAuth" client server shared tests`.
 - [x] Classify hits as app auth, threshold-session auth, registration continuation auth, fixture, or dead code.
 - [x] Delete dead compatibility code while renaming the affected callsite.
 

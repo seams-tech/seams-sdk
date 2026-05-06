@@ -1,14 +1,14 @@
 import { base64UrlDecode } from './base64';
 
 export const APP_SESSION_JWT_KIND = 'app_session_v1' as const;
-export const THRESHOLD_ED25519_SESSION_JWT_KIND = 'threshold_ed25519_session_v1' as const;
-export const THRESHOLD_ECDSA_SESSION_JWT_KIND = 'threshold_ecdsa_session_v1' as const;
+export const THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND = 'threshold_ed25519_session_v1' as const;
+export const THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND = 'threshold_ecdsa_session_v1' as const;
 export const REGISTRATION_CONTINUATION_JWT_KIND = 'registration_continuation_v1' as const;
 
 export type AppSessionJwtKind = typeof APP_SESSION_JWT_KIND;
 export type ThresholdSessionAuthTokenKind =
-  | typeof THRESHOLD_ED25519_SESSION_JWT_KIND
-  | typeof THRESHOLD_ECDSA_SESSION_JWT_KIND;
+  | typeof THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND
+  | typeof THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND;
 export type RegistrationContinuationJwtKind = typeof REGISTRATION_CONTINUATION_JWT_KIND;
 export type SessionJwtKind =
   | AppSessionJwtKind
@@ -77,7 +77,10 @@ export function isAppSessionJwt(jwtRaw: string): boolean {
 
 export function isThresholdSessionAuthToken(tokenRaw: string): boolean {
   const kind = getSessionJwtKind(tokenRaw);
-  return kind === THRESHOLD_ED25519_SESSION_JWT_KIND || kind === THRESHOLD_ECDSA_SESSION_JWT_KIND;
+  return (
+    kind === THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND ||
+    kind === THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND
+  );
 }
 
 export function requireAppSessionJwt(jwtRaw: string, label = 'appSessionJwt'): string {
@@ -113,7 +116,10 @@ export function appOrThresholdSessionAuthTokenAuth(jwtRaw: string): AppOrThresho
   const jwt = String(jwtRaw || '').trim();
   if (!jwt) throw new Error('session auth token is required');
   const kind = getSessionJwtKind(jwt);
-  if (kind === THRESHOLD_ED25519_SESSION_JWT_KIND || kind === THRESHOLD_ECDSA_SESSION_JWT_KIND) {
+  if (
+    kind === THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND ||
+    kind === THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND
+  ) {
     return thresholdSessionAuthTokenAuth(jwt);
   }
   if (kind === APP_SESSION_JWT_KIND) {

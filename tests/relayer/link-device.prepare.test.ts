@@ -90,7 +90,7 @@ function makePreparedLinkDeviceService() {
 }
 
 test.describe('link-device prepare routing', () => {
-  test('express route signs and returns both threshold session JWTs', async () => {
+  test('express route signs and returns both threshold session auth tokens', async () => {
     const session = makeSessionAdapter({
       signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
     });
@@ -125,7 +125,7 @@ test.describe('link-device prepare routing', () => {
     }
   });
 
-  test('cloudflare route signs and returns both threshold session JWTs', async () => {
+  test('cloudflare route signs and returns both threshold session auth tokens', async () => {
     const session = makeSessionAdapter({
       signJwt: async (sub, claims) => `jwt:${sub}:${String((claims as any)?.sessionId || '')}`,
     });

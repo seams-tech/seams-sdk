@@ -622,7 +622,9 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     throw new Error('Invalid threshold ECDSA canonical session record');
   }
   if (thresholdSessionKind === 'jwt' && !thresholdSessionAuthToken) {
-    throw new Error('Invalid threshold ECDSA canonical session record: missing JWT');
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: missing threshold session auth token',
+    );
   }
   if (expiresAtMs == null || expiresAtMs <= 0) {
     throw new Error('Invalid threshold ECDSA canonical session record: missing expiresAtMs');
@@ -764,7 +766,9 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     throw new Error('Invalid threshold Ed25519 canonical session record');
   }
   if (thresholdSessionKind === 'jwt' && !thresholdSessionAuthToken) {
-    throw new Error('Invalid threshold Ed25519 canonical session record: missing JWT');
+    throw new Error(
+      'Invalid threshold Ed25519 canonical session record: missing threshold session auth token',
+    );
   }
   if (expiresAtMs == null || expiresAtMs <= 0) {
     throw new Error('Invalid threshold Ed25519 canonical session record: missing expiresAtMs');

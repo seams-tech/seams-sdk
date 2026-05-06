@@ -39,5 +39,5 @@ pub struct ThresholdSignerConfig {
     /// Optional bearer token returned by `POST /threshold-ed25519/session`.
     /// When present, the signer worker uses it to authenticate `/threshold-ed25519/authorize` requests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub threshold_session_jwt: Option<String>,
+    pub threshold_session_auth_token: Option<String>,
 }
