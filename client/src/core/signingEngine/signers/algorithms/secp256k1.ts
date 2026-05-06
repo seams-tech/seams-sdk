@@ -308,24 +308,24 @@ export class Secp256k1Engine implements Signer {
         );
       }
 
-      const keyRefJwt = String(keyRef.thresholdSessionJwt || '').trim();
-      const recordJwt = String(
-        canonicalRecordMatchesKeyRefLane ? canonicalRecord?.thresholdSessionJwt || '' : '',
+      const keyRefAuthToken = String(keyRef.thresholdSessionAuthToken || '').trim();
+      const recordAuthToken = String(
+        canonicalRecordMatchesKeyRefLane ? canonicalRecord?.thresholdSessionAuthToken || '' : '',
       ).trim();
-      const resolvedJwt = String(
-        canonicalRecordMatchesKeyRefLane ? resolvedAuthMaterial?.thresholdSessionJwt || '' : '',
+      const resolvedAuthToken = String(
+        canonicalRecordMatchesKeyRefLane ? resolvedAuthMaterial?.thresholdSessionAuthToken || '' : '',
       ).trim();
-      const thresholdSessionJwt = resolvedJwt || recordJwt || keyRefJwt || undefined;
+      const thresholdSessionAuthToken = resolvedAuthToken || recordAuthToken || keyRefAuthToken || undefined;
 
-      if (sessionKind === 'jwt' && !thresholdSessionJwt) {
+      if (sessionKind === 'jwt' && !thresholdSessionAuthToken) {
         throw new Error(
           '[multichain] threshold-ecdsa session token unavailable; reconnect threshold session via bootstrapEcdsaSession',
         );
       }
       if (sessionKind === 'jwt') {
-        if (canonicalRecordMatchesKeyRefLane && keyRefJwt && recordJwt && keyRefJwt !== recordJwt) {
+        if (canonicalRecordMatchesKeyRefLane && keyRefAuthToken && recordAuthToken && keyRefAuthToken !== recordAuthToken) {
           console.debug(
-            '[multichain] using current threshold-ecdsa session record JWT over stale keyRef JWT',
+            '[multichain] using current threshold-ecdsa session record auth token over stale keyRef auth token',
             {
               thresholdSessionId: keyRefThresholdSessionId,
             },
@@ -340,7 +340,7 @@ export class Secp256k1Engine implements Signer {
         purpose,
         signingDigest32: req.digest32,
         sessionKind,
-        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+        ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
       });
       if (!authorized.ok || !authorized.mpcSessionId) {
         throw new Error(
@@ -420,7 +420,7 @@ export class Secp256k1Engine implements Signer {
           thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
           relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
           sessionKind,
-          ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+          ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
           workerCtx: this.workerCtx,
         };
         if (usesEmailOtpWorkerSession) {
@@ -469,7 +469,7 @@ export class Secp256k1Engine implements Signer {
           thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
           relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
           sessionKind,
-          ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+          ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
           workerCtx: this.workerCtx,
         });
         if (!signed.ok) {

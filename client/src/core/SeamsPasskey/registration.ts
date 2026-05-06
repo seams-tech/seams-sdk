@@ -659,7 +659,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
           ? { sessionId: existingKeyPublicationSessionId }
           : {}),
         clientRootShare32B64u,
-        thresholdRouteAuth: {
+        thresholdSessionAuth: {
           kind: 'registration_continuation',
           token: registrationContinuationToken,
         },
@@ -678,7 +678,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         bootstrap,
         signerSlot: 1,
       });
-      const thresholdSessionJwtSource = String(keyRef.thresholdSessionJwt || '').trim()
+      const thresholdSessionAuthTokenSource = String(keyRef.thresholdSessionAuthToken || '').trim()
         ? 'ecdsa'
         : 'none';
       console.info('[Registration] threshold ECDSA background provisioned', {
@@ -687,7 +687,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
         relayerKeyId: keyRef.backendBinding?.relayerKeyId,
         thresholdSessionId: keyRef.thresholdSessionId,
-        thresholdSessionJwtSource,
+        thresholdSessionAuthTokenSource,
         accountAddress:
           bootstrap.keygen.counterfactualAddress || bootstrap.keygen.ethereumAddress || null,
         durationMs:

@@ -1,6 +1,6 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { isObject, json, readJson } from '../http';
-import { signThresholdSessionJwt } from '../../commonRouterUtils';
+import { signThresholdSessionAuthToken } from '../../commonRouterUtils';
 
 export async function handleEmailRecoveryPrepare(
   ctx: CloudflareRelayContext,
@@ -21,7 +21,7 @@ export async function handleEmailRecoveryPrepare(
     ...(origin ? { expected_origin: origin } : {}),
   });
   if (result.ok && result.thresholdEd25519?.session) {
-    const signed = await signThresholdSessionJwt({
+    const signed = await signThresholdSessionAuthToken({
       session: ctx.opts.session,
       kind: 'threshold_ed25519_session_v1',
       userId: result.accountId,
@@ -41,7 +41,7 @@ export async function handleEmailRecoveryPrepare(
     result.thresholdEd25519.session.jwt = signed.jwt;
   }
   if (result.ok && result.thresholdEcdsa?.session) {
-    const signed = await signThresholdSessionJwt({
+    const signed = await signThresholdSessionAuthToken({
       session: ctx.opts.session,
       kind: 'threshold_ecdsa_session_v1',
       userId: result.accountId,

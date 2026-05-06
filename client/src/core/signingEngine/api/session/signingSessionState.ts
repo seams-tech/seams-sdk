@@ -12,7 +12,7 @@ export type SigningSessionCacheEntry = {
     curve?: 'ed25519' | 'ecdsa';
     relayerUrl?: string;
     walletSigningSessionId?: string;
-    thresholdSessionJwt?: string;
+    thresholdSessionAuthToken?: string;
     keyVersion?: string;
     shamirPrimeB64u?: string;
   };

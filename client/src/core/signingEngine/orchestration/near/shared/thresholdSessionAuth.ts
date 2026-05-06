@@ -5,7 +5,7 @@ import { THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR } from './thresholdAuthMode';
 export type ResolvedThresholdEd25519SessionState = {
   record: ThresholdEd25519SessionRecord;
   sessionKind: 'jwt' | 'cookie';
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   xClientBaseB64u?: string;
   relayerUrl: string;
 };
@@ -26,14 +26,14 @@ export function requireResolvedThresholdEd25519SessionState(args: {
   }
   const sessionKind: 'jwt' | 'cookie' =
     record.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
-  const thresholdSessionJwt = String(record.thresholdSessionJwt || '').trim() || undefined;
-  if (sessionKind === 'jwt' && !thresholdSessionJwt) {
+  const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim() || undefined;
+  if (sessionKind === 'jwt' && !thresholdSessionAuthToken) {
     throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
   }
   return {
     record,
     sessionKind,
-    thresholdSessionJwt,
+    thresholdSessionAuthToken,
     xClientBaseB64u: String(record.xClientBaseB64u || '').trim() || undefined,
     relayerUrl: String(record.relayerUrl || '').trim(),
   };

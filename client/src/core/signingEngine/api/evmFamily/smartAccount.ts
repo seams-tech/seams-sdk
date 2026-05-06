@@ -55,10 +55,10 @@ export async function ensureSmartAccountDeploymentReady(args: {
         ? {
             deploy: (input) => {
               const relayerUrl = String(args.thresholdEcdsaKeyRef?.relayerUrl || '').trim();
-              const thresholdSessionJwt = String(
-                args.thresholdEcdsaKeyRef?.thresholdSessionJwt || '',
+              const thresholdSessionAuthToken = String(
+                args.thresholdEcdsaKeyRef?.thresholdSessionAuthToken || '',
               ).trim();
-              if (!relayerUrl || !thresholdSessionJwt) {
+              if (!relayerUrl || !thresholdSessionAuthToken) {
                 return Promise.resolve({
                   ok: false,
                   code: 'missing_transport',
@@ -68,11 +68,11 @@ export async function ensureSmartAccountDeploymentReady(args: {
               }
               return deploySmartAccountForChain(args.deps.seamsPasskeyConfigs, input, {
                 relayerUrl,
-                thresholdSessionJwt,
+                thresholdSessionAuthToken,
               });
             },
             ...(args.thresholdEcdsaKeyRef?.relayerUrl &&
-            args.thresholdEcdsaKeyRef?.thresholdSessionJwt
+            args.thresholdEcdsaKeyRef?.thresholdSessionAuthToken
               ? {
                   reportDeployed: async (
                     input: Parameters<
@@ -84,7 +84,7 @@ export async function ensureSmartAccountDeploymentReady(args: {
                     await reportSmartAccountDeploymentObservation({
                       ...input,
                       relayerUrl: args.thresholdEcdsaKeyRef!.relayerUrl,
-                      thresholdSessionJwt: args.thresholdEcdsaKeyRef!.thresholdSessionJwt!,
+                      thresholdSessionAuthToken: args.thresholdEcdsaKeyRef!.thresholdSessionAuthToken!,
                     });
                   },
                 }

@@ -308,12 +308,12 @@ export function completeRegisteredThresholdEd25519Registration(args: {
     .trim()
     .toLowerCase();
   const sessionId = String(session?.sessionId || '').trim();
-  const sessionJwt = String(session?.jwt || '').trim();
+  const sessionAuthToken = String(session?.jwt || '').trim();
   const expiresAtMs = Number(session?.expiresAtMs);
   if (
     sessionKind !== 'jwt' ||
     !sessionId ||
-    !sessionJwt ||
+    !sessionAuthToken ||
     !Number.isFinite(expiresAtMs) ||
     expiresAtMs <= 0
   ) {
@@ -467,7 +467,7 @@ export async function persistRegisteredThresholdEd25519Session(args: {
       curve: 'ed25519',
       relayerUrl: args.relayerUrl,
       ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-      ...(jwt ? { thresholdSessionJwt: jwt } : {}),
+      ...(jwt ? { thresholdSessionAuthToken: jwt } : {}),
     },
   });
 }
@@ -483,8 +483,8 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
   participantIdsHint?: number[];
 }): Promise<string> {
   const thresholdSessionId = String(args.session.sessionId || '').trim();
-  const thresholdSessionJwt = String(args.session.jwt || '').trim();
-  if (!thresholdSessionId || !thresholdSessionJwt) {
+  const thresholdSessionAuthToken = String(args.session.jwt || '').trim();
+  if (!thresholdSessionId || !thresholdSessionAuthToken) {
     throw new Error('Threshold Ed25519 warm session is missing JWT session state');
   }
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(args.session.runtimePolicyScope);
@@ -523,7 +523,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
   }
   const completed = await args.context.signingEngine.runThresholdEd25519HssCeremonyWithSession({
     relayerUrl,
-    thresholdSessionJwt,
+    thresholdSessionAuthToken,
     relayerKeyId,
     operation: 'warm_session_reconstruction',
     context: {
@@ -585,7 +585,7 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
     if (!thresholdKeyMaterial) return;
 
     if (sessionRecord.thresholdSessionKind !== 'jwt') return;
-    if (!String(sessionRecord.thresholdSessionJwt || '').trim()) return;
+    if (!String(sessionRecord.thresholdSessionAuthToken || '').trim()) return;
     if (!sessionRecord.runtimePolicyScope) return;
 
     const startedAt = performance.now();
@@ -602,7 +602,7 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
           expiresAtMs: sessionRecord.expiresAtMs,
           participantIds: sessionRecord.participantIds,
           remainingUses: sessionRecord.remainingUses,
-          jwt: sessionRecord.thresholdSessionJwt,
+          jwt: sessionRecord.thresholdSessionAuthToken,
           runtimePolicyScope: sessionRecord.runtimePolicyScope,
         },
         keyVersion: thresholdKeyMaterial.keyVersion,
@@ -659,9 +659,9 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     String(args.session?.walletSigningSessionId || '').trim() ||
     String(args.requestedPolicy.walletSigningSessionId || '').trim() ||
     String(args.requestedPolicy.sessionId || '').trim();
-  const sessionJwt = String(args.session?.jwt || '').trim();
+  const sessionAuthToken = String(args.session?.jwt || '').trim();
   const expiresAtMs = Number(args.session?.expiresAtMs);
-  if (!sessionId || !sessionJwt || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+  if (!sessionId || !sessionAuthToken || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error('threshold-ed25519 bootstrap response missing session fields');
   }
 
@@ -694,7 +694,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     walletSigningSessionId,
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,
-    jwt: sessionJwt,
+    jwt: sessionAuthToken,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     source: 'bootstrap',
   });
@@ -707,7 +707,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
       curve: 'ed25519',
       relayerUrl: String(args.relayerUrl || '').trim(),
       ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-      ...(sessionJwt ? { thresholdSessionJwt: sessionJwt } : {}),
+      ...(sessionAuthToken ? { thresholdSessionAuthToken: sessionAuthToken } : {}),
     },
   });
 

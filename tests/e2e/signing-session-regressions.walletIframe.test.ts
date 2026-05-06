@@ -254,8 +254,8 @@ async function runPasskeyEvmSign(
                   !Array.isArray(record.ecdsaRestore)
                     ? {
                         chain: (record.ecdsaRestore as Record<string, unknown>).chain,
-                        hasThresholdSessionJwt: Boolean(
-                          (record.ecdsaRestore as Record<string, unknown>).thresholdSessionJwt,
+                        hasThresholdSessionAuthToken: Boolean(
+                          (record.ecdsaRestore as Record<string, unknown>).thresholdSessionAuthToken,
                         ),
                         hasClientVerifyingShare: Boolean(
                           (record.ecdsaRestore as Record<string, unknown>).clientVerifyingShareB64u,

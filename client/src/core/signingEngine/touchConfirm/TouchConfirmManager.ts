@@ -607,7 +607,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       chainTarget?: ThresholdEcdsaChainTarget;
       relayerUrl?: string;
       walletSigningSessionId?: string;
-      thresholdSessionJwt?: string;
+      thresholdSessionAuthToken?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
     } | null,
@@ -644,12 +644,12 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         '',
     ).trim();
     if (!relayerUrl) return null;
-    const thresholdSessionJwt = String(
-      explicitTransport?.thresholdSessionJwt ||
-        (curve === 'ed25519' ? sealedRecord?.ed25519Restore?.thresholdSessionJwt : '') ||
-        (curve === 'ecdsa' ? sealedRecord?.ecdsaRestore?.thresholdSessionJwt : '') ||
-        ed25519Record?.thresholdSessionJwt ||
-        ecdsaRecord?.thresholdSessionJwt ||
+    const thresholdSessionAuthToken = String(
+      explicitTransport?.thresholdSessionAuthToken ||
+        (curve === 'ed25519' ? sealedRecord?.ed25519Restore?.thresholdSessionAuthToken : '') ||
+        (curve === 'ecdsa' ? sealedRecord?.ecdsaRestore?.thresholdSessionAuthToken : '') ||
+        ed25519Record?.thresholdSessionAuthToken ||
+        ecdsaRecord?.thresholdSessionAuthToken ||
         '',
     ).trim();
     const walletSigningSessionId = String(
@@ -681,7 +681,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         chainTarget,
         relayerUrl,
         ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+        ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
         ...(keyVersion ? { keyVersion } : {}),
         ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
       };
@@ -691,7 +691,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       curve,
       relayerUrl,
       ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-      ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+      ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
       ...(keyVersion ? { keyVersion } : {}),
       ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
     };
@@ -724,8 +724,8 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       ecdsaRecord.chainTarget
         ? {
             chainTarget: ecdsaRecord.chainTarget,
-            ...(ecdsaRecord.thresholdSessionJwt
-              ? { thresholdSessionJwt: ecdsaRecord.thresholdSessionJwt }
+            ...(ecdsaRecord.thresholdSessionAuthToken
+              ? { thresholdSessionAuthToken: ecdsaRecord.thresholdSessionAuthToken }
               : {}),
             sessionKind: ecdsaRecord.thresholdSessionKind,
             ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
@@ -742,8 +742,8 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
           rpId: ed25519Record.rpId,
           relayerKeyId: ed25519Record.relayerKeyId,
           participantIds: ed25519Record.participantIds,
-          ...(ed25519Record.thresholdSessionJwt
-            ? { thresholdSessionJwt: ed25519Record.thresholdSessionJwt }
+          ...(ed25519Record.thresholdSessionAuthToken
+            ? { thresholdSessionAuthToken: ed25519Record.thresholdSessionAuthToken }
             : {}),
           sessionKind: ed25519Record.thresholdSessionKind,
           ...(ed25519Record.runtimePolicyScope
@@ -789,7 +789,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         thresholdSessionKind: restore.sessionKind,
         thresholdSessionId,
         walletSigningSessionId,
-        ...(restore.thresholdSessionJwt ? { thresholdSessionJwt: restore.thresholdSessionJwt } : {}),
+        ...(restore.thresholdSessionAuthToken ? { thresholdSessionAuthToken: restore.thresholdSessionAuthToken } : {}),
         expiresAtMs: args.policy.expiresAtMs,
         remainingUses: args.policy.remainingUses,
         updatedAtMs: Date.now(),
@@ -829,7 +829,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
         thresholdSessionKind: restore.sessionKind,
         thresholdSessionId,
         walletSigningSessionId,
-        ...(restore.thresholdSessionJwt ? { thresholdSessionJwt: restore.thresholdSessionJwt } : {}),
+        ...(restore.thresholdSessionAuthToken ? { thresholdSessionAuthToken: restore.thresholdSessionAuthToken } : {}),
         ...(args.record.keyVersion ? { signingSessionSealKeyVersion: args.record.keyVersion } : {}),
         ...(args.record.shamirPrimeB64u
           ? { signingSessionSealShamirPrimeB64u: args.record.shamirPrimeB64u }
@@ -914,8 +914,8 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
             walletSigningSessionId: args.purpose.walletSigningSessionId,
             keyVersion: args.record.keyVersion,
             shamirPrimeB64u: args.record.shamirPrimeB64u,
-            ...(args.record.ecdsaRestore?.thresholdSessionJwt
-              ? { thresholdSessionJwt: args.record.ecdsaRestore.thresholdSessionJwt }
+            ...(args.record.ecdsaRestore?.thresholdSessionAuthToken
+              ? { thresholdSessionAuthToken: args.record.ecdsaRestore.thresholdSessionAuthToken }
               : {}),
           },
           args.record,
@@ -1372,8 +1372,8 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
       const relayerUrl = String(
         args?.transport?.relayerUrl || inferredTransport?.relayerUrl || '',
       ).trim();
-      const thresholdSessionJwt = String(
-        args?.transport?.thresholdSessionJwt || inferredTransport?.thresholdSessionJwt || '',
+      const thresholdSessionAuthToken = String(
+        args?.transport?.thresholdSessionAuthToken || inferredTransport?.thresholdSessionAuthToken || '',
       ).trim();
       const keyVersion = String(
         args?.transport?.keyVersion ||
@@ -1410,7 +1410,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
               chainTarget: chainTarget!,
               relayerUrl,
               walletSigningSessionId,
-              ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+              ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
               ...(keyVersion ? { keyVersion } : {}),
               shamirPrimeB64u,
             }
@@ -1418,7 +1418,7 @@ class TouchConfirmWorkerManagerImpl implements TouchConfirmManager {
               curve,
               relayerUrl,
               walletSigningSessionId,
-              ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+              ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
               ...(keyVersion ? { keyVersion } : {}),
               shamirPrimeB64u,
             };

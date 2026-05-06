@@ -1,6 +1,6 @@
 import type { Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
-import { signThresholdSessionJwt } from '../../commonRouterUtils';
+import { signThresholdSessionAuthToken } from '../../commonRouterUtils';
 
 export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   router.post('/sync-account/options', async (req: any, res: any) => {
@@ -63,7 +63,7 @@ export function registerSyncAccountRoutes(router: ExpressRouter, ctx: ExpressRel
 
       const thresholdSession = result.thresholdEd25519?.session;
       if (thresholdSession) {
-        const signed = await signThresholdSessionJwt({
+        const signed = await signThresholdSessionAuthToken({
           session: ctx.opts.session,
           kind: 'threshold_ed25519_session_v1',
           userId: result.accountId,

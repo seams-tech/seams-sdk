@@ -1,6 +1,6 @@
 import type { Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
-import { signThresholdSessionJwt } from '../../commonRouterUtils';
+import { signThresholdSessionAuthToken } from '../../commonRouterUtils';
 
 export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressRelayContext): void {
   router.post('/email-recovery/prepare', async (req: any, res: any) => {
@@ -23,7 +23,7 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
 
       const thresholdSession = result.thresholdEd25519?.session;
       if (thresholdSession) {
-        const signed = await signThresholdSessionJwt({
+        const signed = await signThresholdSessionAuthToken({
           session: ctx.opts.session,
           kind: 'threshold_ed25519_session_v1',
           userId: result.accountId,
@@ -45,7 +45,7 @@ export function registerEmailRecoveryRoutes(router: ExpressRouter, ctx: ExpressR
 
       const thresholdEcdsaSession = result.thresholdEcdsa?.session;
       if (thresholdEcdsaSession) {
-        const signed = await signThresholdSessionJwt({
+        const signed = await signThresholdSessionAuthToken({
           session: ctx.opts.session,
           kind: 'threshold_ecdsa_session_v1',
           userId: result.accountId,

@@ -6,13 +6,13 @@ export const THRESHOLD_ECDSA_SESSION_JWT_KIND = 'threshold_ecdsa_session_v1' as 
 export const REGISTRATION_CONTINUATION_JWT_KIND = 'registration_continuation_v1' as const;
 
 export type AppSessionJwtKind = typeof APP_SESSION_JWT_KIND;
-export type ThresholdSessionJwtKind =
+export type ThresholdSessionAuthTokenKind =
   | typeof THRESHOLD_ED25519_SESSION_JWT_KIND
   | typeof THRESHOLD_ECDSA_SESSION_JWT_KIND;
 export type RegistrationContinuationJwtKind = typeof REGISTRATION_CONTINUATION_JWT_KIND;
 export type SessionJwtKind =
   | AppSessionJwtKind
-  | ThresholdSessionJwtKind
+  | ThresholdSessionAuthTokenKind
   | RegistrationContinuationJwtKind;
 
 export type AppSessionJwtAuth = {
@@ -20,7 +20,7 @@ export type AppSessionJwtAuth = {
   jwt: string;
 };
 
-export type ThresholdSessionJwtAuth = {
+export type ThresholdSessionAuthTokenAuth = {
   kind: 'threshold_session';
   jwt: string;
 };
@@ -29,7 +29,7 @@ export type CookieSessionAuth = {
   kind: 'cookie';
 };
 
-export type AppOrThresholdSessionAuth = AppSessionJwtAuth | ThresholdSessionJwtAuth;
+export type AppOrThresholdSessionAuth = AppSessionJwtAuth | ThresholdSessionAuthTokenAuth;
 export type RouteSessionAuth = AppOrThresholdSessionAuth | CookieSessionAuth;
 
 export function decodeJwtPayloadRecord(jwtRaw: string): Record<string, unknown> | null {
@@ -75,8 +75,8 @@ export function isAppSessionJwt(jwtRaw: string): boolean {
   return kind === APP_SESSION_JWT_KIND;
 }
 
-export function isThresholdSessionJwt(jwtRaw: string): boolean {
-  const kind = getSessionJwtKind(jwtRaw);
+export function isThresholdSessionAuthToken(tokenRaw: string): boolean {
+  const kind = getSessionJwtKind(tokenRaw);
   return kind === THRESHOLD_ED25519_SESSION_JWT_KIND || kind === THRESHOLD_ECDSA_SESSION_JWT_KIND;
 }
 
@@ -89,32 +89,35 @@ export function requireAppSessionJwt(jwtRaw: string, label = 'appSessionJwt'): s
   return jwt;
 }
 
-export function requireThresholdSessionJwt(jwtRaw: string, label = 'thresholdSessionJwt'): string {
-  const jwt = String(jwtRaw || '').trim();
-  if (!jwt) throw new Error(`${label} is required`);
-  if (!isThresholdSessionJwt(jwt)) {
-    throw new Error(`${label} must be a threshold-session JWT`);
+export function requireThresholdSessionAuthToken(
+  tokenRaw: string,
+  label = 'thresholdSessionAuthToken',
+): string {
+  const token = String(tokenRaw || '').trim();
+  if (!token) throw new Error(`${label} is required`);
+  if (!isThresholdSessionAuthToken(token)) {
+    throw new Error(`${label} must be a threshold-session auth token`);
   }
-  return jwt;
+  return token;
 }
 
 export function appSessionJwtAuth(jwtRaw: string): AppSessionJwtAuth {
   return { kind: 'app_session', jwt: requireAppSessionJwt(jwtRaw) };
 }
 
-export function thresholdSessionJwtAuth(jwtRaw: string): ThresholdSessionJwtAuth {
-  return { kind: 'threshold_session', jwt: requireThresholdSessionJwt(jwtRaw) };
+export function thresholdSessionAuthTokenAuth(tokenRaw: string): ThresholdSessionAuthTokenAuth {
+  return { kind: 'threshold_session', jwt: requireThresholdSessionAuthToken(tokenRaw) };
 }
 
-export function appOrThresholdSessionJwtAuth(jwtRaw: string): AppOrThresholdSessionAuth {
+export function appOrThresholdSessionAuthTokenAuth(jwtRaw: string): AppOrThresholdSessionAuth {
   const jwt = String(jwtRaw || '').trim();
-  if (!jwt) throw new Error('session JWT is required');
+  if (!jwt) throw new Error('session auth token is required');
   const kind = getSessionJwtKind(jwt);
   if (kind === THRESHOLD_ED25519_SESSION_JWT_KIND || kind === THRESHOLD_ECDSA_SESSION_JWT_KIND) {
-    return thresholdSessionJwtAuth(jwt);
+    return thresholdSessionAuthTokenAuth(jwt);
   }
   if (kind === APP_SESSION_JWT_KIND) {
     return appSessionJwtAuth(jwt);
   }
-  throw new Error('session JWT must include a valid session kind');
+  throw new Error('session auth token must include a valid session kind');
 }

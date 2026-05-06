@@ -144,11 +144,11 @@ function trustedBudgetStatusAuthFromEcdsaKeyRef(
   const relayerUrl = String(keyRef?.relayerUrl || '').trim();
   const thresholdSessionId = String(keyRef?.thresholdSessionId || '').trim();
   if (!relayerUrl || !thresholdSessionId) return undefined;
-  const thresholdSessionJwt = String(keyRef?.thresholdSessionJwt || '').trim();
+  const thresholdSessionAuthToken = String(keyRef?.thresholdSessionAuthToken || '').trim();
   return {
     relayerUrl,
     thresholdSessionId,
-    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
   };
 }
 

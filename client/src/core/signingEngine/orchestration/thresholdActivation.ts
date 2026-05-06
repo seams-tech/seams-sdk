@@ -66,7 +66,7 @@ export type ActivateEcdsaSessionRequest = {
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
-  thresholdRouteAuth?: ThresholdEcdsaHssRouteAuth;
+  thresholdSessionAuth?: ThresholdEcdsaHssRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -107,10 +107,10 @@ export async function activateEcdsaSession(
     remainingUses: args.remainingUses,
     workerCtx: deps.workerCtx,
   };
-  const bootstrap = args.thresholdRouteAuth
+  const bootstrap = args.thresholdSessionAuth
     ? await bootstrapEcdsaSession({
         ...baseBootstrapArgs,
-        bootstrapAuth: args.thresholdRouteAuth,
+        bootstrapAuth: args.thresholdSessionAuth,
         ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId,
         sessionId: requestedSessionId,
         walletSigningSessionId: requestedWalletSigningSessionId,
@@ -233,7 +233,7 @@ export async function activateEcdsaSession(
     thresholdSessionId: sessionId,
     walletSigningSessionId,
     ...(typeof session.jwt === 'string' && session.jwt.trim()
-      ? { thresholdSessionJwt: session.jwt.trim() }
+      ? { thresholdSessionAuthToken: session.jwt.trim() }
       : {}),
   };
 

@@ -10,7 +10,7 @@ const DEFAULT_SMART_ACCOUNT_DEPLOYMENT_MANIFEST_ROUTE = '/smart-account/deployme
 
 export type SmartAccountDeploymentTransport = {
   relayerUrl: string;
-  thresholdSessionJwt: string;
+  thresholdSessionAuthToken: string;
 };
 
 function resolveSmartAccountDeployEndpoint(configs: SeamsConfigsReadonly): string {
@@ -52,9 +52,9 @@ async function fetchCanonicalSmartAccountDeploymentManifest(input: {
   | { ok: false; code: string; message: string }
 > {
   const relayerUrl = String(input.transport.relayerUrl || '').trim();
-  const thresholdSessionJwt = String(input.transport.thresholdSessionJwt || '').trim();
+  const thresholdSessionAuthToken = String(input.transport.thresholdSessionAuthToken || '').trim();
   const accountAddress = String(input.accountAddress || '').trim();
-  if (!relayerUrl || !thresholdSessionJwt || !accountAddress) {
+  if (!relayerUrl || !thresholdSessionAuthToken || !accountAddress) {
     return {
       ok: false,
       code: 'missing_transport',
@@ -69,7 +69,7 @@ async function fetchCanonicalSmartAccountDeploymentManifest(input: {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${thresholdSessionJwt}`,
+          Authorization: `Bearer ${thresholdSessionAuthToken}`,
         },
         credentials: 'omit',
         body: JSON.stringify({

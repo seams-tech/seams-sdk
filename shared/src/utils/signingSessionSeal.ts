@@ -45,7 +45,7 @@ export type SealedSigningSessionEcdsaChainTarget =
 
 export type SealedSigningSessionEcdsaRestoreMetadata = {
   chainTarget: SealedSigningSessionEcdsaChainTarget;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   sessionKind: 'jwt' | 'cookie';
   ecdsaThresholdKeyId: string;
   relayerKeyId: string;
@@ -58,7 +58,7 @@ export type SealedSigningSessionEd25519RestoreMetadata = {
   rpId: string;
   relayerKeyId: string;
   participantIds: number[];
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   sessionKind: 'jwt' | 'cookie';
   runtimePolicyScope?: unknown;
   xClientBaseB64u?: string;

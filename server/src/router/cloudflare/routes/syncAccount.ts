@@ -1,6 +1,6 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { isObject, json, readJson } from '../http';
-import { signThresholdSessionJwt } from '../../commonRouterUtils';
+import { signThresholdSessionAuthToken } from '../../commonRouterUtils';
 
 export async function handleSyncAccount(ctx: CloudflareRelayContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
@@ -50,7 +50,7 @@ export async function handleSyncAccount(ctx: CloudflareRelayContext): Promise<Re
       expected_origin: origin,
     });
     if (result.ok && result.verified && result.thresholdEd25519?.session) {
-      const signed = await signThresholdSessionJwt({
+      const signed = await signThresholdSessionAuthToken({
         session: ctx.opts.session,
         kind: 'threshold_ed25519_session_v1',
         userId: result.accountId,

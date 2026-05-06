@@ -656,7 +656,7 @@ test.describe('Email OTP bootstrap integration', () => {
             participantIds: [1, 2],
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'ecdsa-session-cf-1',
-            thresholdSessionJwt: 'jwt-ecdsa-cf',
+            thresholdSessionAuthToken: 'jwt-ecdsa-cf',
           },
           keygen: {
             ok: true,
@@ -785,7 +785,7 @@ test.describe('Email OTP bootstrap integration', () => {
     }
   });
 
-  test('Email OTP app-session routes reject threshold-session JWTs', async () => {
+  test('Email OTP app-session routes reject threshold-session auth tokens', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
     expect(appVersion.ok).toBe(true);
@@ -1051,7 +1051,7 @@ test.describe('Email OTP bootstrap integration', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'ecdsa-session-otp-1',
-              thresholdSessionJwt: 'jwt-ecdsa',
+              thresholdSessionAuthToken: 'jwt-ecdsa',
             },
             keygen: {
               ok: true,

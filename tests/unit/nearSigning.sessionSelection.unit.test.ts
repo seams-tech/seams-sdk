@@ -183,7 +183,7 @@ test.describe('near signing session selection', () => {
       }
     ).sessionStorage = sessionStorage;
 
-    let seenThresholdSessionJwt = '';
+    let seenThresholdSessionAuthToken = '';
 
     clearAllStoredThresholdEd25519SessionRecords();
 
@@ -314,8 +314,8 @@ test.describe('near signing session selection', () => {
                 }),
               },
               requestWorkerOperation: async ({ request }: any) => {
-                seenThresholdSessionJwt = String(
-                  request?.payload?.threshold?.thresholdSessionJwt || '',
+                seenThresholdSessionAuthToken = String(
+                  request?.payload?.threshold?.thresholdSessionAuthToken || '',
                 ).trim();
                 return {
                   type: WorkerResponseType.SignTransactionsWithActionsSuccess,
@@ -345,7 +345,7 @@ test.describe('near signing session selection', () => {
 
       expect(Array.isArray(result)).toBe(true);
       expect(result).toHaveLength(1);
-      expect(seenThresholdSessionJwt).toBe('persisted-threshold-jwt');
+      expect(seenThresholdSessionAuthToken).toBe('persisted-threshold-jwt');
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
       sessionStorage.clear();
@@ -735,7 +735,7 @@ test.describe('near signing session selection', () => {
               requestWorkerOperation: async ({ request }: any) => {
                 order.push('worker');
                 workerSessionId = String(request?.sessionId || '').trim();
-                expect(String(request?.payload?.threshold?.thresholdSessionJwt || '')).toBe(
+                expect(String(request?.payload?.threshold?.thresholdSessionAuthToken || '')).toBe(
                   'otp-confirmation-order-refreshed-jwt',
                 );
                 return {
@@ -1018,7 +1018,7 @@ test.describe('near signing session selection', () => {
               },
               requestWorkerOperation: async ({ request }: any) => {
                 expect(String(request?.sessionId || '')).toBe(refreshedSessionId);
-                expect(String(request?.payload?.threshold?.thresholdSessionJwt || '')).toBe(
+                expect(String(request?.payload?.threshold?.thresholdSessionAuthToken || '')).toBe(
                   'otp-missing-runtime-refreshed-jwt',
                 );
                 return {
@@ -1251,7 +1251,7 @@ test.describe('near signing session selection', () => {
               },
               requestWorkerOperation: async ({ request }: any) => {
                 workerSessionId = String(request?.sessionId || '').trim();
-                expect(String(request?.payload?.threshold?.thresholdSessionJwt || '')).toBe(
+                expect(String(request?.payload?.threshold?.thresholdSessionAuthToken || '')).toBe(
                   'durable-ed25519-restored-jwt',
                 );
                 return {
@@ -1501,7 +1501,7 @@ test.describe('near signing session selection', () => {
               },
               requestWorkerOperation: async ({ request }: any) => {
                 workerSessionId = String(request?.sessionId || '').trim();
-                expect(String(request?.payload?.threshold?.thresholdSessionJwt || '')).toBe(
+                expect(String(request?.payload?.threshold?.thresholdSessionAuthToken || '')).toBe(
                   'otp-runtime-candidate-current-jwt',
                 );
                 return {
@@ -1702,7 +1702,7 @@ test.describe('near signing session selection', () => {
               },
               requestWorkerOperation: async ({ request }: any) => {
                 workerSessionId = String(request?.sessionId || '').trim();
-                expect(String(request?.payload?.threshold?.thresholdSessionJwt || '')).toBe(
+                expect(String(request?.payload?.threshold?.thresholdSessionAuthToken || '')).toBe(
                   'otp-runtime-candidate-missing-current-jwt',
                 );
                 return {

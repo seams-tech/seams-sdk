@@ -40,7 +40,7 @@ test.describe('signing session sealed store', () => {
           authMethod: 'passkey',
           ecdsaRestore: ECDSA_RESTORE,
           sealedSecretB64u: 'sealed-secret-b64u',
-          thresholdSessionJwt: 'jwt-must-not-persist',
+          thresholdSessionAuthToken: 'jwt-must-not-persist',
           signingSessionSecretB64u: 'plaintext-k-must-not-persist',
           emailOtpSecretS: 'plaintext-s-must-not-persist',
           enrollmentEscrowB64u: 'enrollment-escrow-must-not-persist',
@@ -84,8 +84,8 @@ test.describe('signing session sealed store', () => {
             (Object.prototype.hasOwnProperty.call(record, 'prfFirstB64u') ||
               Object.prototype.hasOwnProperty.call(record, 'signingSessionSecretB64u') ||
               Object.prototype.hasOwnProperty.call(record, 'secretSourceB64u')),
-          rawHasThresholdSessionJwt:
-            !!record && Object.prototype.hasOwnProperty.call(record, 'thresholdSessionJwt'),
+          rawHasThresholdSessionAuthToken:
+            !!record && Object.prototype.hasOwnProperty.call(record, 'thresholdSessionAuthToken'),
           rawHasPlaintextK: rawRecordJson.includes('plaintext-k-must-not-persist'),
           rawHasPlaintextS: rawRecordJson.includes('plaintext-s-must-not-persist'),
           rawHasEnrollmentEscrow: rawRecordJson.includes('enrollment-escrow-must-not-persist'),
@@ -104,7 +104,7 @@ test.describe('signing session sealed store', () => {
     expect(result.sessionRaw).toBeNull();
     expect(result.sessionIndex).toBeNull();
     expect(result.rawHasPlaintextSecret).toBe(false);
-    expect(result.rawHasThresholdSessionJwt).toBe(false);
+    expect(result.rawHasThresholdSessionAuthToken).toBe(false);
     expect(result.rawHasPlaintextK).toBe(false);
     expect(result.rawHasPlaintextS).toBe(false);
     expect(result.rawHasEnrollmentEscrow).toBe(false);

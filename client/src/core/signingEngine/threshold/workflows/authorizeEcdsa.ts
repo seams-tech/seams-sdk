@@ -41,7 +41,7 @@ export async function authorizeEcdsaWithSession(args: {
   signingDigest32: Uint8Array | number[];
   signingPayload?: unknown;
   sessionKind?: 'jwt' | 'cookie';
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   requestTimeoutMs?: number;
 }): Promise<{
   ok: boolean;
@@ -100,12 +100,12 @@ export async function authorizeEcdsaWithSession(args: {
 
   const sessionKind: 'jwt' | 'cookie' = args.sessionKind || 'jwt';
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const jwt = String(args.thresholdSessionJwt || '').trim();
+  const jwt = String(args.thresholdSessionAuthToken || '').trim();
   if (sessionKind === 'jwt' && !jwt) {
     return {
       ok: false,
       code: 'invalid_args',
-      message: 'Missing thresholdSessionJwt for threshold-ecdsa authorize (jwt sessionKind)',
+      message: 'Missing thresholdSessionAuthToken for threshold-ecdsa authorize (jwt sessionKind)',
     };
   }
   if (jwt) {

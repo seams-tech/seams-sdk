@@ -110,7 +110,7 @@ export function summarizeEvmFamilyEcdsaSessionRecord(
     emailOtpRetention: record.emailOtpAuthContext?.retention,
     emailOtpReason: record.emailOtpAuthContext?.reason,
     thresholdSessionKind: record.thresholdSessionKind,
-    hasThresholdSessionJwt: !!record.thresholdSessionJwt,
+    hasThresholdSessionAuthToken: !!record.thresholdSessionAuthToken,
     hasRelayerKeyId: !!record.relayerKeyId,
     participantCount: Array.isArray(record.participantIds) ? record.participantIds.length : 0,
   };
@@ -128,7 +128,7 @@ export function summarizeEvmFamilyEcdsaKeyRef(
     signingRootVersion: keyRef.signingRootVersion,
     ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
     thresholdSessionKind: keyRef.thresholdSessionKind,
-    hasThresholdSessionJwt: !!keyRef.thresholdSessionJwt,
+    hasThresholdSessionAuthToken: !!keyRef.thresholdSessionAuthToken,
     hasBackendBinding: !!keyRef.backendBinding,
     hasRelayerKeyId: !!keyRef.backendBinding?.relayerKeyId,
     participantCount: Array.isArray(keyRef.participantIds) ? keyRef.participantIds.length : 0,
@@ -659,7 +659,7 @@ export function isEmailOtpThresholdEcdsaSigningContext(args: {
 export function emailOtpEcdsaAuthLaneFromRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
 ): EmailOtpAuthLane | undefined {
-  const jwt = String(record?.thresholdSessionJwt || '').trim();
+  const jwt = String(record?.thresholdSessionAuthToken || '').trim();
   const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
   const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
   if (

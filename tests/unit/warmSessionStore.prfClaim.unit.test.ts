@@ -17,27 +17,27 @@ test.describe('WarmSessionStore PRF claim handling', () => {
     const warmRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'warm-status.testnet',
       thresholdSessionId: 'warm-status-session',
-      thresholdSessionJwt: 'jwt:warm-status-session',
+      thresholdSessionAuthToken: 'jwt:warm-status-session',
     });
     const missingRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'missing-status.testnet',
       thresholdSessionId: 'missing-status-session',
-      thresholdSessionJwt: 'jwt:missing-status-session',
+      thresholdSessionAuthToken: 'jwt:missing-status-session',
     });
     const expiredRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'expired-status.testnet',
       thresholdSessionId: 'expired-status-session',
-      thresholdSessionJwt: 'jwt:expired-status-session',
+      thresholdSessionAuthToken: 'jwt:expired-status-session',
     });
     const exhaustedRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'exhausted-status.testnet',
       thresholdSessionId: 'exhausted-status-session',
-      thresholdSessionJwt: 'jwt:exhausted-status-session',
+      thresholdSessionAuthToken: 'jwt:exhausted-status-session',
     });
     const unavailableRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'unavailable-status.testnet',
       thresholdSessionId: 'unavailable-status-session',
-      thresholdSessionJwt: 'jwt:unavailable-status-session',
+      thresholdSessionAuthToken: 'jwt:unavailable-status-session',
     });
 
     const { touchConfirm } = createWarmSessionTouchConfirmFixture({
@@ -113,7 +113,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-consume',
         sessionId: 'consume-session',
-        sessionJwt: 'jwt:consume-session',
+        sessionAuthToken: 'jwt:consume-session',
       }),
     });
 
@@ -156,7 +156,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-claim-only',
         sessionId: 'claim-only-session',
-        sessionJwt: 'jwt:claim-only-session',
+        sessionAuthToken: 'jwt:claim-only-session',
       }),
     });
 
@@ -199,7 +199,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
           chain: 'evm',
           ecdsaThresholdKeyId: `ek-${claimState}`,
           sessionId: `${claimState}-session`,
-          sessionJwt: `jwt:${claimState}-session`,
+          sessionAuthToken: `jwt:${claimState}-session`,
         }),
       });
 
@@ -236,7 +236,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-claim-unavailable',
         sessionId: 'claim-unavailable-session',
-        sessionJwt: 'jwt:claim-unavailable-session',
+        sessionAuthToken: 'jwt:claim-unavailable-session',
       }),
     });
 
@@ -274,7 +274,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-claim-diagnostic',
         sessionId: 'claim-diagnostic-session',
-        sessionJwt: 'jwt:claim-diagnostic-session',
+        sessionAuthToken: 'jwt:claim-diagnostic-session',
       }),
     });
 
@@ -323,7 +323,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-seal',
         sessionId: 'seal-session',
-        sessionJwt: 'jwt:seal-session',
+        sessionAuthToken: 'jwt:seal-session',
         relayerUrl: 'https://relay.seal.example',
       }),
     });
@@ -363,7 +363,7 @@ test.describe('WarmSessionStore PRF claim handling', () => {
       sessionId: 'seal-session',
       transport: {
         relayerUrl: 'https://relay.seal.example',
-        thresholdSessionJwt: 'jwt:seal-session',
+        thresholdSessionAuthToken: 'jwt:seal-session',
       },
     });
   });

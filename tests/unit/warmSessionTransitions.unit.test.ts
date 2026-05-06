@@ -20,8 +20,8 @@ function createEnvelope(): WarmSessionEnvelope {
         auth: {
           capability: 'ed25519',
           record: {} as any,
-          thresholdSessionJwt: 'jwt:ed25519-session',
-          thresholdSessionJwtSource: 'ed25519',
+          thresholdSessionAuthToken: 'jwt:ed25519-session',
+          thresholdSessionAuthTokenSource: 'ed25519',
         },
         prfClaim: {
           state: 'warm',
@@ -53,7 +53,7 @@ function createEnvelope(): WarmSessionEnvelope {
             capability: 'ecdsa',
             chain: 'tempo',
             record: {} as any,
-            thresholdSessionJwtSource: 'none',
+            thresholdSessionAuthTokenSource: 'none',
           },
           prfClaim: {
             state: 'unavailable',

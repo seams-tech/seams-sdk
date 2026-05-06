@@ -167,8 +167,8 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
     }
 
     const sessionKind = normalizeThresholdEcdsaSessionKind(keyRef.thresholdSessionKind);
-    const thresholdSessionJwt = String(keyRef.thresholdSessionJwt || '').trim();
-    if (sessionKind === 'jwt' && !thresholdSessionJwt) {
+    const thresholdSessionAuthToken = String(keyRef.thresholdSessionAuthToken || '').trim();
+    if (sessionKind === 'jwt' && !thresholdSessionAuthToken) {
       return {
         status: 'skipped',
         reason: 'missing_threshold_session_jwt',
@@ -280,7 +280,7 @@ export async function scheduleThresholdEcdsaLoginPresignPrefill(
         thresholdEcdsaPublicKeyB64u: keyRef.thresholdEcdsaPublicKeyB64u,
         relayerVerifyingShareB64u: keyRef.relayerVerifyingShareB64u,
         sessionKind,
-        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+        ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
         workerCtx: deps.getSignerWorkerContext(),
         poolPolicy: policy,
         targetDepth: LOGIN_PREFILL_TARGET_DEPTH,

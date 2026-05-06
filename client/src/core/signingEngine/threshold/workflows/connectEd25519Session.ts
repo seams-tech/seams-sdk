@@ -287,7 +287,7 @@ export async function connectEd25519Session(args: {
         relayerUrl: args.relayerUrl,
         ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
         ...(typeof minted.jwt === 'string' && minted.jwt.trim()
-          ? { thresholdSessionJwt: minted.jwt.trim() }
+          ? { thresholdSessionAuthToken: minted.jwt.trim() }
           : {}),
       },
     });

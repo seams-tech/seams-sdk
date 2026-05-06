@@ -175,7 +175,7 @@ export function createWarmSessionCapabilityReaderCore(
     if (!thresholdSessionId) return null;
     if (args.curve === 'ed25519') {
       const record = readWarmSessionEd25519RecordByThresholdSessionId(thresholdSessionId);
-      const jwt = String(record?.thresholdSessionJwt || '').trim();
+      const jwt = String(record?.thresholdSessionAuthToken || '').trim();
       const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
       if (record?.source !== 'email_otp' || !jwt || !walletSigningSessionId) return null;
       return {
@@ -187,7 +187,7 @@ export function createWarmSessionCapabilityReaderCore(
       };
     }
     const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
-    const jwt = String(record?.thresholdSessionJwt || '').trim();
+    const jwt = String(record?.thresholdSessionAuthToken || '').trim();
     const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
     if (record?.source !== 'email_otp' || !jwt || !walletSigningSessionId) return null;
     return {

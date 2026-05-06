@@ -23,7 +23,7 @@ import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
   resolveThresholdRuntimePolicyScope,
-  signThresholdSessionJwt,
+  signThresholdSessionAuthToken,
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
 } from '../../commonRouterUtils';
@@ -362,14 +362,14 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     if (!result.ok) {
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     }
-    if (!result.sessionId || !result.sessionJwtUserId || !result.sessionJwtRpId) {
+    if (!result.sessionId || !result.sessionAuthTokenUserId || !result.sessionAuthTokenRpId) {
       return json(result, { status: 200 });
     }
-    const signed = await signThresholdSessionJwt({
+    const signed = await signThresholdSessionAuthToken({
       session: ctx.opts.session,
       kind: 'threshold_ecdsa_session_v1',
-      userId: result.sessionJwtUserId,
-      rpId: result.sessionJwtRpId,
+      userId: result.sessionAuthTokenUserId,
+      rpId: result.sessionAuthTokenRpId,
       relayerKeyId: result.relayerKeyId,
       allowedSessionKinds: ['jwt', 'cookie'],
       sessionInfo: {
@@ -399,8 +399,8 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       return json(resBody, { status: signed.status });
     }
     const {
-      sessionJwtUserId: _sessionJwtUserId,
-      sessionJwtRpId: _sessionJwtRpId,
+      sessionAuthTokenUserId: _sessionAuthTokenUserId,
+      sessionAuthTokenRpId: _sessionAuthTokenRpId,
       jwt: _rawJwt,
       ...rest
     } = result;

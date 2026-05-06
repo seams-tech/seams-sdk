@@ -350,7 +350,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       let resolvedSigningAuthMode = '';
       let resolvedSigningAuthPlanKind = '';
       let claimCalls = 0;
-      let workerThresholdSessionJwt = '';
+      let workerThresholdSessionAuthToken = '';
       let workerCredentialJson = '';
       let workerXClientBaseB64u = '';
       const progressEvents: SigningFlowEvent[] = [];
@@ -428,8 +428,8 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             },
           },
           requestWorkerOperation: async ({ request }: any) => {
-            workerThresholdSessionJwt = String(
-              request?.payload?.threshold?.thresholdSessionJwt || '',
+            workerThresholdSessionAuthToken = String(
+              request?.payload?.threshold?.thresholdSessionAuthToken || '',
             ).trim();
             workerCredentialJson = String(request?.payload?.credential || '').trim();
             workerXClientBaseB64u = String(
@@ -468,7 +468,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       expect(resolvedSigningAuthMode).toBe('');
       expect(resolvedSigningAuthPlanKind).toBe('warmSession');
       expect(claimCalls).toBe(0);
-      expect(workerThresholdSessionJwt).toBe('email-otp-threshold-jwt');
+      expect(workerThresholdSessionAuthToken).toBe('email-otp-threshold-jwt');
       expect(workerCredentialJson).toBe('');
       expect(workerXClientBaseB64u).toBe('email-otp-x-client-base');
 
@@ -600,7 +600,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       let resolvedSigningAuthPlanKind = '';
       let capturedChallengeId = '';
       let completedOtpCode = '';
-      let workerThresholdSessionJwt = '';
+      let workerThresholdSessionAuthToken = '';
       let workerXClientBaseB64u = '';
       let workerCredentialJson = '';
       let consumedUses = 0;
@@ -683,8 +683,8 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             },
           },
           requestWorkerOperation: async ({ request }: any) => {
-            workerThresholdSessionJwt = String(
-              request?.payload?.threshold?.thresholdSessionJwt || '',
+            workerThresholdSessionAuthToken = String(
+              request?.payload?.threshold?.thresholdSessionAuthToken || '',
             ).trim();
             workerCredentialJson = String(request?.payload?.credential || '').trim();
             workerXClientBaseB64u = String(
@@ -789,7 +789,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       expect(capturedChallengeId).toBe('near-email-otp-challenge');
       expect(emailOtpSideEffectOrder).toEqual(['display', 'prepare', 'confirm']);
       expect(completedOtpCode).toBe('246810');
-      expect(workerThresholdSessionJwt).toBe('email-otp-refreshed-threshold-jwt');
+      expect(workerThresholdSessionAuthToken).toBe('email-otp-refreshed-threshold-jwt');
       expect(workerCredentialJson).toBe('');
       expect(workerXClientBaseB64u).toBe('email-otp-refreshed-x-client-base');
       const consumed = getStoredThresholdEd25519SessionRecordForAccount(nearAccountId);
@@ -1025,7 +1025,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       let resolvedSigningAuthMode: string | null = null;
       let resolvedSigningAuthPlanKind: string | null = null;
       let claimCalls = 0;
-      let workerThresholdSessionJwt = '';
+      let workerThresholdSessionAuthToken = '';
       let workerCredentialJson = '';
       let workerXClientBaseB64u = '';
 
@@ -1102,8 +1102,8 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
             },
           },
           requestWorkerOperation: async ({ request }: any) => {
-            workerThresholdSessionJwt = String(
-              request?.payload?.threshold?.thresholdSessionJwt || '',
+            workerThresholdSessionAuthToken = String(
+              request?.payload?.threshold?.thresholdSessionAuthToken || '',
             ).trim();
             workerCredentialJson = String(request?.payload?.credential || '').trim();
             workerXClientBaseB64u = String(
@@ -1141,7 +1141,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       expect(resolvedSigningAuthMode).toBe('');
       expect(resolvedSigningAuthPlanKind).toBe('warmSession');
       expect(claimCalls).toBe(0);
-      expect(workerThresholdSessionJwt).toBe('persisted-threshold-jwt');
+      expect(workerThresholdSessionAuthToken).toBe('persisted-threshold-jwt');
       expect(workerCredentialJson).toContain('cred-id');
       expect(workerXClientBaseB64u).toBe('persisted-x-client-base');
     } finally {

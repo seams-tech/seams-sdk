@@ -743,8 +743,8 @@ test.describe('threshold-ed25519 scope (express)', () => {
       });
       expect(minted.status, minted.text).toBe(200);
       expect(minted.json?.ok, minted.text).toBe(true);
-      const thresholdJwt = String(minted.json?.jwt || '');
-      expect(thresholdJwt).toContain('testjwt-');
+      const thresholdAuthToken = String(minted.json?.jwt || '');
+      expect(thresholdAuthToken).toContain('testjwt-');
 
       const { body: authorizeBody, signingDigestB64u } = await buildNearTxAuthorizeBody({
         relayerKeyId,
@@ -756,7 +756,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
       });
       const auth = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${thresholdJwt}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${thresholdAuthToken}` },
         body: JSON.stringify(authorizeBody),
       });
       expect(auth.status, auth.text).toBe(200);
@@ -857,8 +857,8 @@ test.describe('threshold-ed25519 scope (express)', () => {
       });
       expect(minted.status, minted.text).toBe(200);
       expect(minted.json?.ok, minted.text).toBe(true);
-      const thresholdJwt = String(minted.json?.jwt || '');
-      expect(thresholdJwt).toContain('testjwt-');
+      const thresholdAuthToken = String(minted.json?.jwt || '');
+      expect(thresholdAuthToken).toContain('testjwt-');
 
       const { body: authorizeBody, signingDigestB64u } = await buildNearTxAuthorizeBody({
         relayerKeyId,
@@ -870,7 +870,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
       });
       const auth = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${thresholdJwt}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${thresholdAuthToken}` },
         body: JSON.stringify(authorizeBody),
       });
       expect(auth.status, auth.text).toBe(200);
@@ -2260,8 +2260,8 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
     });
     expect(minted.status, minted.text).toBe(200);
     expect(minted.json?.ok, minted.text).toBe(true);
-    const thresholdJwt = String(minted.json?.jwt || '');
-    expect(thresholdJwt).toContain('testjwt-');
+    const thresholdAuthToken = String(minted.json?.jwt || '');
+    expect(thresholdAuthToken).toContain('testjwt-');
 
     const { body: authorizeBody, signingDigestB64u } = await buildNearTxAuthorizeBody({
       relayerKeyId,
@@ -2275,7 +2275,7 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
       method: 'POST',
       path: '/threshold-ed25519/authorize',
       origin: 'https://example.localhost',
-      headers: { Authorization: `Bearer ${thresholdJwt}` },
+      headers: { Authorization: `Bearer ${thresholdAuthToken}` },
       body: authorizeBody,
       ctx,
     });
@@ -2385,8 +2385,8 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
     });
     expect(minted.status, minted.text).toBe(200);
     expect(minted.json?.ok, minted.text).toBe(true);
-    const thresholdJwt = String(minted.json?.jwt || '');
-    expect(thresholdJwt).toContain('testjwt-');
+    const thresholdAuthToken = String(minted.json?.jwt || '');
+    expect(thresholdAuthToken).toContain('testjwt-');
 
     const { body: authorizeBody, signingDigestB64u } = await buildNearTxAuthorizeBody({
       relayerKeyId,
@@ -2400,7 +2400,7 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
       method: 'POST',
       path: '/threshold-ed25519/authorize',
       origin: 'https://example.localhost',
-      headers: { Authorization: `Bearer ${thresholdJwt}` },
+      headers: { Authorization: `Bearer ${thresholdAuthToken}` },
       body: authorizeBody,
       ctx,
     });

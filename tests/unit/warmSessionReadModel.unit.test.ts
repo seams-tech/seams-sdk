@@ -118,7 +118,7 @@ test.describe('warmSessionReadModel', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'auth.testnet',
       thresholdSessionId: 'ed-auth-session',
-      thresholdSessionJwt: 'jwt:ed-auth-session',
+      thresholdSessionAuthToken: 'jwt:ed-auth-session',
     });
     const ecdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'auth.testnet',
@@ -127,14 +127,14 @@ test.describe('warmSessionReadModel', () => {
 
     expect(resolveEd25519AuthMaterial(ed25519Record)).toMatchObject({
       capability: 'ed25519',
-      thresholdSessionJwt: 'jwt:ed-auth-session',
-      thresholdSessionJwtSource: 'ed25519',
+      thresholdSessionAuthToken: 'jwt:ed-auth-session',
+      thresholdSessionAuthTokenSource: 'ed25519',
     });
     expect(resolveEcdsaAuthMaterial(ecdsaRecord)).toMatchObject({
       capability: 'ecdsa',
       chain: 'evm',
-      thresholdSessionJwt: ecdsaRecord.thresholdSessionJwt,
-      thresholdSessionJwtSource: 'ecdsa',
+      thresholdSessionAuthToken: ecdsaRecord.thresholdSessionAuthToken,
+      thresholdSessionAuthTokenSource: 'ecdsa',
     });
   });
 
@@ -142,7 +142,7 @@ test.describe('warmSessionReadModel', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'derive.testnet',
       thresholdSessionId: 'derive-ed25519-session',
-      thresholdSessionJwt: 'jwt:derive-ed25519-session',
+      thresholdSessionAuthToken: 'jwt:derive-ed25519-session',
     });
 
     expect(
@@ -194,8 +194,8 @@ test.describe('warmSessionReadModel', () => {
     ).toMatchObject({
       curve: 'ecdsa',
       relayerUrl: ecdsaRecord.relayerUrl,
-      thresholdSessionJwt: ecdsaRecord.thresholdSessionJwt,
-      thresholdSessionJwtSource: 'ecdsa',
+      thresholdSessionAuthToken: ecdsaRecord.thresholdSessionAuthToken,
+      thresholdSessionAuthTokenSource: 'ecdsa',
       keyVersion: 'kek-s-2026-02',
       shamirPrimeB64u: 'AQAB',
     });

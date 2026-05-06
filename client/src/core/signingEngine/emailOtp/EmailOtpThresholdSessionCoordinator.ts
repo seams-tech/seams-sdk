@@ -332,7 +332,7 @@ export type EmailOtpThresholdSessionCoordinatorDeps = {
     transport?: {
       curve?: 'ed25519' | 'ecdsa';
       relayerUrl?: string;
-      thresholdSessionJwt?: string;
+      thresholdSessionAuthToken?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
     };
@@ -1189,8 +1189,8 @@ export class EmailOtpThresholdSessionCoordinator {
       thresholdSessionKind: metadata.sessionKind,
       thresholdSessionId: args.purpose.thresholdSessionId,
       walletSigningSessionId: args.purpose.walletSigningSessionId,
-      ...(metadata.thresholdSessionJwt
-        ? { thresholdSessionJwt: metadata.thresholdSessionJwt }
+      ...(metadata.thresholdSessionAuthToken
+        ? { thresholdSessionAuthToken: metadata.thresholdSessionAuthToken }
         : {}),
       expiresAtMs: args.record.expiresAtMs,
       remainingUses: args.record.remainingUses,
@@ -1577,7 +1577,7 @@ export class EmailOtpThresholdSessionCoordinator {
     return sub || '';
   }
 
-  private thresholdRouteAuthFromEcdsaBootstrap(
+  private thresholdSessionAuthFromEcdsaBootstrap(
     bootstrap: ThresholdEcdsaSessionBootstrapResult | undefined,
   ): AppOrThresholdSessionAuth | undefined {
     const jwt = String(bootstrap?.session?.jwt || '').trim();
@@ -1934,9 +1934,9 @@ export class EmailOtpThresholdSessionCoordinator {
     if (!ecdsaThresholdKeyId) {
       throw new Error('Email OTP ECDSA export requires ecdsaThresholdKeyId');
     }
-    const thresholdSessionJwt = String(args.record.thresholdSessionJwt || '').trim();
+    const thresholdSessionAuthToken = String(args.record.thresholdSessionAuthToken || '').trim();
     const sessionKind = args.record.thresholdSessionKind || 'jwt';
-    if (!thresholdSessionJwt && sessionKind !== 'cookie') {
+    if (!thresholdSessionAuthToken && sessionKind !== 'cookie') {
       throw new Error('Email OTP ECDSA export requires threshold session route auth');
     }
     const workerCtx = this.deps.getSignerWorkerContext();
@@ -1970,7 +1970,7 @@ export class EmailOtpThresholdSessionCoordinator {
           shamirPrimeB64u,
           routePlan,
           rpId: args.rpId,
-          thresholdSessionJwt,
+          thresholdSessionAuthToken,
           sessionKind,
           subjectId: args.record.subjectId,
           ecdsaThresholdKeyId,
@@ -2213,7 +2213,7 @@ export class EmailOtpThresholdSessionCoordinator {
     ).trim();
     let ed25519Provisioning: EmailOtpThresholdEd25519ProvisioningResult | undefined;
     if (thresholdEd25519PrfFirstB64u) {
-      const freshThresholdRouteAuth = this.thresholdRouteAuthFromEcdsaBootstrap(bootstrap);
+      const freshThresholdSessionAuth = this.thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
       const ed25519ProvisioningArgs: ProvisionEmailOtpThresholdEd25519CapabilityArgs = {
         nearAccountId,
         relayUrl,
@@ -2221,8 +2221,8 @@ export class EmailOtpThresholdSessionCoordinator {
         prfFirstB64u: thresholdEd25519PrfFirstB64u,
         emailOtpAuthContext,
         ...(appSessionJwt ? { appSessionJwt } : {}),
-        ...(freshThresholdRouteAuth || routeAuth
-          ? { routeAuth: freshThresholdRouteAuth || routeAuth }
+        ...(freshThresholdSessionAuth || routeAuth
+          ? { routeAuth: freshThresholdSessionAuth || routeAuth }
           : {}),
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
         ...(Array.isArray(args.ed25519ParticipantIds)
@@ -2361,7 +2361,7 @@ export class EmailOtpThresholdSessionCoordinator {
         workerResult.enrollment?.thresholdEd25519PrfFirstB64u || '',
       ).trim();
       if (thresholdEd25519PrfFirstB64u) {
-        const freshThresholdRouteAuth = this.thresholdRouteAuthFromEcdsaBootstrap(bootstrap);
+        const freshThresholdSessionAuth = this.thresholdSessionAuthFromEcdsaBootstrap(bootstrap);
         await this.provisionEd25519Capability({
           nearAccountId,
           relayUrl,
@@ -2369,8 +2369,8 @@ export class EmailOtpThresholdSessionCoordinator {
           prfFirstB64u: thresholdEd25519PrfFirstB64u,
           emailOtpAuthContext,
           ...(appSessionJwt ? { appSessionJwt } : {}),
-          ...(freshThresholdRouteAuth || routeAuth
-            ? { routeAuth: freshThresholdRouteAuth || routeAuth }
+          ...(freshThresholdSessionAuth || routeAuth
+            ? { routeAuth: freshThresholdSessionAuth || routeAuth }
             : {}),
           ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
           ...(args.registrationAttemptId
@@ -2426,9 +2426,9 @@ export class EmailOtpThresholdSessionCoordinator {
       throw new Error('Email OTP sealed refresh is missing threshold-session persistence metadata');
     }
 
-    const thresholdSessionJwt = String(session?.jwt || keyRef.thresholdSessionJwt || '').trim();
+    const thresholdSessionAuthToken = String(session?.jwt || keyRef.thresholdSessionAuthToken || '').trim();
     const keyVersion = String(this.deps.configs.signing.sessionSeal?.keyVersion || '').trim();
-    const sessionKind = keyRef.thresholdSessionKind || (thresholdSessionJwt ? 'jwt' : 'cookie');
+    const sessionKind = keyRef.thresholdSessionKind || (thresholdSessionAuthToken ? 'jwt' : 'cookie');
     const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
     const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
     const participantIds = Array.isArray(keyRef.participantIds)
@@ -2440,7 +2440,7 @@ export class EmailOtpThresholdSessionCoordinator {
       !ecdsaThresholdKeyId ||
       !relayerKeyId ||
       !participantIds.length ||
-      (sessionKind === 'jwt' && !thresholdSessionJwt)
+      (sessionKind === 'jwt' && !thresholdSessionAuthToken)
     ) {
       throw new Error('Email OTP sealed refresh is missing ECDSA restore metadata');
     }
@@ -2454,7 +2454,7 @@ export class EmailOtpThresholdSessionCoordinator {
             sessionId: thresholdSessionId,
             transport: {
               relayerUrl,
-              ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+              ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
               ...(keyVersion ? { keyVersion } : {}),
               shamirPrimeB64u,
             },
@@ -2515,7 +2515,7 @@ export class EmailOtpThresholdSessionCoordinator {
       ...sealedRecordBase,
       ecdsaRestore: {
         chainTarget: actualChainTarget,
-        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+        ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
         sessionKind,
         ecdsaThresholdKeyId,
         relayerKeyId,
@@ -2607,8 +2607,8 @@ export class EmailOtpThresholdSessionCoordinator {
         rpId: ed25519Record.rpId,
         relayerKeyId: ed25519Record.relayerKeyId,
         participantIds: ed25519Record.participantIds,
-        ...(ed25519Record.thresholdSessionJwt
-          ? { thresholdSessionJwt: ed25519Record.thresholdSessionJwt }
+        ...(ed25519Record.thresholdSessionAuthToken
+          ? { thresholdSessionAuthToken: ed25519Record.thresholdSessionAuthToken }
           : {}),
         sessionKind: ed25519Record.thresholdSessionKind || 'jwt',
         ...(ed25519Record.runtimePolicyScope
@@ -2671,8 +2671,8 @@ export class EmailOtpThresholdSessionCoordinator {
         this.deps.configs.signing.sessionSeal?.shamirPrimeB64u ||
         '',
     ).trim();
-    const thresholdSessionJwt = String(
-      ecdsaRecord?.thresholdSessionJwt || ecdsaRestore?.thresholdSessionJwt || '',
+    const thresholdSessionAuthToken = String(
+      ecdsaRecord?.thresholdSessionAuthToken || ecdsaRestore?.thresholdSessionAuthToken || '',
     ).trim();
     const keyVersion = String(
       sealedRecord.keyVersion ||
@@ -2728,7 +2728,7 @@ export class EmailOtpThresholdSessionCoordinator {
       !restoreEcdsaThresholdKeyId ||
       !restoreRelayerKeyId ||
       !restoreParticipantIds?.length ||
-      (restoreSessionKind === 'jwt' && !thresholdSessionJwt)
+      (restoreSessionKind === 'jwt' && !thresholdSessionAuthToken)
     ) {
       throw new Error('Email OTP sealed refresh is missing durable ECDSA restore metadata');
     }
@@ -2752,7 +2752,7 @@ export class EmailOtpThresholdSessionCoordinator {
           expiresAtMs: sealedRecord.expiresAtMs,
           transport: {
             relayerUrl,
-            ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+            ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
             ...(keyVersion ? { keyVersion } : {}),
             shamirPrimeB64u,
           },
@@ -2827,7 +2827,7 @@ export class EmailOtpThresholdSessionCoordinator {
         ...(ed25519Record.walletSigningSessionId
           ? { walletSigningSessionId: ed25519Record.walletSigningSessionId }
           : {}),
-        thresholdSessionJwt: ed25519Record.thresholdSessionJwt,
+        thresholdSessionAuthToken: ed25519Record.thresholdSessionAuthToken,
         expiresAtMs: restored.expiresAtMs,
         remainingUses: restored.remainingUses,
         ...(ed25519Record.emailOtpAuthContext
@@ -2845,8 +2845,8 @@ export class EmailOtpThresholdSessionCoordinator {
           transport: {
             curve: 'ed25519',
             relayerUrl: ed25519Record.relayerUrl,
-            ...(ed25519Record.thresholdSessionJwt
-              ? { thresholdSessionJwt: ed25519Record.thresholdSessionJwt }
+            ...(ed25519Record.thresholdSessionAuthToken
+              ? { thresholdSessionAuthToken: ed25519Record.thresholdSessionAuthToken }
               : {}),
           },
         });
@@ -3180,7 +3180,7 @@ export class EmailOtpThresholdSessionCoordinator {
       transport: {
         curve: 'ed25519',
         relayerUrl,
-        thresholdSessionJwt: jwt,
+        thresholdSessionAuthToken: jwt,
       },
     });
     await this.attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
@@ -3190,7 +3190,7 @@ export class EmailOtpThresholdSessionCoordinator {
 
     const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
       relayerUrl,
-      thresholdSessionJwt: jwt,
+      thresholdSessionAuthToken: jwt,
       relayerKeyId,
       operation: 'warm_session_reconstruction',
       context: {

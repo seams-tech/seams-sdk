@@ -86,7 +86,7 @@ export type SigningSessionBudgetStatusReader = (args: {
 export type SigningSessionBudgetStatusAuth = {
   relayerUrl: string;
   thresholdSessionId: string;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
 };
 
 export type SigningSessionBudgetConsumer = (args: {

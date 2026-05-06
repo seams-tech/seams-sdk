@@ -29,7 +29,7 @@ test.describe('threshold Ed25519 auth-session rehydrate', () => {
             participantIds: [1, 2],
             thresholdSessionKind: 'jwt',
             thresholdSessionId: 'tsess-host-mode',
-            thresholdSessionJwt: 'jwt-host-mode',
+            thresholdSessionAuthToken: 'jwt-host-mode',
             expiresAtMs: Date.now() + 60_000,
             remainingUses: 3,
             source: 'login',

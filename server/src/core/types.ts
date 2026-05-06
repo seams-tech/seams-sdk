@@ -1049,8 +1049,8 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   code?: string;
   message?: string;
   sessionKind?: 'jwt' | 'cookie';
-  sessionJwtUserId?: string;
-  sessionJwtRpId?: string;
+  sessionAuthTokenUserId?: string;
+  sessionAuthTokenRpId?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   clientVerifyingShareB64u?: string;
   clientAdditiveShare32B64u?: string;

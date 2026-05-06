@@ -30,7 +30,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
           nearAccountId: string;
           thresholdSessionId: string;
           thresholdSessionKind: 'jwt' | 'cookie';
-          thresholdSessionJwt?: string;
+          thresholdSessionAuthToken?: string;
         }) => {
           storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
             nearAccountId: args.nearAccountId,
@@ -51,8 +51,8 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
                 },
                 thresholdSessionKind: args.thresholdSessionKind,
                 thresholdSessionId: args.thresholdSessionId,
-                ...(args.thresholdSessionJwt
-                  ? { thresholdSessionJwt: args.thresholdSessionJwt }
+                ...(args.thresholdSessionAuthToken
+                  ? { thresholdSessionAuthToken: args.thresholdSessionAuthToken }
                   : {}),
               },
               keygen: {
@@ -68,7 +68,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
                 sessionId: args.thresholdSessionId,
                 expiresAtMs: now + 120_000,
                 remainingUses: 9,
-                ...(args.thresholdSessionJwt ? { jwt: args.thresholdSessionJwt } : {}),
+                ...(args.thresholdSessionAuthToken ? { jwt: args.thresholdSessionAuthToken } : {}),
               },
             },
           });
@@ -85,7 +85,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'sess-ed25519',
-          thresholdSessionJwt: 'jwt-ed25519-fallback',
+          thresholdSessionAuthToken: 'jwt-ed25519-fallback',
           expiresAtMs: now + 120_000,
           remainingUses: 7,
           source: 'login',
@@ -95,7 +95,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
           nearAccountId: 'primary.testnet',
           thresholdSessionId: 'sess-ecdsa-jwt',
           thresholdSessionKind: 'jwt',
-          thresholdSessionJwt: 'jwt-ecdsa-primary',
+          thresholdSessionAuthToken: 'jwt-ecdsa-primary',
         });
         upsertEcdsaRecord({
           nearAccountId: 'fallback.testnet',
@@ -125,20 +125,20 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
         return {
           primary: resolvedPrimary
             ? {
-                source: resolvedPrimary.thresholdSessionJwtSource,
-                jwt: resolvedPrimary.thresholdSessionJwt || null,
+                source: resolvedPrimary.thresholdSessionAuthTokenSource,
+                jwt: resolvedPrimary.thresholdSessionAuthToken || null,
               }
             : null,
           fallback: resolvedFallback
             ? {
-                source: resolvedFallback.thresholdSessionJwtSource,
-                jwt: resolvedFallback.thresholdSessionJwt || null,
+                source: resolvedFallback.thresholdSessionAuthTokenSource,
+                jwt: resolvedFallback.thresholdSessionAuthToken || null,
               }
             : null,
           noFallback: resolvedNoFallback
             ? {
-                source: resolvedNoFallback.thresholdSessionJwtSource,
-                jwt: resolvedNoFallback.thresholdSessionJwt || null,
+                source: resolvedNoFallback.thresholdSessionAuthTokenSource,
+                jwt: resolvedNoFallback.thresholdSessionAuthToken || null,
               }
             : null,
           missing: resolvedMissing,
@@ -146,8 +146,8 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
             ? {
                 curve: transportFromEcdsa.curve,
                 relayerUrl: transportFromEcdsa.relayerUrl,
-                source: transportFromEcdsa.thresholdSessionJwtSource,
-                jwt: transportFromEcdsa.thresholdSessionJwt || null,
+                source: transportFromEcdsa.thresholdSessionAuthTokenSource,
+                jwt: transportFromEcdsa.thresholdSessionAuthToken || null,
               }
             : null,
         };

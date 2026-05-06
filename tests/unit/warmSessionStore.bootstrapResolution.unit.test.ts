@@ -17,7 +17,7 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
     seedEd25519WarmSessionRecord({
       nearAccountId: 'fallback.testnet',
       thresholdSessionId: 'sess-ed25519',
-      thresholdSessionJwt: 'jwt-ed25519-fallback',
+      thresholdSessionAuthToken: 'jwt-ed25519-fallback',
     });
 
     const fallbackEcdsaRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -42,7 +42,7 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-primary',
         sessionId: 'sess-ecdsa-jwt',
-        sessionJwt: 'jwt-ecdsa-primary',
+        sessionAuthToken: 'jwt-ecdsa-primary',
         sessionKind: 'jwt',
       }),
     });
@@ -78,7 +78,7 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
       sessionKind: 'cookie',
       sessionId: 'sess-ecdsa-cookie',
     });
-    expect('thresholdRouteAuth' in fallbackBootstrap).toBe(false);
+    expect('thresholdSessionAuth' in fallbackBootstrap).toBe(false);
 
     expect(primaryBootstrap).toMatchObject({
       nearAccountId: 'primary.testnet',
@@ -87,7 +87,7 @@ test.describe('WarmSessionStore ECDSA bootstrap resolution', () => {
       participantIds: [1, 2],
       sessionKind: 'jwt',
       sessionId: 'sess-ecdsa-jwt',
-      thresholdRouteAuth: {
+      thresholdSessionAuth: {
         kind: 'threshold_session',
         jwt: 'jwt-ecdsa-primary',
       },

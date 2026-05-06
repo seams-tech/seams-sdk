@@ -490,7 +490,7 @@ test.describe('UserConfirm worker router', () => {
           sessionId: 'session-seal',
           transport: {
             relayerUrl: 'https://relay.example',
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             shamirPrimeB64u: 'AQAB',
           },
         });
@@ -516,7 +516,7 @@ test.describe('UserConfirm worker router', () => {
           expiresAtMs: 1700000000000,
           transport: {
             relayerUrl: 'https://relay.example',
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             shamirPrimeB64u: 'AQAB',
           },
         });
@@ -617,7 +617,7 @@ test.describe('UserConfirm worker router', () => {
           authMethod: 'passkey',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
             relayerKeyId: 'relayer-key',
@@ -636,7 +636,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-rehydrate',
-          thresholdSessionJwt: 'jwt-session',
+          thresholdSessionAuthToken: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
         });
 
@@ -752,7 +752,7 @@ test.describe('UserConfirm worker router', () => {
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'session-from-record',
           walletSigningSessionId: 'wallet-session-from-record',
-          thresholdSessionJwt: 'jwt:session-from-record',
+          thresholdSessionAuthToken: 'jwt:session-from-record',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 5,
           updatedAtMs: Date.now(),
@@ -852,7 +852,7 @@ test.describe('UserConfirm worker router', () => {
       transport: {
         relayerUrl: 'https://relay.example',
         walletSigningSessionId: 'wallet-session-from-record',
-        thresholdSessionJwt: 'jwt:session-from-record',
+        thresholdSessionAuthToken: 'jwt:session-from-record',
         keyVersion: 'kek-v-ed25519',
         shamirPrimeB64u: 'AQAB',
       },
@@ -899,7 +899,7 @@ test.describe('UserConfirm worker router', () => {
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-ecdsa-record',
               walletSigningSessionId: 'wallet-session-ecdsa-record',
-              thresholdSessionJwt: 'jwt:session-ecdsa-record',
+              thresholdSessionAuthToken: 'jwt:session-ecdsa-record',
               chainTarget: {
                 kind: 'evm',
                 namespace: 'eip155',
@@ -1043,7 +1043,7 @@ test.describe('UserConfirm worker router', () => {
       transport: {
         relayerUrl: 'https://relay-ecdsa.example',
         walletSigningSessionId: 'wallet-session-ecdsa-record',
-        thresholdSessionJwt: 'jwt:session-ecdsa-record',
+        thresholdSessionAuthToken: 'jwt:session-ecdsa-record',
         keyVersion: 'kek-v-ecdsa',
         shamirPrimeB64u: 'AQID',
       },
@@ -1116,7 +1116,7 @@ test.describe('UserConfirm worker router', () => {
             curve: 'ed25519',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-single-flight-apply',
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
           },
@@ -1127,7 +1127,7 @@ test.describe('UserConfirm worker router', () => {
             curve: 'ed25519',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-single-flight-apply',
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
           },
@@ -1244,7 +1244,7 @@ test.describe('UserConfirm worker router', () => {
             curve: 'ed25519',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-cross-manager-apply',
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
           },
@@ -1255,7 +1255,7 @@ test.describe('UserConfirm worker router', () => {
             curve: 'ed25519',
             relayerUrl: 'https://relay.example',
             walletSigningSessionId: 'wallet-cross-manager-apply',
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             keyVersion: 'kek-v1',
             shamirPrimeB64u: 'AQAB',
           },
@@ -1354,7 +1354,7 @@ test.describe('UserConfirm worker router', () => {
           authMethod: 'passkey',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
             relayerKeyId: 'relayer-key',
@@ -1373,7 +1373,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-single-flight-remove',
-          thresholdSessionJwt: 'jwt-session',
+          thresholdSessionAuthToken: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
           keyVersion: 'kek-v1',
         });
@@ -1516,7 +1516,7 @@ test.describe('UserConfirm worker router', () => {
           authMethod: 'passkey',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
             relayerKeyId: 'relayer-key',
@@ -1535,7 +1535,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-cross-manager-remove',
-          thresholdSessionJwt: 'jwt-session',
+          thresholdSessionAuthToken: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
           keyVersion: 'kek-v1',
         });
@@ -1545,7 +1545,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-cross-manager-remove',
-          thresholdSessionJwt: 'jwt-session',
+          thresholdSessionAuthToken: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
           keyVersion: 'kek-v1',
         });
@@ -1672,7 +1672,7 @@ test.describe('UserConfirm worker router', () => {
           authMethod: 'passkey',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
             relayerKeyId: 'relayer-key',
@@ -1865,7 +1865,7 @@ test.describe('UserConfirm worker router', () => {
           authMethod: 'passkey',
           ecdsaRestore: {
             chainTarget: { kind: 'tempo', chainId: 42431, networkSlug: 'tempo-moderato' },
-            thresholdSessionJwt: 'jwt-session',
+            thresholdSessionAuthToken: 'jwt-session',
             sessionKind: 'jwt',
             ecdsaThresholdKeyId: 'ecdsa-key',
             relayerKeyId: 'relayer-key',
@@ -1884,7 +1884,7 @@ test.describe('UserConfirm worker router', () => {
           curve: 'ecdsa',
           relayerUrl: 'https://relay.example',
           walletSigningSessionId: 'wallet-session-expired',
-          thresholdSessionJwt: 'jwt-session',
+          thresholdSessionAuthToken: 'jwt-session',
           shamirPrimeB64u: 'AQAB',
         });
 

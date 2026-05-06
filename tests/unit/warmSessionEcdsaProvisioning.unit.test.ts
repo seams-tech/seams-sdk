@@ -16,14 +16,14 @@ function createEnvelope(): WarmSessionEnvelope {
     chain: 'evm',
     ecdsaThresholdKeyId: 'ek-evm',
     sessionId: 'evm-session',
-    sessionJwt: 'jwt:evm-session',
+    sessionAuthToken: 'jwt:evm-session',
   });
   const tempoBootstrap = createThresholdEcdsaBootstrapFixture({
     nearAccountId: 'provisioning.testnet',
     chain: 'tempo',
     ecdsaThresholdKeyId: 'ek-tempo',
     sessionId: 'tempo-session',
-    sessionJwt: 'jwt:tempo-session',
+    sessionAuthToken: 'jwt:tempo-session',
   });
   return {
     accountId: 'provisioning.testnet' as any,
@@ -54,8 +54,8 @@ function createEnvelope(): WarmSessionEnvelope {
             capability: 'ecdsa',
             chain: 'evm',
             record: {} as any,
-            thresholdSessionJwt: 'jwt:evm-session',
-            thresholdSessionJwtSource: 'ecdsa',
+            thresholdSessionAuthToken: 'jwt:evm-session',
+            thresholdSessionAuthTokenSource: 'ecdsa',
           },
           prfClaim: {
             state: 'warm',
@@ -83,8 +83,8 @@ function createEnvelope(): WarmSessionEnvelope {
             capability: 'ecdsa',
             chain: 'tempo',
             record: {} as any,
-            thresholdSessionJwt: 'jwt:tempo-session',
-            thresholdSessionJwtSource: 'ecdsa',
+            thresholdSessionAuthToken: 'jwt:tempo-session',
+            thresholdSessionAuthTokenSource: 'ecdsa',
           },
           prfClaim: {
             state: 'warm',
@@ -108,7 +108,7 @@ test.describe('warmSessionEcdsaProvisioning', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-evm',
       sessionId: 'evm-session',
-      sessionJwt: 'jwt:evm-session',
+      sessionAuthToken: 'jwt:evm-session',
     }).thresholdEcdsaKeyRef;
 
     expect(
@@ -140,7 +140,7 @@ test.describe('warmSessionEcdsaProvisioning', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-evm',
       sessionId: 'evm-session',
-      sessionJwt: 'jwt:evm-session',
+      sessionAuthToken: 'jwt:evm-session',
     }).thresholdEcdsaKeyRef;
 
     expect(
@@ -153,7 +153,7 @@ test.describe('warmSessionEcdsaProvisioning', () => {
       thresholdEcdsaKeyRef: {
         ecdsaThresholdKeyId: 'ek-evm',
         thresholdSessionId: 'evm-session',
-        thresholdSessionJwt: 'jwt:evm-session',
+        thresholdSessionAuthToken: 'jwt:evm-session',
       },
       session: {
         ok: true,

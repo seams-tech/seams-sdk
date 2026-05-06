@@ -6,7 +6,7 @@ type EcdsaSessionKind = 'jwt' | 'cookie';
 
 type ThresholdEcdsaAuth = {
   sessionKind?: EcdsaSessionKind;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
 };
 
 function resolveRelayerUrl(input: string): string | null {
@@ -28,12 +28,12 @@ function resolvePresignAuthHeaders(args: ThresholdEcdsaAuth):
   const sessionKind: EcdsaSessionKind = args.sessionKind || 'jwt';
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (sessionKind === 'jwt') {
-    const jwt = String(args.thresholdSessionJwt || '').trim();
+    const jwt = String(args.thresholdSessionAuthToken || '').trim();
     if (!jwt) {
       return {
         ok: false,
         code: 'invalid_args',
-        message: 'Missing thresholdSessionJwt for threshold-ecdsa presign (jwt sessionKind)',
+        message: 'Missing thresholdSessionAuthToken for threshold-ecdsa presign (jwt sessionKind)',
       };
     }
     headers.Authorization = `Bearer ${jwt}`;
@@ -57,7 +57,7 @@ export async function ecdsaPresignInit(args: {
   ecdsaThresholdKeyId: string;
   count?: number;
   sessionKind?: EcdsaSessionKind;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   requestTag?: string;
   requestTimeoutMs?: number;
 }): Promise<ThresholdEcdsaPresignProgress & { presignSessionId?: string }> {
@@ -147,7 +147,7 @@ export async function ecdsaPresignStep(args: {
   stage: 'triples' | 'presign';
   outgoingMessagesB64u?: string[];
   sessionKind?: EcdsaSessionKind;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   requestTag?: string;
   requestTimeoutMs?: number;
 }): Promise<ThresholdEcdsaPresignProgress> {

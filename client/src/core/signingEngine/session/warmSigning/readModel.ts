@@ -122,12 +122,12 @@ export function resolveEd25519AuthMaterial(
   record: WarmSessionEd25519CapabilityState['record'],
 ): WarmSessionEd25519AuthMaterial | null {
   if (!record) return null;
-  const thresholdSessionJwt = String(record.thresholdSessionJwt || '').trim();
+  const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim();
   return {
     capability: 'ed25519',
     record,
-    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
-    thresholdSessionJwtSource: thresholdSessionJwt ? 'ed25519' : 'none',
+    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
+    thresholdSessionAuthTokenSource: thresholdSessionAuthToken ? 'ed25519' : 'none',
   };
 }
 
@@ -135,12 +135,12 @@ export function resolveEcdsaAuthMaterial(
   record: WarmSessionEcdsaCapabilityState['record'],
 ): WarmSessionEcdsaAuthMaterial | null {
   if (!record) return null;
-  const thresholdSessionJwt = String(record.thresholdSessionJwt || '').trim();
+  const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim();
   return {
     capability: 'ecdsa',
     record,
-    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
-    thresholdSessionJwtSource: thresholdSessionJwt ? 'ecdsa' : 'none',
+    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
+    thresholdSessionAuthTokenSource: thresholdSessionAuthToken ? 'ecdsa' : 'none',
   };
 }
 
@@ -153,7 +153,7 @@ export function deriveEd25519CapabilityState(args: {
   if (!args.record) return 'missing';
   if (
     !args.auth ||
-    (args.record.thresholdSessionKind === 'jwt' && !args.auth.thresholdSessionJwt)
+    (args.record.thresholdSessionKind === 'jwt' && !args.auth.thresholdSessionAuthToken)
   ) {
     return 'auth_missing';
   }
@@ -182,7 +182,7 @@ export function deriveEcdsaCapabilityState(args: {
   if (!args.record) return 'missing';
   if (
     args.record.thresholdSessionKind === 'jwt' &&
-    (!args.auth || !args.auth.thresholdSessionJwt)
+    (!args.auth || !args.auth.thresholdSessionAuthToken)
   ) {
     return 'auth_missing';
   }
@@ -287,10 +287,10 @@ export function resolveEcdsaSealTransport(args: {
     ...(String(args.record.walletSigningSessionId || '').trim()
       ? { walletSigningSessionId: String(args.record.walletSigningSessionId || '').trim() }
       : {}),
-    ...(String(args.auth?.thresholdSessionJwt || '').trim()
-      ? { thresholdSessionJwt: String(args.auth?.thresholdSessionJwt || '').trim() }
+    ...(String(args.auth?.thresholdSessionAuthToken || '').trim()
+      ? { thresholdSessionAuthToken: String(args.auth?.thresholdSessionAuthToken || '').trim() }
       : {}),
-    thresholdSessionJwtSource: args.auth?.thresholdSessionJwtSource || 'none',
+    thresholdSessionAuthTokenSource: args.auth?.thresholdSessionAuthTokenSource || 'none',
     ...(keyVersion ? { keyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
   };

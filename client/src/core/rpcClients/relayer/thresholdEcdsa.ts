@@ -3,7 +3,7 @@ import { errorMessage } from '@shared/utils/errors';
 import { normalizeJwtCookieSessionKind, stripTrailingSlashes } from '@shared/utils/normalize';
 import {
   requireAppSessionJwt,
-  requireThresholdSessionJwt,
+  requireThresholdSessionAuthToken,
   type AppOrThresholdSessionAuth,
   type CookieSessionAuth,
 } from '@shared/utils/sessionTokens';
@@ -149,7 +149,7 @@ function optionalNonEmptyString(value: unknown): string | undefined {
 function resolveBearerToken(auth?: ThresholdEcdsaHssRouteAuth): string {
   if (!auth || auth.kind === 'cookie') return '';
   if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
-  if (auth.kind === 'threshold_session') return requireThresholdSessionJwt(auth.jwt);
+  if (auth.kind === 'threshold_session') return requireThresholdSessionAuthToken(auth.jwt);
   return String(auth.token || '').trim();
 }
 

@@ -22,7 +22,7 @@ test.describe('EVM family threshold reconnect events', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-reconnect-events',
       sessionId: 'stale-reconnect-events-session',
-      sessionJwt: 'jwt:stale-reconnect-events-session',
+      sessionAuthToken: 'jwt:stale-reconnect-events-session',
       walletSigningSessionId,
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -83,7 +83,7 @@ test.describe('EVM family threshold reconnect events', () => {
             chain,
             ecdsaThresholdKeyId: 'ek-reconnect-events',
             sessionId,
-            sessionJwt: `jwt:${sessionId}`,
+            sessionAuthToken: `jwt:${sessionId}`,
             walletSigningSessionId: requestedWalletSigningSessionId,
           });
           const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {

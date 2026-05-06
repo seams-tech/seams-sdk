@@ -178,7 +178,7 @@ function buildThresholdEcdsaBootstrap(args: {
     thresholdSessionKind: 'jwt',
     thresholdSessionId: sessionId,
     walletSigningSessionId,
-    ...(jwt ? { thresholdSessionJwt: jwt } : {}),
+    ...(jwt ? { thresholdSessionAuthToken: jwt } : {}),
   };
 
   return {

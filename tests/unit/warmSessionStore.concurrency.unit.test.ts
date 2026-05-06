@@ -27,7 +27,7 @@ test.describe('WarmSessionStore concurrency', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-concurrent-ready',
       sessionId: 'stale-concurrent-session',
-      sessionJwt: 'jwt:stale-concurrent-session',
+      sessionAuthToken: 'jwt:stale-concurrent-session',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'concurrent-ready.testnet',
@@ -40,7 +40,7 @@ test.describe('WarmSessionStore concurrency', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-concurrent-ready',
       sessionId: 'fresh-concurrent-session',
-      sessionJwt: 'jwt:fresh-concurrent-session',
+      sessionAuthToken: 'jwt:fresh-concurrent-session',
     });
 
     const readCalls: string[] = [];
@@ -144,7 +144,7 @@ test.describe('WarmSessionStore concurrency', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-concurrent-seal',
         sessionId: 'concurrent-seal-session',
-        sessionJwt: 'jwt:concurrent-seal-session',
+        sessionAuthToken: 'jwt:concurrent-seal-session',
         relayerUrl: 'https://relay.concurrent-seal.example',
       }),
     });

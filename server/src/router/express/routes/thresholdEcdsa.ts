@@ -23,7 +23,7 @@ import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
   resolveThresholdRuntimePolicyScope,
-  signThresholdSessionJwt,
+  signThresholdSessionAuthToken,
   validateThresholdEcdsaAuthorizeInputs,
   validateThresholdEcdsaSessionInputs,
 } from '../../commonRouterUtils';
@@ -480,14 +480,14 @@ export function registerThresholdEcdsaRoutes(
         }
         const result = await scheme.hss.finalize(body);
         if (!result.ok) return result;
-        if (!result.sessionId || !result.sessionJwtUserId || !result.sessionJwtRpId) {
+        if (!result.sessionId || !result.sessionAuthTokenUserId || !result.sessionAuthTokenRpId) {
           return result;
         }
-        const signed = await signThresholdSessionJwt({
+        const signed = await signThresholdSessionAuthToken({
           session: ctx.opts.session,
           kind: 'threshold_ecdsa_session_v1',
-          userId: result.sessionJwtUserId,
-          rpId: result.sessionJwtRpId,
+          userId: result.sessionAuthTokenUserId,
+          rpId: result.sessionAuthTokenRpId,
           relayerKeyId: result.relayerKeyId,
           allowedSessionKinds: ['jwt', 'cookie'],
           sessionInfo: {
@@ -516,8 +516,8 @@ export function registerThresholdEcdsaRoutes(
           };
         }
         const {
-          sessionJwtUserId: _sessionJwtUserId,
-          sessionJwtRpId: _sessionJwtRpId,
+          sessionAuthTokenUserId: _sessionAuthTokenUserId,
+          sessionAuthTokenRpId: _sessionAuthTokenRpId,
           jwt: _rawJwt,
           ...rest
         } = result;

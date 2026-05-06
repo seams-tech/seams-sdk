@@ -112,12 +112,12 @@ function resolvedEd25519SessionStateFromRecord(
   if (!record) return null;
   const sessionKind: 'jwt' | 'cookie' =
     record.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
-  const thresholdSessionJwt = String(record.thresholdSessionJwt || '').trim() || undefined;
-  if (sessionKind === 'jwt' && !thresholdSessionJwt) return null;
+  const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim() || undefined;
+  if (sessionKind === 'jwt' && !thresholdSessionAuthToken) return null;
   return {
     record,
     sessionKind,
-    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
     xClientBaseB64u: String(record.xClientBaseB64u || '').trim() || undefined,
     relayerUrl: String(record.relayerUrl || '').trim(),
   };
@@ -134,7 +134,7 @@ function budgetStatusAuthFromEd25519SessionState(
   return {
     thresholdSessionId,
     relayerUrl,
-    ...(state.thresholdSessionJwt ? { thresholdSessionJwt: state.thresholdSessionJwt } : {}),
+    ...(state.thresholdSessionAuthToken ? { thresholdSessionAuthToken: state.thresholdSessionAuthToken } : {}),
   };
 }
 
@@ -625,7 +625,7 @@ export async function signTransactionsWithActions({
         : {}),
       ctx,
       thresholdSessionId: canonicalThresholdSessionId,
-      thresholdSessionJwt: thresholdSessionState.thresholdSessionJwt,
+      thresholdSessionAuthToken: thresholdSessionState.thresholdSessionAuthToken,
       relayerUrl: thresholdSessionState.relayerUrl,
       relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
       nearAccountId,
@@ -805,7 +805,7 @@ export async function signTransactionsWithActions({
           thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
           xClientBaseB64u: xClientBaseOverride || thresholdSessionState.xClientBaseB64u,
           thresholdSessionKind: thresholdSessionState.sessionKind,
-          thresholdSessionJwt: thresholdSessionState.thresholdSessionJwt,
+          thresholdSessionAuthToken: thresholdSessionState.thresholdSessionAuthToken,
         },
       }),
       txSigningRequests,
@@ -918,7 +918,7 @@ export async function signTransactionsWithActions({
           ctx,
           operationLabel: 'transactions',
           thresholdSessionId: canonicalThresholdSessionId,
-          thresholdSessionJwt: thresholdSessionState.thresholdSessionJwt,
+          thresholdSessionAuthToken: thresholdSessionState.thresholdSessionAuthToken,
           relayerUrl: thresholdSessionState.relayerUrl,
           relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
           nearAccountId,

@@ -38,7 +38,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
             ...common,
             thresholdSessionId: 'old-passkey-session',
             walletSigningSessionId: 'old-passkey-wallet-session',
-            thresholdSessionJwt: 'jwt-old-passkey',
+            thresholdSessionAuthToken: 'jwt-old-passkey',
             remainingUses: 0,
             updatedAtMs: 1,
             source: 'login',
@@ -47,7 +47,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
             ...common,
             thresholdSessionId: 'old-otp-session',
             walletSigningSessionId: 'old-otp-wallet-session',
-            thresholdSessionJwt: 'jwt-old-otp',
+            thresholdSessionAuthToken: 'jwt-old-otp',
             remainingUses: 0,
             updatedAtMs: 2,
             emailOtpAuthContext: {
@@ -62,7 +62,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
             ...common,
             thresholdSessionId: 'fresh-otp-session',
             walletSigningSessionId: 'fresh-otp-wallet-session',
-            thresholdSessionJwt: 'jwt-fresh-otp',
+            thresholdSessionAuthToken: 'jwt-fresh-otp',
             remainingUses: 1,
             updatedAtMs: 3,
             emailOtpAuthContext: {
@@ -159,7 +159,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'canonical-threshold-session',
-          thresholdSessionJwt: 'jwt-canonical',
+          thresholdSessionAuthToken: 'jwt-canonical',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
           source: 'registration',
@@ -173,7 +173,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           });
           return {
             sessionKind: resolved.sessionKind,
-            thresholdSessionJwt: resolved.thresholdSessionJwt || null,
+            thresholdSessionAuthToken: resolved.thresholdSessionAuthToken || null,
             thresholdSessionId: resolved.record.thresholdSessionId,
             xClientBaseB64u: resolved.xClientBaseB64u || null,
             relayerUrl: resolved.relayerUrl,
@@ -187,7 +187,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
 
     expect(result).toEqual({
       sessionKind: 'jwt',
-      thresholdSessionJwt: 'jwt-canonical',
+      thresholdSessionAuthToken: 'jwt-canonical',
       thresholdSessionId: 'canonical-threshold-session',
       xClientBaseB64u: 'x-client-base',
       relayerUrl: 'https://relay.example',
@@ -218,7 +218,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           participantIds: [1, 2],
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'shared-session-id',
-          thresholdSessionJwt: 'jwt-ed25519',
+          thresholdSessionAuthToken: 'jwt-ed25519',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
           updatedAtMs: Date.now(),
@@ -243,7 +243,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
               participantIds: [1, 2],
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'shared-session-id',
-              thresholdSessionJwt: 'jwt-ecdsa',
+              thresholdSessionAuthToken: 'jwt-ecdsa',
             } as any,
             keygen: {
               ok: true,
@@ -279,7 +279,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
             directEd25519RelayerKeyId: String(directEd25519?.relayerKeyId || ''),
             directScopedRelayerKeyId: String(directScoped?.relayerKeyId || ''),
             relayerKeyId: resolved.record.relayerKeyId,
-            thresholdSessionJwt: resolved.thresholdSessionJwt || null,
+            thresholdSessionAuthToken: resolved.thresholdSessionAuthToken || null,
             thresholdSessionId: resolved.record.thresholdSessionId,
           };
         } finally {
@@ -294,7 +294,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
       directEd25519RelayerKeyId: 'rk-ed25519',
       directScopedRelayerKeyId: 'rk-ed25519',
       relayerKeyId: 'rk-ed25519',
-      thresholdSessionJwt: 'jwt-ed25519',
+      thresholdSessionAuthToken: 'jwt-ed25519',
       thresholdSessionId: 'shared-session-id',
     });
   });
@@ -315,7 +315,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'stale-threshold-session',
-          thresholdSessionJwt: 'jwt-stale',
+          thresholdSessionAuthToken: 'jwt-stale',
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
           source: 'registration',
@@ -398,7 +398,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           xClientBaseB64u: 'x-client-base',
           thresholdSessionKind: 'jwt',
           thresholdSessionId,
-          thresholdSessionJwt: `jwt-${thresholdSessionId}`,
+          thresholdSessionAuthToken: `jwt-${thresholdSessionId}`,
           expiresAtMs: Date.now() + 60_000,
           remainingUses: 3,
           source: 'email_otp',
@@ -458,7 +458,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           {
             name: 'missing-jwt-for-jwt-session',
             record: ((record) => {
-              delete record.thresholdSessionJwt;
+              delete record.thresholdSessionAuthToken;
               return record;
             })(makeBaseRecord('missing-jwt')),
           },
@@ -510,7 +510,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           storeMod.upsertStoredThresholdEd25519SessionRecord({
             ...makeBaseRecord('cookie-without-jwt'),
             thresholdSessionKind: 'cookie',
-            thresholdSessionJwt: undefined,
+            thresholdSessionAuthToken: undefined,
           });
           const cookieRecord = storeMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
             'cookie-without-jwt',

@@ -34,7 +34,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
         seedEd25519WarmSessionRecord({
           nearAccountId: String(nearAccountId),
           thresholdSessionId: sessionId,
-          thresholdSessionJwt: `jwt:${sessionId}`,
+          thresholdSessionAuthToken: `jwt:${sessionId}`,
           remainingUses: 7,
           expiresAtMs,
           source: 'login',
@@ -121,7 +121,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-transition-stale',
       sessionId: 'ecdsa-stale-session',
-      sessionJwt: 'jwt:ecdsa-stale-session',
+      sessionAuthToken: 'jwt:ecdsa-stale-session',
       walletSigningSessionId: 'wsess-ecdsa-transition',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -153,7 +153,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
           chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-transition-stale',
           sessionId: 'ecdsa-fresh-session',
-          sessionJwt: 'jwt:ecdsa-fresh-session',
+          sessionAuthToken: 'jwt:ecdsa-fresh-session',
           walletSigningSessionId: 'wsess-ecdsa-transition',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {

@@ -5,7 +5,7 @@ export async function repairThresholdEd25519MissingRelayerKey(args: {
   ctx: SigningRuntimeDeps;
   operationLabel: 'transactions' | 'delegate' | 'nep413';
   thresholdSessionId: string;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   relayerUrl: string;
   relayerKeyId: string;
   nearAccountId: string;
@@ -24,7 +24,7 @@ export async function repairThresholdEd25519MissingRelayerKey(args: {
   const xClientBaseB64u = await ensureThresholdEd25519HssClientBase({
     ctx: args.ctx,
     thresholdSessionId: args.thresholdSessionId,
-    thresholdSessionJwt: args.thresholdSessionJwt,
+    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
     relayerUrl: args.relayerUrl,
     relayerKeyId: args.relayerKeyId,
     nearAccountId: args.nearAccountId,

@@ -59,7 +59,7 @@ function buildEmailOtpSigningSessionAuthLane(args: {
   const walletSigningSessionId = nonEmptyString(args.walletSigningSessionId);
   if (!jwt || !thresholdSessionId || !walletSigningSessionId) {
     console.warn('[EmailOtpAuthLane] rejected incomplete signing-session auth lane', {
-      hasJwt: !!jwt,
+      hasAuthToken: !!jwt,
       thresholdSessionId,
       walletSigningSessionId,
       curve: args.curve,

@@ -65,7 +65,7 @@ test.describe('Email OTP recovery-wrapped enrollment escrow store specs', () => 
       'clientSecret32B64u',
       'signingSessionSecretB64u',
       'sealedSecretB64u',
-      'thresholdSessionJwt',
+      'thresholdSessionAuthToken',
       'recoveryKey',
       'recoveryKeys',
       'recoveryKek',

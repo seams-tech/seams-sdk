@@ -532,7 +532,7 @@ const EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_FORBIDDEN_FIELDS = Object.fre
   'clientSecret32B64u',
   'signingSessionSecretB64u',
   'sealedSecretB64u',
-  'thresholdSessionJwt',
+  'thresholdSessionAuthToken',
   'recoveryKey',
   'recoveryKeys',
   'recoveryKek',

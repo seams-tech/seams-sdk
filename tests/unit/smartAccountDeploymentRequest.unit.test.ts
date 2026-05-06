@@ -118,7 +118,7 @@ test.describe('smart-account deployment request assembly', () => {
           },
           {
             relayerUrl: 'https://relay.example.test',
-            thresholdSessionJwt: 'threshold-jwt',
+            thresholdSessionAuthToken: 'threshold-jwt',
           },
         );
         return { deployed, calls };

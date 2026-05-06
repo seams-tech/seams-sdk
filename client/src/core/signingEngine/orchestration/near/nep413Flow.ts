@@ -163,7 +163,7 @@ export async function signNep413Message({
       ? await ensureThresholdEd25519HssClientBase({
           ctx,
           thresholdSessionId: canonicalThresholdSessionId,
-          thresholdSessionJwt: thresholdSessionState.thresholdSessionJwt,
+          thresholdSessionAuthToken: thresholdSessionState.thresholdSessionAuthToken,
           relayerUrl: thresholdSessionState.relayerUrl,
           relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
           nearAccountId,
@@ -196,7 +196,7 @@ export async function signNep413Message({
             xClientBaseB64u:
               xClientBaseOverride || currentThresholdSessionState.xClientBaseB64u,
             thresholdSessionKind: currentThresholdSessionState.sessionKind,
-            thresholdSessionJwt: currentThresholdSessionState.thresholdSessionJwt,
+            thresholdSessionAuthToken: currentThresholdSessionState.thresholdSessionAuthToken,
           },
         }),
         credential: credentialForRelayJson,
@@ -231,7 +231,7 @@ export async function signNep413Message({
             ctx,
             operationLabel: 'nep413',
             thresholdSessionId: canonicalThresholdSessionId,
-            thresholdSessionJwt: thresholdSessionState.thresholdSessionJwt,
+            thresholdSessionAuthToken: thresholdSessionState.thresholdSessionAuthToken,
             relayerUrl: thresholdSessionState.relayerUrl,
             relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
             nearAccountId,

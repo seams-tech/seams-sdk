@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
-  appOrThresholdSessionJwtAuth,
+  appOrThresholdSessionAuthTokenAuth,
   requireAppSessionJwt,
-  requireThresholdSessionJwt,
+  requireThresholdSessionAuthToken,
 } from '@shared/utils/sessionTokens';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
@@ -12,7 +12,7 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
 }
 
 test.describe('session JWT kind helpers', () => {
-  test('rejects threshold-session JWTs at app-session boundaries', () => {
+  test('rejects threshold-session auth tokens at app-session boundaries', () => {
     const jwt = jwtWithPayload({
       kind: 'threshold_ecdsa_session_v1',
       sub: 'alice.testnet',
@@ -37,34 +37,40 @@ test.describe('session JWT kind helpers', () => {
   test('rejects app-session JWTs at threshold-session boundaries', () => {
     const jwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
 
-    expect(() => requireThresholdSessionJwt(jwt)).toThrow('must be a threshold-session JWT');
+    expect(() => requireThresholdSessionAuthToken(jwt)).toThrow(
+      'must be a threshold-session auth token',
+    );
   });
 
   test('rejects missing kind at threshold-session boundaries', () => {
     const jwt = jwtWithPayload({ sub: 'alice.testnet' });
 
-    expect(() => requireThresholdSessionJwt(jwt)).toThrow('must be a threshold-session JWT');
+    expect(() => requireThresholdSessionAuthToken(jwt)).toThrow(
+      'must be a threshold-session auth token',
+    );
   });
 
   test('rejects unknown kind at threshold-session boundaries', () => {
     const jwt = jwtWithPayload({ kind: 'unknown_session_v1', sub: 'alice.testnet' });
 
-    expect(() => requireThresholdSessionJwt(jwt)).toThrow('must be a threshold-session JWT');
+    expect(() => requireThresholdSessionAuthToken(jwt)).toThrow(
+      'must be a threshold-session auth token',
+    );
   });
 
   test('builds discriminated route auth from JWT kind', () => {
-    const thresholdJwt = jwtWithPayload({
+    const thresholdAuthToken = jwtWithPayload({
       kind: 'threshold_ecdsa_session_v1',
       sub: 'alice.testnet',
       walletId: 'alice.testnet',
     });
     const appJwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
 
-    expect(appOrThresholdSessionJwtAuth(thresholdJwt)).toEqual({
+    expect(appOrThresholdSessionAuthTokenAuth(thresholdAuthToken)).toEqual({
       kind: 'threshold_session',
-      jwt: thresholdJwt,
+      jwt: thresholdAuthToken,
     });
-    expect(appOrThresholdSessionJwtAuth(appJwt)).toEqual({
+    expect(appOrThresholdSessionAuthTokenAuth(appJwt)).toEqual({
       kind: 'app_session',
       jwt: appJwt,
     });
@@ -77,11 +83,11 @@ test.describe('session JWT kind helpers', () => {
       sub: 'alice.testnet',
     });
 
-    expect(() => appOrThresholdSessionJwtAuth(missingKindJwt)).toThrow(
-      'session JWT must include a valid session kind',
+    expect(() => appOrThresholdSessionAuthTokenAuth(missingKindJwt)).toThrow(
+      'session auth token must include a valid session kind',
     );
-    expect(() => appOrThresholdSessionJwtAuth(unknownKindJwt)).toThrow(
-      'session JWT must include a valid session kind',
+    expect(() => appOrThresholdSessionAuthTokenAuth(unknownKindJwt)).toThrow(
+      'session auth token must include a valid session kind',
     );
   });
 });

@@ -162,7 +162,7 @@ export function seedEd25519WarmSessionRecord(
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId:
       args.walletSigningSessionId || `wsess-${String(args.thresholdSessionId).trim()}`,
-    ...(args.thresholdSessionJwt ? { thresholdSessionJwt: args.thresholdSessionJwt } : {}),
+    ...(args.thresholdSessionAuthToken ? { thresholdSessionAuthToken: args.thresholdSessionAuthToken } : {}),
     expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
     remainingUses: args.remainingUses ?? 7,
     ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
@@ -180,7 +180,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   chain: ThresholdEcdsaActivationChain;
   ecdsaThresholdKeyId?: string;
   sessionId?: string;
-  sessionJwt?: string;
+  sessionAuthToken?: string;
   sessionKind?: 'jwt' | 'cookie';
   relayerUrl?: string;
   relayerKeyId?: string;
@@ -197,8 +197,8 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   ).trim();
   const sessionId = String(args.sessionId || `sess-${chainLabel}-1`).trim();
   const sessionKind = args.sessionKind || 'jwt';
-  const sessionJwt =
-    sessionKind === 'jwt' ? String(args.sessionJwt || `jwt:${sessionId}`).trim() : '';
+  const sessionAuthToken =
+    sessionKind === 'jwt' ? String(args.sessionAuthToken || `jwt:${sessionId}`).trim() : '';
   const relayerUrl = String(args.relayerUrl || 'https://relay.example').trim();
   const relayerKeyId = String(args.relayerKeyId || `rk-${chainLabel}-1`).trim();
   const clientVerifyingShareB64u = String(
@@ -233,7 +233,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       thresholdSessionKind: sessionKind,
       thresholdSessionId: sessionId,
       walletSigningSessionId,
-      ...(sessionJwt ? { thresholdSessionJwt: sessionJwt } : {}),
+      ...(sessionAuthToken ? { thresholdSessionAuthToken: sessionAuthToken } : {}),
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: `pub-${chainLabel}-b64u`,
       relayerVerifyingShareB64u: `relayer-${chainLabel}-share-b64u`,
@@ -254,7 +254,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       walletSigningSessionId,
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 5,
-      ...(sessionJwt ? { jwt: sessionJwt } : {}),
+      ...(sessionAuthToken ? { jwt: sessionAuthToken } : {}),
       clientVerifyingShareB64u,
     },
   };

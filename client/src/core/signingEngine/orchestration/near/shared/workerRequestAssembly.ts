@@ -9,16 +9,16 @@ type NearThresholdSignerConfigInput = {
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   xClientBaseB64u?: string;
   thresholdSessionKind?: 'jwt' | 'cookie';
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
 };
 
 export function buildNearThresholdSignerConfig(
   args: NearThresholdSignerConfigInput,
 ): ThresholdSignerConfig {
   const thresholdSessionKind = args.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
-  const thresholdSessionJwt =
+  const thresholdSessionAuthToken =
     thresholdSessionKind === 'jwt'
-      ? String(args.thresholdSessionJwt || '').trim() || undefined
+      ? String(args.thresholdSessionAuthToken || '').trim() || undefined
       : undefined;
   const xClientBaseB64u = String(args.xClientBaseB64u || '').trim() || undefined;
   return {
@@ -31,7 +31,7 @@ export function buildNearThresholdSignerConfig(
       ?.id,
     participantIds: args.thresholdKeyMaterial.participants.map((p) => p.id),
     thresholdSessionKind,
-    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
   };
 }
 

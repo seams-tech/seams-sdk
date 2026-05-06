@@ -36,7 +36,7 @@ export type BootstrapEcdsaSessionArgs = {
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
   operationIntent?: SigningOperationIntent;
-  thresholdRouteAuth?: ThresholdEcdsaHssRouteAuth;
+  thresholdSessionAuth?: ThresholdEcdsaHssRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -138,7 +138,7 @@ export async function bootstrapEcdsaSessionValue(
     clientRootShare32: args.clientRootShare32,
     clientRootShare32B64u: args.clientRootShare32B64u,
     webauthnAuthentication: args.webauthnAuthentication,
-    thresholdRouteAuth: args.thresholdRouteAuth,
+    thresholdSessionAuth: args.thresholdSessionAuth,
     runtimePolicyScope: args.runtimePolicyScope,
     runtimeScopeBootstrap: args.runtimeScopeBootstrap,
     ttlMs: args.ttlMs,

@@ -15,7 +15,7 @@ export const THRESHOLD_ED25519_HSS_DERIVATION_VERSION = 1;
 export async function ensureThresholdEd25519HssClientBase(args: {
   ctx: SigningRuntimeDeps;
   thresholdSessionId: string;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   relayerUrl: string;
   relayerKeyId: string;
   nearAccountId: string;
@@ -49,15 +49,15 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   const signingRootId = record?.runtimePolicyScope
     ? signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope).signingRootId
     : '';
-  const thresholdSessionJwt =
-    String(args.thresholdSessionJwt || '').trim() ||
-    String(record?.thresholdSessionJwt || '').trim();
+  const thresholdSessionAuthToken =
+    String(args.thresholdSessionAuthToken || '').trim() ||
+    String(record?.thresholdSessionAuthToken || '').trim();
   if (hasCanonicalRuntimeScope && !signingRootId) {
     throw new Error(
       'Threshold Ed25519 session is missing canonical signing-root scope for HSS reconstruction',
     );
   }
-  if (hasCanonicalRuntimeScope && !thresholdSessionJwt) {
+  if (hasCanonicalRuntimeScope && !thresholdSessionAuthToken) {
     throw new Error(
       'Threshold Ed25519 session is bound to canonical single-key HSS scope but is missing threshold session JWT for reconstruction',
     );
@@ -67,7 +67,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
       'Threshold Ed25519 session is missing signing-root scope for single-key HSS reconstruction',
     );
   }
-  if (!thresholdSessionJwt) {
+  if (!thresholdSessionAuthToken) {
     throw new Error(
       'Threshold Ed25519 session is missing threshold session JWT for single-key HSS reconstruction',
     );
@@ -109,7 +109,7 @@ export async function ensureThresholdEd25519HssClientBase(args: {
   args.onProgress?.('Finalizing threshold Ed25519 signing material...');
   const completed = await runThresholdEd25519HssCeremonyWithSession({
     relayerUrl: String(args.relayerUrl || '').trim(),
-    thresholdSessionJwt,
+    thresholdSessionAuthToken,
     relayerKeyId: String(args.relayerKeyId || '').trim(),
     operation: 'warm_session_reconstruction',
     context,

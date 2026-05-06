@@ -558,13 +558,13 @@ async function resolveNearTransactionPlannerReadiness(args: {
 
 function hasThresholdEd25519RouteAuth(record: ThresholdEd25519SessionRecord): boolean {
   if (record.thresholdSessionKind === 'cookie') return true;
-  return Boolean(String(record.thresholdSessionJwt || '').trim());
+  return Boolean(String(record.thresholdSessionAuthToken || '').trim());
 }
 
 function emailOtpEd25519AuthLaneFromRecord(
   record: ThresholdEd25519SessionRecord | null | undefined,
 ): EmailOtpAuthLane | undefined {
-  const jwt = String(record?.thresholdSessionJwt || '').trim();
+  const jwt = String(record?.thresholdSessionAuthToken || '').trim();
   const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
   const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
   if (record?.source !== 'email_otp' || !jwt || !thresholdSessionId || !walletSigningSessionId) {

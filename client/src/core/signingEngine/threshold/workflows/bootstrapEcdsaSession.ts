@@ -335,7 +335,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
     // during passkey reauth. Preserve that proof so the server can refresh the
     // wallet signing-session budget for the newly minted threshold material.
     const webauthnAuthentication = args.webauthnAuthentication || credential || undefined;
-    const routeAuth: ThresholdEcdsaHssRouteAuth | undefined = exactSessionBootstrap
+    const hssAuth: ThresholdEcdsaHssRouteAuth | undefined = exactSessionBootstrap
       ? args.bootstrapAuth
       : args.bootstrapAuth
         ? args.bootstrapAuth
@@ -377,7 +377,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
             : 0,
           runtimePolicyScope: sessionPolicy.runtimePolicyScope,
         },
-        auth: summarizeHssRouteAuth(routeAuth),
+        auth: summarizeHssRouteAuth(hssAuth),
         hasWebAuthnAuthentication: Boolean(webauthnAuthentication),
         hasProvidedClientRootShare: Boolean(
           providedClientRootShare32 || providedClientRootShare32B64u,
@@ -403,7 +403,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
           operation: 'registration_bootstrap',
           keygenSessionId,
           webauthnAuthentication,
-          ...(routeAuth ? { auth: routeAuth } : {}),
+          ...(hssAuth ? { auth: hssAuth } : {}),
           ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
           sessionPolicy,
           sessionKind,
@@ -484,7 +484,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
     const respond = await thresholdEcdsaHssRespond(args.relayerUrl, {
       ceremonyId,
       requestMessageB64u,
-      auth: routeAuth,
+      auth: hssAuth,
       sessionKind,
     });
     if (!respond.ok) {
@@ -537,7 +537,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
     const bootstrap = await thresholdEcdsaHssFinalize(args.relayerUrl, {
       ceremonyId,
       clientFinalizeMessageB64u: finalizeMessageB64u,
-      auth: routeAuth,
+      auth: hssAuth,
       sessionKind,
     });
     if (!bootstrap.ok) {
@@ -601,7 +601,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
             ? { walletSigningSessionId: resolvedWalletSigningSessionId }
             : {}),
           ...(typeof bootstrap.jwt === 'string' && bootstrap.jwt.trim()
-            ? { thresholdSessionJwt: bootstrap.jwt.trim() }
+            ? { thresholdSessionAuthToken: bootstrap.jwt.trim() }
             : {}),
         },
       });

@@ -61,7 +61,7 @@ type ErrResult = { ok: false; code: string; message: string };
 
 type SigningSessionSealTransport = {
   relayerUrl: string;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
 };
@@ -256,13 +256,13 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   const transport = asRecord(value);
   if (!transport) return null;
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
-  const thresholdSessionJwt = normalizeOptionalNonEmptyString(transport.thresholdSessionJwt);
+  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(transport.thresholdSessionAuthToken);
   const keyVersion = normalizeOptionalNonEmptyString(transport.keyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
   if (!relayerUrl) return null;
   return {
     relayerUrl,
-    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
     ...(keyVersion ? { keyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
   };
@@ -339,14 +339,14 @@ async function callSigningSessionSealRoute(args: {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    const thresholdSessionJwt = normalizeOptionalNonEmptyString(args.transport.thresholdSessionJwt);
+    const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(args.transport.thresholdSessionAuthToken);
     const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
-    if (thresholdSessionJwt) {
-      headers.Authorization = `Bearer ${thresholdSessionJwt}`;
+    if (thresholdSessionAuthToken) {
+      headers.Authorization = `Bearer ${thresholdSessionAuthToken}`;
     }
     const response = await fetch(url, {
       method: 'POST',
-      credentials: thresholdSessionJwt ? 'omit' : 'include',
+      credentials: thresholdSessionAuthToken ? 'omit' : 'include',
       headers,
       body: JSON.stringify({
         thresholdSessionId: args.thresholdSessionId,

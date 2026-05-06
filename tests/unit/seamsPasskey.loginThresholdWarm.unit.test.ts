@@ -28,7 +28,7 @@ function canonicalEcdsaRecord(overrides?: Record<string, unknown>): Record<strin
     clientVerifyingShareB64u: 'AQ',
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt',
-    thresholdSessionJwt: 'jwt-ecdsa',
+    thresholdSessionAuthToken: 'jwt-ecdsa',
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 3,
     updatedAtMs: Date.now(),
@@ -80,7 +80,7 @@ function createBaseContext(args?: {
           thresholdSessionKind: 'jwt',
           thresholdSessionId: 'session-1',
           walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-          thresholdSessionJwt: 'jwt-ecdsa',
+          thresholdSessionAuthToken: 'jwt-ecdsa',
         },
         keygen: {
           ok: true,
@@ -237,7 +237,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               thresholdSessionKind: 'jwt',
               thresholdSessionId: 'session-1',
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-              thresholdSessionJwt: 'jwt-ecdsa',
+              thresholdSessionAuthToken: 'jwt-ecdsa',
             },
             keygen: {
               ok: true,
@@ -278,7 +278,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(String(bootstrapArgs?.['walletSigningSessionId'] || '')).toBe(
       WALLET_SIGNING_SESSION_ID,
     );
-    expect(bootstrapArgs?.['thresholdRouteAuth']).toEqual({
+    expect(bootstrapArgs?.['thresholdSessionAuth']).toEqual({
       kind: 'threshold_session',
       jwt: 'jwt-ed25519',
     });
@@ -500,7 +500,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       participantIds: [1, 2],
       thresholdSessionKind: 'jwt',
       thresholdSessionId: 'stored-ed25519-session-1',
-      thresholdSessionJwt: 'jwt-stale',
+      thresholdSessionAuthToken: 'jwt-stale',
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 1,
       source: 'manual-connect',
@@ -806,7 +806,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                 thresholdSessionKind: 'jwt',
                 thresholdSessionId: 'session-1',
                 walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-                thresholdSessionJwt: 'jwt-ecdsa',
+                thresholdSessionAuthToken: 'jwt-ecdsa',
               },
               keygen: {
                 ok: true,
@@ -847,7 +847,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.jwt).toBe('app-jwt-oidc-1');
       expect(bootstrapCalls).toBe(2);
       const bootstrap = bootstrapArgs as Record<string, any> | null;
-      expect(bootstrap?.thresholdRouteAuth).toEqual({
+      expect(bootstrap?.thresholdSessionAuth).toEqual({
         kind: 'app_session',
         jwt: 'app-jwt-oidc-1',
       });

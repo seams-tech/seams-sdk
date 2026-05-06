@@ -43,7 +43,7 @@ const PLAINTEXT_OR_WRONG_STORE_FIELDS = [
   'clientSecret32B64u',
   'signingSessionSecretB64u',
   'sealedSecretB64u',
-  'thresholdSessionJwt',
+  'thresholdSessionAuthToken',
   'recoveryKey',
   'recoveryKeys',
   'recoveryKek',

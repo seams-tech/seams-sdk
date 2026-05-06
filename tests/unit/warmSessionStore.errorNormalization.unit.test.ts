@@ -20,6 +20,7 @@ import {
   seedEcdsaWarmSessionRecord,
   testEcdsaChainTarget,
 } from './helpers/warmSessionStore.fixtures';
+import { toWalletSubjectId } from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
 
 async function resolveNearThresholdSigningAuthForTest(args: Parameters<
   typeof resolveNearThresholdSigningAuthContext
@@ -47,7 +48,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-bootstrap-error',
         sessionId: 'bootstrap-error-session',
-        sessionJwt: 'jwt:bootstrap-error-session',
+        sessionAuthToken: 'jwt:bootstrap-error-session',
       }),
     });
 
@@ -70,10 +71,11 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
     await expect(
       store.provisionEcdsaCapability({
         nearAccountId: 'bootstrap-error.testnet',
+        subjectId: toWalletSubjectId('bootstrap-error.testnet'),
         chainTarget: testEcdsaChainTarget('evm'),
         source: 'manual-bootstrap',
         sessionId: record.thresholdSessionId,
-        thresholdRouteAuth: {
+        thresholdSessionAuth: {
           kind: 'threshold_session',
           jwt: 'jwt:bootstrap-error-session',
         },
@@ -93,7 +95,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-reconnect-error',
       sessionId: 'reconnect-error-stale-session',
-      sessionJwt: 'jwt:reconnect-error-stale-session',
+      sessionAuthToken: 'jwt:reconnect-error-stale-session',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'reconnect-error.testnet',
@@ -120,7 +122,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
           chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-reconnect-error',
           sessionId: 'reconnect-error-fresh-session',
-          sessionJwt: 'jwt:reconnect-error-fresh-session',
+          sessionAuthToken: 'jwt:reconnect-error-fresh-session',
         });
       },
     });
@@ -150,7 +152,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-seal-error',
         sessionId: 'seal-error-session',
-        sessionJwt: 'jwt:seal-error-session',
+        sessionAuthToken: 'jwt:seal-error-session',
         relayerUrl: 'https://relay.seal-error.example',
       }),
     });
@@ -198,7 +200,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
         nearAccountId: 'signing-exhausted.testnet',
         chain: 'evm',
         sessionId: 'signing-exhausted-session',
-        sessionJwt: 'jwt:signing-exhausted-session',
+        sessionAuthToken: 'jwt:signing-exhausted-session',
       }),
     });
 
@@ -253,7 +255,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       nearAccountId: 'status-unavailable.testnet',
       thresholdSessionId: 'status-unavailable-session',
       walletSigningSessionId: 'status-unavailable-wallet-session',
-      thresholdSessionJwt: 'jwt:status-unavailable-session',
+      thresholdSessionAuthToken: 'jwt:status-unavailable-session',
     });
 
     const store = createWarmSessionTestServices({
@@ -283,7 +285,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       nearAccountId: 'wallet-budget-exhausted-ed25519.testnet',
       thresholdSessionId: 'wallet-budget-exhausted-ed25519-session',
       walletSigningSessionId: 'wallet-budget-exhausted-ed25519-wallet-session',
-      thresholdSessionJwt: 'jwt:wallet-budget-exhausted-ed25519-session',
+      thresholdSessionAuthToken: 'jwt:wallet-budget-exhausted-ed25519-session',
       remainingUses: 1,
       expiresAtMs: Date.now() + 60_000,
       source: 'login',

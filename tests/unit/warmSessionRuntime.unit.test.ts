@@ -143,8 +143,8 @@ test.describe('warmSessionRuntime', () => {
       resolveSealTransport: () => ({
         curve: 'ecdsa',
         relayerUrl: evmRecord.relayerUrl,
-        thresholdSessionJwt: evmRecord.thresholdSessionJwt,
-        thresholdSessionJwtSource: 'ecdsa',
+        thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken,
+        thresholdSessionAuthTokenSource: 'ecdsa',
         keyVersion: 'kek-s-2026-02',
         shamirPrimeB64u: 'AQAB',
       }),
@@ -155,7 +155,7 @@ test.describe('warmSessionRuntime', () => {
       sessionId: evmRecord.thresholdSessionId,
       transport: {
         relayerUrl: evmRecord.relayerUrl,
-        thresholdSessionJwt: evmRecord.thresholdSessionJwt,
+        thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken,
         keyVersion: 'kek-s-2026-02',
         shamirPrimeB64u: 'AQAB',
       },
@@ -175,7 +175,7 @@ test.describe('warmSessionRuntime', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-seal-error',
         sessionId: 'seal-error-session',
-        sessionJwt: 'jwt:seal-error-session',
+        sessionAuthToken: 'jwt:seal-error-session',
         relayerUrl: 'https://relay.seal-error.example',
       }),
     });
@@ -207,8 +207,8 @@ test.describe('warmSessionRuntime', () => {
         resolveSealTransport: () => ({
           curve: 'ecdsa',
           relayerUrl: 'https://relay.seal-error.example',
-          thresholdSessionJwt: 'jwt:seal-error-session',
-          thresholdSessionJwtSource: 'ecdsa',
+          thresholdSessionAuthToken: 'jwt:seal-error-session',
+          thresholdSessionAuthTokenSource: 'ecdsa',
         }),
       }),
     ).rejects.toThrow(

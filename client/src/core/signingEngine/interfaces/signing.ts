@@ -70,7 +70,7 @@ export type KeyRef =
       ethereumAddress?: string;
       relayerVerifyingShareB64u?: string;
       thresholdSessionKind?: 'jwt' | 'cookie';
-      thresholdSessionJwt?: string;
+      thresholdSessionAuthToken?: string;
       thresholdSessionId: string;
       walletSigningSessionId: string;
       mpcSessionId?: string;

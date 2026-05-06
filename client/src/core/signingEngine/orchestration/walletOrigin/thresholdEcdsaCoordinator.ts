@@ -36,7 +36,7 @@ export type ThresholdEcdsaClientPresignatureRefillInput = {
   thresholdEcdsaPublicKeyB64u?: string;
   relayerVerifyingShareB64u?: string;
   sessionKind?: EcdsaSessionKind;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   workerCtx: WorkerOperationContext;
 };
 
@@ -419,7 +419,7 @@ export function scheduleThresholdEcdsaClientPresignaturePoolRefill(
       thresholdEcdsaPublicKeyB64u: args.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u: args.relayerVerifyingShareB64u,
       sessionKind: args.sessionKind,
-      thresholdSessionJwt: args.thresholdSessionJwt,
+      thresholdSessionAuthToken: args.thresholdSessionAuthToken,
       workerCtx: args.workerCtx,
     };
     const deadlineAtMs = Date.now() + policy.refillAttemptTimeoutMs;
@@ -525,7 +525,7 @@ async function runPresignHandshake(args: {
   clientSigningShare32: Uint8Array;
   groupPublicKey33: Uint8Array;
   sessionKind: EcdsaSessionKind;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   requestTag?: string;
   workerCtx: WorkerOperationContext;
 }): Promise<
@@ -536,7 +536,7 @@ async function runPresignHandshake(args: {
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     count: 1,
     sessionKind: args.sessionKind,
-    thresholdSessionJwt: args.thresholdSessionJwt,
+    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
     requestTag: args.requestTag,
   });
   if (!init.ok) {
@@ -626,7 +626,7 @@ async function runPresignHandshake(args: {
           stage: stageForServer,
           outgoingMessagesB64u: toB64uMessages(pendingClientOutgoing),
           sessionKind: args.sessionKind,
-          thresholdSessionJwt: args.thresholdSessionJwt,
+          thresholdSessionAuthToken: args.thresholdSessionAuthToken,
           requestTag: args.requestTag,
         });
         pendingClientOutgoing = [];
@@ -757,7 +757,7 @@ export async function signThresholdEcdsaDigestWithPool(args: {
   thresholdEcdsaPublicKeyB64u?: string;
   relayerVerifyingShareB64u?: string;
   sessionKind?: EcdsaSessionKind;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEcdsaCoordinatorResult> {
   try {
@@ -858,7 +858,7 @@ export async function signThresholdEcdsaDigestWithPool(args: {
           clientSigningShare32: args.clientSigningShare32,
           groupPublicKey33,
           sessionKind,
-          thresholdSessionJwt: args.thresholdSessionJwt,
+          thresholdSessionAuthToken: args.thresholdSessionAuthToken,
           workerCtx: args.workerCtx,
         });
         if (!generated.ok) return generated;
@@ -889,7 +889,7 @@ export async function signThresholdEcdsaDigestWithPool(args: {
             clientSigningShare32: args.clientSigningShare32,
             groupPublicKey33,
             sessionKind,
-            thresholdSessionJwt: args.thresholdSessionJwt,
+            thresholdSessionAuthToken: args.thresholdSessionAuthToken,
             workerCtx: args.workerCtx,
           });
           if (!generated.ok) return generated;
@@ -1068,7 +1068,7 @@ export async function refillThresholdEcdsaClientPresignaturePool(
       clientSigningShare32: args.clientSigningShare32,
       groupPublicKey33,
       sessionKind,
-      thresholdSessionJwt: args.thresholdSessionJwt,
+      thresholdSessionAuthToken: args.thresholdSessionAuthToken,
       requestTag: 'background_presign_pool_refill',
       workerCtx: args.workerCtx,
     });

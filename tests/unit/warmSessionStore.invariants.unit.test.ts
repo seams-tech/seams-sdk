@@ -55,7 +55,7 @@ test.describe('WarmSessionStore invariants', () => {
     const edRecord = seedEd25519WarmSessionRecord({
       nearAccountId: 'invariants.testnet',
       thresholdSessionId: 'ed-invariant-session',
-      thresholdSessionJwt: 'jwt:ed-invariant-session',
+      thresholdSessionAuthToken: 'jwt:ed-invariant-session',
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'invariants.testnet',
@@ -66,7 +66,7 @@ test.describe('WarmSessionStore invariants', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-invariants',
         sessionId: 'evm-invariant-session',
-        sessionJwt: 'jwt:evm-invariant-session',
+        sessionAuthToken: 'jwt:evm-invariant-session',
       }),
     });
 
@@ -94,7 +94,7 @@ test.describe('WarmSessionStore invariants', () => {
     envelope.capabilities.ed25519.auth = {
       capability: 'ed25519',
       record: {} as any,
-      thresholdSessionJwtSource: 'none',
+      thresholdSessionAuthTokenSource: 'none',
     };
 
     expect(() => assertWarmSessionEnvelopeInvariant(envelope)).toThrow(
@@ -122,8 +122,8 @@ test.describe('WarmSessionStore invariants', () => {
           thresholdSessionId: 'record-session',
           thresholdSessionKind: 'jwt',
         } as any,
-        thresholdSessionJwt: 'jwt:record-session',
-        thresholdSessionJwtSource: 'ecdsa',
+        thresholdSessionAuthToken: 'jwt:record-session',
+        thresholdSessionAuthTokenSource: 'ecdsa',
       },
       prfClaim: {
         state: 'warm',
@@ -152,7 +152,7 @@ test.describe('WarmSessionStore invariants', () => {
       auth: {
         capability: 'ed25519',
         record,
-        thresholdSessionJwtSource: 'none',
+        thresholdSessionAuthTokenSource: 'none',
       },
       prfClaim: {
         state: 'warm',
@@ -184,7 +184,7 @@ test.describe('WarmSessionStore invariants', () => {
         capability: 'ecdsa',
         chain: 'tempo',
         record,
-        thresholdSessionJwtSource: 'none',
+        thresholdSessionAuthTokenSource: 'none',
       },
       prfClaim: {
         state: 'warm',

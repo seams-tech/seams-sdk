@@ -998,7 +998,7 @@ export async function runEmailOtpReloadPhase(
                 thresholdSessionId: ed25519Record.thresholdSessionId,
                 walletSigningSessionId: ed25519Record.walletSigningSessionId,
                 retention: ed25519Record.emailOtpAuthContext?.retention,
-                hasJwt: Boolean(ed25519Record.thresholdSessionJwt),
+                hasAuthToken: Boolean(ed25519Record.thresholdSessionAuthToken),
                 hasClientBase: Boolean(ed25519Record.xClientBaseB64u),
               }
             : null,

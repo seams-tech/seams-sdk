@@ -18,7 +18,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-reuse-ready',
       sessionId: 'reuse-ready-session',
-      sessionJwt: 'jwt:reuse-ready-session',
+      sessionAuthToken: 'jwt:reuse-ready-session',
     });
     const record = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'reuse-ready.testnet',
@@ -80,7 +80,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       chain: 'evm',
       ecdsaThresholdKeyId: 'ek-reconnect',
       sessionId: 'stale-evm-session',
-      sessionJwt: 'jwt:stale-evm-session',
+      sessionAuthToken: 'jwt:stale-evm-session',
     });
     const staleRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'reconnect.testnet',
@@ -109,7 +109,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
           chain: chainTarget.kind,
           ecdsaThresholdKeyId: 'ek-reconnect',
           sessionId: 'fresh-evm-session',
-          sessionJwt: 'jwt:fresh-evm-session',
+          sessionAuthToken: 'jwt:fresh-evm-session',
         });
         const refreshedRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
           nearAccountId: String(nearAccountId),

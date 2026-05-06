@@ -4078,8 +4078,8 @@ export class ThresholdSigningService {
       return {
         ok: true,
         sessionKind: ceremony.value.sessionKind || 'jwt',
-        sessionJwtUserId: ceremony.value.walletSessionUserId,
-        sessionJwtRpId: ceremony.value.rpId,
+        sessionAuthTokenUserId: ceremony.value.walletSessionUserId,
+        sessionAuthTokenRpId: ceremony.value.rpId,
         ecdsaThresholdKeyId,
         ...(ceremony.value.subjectId || bootstrap.subjectId
           ? { subjectId: ceremony.value.subjectId || bootstrap.subjectId }

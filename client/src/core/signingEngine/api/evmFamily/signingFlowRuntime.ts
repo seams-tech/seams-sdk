@@ -294,7 +294,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           keyRef: {
             walletSigningSessionId: readyKeyRef.walletSigningSessionId,
             thresholdSessionId: readyKeyRef.thresholdSessionId,
-            hasThresholdSessionJwt: Boolean(readyKeyRef.thresholdSessionJwt),
+            hasThresholdSessionAuthToken: Boolean(readyKeyRef.thresholdSessionAuthToken),
           },
           budgetKind: operation.budgetAdmission ? 'admitted' : 'missing',
         });

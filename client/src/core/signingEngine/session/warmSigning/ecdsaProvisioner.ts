@@ -92,8 +92,8 @@ type EcdsaKeyRefCandidate = {
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
 };
 
-function summarizeReconnectJwtClaims(jwtRaw: string | undefined): Record<string, unknown> {
-  const payload = decodeJwtPayloadRecord(String(jwtRaw || '').trim());
+function summarizeReconnectAuthTokenClaims(tokenRaw: string | undefined): Record<string, unknown> {
+  const payload = decodeJwtPayloadRecord(String(tokenRaw || '').trim());
   if (!payload) return { present: false };
   return {
     present: true,
@@ -119,7 +119,7 @@ function summarizeReconnectKeyRef(
     signingRootId: keyRef.signingRootId,
     signingRootVersion: keyRef.signingRootVersion,
     thresholdSessionKind: keyRef.thresholdSessionKind,
-    hasThresholdSessionJwt: Boolean(String(keyRef.thresholdSessionJwt || '').trim()),
+    hasThresholdSessionAuthToken: Boolean(String(keyRef.thresholdSessionAuthToken || '').trim()),
     hasBackendBinding: Boolean(keyRef.backendBinding),
     hasRelayerKeyId: Boolean(keyRef.backendBinding?.relayerKeyId),
   };
@@ -144,32 +144,32 @@ function summarizeReconnectRecord(
     updatedAtMs: record.updatedAtMs,
     emailOtpRetention: record.emailOtpAuthContext?.retention,
     emailOtpReason: record.emailOtpAuthContext?.reason,
-    hasThresholdSessionJwt: Boolean(String(record.thresholdSessionJwt || '').trim()),
+    hasThresholdSessionAuthToken: Boolean(String(record.thresholdSessionAuthToken || '').trim()),
   };
 }
 
-type ReconnectJwtIdentityMatch =
-  | { kind: 'matched'; jwt: string; source: 'keyRef' | 'record' }
-  | { kind: 'unknown'; jwt: string; source: 'keyRef' | 'record' }
+type ReconnectThresholdSessionAuthTokenIdentityMatch =
+  | { kind: 'matched'; authToken: string; source: 'keyRef' | 'record' }
+  | { kind: 'unknown'; authToken: string; source: 'keyRef' | 'record' }
   | { kind: 'mismatched'; source: 'keyRef' | 'record'; claims: Record<string, unknown> };
 
-function evaluateReconnectJwtIdentity(args: {
+function evaluateReconnectThresholdSessionAuthTokenIdentity(args: {
   source: 'keyRef' | 'record';
-  jwtRaw: string | undefined;
+  tokenRaw: string | undefined;
   thresholdSessionId: string;
   walletSigningSessionId: string;
-}): ReconnectJwtIdentityMatch | null {
-  const jwt = toOptionalNonEmptyString(args.jwtRaw);
-  if (!jwt) return null;
-  const claims = decodeJwtPayloadRecord(jwt);
-  if (!claims) return { kind: 'unknown', source: args.source, jwt };
+}): ReconnectThresholdSessionAuthTokenIdentityMatch | null {
+  const authToken = toOptionalNonEmptyString(args.tokenRaw);
+  if (!authToken) return null;
+  const claims = decodeJwtPayloadRecord(authToken);
+  if (!claims) return { kind: 'unknown', source: args.source, authToken };
   const claimSessionId = String(claims.sessionId || '').trim();
   const claimWalletSigningSessionId = String(claims.walletSigningSessionId || '').trim();
   if (
     claimSessionId === args.thresholdSessionId &&
     claimWalletSigningSessionId === args.walletSigningSessionId
   ) {
-    return { kind: 'matched', source: args.source, jwt };
+    return { kind: 'matched', source: args.source, authToken };
   }
   return {
     kind: 'mismatched',
@@ -183,44 +183,44 @@ function evaluateReconnectJwtIdentity(args: {
   };
 }
 
-function selectReconnectThresholdSessionJwt(args: {
+function selectReconnectThresholdSessionAuthToken(args: {
   keyRef: ThresholdEcdsaSecp256k1KeyRef | null;
   record: ThresholdEcdsaSessionRecord | null | undefined;
   thresholdSessionId: string | undefined;
   walletSigningSessionId: string | undefined;
 }): {
-  jwt?: string;
+  authToken?: string;
   source?: 'keyRef' | 'record';
   mismatches: Record<string, unknown>[];
 } {
   const thresholdSessionId = toOptionalNonEmptyString(args.thresholdSessionId);
   const walletSigningSessionId = toOptionalNonEmptyString(args.walletSigningSessionId);
   const candidates = [
-    evaluateReconnectJwtIdentity({
+    evaluateReconnectThresholdSessionAuthTokenIdentity({
       source: 'keyRef',
-      jwtRaw: args.keyRef?.thresholdSessionJwt,
+      tokenRaw: args.keyRef?.thresholdSessionAuthToken,
       thresholdSessionId: thresholdSessionId || '',
       walletSigningSessionId: walletSigningSessionId || '',
     }),
-    evaluateReconnectJwtIdentity({
+    evaluateReconnectThresholdSessionAuthTokenIdentity({
       source: 'record',
-      jwtRaw: args.record?.thresholdSessionJwt,
+      tokenRaw: args.record?.thresholdSessionAuthToken,
       thresholdSessionId: thresholdSessionId || '',
       walletSigningSessionId: walletSigningSessionId || '',
     }),
-  ].filter(Boolean) as ReconnectJwtIdentityMatch[];
+  ].filter(Boolean) as ReconnectThresholdSessionAuthTokenIdentityMatch[];
 
   const matched = thresholdSessionId && walletSigningSessionId
     ? candidates.find((candidate) => candidate.kind === 'matched')
     : null;
   if (matched?.kind === 'matched') {
-    return { jwt: matched.jwt, source: matched.source, mismatches: [] };
+    return { authToken: matched.authToken, source: matched.source, mismatches: [] };
   }
 
   const unknown = candidates.find((candidate) => candidate.kind === 'unknown');
   if (unknown?.kind === 'unknown') {
     return {
-      jwt: unknown.jwt,
+      authToken: unknown.authToken,
       source: unknown.source,
       mismatches: candidates
         .filter((candidate) => candidate.kind === 'mismatched')
@@ -336,14 +336,14 @@ export async function provisionWarmEcdsaCapability(
   const chainTarget = args.chainTarget;
   const capabilityBucket = chainTarget.kind;
   const beforeWarmSession = await deps.getWarmSession(nearAccountId);
-  const hasThresholdRouteAuth = Boolean(args.thresholdRouteAuth);
+  const hasThresholdSessionAuth = Boolean(args.thresholdSessionAuth);
   const normalizedClientRootShare32 =
     args.clientRootShare32 instanceof Uint8Array ? args.clientRootShare32 : undefined;
   const normalizedClientRootShare32B64u = toOptionalNonEmptyString(args.clientRootShare32B64u);
   const normalizedSessionId = toOptionalNonEmptyString(args.sessionId);
 
   if (
-    !hasThresholdRouteAuth &&
+    !hasThresholdSessionAuth &&
     !normalizedClientRootShare32 &&
     !normalizedClientRootShare32B64u &&
     !normalizedSessionId
@@ -370,7 +370,7 @@ export async function provisionWarmEcdsaCapability(
       sessionKind: args.sessionKind,
       sessionId: args.sessionId,
       walletSigningSessionId: args.walletSigningSessionId,
-      thresholdRouteAuth: args.thresholdRouteAuth,
+      thresholdSessionAuth: args.thresholdSessionAuth,
       runtimePolicyScope: args.runtimePolicyScope,
       runtimeScopeBootstrap: args.runtimeScopeBootstrap,
       clientRootShare32: args.clientRootShare32,
@@ -681,19 +681,19 @@ export async function ensureWarmEcdsaCapabilityReady(
           keyRef?.walletSigningSessionId ||
           reconnectRecord?.walletSigningSessionId,
       );
-      const selectedReconnectJwt = selectReconnectThresholdSessionJwt({
+      const selectedReconnectAuthToken = selectReconnectThresholdSessionAuthToken({
         keyRef,
         record: reconnectRecord,
         thresholdSessionId: reconnectSessionId,
         walletSigningSessionId: reconnectWalletSigningSessionId,
       });
       if (
-        selectedReconnectJwt.mismatches.length > 0 &&
-        !selectedReconnectJwt.jwt &&
+        selectedReconnectAuthToken.mismatches.length > 0 &&
+        !selectedReconnectAuthToken.authToken &&
         reconnectSessionId &&
         reconnectWalletSigningSessionId
       ) {
-        console.warn('[threshold-ecdsa][reconnect-provision][jwt-mismatch]', {
+        console.warn('[threshold-ecdsa][reconnect-provision][authToken-mismatch]', {
           nearAccountId: String(nearAccountId),
           chain,
           chainId,
@@ -701,15 +701,15 @@ export async function ensureWarmEcdsaCapabilityReady(
             thresholdSessionId: reconnectSessionId,
             walletSigningSessionId: reconnectWalletSigningSessionId,
           },
-          mismatches: selectedReconnectJwt.mismatches,
+          mismatches: selectedReconnectAuthToken.mismatches,
           selectedKeyRef: summarizeReconnectKeyRef(keyRef),
           reconnectRecord: summarizeReconnectRecord(reconnectRecord),
         });
         throw new Error(
-          '[SigningEngine][ecdsa] threshold session auth JWT does not match planned reconnect identity',
+          '[SigningEngine][ecdsa] threshold session auth token does not match planned reconnect identity',
         );
       }
-      const reconnectThresholdSessionJwt = selectedReconnectJwt.jwt;
+      const reconnectThresholdSessionAuthToken = selectedReconnectAuthToken.authToken;
       try {
         console.info('[threshold-ecdsa][reconnect-provision][diagnostic]', {
           nearAccountId: String(nearAccountId),
@@ -737,9 +737,9 @@ export async function ensureWarmEcdsaCapabilityReady(
             source: candidate.source,
             keyRef: summarizeReconnectKeyRef(candidate.keyRef),
           })),
-          selectedRouteAuthSource: selectedReconnectJwt.source,
-          routeAuthMismatches: selectedReconnectJwt.mismatches,
-          routeAuthClaims: summarizeReconnectJwtClaims(reconnectThresholdSessionJwt),
+          selectedRouteAuthSource: selectedReconnectAuthToken.source,
+          routeAuthMismatches: selectedReconnectAuthToken.mismatches,
+          routeAuthClaims: summarizeReconnectAuthTokenClaims(reconnectThresholdSessionAuthToken),
         });
       } catch {}
       const provisioned = await deps.provisionEcdsaCapability({
@@ -763,12 +763,12 @@ export async function ensureWarmEcdsaCapabilityReady(
               ) as 'jwt' | 'cookie',
             }
           : {}),
-        ...(reconnectThresholdSessionJwt
+        ...(reconnectThresholdSessionAuthToken
           ? {
-              thresholdRouteAuth: {
-                kind: 'threshold_session',
-                jwt: reconnectThresholdSessionJwt,
-              },
+            thresholdSessionAuth: {
+              kind: 'threshold_session',
+              jwt: reconnectThresholdSessionAuthToken,
+            },
             }
           : {}),
         ...(args.clientRootShare32B64u ? { clientRootShare32B64u: args.clientRootShare32B64u } : {}),
@@ -956,8 +956,8 @@ export function buildReusableEcdsaBootstrapResult(args: {
       thresholdSessionKind: record.thresholdSessionKind,
       thresholdSessionId: sessionId,
       walletSigningSessionId: record.walletSigningSessionId,
-      thresholdSessionJwt: String(
-        auth.thresholdSessionJwt || args.keyRef.thresholdSessionJwt || '',
+      thresholdSessionAuthToken: String(
+        auth.thresholdSessionAuthToken || args.keyRef.thresholdSessionAuthToken || '',
       ).trim(),
     },
     keygen: {
@@ -975,8 +975,8 @@ export function buildReusableEcdsaBootstrapResult(args: {
       ok: true,
       sessionId,
       walletSigningSessionId: record.walletSigningSessionId,
-      ...(String(auth.thresholdSessionJwt || '').trim()
-        ? { jwt: String(auth.thresholdSessionJwt || '').trim() }
+      ...(String(auth.thresholdSessionAuthToken || '').trim()
+        ? { jwt: String(auth.thresholdSessionAuthToken || '').trim() }
         : {}),
       expiresAtMs: prfClaim.expiresAtMs,
       remainingUses: prfClaim.remainingUses,

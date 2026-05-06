@@ -259,8 +259,8 @@ export function createWarmSessionStatusReader(
     const record = args.record;
     const normalizedThresholdSessionId = String(record?.thresholdSessionId || '').trim();
     if (!normalizedThresholdSessionId) return null;
-    const thresholdSessionJwt = String(record?.thresholdSessionJwt || '').trim();
-    if (record?.thresholdSessionKind !== 'cookie' && !thresholdSessionJwt) {
+    const thresholdSessionAuthToken = String(record?.thresholdSessionAuthToken || '').trim();
+    if (record?.thresholdSessionKind !== 'cookie' && !thresholdSessionAuthToken) {
       return {
         sessionId: normalizedThresholdSessionId,
         status: 'unavailable',

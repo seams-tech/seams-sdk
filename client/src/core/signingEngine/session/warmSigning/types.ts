@@ -6,7 +6,7 @@ import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
-  ThresholdEcdsaSessionJwtSource,
+  ThresholdEcdsaSessionAuthTokenSource,
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionRecord,
@@ -38,15 +38,15 @@ export type WarmSessionPrfClaim = {
 export type WarmSessionEd25519AuthMaterial = {
   capability: 'ed25519';
   record: ThresholdEd25519SessionRecord;
-  thresholdSessionJwt?: string;
-  thresholdSessionJwtSource: 'ed25519' | 'none';
+  thresholdSessionAuthToken?: string;
+  thresholdSessionAuthTokenSource: 'ed25519' | 'none';
 };
 
 export type WarmSessionEcdsaAuthMaterial = {
   capability: 'ecdsa';
   record: ThresholdEcdsaSessionRecord;
-  thresholdSessionJwt?: string;
-  thresholdSessionJwtSource: Exclude<ThresholdEcdsaSessionJwtSource, 'ed25519'>;
+  thresholdSessionAuthToken?: string;
+  thresholdSessionAuthTokenSource: Exclude<ThresholdEcdsaSessionAuthTokenSource, 'ed25519'>;
 };
 
 export type WarmSessionEd25519CapabilityState = {
@@ -170,8 +170,8 @@ function assertCapabilityStateInvariant(args: {
     );
   }
 
-  const requiresJwt = record.thresholdSessionKind === 'jwt';
-  const hasJwt = Boolean(String(auth?.thresholdSessionJwt || '').trim());
+  const requiresAuthToken = record.thresholdSessionKind === 'jwt';
+  const hasAuthToken = Boolean(String(auth?.thresholdSessionAuthToken || '').trim());
   const emailOtpSingleUseConsumed =
     record.source === 'email_otp' &&
     emailOtpAuthContext?.retention === 'single_use' &&
@@ -181,7 +181,7 @@ function assertCapabilityStateInvariant(args: {
     !emailOtpSingleUseConsumed &&
     Boolean(String((record as { xClientBaseB64u?: unknown }).xClientBaseB64u || '').trim());
   const expectedState =
-    !auth || (requiresJwt && !hasJwt)
+    !auth || (requiresAuthToken && !hasAuthToken)
       ? 'auth_missing'
       : emailOtpSingleUseConsumed
         ? 'prf_missing'
@@ -313,7 +313,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   walletSigningSessionId?: string;
-  thresholdRouteAuth?: ThresholdEcdsaHssRouteAuth;
+  thresholdSessionAuth?: ThresholdEcdsaHssRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -336,7 +336,7 @@ export type WarmEcdsaBootstrapRequest = {
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   walletSigningSessionId?: string;
-  thresholdRouteAuth?: ThresholdEcdsaHssRouteAuth;
+  thresholdSessionAuth?: ThresholdEcdsaHssRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;

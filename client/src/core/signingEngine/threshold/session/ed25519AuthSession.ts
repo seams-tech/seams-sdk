@@ -258,8 +258,8 @@ export async function resolveEd25519AuthSessionBySessionId(
   if (!record) return null;
   const recordSessionKind: Ed25519SessionKind =
     record.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
-  const recordJwt = normalizeOptionalNonEmptyString(record.thresholdSessionJwt);
-  if (recordSessionKind === 'jwt' && !recordJwt) return null;
+  const recordAuthToken = normalizeOptionalNonEmptyString(record.thresholdSessionAuthToken);
+  if (recordSessionKind === 'jwt' && !recordAuthToken) return null;
   if (
     typeof record.expiresAtMs !== 'number' ||
     !Number.isFinite(record.expiresAtMs) ||
@@ -283,7 +283,7 @@ export async function resolveEd25519AuthSessionBySessionId(
       sessionId: String(record.thresholdSessionId || '').trim(),
       expiresAtMs: Math.floor(record.expiresAtMs),
       remainingUses: rehydratedRemainingUses,
-      jwt: recordJwt,
+      jwt: recordAuthToken,
       policyTtlMs: rehydratedTtlMs,
       policyRemainingUses: rehydratedRemainingUses,
       source: record.source,
@@ -299,8 +299,8 @@ export async function resolveEd25519AuthSessionBySessionId(
     hydrated ||
     (recordSessionKind === 'cookie'
       ? { sessionKind: 'cookie' }
-      : recordJwt
-        ? { sessionKind: 'jwt', jwt: recordJwt }
+      : recordAuthToken
+        ? { sessionKind: 'jwt', jwt: recordAuthToken }
         : null);
   return resolved;
 }

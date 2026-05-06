@@ -350,7 +350,7 @@ type EmailOtpWorkerRequest =
         sessionId: string;
         transport: {
           relayerUrl: string;
-          thresholdSessionJwt?: string;
+          thresholdSessionAuthToken?: string;
           keyVersion?: string;
           shamirPrimeB64u?: string;
         };
@@ -365,7 +365,7 @@ type EmailOtpWorkerRequest =
         expiresAtMs: number;
         transport: {
           relayerUrl: string;
-          thresholdSessionJwt?: string;
+          thresholdSessionAuthToken?: string;
           keyVersion?: string;
           shamirPrimeB64u?: string;
         };
@@ -419,7 +419,7 @@ type EmailOtpWorkerRequest =
         shamirPrimeB64u: string;
         routePlan: EmailOtpRoutePlan;
         rpId: string;
-        thresholdSessionJwt?: string;
+        thresholdSessionAuthToken?: string;
         sessionKind?: 'jwt' | 'cookie';
         subjectId: WalletSubjectId;
         ecdsaThresholdKeyId: string;
@@ -476,7 +476,7 @@ type EmailOtpEcdsaWarmSessionRehydrateResult =
 
 type SigningSessionSealTransport = {
   relayerUrl: string;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
 };
@@ -577,12 +577,12 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   if (!transport) return null;
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
   if (!relayerUrl) return null;
-  const thresholdSessionJwt = normalizeOptionalNonEmptyString(transport.thresholdSessionJwt);
+  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(transport.thresholdSessionAuthToken);
   const keyVersion = normalizeOptionalNonEmptyString(transport.keyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
   return {
     relayerUrl,
-    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
     ...(keyVersion ? { keyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
   };
@@ -660,12 +660,12 @@ async function callSigningSessionSealRoute(args: {
   );
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const thresholdSessionJwt = normalizeOptionalNonEmptyString(args.transport.thresholdSessionJwt);
+    const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(args.transport.thresholdSessionAuthToken);
     const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
-    if (thresholdSessionJwt) headers.Authorization = `Bearer ${thresholdSessionJwt}`;
+    if (thresholdSessionAuthToken) headers.Authorization = `Bearer ${thresholdSessionAuthToken}`;
     const response = await fetch(url, {
       method: 'POST',
-      credentials: thresholdSessionJwt ? 'omit' : 'include',
+      credentials: thresholdSessionAuthToken ? 'omit' : 'include',
       headers,
       body: JSON.stringify({
         thresholdSessionId: args.thresholdSessionId,
@@ -1228,8 +1228,8 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
       });
       if (!policy.ok) return policy;
       const sessionKind = args.restore.sessionKind || 'jwt';
-      const routeAuth: AppOrThresholdSessionAuth | undefined = args.transport.thresholdSessionJwt
-        ? { kind: 'threshold_session', jwt: args.transport.thresholdSessionJwt }
+      const routeAuth: AppOrThresholdSessionAuth | undefined = args.transport.thresholdSessionAuthToken
+        ? { kind: 'threshold_session', jwt: args.transport.thresholdSessionAuthToken }
         : undefined;
       if (!routeAuth && sessionKind !== 'cookie') {
         return {
@@ -2585,7 +2585,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   const expiresAtMs = Number.isFinite(Number(bootstrap.expiresAtMs))
     ? Math.floor(Number(bootstrap.expiresAtMs))
     : Date.now() + ttlMs;
-  const thresholdSessionJwt = readOptionalString(bootstrap.jwt);
+  const thresholdSessionAuthToken = readOptionalString(bootstrap.jwt);
   const clientAdditiveShareHandle = {
     kind: 'email_otp_worker_session' as const,
     sessionId: resolvedSessionId,
@@ -2624,7 +2624,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     walletSigningSessionId: resolvedWalletSigningSessionId,
     expiresAtMs,
     remainingUses: resolvedRemainingUses,
-    ...(thresholdSessionJwt ? { jwt: thresholdSessionJwt } : {}),
+    ...(thresholdSessionAuthToken ? { jwt: thresholdSessionAuthToken } : {}),
     clientVerifyingShareB64u,
     ...(readOptionalString(bootstrap.code) ? { code: readOptionalString(bootstrap.code) } : {}),
     ...(readOptionalString(bootstrap.message)
@@ -2660,7 +2660,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       thresholdSessionKind: sessionKind,
       thresholdSessionId: resolvedSessionId,
       walletSigningSessionId: resolvedWalletSigningSessionId,
-      ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+      ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
     },
     keygen,
     session,
@@ -2762,7 +2762,7 @@ async function runThresholdEcdsaExplicitExportFromClientRootShare(args: {
   clientRootShare32: Uint8Array;
   ecdsaThresholdKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   sessionKind?: 'jwt' | 'cookie';
 }): Promise<{
   publicKeyHex: string;
@@ -2775,13 +2775,13 @@ async function runThresholdEcdsaExplicitExportFromClientRootShare(args: {
   const subjectId = toWalletSubjectId(args.subjectId);
   const rpId = readString(args.rpId, 'rpId');
   const ecdsaThresholdKeyId = readString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId');
-  const thresholdSessionJwt = readOptionalString(args.thresholdSessionJwt);
+  const thresholdSessionAuthToken = readOptionalString(args.thresholdSessionAuthToken);
   const sessionKind = args.sessionKind || 'jwt';
-  if (!thresholdSessionJwt && sessionKind !== 'cookie') {
-    throw new Error('thresholdSessionJwt is required for JWT threshold export sessions');
+  if (!thresholdSessionAuthToken && sessionKind !== 'cookie') {
+    throw new Error('thresholdSessionAuthToken is required for JWT threshold export sessions');
   }
-  const routeAuth: ThresholdEcdsaHssRouteAuth | undefined = thresholdSessionJwt
-    ? { kind: 'threshold_session', jwt: thresholdSessionJwt }
+  const routeAuth: ThresholdEcdsaHssRouteAuth | undefined = thresholdSessionAuthToken
+    ? { kind: 'threshold_session', jwt: thresholdSessionAuthToken }
     : sessionKind === 'cookie'
       ? { kind: 'cookie' }
       : undefined;
@@ -3282,7 +3282,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
                     'ecdsaThresholdKeyId',
                   ),
                   chainTarget: primaryBootstrap.thresholdEcdsaKeyRef.chainTarget,
-                  thresholdSessionJwt: primaryBootstrap.session.jwt,
+                  thresholdSessionAuthToken: primaryBootstrap.session.jwt,
                   sessionKind: msg.payload.sessionKind,
                 })),
               }
@@ -3442,8 +3442,8 @@ self.addEventListener('message', async (event: MessageEvent) => {
             clientRootShare32: recovered.clientRootShare32,
             ecdsaThresholdKeyId: readString(msg.payload.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
             chainTarget: msg.payload.chainTarget,
-            thresholdSessionJwt:
-              msg.payload.thresholdSessionJwt ||
+            thresholdSessionAuthToken:
+              msg.payload.thresholdSessionAuthToken ||
               (routeAuth?.kind === 'threshold_session' ? routeAuth.jwt : undefined),
             sessionKind: msg.payload.sessionKind,
           });

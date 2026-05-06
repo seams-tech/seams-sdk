@@ -348,7 +348,7 @@ function durableEcdsaJwtMatchesRecord(args: {
   subjectId: string;
   ecdsaThresholdKeyId: string;
 }): boolean {
-  const jwt = String(args.record.ecdsaRestore?.thresholdSessionJwt || '').trim();
+  const jwt = String(args.record.ecdsaRestore?.thresholdSessionAuthToken || '').trim();
   if (!jwt) return true;
   const payload = decodeJwtPayloadRecord(jwt);
   if (!payload || payload.kind !== THRESHOLD_ECDSA_SESSION_JWT_KIND) return false;

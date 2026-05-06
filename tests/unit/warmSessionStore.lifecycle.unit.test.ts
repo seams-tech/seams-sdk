@@ -35,7 +35,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'ed25519-only.testnet',
       thresholdSessionId: 'ed25519-session-1',
-      thresholdSessionJwt: 'jwt:ed25519-session-1',
+      thresholdSessionAuthToken: 'jwt:ed25519-session-1',
       remainingUses: 9,
     });
 
@@ -51,7 +51,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const warmSession = await store.getWarmSession(ed25519Record.nearAccountId);
 
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
-    expect(warmSession.capabilities.ed25519.auth?.thresholdSessionJwt).toBe(
+    expect(warmSession.capabilities.ed25519.auth?.thresholdSessionAuthToken).toBe(
       'jwt:ed25519-session-1',
     );
     expect(warmSession.capabilities.ed25519.prfClaim).toMatchObject({
@@ -70,7 +70,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'batch-status.testnet',
       thresholdSessionId: 'batch-ed25519-session',
-      thresholdSessionJwt: 'jwt:batch-ed25519-session',
+      thresholdSessionAuthToken: 'jwt:batch-ed25519-session',
       remainingUses: 9,
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -158,8 +158,8 @@ test.describe('WarmSessionStore lifecycle', () => {
     const warmSession = await store.getWarmSession(evmRecord.nearAccountId);
 
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
-    expect(warmSession.capabilities.ecdsa.evm.auth?.thresholdSessionJwt).toBe(
-      evmRecord.thresholdSessionJwt,
+    expect(warmSession.capabilities.ecdsa.evm.auth?.thresholdSessionAuthToken).toBe(
+      evmRecord.thresholdSessionAuthToken,
     );
     expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
       state: 'warm',
@@ -176,7 +176,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'dual.testnet',
       thresholdSessionId: 'ed25519-dual-session',
-      thresholdSessionJwt: 'jwt:ed25519-dual-session',
+      thresholdSessionAuthToken: 'jwt:ed25519-dual-session',
       remainingUses: 6,
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -212,7 +212,7 @@ test.describe('WarmSessionStore lifecycle', () => {
     expect(warmSession.capabilities.ed25519.state).toBe('ready');
     expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
     expect(warmSession.capabilities.ecdsa.tempo.state).toBe('prf_missing');
-    expect(warmSession.capabilities.ecdsa.tempo.auth?.thresholdSessionJwtSource).toBe('ecdsa');
+    expect(warmSession.capabilities.ecdsa.tempo.auth?.thresholdSessionAuthTokenSource).toBe('ecdsa');
     expect(warmSession.capabilities.ecdsa.tempo.prfClaim?.state).toBe('missing');
   });
 
@@ -244,8 +244,8 @@ test.describe('WarmSessionStore lifecycle', () => {
     ).toMatchObject({
       curve: 'ecdsa',
       relayerUrl: evmRecord.relayerUrl,
-      thresholdSessionJwt: evmRecord.thresholdSessionJwt,
-      thresholdSessionJwtSource: 'ecdsa',
+      thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken,
+      thresholdSessionAuthTokenSource: 'ecdsa',
       keyVersion: 'kek-s-2026-02',
       shamirPrimeB64u: 'AQAB',
     });
@@ -298,7 +298,7 @@ test.describe('WarmSessionStore lifecycle', () => {
       sessionId: evmRecord.thresholdSessionId,
       transport: {
         relayerUrl: evmRecord.relayerUrl,
-        thresholdSessionJwt: evmRecord.thresholdSessionJwt,
+        thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken,
         keyVersion: 'kek-s-2026-02',
         shamirPrimeB64u: 'AQAB',
       },

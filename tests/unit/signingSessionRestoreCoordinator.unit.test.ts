@@ -57,7 +57,7 @@ function makeSealedRecord(args: {
           ecdsaRestore: {
             chainTarget,
             sessionKind: 'jwt' as const,
-            thresholdSessionJwt: 'jwt-restore',
+            thresholdSessionAuthToken: 'jwt-restore',
             ecdsaThresholdKeyId: 'ecdsa-key-restore',
             relayerKeyId: 'relayer-key-restore',
             participantIds: [1, 2],

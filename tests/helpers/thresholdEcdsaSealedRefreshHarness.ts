@@ -153,7 +153,7 @@ async function installThresholdRegistrationBootstrapMock(
       return { orgId, projectId, envId, signingRootVersion };
     };
 
-    const signThresholdSessionJwt = async (args: {
+    const signThresholdSessionAuthToken = async (args: {
       kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
       sessionId: string;
       walletSigningSessionId: string;
@@ -200,7 +200,7 @@ async function installThresholdRegistrationBootstrapMock(
       const expiresAtMs = nowMs + ttlMs;
       const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
       const runtimePolicyScope = resolveRuntimePolicyScope(policy);
-      const jwt = await signThresholdSessionJwt({
+      const jwt = await signThresholdSessionAuthToken({
         kind: 'threshold_ed25519_session_v1',
         sessionId,
         walletSigningSessionId,

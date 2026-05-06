@@ -5,7 +5,7 @@ const DEFAULT_SMART_ACCOUNT_DEPLOYMENT_OBSERVE_ROUTE = '/smart-account/deploymen
 
 export type ReportSmartAccountDeploymentObservationInput = SmartAccountDeployerInput & {
   relayerUrl: string;
-  thresholdSessionJwt: string;
+  thresholdSessionAuthToken: string;
   deploymentTxHash?: string;
 };
 
@@ -16,9 +16,9 @@ export async function reportSmartAccountDeploymentObservation(
   | { ok: false; code: string; message: string }
 > {
   const relayerUrl = String(input.relayerUrl || '').trim();
-  const thresholdSessionJwt = String(input.thresholdSessionJwt || '').trim();
+  const thresholdSessionAuthToken = String(input.thresholdSessionAuthToken || '').trim();
   const deploymentTxHash = normalizeOptionalNonEmptyString(input.deploymentTxHash);
-  if (!relayerUrl || !thresholdSessionJwt || !deploymentTxHash) {
+  if (!relayerUrl || !thresholdSessionAuthToken || !deploymentTxHash) {
     return {
       ok: false,
       code: 'missing_transport',
@@ -33,7 +33,7 @@ export async function reportSmartAccountDeploymentObservation(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${thresholdSessionJwt}`,
+          Authorization: `Bearer ${thresholdSessionAuthToken}`,
         },
         credentials: 'omit',
         body: JSON.stringify({

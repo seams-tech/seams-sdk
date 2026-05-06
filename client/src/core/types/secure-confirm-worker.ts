@@ -37,7 +37,7 @@ export type WarmSessionSealTransportInput =
       curve: 'ed25519';
       relayerUrl: string;
       walletSigningSessionId?: string;
-      thresholdSessionJwt?: string;
+      thresholdSessionAuthToken?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
     }
@@ -46,7 +46,7 @@ export type WarmSessionSealTransportInput =
       chainTarget: ThresholdEcdsaChainTarget;
       relayerUrl: string;
       walletSigningSessionId?: string;
-      thresholdSessionJwt?: string;
+      thresholdSessionAuthToken?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
     };

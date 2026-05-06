@@ -198,9 +198,9 @@ export async function validateThresholdEcdsaAuthorizeInputs(input: {
   };
 }
 
-type ThresholdSessionJwtKind = 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
+type ThresholdSessionAuthTokenKind = 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
 
-export type ThresholdSessionJwtSigningResult =
+export type ThresholdSessionAuthTokenSigningResult =
   | {
       ok: true;
       jwt: string;
@@ -215,9 +215,9 @@ export type ThresholdSessionJwtSigningResult =
       message: string;
     };
 
-export async function signThresholdSessionJwt(args: {
+export async function signThresholdSessionAuthToken(args: {
   session: SessionAdapter | null | undefined;
-  kind: ThresholdSessionJwtKind;
+  kind: ThresholdSessionAuthTokenKind;
   userId: unknown;
   rpId: unknown;
   relayerKeyId: unknown;
@@ -237,7 +237,7 @@ export async function signThresholdSessionJwt(args: {
   requireJwtErrorMessage: string;
   invalidPayloadErrorMessage: string;
   sessionsDisabledMessage?: string;
-}): Promise<ThresholdSessionJwtSigningResult> {
+}): Promise<ThresholdSessionAuthTokenSigningResult> {
   const session = args.session;
   if (!session) {
     return {

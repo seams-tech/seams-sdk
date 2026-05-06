@@ -935,7 +935,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
     const fetchMock = installThresholdEcdsaFetchMock();
 
     try {
-      const thresholdSessionJwt = 'jwt-refresh-self-heal';
+      const thresholdSessionAuthToken = 'jwt-refresh-self-heal';
       const engine = new Secp256k1Engine({
         getRpId: () => RP_ID,
         workerCtx,
@@ -973,7 +973,7 @@ test.describe('threshold ECDSA presign pool refill behavior', () => {
           thresholdSessionKind: 'jwt',
           thresholdSessionId: SESSION_ID,
           walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-          thresholdSessionJwt,
+          thresholdSessionAuthToken,
         },
       );
 

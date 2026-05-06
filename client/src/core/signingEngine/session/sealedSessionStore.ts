@@ -298,11 +298,11 @@ function normalizeEcdsaRestoreMetadata(
   ) {
     return undefined;
   }
-  const thresholdSessionJwt = normalizeOptionalNonEmptyString(obj.thresholdSessionJwt);
+  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(obj.thresholdSessionAuthToken);
   const clientVerifyingShareB64u = normalizeOptionalNonEmptyString(obj.clientVerifyingShareB64u);
   return {
     chainTarget,
-    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
     sessionKind,
     ecdsaThresholdKeyId,
     relayerKeyId,
@@ -335,13 +335,13 @@ function normalizeEd25519RestoreMetadata(
   if (!rpId || !relayerKeyId || !sessionKind || !participantIds.length) {
     return undefined;
   }
-  const thresholdSessionJwt = normalizeOptionalNonEmptyString(obj.thresholdSessionJwt);
+  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(obj.thresholdSessionAuthToken);
   const xClientBaseB64u = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
   return {
     rpId,
     relayerKeyId,
     participantIds,
-    ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
     sessionKind,
     ...(obj.runtimePolicyScope && typeof obj.runtimePolicyScope === 'object'
       ? { runtimePolicyScope: obj.runtimePolicyScope }

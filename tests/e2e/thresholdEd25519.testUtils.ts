@@ -486,7 +486,7 @@ export async function installCreateAccountAndRegisterUserMock(
       const n = Number(value);
       return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
     };
-    const signThresholdSessionJwt = async (args: {
+    const signThresholdSessionAuthToken = async (args: {
       kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
       sessionId: string;
       relayerKeyId: string;
@@ -535,7 +535,7 @@ export async function installCreateAccountAndRegisterUserMock(
               expiresAtMs,
               participantIds,
               remainingUses,
-              jwt: await signThresholdSessionJwt({
+              jwt: await signThresholdSessionAuthToken({
                 kind: 'threshold_ed25519_session_v1',
                 sessionId,
                 relayerKeyId,
@@ -642,7 +642,7 @@ export async function installCreateAccountAndRegisterUserMock(
               expiresAtMs,
               participantIds,
               remainingUses,
-              jwt: await signThresholdSessionJwt({
+              jwt: await signThresholdSessionAuthToken({
                 kind: 'threshold_ecdsa_session_v1',
                 sessionId,
                 relayerKeyId: thresholdEcdsaRelayerKeyId,
@@ -986,7 +986,7 @@ export async function installThresholdEd25519RegistrationMocks(
       );
     }
     const nowSec = Math.floor(Date.now() / 1000);
-    const thresholdSessionJwt =
+    const thresholdSessionAuthToken =
       sessionId && input.session?.signJwt
         ? await input.session.signJwt(accountId, {
             kind: 'threshold_ed25519_session_v1',
@@ -1034,7 +1034,7 @@ export async function installThresholdEd25519RegistrationMocks(
               expiresAtMs: effectiveExpiresAtMs,
               participantIds: effectiveParticipantIds,
               remainingUses: effectiveRemainingUses,
-              jwt: thresholdSessionJwt,
+              jwt: thresholdSessionAuthToken,
               ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
             },
           }

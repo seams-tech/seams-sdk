@@ -51,7 +51,7 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import {
-  requireThresholdSessionJwt,
+  requireThresholdSessionAuthToken,
   type AppOrThresholdSessionAuth,
 } from '@shared/utils/sessionTokens';
 import {
@@ -1357,8 +1357,8 @@ export class SigningEngine {
         ? {
             relayerUrl: String(trustedStatusAuth.relayerUrl || '').trim(),
             thresholdSessionId: String(trustedStatusAuth.thresholdSessionId || '').trim(),
-            ...(String(trustedStatusAuth.thresholdSessionJwt || '').trim()
-              ? { thresholdSessionJwt: String(trustedStatusAuth.thresholdSessionJwt || '').trim() }
+            ...(String(trustedStatusAuth.thresholdSessionAuthToken || '').trim()
+              ? { thresholdSessionAuthToken: String(trustedStatusAuth.thresholdSessionAuthToken || '').trim() }
               : {}),
           }
         : this.resolveWalletSigningBudgetStatusAuth({
@@ -1373,9 +1373,9 @@ export class SigningEngine {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(auth.thresholdSessionJwt ? { Authorization: `Bearer ${auth.thresholdSessionJwt}` } : {}),
+          ...(auth.thresholdSessionAuthToken ? { Authorization: `Bearer ${auth.thresholdSessionAuthToken}` } : {}),
         },
-        credentials: auth.thresholdSessionJwt ? 'omit' : 'include',
+        credentials: auth.thresholdSessionAuthToken ? 'omit' : 'include',
         body: JSON.stringify({
           walletSigningSessionId,
           ...(auth.thresholdSessionId ? { thresholdSessionId: auth.thresholdSessionId } : {}),
@@ -1415,7 +1415,7 @@ export class SigningEngine {
     | {
         relayerUrl: string;
         thresholdSessionId?: string;
-        thresholdSessionJwt?: string;
+        thresholdSessionAuthToken?: string;
       }
     | null {
     const accountId = toAccountId(args.nearAccountId);
@@ -1429,7 +1429,7 @@ export class SigningEngine {
     const candidates: Array<{
       relayerUrl: string;
       thresholdSessionId: string;
-      thresholdSessionJwt?: string;
+      thresholdSessionAuthToken?: string;
       exactTarget: boolean;
     }> = [];
     const pushCandidate = (
@@ -1437,7 +1437,7 @@ export class SigningEngine {
         | {
             relayerUrl?: string;
             thresholdSessionId?: string;
-            thresholdSessionJwt?: string;
+            thresholdSessionAuthToken?: string;
             walletSigningSessionId?: string;
             thresholdSessionKind?: string;
           }
@@ -1452,12 +1452,12 @@ export class SigningEngine {
       const exactTarget =
         targetThresholdIds.size === 0 || targetThresholdIds.has(thresholdSessionId);
       if (!exactTarget && targetThresholdIds.size > 0) return;
-      const thresholdSessionJwt = String(record.thresholdSessionJwt || '').trim();
-      if (!thresholdSessionJwt && record.thresholdSessionKind !== 'cookie') return;
+      const thresholdSessionAuthToken = String(record.thresholdSessionAuthToken || '').trim();
+      if (!thresholdSessionAuthToken && record.thresholdSessionKind !== 'cookie') return;
       candidates.push({
         relayerUrl,
         thresholdSessionId,
-        ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
+        ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
         exactTarget,
       });
     };
@@ -1492,9 +1492,9 @@ export class SigningEngine {
       );
     }
     return (
-      candidates.find((candidate) => candidate.exactTarget && candidate.thresholdSessionJwt) ||
+      candidates.find((candidate) => candidate.exactTarget && candidate.thresholdSessionAuthToken) ||
       candidates.find((candidate) => candidate.exactTarget) ||
-      candidates.find((candidate) => candidate.thresholdSessionJwt) ||
+      candidates.find((candidate) => candidate.thresholdSessionAuthToken) ||
       candidates[0] ||
       null
     );
@@ -2072,12 +2072,12 @@ export class SigningEngine {
   private isUsableEcdsaExportSessionRecord(record: ThresholdEcdsaSessionRecord): boolean {
     const remainingUses = Math.floor(Number(record.remainingUses));
     const expiresAtMs = Math.floor(Number(record.expiresAtMs));
-    const hasJwt = Boolean(String(record.thresholdSessionJwt || '').trim());
+    const hasAuthToken = Boolean(String(record.thresholdSessionAuthToken || '').trim());
     return (
       Number.isFinite(remainingUses) &&
       remainingUses > 0 &&
       (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0 || expiresAtMs > Date.now()) &&
-      (record.thresholdSessionKind === 'cookie' || hasJwt)
+      (record.thresholdSessionKind === 'cookie' || hasAuthToken)
     );
   }
 
@@ -2334,9 +2334,9 @@ export class SigningEngine {
       }
       const exportSigningSessionAuthLane = {
         kind: 'signing_session' as const,
-        jwt: requireThresholdSessionJwt(
-          String(currentRecord.thresholdSessionJwt || '').trim(),
-          'exportThresholdSessionJwt',
+        jwt: requireThresholdSessionAuthToken(
+          String(currentRecord.thresholdSessionAuthToken || '').trim(),
+          'exportThresholdSessionAuthToken',
         ),
         thresholdSessionId: currentRecord.thresholdSessionId,
         walletSigningSessionId,
@@ -2469,7 +2469,7 @@ export class SigningEngine {
 
     const resolveCanonicalExportTransport = async (): Promise<{
       thresholdSessionId: string;
-      thresholdSessionJwt: string;
+      thresholdSessionAuthToken: string;
       relayerUrl: string;
       ecdsaThresholdKeyId: string;
       sessionKind: 'jwt' | 'cookie';
@@ -2477,8 +2477,8 @@ export class SigningEngine {
       const currentThresholdSessionId = String(
         thresholdEcdsaKeyRef.thresholdSessionId || '',
       ).trim();
-      const currentThresholdSessionJwt = String(
-        thresholdEcdsaKeyRef.thresholdSessionJwt || '',
+      const currentThresholdSessionAuthToken = String(
+        thresholdEcdsaKeyRef.thresholdSessionAuthToken || '',
       ).trim();
       const currentRelayerUrl = String(thresholdEcdsaKeyRef.relayerUrl || '').trim();
       const currentThresholdKeyId = String(thresholdEcdsaKeyRef.ecdsaThresholdKeyId || '').trim();
@@ -2486,13 +2486,13 @@ export class SigningEngine {
         thresholdEcdsaKeyRef.thresholdSessionKind === 'cookie' ? 'cookie' : 'jwt';
       if (
         currentThresholdSessionId &&
-        currentThresholdSessionJwt &&
+        currentThresholdSessionAuthToken &&
         currentRelayerUrl &&
         currentThresholdKeyId
       ) {
         return {
           thresholdSessionId: currentThresholdSessionId,
-          thresholdSessionJwt: currentThresholdSessionJwt,
+          thresholdSessionAuthToken: currentThresholdSessionAuthToken,
           relayerUrl: currentRelayerUrl,
           ecdsaThresholdKeyId: currentThresholdKeyId,
           sessionKind: currentSessionKind,
@@ -2503,7 +2503,7 @@ export class SigningEngine {
       );
     };
 
-    const { thresholdSessionJwt, relayerUrl, ecdsaThresholdKeyId, sessionKind } =
+    const { thresholdSessionAuthToken, relayerUrl, ecdsaThresholdKeyId, sessionKind } =
       await resolveCanonicalExportTransport();
 
     const signerWorkerCtx =
@@ -2516,7 +2516,7 @@ export class SigningEngine {
       chainTarget: args.exportLane.chainTarget,
       operation: 'explicit_key_export',
       ecdsaThresholdKeyId,
-      auth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
+      auth: { kind: 'threshold_session', jwt: thresholdSessionAuthToken },
       sessionKind,
     });
     if (!prepare.ok) {
@@ -2572,7 +2572,7 @@ export class SigningEngine {
     const respond = await thresholdEcdsaHssRespond(relayerUrl, {
       ceremonyId,
       requestMessageB64u,
-      auth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
+      auth: { kind: 'threshold_session', jwt: thresholdSessionAuthToken },
       sessionKind,
     });
     if (!respond.ok) {
@@ -2620,7 +2620,7 @@ export class SigningEngine {
     const finalized = await thresholdEcdsaHssFinalize(relayerUrl, {
       ceremonyId,
       clientFinalizeMessageB64u,
-      auth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
+      auth: { kind: 'threshold_session', jwt: thresholdSessionAuthToken },
       sessionKind,
     });
     if (!finalized.ok) {
@@ -2965,7 +2965,7 @@ export class SigningEngine {
     keyVersion: string;
     participantIds: number[];
     thresholdSessionId: string;
-    thresholdSessionJwt: string;
+    thresholdSessionAuthToken: string;
     relayerUrl: string;
     relayerKeyId: string;
     prfFirstB64u: string;
@@ -2991,7 +2991,7 @@ export class SigningEngine {
 
     const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
       relayerUrl: args.relayerUrl,
-      thresholdSessionJwt: args.thresholdSessionJwt,
+      thresholdSessionAuthToken: args.thresholdSessionAuthToken,
       relayerKeyId: args.relayerKeyId,
       operation: 'explicit_key_export',
       context: {
@@ -3124,7 +3124,7 @@ export class SigningEngine {
       sessionRecord?.runtimePolicyScope?.signingRootVersion || '',
     ).trim();
     const thresholdSessionId = String(sessionRecord?.thresholdSessionId || '').trim();
-    const thresholdSessionJwt = String(sessionRecord?.thresholdSessionJwt || '').trim();
+    const thresholdSessionAuthToken = String(sessionRecord?.thresholdSessionAuthToken || '').trim();
     const relayerUrl = String(sessionRecord?.relayerUrl || '').trim();
     const relayerKeyId = String(sessionRecord?.relayerKeyId || '').trim();
     const participantIds = Array.isArray(sessionRecord?.participantIds)
@@ -3148,7 +3148,7 @@ export class SigningEngine {
       !envId ||
       !signingRootVersion ||
       !thresholdSessionId ||
-      !thresholdSessionJwt ||
+      !thresholdSessionAuthToken ||
       !relayerUrl ||
       !relayerKeyId ||
       participantIds.length === 0
@@ -3208,9 +3208,9 @@ export class SigningEngine {
         }
         const exportSigningSessionAuthLane = {
           kind: 'signing_session' as const,
-          jwt: requireThresholdSessionJwt(
-            String(sessionRecord.thresholdSessionJwt || '').trim(),
-            'exportThresholdSessionJwt',
+          jwt: requireThresholdSessionAuthToken(
+            String(sessionRecord.thresholdSessionAuthToken || '').trim(),
+            'exportThresholdSessionAuthToken',
           ),
           thresholdSessionId,
           walletSigningSessionId,
@@ -3244,7 +3244,7 @@ export class SigningEngine {
           keyVersion,
           participantIds,
           thresholdSessionId,
-          thresholdSessionJwt,
+          thresholdSessionAuthToken,
           relayerUrl,
           relayerKeyId,
           prfFirstB64u: exportMaterial.prfFirstB64u,
@@ -3324,7 +3324,7 @@ export class SigningEngine {
         keyVersion,
         participantIds,
         thresholdSessionId,
-        thresholdSessionJwt,
+        thresholdSessionAuthToken,
         relayerUrl,
         relayerKeyId,
         prfFirstB64u,
@@ -3489,8 +3489,8 @@ export class SigningEngine {
             ...(provisionArgs.ecdsaThresholdKeyId
               ? { ecdsaThresholdKeyId: provisionArgs.ecdsaThresholdKeyId }
               : {}),
-            ...(provisionArgs.thresholdRouteAuth
-              ? { thresholdRouteAuth: provisionArgs.thresholdRouteAuth }
+            ...(provisionArgs.thresholdSessionAuth
+              ? { thresholdSessionAuth: provisionArgs.thresholdSessionAuth }
               : {}),
             ...(provisionArgs.runtimePolicyScope
               ? { runtimePolicyScope: provisionArgs.runtimePolicyScope }
@@ -3527,7 +3527,7 @@ export class SigningEngine {
         sessionKind: args.sessionKind,
         sessionId: args.sessionId,
         walletSigningSessionId: args.walletSigningSessionId,
-        thresholdRouteAuth: args.thresholdRouteAuth,
+        thresholdSessionAuth: args.thresholdSessionAuth,
         runtimePolicyScope: args.runtimePolicyScope,
         runtimeScopeBootstrap: args.runtimeScopeBootstrap,
         clientRootShare32: args.clientRootShare32,
@@ -3584,7 +3584,7 @@ export class SigningEngine {
       chainTarget: args.chainTarget,
       source: 'email_otp',
     });
-    const jwt = String(record.thresholdSessionJwt || '').trim();
+    const jwt = String(record.thresholdSessionAuthToken || '').trim();
     if (!jwt) {
       throw new Error('Email OTP signing-session refresh requires threshold-session auth');
     }
@@ -3880,7 +3880,7 @@ export class SigningEngine {
           touchConfirm: this.touchConfirm,
           chainTarget: args.chainTarget,
           thresholdSessionId,
-          required: Boolean(args.thresholdRouteAuth),
+          required: Boolean(args.thresholdSessionAuth),
           errorContext: 'threshold-ecdsa bootstrap seal persistence',
           sealPersistInFlightBySessionId: new Map(),
           resolveSealTransport: ({ thresholdSessionId: sessionId, chainTarget }) =>
@@ -4447,7 +4447,7 @@ export class SigningEngine {
     transport?: {
       curve?: 'ed25519' | 'ecdsa';
       relayerUrl?: string;
-      thresholdSessionJwt?: string;
+      thresholdSessionAuthToken?: string;
       keyVersion?: string;
       shamirPrimeB64u?: string;
     };

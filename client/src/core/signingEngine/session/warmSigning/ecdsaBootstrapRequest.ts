@@ -35,7 +35,7 @@ export function resolveWarmEcdsaBootstrapRequestFromSession(args: {
 
   const explicitParticipantIds = normalizeParticipantIds(request.participantIds);
   const explicitRelayerUrl = toOptionalNonEmptyString(request.relayerUrl);
-  const explicitThresholdRouteAuth = request.thresholdRouteAuth;
+  const explicitThresholdSessionAuth = request.thresholdSessionAuth;
   const explicitSessionId = toOptionalNonEmptyString(request.sessionId);
   const explicitWalletSigningSessionId = toOptionalNonEmptyString(request.walletSigningSessionId);
   const explicitThresholdKeyId = toOptionalNonEmptyString(request.ecdsaThresholdKeyId);
@@ -121,15 +121,15 @@ export function resolveWarmEcdsaBootstrapRequestFromSession(args: {
             ).trim(),
           }
         : {}),
-    ...(explicitThresholdRouteAuth
-      ? { thresholdRouteAuth: explicitThresholdRouteAuth }
+    ...(explicitThresholdSessionAuth
+      ? { thresholdSessionAuth: explicitThresholdSessionAuth }
       : !shouldUseFreshWebAuthnBootstrap &&
-          toOptionalNonEmptyString(reusableWarmCapability?.auth?.thresholdSessionJwt)
+          toOptionalNonEmptyString(reusableWarmCapability?.auth?.thresholdSessionAuthToken)
         ? {
-            thresholdRouteAuth: {
+            thresholdSessionAuth: {
               kind: 'threshold_session',
               jwt: String(
-                toOptionalNonEmptyString(reusableWarmCapability?.auth?.thresholdSessionJwt) || '',
+                toOptionalNonEmptyString(reusableWarmCapability?.auth?.thresholdSessionAuthToken) || '',
               ).trim(),
             },
           }

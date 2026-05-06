@@ -84,7 +84,7 @@ export function persistWarmSessionEd25519Capability(
           ).trim(),
         }
       : {}),
-    ...(jwt ? { thresholdSessionJwt: jwt } : {}),
+    ...(jwt ? { thresholdSessionAuthToken: jwt } : {}),
     expiresAtMs,
     remainingUses,
     ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),

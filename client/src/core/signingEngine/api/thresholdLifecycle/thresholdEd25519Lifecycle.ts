@@ -375,7 +375,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
 
 export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: {
   relayerUrl: string;
-  thresholdSessionJwt: string;
+  thresholdSessionAuthToken: string;
   relayerKeyId: string;
   operation: ThresholdEd25519HssSessionOperation;
   context: ThresholdEd25519HssCanonicalContext;
@@ -384,11 +384,11 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
   try {
     const startedAt = Date.now();
     const relayerUrl = stripTrailingSlashes(String(args.relayerUrl || '').trim());
-    const thresholdSessionJwt = String(args.thresholdSessionJwt || '').trim();
+    const thresholdSessionAuthToken = String(args.thresholdSessionAuthToken || '').trim();
     const relayerKeyId = String(args.relayerKeyId || '').trim();
     const operation = String(args.operation || '').trim();
     if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server prepare');
-    if (!thresholdSessionJwt) {
+    if (!thresholdSessionAuthToken) {
       throw new Error('Missing threshold session JWT for Ed25519 HSS server prepare');
     }
     if (!relayerKeyId) throw new Error('Missing relayerKeyId for Ed25519 HSS server prepare');
@@ -420,7 +420,7 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${thresholdSessionJwt}`,
+        Authorization: `Bearer ${thresholdSessionAuthToken}`,
       },
       credentials: 'omit',
       body: requestBody,
@@ -489,7 +489,7 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
 
 export async function respondThresholdEd25519HssServerCeremonyWithSession(args: {
   relayerUrl: string;
-  thresholdSessionJwt: string;
+  thresholdSessionAuthToken: string;
   ceremonyHandle: string;
   contextBindingB64u: string;
   clientRequest: ThresholdEd25519HssClientRequestEnvelope;
@@ -498,10 +498,10 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
   try {
     const startedAt = Date.now();
     const relayerUrl = stripTrailingSlashes(String(args.relayerUrl || '').trim());
-    const thresholdSessionJwt = String(args.thresholdSessionJwt || '').trim();
+    const thresholdSessionAuthToken = String(args.thresholdSessionAuthToken || '').trim();
     const ceremonyHandle = String(args.ceremonyHandle || '').trim();
     if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server respond');
-    if (!thresholdSessionJwt) {
+    if (!thresholdSessionAuthToken) {
       throw new Error('Missing threshold session JWT for Ed25519 HSS server respond');
     }
     if (!ceremonyHandle) throw new Error('Missing ceremonyHandle for Ed25519 HSS server respond');
@@ -527,7 +527,7 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${thresholdSessionJwt}`,
+        Authorization: `Bearer ${thresholdSessionAuthToken}`,
       },
       credentials: 'omit',
       body: requestBody,
@@ -574,7 +574,7 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
 
 export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args: {
   relayerUrl: string;
-  thresholdSessionJwt: string;
+  thresholdSessionAuthToken: string;
   ceremonyHandle: string;
   contextBindingB64u: string;
 }): Promise<FinalizeThresholdEd25519HssServerCeremonyWithSessionResult> {
@@ -582,10 +582,10 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
   try {
     const startedAt = Date.now();
     const relayerUrl = stripTrailingSlashes(String(args.relayerUrl || '').trim());
-    const thresholdSessionJwt = String(args.thresholdSessionJwt || '').trim();
+    const thresholdSessionAuthToken = String(args.thresholdSessionAuthToken || '').trim();
     const ceremonyHandle = String(args.ceremonyHandle || '').trim();
     if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server finalize');
-    if (!thresholdSessionJwt) {
+    if (!thresholdSessionAuthToken) {
       throw new Error('Missing threshold session JWT for Ed25519 HSS server finalize');
     }
     if (!ceremonyHandle) throw new Error('Missing ceremonyHandle for Ed25519 HSS server finalize');
@@ -609,7 +609,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${thresholdSessionJwt}`,
+        Authorization: `Bearer ${thresholdSessionAuthToken}`,
       },
       credentials: 'omit',
       body: requestBody,
@@ -667,7 +667,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
 
 export async function runThresholdEd25519HssCeremonyWithSession(args: {
   relayerUrl: string;
-  thresholdSessionJwt: string;
+  thresholdSessionAuthToken: string;
   relayerKeyId: string;
   operation: ThresholdEd25519HssSessionOperation;
   context: ThresholdEd25519HssCanonicalContext;
@@ -678,7 +678,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
   const startedAt = Date.now();
   const prepared = await prepareThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: args.relayerUrl,
-    thresholdSessionJwt: args.thresholdSessionJwt,
+    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
     relayerKeyId: args.relayerKeyId,
     operation: args.operation,
     context: args.context,
@@ -705,7 +705,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
 
   const responded = await respondThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: args.relayerUrl,
-    thresholdSessionJwt: args.thresholdSessionJwt,
+    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
     ceremonyHandle: prepared.ceremonyHandle,
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
     clientRequest,
@@ -722,7 +722,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
 
   const finalized = await finalizeThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: args.relayerUrl,
-    thresholdSessionJwt: args.thresholdSessionJwt,
+    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
     ceremonyHandle: prepared.ceremonyHandle,
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
   });

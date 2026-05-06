@@ -419,7 +419,7 @@ export interface EmailOtpWorkerOperationMap {
       sessionId: string;
       transport: {
         relayerUrl: string;
-        thresholdSessionJwt?: string;
+        thresholdSessionAuthToken?: string;
         keyVersion?: string;
         shamirPrimeB64u?: string;
       };
@@ -441,7 +441,7 @@ export interface EmailOtpWorkerOperationMap {
       expiresAtMs: number;
       transport: {
         relayerUrl: string;
-        thresholdSessionJwt?: string;
+        thresholdSessionAuthToken?: string;
         keyVersion?: string;
         shamirPrimeB64u?: string;
       };
@@ -505,7 +505,7 @@ export interface EmailOtpWorkerOperationMap {
       shamirPrimeB64u: string;
       routePlan: EmailOtpRoutePlan;
       rpId: string;
-      thresholdSessionJwt?: string;
+      thresholdSessionAuthToken?: string;
       sessionKind?: 'jwt' | 'cookie';
       subjectId: WalletSubjectId;
       ecdsaThresholdKeyId: string;

@@ -60,7 +60,7 @@ export interface ThresholdSignerConfig {
    * Optional bearer token returned by `POST /threshold-ed25519/session`.
    * When present, the signer worker uses it to authenticate `/threshold-ed25519/authorize` requests.
    */
-  thresholdSessionJwt?: string;
+  thresholdSessionAuthToken?: string;
   /**
    * Preferred session token delivery mechanism for `/threshold-ed25519/session`.
    * - `jwt` (default): return token in JSON and use Authorization: Bearer on subsequent requests.

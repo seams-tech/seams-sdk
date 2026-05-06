@@ -792,10 +792,10 @@ function requireThresholdLoginWarmEcdsaBootstrapIdentity(args: {
   }
 
   const appSessionJwt = String(args.appSessionJwt || '').trim();
-  const thresholdSessionJwt = String(args.ed25519State.jwt || '').trim();
+  const thresholdSessionAuthToken = String(args.ed25519State.jwt || '').trim();
   const routeAuth: AppOrThresholdSessionAuth = appSessionJwt
     ? { kind: 'app_session', jwt: appSessionJwt }
-    : { kind: 'threshold_session', jwt: thresholdSessionJwt };
+    : { kind: 'threshold_session', jwt: thresholdSessionAuthToken };
   if (!('jwt' in routeAuth) || !String(routeAuth.jwt || '').trim()) {
     throw new Error('[login] threshold ECDSA warm-up requires route authorization');
   }
@@ -928,7 +928,7 @@ async function primeThresholdLoginWarmSigners(args: {
               ttlMs: args.ttlMs,
               remainingUses: args.remainingUses,
               clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
-              thresholdRouteAuth: bootstrapIdentity.routeAuth,
+              thresholdSessionAuth: bootstrapIdentity.routeAuth,
               ...(args.canonicalEcdsaContext.runtimePolicyScope
                 ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
                 : {}),

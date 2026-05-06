@@ -17,7 +17,7 @@ test.describe('WarmSessionStore capability resolution', () => {
     const ed25519Record = seedEd25519WarmSessionRecord({
       nearAccountId: 'ed-auth.testnet',
       thresholdSessionId: 'ed-auth-session',
-      thresholdSessionJwt: 'jwt:ed-auth-session',
+      thresholdSessionAuthToken: 'jwt:ed-auth-session',
     });
 
     const store = createWarmSessionTestServices();
@@ -25,8 +25,8 @@ test.describe('WarmSessionStore capability resolution', () => {
 
     expect(auth).toMatchObject({
       capability: 'ed25519',
-      thresholdSessionJwt: 'jwt:ed-auth-session',
-      thresholdSessionJwtSource: 'ed25519',
+      thresholdSessionAuthToken: 'jwt:ed-auth-session',
+      thresholdSessionAuthTokenSource: 'ed25519',
     });
   });
 
@@ -54,8 +54,8 @@ test.describe('WarmSessionStore capability resolution', () => {
     );
 
     expect(capability?.state).toBe('ready');
-    expect(capability?.auth?.thresholdSessionJwt).toBeUndefined();
-    expect(capability?.auth?.thresholdSessionJwtSource).toBe('none');
+    expect(capability?.auth?.thresholdSessionAuthToken).toBeUndefined();
+    expect(capability?.auth?.thresholdSessionAuthTokenSource).toBe('none');
     expect(capability?.prfClaim?.state).toBe('warm');
   });
 
@@ -66,7 +66,7 @@ test.describe('WarmSessionStore capability resolution', () => {
     seedEd25519WarmSessionRecord({
       nearAccountId: 'ecdsa-auth.testnet',
       thresholdSessionId: 'ed-fallback-session',
-      thresholdSessionJwt: 'jwt:ed-fallback-session',
+      thresholdSessionAuthToken: 'jwt:ed-fallback-session',
     });
     const evmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
       nearAccountId: 'ecdsa-auth.testnet',
@@ -87,9 +87,9 @@ test.describe('WarmSessionStore capability resolution', () => {
     expect(auth).toMatchObject({
       capability: 'ecdsa',
       chain: 'evm',
-      thresholdSessionJwtSource: 'none',
+      thresholdSessionAuthTokenSource: 'none',
     });
-    expect(auth?.thresholdSessionJwt).toBeUndefined();
+    expect(auth?.thresholdSessionAuthToken).toBeUndefined();
   });
 
   test('surfaces explicit Email OTP auth context on warm ECDSA capability state', async () => {
@@ -111,7 +111,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-email-otp',
         sessionId: 'ecdsa-email-otp-session',
-        sessionJwt: 'jwt:ecdsa-email-otp-session',
+        sessionAuthToken: 'jwt:ecdsa-email-otp-session',
       }),
     });
 
@@ -153,7 +153,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-email-otp-exhausted',
         sessionId: 'ecdsa-email-otp-exhausted-session',
-        sessionJwt: 'jwt:ecdsa-email-otp-exhausted-session',
+        sessionAuthToken: 'jwt:ecdsa-email-otp-exhausted-session',
       }),
     });
     let clearCount = 0;
@@ -184,7 +184,7 @@ test.describe('WarmSessionStore capability resolution', () => {
     ).toMatchObject({
       capability: 'ecdsa',
       chain: 'evm',
-      thresholdSessionJwt: 'jwt:ecdsa-email-otp-exhausted-session',
+      thresholdSessionAuthToken: 'jwt:ecdsa-email-otp-exhausted-session',
     });
   });
 
@@ -201,7 +201,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         chain: 'evm',
         ecdsaThresholdKeyId: 'ek-stale',
         sessionId: 'ecdsa-stale-session',
-        sessionJwt: 'jwt:ecdsa-stale-session',
+        sessionAuthToken: 'jwt:ecdsa-stale-session',
       }),
     });
     const warmRecord = seedEcdsaWarmSessionRecord(ecdsaStore, {
@@ -213,7 +213,7 @@ test.describe('WarmSessionStore capability resolution', () => {
         chain: 'tempo',
         ecdsaThresholdKeyId: 'ek-warm',
         sessionId: 'ecdsa-warm-session',
-        sessionJwt: 'jwt:ecdsa-warm-session',
+        sessionAuthToken: 'jwt:ecdsa-warm-session',
       }),
     });
 
@@ -240,10 +240,10 @@ test.describe('WarmSessionStore capability resolution', () => {
     });
 
     expect('sessionId' in evmBootstrap).toBe(false);
-    expect('thresholdRouteAuth' in evmBootstrap).toBe(false);
+    expect('thresholdSessionAuth' in evmBootstrap).toBe(false);
     expect(tempoBootstrap).toMatchObject({
       sessionId: 'ecdsa-warm-session',
-      thresholdRouteAuth: {
+      thresholdSessionAuth: {
         kind: 'threshold_session',
         jwt: 'jwt:ecdsa-warm-session',
       },

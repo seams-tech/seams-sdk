@@ -10,7 +10,7 @@ import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import {
   resolveActiveRuntimePolicyScopeForEnvironment,
   signRegistrationContinuationJwt,
-  signThresholdSessionJwt,
+  signThresholdSessionAuthToken,
 } from './commonRouterUtils';
 import {
   smartAccountChainTargetFromParts,
@@ -526,7 +526,7 @@ export async function handleRelayRegistrationBootstrap(
   }
 
   if (response.thresholdEd25519?.session) {
-    const signed = await signThresholdSessionJwt({
+    const signed = await signThresholdSessionAuthToken({
       session,
       kind: 'threshold_ed25519_session_v1',
       userId: new_account_id,
@@ -544,7 +544,7 @@ export async function handleRelayRegistrationBootstrap(
   }
 
   if (response.thresholdEcdsa?.session) {
-    const signed = await signThresholdSessionJwt({
+    const signed = await signThresholdSessionAuthToken({
       session,
       kind: 'threshold_ecdsa_session_v1',
       userId: new_account_id,
