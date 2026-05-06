@@ -26,6 +26,7 @@ import type { SponsoredEvmCallExecutorConfig } from '../sponsorship/evmRelay';
 import type { SponsorshipSpendPricingService } from '../sponsorship';
 import type { CanonicalSmartAccountDeploymentManifest } from '../core/smartAccountDeploymentManifest';
 import type { CanonicalEvmSmartAccountDeploymentPlan } from '../core/evmSmartAccountDeploymentPlan';
+import type { SmartAccountChainTarget } from '../core/smartAccountChainTarget';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { ApiCredentialScope } from '../../../shared/src/console/apiKeyScopes';
@@ -375,12 +376,9 @@ export interface RelayBootstrapGrantBroker {
   ): Promise<RelayBootstrapGrantIssueResult>;
 }
 
-export type SmartAccountDeploymentChain = 'evm' | 'tempo';
-
 export interface SmartAccountDeployRequest {
   nearAccountId: string;
-  chain: SmartAccountDeploymentChain;
-  chainId: number;
+  chainTarget: SmartAccountChainTarget;
   accountAddress: string;
   accountModel: string;
   deploymentManifest: CanonicalSmartAccountDeploymentManifest;

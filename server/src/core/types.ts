@@ -614,6 +614,9 @@ export interface CreateAccountAndRegisterRequest {
     session_kind: 'jwt' | 'cookie';
     smart_account_targets?: CreateAccountAndRegisterSmartAccountTarget[];
   };
+  registration_continuation?: {
+    threshold_ecdsa_chain_targets: ThresholdEcdsaChainTarget[];
+  };
   /**
    * WebAuthn RP ID used for the registration ceremony (e.g. `wallet.example.com`).
    *
@@ -631,8 +634,7 @@ export interface CreateAccountAndRegisterRequest {
 }
 
 export interface CreateAccountAndRegisterSmartAccountTarget {
-  chain: 'evm' | 'tempo';
-  chain_id: number;
+  chainTarget: import('./smartAccountChainTarget').SmartAccountChainTarget;
   factory?: string;
   entry_point?: string;
   recovery_authority?: string;
@@ -641,8 +643,7 @@ export interface CreateAccountAndRegisterSmartAccountTarget {
 }
 
 export interface CreateAccountAndRegisterSmartAccountDeployment {
-  chain: 'evm' | 'tempo';
-  chainId: number;
+  chainTarget: import('./smartAccountChainTarget').SmartAccountChainTarget;
   accountAddress: string;
   accountModel: 'erc4337' | 'tempo-native';
   deployed: boolean;
@@ -696,6 +697,11 @@ export interface CreateAccountAndRegisterResult {
     };
   };
   smartAccountDeployments?: CreateAccountAndRegisterSmartAccountDeployment[];
+  registrationContinuation?: {
+    token: string;
+    expiresAtMs: number;
+    thresholdEcdsaChainTargets: ThresholdEcdsaChainTarget[];
+  };
   error?: string;
   message?: string;
   contractResult?: any; // FinalExecutionOutcome
@@ -959,6 +965,8 @@ export interface ThresholdEd25519CosignFinalizeResponse {
 
 export type ThresholdEcdsaPurpose = string;
 export type EcdsaThresholdKeyId = string;
+export type ThresholdEcdsaChainTarget =
+  import('./thresholdEcdsaChainTarget').ThresholdEcdsaChainTarget;
 
 export type ThresholdEcdsaHssOperation =
   | 'registration_bootstrap'
@@ -967,10 +975,12 @@ export type ThresholdEcdsaHssOperation =
   | 'explicit_key_export';
 
 export interface ThresholdEcdsaHssPrepareRequest {
-  userId: string;
+  walletSessionUserId: string;
+  subjectId?: string;
   rpId: string;
   operation: ThresholdEcdsaHssOperation;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
+  chainTarget?: ThresholdEcdsaChainTarget;
   keygenSessionId?: string;
   sessionPolicy?: ThresholdEcdsaBootstrapSessionPolicy;
   runtimeEnvironmentId?: string;
@@ -1000,6 +1010,11 @@ export interface ThresholdEcdsaHssPrepareRequest {
    * extracted from bearer/cookie transport by the route layer.
    */
   ecdsaSessionClaims?: Record<string, unknown>;
+  /**
+   * Internal relay field: registration-scoped continuation claims extracted by
+   * the route layer for post-registration ECDSA provisioning.
+   */
+  registrationContinuationClaims?: Record<string, unknown>;
   sessionKind?: 'jwt' | 'cookie';
 }
 
@@ -1051,6 +1066,8 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   counterfactualAddress?: string;
   sessionId?: string;
   walletSigningSessionId?: string;
+  subjectId?: string;
+  chainTarget?: ThresholdEcdsaChainTarget;
   expiresAtMs?: number;
   expiresAt?: string;
   remainingUses?: number;
@@ -1088,8 +1105,11 @@ export interface ThresholdEcdsaIntegratedKeyRecord {
 export type EcdsaSessionPolicy = {
   version: 'threshold_session_v1';
   userId: string;
+  subjectId: string;
   rpId: string;
   relayerKeyId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   sessionId: string;
   walletSigningSessionId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -1102,7 +1122,10 @@ export type EcdsaSessionPolicy = {
 export type ThresholdEcdsaBootstrapSessionPolicy = {
   version: 'threshold_session_v1';
   userId: string;
+  subjectId: string;
   rpId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   sessionId: string;
   walletSigningSessionId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;

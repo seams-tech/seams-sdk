@@ -105,7 +105,7 @@ export function createEvmSmartAccountDeployHandler(input: {
   );
 
   return async (request: SmartAccountDeployRequest): Promise<SmartAccountDeployResult> => {
-    if (request.chain !== 'evm') {
+    if (request.chainTarget.kind !== 'evm') {
       return {
         ok: true,
         code: 'assumed_deployed',
@@ -135,12 +135,12 @@ export function createEvmSmartAccountDeployHandler(input: {
       };
     }
 
-    const executor = resolveSponsoredEvmExecutorForChain(input.config, request.chainId);
+    const executor = resolveSponsoredEvmExecutorForChain(input.config, request.chainTarget.chainId);
     if (!executor) {
       return {
         ok: false,
         code: 'evm_deployment_chain_unconfigured',
-        message: `No EVM deploy executor configured for chainId=${String(request.chainId)}`,
+        message: `No EVM deploy executor configured for chainId=${String(request.chainTarget.chainId)}`,
       };
     }
 
@@ -179,7 +179,7 @@ export function createEvmSmartAccountDeployHandler(input: {
       });
       logger.info('[relay][smart-account-deploy] deployed evm smart account', {
         nearAccountId: request.nearAccountId,
-        chainId: request.chainId,
+        chainId: request.chainTarget.chainId,
         accountAddress: request.accountAddress,
         deploymentTxHash: execution.txHash,
       });
@@ -208,7 +208,7 @@ export function createEvmSmartAccountDeployHandler(input: {
       }
       logger.warn('[relay][smart-account-deploy] evm smart-account deployment failed', {
         nearAccountId: request.nearAccountId,
-        chainId: request.chainId,
+        chainId: request.chainTarget.chainId,
         accountAddress: request.accountAddress,
         code,
         message,

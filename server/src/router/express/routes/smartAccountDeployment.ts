@@ -1,6 +1,7 @@
 import type { Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
 import { validateThresholdEcdsaSessionInputs } from '../../commonRouterUtils';
+import { smartAccountChainTargetKey } from '../../../core/smartAccountChainTarget';
 import { readCanonicalSmartAccountDeploymentManifest } from '../../smartAccountDeploymentManifest';
 import {
   parseSmartAccountDeploymentManifestRequest,
@@ -28,7 +29,7 @@ export function registerSmartAccountDeploymentRoutes(
 
       const body = validated.body as Record<string, unknown>;
       const parsed = parseSmartAccountDeploymentManifestRequest(body);
-      if (!parsed.chain || typeof parsed.chainId !== 'number' || !parsed.accountAddress) {
+      if (!parsed.chainTarget || !parsed.accountAddress) {
         res.status(400).json({
           ok: false,
           code: 'invalid_body',
@@ -40,7 +41,7 @@ export function registerSmartAccountDeploymentRoutes(
       const manifest = await readCanonicalSmartAccountDeploymentManifest({
         authService: ctx.service,
         expectedUserId: validated.claims.walletId,
-        chainIdKey: `${parsed.chain}:${parsed.chainId}`,
+        chainIdKey: smartAccountChainTargetKey(parsed.chainTarget),
         accountAddress: parsed.accountAddress,
       });
       if (!manifest.ok) {
@@ -86,14 +87,13 @@ export function registerSmartAccountDeploymentRoutes(
 
       const body = validated.body as Record<string, unknown>;
       const {
-        chain,
-        chainId,
+        chainTarget,
         accountAddress,
         accountModel,
         deploymentTxHash,
         counterfactualAddress,
       } = parseSmartAccountDeploymentObservationRequest(body);
-      if (!chain || typeof chainId !== 'number' || !accountAddress || !deploymentTxHash) {
+      if (!chainTarget || !accountAddress || !deploymentTxHash) {
         res.status(400).json({
           ok: false,
           code: 'invalid_body',
@@ -106,8 +106,7 @@ export function registerSmartAccountDeploymentRoutes(
         authService: ctx.service,
         expectedUserId: validated.claims.walletId,
         update: {
-          chain,
-          chainId,
+          chainTarget,
           accountAddress,
           deployed: true,
           ...(validated.claims.runtimePolicyScope

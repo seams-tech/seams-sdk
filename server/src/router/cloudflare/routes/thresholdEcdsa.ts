@@ -14,6 +14,7 @@ import type {
 } from '../../../core/types';
 import {
   parseAppSessionClaims,
+  parseRegistrationContinuationClaims,
   parseThresholdEcdsaSessionClaims,
   parseThresholdEd25519SessionClaims,
 } from '../../../core/ThresholdService/validation';
@@ -130,8 +131,10 @@ function resolveEcdsaRuntimePolicyScopeFromClaims(input: {
   appSessionClaims: ReturnType<typeof parseAppSessionClaims>;
   ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims>;
   ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims>;
+  registrationContinuationClaims: ReturnType<typeof parseRegistrationContinuationClaims>;
 }): EcdsaRuntimePolicyScope | undefined {
   return (
+    normalizeEcdsaRuntimePolicyScope(input.registrationContinuationClaims?.runtimePolicyScope) ||
     normalizeEcdsaRuntimePolicyScope(input.ed25519SessionClaims?.runtimePolicyScope) ||
     normalizeEcdsaRuntimePolicyScope(input.appSessionClaims?.runtimePolicyScope) ||
     normalizeEcdsaRuntimePolicyScope(input.ecdsaSessionClaims?.runtimePolicyScope)
@@ -162,17 +165,19 @@ async function resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
   if (body.operation !== 'email_otp_bootstrap') return undefined;
   const sessionClaims = appSessionClaims || ed25519SessionClaims || ecdsaSessionClaims;
   if (!sessionClaims) return undefined;
-  const userId = String(body.userId || '').trim();
+  const walletSessionUserId = String(body.walletSessionUserId || '').trim();
   const sessionWalletId = String(
     appSessionClaims ? appSessionClaims.walletId || '' : sessionClaims.walletId || '',
   ).trim();
-  if (!sessionWalletId || !userId || sessionWalletId !== userId) return undefined;
+  if (!sessionWalletId || !walletSessionUserId || sessionWalletId !== walletSessionUserId) {
+    return undefined;
+  }
   const sessionOrgId =
     appSessionClaims?.runtimePolicyScope?.orgId ||
     ed25519SessionClaims?.runtimePolicyScope?.orgId ||
     ecdsaSessionClaims?.runtimePolicyScope?.orgId;
   const enrollment = await ctx.service.readActiveEmailOtpEnrollment({
-    walletId: userId,
+    walletId: walletSessionUserId,
     orgId: String(sessionOrgId || '').trim() || undefined,
     providerUserId: appSessionClaims ? appSessionClaims.sub : undefined,
   });
@@ -264,6 +269,8 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     let appSessionClaims: ReturnType<typeof parseAppSessionClaims> = null;
     let ed25519SessionClaims: ReturnType<typeof parseThresholdEd25519SessionClaims> = null;
     let ecdsaSessionClaims: ReturnType<typeof parseThresholdEcdsaSessionClaims> = null;
+    let registrationContinuationClaims: ReturnType<typeof parseRegistrationContinuationClaims> =
+      null;
     if (session) {
       const parsedSession = await session.parse(Object.fromEntries(ctx.request.headers.entries()));
       if (parsedSession.ok) {
@@ -279,6 +286,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
         }
         ed25519SessionClaims = parseThresholdEd25519SessionClaims(parsedSession.claims);
         ecdsaSessionClaims = parseThresholdEcdsaSessionClaims(parsedSession.claims);
+        registrationContinuationClaims = parseRegistrationContinuationClaims(parsedSession.claims);
       }
     }
     const emailOtpEnrollmentClaims = await resolveEmailOtpEnrollmentClaimsForThresholdEcdsa(
@@ -292,6 +300,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       appSessionClaims,
       ed25519SessionClaims,
       ecdsaSessionClaims,
+      registrationContinuationClaims,
     });
     const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
       explicitScopeRaw: inheritedRuntimePolicyScope ?? reqBody.sessionPolicy?.runtimePolicyScope,
@@ -319,6 +328,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       emailOtpEnrollmentClaims,
       ed25519SessionClaims: ed25519SessionClaims || undefined,
       ecdsaSessionClaims: ecdsaSessionClaims || undefined,
+      registrationContinuationClaims: registrationContinuationClaims || undefined,
     };
     const result = await scheme.hss.prepare(request);
     return json(result, { status: thresholdEcdsaStatusCode(result) });
@@ -368,6 +378,9 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
         walletSigningSessionId: result.walletSigningSessionId,
         expiresAtMs: result.expiresAtMs,
         participantIds: result.participantIds,
+        subjectId: result.subjectId,
+        chainTarget: result.chainTarget,
+        ecdsaThresholdKeyId: result.ecdsaThresholdKeyId,
         ...(result.runtimePolicyScope
           ? { runtimePolicyScope: result.runtimePolicyScope }
           : {}),

@@ -9,8 +9,14 @@ import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleOrgProjectEnvService } from '../console/orgProjectEnv';
 import {
   resolveActiveRuntimePolicyScopeForEnvironment,
+  signRegistrationContinuationJwt,
   signThresholdSessionJwt,
 } from './commonRouterUtils';
+import {
+  smartAccountChainTargetFromParts,
+  smartAccountChainTargetKey,
+  smartAccountModelForTarget,
+} from '../core/smartAccountChainTarget';
 import { applyRouteMetering } from './applyRouteMetering';
 import { enforceRoutePolicy } from './enforceRoutePolicy';
 import type { NormalizedRouterLogger } from './logger';
@@ -28,6 +34,11 @@ import { readCanonicalSmartAccountDeploymentManifest } from './smartAccountDeplo
 import { syncSmartAccountRecoverySubjectDeployments } from './smartAccountRecoverySubjectDeploymentSync';
 import { executeSmartAccountDeploy } from './smartAccountDeploy';
 import { isPlainObject } from '@shared/utils/validation';
+import {
+  thresholdEcdsaChainTargetFromValue,
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from '../core/thresholdEcdsaChainTarget';
 
 interface RelayRegistrationBootstrapServices {
   authService: AuthService;
@@ -88,7 +99,7 @@ function normalizeRegistrationSmartAccountTargets(
     return { ok: false, message: 'threshold_ecdsa.smart_account_targets must be an array' };
   }
   const targets: CreateAccountAndRegisterSmartAccountTarget[] = [];
-  const seenChains = new Set<string>();
+  const seenTargets = new Set<string>();
   for (let index = 0; index < raw.length; index += 1) {
     const entry = raw[index];
     if (!isPlainObject(entry)) {
@@ -97,32 +108,28 @@ function normalizeRegistrationSmartAccountTargets(
         message: `threshold_ecdsa.smart_account_targets[${index}] must be an object`,
       };
     }
-    const chain = String(entry.chain || '')
-      .trim()
-      .toLowerCase();
-    if (chain !== 'evm' && chain !== 'tempo') {
+    const chainTarget = smartAccountChainTargetFromParts({
+      chain: entry.chain,
+      chainId: entry.chain_id ?? entry.chainId,
+      namespace: entry.namespace,
+      networkSlug: entry.network_slug ?? entry.networkSlug,
+    });
+    if (!chainTarget) {
       return {
         ok: false,
-        message: `threshold_ecdsa.smart_account_targets[${index}].chain must be "evm" or "tempo"`,
+        message: `threshold_ecdsa.smart_account_targets[${index}] must include a concrete ECDSA chain target`,
       };
     }
-    if (seenChains.has(chain)) {
+    const targetKey = smartAccountChainTargetKey(chainTarget);
+    if (seenTargets.has(targetKey)) {
       return {
         ok: false,
-        message: `threshold_ecdsa.smart_account_targets contains duplicate chain "${chain}"`,
+        message: `threshold_ecdsa.smart_account_targets contains duplicate target "${targetKey}"`,
       };
     }
-    const chainId = Math.floor(Number(entry.chain_id));
-    if (!Number.isFinite(chainId) || chainId <= 0) {
-      return {
-        ok: false,
-        message: `threshold_ecdsa.smart_account_targets[${index}].chain_id must be a positive integer`,
-      };
-    }
-    seenChains.add(chain);
+    seenTargets.add(targetKey);
     targets.push({
-      chain,
-      chain_id: chainId,
+      chainTarget,
       ...(normalizeOptionalString(entry.factory)
         ? { factory: normalizeOptionalString(entry.factory) }
         : {}),
@@ -141,6 +148,45 @@ function normalizeRegistrationSmartAccountTargets(
   return { ok: true, targets };
 }
 
+function normalizeRegistrationContinuationEcdsaTargets(
+  raw: unknown,
+):
+  | { ok: true; targets: ThresholdEcdsaChainTarget[] }
+  | { ok: false; message: string } {
+  if (raw == null) return { ok: true, targets: [] };
+  if (!isPlainObject(raw)) {
+    return { ok: false, message: 'registration_continuation must be an object' };
+  }
+  const targetsRaw = raw.threshold_ecdsa_chain_targets;
+  if (!Array.isArray(targetsRaw)) {
+    return {
+      ok: false,
+      message: 'registration_continuation.threshold_ecdsa_chain_targets must be an array',
+    };
+  }
+  const targets: ThresholdEcdsaChainTarget[] = [];
+  const seenTargets = new Set<string>();
+  for (let index = 0; index < targetsRaw.length; index += 1) {
+    const target = thresholdEcdsaChainTargetFromValue(targetsRaw[index]);
+    if (!target) {
+      return {
+        ok: false,
+        message: `registration_continuation.threshold_ecdsa_chain_targets[${index}] must be concrete`,
+      };
+    }
+    const targetKey = thresholdEcdsaChainTargetKey(target);
+    if (seenTargets.has(targetKey)) {
+      return {
+        ok: false,
+        message: `registration_continuation.threshold_ecdsa_chain_targets contains duplicate target "${targetKey}"`,
+      };
+    }
+    seenTargets.add(targetKey);
+    targets.push(target);
+  }
+  return { ok: true, targets };
+}
+
 async function deployRegistrationSmartAccounts(input: {
   logger: NormalizedRouterLogger;
   nearAccountId: string;
@@ -155,13 +201,13 @@ async function deployRegistrationSmartAccounts(input: {
   const deployments: CreateAccountAndRegisterSmartAccountDeployment[] = [];
 
   for (const target of input.targets) {
-    const accountModel = target.chain === 'evm' ? 'erc4337' : 'tempo-native';
+    const accountModel = smartAccountModelForTarget(target.chainTarget);
+    const chainIdKey = smartAccountChainTargetKey(target.chainTarget);
     const counterfactualAddress = normalizeOptionalString(target.counterfactual_address);
     const accountAddress = counterfactualAddress || derivedAccountAddress || '';
     if (!thresholdEcdsa || !derivedAccountAddress) {
       deployments.push({
-        chain: target.chain,
-        chainId: target.chain_id,
+        chainTarget: target.chainTarget,
         accountModel,
         accountAddress,
         deployed: false,
@@ -173,8 +219,7 @@ async function deployRegistrationSmartAccounts(input: {
     }
     if (!accountAddress) {
       deployments.push({
-        chain: target.chain,
-        chainId: target.chain_id,
+        chainTarget: target.chainTarget,
         accountModel,
         accountAddress: '',
         deployed: false,
@@ -186,13 +231,12 @@ async function deployRegistrationSmartAccounts(input: {
 
     const manifest = await readCanonicalSmartAccountDeploymentManifest({
       authService: input.authService,
-      chainIdKey: `${target.chain}:${target.chain_id}`,
+      chainIdKey,
       accountAddress,
     });
     if (!manifest.ok) {
       deployments.push({
-        chain: target.chain,
-        chainId: target.chain_id,
+        chainTarget: target.chainTarget,
         accountModel,
         accountAddress,
         deployed: false,
@@ -207,8 +251,7 @@ async function deployRegistrationSmartAccounts(input: {
       { smartAccountDeploy: input.services.smartAccountDeploy },
       {
         nearAccountId: input.nearAccountId,
-        chain: target.chain,
-        chainId: target.chain_id,
+        chainTarget: target.chainTarget,
         accountAddress,
         accountModel,
         deploymentManifest: manifest.manifest,
@@ -218,8 +261,7 @@ async function deployRegistrationSmartAccounts(input: {
 
     const assumedDeployed = result.ok && result.code === 'assumed_deployed';
     const deployment: CreateAccountAndRegisterSmartAccountDeployment = {
-      chain: target.chain,
-      chainId: target.chain_id,
+      chainTarget: target.chainTarget,
       accountAddress,
       accountModel,
       deployed: result.ok && !assumedDeployed,
@@ -239,8 +281,7 @@ async function deployRegistrationSmartAccounts(input: {
     if (deployment.deployed) {
       input.logger.info('[relay][registration] smart-account deployed during registration', {
         nearAccountId: input.nearAccountId,
-        chain: target.chain,
-        chainId: target.chain_id,
+        chainTargetKey: chainIdKey,
         accountAddress,
         ...(deployment.deploymentTxHash ? { deploymentTxHash: deployment.deploymentTxHash } : {}),
       });
@@ -251,8 +292,7 @@ async function deployRegistrationSmartAccounts(input: {
       '[relay][registration] smart-account deployment did not complete during registration',
       {
         nearAccountId: input.nearAccountId,
-        chain: target.chain,
-        chainId: target.chain_id,
+        chainTargetKey: chainIdKey,
         accountAddress,
         ...(deployment.code ? { code: deployment.code } : {}),
         ...(deployment.message ? { message: deployment.message } : {}),
@@ -351,6 +391,12 @@ export async function handleRelayRegistrationBootstrap(
   );
   if (!smartAccountTargetsResult.ok) {
     return routeError(400, 'invalid_body', smartAccountTargetsResult.message);
+  }
+  const continuationTargetsResult = normalizeRegistrationContinuationEcdsaTargets(
+    body.registration_continuation,
+  );
+  if (!continuationTargetsResult.ok) {
+    return routeError(400, 'invalid_body', continuationTargetsResult.message);
   }
 
   const resolved = await enforceRoutePolicy({
@@ -455,6 +501,12 @@ export async function handleRelayRegistrationBootstrap(
 
   const session = input.services.session;
   if (!session) {
+    if (continuationTargetsResult.targets.length > 0) {
+      return routeJson(500, {
+        success: false,
+        error: 'Registration continuation requires session signing',
+      });
+    }
     if (smartAccountTargetsResult.targets.length > 0) {
       response.smartAccountDeployments = await deployRegistrationSmartAccounts({
         logger: input.logger,
@@ -507,6 +559,25 @@ export async function handleRelayRegistrationBootstrap(
       return routeJson(signed.status, { success: false, error: signed.message });
     }
     response.thresholdEcdsa.session.jwt = signed.jwt;
+  }
+
+  if (continuationTargetsResult.targets.length > 0) {
+    const signed = await signRegistrationContinuationJwt({
+      session,
+      walletId: new_account_id,
+      rpId: rp_id,
+      subjectId: new_account_id,
+      thresholdEcdsaChainTargets: continuationTargetsResult.targets,
+      runtimePolicyScope,
+    });
+    if (!signed.ok) {
+      return routeJson(signed.status, { success: false, error: signed.message });
+    }
+    response.registrationContinuation = {
+      token: signed.jwt,
+      expiresAtMs: signed.expiresAtMs,
+      thresholdEcdsaChainTargets: signed.thresholdEcdsaChainTargets,
+    };
   }
 
   if (smartAccountTargetsResult.targets.length > 0) {

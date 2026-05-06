@@ -1,6 +1,7 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import { validateThresholdEcdsaSessionInputs } from '../../commonRouterUtils';
+import { smartAccountChainTargetKey } from '../../../core/smartAccountChainTarget';
 import { readCanonicalSmartAccountDeploymentManifest } from '../../smartAccountDeploymentManifest';
 import {
   parseSmartAccountDeploymentManifestRequest,
@@ -35,7 +36,7 @@ export async function handleSmartAccountDeployment(
   const parsedBody = validated.body as Record<string, unknown>;
   if (ctx.pathname === '/smart-account/deployment/manifest') {
     const parsed = parseSmartAccountDeploymentManifestRequest(parsedBody);
-    if (!parsed.chain || typeof parsed.chainId !== 'number' || !parsed.accountAddress) {
+    if (!parsed.chainTarget || !parsed.accountAddress) {
       return json(
         {
           ok: false,
@@ -48,7 +49,7 @@ export async function handleSmartAccountDeployment(
     const manifest = await readCanonicalSmartAccountDeploymentManifest({
       authService: ctx.service,
       expectedUserId: validated.claims.walletId,
-      chainIdKey: `${parsed.chain}:${parsed.chainId}`,
+      chainIdKey: smartAccountChainTargetKey(parsed.chainTarget),
       accountAddress: parsed.accountAddress,
     });
     if (!manifest.ok) {
@@ -79,14 +80,13 @@ export async function handleSmartAccountDeployment(
   }
 
   const {
-    chain,
-    chainId,
+    chainTarget,
     accountAddress,
     accountModel,
     deploymentTxHash,
     counterfactualAddress,
   } = parseSmartAccountDeploymentObservationRequest(parsedBody);
-  if (!chain || typeof chainId !== 'number' || !accountAddress || !deploymentTxHash) {
+  if (!chainTarget || !accountAddress || !deploymentTxHash) {
     return json(
       {
         ok: false,
@@ -101,8 +101,7 @@ export async function handleSmartAccountDeployment(
     authService: ctx.service,
     expectedUserId: validated.claims.walletId,
     update: {
-      chain,
-      chainId,
+      chainTarget,
       accountAddress,
       deployed: true,
       ...(validated.claims.runtimePolicyScope

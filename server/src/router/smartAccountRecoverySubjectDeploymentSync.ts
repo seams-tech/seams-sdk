@@ -1,5 +1,9 @@
 import { normalizePositiveInteger } from '@shared/utils/validation';
 import type { AuthService } from '../core/AuthService';
+import {
+  smartAccountChainTargetKey,
+  type SmartAccountChainTarget,
+} from '../core/smartAccountChainTarget';
 import type { CreateAccountAndRegisterSmartAccountDeployment } from '../core/types';
 import type { RelayRuntimePolicyScope } from './relay';
 import { syncCanonicalSmartAccountDeploymentManifest } from './smartAccountDeploymentManifest';
@@ -9,17 +13,8 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
-function normalizeChain(value: unknown): 'evm' | 'tempo' | null {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase();
-  if (normalized === 'evm' || normalized === 'tempo') return normalized;
-  return null;
-}
-
 export type SmartAccountRecoverySubjectDeploymentUpdate = {
-  chain: 'evm' | 'tempo';
-  chainId: number;
+  chainTarget: SmartAccountChainTarget;
   accountAddress: string;
   accountModel?: string;
   deployed: boolean;
@@ -39,10 +34,9 @@ export async function syncSmartAccountRecoverySubjectDeployment(input: {
   | { ok: true; chainIdKey: string; accountAddress: string }
   | { ok: false; code: 'invalid_args' | 'not_found' | 'forbidden' | 'internal'; message: string }
 > {
-  const chain = normalizeChain(input.update.chain);
-  const chainId = normalizePositiveInteger(input.update.chainId);
+  const chainId = normalizePositiveInteger(input.update.chainTarget.chainId);
   const accountAddress = normalizeOptionalString(input.update.accountAddress);
-  if (!chain || typeof chainId !== 'number' || !accountAddress) {
+  if (typeof chainId !== 'number' || !accountAddress) {
     return {
       ok: false,
       code: 'invalid_args',
@@ -50,7 +44,7 @@ export async function syncSmartAccountRecoverySubjectDeployment(input: {
     };
   }
 
-  const chainIdKey = `${chain}:${chainId}`;
+  const chainIdKey = smartAccountChainTargetKey(input.update.chainTarget);
   const existing = await input.authService.getSmartAccountRecoverySubjectByAccount({
     chainIdKey,
     accountAddress,
@@ -101,8 +95,7 @@ export async function syncSmartAccountRecoverySubjectDeployment(input: {
             },
           }
         : {}),
-      chain,
-      chainId,
+      chainTarget: input.update.chainTarget,
       deployed: input.update.deployed === true,
       deploymentStatusUpdatedAtMs: nowMs,
       ...(normalizeOptionalString(input.update.counterfactualAddress)
@@ -160,8 +153,7 @@ export async function syncSmartAccountRecoverySubjectDeployments(input: {
       authService: input.authService,
       observedAtMs,
       update: {
-        chain: deployment.chain,
-        chainId: deployment.chainId,
+        chainTarget: deployment.chainTarget,
         accountAddress,
         accountModel: normalizeOptionalString(deployment.accountModel),
         deployed: deployment.deployed === true,

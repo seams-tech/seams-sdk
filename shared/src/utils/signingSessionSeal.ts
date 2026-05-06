@@ -30,8 +30,21 @@ export const EMAIL_OTP_HKDF_SALTS = {
 export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
 export type SigningSessionSealCurve = 'ed25519' | 'ecdsa';
 
+export type SealedSigningSessionEcdsaChainTarget =
+  | {
+      kind: 'tempo';
+      chainId: number;
+      networkSlug: string;
+    }
+  | {
+      kind: 'evm';
+      namespace: 'eip155';
+      chainId: number;
+      networkSlug: string;
+    };
+
 export type SealedSigningSessionEcdsaRestoreMetadata = {
-  chain: 'tempo' | 'evm';
+  chainTarget: SealedSigningSessionEcdsaChainTarget;
   thresholdSessionJwt?: string;
   sessionKind: 'jwt' | 'cookie';
   ecdsaThresholdKeyId: string;
@@ -65,6 +78,7 @@ export type SealedSigningSessionRecord = {
   };
   sealedSecretB64u: string;
   curve: SigningSessionSealCurve;
+  subjectId?: string;
   walletId?: string;
   userId?: string;
   signingRootId?: string;
@@ -93,7 +107,7 @@ export type EmailOtpSigningSessionRestoreRootInfoInput = EmailOtpSigningSessionS
 export type EmailOtpEcdsaRestoreInfoInput = {
   ecdsaThresholdSessionId: string;
   ecdsaThresholdKeyId: string;
-  chain?: string;
+  chainTarget: SealedSigningSessionEcdsaChainTarget;
   derivationPath?: string;
   participantIds: readonly number[] | string;
   relayerKeyId: string;
@@ -112,6 +126,11 @@ function trimString(value: unknown): string {
 function participantIdsField(value: readonly number[] | string): string {
   if (typeof value === 'string') return trimString(value);
   return value.map((participantId) => Math.floor(Number(participantId))).join(',');
+}
+
+function ecdsaChainTargetInfoField(target: SealedSigningSessionEcdsaChainTarget): string {
+  if (target.kind === 'tempo') return `tempo:${Math.floor(Number(target.chainId))}`;
+  return `${target.kind}:${target.namespace}:${Math.floor(Number(target.chainId))}`;
 }
 
 export function encodeSigningSessionHkdfTuple(fields: readonly string[]): Uint8Array {
@@ -172,7 +191,7 @@ export function emailOtpEcdsaRestoreInfoFields(args: EmailOtpEcdsaRestoreInfoInp
   return [
     trimString(args.ecdsaThresholdSessionId),
     trimString(args.ecdsaThresholdKeyId),
-    trimString(args.chain || 'tempo'),
+    ecdsaChainTargetInfoField(args.chainTarget),
     trimString(args.derivationPath || 'evm-signing'),
     participantIdsField(args.participantIds),
     trimString(args.relayerKeyId),

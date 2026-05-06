@@ -1,12 +1,16 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { AccountSignerRecord } from './AccountSignerStore';
 import type { SmartAccountRecoverySubjectRecord } from './SmartAccountRecoverySubjectStore';
+import {
+  smartAccountChainTargetFromValue,
+  smartAccountModelForTarget,
+  type SmartAccountChainTarget,
+} from './smartAccountChainTarget';
 import { normalizeSmartAccountHexLike } from './smartAccountRegistrationRecords';
 
 export type LinkedSmartAccountRecord = {
   chainIdKey: string;
-  chain: 'evm' | 'tempo';
-  chainId: number;
+  chainTarget: SmartAccountChainTarget;
   accountAddress: string;
   accountModel: 'erc4337' | 'tempo-native';
   deployed: boolean;
@@ -16,40 +20,20 @@ export type LinkedSmartAccountRecord = {
   counterfactualAddress?: string;
 };
 
-function coerceChain(value: unknown): 'evm' | 'tempo' | null {
-  const normalized = toOptionalTrimmedString(value)?.toLowerCase() || '';
-  if (normalized === 'evm' || normalized === 'tempo') return normalized;
-  return null;
-}
-
-function coerceChainId(value: unknown): number | null {
-  const parsed = Math.floor(Number(value));
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-
-function inferAccountModel(chain: 'evm' | 'tempo', value: unknown): 'erc4337' | 'tempo-native' {
-  const normalized = toOptionalTrimmedString(value);
-  if (normalized === 'erc4337' || normalized === 'tempo-native') return normalized;
-  return chain === 'evm' ? 'erc4337' : 'tempo-native';
-}
-
 function toLinkedSmartAccountRecord(
   record: SmartAccountRecoverySubjectRecord,
 ): LinkedSmartAccountRecord | null {
   const chainIdKey = toOptionalTrimmedString(record.chainIdKey)?.toLowerCase() || '';
   const accountAddress = normalizeSmartAccountHexLike(record.accountAddress);
   const metadata = record.metadata || {};
-  const chain = coerceChain(metadata.chain);
-  const chainId = coerceChainId(metadata.chainId);
-  if (!chainIdKey || !accountAddress || !chain || !chainId) return null;
+  const chainTarget = smartAccountChainTargetFromValue(metadata.chainTarget);
+  if (!chainIdKey || !accountAddress || !chainTarget) return null;
 
   return {
     chainIdKey,
-    chain,
-    chainId,
+    chainTarget,
     accountAddress,
-    accountModel: inferAccountModel(chain, metadata.accountModel),
+    accountModel: smartAccountModelForTarget(chainTarget, metadata.accountModel),
     deployed: metadata.deployed === true,
     ...(normalizeSmartAccountHexLike(metadata.factory)
       ? { factory: normalizeSmartAccountHexLike(metadata.factory) }
@@ -120,8 +104,7 @@ export function buildLinkDeviceSmartAccountRecords(input: {
         signerSlot: input.signerSlot,
         credentialIdB64u,
         rpId,
-        chain: linked.chain,
-        chainId: linked.chainId,
+        chainTarget: linked.chainTarget,
         ...(Array.isArray(input.participantIds) && input.participantIds.length > 0
           ? { participantIds: [...input.participantIds] }
           : {}),

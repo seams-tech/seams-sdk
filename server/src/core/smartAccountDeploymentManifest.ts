@@ -6,6 +6,11 @@ import type {
 import { normalizePositiveInteger, toOptionalTrimmedString } from '@shared/utils/validation';
 import type { AccountSignerRecord, AccountSignerStatus } from './AccountSignerStore';
 import type { SmartAccountRecoverySubjectRecord } from './SmartAccountRecoverySubjectStore';
+import {
+  smartAccountChainTargetFromValue,
+  smartAccountModelForTarget,
+  type SmartAccountChainTarget,
+} from './smartAccountChainTarget';
 import { normalizeSmartAccountHexLike } from './smartAccountRegistrationRecords';
 
 export type CanonicalSmartAccountDeploymentManifestOwner = {
@@ -25,8 +30,7 @@ export type CanonicalSmartAccountDeploymentManifest = {
   chainIdKey: string;
   accountAddress: string;
   nearAccountIdHash: `0x${string}`;
-  chain: 'evm' | 'tempo';
-  chainId: number;
+  chainTarget: SmartAccountChainTarget;
   accountModel: 'erc4337' | 'tempo-native';
   deployed: boolean;
   ownerAddresses: string[];
@@ -47,24 +51,6 @@ export type CanonicalSmartAccountDeploymentManifest = {
     projectId?: string;
   };
 };
-
-function coerceChain(value: unknown): 'evm' | 'tempo' | null {
-  const normalized = toOptionalTrimmedString(value)?.toLowerCase() || '';
-  if (normalized === 'evm' || normalized === 'tempo') return normalized;
-  return null;
-}
-
-function coerceChainId(value: unknown): number | null {
-  const parsed = Math.floor(Number(value));
-  if (!Number.isFinite(parsed) || parsed <= 0) return null;
-  return parsed;
-}
-
-function coerceAccountModel(value: unknown, chain: 'evm' | 'tempo'): 'erc4337' | 'tempo-native' {
-  const normalized = toOptionalTrimmedString(value);
-  if (normalized === 'erc4337' || normalized === 'tempo-native') return normalized;
-  return chain === 'evm' ? 'erc4337' : 'tempo-native';
-}
 
 function asObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -219,9 +205,8 @@ export function buildCanonicalSmartAccountDeploymentManifest(input: {
   const accountAddress = normalizeSmartAccountHexLike(subject.accountAddress);
   const nearAccountId = toOptionalTrimmedString(subject.nearAccountId);
   const metadata = asObject(subject.metadata);
-  const chain = coerceChain(metadata.chain);
-  const chainId = coerceChainId(metadata.chainId);
-  if (!chainIdKey || !accountAddress || !nearAccountId || !chain || !chainId) return null;
+  const chainTarget = smartAccountChainTargetFromValue(metadata.chainTarget);
+  if (!chainIdKey || !accountAddress || !nearAccountId || !chainTarget) return null;
 
   const owners = [...(input.signers || [])]
     .sort(compareManifestSignerOrder)
@@ -246,9 +231,8 @@ export function buildCanonicalSmartAccountDeploymentManifest(input: {
     chainIdKey,
     accountAddress,
     nearAccountIdHash: utf8KeccakHex(nearAccountId),
-    chain,
-    chainId,
-    accountModel: coerceAccountModel(metadata.accountModel, chain),
+    chainTarget,
+    accountModel: smartAccountModelForTarget(chainTarget, metadata.accountModel),
     deployed: metadata.deployed === true,
     ownerAddresses,
     activeOwnerAddresses,

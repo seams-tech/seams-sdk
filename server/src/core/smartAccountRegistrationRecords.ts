@@ -1,13 +1,16 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { AccountSignerRecord } from './AccountSignerStore';
 import type { SmartAccountRecoverySubjectRecord } from './SmartAccountRecoverySubjectStore';
+import {
+  smartAccountChainTargetFromValue,
+  smartAccountChainTargetKey,
+  smartAccountModelForTarget,
+  type SmartAccountChainTarget,
+} from './smartAccountChainTarget';
 import type { CreateAccountAndRegisterSmartAccountTarget } from './types';
 
-type SmartAccountChain = CreateAccountAndRegisterSmartAccountTarget['chain'];
-
 type RegistrationSmartAccountTarget = {
-  chain: SmartAccountChain;
-  chainId: number;
+  chainTarget: SmartAccountChainTarget;
   factory?: string;
   entryPoint?: string;
   recoveryAuthority?: string;
@@ -24,15 +27,10 @@ export function normalizeSmartAccountHexLike(value: unknown): string {
 function normalizeTarget(
   target: CreateAccountAndRegisterSmartAccountTarget,
 ): RegistrationSmartAccountTarget | null {
-  const chain = String(target?.chain || '')
-    .trim()
-    .toLowerCase();
-  if (chain !== 'evm' && chain !== 'tempo') return null;
-  const chainId = Math.floor(Number(target?.chain_id));
-  if (!Number.isFinite(chainId) || chainId <= 0) return null;
+  const chainTarget = smartAccountChainTargetFromValue(target?.chainTarget);
+  if (!chainTarget) return null;
   return {
-    chain,
-    chainId,
+    chainTarget,
     ...(normalizeSmartAccountHexLike(target?.factory)
       ? { factory: normalizeSmartAccountHexLike(target.factory) }
       : {}),
@@ -47,14 +45,6 @@ function normalizeTarget(
       ? { counterfactualAddress: normalizeSmartAccountHexLike(target.counterfactual_address) }
       : {}),
   };
-}
-
-function toChainIdKey(chain: SmartAccountChain, chainId: number): string {
-  return `${chain}:${Math.floor(chainId)}`;
-}
-
-function toAccountModel(chain: SmartAccountChain): 'erc4337' | 'tempo-native' {
-  return chain === 'evm' ? 'erc4337' : 'tempo-native';
 }
 
 export function buildRegistrationSmartAccountRecords(input: {
@@ -99,11 +89,11 @@ export function buildRegistrationSmartAccountRecords(input: {
     const target = normalizeTarget(rawTarget);
     if (!target) continue;
 
-    const chainIdKey = toChainIdKey(target.chain, target.chainId);
+    const chainIdKey = smartAccountChainTargetKey(target.chainTarget);
     const accountAddress = target.counterfactualAddress || thresholdOwnerAddress;
     if (!accountAddress) continue;
 
-    const accountModel = toAccountModel(target.chain);
+    const accountModel = smartAccountModelForTarget(target.chainTarget);
     const signerKey = `${userId}::${chainIdKey}::${accountAddress}::${thresholdOwnerAddress}`;
     if (!seenSignerKeys.has(signerKey)) {
       seenSignerKeys.add(signerKey);
@@ -126,8 +116,7 @@ export function buildRegistrationSmartAccountRecords(input: {
           signerSlot: input.signerSlot,
           credentialIdB64u,
           rpId,
-          chain: target.chain,
-          chainId: target.chainId,
+          chainTarget: target.chainTarget,
           ...(Array.isArray(input.participantIds) && input.participantIds.length > 0
             ? { participantIds: [...input.participantIds] }
             : {}),
@@ -154,8 +143,7 @@ export function buildRegistrationSmartAccountRecords(input: {
         updatedAtMs: nowMs,
         metadata: {
           accountModel,
-          chain: target.chain,
-          chainId: target.chainId,
+          chainTarget: target.chainTarget,
           deployed: false,
           ...(target.factory ? { factory: target.factory } : {}),
           ...(target.entryPoint ? { entryPoint: target.entryPoint } : {}),

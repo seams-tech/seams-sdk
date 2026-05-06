@@ -159,7 +159,7 @@ const CREATE_ACCOUNT_SELECTOR = assertHex4(
 export function buildCanonicalEvmSmartAccountDeploymentPlan(
   manifest: CanonicalSmartAccountDeploymentManifest,
 ): CanonicalEvmSmartAccountDeploymentPlan | null {
-  if (manifest.chain !== 'evm' || manifest.accountModel !== 'erc4337') return null;
+  if (manifest.chainTarget.kind !== 'evm' || manifest.accountModel !== 'erc4337') return null;
 
   const factory = normalizeAddress(manifest.factory);
   const salt = normalizeBytes32(manifest.salt, { allowShort: true });

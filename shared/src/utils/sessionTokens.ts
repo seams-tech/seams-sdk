@@ -3,12 +3,17 @@ import { base64UrlDecode } from './base64';
 export const APP_SESSION_JWT_KIND = 'app_session_v1' as const;
 export const THRESHOLD_ED25519_SESSION_JWT_KIND = 'threshold_ed25519_session_v1' as const;
 export const THRESHOLD_ECDSA_SESSION_JWT_KIND = 'threshold_ecdsa_session_v1' as const;
+export const REGISTRATION_CONTINUATION_JWT_KIND = 'registration_continuation_v1' as const;
 
 export type AppSessionJwtKind = typeof APP_SESSION_JWT_KIND;
 export type ThresholdSessionJwtKind =
   | typeof THRESHOLD_ED25519_SESSION_JWT_KIND
   | typeof THRESHOLD_ECDSA_SESSION_JWT_KIND;
-export type SessionJwtKind = AppSessionJwtKind | ThresholdSessionJwtKind;
+export type RegistrationContinuationJwtKind = typeof REGISTRATION_CONTINUATION_JWT_KIND;
+export type SessionJwtKind =
+  | AppSessionJwtKind
+  | ThresholdSessionJwtKind
+  | RegistrationContinuationJwtKind;
 
 export type AppSessionJwtAuth = {
   kind: 'app_session';

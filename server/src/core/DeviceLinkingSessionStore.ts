@@ -1,4 +1,8 @@
 import type { NormalizedLogger } from './logger';
+import {
+  smartAccountChainTargetFromValue,
+  type SmartAccountChainTarget,
+} from './smartAccountChainTarget';
 import type { ThresholdStoreConfigInput } from './types';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
@@ -36,8 +40,7 @@ export type DeviceLinkingPreparedThresholdEcdsaRecord = {
 
 export type DeviceLinkingPreparedLinkedAccountRecord = {
   chainIdKey: string;
-  chain: 'evm' | 'tempo';
-  chainId: number;
+  chainTarget: SmartAccountChainTarget;
   accountAddress: string;
   accountModel: 'erc4337' | 'tempo-native';
   factory?: string;
@@ -118,18 +121,15 @@ function parsePreparedLinkedAccounts(
   for (const value of raw) {
     if (!isObject(value)) continue;
     const chainIdKey = toOptionalTrimmedString(value.chainIdKey)?.toLowerCase() || '';
-    const chain = toOptionalTrimmedString(value.chain)?.toLowerCase();
-    const chainId = Math.floor(Number(value.chainId));
+    const chainTarget = smartAccountChainTargetFromValue(value.chainTarget);
     const accountAddress = toOptionalTrimmedString(value.accountAddress);
     const accountModel = toOptionalTrimmedString(value.accountModel);
     if (!chainIdKey || !accountAddress) continue;
-    if (chain !== 'evm' && chain !== 'tempo') continue;
-    if (!Number.isFinite(chainId) || chainId <= 0) continue;
+    if (!chainTarget) continue;
     if (accountModel !== 'erc4337' && accountModel !== 'tempo-native') continue;
     out.push({
       chainIdKey,
-      chain,
-      chainId,
+      chainTarget,
       accountAddress,
       accountModel,
       ...(toOptionalTrimmedString(value.factory) ? { factory: toOptionalTrimmedString(value.factory)! } : {}),

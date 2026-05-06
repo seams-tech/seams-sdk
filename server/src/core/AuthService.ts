@@ -7397,6 +7397,7 @@ export class AuthService {
         jwt?: string;
       };
     };
+    smartAccountSigners?: AccountSignerRecord[];
     code?: string;
     message?: string;
   }> {
@@ -7591,6 +7592,18 @@ export class AuthService {
         thresholdEd25519Session = normalizedSession;
       }
 
+      const smartAccountSigners = (await this.getAccountSignerStore().listByUserId(binding.userId))
+        .filter((record) => {
+          if (record.status !== 'active') return false;
+          if (record.signerType !== 'threshold') return false;
+          const metadata = record.metadata || {};
+          return Boolean(
+            String(metadata.ecdsaThresholdKeyId || '').trim() &&
+              String(metadata.thresholdEcdsaPublicKeyB64u || '').trim() &&
+              metadata.chainTarget,
+          );
+        });
+
       return {
         ok: true,
         verified: true,
@@ -7609,6 +7622,7 @@ export class AuthService {
               },
             }
           : {}),
+        ...(smartAccountSigners.length ? { smartAccountSigners } : {}),
       };
     } catch (e: unknown) {
       return {
@@ -8359,8 +8373,7 @@ export class AuthService {
         const preparedLinkedAccounts: DeviceLinkingPreparedLinkedAccountRecord[] | undefined =
           linkedAccounts?.map((account) => ({
             chainIdKey: account.chainIdKey,
-            chain: account.chain,
-            chainId: account.chainId,
+            chainTarget: account.chainTarget,
             accountAddress: account.accountAddress,
             accountModel: account.accountModel,
             ...(account.factory ? { factory: account.factory } : {}),
