@@ -1,12 +1,11 @@
-# Add-Key Plan: Email OTP and Passkey Accounts
+# Add-Key Plan: Dual Email OTP and Passkey Accounts
 
 Date updated: April 17, 2026
 
 Status: future product plan. This document is not authoritative for current
 transaction signing behavior. Current transaction auth selection and
 signing-session rules live in
-[signing-session-refactor-2.md](signing-session-refactor-2.md) and
-[signing-session-auth-and-budget.md](signing-session-auth-and-budget.md).
+[../signing-session-architecture/](../signing-session-architecture/).
 
 ## Objective
 

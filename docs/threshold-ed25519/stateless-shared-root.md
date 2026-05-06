@@ -1,25 +1,30 @@
-# Stateless Shared-Root Ed25519 Plan
+# Threshold Ed25519 Stateless Shared-Root Architecture
 
-Date updated: March 31, 2026
+Date updated: May 6, 2026
+
+Status: active architecture for threshold Ed25519 key identity, HSS
+reconstruction, signing-session material, and seed export.
 
 ## Objective
 
 Define the primary Ed25519 account model for NEAR and future Ed25519 chains:
 
-- one canonical Ed25519 key per account/key version
-- deterministic client/server root derivation
+- one canonical Ed25519 key per concrete auth signer and HSS context
+- deterministic client/server root derivation for each signer
 - standard seed-compatible export
 - threshold signing over the same canonical key lifecycle
 - no durable client-side wrapped signing share
 
-This is the active architecture. Older KEK-unwrapped client-share designs are
-superseded.
+Older KEK-unwrapped client-share designs are obsolete.
 
 ## Core Idea
 
 Use a deterministic shared root as the canonical Ed25519 source of truth:
 
-- client root contribution is derived from WebAuthn `prf.output`
+- client root contribution is derived from the selected auth signer:
+  - passkey uses WebAuthn PRF output
+  - Email OTP uses worker-owned Email OTP secret material to derive the
+    Ed25519 HSS client root input
 - server root contribution is derived from tenant secret `K_org`
 - hidden evaluation combines those contributions into the canonical seed `d`
 - hidden evaluation derives the canonical signing scalar `a`
@@ -29,7 +34,7 @@ Use a deterministic shared root as the canonical Ed25519 source of truth:
 
 This means:
 
-- the WebAuthn PRF output is part of the MPC signing-share model
+- the selected client root input is part of the MPC signing-share model
 - the server never relies on a per-account relayer signing share as the source
   of truth
 - the client does not store wrapped `x_client_base`
@@ -41,17 +46,19 @@ This means:
 The active Ed25519 product path now follows this model for session creation and
 signing:
 
-- the client re-derives passkey-rooted inputs and reconstructs `x_client_base`
-  through the single-key HSS ceremony when canonical runtime scope is available
+- passkey clients re-derive passkey-rooted inputs and reconstruct
+  `x_client_base` through the single-key HSS ceremony when canonical runtime
+  scope is available
+- Email OTP clients derive the Ed25519 HSS client root input inside the
+  dedicated Email OTP worker, then run the same single-key HSS ceremony
 - the server re-derives its root inputs and participates only through the
   role-separated HSS server routes
 - the live signer worker accepts `x_client_base` as the Ed25519 signing-share
-  basis and no longer derives operational signing shares from local PRF or
-  wrap-key inputs
+  basis
 - warm-session-bearing bootstrap flows now reuse that same HSS seam:
-  registration, sync-account, link-device, and email-recovery hydrate a
-  threshold-ed25519 session and reconstruct `x_client_base` immediately for
-  touchless follow-on signing
+  registration, sync-account, link-device, Email OTP provisioning, and
+  email-recovery hydrate a threshold-ed25519 session and reconstruct
+  `x_client_base` immediately for follow-on signing
 - local threshold-ed25519 key metadata is now canonical single-key metadata:
   one public key, one relayer key id, one key version, and signer-set
   participant metadata; it no longer stores a second recovery public key as
@@ -67,7 +74,7 @@ The active product surface is the single-key HSS lifecycle only.
 There is exactly one Ed25519 lifecycle:
 
 - stateless shared-root Ed25519
-- one canonical public key per `(orgId, accountId, keyPurpose, keyVersion)`
+- one canonical public key per selected auth signer and HSS context
 - one canonical seed `d`
 - one canonical signing scalar `a = clamp(SHA-512(d)[0..31])`
 - one threshold signing model over shares of `a`
@@ -88,9 +95,9 @@ The active product flow is:
    HSS derives the canonical hidden `d -> a` path and returns
    `x_client_base`, `x_relayer_base`, and `A`.
 2. Login / unlock
-   The client re-derives its hidden inputs from `prf.output`; the server
-   re-derives its hidden inputs from `K_org`; HSS reconstructs the current
-   session base shares.
+   The client re-derives its hidden inputs from the selected auth signer. The
+   server re-derives its hidden inputs from `K_org`. HSS reconstructs the
+   current session base shares.
 3. Signing-session creation
    The same deterministic derivation/HSS path may be used to create fresh base
    shares for a new session boundary.
@@ -105,8 +112,8 @@ The active product flow is:
 
 Let `ctx` bind:
 
-- `orgId`
-- `accountId`
+- `signingRootId`
+- `nearAccountId`
 - `keyPurpose`
 - `keyVersion`
 - participant ids
@@ -114,7 +121,9 @@ Let `ctx` bind:
 
 Define:
 
-- `y_client = HKDF_u256(prf.output, "ed25519/root-share/client:v1", ctx)`
+- `client_root_input` as the normalized 32-byte input for the selected auth
+  signer
+- `y_client = HKDF_u256(client_root_input, "ed25519/root-share/client:v1", ctx)`
 - `y_relayer = HKDF_u256(K_org, "ed25519/root-share/relayer:v1", ctx)`
 
 Interpret both in `Z_(2^256)`.
@@ -134,7 +143,7 @@ Derive the canonical signing state:
 
 Define rerandomization:
 
-- `tau_client = HKDF_mod_l(prf.output, "ed25519/tau/client:v1", ctx)`
+- `tau_client = HKDF_mod_l(client_root_input, "ed25519/tau/client:v1", ctx)`
 - `tau_relayer = HKDF_mod_l(K_org, "ed25519/tau/relayer:v1", ctx)`
 - `tau = tau_client + tau_relayer mod l`
 
@@ -170,7 +179,8 @@ That is no longer the target model.
 
 The current assumption is:
 
-- HSS is cheap enough to sit on unlock/session creation
+- HSS is cheap enough to sit on registration, unlock, provisioning, and
+  signing-session creation
 - current kept secure benchmark checkpoint is about `0.305 s` native and about
   `0.415 s` browser total hidden eval for the fixed function
 - this is acceptable for unlock/session creation if it buys a cleaner
@@ -182,7 +192,8 @@ The current assumption is:
 
 The performance bar is therefore:
 
-- fast enough for registration, unlock, and signing-session creation
+- fast enough for registration, unlock, provisioning, and signing-session
+  creation
 - not required for every single signature once a session exists
 
 ## Security Model
@@ -199,6 +210,7 @@ The active implementation work is tracked in:
 - [succinct-garbling-spec.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/succinct-garbling-spec.md)
 - [README.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/README.md)
 - [optimization-v3.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/optimization-v3.md)
+- [hss-threshold-ed25519.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/hss-threshold-ed25519.md)
 
 ## Export Model
 

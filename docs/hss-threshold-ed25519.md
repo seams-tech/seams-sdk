@@ -385,5 +385,5 @@ server cache while removing cache loss as a permanent outage condition.
 ## References
 
 - [docs/hss-export-key.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/hss-export-key.md)
-- [docs/stateless-shared-root-ed25519.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/stateless-shared-root-ed25519.md)
+- [docs/threshold-ed25519/stateless-shared-root.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/threshold-ed25519/stateless-shared-root.md)
 - [crates/ed25519-hss/README.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/README.md)

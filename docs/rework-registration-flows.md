@@ -389,45 +389,209 @@ Registration route auth should be:
 
 Threshold-session auth tokens are signing-session capabilities. They should be accepted by signing, presign, export, and session refresh routes only.
 
+## Current Code Touchpoints
+
+Server files to edit:
+
+- `server/src/router/routeDefinitions.ts`
+  - Add route definitions for `/wallets/register/*` and `/wallets/:walletSubjectId/signers/*`.
+  - Remove initial-registration authority from `/threshold-ecdsa/hss/*`.
+  - Delete `/registration/bootstrap` and `/registration/threshold-ed25519/hss/*` in the route replacement phase.
+- `server/src/router/express/createRelayRouter.ts`
+  - Mount the new Express registration and add-signer route modules.
+  - Remove the Express mounts for the obsolete registration bootstrap handlers.
+- `server/src/router/cloudflare/createCloudflareRouter.ts`
+  - Mount the new Cloudflare registration and add-signer route handlers.
+  - Remove the Cloudflare dispatch for the obsolete registration bootstrap handlers.
+- `server/src/router/relayRegistrationBootstrap.ts`
+  - Delete the continuation-token response path.
+  - Move reusable NEAR account creation pieces behind Ed25519 signer creation helpers.
+  - Delete this handler in the same refactor that moves `registerNearWallet` to `/wallets/register/*`.
+- `server/src/router/relayRegistrationThresholdEd25519Hss.ts`
+  - Fold Ed25519 registration HSS into the new multi-signer ceremony.
+  - Delete this handler in the same refactor that adds Ed25519 support to `/wallets/register/hss/respond`.
+- `server/src/router/express/routes/registrationThresholdEd25519Hss.ts`
+  - Delete the Express wrapper in the unified registration route refactor.
+- `server/src/router/cloudflare/routes/registrationThresholdEd25519Hss.ts`
+  - Delete the Cloudflare wrapper in the unified registration route refactor.
+- `server/src/router/express/routes/thresholdEcdsa.ts`
+  - Remove registration-continuation parsing from ECDSA HSS prepare.
+  - Keep ECDSA HSS routes for signing-session bootstrap, export, and other non-registration flows.
+- `server/src/router/cloudflare/routes/thresholdEcdsa.ts`
+  - Match the Express ECDSA HSS cleanup.
+- `server/src/router/commonRouterUtils.ts`
+  - Delete `signRegistrationContinuationJwt`.
+  - Keep threshold signing-session token signing for signing-session routes.
+- `server/src/router/bootstrapGrantBroker.ts`
+  - Replace grant targets for `/registration/bootstrap` and `/registration/threshold-ed25519/hss/*` with the new `/wallets/register/*` targets.
+
+Server core files to edit:
+
+- `server/src/core/AuthService.ts`
+  - Introduce wallet-subject registration service methods.
+  - Extract NEAR account provisioning as an Ed25519 signer side effect.
+  - Delete `createAccountAndRegisterUser` as the primary registration implementation.
+  - Delete the raw `threshold_ecdsa.client_root_share32_b64u` registration path.
+- `server/src/core/types.ts`
+  - Replace `CreateAccountAndRegisterRequest` and `CreateAccountAndRegisterResult` with wallet registration request/result types.
+  - Add explicit registration ceremony state types and signer-selection types.
+  - Remove `registrationContinuation` result types.
+- `server/src/core/ThresholdService/ThresholdSigningService.ts`
+  - Add a verified add-signer policy boundary for WebAuthn `get()` and app-session auth.
+  - Remove object-shape WebAuthn checks from ECDSA registration bootstrap.
+  - Move ECDSA registration HSS state behind the new registration ceremony.
+  - Delete registration-continuation authorization branches.
+- `server/src/core/ThresholdService/validation.ts`
+  - Delete registration continuation claim parsing and validation.
+  - Add parsers for wallet-subject signer records and add-signer auth claims if they live in threshold validation.
+- `server/src/core/WebAuthnAuthenticatorStore.ts`
+  - Change authenticator storage from NEAR `userId` ownership to wallet-subject ownership.
+  - Preserve counter update semantics under `(rpId, credentialIdB64u)` uniqueness.
+- `server/src/core/WebAuthnCredentialBindingStore.ts`
+  - Replace Ed25519-specific binding records with wallet authenticator bindings.
+  - Move signer metadata into wallet signer records.
+- `server/src/storage/postgres.ts`
+  - Add `wallet_subjects`, `wallet_authenticators`, and `wallet_signers`.
+  - Add unique indexes for authenticator and signer records.
+  - Remove obsolete registration-continuation-dependent tables or indexes if any exist by then.
+
+Client files to edit:
+
+- `client/src/core/SeamsPasskey/index.ts`
+  - Add `registration.registerWallet(args)` and `registration.addWalletSigner(args)`.
+  - Convert `registerPasskey` into the Ed25519 wrapper.
+  - Add `near.registerNearWallet(...)` and `evm.registerEvmWallet(...)` wrappers if exposed as modules.
+- `client/src/core/SeamsPasskey/interfaces.ts`
+  - Add `RegisterWalletArgs`, `AddWalletSignerArgs`, `RegistrationSignerSelection`, and wallet-subject result types.
+  - Replace NEAR-account-only registration capability types.
+- `client/src/core/SeamsPasskey/registration.ts`
+  - Replace NEAR-first registration orchestration with signer-selection orchestration.
+  - Delete `provisionThresholdEcdsaAfterRegistration`.
+  - Persist wallet-subject signer records without requiring NEAR profile continuity.
+- `client/src/core/SeamsPasskey/faucets/createAccountRelayServer.ts`
+  - Replace `/registration/bootstrap` request construction with `/wallets/register/*` RPC helpers.
+  - Delete registration continuation normalization and request fields.
+  - Keep reusable managed-grant transport helpers if the new route grant flow still needs them.
+- `client/src/core/SeamsPasskey/thresholdWarmSessionBootstrap.ts`
+  - Convert Ed25519 registration HSS helpers into per-signer ceremony helpers.
+  - Remove per-step managed bootstrap grant calls when the server ceremony takes ownership of route scope.
+- `client/src/core/signingEngine/threshold/workflows/bootstrapEcdsaSession.ts`
+  - Split initial ECDSA registration HSS from signing-session bootstrap.
+  - Remove `registration_continuation` route auth from the registration path.
+  - Keep signing-session bootstrap for existing ECDSA key refs.
+- `client/src/core/rpcClients/relayer/thresholdEcdsa.ts`
+  - Remove `{ kind: 'registration_continuation' }` from `ThresholdEcdsaHssRouteAuth`.
+  - Add wallet registration RPC helpers or move them into a new `walletRegistration.ts` client.
+- `client/src/core/signingEngine/touchConfirm/handlers/flows/requestRegistrationCredentialConfirmation.ts`
+  - Accept a canonical registration intent instead of only `nearAccountId` and `signerSlot`.
+- `client/src/core/signingEngine/touchConfirm/handlers/flows/registration.ts`
+  - Compute the WebAuthn `create()` challenge from `RegistrationIntentV1`.
+  - Preserve duplicate-credential retry only for signer selections where a retry is valid.
+- `client/src/utils/intentDigest.ts`
+  - Add canonical digest helpers for `RegistrationIntentV1` and add-signer intents.
+- `client/src/core/signingEngine/session/signingSession/ecdsaChainTarget.ts`
+  - Keep `WalletSubjectId` as the protocol-neutral subject id type.
+  - Remove helper usage that derives the subject id from a NEAR account during ECDSA-only registration.
+- `client/src/index.ts` and `client/src/react/index.ts`
+  - Export the new registration types and APIs.
+- `client/src/react/types.ts`
+  - Add React-facing registration types for wallet-subject registration.
+- `client/src/react/context/useSeamsContextValue.ts`
+  - Wire the new registration methods through the React context.
+- `client/src/react/context/useSeamsWithSdkFlow.ts`
+  - Start SDK flow tracking from wallet subject id or requested NEAR account id depending on signer selection.
+
+Tests to edit or add:
+
+- `tests/unit/thresholdEcdsa.hssBootstrapPolicy.unit.test.ts`
+  - Replace fake object-shaped WebAuthn acceptance with verified add-signer auth tests.
+- `tests/relayer/threshold-ecdsa.signature-harness.test.ts`
+  - Remove fake registration WebAuthn proof usage from registration bootstrap tests.
+- `tests/relayer/relay-api-keys.test.ts`
+  - Update registration route scope and metering coverage for `/wallets/register/*`.
+- `tests/relayer/bootstrap-grants.test.ts`
+  - Update grant targets and allowed route paths.
+- `tests/unit/relayApiKeyRegistration.unit.test.ts`
+  - Update client transport tests for the new registration endpoints.
+- `tests/unit/configs.registrationTransport.test.ts`
+  - Rename config expectations away from `/registration/bootstrap`.
+- `tests/e2e/thresholdEd25519.bootstrapIntegrity.test.ts`
+  - Move tamper checks to the new registration ceremony response.
+- `tests/unit/smartAccount.bootstrapPersistence.unit.test.ts`
+  - Update smart-account persistence assertions to wallet signer records.
+- Add new registration mode tests covering `ed25519_only`, `ecdsa_only`, and `ed25519_and_ecdsa`.
+
 ## Implementation Phases
 
 ### Phase 1: Types And Boundaries
 
-- Add wallet subject, authenticator binding, signer selection, and ceremony state types.
-- Add normalizers for raw registration requests.
-- Add canonical registration intent digest encoding.
-- Add architecture guards against optional lifecycle signer fields in core registration types.
+- [ ] Add wallet subject, authenticator binding, signer selection, and ceremony state types in `server/src/core/types.ts` and `client/src/core/SeamsPasskey/interfaces.ts`.
+- [ ] Add raw request normalizers for wallet registration and add-signer flows.
+- [ ] Add canonical `RegistrationIntentV1` and add-signer digest helpers in `client/src/utils/intentDigest.ts`.
+- [ ] Add server-side digest verification helpers for the same intent encodings.
+- [ ] Add architecture guards against optional lifecycle signer fields in registration core types.
+- [ ] Update exports in `client/src/index.ts`, `client/src/react/index.ts`, and `client/src/react/types.ts`.
 
 ### Phase 2: Server Ceremony
 
-- Add `/wallets/register/start`, `/wallets/register/hss/respond`, and `/wallets/register/finalize`.
-- Move WebAuthn `create()` verification into `register/start`.
-- Store normalized signer selection on the ceremony record.
-- Prepare Ed25519 and ECDSA HSS state from the same verified registration context.
-- Finalize and persist requested signer records.
+- [ ] Add `/wallets/register/start`, `/wallets/register/hss/respond`, and `/wallets/register/finalize` route definitions in `server/src/router/routeDefinitions.ts`.
+- [ ] Add Express and Cloudflare route modules for the new registration ceremony.
+- [ ] Add wallet-subject registration service methods in `server/src/core/AuthService.ts`.
+- [ ] Verify WebAuthn `create()` once, then store normalized signer selection on the ceremony record.
+- [ ] Prepare Ed25519 and ECDSA HSS state from the same verified registration context.
+- [ ] Run independent Ed25519 and ECDSA HSS preparation concurrently where the runtime allows it.
+- [ ] Finalize requested signer material and persist wallet subject, authenticator binding, and signer records.
+- [ ] Gate NEAR account creation behind Ed25519 signer finalization.
+- [ ] Persist ECDSA signer metadata without requiring a NEAR account or NEAR profile continuity.
+- [ ] Add Postgres schema changes in `server/src/storage/postgres.ts`.
 
 ### Phase 3: Client Flow
 
-- Add `registerWallet`.
-- Build signer selection from config and explicit user options.
-- Derive curve-specific PRF inputs with domain-separated labels.
-- Run the combined registration ceremony for all selected signers.
-- Persist returned signer refs under wallet subject identity.
+- [ ] Add `registerWallet(args)` in `client/src/core/SeamsPasskey/index.ts`.
+- [ ] Replace NEAR-first orchestration in `client/src/core/SeamsPasskey/registration.ts`.
+- [ ] Build signer selection from explicit user options.
+- [ ] Update WebAuthn confirmation to accept canonical registration intent inputs.
+- [ ] Derive Ed25519 and ECDSA PRF inputs with domain-separated labels.
+- [ ] Run selected signer HSS work inside the combined registration ceremony.
+- [ ] Emit progress events for per-signer prepare/finalize states.
+- [ ] Persist returned signer refs under wallet subject identity.
+- [ ] Wire React context and SDK flow tracking to the new registration API.
 
 ### Phase 4: Add-Signer Flow
 
-- Add `/wallets/:walletSubjectId/signers/*` routes.
-- Add client `addWalletSigner`.
-- Use WebAuthn `get()` challenge binding for later signer creation.
-- Persist newly attached signer records without re-registering the authenticator.
+- [ ] Add `/wallets/:walletSubjectId/signers/start`, `/wallets/:walletSubjectId/signers/hss/respond`, and `/wallets/:walletSubjectId/signers/finalize`.
+- [ ] Add verified add-signer auth boundary in `server/src/core/ThresholdService/ThresholdSigningService.ts`.
+- [ ] Verify WebAuthn `get()` against a server-issued add-signer challenge.
+- [ ] Enforce app-session signer-provisioning policy for app-session add-signer flows.
+- [ ] Reject threshold-session auth tokens for signer creation.
+- [ ] Add client `addWalletSigner(args)`.
+- [ ] Persist newly attached signer records without re-registering the authenticator.
+- [ ] Cover later ECDSA from Ed25519-only wallets and later Ed25519 from ECDSA-only wallets.
 
 ### Phase 5: Cleanup
 
-- Delete registration continuation JWT signing and validation paths.
-- Delete initial-registration ECDSA post-provisioning through `/threshold-ecdsa/hss/*`.
-- Delete mixed registration code paths that derive ECDSA authority from Ed25519 threshold-session JWTs.
-- Rename threshold signing-session JWT fields to opaque auth-token names as covered by `docs/disambiguate-threshold-session-jwt.md`.
-- Update route definitions and architecture guards.
+- [ ] Delete `registrationContinuation` request and response types from `server/src/core/types.ts`.
+- [ ] Delete `signRegistrationContinuationJwt` from `server/src/router/commonRouterUtils.ts`.
+- [ ] Delete registration-continuation claim parsing from threshold validation.
+- [ ] Delete continuation-token generation from `server/src/router/relayRegistrationBootstrap.ts`.
+- [ ] Delete `provisionThresholdEcdsaAfterRegistration` from `client/src/core/SeamsPasskey/registration.ts`.
+- [ ] Delete `{ kind: 'registration_continuation' }` from `client/src/core/rpcClients/relayer/thresholdEcdsa.ts`.
+- [ ] Delete raw `threshold_ecdsa.client_root_share32_b64u` registration support from server and client code.
+- [ ] Delete `/registration/bootstrap` and `/registration/threshold-ed25519/hss/*` routes in the same refactor that moves wrappers to `/wallets/register/*`.
+- [ ] Delete mixed paths that derive ECDSA authority from Ed25519 threshold-session JWTs.
+- [ ] Rename threshold signing-session JWT fields to opaque auth-token names as covered by `docs/signing-session-architecture/threshold-session-auth-token.md`.
+- [ ] Update route definitions, architecture guards, and tests so deleted continuation symbols are absent from production code.
+
+### Phase 6: Test And Verification
+
+- [ ] Add unit tests for registration intent digest canonicalization.
+- [ ] Add unit tests for registration signer-selection normalization.
+- [ ] Add relayer tests for the three initial registration modes.
+- [ ] Add relayer tests that ECDSA-only registration creates no NEAR account.
+- [ ] Add relayer tests that combined registration verifies WebAuthn `create()` once.
+- [ ] Add tests that fake object-shaped WebAuthn auth fails add-signer preparation.
+- [ ] Add client tests for `registerWallet`, `registerNearWallet`, and `registerEvmWallet`.
+- [ ] Add cleanup tests that production code contains no `registrationContinuation` or `registration_continuation` symbols.
 
 ## Tests
 

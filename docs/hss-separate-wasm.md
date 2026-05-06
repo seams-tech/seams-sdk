@@ -21,49 +21,6 @@ This plan defines a phased path to introduce a separate HSS client wasm package
 and keep it only if it materially reduces shipped browser size without
 regressing behavior.
 
-## Goal
-
-Create a separate browser-targeted HSS client wasm package that contains only
-the evaluator-side HSS functionality required by the browser.
-
-The target package should include only:
-
-- HSS client/evaluator entrypoints
-- minimal shared encoding / error helpers
-- the `ed25519-hss` client, runtime, shared, and wire surfaces needed by the
-  browser
-
-The target package must exclude:
-
-- transaction signing handlers
-- general action / delegate / NEAR transaction surfaces
-- server/garbler-only HSS logic
-- unrelated worker request routing and message handlers
-- any legacy duplicate export surface
-
-## Non-Goals
-
-- do not keep parallel legacy browser HSS paths long-term
-- do not fork the `ed25519-hss` protocol into separate client and server crates
-- do not preserve compatibility aliases once the new package is working
-
-## Success Criteria
-
-We keep the separate HSS client wasm package only if all of the following hold:
-
-1. Browser HSS client artifact size drops meaningfully.
-   Initial keep threshold:
-   - at least `20%` smaller than the current browser HSS artifact
-   - or at least `200 KB` smaller
-
-2. The active registration / rebuild / export flows remain correct.
-
-3. The server HSS package remains unaffected or cleaner.
-
-4. The SDK build and load path do not become materially more confusing.
-
-If the artifact split adds complexity but only saves a trivial amount, revert
-it and keep the current single-package approach.
 
 ## Current Baseline
 

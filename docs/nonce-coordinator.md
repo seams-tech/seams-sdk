@@ -2,6 +2,12 @@
 
 Date created: 2026-04-26
 
+Status: active nonce plan. EVM-family nonce identity must follow the concrete
+ECDSA lane model from
+[signing-session-architecture/](signing-session-architecture/): protocol-neutral
+`WalletSubjectId` plus concrete `ThresholdEcdsaChainTarget`. NEAR nonce lanes
+remain access-key scoped by NEAR account and public key.
+
 ## Objective
 
 Move nonce ownership out of chain-specific helper code and into one
@@ -20,7 +26,8 @@ Nonce state is currently distributed across several places:
 2. EVM-family broadcast/finalization code reports lifecycle events later through
    nonce lifecycle helpers.
 3. NEAR has its own reservation model and separate release/fetch behavior.
-4. Signing-session budget reservations live in `WalletSigningBudgetLedger`.
+4. Signing-session budget reservations live in the signing-session budget
+   boundary.
 5. Tx confirmation, OTP/passkey reauth, threshold signing, broadcast, and status
    polling are driven by flow-specific orchestration.
 
@@ -46,9 +53,9 @@ flowchart TD
   K -. "different release/recompute rules" .-> J
 ```
 
-The failure mode is not that any one helper is inherently wrong. The failure
-mode is that nonce state, auth state, signing-session budget state, and broadcast
-state are coupled by convention instead of by a single operation state machine.
+The failure mode is that nonce state, auth state, signing-session budget state,
+and broadcast state are coupled by convention instead of by a single operation
+state machine.
 
 ## Target Design
 
@@ -1214,6 +1221,4 @@ boundaries, where they are normalized before nonce code runs.
 
 ## Related Docs
 
-1. [Signing Session Architecture](./signing-session-architecture.md)
-2. [Signing Session Refactor 2](./signing-session-refactor-2.md)
-3. [Signing Session Auth And Budget](./signing-session-auth-and-budget.md)
+1. [Signing Session Architecture](./signing-session-architecture/)

@@ -70,7 +70,7 @@ For threshold-ed25519 today:
 - use this document for the active single-key HSS hidden-eval checkpoint and the
   current verification keep-gates
 - use
-  [stateless-shared-root-ed25519.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/stateless-shared-root-ed25519.md)
+  [threshold-ed25519/stateless-shared-root.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/threshold-ed25519/stateless-shared-root.md)
   for the architecture and runtime interpretation
 - use
   [auth-gating-routes.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/auth-gating-routes.md)

@@ -2,6 +2,11 @@
 
 Date created: 2026-05-03
 
+Status: active cleanup plan, not implemented. Runtime storage still uses four
+IndexedDB databases: `PasskeyClientDB`, `PasskeyAccountKeyMaterial`,
+`seams_wallet_v1`, and `seams_email_otp_device_enrollment_escrows_v1`. Keep this
+document as the active IndexedDB cleanup plan until the completion criteria pass.
+
 ## Objective
 
 Consolidate local IndexedDB storage into one consistent Seams-owned schema:
@@ -24,27 +29,76 @@ Current IndexedDB state is split across several names and naming styles:
 
 | Current database | Current role | Problem |
 | --- | --- | --- |
-| `PasskeyClientDB` | profiles, authenticators, account signers, recovery email hints, nonce leases | CamelCase, old product term, broad mixed responsibilities |
-| `PasskeyAccountKeyMaterial` | local account key material | CamelCase, old product term, separate DB where one transaction surface would be simpler |
-| `seams_wallet_v1` | durable signing-session sealed records and restore leases | Seams-prefixed, but separate from profile/key material state |
+| `PasskeyClientDB` | profiles, authenticators, account signers, signer mutation outbox, recovery email hints, durable nonce leases and locks | CamelCase, old product term, broad mixed responsibilities |
+| `PasskeyAccountKeyMaterial` | local account key material envelopes | CamelCase, old product term, separate DB where one transaction surface would be simpler |
+| `seams_wallet_v1` | durable signing-session sealed records and restore leases | Seams-prefixed, but separate from profile/key material state and still has a version suffix in the DB name |
 | `seams_email_otp_device_enrollment_escrows_v1` | Email OTP device enrollment escrow | Seams-prefixed, but separate DB and version suffix in DB/store names |
 
-Object store names are also mixed: `appState`, `profileAuthenticators`,
-`chainAccounts`, `accountSigners`, `signerOpsOutbox`, `recoveryEmailsV2`,
-`nonceLaneLeasesV1`, `keyMaterial`, `signing_session_seals_v1`, and others.
+Object store names are also mixed: `appState`, `profiles`,
+`profileAuthenticators`, `chainAccounts`, `accountSigners`, `signerOpsOutbox`,
+`recoveryEmailsV2`, `nonceLaneLeasesV1`, `nonceLaneLocksV1`, `keyMaterial`,
+`signing_session_seals_v1`, `signing_session_restore_leases_v1`, and
+`email_otp_device_enrollment_escrows_v1`.
 
 DevTools can still show repeated DB names when multiple origins or frames are
 present. This plan cannot make Chrome collapse origins into one row, but it
 should make each Seams origin use the same small set of canonical names.
 
+Current implementation snapshot:
+
+1. `client/src/core/indexedDB/passkeyClientDB/schema.ts` defines
+   `PasskeyClientDB` at schema version 32.
+2. `PasskeyClientDB` owns:
+   - `appState`
+   - `profiles`
+   - `profileAuthenticators`
+   - `chainAccounts`
+   - `accountSigners`
+   - `signerOpsOutbox`
+   - `recoveryEmailsV2`
+   - `nonceLaneLeasesV1`
+   - `nonceLaneLocksV1`
+3. `client/src/core/indexedDB/accountKeyMaterialDB/schema.ts` defines
+   `PasskeyAccountKeyMaterial` at schema version 11 with the `keyMaterial`
+   object store.
+4. `shared/src/utils/signingSessionSeal.ts` defines `seams_wallet_v1` at schema
+   version 4 with:
+   - `signing_session_seals_v1`
+   - `signing_session_restore_leases_v1`
+5. `client/src/core/signingEngine/api/session/emailOtpDeviceEnrollmentEscrowStore.ts`
+   defines `seams_email_otp_device_enrollment_escrows_v1` at schema version 1
+   with `email_otp_device_enrollment_escrows_v1`.
+6. `client/src/core/indexedDB/index.ts` still configures both `app` and `wallet`
+   modes to use `PasskeyClientDB` and `PasskeyAccountKeyMaterial`. `disabled`
+   mode closes both managers and prevents app-origin persistence when wallet
+   iframe mode routes persistence elsewhere.
+7. `UnifiedIndexedDBManager` is still an adapter over `PasskeyClientDBManager`
+   and `AccountKeyMaterialDBManager`; durable signing-session seals and Email OTP
+   device enrollment escrows are opened through their own modules.
+8. Several unit tests still create CamelCase test databases such as
+   `PasskeyClientDB-*` and `PasskeyAccountKeyMaterial-*`. Those tests should be
+   renamed or moved onto unified schema fixtures when this plan is implemented.
+
 ## Target Model
 
-Use one canonical wallet-origin database:
+Consolidate all current local wallet-origin IndexedDB persistence into one
+canonical database:
 
 ```ts
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
 export const SEAMS_WALLET_DB_VERSION = 1 as const;
 ```
+
+The unified database replaces all current runtime databases:
+
+1. `PasskeyClientDB` v32.
+2. `PasskeyAccountKeyMaterial` v11.
+3. `seams_wallet_v1` v4.
+4. `seams_email_otp_device_enrollment_escrows_v1` v1.
+
+The implementation should delete the old database managers and direct
+`indexedDB.open(...)` modules as each store moves under `seams_wallet`. Runtime
+code should open one database per persistence origin.
 
 Do not encode schema version in object-store names. IndexedDB already has a
 numeric schema version. Record-level versions remain inside records where they
@@ -155,6 +209,9 @@ legacy database deletion. Repositories own object-store reads and writes.
    - `PasskeyAccountKeyMaterial`
    - `seams_wallet_v1`
    - `seams_email_otp_device_enrollment_escrows_v1`
+   - `signing_session_seals_v1`
+   - `signing_session_restore_leases_v1`
+   - `email_otp_device_enrollment_escrows_v1`
    - inline `indexedDB.open('<literal>')` outside the one DB manager
 3. Add a guard that all configured database and object-store names match:
 
@@ -179,6 +236,8 @@ legacy database deletion. Repositories own object-store reads and writes.
    - `seams_email_otp_device_enrollment_escrows`
 6. Keep all record schemas strict. Do not add compatibility reads for old object
    store names.
+7. Confirm `seams_wallet` is the only runtime database opened by the wallet
+   persistence path after this phase.
 
 ### Phase 3. Replace Managers and Imports
 
@@ -186,11 +245,17 @@ legacy database deletion. Repositories own object-store reads and writes.
    ports.
 2. Delete `AccountKeyMaterialDBManager`; key material becomes a repository on
    the unified wallet DB.
-3. Update `UnifiedIndexedDBManager` or replace it with a smaller assembly that
-   exposes repositories, not separate database managers.
-4. Update signing, registration, profile, account projection, nonce, recovery,
+3. Move signing-session seal reads/writes from direct `indexedDB.open(...)` calls
+   into a `seams_signing_session_seals` repository on the unified wallet DB.
+4. Move Email OTP device enrollment escrow reads/writes from direct
+   `indexedDB.open(...)` calls into a
+   `seams_email_otp_device_enrollment_escrows` repository on the unified wallet
+   DB.
+5. Replace `UnifiedIndexedDBManager` with a smaller assembly that exposes
+   repositories, not separate database managers.
+6. Update signing, registration, profile, account projection, nonce, recovery,
    and key-material callsites to use the new repositories.
-5. Delete old manager files once no production import remains.
+7. Delete old manager files once no production import remains.
 
 ### Phase 4. Delete Legacy Local Databases
 
@@ -232,6 +297,22 @@ Add or update tests for:
 6. Test database names are generated as `seams_test_wallet_*`.
 7. Architecture guards reject new IndexedDB database names or stores that are not
    `seams_*` snake_case.
+
+Existing tests to revisit during implementation:
+
+1. `passkeyClientDB.*` tests should become repository tests over
+   `SeamsWalletDBManager`.
+2. Account key material, signer saga, smart-account, link-device, profile
+   projection, and local signer reconciliation tests currently create
+   `PasskeyClientDB-*` and `PasskeyAccountKeyMaterial-*` databases. Move them to
+   `seams_test_wallet_*` fixtures.
+3. `sealedSessionStore.unit.test.ts` currently inspects `seams_wallet_v1` and
+   `signing_session_seals_v1`. Move it to the unified signing-session seal
+   repository.
+4. `emailOtpDeviceEnrollmentEscrowStore.unit.test.ts` currently inspects
+   `seams_email_otp_device_enrollment_escrows_v1` and
+   `email_otp_device_enrollment_escrows_v1`. Move it to the unified Email OTP
+   escrow repository.
 
 ### Phase 6. Manual Verification
 

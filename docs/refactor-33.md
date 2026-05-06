@@ -451,7 +451,7 @@ Current flow passes several overlapping shapes:
 ```mermaid
 flowchart TD
   RECORD["Threshold*SessionRecord\nraw runtime/persisted record"]
-  SNAP["SigningSessionSnapshot*\noptional candidate lane"]
+  SNAP["SigningSessionSnapshot*\ncandidate lane"]
   LANE["SigningLaneContext\npartly selected lane"]
   TXLANE["Near/EVM TransactionLane\noperation lane"]
   KEYREF["ThresholdEcdsaSecp256k1KeyRef\nsigner key ref"]
@@ -476,7 +476,7 @@ flowchart LR
 
 Rules:
 
-1. Raw records may contain optional fields.
+1. Raw boundary and persistence reads may be malformed until normalized.
 2. Selected lanes may not contain optional identity, auth, restore, budget, or
    signing fields.
 3. Function inputs must require the narrowest valid state.
@@ -519,7 +519,7 @@ type SigningAuthMethod = 'passkey' | 'email_otp';
 
 type BaseSelectedLane = {
   kind: 'selected_lane';
-  walletId: AccountId;
+  walletSession: WalletSessionRef;
   authMethod: SigningAuthMethod;
   walletSigningSessionId: WalletSigningSessionId;
   thresholdSessionId: ThresholdSessionId;
@@ -529,13 +529,14 @@ type BaseSelectedLane = {
 
 type SelectedEd25519Lane = BaseSelectedLane & {
   curve: 'ed25519';
+  nearAccount: NearAccountRef;
   chain: 'near';
   thresholdSessionId: ThresholdEd25519SessionId;
 };
 
 type SelectedEcdsaLane = BaseSelectedLane & {
   curve: 'ecdsa';
-  chain: 'evm' | 'tempo';
+  subjectId: WalletSubjectId;
   thresholdSessionId: ThresholdEcdsaSessionId;
   chainTarget: ThresholdEcdsaChainTarget;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
@@ -611,8 +612,8 @@ lanes, or demoted to raw boundary candidates:
 | `ThresholdEcdsaRuntimeLane` | Demote to a raw runtime candidate returned by record readers. Convert to `SelectedEcdsaLane` once. |
 | `ThresholdEcdsaSessionLane` | Delete if it only keys records. Use canonical lane key helpers over `SelectedEcdsaLane` or raw record key helpers at the store boundary. |
 | `ThresholdEd25519SessionLane` | Same as ECDSA: store-boundary key input only, not operation state. |
-| `SigningSessionSnapshotEcdsaLane` | Candidate only. It may contain optional fields and cannot be passed into signing. |
-| `SigningSessionSnapshotEd25519Lane` | Candidate only. It may contain optional fields and cannot be passed into signing. |
+| `SigningSessionSnapshotEcdsaLane` | Candidate only. Missing lanes are represented by a separate discriminant; concrete candidates carry full identity. |
+| `SigningSessionSnapshotEd25519Lane` | Candidate only. Missing lanes are represented by a separate discriminant; concrete candidates carry full identity. |
 | `NearEd25519TransactionLane` | Replace with `SelectedEd25519Lane` plus transaction metadata. |
 | `EvmFamilyEcdsaTransactionLane` | Replace with `SelectedEcdsaLane` plus transaction metadata. |
 | `ConcreteThresholdEcdsaSessionRecord` | Replace with `SelectedEcdsaLane` plus raw `ThresholdEcdsaSessionRecord` where protocol material is needed. |
