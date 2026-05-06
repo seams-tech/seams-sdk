@@ -112,6 +112,10 @@ import type {
   ThresholdEcdsaSessionBootstrapResult,
 } from '../../signingEngine/SigningEngine';
 import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
 } from '../../signingEngine/signers/wasm/hssClientSignerWasm';
@@ -122,6 +126,7 @@ import type {
   DeviceLinkingQRData,
 } from '../../types/linkDevice';
 import type { SyncAccountResult } from '../../SeamsPasskey/syncAccount';
+import type { ExportKeypairWithUIInput } from '../../SeamsPasskey/interfaces';
 import type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
@@ -879,8 +884,7 @@ export class WalletIframeRouter {
   async bootstrapEcdsaSession(payload: {
     nearAccountId: string;
     options: {
-      chain: 'evm' | 'tempo';
-      chainId: number;
+      chainTarget: ThresholdEcdsaChainTarget;
       relayerUrl?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
@@ -995,7 +999,7 @@ export class WalletIframeRouter {
 
   async requestEmailOtpSigningSessionChallenge(payload: {
     nearAccountId: string;
-    chain: 'tempo' | 'evm';
+    chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (ev: UnlockFlowEvent) => void;
   }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>> {
     const { onEvent, ...wirePayload } = payload;
@@ -1075,8 +1079,7 @@ export class WalletIframeRouter {
 
   async refreshEmailOtpSigningSession(payload: {
     nearAccountId: string;
-    chain: 'tempo' | 'evm';
-    chainId: number;
+    chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
     ttlMs?: number;
@@ -1184,7 +1187,9 @@ export class WalletIframeRouter {
 
   async signTempo(payload: {
     nearAccountId: string;
+    subjectId: WalletSubjectId;
     request: MultichainSigningRequest;
+    chainTarget: ThresholdEcdsaChainTarget;
     options?: {
       confirmationConfig?: Partial<ConfirmationConfig>;
       onEvent?: (ev: SigningFlowEvent) => void;
@@ -1195,7 +1200,9 @@ export class WalletIframeRouter {
         type: 'PM_SIGN_TEMPO',
         payload: {
           nearAccountId: payload.nearAccountId,
+          subjectId: payload.subjectId,
           request: payload.request,
+          chainTarget: payload.chainTarget,
           options: payload.options
             ? {
                 ...(payload.options.confirmationConfig
@@ -1401,7 +1408,7 @@ export class WalletIframeRouter {
   async prefillThresholdEcdsaPresignPool(payload: {
     nearAccountId: string;
     options: {
-      chain: 'tempo' | 'evm';
+      chainTarget: ThresholdEcdsaChainTarget;
       waitForPoolReady?: boolean;
       poolReadyTimeoutMs?: number;
       poolReadyPollIntervalMs?: number;
@@ -1680,26 +1687,31 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async exportKeypairWithUI(
-    nearAccountId: string,
-    options: {
-      chain: 'near' | 'evm' | 'tempo';
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-      onEvent?: (ev: KeyExportFlowEvent) => void;
-    },
-  ): Promise<void> {
+  async exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void> {
+    const { onEvent, ...messageOptions } = input.options;
+    const payload =
+      input.kind === 'near'
+        ? {
+            kind: 'near' as const,
+            nearAccount: input.nearAccount,
+            options: {
+              ...messageOptions,
+              chain: 'near' as const,
+            },
+          }
+        : {
+            kind: 'ecdsa' as const,
+            subjectId: input.subjectId,
+            chainTarget: input.chainTarget,
+            walletSessionUserId: input.walletSessionUserId,
+            options: messageOptions,
+          };
     await this.post<void>({
       type: 'PM_EXPORT_KEYPAIR_UI',
-      payload: {
-        nearAccountId,
-        chain: options.chain,
-        variant: options.variant,
-        theme: options.theme,
-      },
+      payload,
       options: {
         sticky: true,
-        onProgress: this.wrapOnEvent(options.onEvent, isKeyExportFlowEvent),
+        onProgress: this.wrapOnEvent(onEvent, isKeyExportFlowEvent),
       },
     });
   }

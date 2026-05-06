@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import './PasskeyLoginMenu.css';
 import { FRONTEND_CONFIG } from '@/config';
 import { useAuthMenuControl } from '@/context/AuthMenuControl';
+import { resolveDemoThresholdEcdsaChainTarget } from './demoChainTargets';
 import {
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
@@ -452,7 +453,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           if (otpFlow === 'enroll') {
             await seams.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
               nearAccountId: walletId,
-              chain: 'tempo',
+              chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
               challengeId: challenge.challengeId,
               otpCode,
               relayUrl: relayerBaseUrl,
@@ -472,7 +473,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           } else {
             await seams.auth.loginWithEmailOtpEcdsaCapability({
               nearAccountId: walletId,
-              chain: 'tempo',
+              chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
               challengeId: challenge.challengeId,
               otpCode,
               relayUrl: relayerBaseUrl,

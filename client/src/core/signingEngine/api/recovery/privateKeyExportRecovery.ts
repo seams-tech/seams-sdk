@@ -6,8 +6,8 @@ import type {
 } from '@/core/types/secure-confirm-worker';
 import type { ThemeName } from '@/core/types/seams';
 import { getLastLoggedInSignerSlot } from '../../signers/webauthn/device/signerSlot';
+import type { ThresholdEcdsaChainTarget } from '../../session/signingSession/ecdsaChainTarget';
 
-type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 type ExportScheme = 'ed25519' | 'secp256k1';
 type EcdsaHssExportArtifactKind = 'ecdsa-hss-secp256k1-key-v1';
 
@@ -42,10 +42,6 @@ function emitExportRecoveryTelemetry(args: {
   });
 }
 
-function isEvmOrTempoChain(chain: ExportKeypairChain): chain is 'evm' | 'tempo' {
-  return chain === 'evm' || chain === 'tempo';
-}
-
 function throwExportWorkerBoundaryRequired(args: {
   nearAccountId: string;
   signerSlot?: number;
@@ -78,16 +74,13 @@ async function runExportWorkerOperation(
   args: {
     nearAccountId: AccountId;
     options: {
-      chain: ExportKeypairChain;
+      chainTarget: ThresholdEcdsaChainTarget;
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     };
   },
 ): Promise<ExportPrivateKeysWithUiWorkerResult> {
   const accountId = toAccountId(args.nearAccountId);
-  if (args.options.chain === 'near') {
-    throw new Error('NEAR Ed25519 export must use the canonical single-key HSS seed export lane');
-  }
   if (typeof deps.requestExportPrivateKeysWithUi !== 'function') {
     throwExportWorkerBoundaryRequired({
       nearAccountId: accountId,
@@ -104,13 +97,10 @@ async function runExportWorkerOperation(
   }
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
-      if (!isEvmOrTempoChain(args.options.chain)) {
-        throw new Error('NEAR Ed25519 export must use the canonical single-key HSS seed export lane');
-      }
       return await requestExportPrivateKeysWithUi({
         nearAccountId: accountId,
         signerSlot,
-        chain: args.options.chain,
+        chainTarget: args.options.chainTarget,
         variant: args.options.variant,
         theme: resolvedTheme,
       });
@@ -139,7 +129,7 @@ export async function exportKeypairWithUIWorkerDriven(
   args: {
     nearAccountId: AccountId;
     options: {
-      chain: ExportKeypairChain;
+      chainTarget: ThresholdEcdsaChainTarget;
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     };
@@ -223,7 +213,7 @@ export async function exportKeypairWithUI(
   args: {
     nearAccountId: AccountId;
     options: {
-      chain: ExportKeypairChain;
+      chainTarget: ThresholdEcdsaChainTarget;
       variant?: 'drawer' | 'modal';
       theme?: 'dark' | 'light';
     };
@@ -261,7 +251,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
     nearAccountId: AccountId;
     artifact: {
       artifactKind: EcdsaHssExportArtifactKind;
-      chain: 'evm' | 'tempo';
+      chainTarget: ThresholdEcdsaChainTarget;
       publicKeyHex: string;
       privateKeyHex: string;
       ethereumAddress: string;
@@ -298,13 +288,12 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   if (!publicKeyHex || !privateKeyHex || !ethereumAddress) {
     throw new Error('Incomplete ecdsa-hss secp256k1 export artifact');
   }
-
   const result = await (async (): Promise<ExportPrivateKeysWithUiWorkerResult> => {
     try {
       return await requestExportPrivateKeysWithUi({
         nearAccountId: accountId,
         signerSlot,
-        chain: args.artifact.chain,
+        chainTarget: args.artifact.chainTarget,
         artifactKind,
         publicKeyHex,
         privateKeyHex,
@@ -339,7 +328,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUI(
     nearAccountId: AccountId;
     artifact: {
       artifactKind: EcdsaHssExportArtifactKind;
-      chain: 'evm' | 'tempo';
+      chainTarget: ThresholdEcdsaChainTarget;
       publicKeyHex: string;
       privateKeyHex: string;
       ethereumAddress: string;

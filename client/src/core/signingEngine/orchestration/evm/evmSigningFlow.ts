@@ -14,7 +14,7 @@ export async function signEvmWithTouchConfirm(
 ): Promise<EvmSignedResult> {
   return await signEvmFamilyWithTouchConfirm({
     config: {
-      chain: 'evm',
+      targetKind: 'evm',
       flowName: 'evm',
       explicitAuthErrorLabel: 'EVM',
       nonceErrorLabel: 'EVM',

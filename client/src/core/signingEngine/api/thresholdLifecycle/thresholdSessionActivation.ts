@@ -4,10 +4,8 @@ import type { TouchIdPrompt } from '../../signers/webauthn/prompt/touchIdPrompt'
 import type { SignerWorkerManagerContext } from '../../workerManager';
 import type { WarmSessionMaterialPort } from '../../threshold/webauthn';
 import {
-  activateEvmEcdsaSession,
-  activateTempoEcdsaSession,
-  activateThresholdKeyForChain,
-  type ThresholdEcdsaActivationChain,
+  activateEcdsaSession,
+  type ThresholdEcdsaChainTarget,
   type ThresholdEcdsaSessionBootstrapResult,
 } from '../../orchestration/thresholdActivation';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from './thresholdEcdsaBootstrapPersistence';
@@ -17,14 +15,13 @@ import type {
 } from './thresholdSessionStore';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/session/sessionPolicy';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { SigningOperationIntent } from '../../session/signingSession/types';
 
 export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
-  chain: ThresholdEcdsaActivationChain;
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   source?: ThresholdEcdsaSessionStoreSource;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
@@ -37,7 +34,7 @@ export type BootstrapEcdsaSessionArgs = {
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
   operationIntent?: SigningOperationIntent;
-  thresholdRouteAuth?: AppOrThresholdSessionAuth;
+  thresholdRouteAuth?: ThresholdEcdsaHssRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -58,12 +55,12 @@ export type ThresholdSessionActivationDeps = {
   getSignerWorkerContext: () => SignerWorkerManagerContext;
   getOrCreateActiveThresholdEcdsaSessionId: (
     nearAccountId: AccountId,
-    chain: ThresholdEcdsaActivationChain,
+    chainTarget: ThresholdEcdsaChainTarget,
   ) => string;
   defaultRelayerUrl: string;
   persistThresholdEcdsaBootstrapChainAccount: (args: {
     nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
     deployment?: {
@@ -73,7 +70,7 @@ export type ThresholdSessionActivationDeps = {
   }) => Promise<void>;
   upsertThresholdEcdsaSessionFromBootstrap: (args: {
     nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: ThresholdEcdsaSessionStoreSource;
     emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
@@ -111,7 +108,7 @@ export async function bootstrapEcdsaSessionValue(
   args: BootstrapEcdsaSessionArgs,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
-  const chain = args.chain;
+  const chainTarget = args.chainTarget;
   const relayerUrl = resolveRelayerUrl(args.relayerUrl, deps.defaultRelayerUrl);
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
@@ -122,34 +119,27 @@ export async function bootstrapEcdsaSessionValue(
     workerCtx: signerWorkerCtx,
     getOrCreateActiveThresholdEcdsaSessionId: (
       accountId: AccountId,
-      activationChain: ThresholdEcdsaActivationChain,
-    ) => deps.getOrCreateActiveThresholdEcdsaSessionId(accountId, activationChain),
+      target: ThresholdEcdsaChainTarget,
+    ) => deps.getOrCreateActiveThresholdEcdsaSessionId(accountId, target),
   };
 
-  const bootstrap = await activateThresholdKeyForChain({
-    chain,
-    adapters: {
-      evm: (request) => activateEvmEcdsaSession(activationDeps, request),
-      tempo: (request) => activateTempoEcdsaSession(activationDeps, request),
-    },
-    request: {
-      nearAccountId,
-      chainId: args.chainId,
-      relayerUrl,
-      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-      participantIds: args.participantIds,
-      sessionKind: args.sessionKind,
-      sessionId: args.sessionId,
-      walletSigningSessionId: args.walletSigningSessionId,
-      clientRootShare32: args.clientRootShare32,
-      clientRootShare32B64u: args.clientRootShare32B64u,
-      webauthnAuthentication: args.webauthnAuthentication,
-      thresholdRouteAuth: args.thresholdRouteAuth,
-      runtimePolicyScope: args.runtimePolicyScope,
-      runtimeScopeBootstrap: args.runtimeScopeBootstrap,
-      ttlMs: args.ttlMs,
-      remainingUses: args.remainingUses,
-    },
+  const bootstrap = await activateEcdsaSession(activationDeps, {
+    nearAccountId,
+    chainTarget,
+    relayerUrl,
+    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+    participantIds: args.participantIds,
+    sessionKind: args.sessionKind,
+    sessionId: args.sessionId,
+    walletSigningSessionId: args.walletSigningSessionId,
+    clientRootShare32: args.clientRootShare32,
+    clientRootShare32B64u: args.clientRootShare32B64u,
+    webauthnAuthentication: args.webauthnAuthentication,
+    thresholdRouteAuth: args.thresholdRouteAuth,
+    runtimePolicyScope: args.runtimePolicyScope,
+    runtimeScopeBootstrap: args.runtimeScopeBootstrap,
+    ttlMs: args.ttlMs,
+    remainingUses: args.remainingUses,
   });
   const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
     bootstrap.thresholdEcdsaKeyRef,
@@ -161,13 +151,13 @@ export async function bootstrapEcdsaSessionValue(
 
   await deps.persistThresholdEcdsaBootstrapChainAccount({
     nearAccountId,
-    chain,
+    chainTarget,
     bootstrap: canonicalBootstrap,
     smartAccount: args.smartAccount,
   });
   deps.upsertThresholdEcdsaSessionFromBootstrap({
     nearAccountId,
-    chain,
+    chainTarget,
     bootstrap: canonicalBootstrap,
     source: args.source || 'manual-bootstrap',
     ...(args.emailOtpAuthContext ? { emailOtpAuthContext: args.emailOtpAuthContext } : {}),

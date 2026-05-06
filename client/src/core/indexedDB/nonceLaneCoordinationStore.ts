@@ -4,6 +4,7 @@ import type {
   NonceLaneCoordinationRecord,
   NonceLaneCoordinationStore,
 } from '../signingEngine/nonce/NonceCoordinator';
+import { thresholdEcdsaChainTargetFromRequest } from '../signingEngine/session/signingSession/ecdsaChainTarget';
 
 type IndexedDBNonceLaneCoordinationStoreDeps = {
   indexedDB: UnifiedIndexedDBManager;
@@ -87,8 +88,18 @@ function toNonceLaneCoordinationRecord(value: unknown): NonceLaneCoordinationRec
     return null;
   }
 
-  const chain = normalizeString(obj.chain);
-  const chainId = normalizeInteger(obj.chainId);
+  let chainTarget = null;
+  if (family === 'evm') {
+    try {
+      chainTarget = thresholdEcdsaChainTargetFromRequest(
+        obj.chainTarget && typeof obj.chainTarget === 'object' && !Array.isArray(obj.chainTarget)
+          ? (obj.chainTarget as Record<string, unknown>)
+          : {},
+      );
+    } catch {
+      chainTarget = null;
+    }
+  }
   const sender = normalizeString(obj.sender);
   const nonceKey = normalizeString(obj.nonceKey);
   const accountId = normalizeString(obj.accountId);
@@ -99,22 +110,15 @@ function toNonceLaneCoordinationRecord(value: unknown): NonceLaneCoordinationRec
   const txIndex = normalizeInteger(obj.txIndex);
 
   if (family === 'evm') {
-    if ((chain !== 'evm' && chain !== 'tempo') || chainId == null || !sender) return null;
+    if (!chainTarget || !sender) return null;
   }
   if (family === 'near' && (!accountId || !publicKey)) return null;
 
-  return {
-    v: 1,
+  const base = {
+    v: 1 as const,
     leaseId,
     laneKey,
-    family,
-    ...(chain === 'evm' || chain === 'tempo' ? { chain } : {}),
     networkKey,
-    ...(chainId != null ? { chainId } : {}),
-    ...(sender ? { sender } : {}),
-    ...(nonceKey ? { nonceKey } : {}),
-    ...(accountId ? { accountId } : {}),
-    ...(publicKey ? { publicKey } : {}),
     nonce,
     state,
     operationId,
@@ -126,6 +130,22 @@ function toNonceLaneCoordinationRecord(value: unknown): NonceLaneCoordinationRec
     ...(fencingToken ? { fencingToken } : {}),
     ...(batchId ? { batchId } : {}),
     ...(txIndex != null ? { txIndex } : {}),
+  };
+  if (family === 'evm') {
+    return {
+      ...base,
+      family: 'evm',
+      chainTarget: chainTarget!,
+      sender,
+      ...(nonceKey ? { nonceKey } : {}),
+      ...(accountId ? { accountId } : {}),
+    };
+  }
+  return {
+    ...base,
+    family: 'near',
+    accountId,
+    publicKey,
   };
 }
 

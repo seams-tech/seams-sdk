@@ -6,6 +6,7 @@
  * - a small warm-session material store for threshold signing.
  */
 import type { SigningSessionPersistenceMode } from './seams';
+import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
 
 export interface TouchConfirmManagerConfig {
   workerUrl?: string;
@@ -31,14 +32,24 @@ export type UserConfirmWorkerMessageType =
   | 'WARM_SESSION_REHYDRATE'
   | 'WARM_SESSION_DELETE_PERSISTED';
 
-export interface WarmSessionSealTransportInput {
-  curve?: 'ed25519' | 'ecdsa';
-  relayerUrl: string;
-  walletSigningSessionId?: string;
-  thresholdSessionJwt?: string;
-  keyVersion?: string;
-  shamirPrimeB64u?: string;
-}
+export type WarmSessionSealTransportInput =
+  | {
+      curve: 'ed25519';
+      relayerUrl: string;
+      walletSigningSessionId?: string;
+      thresholdSessionJwt?: string;
+      keyVersion?: string;
+      shamirPrimeB64u?: string;
+    }
+  | {
+      curve: 'ecdsa';
+      chainTarget: ThresholdEcdsaChainTarget;
+      relayerUrl: string;
+      walletSigningSessionId?: string;
+      thresholdSessionJwt?: string;
+      keyVersion?: string;
+      shamirPrimeB64u?: string;
+    };
 
 export interface WarmSessionSealAndPersistPayload {
   sessionId: string;
@@ -86,7 +97,6 @@ export type WarmSessionRehydrateResult =
   | { ok: false; code: string; message: string };
 
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
-export type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 export type ThresholdEd25519ExportArtifactKind = 'near-ed25519-seed-v1';
 export type ThresholdEcdsaExportArtifactKind = 'ecdsa-hss-secp256k1-key-v1';
 
@@ -105,14 +115,14 @@ export type ExportPrivateKeysWithUiWorkerPayload =
       seedB64u: string;
     })
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
-      chain: 'evm' | 'tempo';
+      chainTarget: ThresholdEcdsaChainTarget;
       artifactKind: 'ecdsa-hss-secp256k1-key-v1';
       publicKeyHex: string;
       privateKeyHex: string;
       ethereumAddress: string;
     })
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
-      chain: 'evm' | 'tempo';
+      chainTarget: ThresholdEcdsaChainTarget;
     });
 
 export interface ExportPrivateKeysWithUiWorkerResult {

@@ -28,6 +28,7 @@ import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/si
 import type { PreparedThresholdSigningOperation } from '../../session/signingSession/preparedOperation';
 import { signingAuthPlanFromSigningSessionPlan } from '../../orchestration/shared/touchConfirmSigning';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdEcdsaChainTarget } from '../../session/signingSession/ecdsaChainTarget';
 import {
   emailOtpEcdsaAuthLaneFromRecord,
   isEmailOtpThresholdEcdsaSigningContext,
@@ -61,8 +62,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
   }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     nearAccountId: string;
-    chain: EvmFamilyChain;
-    chainId: number;
+    chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
     record?: ThresholdEcdsaSessionRecord;
@@ -81,6 +81,7 @@ type ResolveEvmFamilyTransactionWalletAuthBaseArgs = {
   nearAccountId: string;
   chain: EvmFamilyChain;
   chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   accountAuth: AccountAuthMetadata;
   forceFreshAuth?: boolean;
   onEvent?: EvmFamilyLifecycleEventCallback;
@@ -242,7 +243,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(
           })
         : null;
       const authLane = emailOtpRecord
-        ? resolvedAuthLane || emailOtpEcdsaAuthLaneFromRecord(emailOtpRecord, args.chain)
+        ? resolvedAuthLane || emailOtpEcdsaAuthLaneFromRecord(emailOtpRecord)
         : undefined;
       const challenge = await confirmedEmailOtpDeps.requestEmailOtpTransactionSigningChallenge({
         nearAccountId: args.nearAccountId,
@@ -285,12 +286,11 @@ export async function resolveEvmFamilyTransactionWalletAuth(
           })
         : null;
       const authLane = emailOtpRecord
-        ? resolvedAuthLane || emailOtpEcdsaAuthLaneFromRecord(emailOtpRecord, args.chain)
+        ? resolvedAuthLane || emailOtpEcdsaAuthLaneFromRecord(emailOtpRecord)
         : undefined;
       const refreshed = await confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning({
         nearAccountId: args.nearAccountId,
-        chain: args.chain,
-        chainId: args.chainId,
+        chainTarget: args.chainTarget,
         challengeId,
         otpCode: code,
         ...(emailOtpRecord ? { record: emailOtpRecord } : {}),

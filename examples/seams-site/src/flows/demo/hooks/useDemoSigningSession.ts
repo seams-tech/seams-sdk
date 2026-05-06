@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
+import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';
 
 export type DemoSigningSessionStatus = {
   sessionId: string;
@@ -155,7 +156,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
         }
         const challenge = await seams.auth.requestEmailOtpSigningSessionChallenge({
           nearAccountId,
-          chain: 'tempo',
+          chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
         });
         const emailHint = String(challenge.emailHint || '').trim();
         const otpCode = String(
@@ -170,7 +171,7 @@ export function useDemoSigningSession(args: UseDemoSigningSessionArgs) {
         }
         await seams.auth.refreshEmailOtpSigningSession({
           nearAccountId,
-          chain: 'tempo',
+          chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo'),
           challengeId: challenge.challengeId,
           otpCode,
           ...(typeof ttlMs === 'number' ? { ttlMs } : {}),

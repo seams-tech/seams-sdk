@@ -1,4 +1,9 @@
 import type { SigningSessionSealedStoreRecord } from './sealedSessionStore';
+import {
+  thresholdEcdsaChainTargetKey,
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+} from './signingSession/ecdsaChainTarget';
 
 type RestoreSealedSessionListInput =
   | {
@@ -10,7 +15,7 @@ type RestoreSealedSessionListInput =
       walletId: string;
       authMethod: 'email_otp' | 'passkey';
       curve: 'ecdsa';
-      chain: 'tempo' | 'evm';
+      chainTarget: ThresholdEcdsaChainTarget;
     };
 
 type RestorePersistedSessionForSigningBaseInput = {
@@ -39,7 +44,7 @@ export type RestorePersistedSessionForSigningInput =
     })
   | (RestorePersistedSessionForSigningTransactionInput & {
       curve: 'ecdsa';
-      chain: 'tempo' | 'evm';
+      chainTarget: ThresholdEcdsaChainTarget;
     })
   | (RestorePersistedSessionForSigningMaintenanceInput & {
       curve: 'ed25519';
@@ -47,7 +52,7 @@ export type RestorePersistedSessionForSigningInput =
     })
   | (RestorePersistedSessionForSigningMaintenanceInput & {
       curve: 'ecdsa';
-      chain: 'tempo' | 'evm';
+      chainTarget: ThresholdEcdsaChainTarget;
     });
 
 export type RestorePersistedSessionForSigningResult = {
@@ -69,7 +74,7 @@ export type RestorePersistedSessionPurpose = {
     }
   | {
       curve: 'ecdsa';
-      chain: 'tempo' | 'evm';
+      chainTarget: ThresholdEcdsaChainTarget;
     }
 );
 
@@ -80,6 +85,7 @@ export type RestorePersistedSessionWorkItem = {
 
 export type RestorePersistedSessionsForAccountInput = {
   walletId: string;
+  ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
   authMethod?: 'email_otp' | 'passkey';
   maxRecords?: number;
 };
@@ -120,7 +126,7 @@ export type RestorePersistedSessionForSigningPorts = {
   }) => Promise<RestoreSealedRecordForAccountResult>;
   onListError?: (args: {
     accountId: string;
-    chain: RestorePersistedSessionForSigningInput['chain'];
+    target: string;
     reason: RestorePersistedSessionForSigningInput['reason'];
     error: unknown;
   }) => void;
@@ -141,11 +147,13 @@ export type RestorePersistedSessionsForAccountPorts = {
 };
 
 function knownMissingCacheKey(input: RestorePersistedSessionForSigningInput): string {
+  const chainKey =
+    input.curve === 'ecdsa' ? thresholdEcdsaChainTargetKey(input.chainTarget) : input.chain;
   return [
     input.walletId,
     input.authMethod,
     input.curve,
-    input.chain,
+    chainKey,
     input.walletSigningSessionId || '',
     input.thresholdSessionId || '',
     input.reason,
@@ -157,11 +165,13 @@ function successfulRestoreCacheKey(
   input: RestorePersistedSessionForSigningInput,
   record: SigningSessionSealedStoreRecord,
 ): string {
+  const chainKey =
+    input.curve === 'ecdsa' ? thresholdEcdsaChainTargetKey(input.chainTarget) : input.chain;
   return [
     input.walletId,
     input.authMethod,
     input.curve,
-    input.chain,
+    chainKey,
     input.reason,
     input.walletSigningSessionId || '',
     input.thresholdSessionId || '',
@@ -173,11 +183,13 @@ function successfulRestoreCacheKey(
 }
 
 function purposeCacheKey(purpose: RestorePersistedSessionPurpose, record: SigningSessionSealedStoreRecord): string {
+  const chainKey =
+    purpose.curve === 'ecdsa' ? thresholdEcdsaChainTargetKey(purpose.chainTarget) : purpose.chain;
   return [
     purpose.walletId,
     purpose.authMethod,
     purpose.curve,
-    purpose.chain,
+    chainKey,
     purpose.walletSigningSessionId,
     purpose.thresholdSessionId,
     record.updatedAtMs,
@@ -200,22 +212,36 @@ function workItemForRecord(
   }
   if (
     input.curve === 'ecdsa' &&
-    (input.chain === 'tempo' || input.chain === 'evm') &&
-    record.ecdsaRestore?.chain !== input.chain
+    (!record.ecdsaRestore?.chainTarget ||
+      !thresholdEcdsaChainTargetsEqual(record.ecdsaRestore.chainTarget, input.chainTarget))
   ) {
     return null;
+  }
+  if (input.curve === 'ecdsa') {
+    return {
+      record,
+      purpose: {
+        walletId: input.walletId,
+        authMethod: input.authMethod,
+        curve: 'ecdsa',
+        chainTarget: input.chainTarget,
+        walletSigningSessionId,
+        thresholdSessionId,
+        reason: input.reason,
+      },
+    };
   }
   return {
     record,
     purpose: {
       walletId: input.walletId,
       authMethod: input.authMethod,
-      curve: input.curve,
-      chain: input.chain,
+      curve: 'ed25519',
+      chain: 'near',
       walletSigningSessionId,
       thresholdSessionId,
       reason: input.reason,
-    } as RestorePersistedSessionPurpose,
+    },
   };
 }
 
@@ -224,7 +250,7 @@ function workItemsForAccountRecord(args: {
   record: SigningSessionSealedStoreRecord;
   reason: 'session_status';
   requestedCurve: 'ed25519' | 'ecdsa';
-  requestedChain?: 'tempo' | 'evm';
+  requestedChainTarget?: ThresholdEcdsaChainTarget;
 }): RestorePersistedSessionWorkItem[] {
   const record = args.record;
   const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
@@ -247,10 +273,15 @@ function workItemsForAccountRecord(args: {
       },
     ];
   }
-  const chain = args.requestedChain;
+  const chainTarget = args.requestedChainTarget;
   const thresholdSessionId = String(record.thresholdSessionIds.ecdsa || '').trim();
-  if (!thresholdSessionId || (chain !== 'tempo' && chain !== 'evm')) return [];
-  if (record.ecdsaRestore?.chain !== chain) return [];
+  if (!thresholdSessionId || !chainTarget) return [];
+  if (
+    !record.ecdsaRestore?.chainTarget ||
+    !thresholdEcdsaChainTargetsEqual(record.ecdsaRestore.chainTarget, chainTarget)
+  ) {
+    return [];
+  }
   return [
     {
       record,
@@ -258,7 +289,7 @@ function workItemsForAccountRecord(args: {
         walletId: args.walletId,
         authMethod: record.authMethod,
         curve: 'ecdsa',
-        chain,
+        chainTarget,
         walletSigningSessionId,
         thresholdSessionId,
         reason: args.reason,
@@ -308,7 +339,7 @@ export async function restorePersistedSessionForSigningCommand(
         walletId: accountId,
         authMethod: normalizedInput.authMethod,
         curve: 'ecdsa',
-        chain: normalizedInput.chain,
+        chainTarget: normalizedInput.chainTarget,
       });
     } else {
       records = await ports.listExactSealedSessionsForAccount({
@@ -320,7 +351,10 @@ export async function restorePersistedSessionForSigningCommand(
   } catch (error) {
     ports.onListError?.({
       accountId,
-      chain: normalizedInput.chain,
+      target:
+        normalizedInput.curve === 'ecdsa'
+          ? thresholdEcdsaChainTargetKey(normalizedInput.chainTarget)
+          : normalizedInput.chain,
       reason: normalizedInput.reason,
       error,
     });
@@ -376,18 +410,14 @@ export async function restorePersistedSessionsForAccountCommand(
           authMethod,
           curve: 'ed25519',
         }),
-        ports.listExactSealedSessionsForAccount({
-          walletId: accountId,
-          authMethod,
-          curve: 'ecdsa',
-          chain: 'tempo',
-        }),
-        ports.listExactSealedSessionsForAccount({
-          walletId: accountId,
-          authMethod,
-          curve: 'ecdsa',
-          chain: 'evm',
-        }),
+        ...input.ecdsaChainTargets.map((chainTarget) =>
+          ports.listExactSealedSessionsForAccount({
+            walletId: accountId,
+            authMethod,
+            curve: 'ecdsa',
+            chainTarget,
+          }),
+        ),
       ]),
     );
     records = listed.flat();
@@ -405,20 +435,15 @@ export async function restorePersistedSessionsForAccountCommand(
         reason: 'session_status',
         requestedCurve: 'ed25519',
       }),
-      ...workItemsForAccountRecord({
-        walletId: accountId,
-        record,
-        reason: 'session_status',
-        requestedCurve: 'ecdsa',
-        requestedChain: 'tempo',
-      }),
-      ...workItemsForAccountRecord({
-        walletId: accountId,
-        record,
-        reason: 'session_status',
-        requestedCurve: 'ecdsa',
-        requestedChain: 'evm',
-      }),
+      ...input.ecdsaChainTargets.flatMap((chainTarget) =>
+        workItemsForAccountRecord({
+          walletId: accountId,
+          record,
+          reason: 'session_status',
+          requestedCurve: 'ecdsa',
+          requestedChainTarget: chainTarget,
+        }),
+      ),
     ])
     .filter((item) => {
       const key = purposeCacheKey(item.purpose, item.record);

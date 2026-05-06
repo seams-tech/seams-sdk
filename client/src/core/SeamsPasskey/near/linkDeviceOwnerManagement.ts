@@ -17,6 +17,10 @@ import {
   SEAMS_SMART_ACCOUNT_ADD_OWNER_ABI,
   SEAMS_SMART_ACCOUNT_REMOVE_OWNER_ABI,
 } from '@shared/utils/evmSmartAccountSpec';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletSubjectId,
+} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 
 const ADD_OWNER_SELECTOR = getSeamsSmartAccountMethodSelector('addOwner');
 const REMOVE_OWNER_SELECTOR = getSeamsSmartAccountMethodSelector('removeOwner');
@@ -183,6 +187,7 @@ async function executeDeployedSignerMutation(args: {
   gasLimit: bigint;
 }): Promise<{ txHash?: string | null }> {
   const chainId = parseChainIdFromKey(args.chainAccount.chainIdKey);
+  const chainTarget = thresholdEcdsaChainTargetFromChainFamily({ chain: 'evm', chainId });
   const rpcUrl = resolveRpcUrl({ context: args.context, chainId });
   const smartAccountAddress = normalizeAddress(args.chainAccount.accountAddress);
   const data = args.buildCalldata(args.signerAddress);
@@ -193,7 +198,9 @@ async function executeDeployedSignerMutation(args: {
       signTempo: async (signArgs) =>
         await args.context.signingEngine.signTempo({
           nearAccountId: signArgs.nearAccountId,
+          subjectId: signArgs.subjectId,
           request: signArgs.request,
+          chainTarget: signArgs.chainTarget,
           confirmationConfigOverride: signArgs.options?.confirmationConfig,
           shouldAbort: signArgs.options?.shouldAbort,
           onEvent: signArgs.options?.onEvent,
@@ -212,6 +219,8 @@ async function executeDeployedSignerMutation(args: {
     chains: args.context.configs.network.chains,
     input: {
       nearAccountId: args.nearAccountId,
+      subjectId: toWalletSubjectId(args.nearAccountId),
+      chainTarget,
       request: {
         chain: 'evm',
         kind: 'eip1559',

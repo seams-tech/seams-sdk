@@ -9,11 +9,18 @@ import {
 } from '@shared/utils/sessionTokens';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/signers/webauthn/credentials';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 
 type ThresholdSessionPolicyV1 = {
   version: 'threshold_session_v1';
   userId: string;
+  subjectId: WalletSubjectId;
   rpId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId?: string;
   sessionId: string;
   walletSigningSessionId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -57,6 +64,8 @@ type ThresholdEcdsaHssFinalizeHttpResponse = {
   counterfactualAddress?: string;
   sessionId?: string;
   walletSigningSessionId?: string;
+  subjectId?: string;
+  chainTarget?: ThresholdEcdsaChainTarget;
   expiresAtMs?: number;
   expiresAt?: string;
   remainingUses?: number;
@@ -68,17 +77,132 @@ type ThresholdEcdsaHssFinalizeHttpResponse = {
   canonicalEthereumAddress?: string;
 };
 
+type ThresholdEcdsaHssPrepareRequestBase = {
+  walletSessionUserId: string;
+  rpId: string;
+  webauthnAuthentication?: WebAuthnAuthenticationCredential;
+  runtimeEnvironmentId?: string;
+  sessionKind?: 'jwt' | 'cookie';
+};
+
+type ThresholdEcdsaHssPrepareRequest =
+  | (ThresholdEcdsaHssPrepareRequestBase & {
+      operation: 'registration_bootstrap';
+      keygenSessionId: string;
+      sessionPolicy: ThresholdSessionPolicyV1;
+      auth?: ThresholdEcdsaHssRouteAuth;
+    })
+  | (ThresholdEcdsaHssPrepareRequestBase & {
+      operation: 'email_otp_bootstrap';
+      keygenSessionId: string;
+      sessionPolicy: ThresholdSessionPolicyV1;
+      ecdsaThresholdKeyId?: string;
+      auth?: ThresholdEcdsaHssRouteAuth;
+    })
+  | (ThresholdEcdsaHssPrepareRequestBase & {
+      operation: 'session_bootstrap';
+      keygenSessionId: string;
+      sessionPolicy: ThresholdSessionPolicyV1;
+      ecdsaThresholdKeyId: string;
+      auth: ThresholdEcdsaHssRouteAuth;
+    })
+  | (ThresholdEcdsaHssPrepareRequestBase & {
+      operation: 'explicit_key_export';
+      subjectId: WalletSubjectId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      ecdsaThresholdKeyId: string;
+      auth: ThresholdEcdsaHssRouteAuth;
+    });
+
+type ThresholdEcdsaHssPrepareBody = {
+  walletSessionUserId: string;
+  rpId: string;
+  operation: ThresholdEcdsaHssPrepareRequest['operation'];
+  ecdsaThresholdKeyId?: string;
+  subjectId?: string;
+  chainTarget?: ThresholdEcdsaChainTarget;
+  keygenSessionId?: string;
+  sessionPolicy?: ThresholdSessionPolicyV1;
+  runtimeEnvironmentId?: string;
+  webauthn_authentication?: ReturnType<typeof redactCredentialExtensionOutputs>;
+  sessionKind?: 'jwt' | 'cookie';
+};
+
 export type ThresholdEcdsaHssRouteAuth =
   | AppOrThresholdSessionAuth
   | CookieSessionAuth
   | { kind: 'bootstrap_grant'; token: string }
-  | { kind: 'publishable_key'; token: string };
+  | { kind: 'publishable_key'; token: string }
+  | { kind: 'registration_continuation'; token: string };
+
+function requireNonEmptyString(value: unknown, field: string): string {
+  const text = String(value || '').trim();
+  if (!text) throw new Error(`Missing ${field}`);
+  return text;
+}
+
+function optionalNonEmptyString(value: unknown): string | undefined {
+  const text = String(value || '').trim();
+  return text || undefined;
+}
 
 function resolveBearerToken(auth?: ThresholdEcdsaHssRouteAuth): string {
   if (!auth || auth.kind === 'cookie') return '';
   if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
   if (auth.kind === 'threshold_session') return requireThresholdSessionJwt(auth.jwt);
   return String(auth.token || '').trim();
+}
+
+function buildThresholdEcdsaHssPrepareBody(
+  args: ThresholdEcdsaHssPrepareRequest,
+): ThresholdEcdsaHssPrepareBody {
+  const runtimeEnvironmentId = optionalNonEmptyString(args.runtimeEnvironmentId);
+  const base: ThresholdEcdsaHssPrepareBody = {
+    walletSessionUserId: requireNonEmptyString(
+      args.walletSessionUserId,
+      'walletSessionUserId',
+    ),
+    rpId: requireNonEmptyString(args.rpId, 'rpId'),
+    operation: args.operation,
+    ...(runtimeEnvironmentId ? { runtimeEnvironmentId } : {}),
+    ...(args.webauthnAuthentication
+      ? { webauthn_authentication: redactCredentialExtensionOutputs(args.webauthnAuthentication) }
+      : {}),
+    ...(args.sessionKind ? { sessionKind: normalizeJwtCookieSessionKind(args.sessionKind) } : {}),
+  };
+  switch (args.operation) {
+    case 'registration_bootstrap':
+      return {
+        ...base,
+        keygenSessionId: requireNonEmptyString(args.keygenSessionId, 'keygenSessionId'),
+        sessionPolicy: args.sessionPolicy,
+      };
+    case 'email_otp_bootstrap': {
+      const ecdsaThresholdKeyId = optionalNonEmptyString(args.ecdsaThresholdKeyId);
+      return {
+        ...base,
+        ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
+        keygenSessionId: requireNonEmptyString(args.keygenSessionId, 'keygenSessionId'),
+        sessionPolicy: args.sessionPolicy,
+      };
+    }
+    case 'session_bootstrap':
+      return {
+        ...base,
+        ecdsaThresholdKeyId: requireNonEmptyString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+        keygenSessionId: requireNonEmptyString(args.keygenSessionId, 'keygenSessionId'),
+        sessionPolicy: args.sessionPolicy,
+      };
+    case 'explicit_key_export':
+      return {
+        ...base,
+        subjectId: requireNonEmptyString(args.subjectId, 'subjectId'),
+        chainTarget: args.chainTarget,
+        ecdsaThresholdKeyId: requireNonEmptyString(args.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
+      };
+  }
+  args satisfies never;
+  throw new Error('Unsupported threshold ECDSA HSS prepare operation');
 }
 
 function buildRelayRequestInit(args: {
@@ -104,22 +228,7 @@ async function parseRelayJson<T>(response: Response): Promise<T> {
 
 export async function thresholdEcdsaHssPrepare(
   relayServerUrl: string,
-  args: {
-    userId: string;
-    rpId: string;
-    operation:
-      | 'registration_bootstrap'
-      | 'email_otp_bootstrap'
-      | 'session_bootstrap'
-      | 'explicit_key_export';
-    ecdsaThresholdKeyId?: string;
-    keygenSessionId?: string;
-    sessionPolicy?: ThresholdSessionPolicyV1;
-    webauthnAuthentication?: WebAuthnAuthenticationCredential;
-    runtimeEnvironmentId?: string;
-    auth?: ThresholdEcdsaHssRouteAuth;
-    sessionKind?: 'jwt' | 'cookie';
-  },
+  args: ThresholdEcdsaHssPrepareRequest,
 ): Promise<
   ThresholdEcdsaHssPrepareHttpResponse & {
     error?: string;
@@ -128,39 +237,22 @@ export async function thresholdEcdsaHssPrepare(
   try {
     const base = stripTrailingSlashes(String(relayServerUrl || '').trim());
     if (!base) throw new Error('Missing relayServerUrl');
-    const userId = String(args.userId || '').trim();
-    const rpId = String(args.rpId || '').trim();
-    const operation = String(args.operation || '').trim();
-    if (!userId) throw new Error('Missing userId');
-    if (!rpId) throw new Error('Missing rpId');
-    if (!operation) throw new Error('Missing operation');
+    const body = buildThresholdEcdsaHssPrepareBody(args);
     const response = await fetch(
       `${base}/threshold-ecdsa/hss/prepare`,
       buildRelayRequestInit({
         auth: args.auth,
         sessionKind: args.sessionKind,
-        body: {
-          userId,
-          rpId,
-          operation,
-          ...(args.ecdsaThresholdKeyId
-            ? { ecdsaThresholdKeyId: String(args.ecdsaThresholdKeyId).trim() }
-            : {}),
-          ...(args.keygenSessionId ? { keygenSessionId: String(args.keygenSessionId).trim() } : {}),
-          ...(args.sessionPolicy ? { sessionPolicy: args.sessionPolicy } : {}),
-          ...(args.runtimeEnvironmentId
-            ? { runtimeEnvironmentId: String(args.runtimeEnvironmentId).trim() }
-            : {}),
-          ...(args.webauthnAuthentication
-            ? { webauthn_authentication: redactCredentialExtensionOutputs(args.webauthnAuthentication) }
-            : {}),
-          ...(args.sessionKind ? { sessionKind: normalizeJwtCookieSessionKind(args.sessionKind) } : {}),
-        },
+        body,
       }),
     );
     const json = await parseRelayJson<ThresholdEcdsaHssPrepareHttpResponse>(response);
     if (!response.ok) {
-      return { ok: false, code: json.code || 'http_error', message: json.message || `HTTP ${response.status}` };
+      return {
+        ok: false,
+        code: json.code || 'http_error',
+        message: json.message || `HTTP ${response.status}`,
+      };
     }
     return {
       ok: json.ok === true,

@@ -11,110 +11,25 @@ import type { connectEcdsaSession } from '@/core/signingEngine/threshold/workflo
 import type { keygenEcdsa } from '@/core/signingEngine/threshold/workflows/keygenEcdsa';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/session/sessionPolicy';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import {
+  toWalletSubjectId,
+  type EvmEip155ChainTarget,
+  type TempoChainTarget,
+  type ThresholdEcdsaChainTarget as CanonicalThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
 
-export type ThresholdKeyActivationChain = 'near' | 'evm' | 'tempo';
-
-export type ThresholdKeyActivationAdapter<Request = unknown, Result = unknown> = (
-  request: Request,
-) => Promise<Result>;
-
-export type ThresholdKeyActivationAdaptersForChain<
-  Chain extends ThresholdKeyActivationChain,
-  Request,
-  Result,
-> = Record<Chain, ThresholdKeyActivationAdapter<Request, Result>> &
-  Partial<
-    Record<
-      Exclude<ThresholdKeyActivationChain, Chain>,
-      ThresholdKeyActivationAdapter<unknown, unknown>
-    >
-  >;
-
-export async function activateThresholdKeyForChain<
-  Chain extends ThresholdKeyActivationChain,
-  Request,
-  Result,
->(args: {
-  chain: Chain;
-  request: Request;
-  adapters: ThresholdKeyActivationAdaptersForChain<Chain, Request, Result>;
-}): Promise<Result> {
-  const adapter = args.adapters[args.chain];
-  if (typeof adapter !== 'function') {
-    throw new Error(
-      `[activation] missing threshold-key activation adapter for chain: ${args.chain}`,
-    );
-  }
-
-  return await (adapter as ThresholdKeyActivationAdapter<Request, Result>)(args.request);
-}
-
-export type ThresholdEcdsaActivationChain = 'evm' | 'tempo';
-
-export type ThresholdEcdsaEvmChainTarget = {
-  chainType: 'evm';
-  chainId: number;
-};
-
-export type ThresholdEcdsaTempoChainTarget = {
-  chainType: 'tempo';
-  chainId: number;
-};
-
-export type ThresholdEcdsaChainTarget =
-  | ThresholdEcdsaEvmChainTarget
-  | ThresholdEcdsaTempoChainTarget;
+export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
+export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
+export type ThresholdEcdsaChainTarget = CanonicalThresholdEcdsaChainTarget;
 
 export const TEMPO_TESTNET_CHAIN_ID = 42431;
 export const TEMPO_ECDSA_CHAIN_TARGET: ThresholdEcdsaTempoChainTarget = {
-  chainType: 'tempo',
+  kind: 'tempo',
   chainId: TEMPO_TESTNET_CHAIN_ID,
+  networkSlug: 'tempo-moderato',
 };
-
-function normalizeEcdsaChainId(value: unknown): number | null {
-  if (value == null || value === '') return null;
-  const chainId = Math.floor(Number(value));
-  if (!Number.isSafeInteger(chainId) || chainId < 0) return null;
-  return chainId;
-}
-
-export function thresholdEcdsaChainTargetFromActivationChain(args: {
-  chain: ThresholdEcdsaActivationChain;
-  chainId: number;
-}): ThresholdEcdsaChainTarget {
-  if (args.chain === 'tempo') {
-    const chainId = normalizeEcdsaChainId(args.chainId);
-    if (typeof chainId !== 'number') {
-      throw new Error('[activation] Tempo threshold ECDSA chain target requires numeric chainId');
-    }
-    return { chainType: 'tempo', chainId };
-  }
-
-  const chainId = normalizeEcdsaChainId(args.chainId);
-  if (typeof chainId !== 'number') {
-    throw new Error('[activation] EVM threshold ECDSA chain target requires numeric chainId');
-  }
-  return { chainType: 'evm', chainId };
-}
-
-export function thresholdEcdsaActivationChainForTarget(
-  target: ThresholdEcdsaChainTarget,
-): ThresholdEcdsaActivationChain {
-  return target.chainType;
-}
-
-export function isSameThresholdEcdsaChainTarget(
-  a: ThresholdEcdsaChainTarget,
-  b: ThresholdEcdsaChainTarget,
-): boolean {
-  return a.chainType === b.chainType && a.chainId === b.chainId;
-}
-
-export function describeThresholdEcdsaChainTarget(target: ThresholdEcdsaChainTarget): string {
-  return `${target.chainType}:${target.chainId}`;
-}
 
 export type EcdsaKeygenResult = Awaited<ReturnType<typeof keygenEcdsa>>;
 export type EcdsaSessionResult = Awaited<ReturnType<typeof connectEcdsaSession>>;
@@ -124,7 +39,7 @@ export type EcdsaSessionSuccess = EcdsaSessionResult & { ok: true };
 export type ThresholdEcdsaSessionBootstrapResult = {
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
   keygen: EcdsaKeygenSuccess;
-  session: EcdsaSessionSuccess & { walletSigningSessionId?: string };
+  session: EcdsaSessionSuccess & { walletSigningSessionId: string };
 };
 
 export type ActivateEcdsaSessionDeps = {
@@ -134,13 +49,13 @@ export type ActivateEcdsaSessionDeps = {
   workerCtx: WorkerOperationContext;
   getOrCreateActiveThresholdEcdsaSessionId: (
     nearAccountId: AccountId,
-    chain: 'tempo' | 'evm',
+    chainTarget: ThresholdEcdsaChainTarget,
   ) => string;
 };
 
 export type ActivateEcdsaSessionRequest = {
   nearAccountId: AccountId | string;
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   ecdsaThresholdKeyId?: string;
   participantIds?: number[];
@@ -150,7 +65,7 @@ export type ActivateEcdsaSessionRequest = {
   clientRootShare32?: Uint8Array;
   clientRootShare32B64u?: string;
   webauthnAuthentication?: WebAuthnAuthenticationCredential;
-  thresholdRouteAuth?: AppOrThresholdSessionAuth;
+  thresholdRouteAuth?: ThresholdEcdsaHssRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -162,34 +77,53 @@ export type ActivateEcdsaSessionRequest = {
 
 export async function activateEcdsaSession(
   deps: ActivateEcdsaSessionDeps,
-  args: ActivateEcdsaSessionRequest & { chain: 'tempo' | 'evm' },
+  args: ActivateEcdsaSessionRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
+  const chainTarget = args.chainTarget;
 
-  const bootstrap = await bootstrapEcdsaSession({
+  const requestedSessionId = String(args.sessionId || '').trim();
+  const requestedWalletSigningSessionId = String(args.walletSigningSessionId || '').trim();
+  const requestedEcdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || '').trim();
+  const baseBootstrapArgs = {
     indexedDB: deps.indexedDB,
     touchIdPrompt: deps.touchIdPrompt,
     prfFirstCache: deps.prfFirstCache,
     relayerUrl: args.relayerUrl,
-    chainId: args.chainId,
+    chainTarget,
+    chainId: chainTarget.chainId,
     userId: nearAccountId,
-    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
     participantIds: args.participantIds,
     sessionKind: args.sessionKind,
-    sessionId:
-      String(args.sessionId || '').trim() ||
-      deps.getOrCreateActiveThresholdEcdsaSessionId(nearAccountId, args.chain),
-    walletSigningSessionId: args.walletSigningSessionId,
     clientRootShare32: args.clientRootShare32,
     clientRootShare32B64u: args.clientRootShare32B64u,
     webauthnAuthentication: args.webauthnAuthentication,
-    bootstrapAuth: args.thresholdRouteAuth,
     runtimePolicyScope: args.runtimePolicyScope,
     runtimeScopeBootstrap: args.runtimeScopeBootstrap,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
     workerCtx: deps.workerCtx,
-  });
+  };
+  const bootstrap = args.thresholdRouteAuth
+    ? await bootstrapEcdsaSession({
+        ...baseBootstrapArgs,
+        bootstrapAuth: args.thresholdRouteAuth,
+        ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId,
+        sessionId: requestedSessionId,
+        walletSigningSessionId: requestedWalletSigningSessionId,
+      })
+    : await bootstrapEcdsaSession({
+        ...baseBootstrapArgs,
+        ...(requestedEcdsaThresholdKeyId
+          ? { ecdsaThresholdKeyId: requestedEcdsaThresholdKeyId }
+          : {}),
+        sessionId:
+          requestedSessionId ||
+          deps.getOrCreateActiveThresholdEcdsaSessionId(nearAccountId, chainTarget),
+        ...(requestedWalletSigningSessionId
+          ? { walletSigningSessionId: requestedWalletSigningSessionId }
+          : {}),
+      });
   if (!bootstrap.ok) {
     throw new Error(bootstrap.message || bootstrap.code || 'threshold-ecdsa bootstrap failed');
   }
@@ -218,6 +152,9 @@ export async function activateEcdsaSession(
     throw new Error('threshold-ecdsa bootstrap returned empty sessionId');
   }
   const walletSigningSessionId = String(bootstrap.walletSigningSessionId || '').trim();
+  if (!walletSigningSessionId) {
+    throw new Error('threshold-ecdsa bootstrap returned empty walletSigningSessionId');
+  }
   const participantIds = normalizeThresholdEd25519ParticipantIds(
     Array.isArray(args.participantIds) ? args.participantIds : bootstrap.participantIds,
   );
@@ -252,10 +189,10 @@ export async function activateEcdsaSession(
     ...(bootstrap.message ? { message: bootstrap.message } : {}),
   };
 
-  const session: EcdsaSessionSuccess = {
+  const session: EcdsaSessionSuccess & { walletSigningSessionId: string } = {
     ok: true,
     sessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    walletSigningSessionId,
     expiresAtMs: bootstrap.expiresAtMs,
     remainingUses: bootstrap.remainingUses,
     jwt: bootstrap.jwt,
@@ -267,6 +204,8 @@ export async function activateEcdsaSession(
   const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
     userId: nearAccountId,
+    subjectId: toWalletSubjectId(nearAccountId),
+    chainTarget,
     relayerUrl: args.relayerUrl,
     ecdsaThresholdKeyId,
     signingRootId,
@@ -289,7 +228,7 @@ export async function activateEcdsaSession(
       : {}),
     thresholdSessionKind: args.sessionKind || 'jwt',
     thresholdSessionId: sessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    walletSigningSessionId,
     ...(typeof session.jwt === 'string' && session.jwt.trim()
       ? { thresholdSessionJwt: session.jwt.trim() }
       : {}),
@@ -298,20 +237,6 @@ export async function activateEcdsaSession(
   return {
     thresholdEcdsaKeyRef,
     keygen: keygen as EcdsaKeygenSuccess,
-    session: session as EcdsaSessionSuccess,
+    session,
   };
-}
-
-export async function activateEvmEcdsaSession(
-  deps: ActivateEcdsaSessionDeps,
-  args: ActivateEcdsaSessionRequest,
-): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  return await activateEcdsaSession(deps, { ...args, chain: 'evm' });
-}
-
-export async function activateTempoEcdsaSession(
-  deps: ActivateEcdsaSessionDeps,
-  args: ActivateEcdsaSessionRequest,
-): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  return await activateEcdsaSession(deps, { ...args, chain: 'tempo' });
 }

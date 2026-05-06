@@ -67,14 +67,7 @@ export type WarmSessionMaterialPort = {
   }>;
   persistSigningSessionSealForThresholdSession?: (args: {
     sessionId: string;
-    transport?: {
-      curve?: 'ed25519' | 'ecdsa';
-      relayerUrl?: string;
-      walletSigningSessionId?: string;
-      thresholdSessionJwt?: string;
-      keyVersion?: string;
-      shamirPrimeB64u?: string;
-    };
+    transport?: import('@/core/types/secure-confirm-worker').WarmSessionSealTransportInput;
   }) => Promise<{
     ok: boolean;
     code?: string;

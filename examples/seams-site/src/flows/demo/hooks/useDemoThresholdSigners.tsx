@@ -16,7 +16,7 @@ type UseDemoThresholdSignersArgs = {
   seams: ReturnType<typeof useSeams>['seams'];
   frontendConfig?: Pick<
     FrontendConfig,
-    'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
+    'chains' | 'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
   >;
   tempoGreetingInput: string;
   arcGreetingInput: string;

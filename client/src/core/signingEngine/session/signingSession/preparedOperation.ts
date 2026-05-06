@@ -95,16 +95,6 @@ export type ThresholdSigningLifecycleAdapter<
   }>;
 };
 
-export type ThresholdCurveAdapter<TPrepared, TPayload, TResult> = {
-  execute(prepared: TPrepared, payload: TPayload): Promise<TResult>;
-};
-
-export type ThresholdSigningFinalizationAdapter<TPrepared, TResult> = {
-  recordSuccess?: (prepared: TPrepared, result: TResult) => Promise<void> | void;
-  recordZeroSpend?: (prepared: TPrepared, result: TResult) => Promise<void> | void;
-  cleanup?: (prepared: TPrepared, result: TResult) => Promise<void> | void;
-};
-
 export async function prepareThresholdSigningOperation<
   TLane extends SigningLaneContext,
   TMetadata extends object = Record<string, never>,
@@ -149,32 +139,4 @@ export async function prepareThresholdSigningOperation<
     snapshotGeneration: Math.max(0, Math.floor(Number(lifecycle.snapshotGeneration) || 0)),
     metadata: (lifecycle.metadata || {}) as TMetadata,
   };
-}
-
-export async function executePreparedThresholdSigning<TPrepared, TPayload, TResult>(
-  prepared: TPrepared,
-  payload: TPayload,
-  adapter: ThresholdCurveAdapter<TPrepared, TPayload, TResult>,
-): Promise<TResult> {
-  return await adapter.execute(prepared, payload);
-}
-
-export async function finalizePreparedThresholdSigning<TPrepared, TResult>(
-  prepared: TPrepared,
-  result: TResult,
-  finalization: ThresholdSigningFinalizationAdapter<TPrepared, TResult>,
-): Promise<void> {
-  if (
-    typeof finalization.recordSuccess !== 'function' &&
-    typeof finalization.recordZeroSpend !== 'function' &&
-    typeof finalization.cleanup !== 'function'
-  ) {
-    throw new Error('[SigningSession] prepared signing finalization requires a real finalizer');
-  }
-  if (typeof finalization.recordSuccess === 'function') {
-    await finalization.recordSuccess(prepared, result);
-  } else {
-    await finalization.recordZeroSpend?.(prepared, result);
-  }
-  await finalization.cleanup?.(prepared, result);
 }

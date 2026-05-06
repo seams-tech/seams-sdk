@@ -10,11 +10,9 @@ import {
   type SigningOperationContext,
 } from '../../session/signingSession/types';
 import {
-  requireResolvedEvmFamilyEcdsaSigningLane,
-  summarizeEvmFamilyEcdsaLane,
-  type ResolvedEvmFamilyEcdsaSigningLane,
-} from './ecdsaLanes';
-import type { EvmFamilyChain } from './types';
+  selectedSigningLaneContextFromTransactionLane,
+  type EvmFamilyEcdsaTransactionLane,
+} from '../../session/signingSession/transactionState';
 
 export type EvmFamilyTransactionSigningOperationContext = SigningOperationContext & {
   operationFingerprint: SigningOperationFingerprint;
@@ -23,25 +21,22 @@ export type EvmFamilyTransactionSigningOperationContext = SigningOperationContex
 type EvmFamilyWalletSigningSessionBudgetArgs = {
   signingSessionCoordinator: SigningSessionCoordinator;
   nearAccountId: string;
-  chain: EvmFamilyChain;
   operation: EvmFamilyTransactionSigningOperationContext;
-  ecdsaSigningLane: ResolvedEvmFamilyEcdsaSigningLane;
+  transactionLane: EvmFamilyEcdsaTransactionLane;
   budgetIdentity: SigningSessionPreparedBudgetIdentity;
   trustedStatusAuth?: SigningSessionBudgetStatusAuth;
 };
 
 function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningSessionBudgetArgs) {
-  const budgetLane = requireResolvedEvmFamilyEcdsaSigningLane({
-    lane: args.ecdsaSigningLane,
-    chain: args.chain,
-    context: 'budget finalizer',
-    diagnostics: {
-      nearAccountId: args.nearAccountId,
-      operationId: String(args.operation.operationId || ''),
-      selectedLane: summarizeEvmFamilyEcdsaLane(args.ecdsaSigningLane),
-    },
-  });
-  const resolvedThresholdSessionId = String(budgetLane.thresholdSessionId).trim();
+  const transactionLane = args.transactionLane;
+  const resolvedThresholdSessionId = String(transactionLane?.thresholdSessionId || '').trim();
+  if (
+    !transactionLane ||
+    !resolvedThresholdSessionId ||
+    !String(transactionLane.walletSigningSessionId).trim()
+  ) {
+    throw new Error('[SigningEngine][ecdsa] budget finalizer requires an exact transaction lane');
+  }
 
   return {
     finalizer: createSigningSessionBudgetFinalizer({
@@ -52,12 +47,12 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
       // Passkey reauth can replace the ECDSA threshold session after the
       // confirmation. Budget finalization must follow the refreshed keyRef,
       // not the exhausted lane that was selected during pre-confirm planning.
-      lane: budgetLane,
+      lane: transactionLane,
       onRecordSuccessError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to update wallet signing-session budget', {
           nearAccountId: args.nearAccountId,
-          chain: args.chain,
-          walletSigningSessionId: String(budgetLane.walletSigningSessionId),
+          chainTarget: transactionLane.chainTarget,
+          walletSigningSessionId: String(transactionLane.walletSigningSessionId),
           thresholdSessionId: resolvedThresholdSessionId,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
@@ -65,13 +60,13 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
       onRecordZeroSpendError: (error) => {
         console.warn('[SigningEngine][ecdsa] failed to record wallet signing-session zero spend', {
           nearAccountId: args.nearAccountId,
-          chain: args.chain,
+          chainTarget: transactionLane.chainTarget,
           error: error instanceof Error ? error.message : String(error || 'unknown error'),
         });
       },
     }),
     thresholdSessionId: resolvedThresholdSessionId,
-    selectedSigningLane: budgetLane,
+    selectedSigningLane: selectedSigningLaneContextFromTransactionLane(transactionLane),
   };
 }
 

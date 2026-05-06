@@ -45,8 +45,7 @@ export function resolveSmartAccountDeploymentMaxAttempts(configs: SeamsConfigsRe
 
 async function fetchCanonicalSmartAccountDeploymentManifest(input: {
   transport: SmartAccountDeploymentTransport;
-  chain: SmartAccountDeployerInput['chain'];
-  chainId: number;
+  chainTarget: SmartAccountDeployerInput['chainTarget'];
   accountAddress: string;
 }): Promise<
   | { ok: true; manifest: Record<string, unknown>; evmDeploymentPlan?: Record<string, unknown> }
@@ -74,8 +73,7 @@ async function fetchCanonicalSmartAccountDeploymentManifest(input: {
         },
         credentials: 'omit',
         body: JSON.stringify({
-          chain: input.chain,
-          chain_id: input.chainId,
+          chainTarget: input.chainTarget,
           account_address: accountAddress,
         }),
       },
@@ -126,8 +124,7 @@ export async function deploySmartAccountForChain(
   const endpoint = resolveSmartAccountDeployEndpoint(configs);
   const manifest = await fetchCanonicalSmartAccountDeploymentManifest({
     transport,
-    chain: input.chain,
-    chainId: input.chainId,
+    chainTarget: input.chainTarget,
     accountAddress: String(input.account.accountAddress || '').trim(),
   });
   if (!manifest.ok) {
@@ -139,8 +136,7 @@ export async function deploySmartAccountForChain(
   }
   const body = {
     nearAccountId: String(input.nearAccountId || '').trim(),
-    chain: input.chain,
-    chainId: input.chainId,
+    chainTarget: input.chainTarget,
     accountAddress: String(input.account.accountAddress || '').trim(),
     accountModel: String(input.account.accountModel || '').trim(),
     deploymentManifest: manifest.manifest,

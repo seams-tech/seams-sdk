@@ -20,6 +20,12 @@ import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
 import { AccountId, toAccountId } from '@/core/types/accountIds';
 import { KeyExportEventPhase, type KeyExportFlowEvent } from '@/core/types/sdkSentEvents';
+import { requirePrimaryChainByFamily } from '@/core/config/chains';
+import {
+  nearAccountRefFromAccountId,
+  thresholdEcdsaChainTargetFromConfig,
+  toWalletSubjectId,
+} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
 
 function resolveDefaultPortalTarget(
   explicit: HTMLElement | ShadowRoot | null | undefined,
@@ -212,11 +218,30 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       await waitForNextPaint();
 
       try {
-        await seams.keys.exportKeypairWithUI(nearAccountId, {
-          chain,
-          variant: 'drawer',
-          onEvent: handleExportEvent,
-        });
+        await seams.keys.exportKeypairWithUI(
+          chain === 'near'
+            ? {
+                kind: 'near',
+                nearAccount: nearAccountRefFromAccountId(nearAccountId),
+                options: {
+                  chain: 'near',
+                  variant: 'drawer',
+                  onEvent: handleExportEvent,
+                },
+              }
+            : {
+                kind: 'ecdsa',
+                subjectId: toWalletSubjectId(nearAccountId),
+                walletSessionUserId: nearAccountId,
+                chainTarget: thresholdEcdsaChainTargetFromConfig(
+                  requirePrimaryChainByFamily(seams.configs.network.chains, 'evm'),
+                ),
+                options: {
+                  variant: 'drawer',
+                  onEvent: handleExportEvent,
+                },
+              },
+        );
       } catch (error: any) {
         console.error(`Key export failed (${chain}):`, error);
         const msg = String(error?.message || 'Unknown error');

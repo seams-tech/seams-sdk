@@ -7,10 +7,13 @@
 import { toAccountId } from '@/core/types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
-  ExportKeypairChain,
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
+} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
 import { bytesToHex } from '../../chainAdaptors/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode } from '@shared/utils/base64';
@@ -88,6 +91,10 @@ type EcdsaHssThresholdExportWorkerPayload = Extract<
   { artifactKind: 'ecdsa-hss-secp256k1-key-v1' }
 >;
 
+type ExportWorkerTarget =
+  | { kind: 'near'; scheme: 'ed25519' }
+  | { kind: 'ecdsa'; scheme: 'secp256k1'; chainTarget: ThresholdEcdsaChainTarget };
+
 let ethSignerWasmInitPromise: Promise<void> | null = null;
 let hssClientSignerInitPromise: Promise<void> | null = null;
 
@@ -141,17 +148,23 @@ function coerceVariant(value: unknown): 'drawer' | 'modal' | undefined {
   return value === 'drawer' || value === 'modal' ? value : undefined;
 }
 
-function coerceExportChain(value: unknown): ExportKeypairChain | null {
-  if (value === 'near' || value === 'evm' || value === 'tempo') return value;
-  return null;
+function parseExportWorkerTarget(payload: Record<string, unknown>): ExportWorkerTarget | null {
+  if (payload.chain === 'near') return { kind: 'near', scheme: 'ed25519' };
+  const rawChainTarget = asRecord(payload.chainTarget);
+  if (!rawChainTarget) return null;
+  try {
+    return {
+      kind: 'ecdsa',
+      scheme: 'secp256k1',
+      chainTarget: thresholdEcdsaChainTargetFromRequest(rawChainTarget),
+    };
+  } catch {
+    return null;
+  }
 }
 
-function schemeForExportChain(chain: ExportKeypairChain): 'ed25519' | 'secp256k1' {
-  return chain === 'near' ? 'ed25519' : 'secp256k1';
-}
-
-function secp256k1LabelForExportChain(chain: ExportKeypairChain): string {
-  return chain === 'tempo' ? 'Tempo secp256k1' : 'EVM secp256k1';
+function secp256k1LabelForExportTarget(chainTarget: ThresholdEcdsaChainTarget): string {
+  return chainTarget.kind === 'tempo' ? 'Tempo secp256k1' : 'EVM secp256k1';
 }
 
 function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorkerPayload | null {
@@ -159,13 +172,13 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
   if (!payload) return null;
   const nearAccountId = normalizeOptionalTrimmedString(payload.nearAccountId);
   const signerSlot = Math.floor(Number(payload.signerSlot));
-  const chain = coerceExportChain(payload.chain);
+  const target = parseExportWorkerTarget(payload);
   const artifactKind = normalizeOptionalNonEmptyString(payload.artifactKind);
   if (!nearAccountId || !Number.isFinite(signerSlot) || signerSlot < 1) return null;
-  if (!chain) return null;
+  if (!target) return null;
   const variant = coerceVariant(payload.variant);
   const theme = coerceTheme(payload.theme);
-  if (chain === 'near') {
+  if (target.kind === 'near') {
     const expectedPublicKey = normalizeOptionalNonEmptyString(payload.expectedPublicKey);
     const seedB64u = normalizeOptionalNonEmptyString(payload.seedB64u);
     if (artifactKind === 'near-ed25519-seed-v1') {
@@ -195,7 +208,7 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
     return {
       nearAccountId,
       signerSlot,
-      chain,
+      chainTarget: target.chainTarget,
       artifactKind,
       publicKeyHex,
       privateKeyHex,
@@ -207,7 +220,7 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
   return {
     nearAccountId,
     signerSlot,
-    chain,
+    chainTarget: target.chainTarget,
     variant,
     theme,
   };
@@ -216,7 +229,11 @@ function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorke
 function requireNearSeedExportPayload(
   payload: ExportPrivateKeysWithUiWorkerPayload,
 ): NearSeedExportWorkerPayload {
-  if (payload.chain !== 'near' || payload.artifactKind !== 'near-ed25519-seed-v1') {
+  if (
+    !('chain' in payload) ||
+    payload.chain !== 'near' ||
+    payload.artifactKind !== 'near-ed25519-seed-v1'
+  ) {
     throw new Error('Threshold Ed25519 seed export metadata missing or invalid');
   }
   return payload;
@@ -227,7 +244,7 @@ function requireEcdsaHssThresholdExportPayload(
 ): EcdsaHssThresholdExportWorkerPayload {
   const artifactKind = 'artifactKind' in payload ? payload.artifactKind : undefined;
   if (
-    (payload.chain !== 'evm' && payload.chain !== 'tempo') ||
+    !('chainTarget' in payload) ||
     artifactKind !== 'ecdsa-hss-secp256k1-key-v1'
   ) {
     throw new Error('ecdsa-hss secp256k1 export artifact metadata missing or invalid');
@@ -495,18 +512,24 @@ async function runExportPrivateKeysWithUi(
   // Worker-owned export flow boundary:
   // only this runtime initiates export confirmations via awaitUserConfirmationV2.
   const nearAccountId = toAccountId(payload.nearAccountId);
-  const exportChain = coerceExportChain(payload.chain);
-  if (!exportChain) throw new Error('Invalid export chain');
-  const exportScheme = schemeForExportChain(exportChain);
+  const exportTarget =
+    'chain' in payload && payload.chain === 'near'
+      ? ({ kind: 'near', scheme: 'ed25519' } as const)
+      : 'chainTarget' in payload
+        ? ({ kind: 'ecdsa', scheme: 'secp256k1', chainTarget: payload.chainTarget } as const)
+        : null;
+  if (!exportTarget) throw new Error('Invalid export target');
+  const exportScheme = exportTarget.scheme;
   const nearSeedPayload =
     exportScheme === 'ed25519' &&
+    'chain' in payload &&
     payload.chain === 'near' &&
     payload.artifactKind === 'near-ed25519-seed-v1'
       ? requireNearSeedExportPayload(payload)
       : null;
   const ecdsaHssExportPayload =
     exportScheme === 'secp256k1' &&
-    (payload.chain === 'evm' || payload.chain === 'tempo') &&
+    'chainTarget' in payload &&
     'artifactKind' in payload &&
     payload.artifactKind === 'ecdsa-hss-secp256k1-key-v1'
       ? requireEcdsaHssThresholdExportPayload(payload)
@@ -577,7 +600,7 @@ async function runExportPrivateKeysWithUi(
     if (exportScheme === 'secp256k1' && ecdsaHssExportPayload) {
       exportKeys.push({
         scheme: 'secp256k1',
-        label: secp256k1LabelForExportChain(exportChain),
+        label: secp256k1LabelForExportTarget(exportTarget.chainTarget),
         publicKey: ecdsaHssExportPayload.publicKeyHex,
         privateKey: ecdsaHssExportPayload.privateKeyHex,
         address: ecdsaHssExportPayload.ethereumAddress,
@@ -591,7 +614,7 @@ async function runExportPrivateKeysWithUi(
       });
       exportKeys.push({
         scheme: 'secp256k1',
-        label: secp256k1LabelForExportChain(exportChain),
+        label: secp256k1LabelForExportTarget(exportTarget.chainTarget),
         publicKey: derived.publicKeyHex,
         privateKey: derived.privateKeyHex,
         address: derived.ethereumAddress,

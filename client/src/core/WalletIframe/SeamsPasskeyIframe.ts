@@ -20,10 +20,10 @@
 
 import { WalletIframeRouter } from './client/router';
 import type {
-  ThresholdEcdsaActivationChain,
   ThresholdEcdsaLoginPrefillResult,
   ThresholdEcdsaSessionBootstrapResult,
 } from '../signingEngine/SigningEngine';
+import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
@@ -218,14 +218,14 @@ export class SeamsPasskeyIframe {
       bootstrapEcdsaSession: async (args) =>
         await this.bootstrapEcdsaSessionDomain({
           nearAccountId: args.nearAccountId,
-          options: { ...(args.options || {}), chain: 'tempo' },
+          options: args.options,
         }),
     };
     this.evm = {
       bootstrapEcdsaSession: async (args) =>
         await this.bootstrapEcdsaSessionDomain({
           nearAccountId: args.nearAccountId,
-          options: { ...(args.options || {}), chain: 'evm' },
+          options: args.options,
         }),
     };
     this.recovery = {
@@ -297,8 +297,8 @@ export class SeamsPasskeyIframe {
       },
     };
     this.keys = {
-      exportKeypairWithUI: async (nearAccountId, options) =>
-        await this.exportKeypairWithUIDomain(nearAccountId, options),
+      exportKeypairWithUI: async (input) =>
+        await this.exportKeypairWithUIDomain(input),
       exportThresholdEd25519SeedFromHssReport: async (args) =>
         await this.exportThresholdEd25519SeedFromHssReportDomain(args),
     };
@@ -435,7 +435,7 @@ export class SeamsPasskeyIframe {
 
   async prefillThresholdEcdsaPresignPool(args: {
     nearAccountId: string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;
@@ -445,7 +445,7 @@ export class SeamsPasskeyIframe {
     return await this.router.prefillThresholdEcdsaPresignPool({
       nearAccountId: args.nearAccountId,
       options: {
-        chain: args.chain,
+        chainTarget: args.chainTarget,
         ...(typeof args.waitForPoolReady === 'boolean'
           ? { waitForPoolReady: args.waitForPoolReady }
           : {}),
@@ -649,7 +649,9 @@ export class SeamsPasskeyIframe {
     await this.requireRouterReady();
     return await this.router.signTempo({
       nearAccountId: args.nearAccountId,
+      subjectId: args.subjectId,
       request: args.request,
+      chainTarget: args.chainTarget,
       options: {
         confirmationConfig: args.options?.confirmationConfig,
         onEvent: args.options?.onEvent,
@@ -928,16 +930,10 @@ export class SeamsPasskeyIframe {
   }
 
   private async exportKeypairWithUIDomain(
-    nearAccountId: string,
-    options: {
-      chain: 'near' | 'evm' | 'tempo';
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-      onEvent?: KeyExportHooksOptions['onEvent'];
-    },
+    input: Parameters<KeyExportCapability['exportKeypairWithUI']>[0],
   ): Promise<void> {
     await this.requireRouterReady();
-    return this.router.exportKeypairWithUI(nearAccountId, options);
+    return this.router.exportKeypairWithUI(input);
   }
 
   private async exportThresholdEd25519SeedFromHssReportDomain(args: {

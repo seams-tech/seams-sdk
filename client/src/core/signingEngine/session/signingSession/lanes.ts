@@ -7,9 +7,11 @@ import type {
   ThresholdEd25519SessionStoreSource,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
+import type { ThresholdEcdsaChainTarget, WalletSubjectId } from './ecdsaChainTarget';
 import type {
   BackingMaterialSessionId,
+  Ed25519SigningLaneContext,
+  EcdsaSigningLaneContext,
   SigningLaneContext,
   SigningSessionOrigin,
   SigningSessionStorageSource,
@@ -33,12 +35,13 @@ type BaseSigningLaneInput = {
   backingMaterialSessionId?: BackingMaterialSessionId;
   retention?: SigningSessionRetention;
   activeSignerSlot?: number;
-  signingRootId?: string;
-  signingRootVersion?: string;
 };
-type BuildSigningLaneInput = Omit<SigningLaneContext, 'retention'> & {
+type OptionalRetention<TLane extends SigningLaneContext> = Omit<TLane, 'retention'> & {
   retention?: SigningSessionRetention;
 };
+type BuildSigningLaneInput =
+  | OptionalRetention<Ed25519SigningLaneContext>
+  | OptionalRetention<EcdsaSigningLaneContext>;
 
 export type Ed25519PasskeySigningLaneInput = BaseSigningLaneInput & {
   thresholdSessionId: ThresholdEd25519SessionId;
@@ -52,14 +55,22 @@ export type Ed25519EmailOtpSigningLaneInput = BaseSigningLaneInput & {
 };
 
 export type EcdsaPasskeySigningLaneInput = BaseSigningLaneInput & {
-  chainFamily: ThresholdEcdsaActivationChain;
+  subjectId: WalletSubjectId;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
   storageSource: EcdsaPasskeySigningLaneSource;
   sessionOrigin?: SigningSessionOrigin;
 };
 
 export type EcdsaEmailOtpSigningLaneInput = BaseSigningLaneInput & {
-  chainFamily: ThresholdEcdsaActivationChain;
+  subjectId: WalletSubjectId;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
   sessionOrigin?: SigningSessionOrigin;
 };
@@ -69,8 +80,8 @@ export type NearTransactionSigningLaneInput =
   | ({ authMethod: 'email_otp' } & Ed25519EmailOtpSigningLaneInput);
 
 export type EcdsaTransactionSigningLaneInput =
-  | ({ authMethod: 'passkey' } & Omit<EcdsaPasskeySigningLaneInput, 'chainFamily'>)
-  | ({ authMethod: 'email_otp' } & Omit<EcdsaEmailOtpSigningLaneInput, 'chainFamily'>);
+  | ({ authMethod: 'passkey' } & EcdsaPasskeySigningLaneInput)
+  | ({ authMethod: 'email_otp' } & EcdsaEmailOtpSigningLaneInput);
 
 export function buildEd25519PasskeySigningLane(
   input: Ed25519PasskeySigningLaneInput,
@@ -107,6 +118,7 @@ export function buildEcdsaPasskeySigningLane(
     authMethod: 'passkey',
     curve: 'ecdsa',
     keyKind: 'threshold_ecdsa_secp256k1',
+    chainFamily: input.chainTarget.kind,
     sessionOrigin: input.sessionOrigin || signingSessionOriginFromStorageSource(input.storageSource),
   });
 }
@@ -119,6 +131,7 @@ export function buildEcdsaEmailOtpSigningLane(
     authMethod: 'email_otp',
     curve: 'ecdsa',
     keyKind: 'threshold_ecdsa_secp256k1',
+    chainFamily: input.chainTarget.kind,
     storageSource: 'email_otp',
     sessionOrigin: input.sessionOrigin || 'per_operation',
   });
@@ -135,23 +148,23 @@ export function buildNearTransactionSigningLane(
 export function buildTempoTransactionSigningLane(
   input: EcdsaTransactionSigningLaneInput,
 ): SigningLaneContext {
-  return buildEcdsaTransactionSigningLane({
-    ...input,
-    chainFamily: 'tempo',
-  });
+  if (input.chainTarget.kind !== 'tempo') {
+    throw new Error('Tempo ECDSA transaction lane requires a Tempo chain target');
+  }
+  return buildEcdsaTransactionSigningLane(input);
 }
 
 export function buildEvmTransactionSigningLane(
   input: EcdsaTransactionSigningLaneInput,
 ): SigningLaneContext {
-  return buildEcdsaTransactionSigningLane({
-    ...input,
-    chainFamily: 'evm',
-  });
+  if (input.chainTarget.kind !== 'evm') {
+    throw new Error('EVM ECDSA transaction lane requires an EIP-155 chain target');
+  }
+  return buildEcdsaTransactionSigningLane(input);
 }
 
 function buildEcdsaTransactionSigningLane(
-  input: EcdsaTransactionSigningLaneInput & { chainFamily: ThresholdEcdsaActivationChain },
+  input: EcdsaTransactionSigningLaneInput,
 ): SigningLaneContext {
   return input.authMethod === 'email_otp'
     ? buildEcdsaEmailOtpSigningLane(input)
@@ -189,26 +202,30 @@ export type SigningCapabilityReaderDeps = {
   }) => ThresholdEd25519SessionRecord | null;
   readEmailOtpEcdsaSessionRecord?: (args: {
     accountId: AccountId;
-    chain: ThresholdEcdsaActivationChain;
+    subjectId: WalletSubjectId;
+    chainTarget: ThresholdEcdsaChainTarget;
     signingRootId?: string;
     signingRootVersion?: string;
   }) => ThresholdEcdsaSessionRecord | null;
   readPasskeyEcdsaSessionRecord?: (args: {
     accountId: AccountId;
-    chain: ThresholdEcdsaActivationChain;
+    subjectId: WalletSubjectId;
+    chainTarget: ThresholdEcdsaChainTarget;
     storageSource: EcdsaPasskeyStorageSource;
     signingRootId?: string;
     signingRootVersion?: string;
   }) => ThresholdEcdsaSessionRecord | null;
   readEmailOtpEcdsaKeyRef?: (args: {
     accountId: AccountId;
-    chain: ThresholdEcdsaActivationChain;
+    subjectId: WalletSubjectId;
+    chainTarget: ThresholdEcdsaChainTarget;
     signingRootId?: string;
     signingRootVersion?: string;
   }) => ThresholdEcdsaSecp256k1KeyRef | null;
   readPasskeyEcdsaKeyRef?: (args: {
     accountId: AccountId;
-    chain: ThresholdEcdsaActivationChain;
+    subjectId: WalletSubjectId;
+    chainTarget: ThresholdEcdsaChainTarget;
     storageSource: EcdsaPasskeyStorageSource;
     signingRootId?: string;
     signingRootVersion?: string;
@@ -329,20 +346,25 @@ export function readSigningCapabilityEcdsaKeyRef(
   if (lane.curve !== 'ecdsa') {
     return readError(lane, 'unsupported_curve', 'ECDSA key refs require an ECDSA signing lane');
   }
-  const chain = ecdsaChainFromLane(lane);
-  if (!chain) {
-    return readError(lane, 'record_mismatch', 'ECDSA signing lane must target EVM or Tempo');
+  const chainTarget = ecdsaChainTargetFromLane(lane);
+  if (!chainTarget) {
+    return readError(lane, 'record_mismatch', 'ECDSA signing lane must carry a concrete chain target');
+  }
+  const subjectId = ecdsaSubjectIdFromLane(lane);
+  if (!subjectId) {
+    return readError(lane, 'record_mismatch', 'ECDSA signing lane must carry a wallet subject id');
   }
 
   const keyRef =
     lane.authMethod === 'email_otp'
       ? deps.readEmailOtpEcdsaKeyRef?.({
           accountId: lane.accountId,
-          chain,
+          subjectId,
+          chainTarget,
           ...(lane.signingRootId ? { signingRootId: lane.signingRootId } : {}),
           ...(lane.signingRootVersion ? { signingRootVersion: lane.signingRootVersion } : {}),
         })
-      : readPasskeyEcdsaKeyRef(deps, lane, chain);
+      : readPasskeyEcdsaKeyRef(deps, lane, chainTarget, subjectId);
   if (!keyRef) {
     return readError(lane, 'missing_key_ref', 'Missing selected-lane ECDSA key ref');
   }
@@ -393,20 +415,25 @@ function readEcdsaCapabilityRecord(
   if (lane.keyKind !== 'threshold_ecdsa_secp256k1') {
     return readError(lane, 'record_mismatch', 'ECDSA signing lane must target threshold secp256k1 signing');
   }
-  const chain = ecdsaChainFromLane(lane);
-  if (!chain) {
-    return readError(lane, 'record_mismatch', 'ECDSA signing lane must target EVM or Tempo');
+  const chainTarget = ecdsaChainTargetFromLane(lane);
+  if (!chainTarget) {
+    return readError(lane, 'record_mismatch', 'ECDSA signing lane must carry a concrete chain target');
+  }
+  const subjectId = ecdsaSubjectIdFromLane(lane);
+  if (!subjectId) {
+    return readError(lane, 'record_mismatch', 'ECDSA signing lane must carry a wallet subject id');
   }
 
   const record =
     lane.authMethod === 'email_otp'
       ? deps.readEmailOtpEcdsaSessionRecord?.({
           accountId: lane.accountId,
-          chain,
+          subjectId,
+          chainTarget,
           ...(lane.signingRootId ? { signingRootId: lane.signingRootId } : {}),
           ...(lane.signingRootVersion ? { signingRootVersion: lane.signingRootVersion } : {}),
         })
-      : readPasskeyEcdsaRecord(deps, lane, chain);
+      : readPasskeyEcdsaRecord(deps, lane, chainTarget, subjectId);
   if (!record) {
     return readError(lane, 'missing_record', 'Missing selected-lane ECDSA session record');
   }
@@ -416,7 +443,7 @@ function readEcdsaCapabilityRecord(
     source: record.source,
     thresholdSessionId: record.thresholdSessionId,
     walletSigningSessionId: record.walletSigningSessionId,
-    chain: record.chain,
+    chainTarget: record.chainTarget,
     signingRootId: record.signingRootId,
     signingRootVersion: record.signingRootVersion,
   });
@@ -435,12 +462,14 @@ function readEcdsaCapabilityRecord(
 function readPasskeyEcdsaRecord(
   deps: SigningCapabilityReaderDeps,
   lane: SigningLaneContext,
-  chain: ThresholdEcdsaActivationChain,
+  chainTarget: ThresholdEcdsaChainTarget,
+  subjectId: WalletSubjectId,
 ): ThresholdEcdsaSessionRecord | null | undefined {
   if (!isEcdsaPasskeyStorageSource(lane.storageSource)) return null;
   return deps.readPasskeyEcdsaSessionRecord?.({
     accountId: lane.accountId,
-    chain,
+    subjectId,
+    chainTarget,
     storageSource: lane.storageSource,
     ...(lane.signingRootId ? { signingRootId: lane.signingRootId } : {}),
     ...(lane.signingRootVersion ? { signingRootVersion: lane.signingRootVersion } : {}),
@@ -450,12 +479,14 @@ function readPasskeyEcdsaRecord(
 function readPasskeyEcdsaKeyRef(
   deps: SigningCapabilityReaderDeps,
   lane: SigningLaneContext,
-  chain: ThresholdEcdsaActivationChain,
+  chainTarget: ThresholdEcdsaChainTarget,
+  subjectId: WalletSubjectId,
 ): ThresholdEcdsaSecp256k1KeyRef | null | undefined {
   if (!isEcdsaPasskeyStorageSource(lane.storageSource)) return null;
   return deps.readPasskeyEcdsaKeyRef?.({
     accountId: lane.accountId,
-    chain,
+    subjectId,
+    chainTarget,
     storageSource: lane.storageSource,
     ...(lane.signingRootId ? { signingRootId: lane.signingRootId } : {}),
     ...(lane.signingRootVersion ? { signingRootVersion: lane.signingRootVersion } : {}),
@@ -516,7 +547,7 @@ function validateThresholdRecordForLane(
     source: SigningSessionStorageSource;
     thresholdSessionId?: string;
     walletSigningSessionId?: string;
-    chain?: ThresholdEcdsaActivationChain;
+    chainTarget?: ThresholdEcdsaChainTarget;
     signingRootId?: string;
     signingRootVersion?: string;
   },
@@ -547,8 +578,15 @@ function validateThresholdRecordForLane(
       'Session record wallet signing session does not match selected lane',
     );
   }
-  if (record.chain && record.chain !== lane.chainFamily) {
-    return readError(lane, 'record_mismatch', 'Session record chain does not match selected lane');
+  if (
+    record.chainTarget &&
+    (!lane.chainTarget || record.chainTarget.kind !== lane.chainTarget.kind)
+  ) {
+    return readError(
+      lane,
+      'record_mismatch',
+      'Session record chain target does not match selected lane',
+    );
   }
   if (
     record.signingRootId !== undefined &&
@@ -571,8 +609,15 @@ function validateThresholdRecordForLane(
   return null;
 }
 
-function ecdsaChainFromLane(lane: SigningLaneContext): ThresholdEcdsaActivationChain | null {
-  return lane.chainFamily === 'evm' || lane.chainFamily === 'tempo' ? lane.chainFamily : null;
+function ecdsaChainTargetFromLane(lane: SigningLaneContext): ThresholdEcdsaChainTarget | null {
+  const chainTarget = lane.chainTarget;
+  if (!chainTarget || lane.chainFamily !== chainTarget.kind) return null;
+  return chainTarget;
+}
+
+function ecdsaSubjectIdFromLane(lane: SigningLaneContext): WalletSubjectId | null {
+  const subjectId = String(lane.subjectId || '').trim();
+  return subjectId ? (subjectId as WalletSubjectId) : null;
 }
 
 function isEcdsaPasskeyStorageSource(

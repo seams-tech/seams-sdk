@@ -23,7 +23,6 @@ import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBa
 import { base64UrlEncode } from '@shared/utils/base64';
 import { bytesToHex } from '@/core/signingEngine/chainAdaptors/evm/bytes';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
 import { normalizeAuthenticationCredential } from '@/core/signingEngine/signers/webauthn/credentials/helpers';
 import {
   createSigningFlowEvent,
@@ -41,6 +40,7 @@ import type {
   BudgetAdmittedOperation,
   EvmFamilyEcdsaTransactionLane,
 } from '../../session/signingSession/transactionState';
+import type { ThresholdEcdsaChainTarget } from '../../session/signingSession/ecdsaChainTarget';
 import type {
   EvmFamilyThresholdEcdsaAdmissionBoundary,
   EvmFamilyThresholdEcdsaAuthPlanInput,
@@ -53,12 +53,10 @@ import type {
 } from './thresholdEcdsaTransactionAdmission';
 import { completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation } from './thresholdEcdsaTransactionAdmission';
 import {
-  asThresholdEcdsaKeyRef,
   formatEmailOtpSentText,
   inferDigest32FromSignRequest,
   makeRequestId,
   mapTouchConfirmSigningProgress,
-  resolveKeyRefForSignRequest,
   resolveTouchConfirmSigningAuth,
   resolveTouchConfirmSigningAuthMethod,
 } from './touchConfirmSigning';
@@ -68,7 +66,7 @@ export type EvmFamilySigningAuthSideEffect = 'passkey_reauth' | 'threshold_recon
 export type EvmFamilyPasskeyEcdsaReconnect = {
   prepare: (args: { usesNeeded: number }) => Promise<{
     sessionId: string;
-    walletSigningSessionId?: string;
+    walletSigningSessionId: string;
     sessionPolicyDigest32: string;
   }>;
 } & EvmFamilyThresholdEcdsaPasskeyReconnect;
@@ -93,7 +91,7 @@ type EvmFamilySigningWebAuthnMode<TRequest> =
     };
 
 export type EvmFamilyTouchConfirmFlowConfig<TRequest, TResult extends object> = {
-  chain: 'evm' | 'tempo';
+  targetKind: ThresholdEcdsaChainTarget['kind'];
   flowName: 'evm' | 'tempo';
   explicitAuthErrorLabel: 'EVM' | 'Tempo';
   nonceErrorLabel: 'EVM' | 'Tempo';
@@ -122,7 +120,7 @@ export type SignEvmFamilyWithTouchConfirmArgs<TRequest> = {
   request: TRequest & { senderSignatureAlgorithm: string };
   engines: SignerMap<SignRequest, KeyRef, SignatureBytes>;
   onEvent?: (event: SigningFlowEvent) => void;
-  keyRefsByAlgorithm?: Partial<Record<SignRequest['algorithm'], KeyRef>>;
+  thresholdEcdsaKeyRef?: ThresholdEcdsaSecp256k1KeyRef;
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   workerCtx: WorkerOperationContext;
   ensureThresholdEcdsaKeyRefReady?: () => Promise<EvmFamilyThresholdEcdsaReauthResult>;
@@ -214,7 +212,7 @@ export async function signEvmFamilyWithTouchConfirm<TRequest, TResult extends ob
   const needsWebAuthn =
     config.webauthn.kind === 'supported' &&
     config.webauthn.requestNeedsWebAuthn(input.request);
-  let thresholdEcdsaKeyRef = asThresholdEcdsaKeyRef(input.keyRefsByAlgorithm?.secp256k1);
+  let thresholdEcdsaKeyRef = input.thresholdEcdsaKeyRef || null;
   let preparedRequest = input.request;
   let nonceReservation: ManagedNonceReservation | null = null;
   let reservationReleased = false;
@@ -372,7 +370,7 @@ export async function signEvmFamilyWithTouchConfirm<TRequest, TResult extends ob
     const confirmation = await input.touchConfirm.orchestrateSigningConfirmation({
       ctx: { touchConfirm: input.touchConfirm },
       sessionId,
-      chain: config.chain,
+      chain: config.targetKind,
       kind: 'intentDigest',
       signerAccountId: input.nearAccountId,
       challengeB64u: PENDING_CHALLENGE_B64U,
@@ -434,10 +432,13 @@ export async function signEvmFamilyWithTouchConfirm<TRequest, TResult extends ob
         touchConfirmAuthPayload.signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth &&
         input.passkeyEcdsaReconnect
       ) {
+        if (!plannedPasskeyReconnect) {
+          throw new Error('[chains] passkey threshold ECDSA reconnect requires planned session identity');
+        }
         return {
           kind: 'passkey_reconnect',
           passkeyEcdsaReconnect: input.passkeyEcdsaReconnect,
-          ...(plannedPasskeyReconnect ? { plannedPasskeyReconnect } : {}),
+          plannedPasskeyReconnect,
           onThresholdReconnectStarted: () => notifyAuthSideEffectStarted('threshold_reconnect'),
         };
       }
@@ -474,36 +475,39 @@ export async function signEvmFamilyWithTouchConfirm<TRequest, TResult extends ob
         interaction: { kind: 'none', overlay: 'none' },
       });
     }
-    const result = await executeSigningIntent({
-      intent,
-      engines: input.engines,
-      resolveSignInput: async (signReq: SignRequest) => {
-        if (signReq.kind === 'webauthn') {
-          if (config.webauthn.kind !== 'supported') {
-            throw new Error('[chains] WebAuthn signing is not supported for this chain');
-          }
-          if (!confirmation.credential) {
-            throw new Error('[chains] missing WebAuthn credential from touchConfirm');
-          }
-          return await config.webauthn.resolveKeyRef({
+    const signatures: SignatureBytes[] = [];
+    for (const signReq of intent.signRequests) {
+      let keyRef: KeyRef;
+      if (signReq.kind === 'webauthn') {
+        if (config.webauthn.kind !== 'supported') {
+          throw new Error('[chains] WebAuthn signing is not supported for this chain');
+        }
+        if (!confirmation.credential) {
+          throw new Error('[chains] missing WebAuthn credential from touchConfirm');
+        }
+        keyRef = (
+          await config.webauthn.resolveKeyRef({
             ctx: input.ctx,
             nearAccountId: input.nearAccountId,
             signReq,
             credential: normalizeAuthenticationCredential(confirmation.credential),
-          });
-        }
+          })
+        ).keyRef;
+      } else if (signReq.algorithm === 'secp256k1') {
+        keyRef = await ensureThresholdKeyRef();
+      } else {
+        throw new Error(
+          `[chains] unsupported ${config.explicitAuthErrorLabel} signing algorithm: ${signReq.algorithm}`,
+        );
+      }
 
-        if (signReq.algorithm === 'secp256k1') {
-          const keyRef = await ensureThresholdKeyRef();
-          return { signReq, keyRef };
-        }
-
-        return resolveKeyRefForSignRequest({
-          signReq,
-          keyRefsByAlgorithm: input.keyRefsByAlgorithm,
-        });
-      },
-    });
+      const engine = input.engines[signReq.algorithm];
+      if (!engine) {
+        throw new Error(`[chains] missing engine for algorithm: ${signReq.algorithm}`);
+      }
+      signatures.push(await engine.sign(signReq, keyRef));
+    }
+    const result = await intent.finalize(signatures);
     thresholdSignatureCreated = true;
     await markNonceReservationSigned();
     emitProgress({

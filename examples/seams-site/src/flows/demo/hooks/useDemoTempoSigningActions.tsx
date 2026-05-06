@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { createIntentId } from '@seams/sdk';
+import { createIntentId, toWalletSubjectId } from '@seams/sdk';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 
@@ -23,6 +23,7 @@ import {
   waitForExpectedGreeting,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
+import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';
 import type { EvmAddress } from './demoThresholdTypes';
 import { handleSigningToastEvent } from './signingToast';
 
@@ -93,7 +94,7 @@ type UseDemoTempoSigningActionsArgs = {
   seams: ReturnType<typeof useSeams>['seams'];
   frontendConfig?: Pick<
     FrontendConfig,
-    'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
+    'chains' | 'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
   >;
   canSignTempo: boolean;
   tempoGreetingInput: string;
@@ -350,7 +351,9 @@ export function useDemoTempoSigningActions(args: UseDemoTempoSigningActionsArgs)
       const request = buildTempoEip1559GreetingRequest(requestedGreeting, feeCaps);
       const execution = await seams.tempo.executeEvmFamilyTransaction({
         nearAccountId,
+        subjectId: toWalletSubjectId(nearAccountId),
         request,
+        chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', frontendConfig.chains),
         finalization: {
           timeoutMs: EVM_GREETING_FINALITY_TIMEOUT_MS,
           pollIntervalMs: EVM_GREETING_FINALITY_POLL_INTERVAL_MS,

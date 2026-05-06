@@ -14,6 +14,7 @@ import { base64UrlDecode } from '@shared/utils/base64';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { errorMessage } from '@shared/utils/errors';
 import { isObject } from '@shared/utils/validation';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import { restoreLocalLoginState } from './restoreLocalLoginState';
 import {
   buildThresholdWarmSessionRequestEnvelope,
@@ -23,6 +24,14 @@ import {
   reconstructThresholdEd25519ClientBaseFromWarmSession,
   storeThresholdEd25519KeyMaterial,
 } from './thresholdWarmSessionBootstrap';
+import { IndexedDBManager } from '../indexedDB';
+import { resolveNearAccountProfileContinuity } from '../accountData/near/accountProjection';
+import {
+  normalizeIndexedDbAccountAddress,
+  normalizeIndexedDbChainIdKey,
+  toIndexedDbChainTargetKey,
+} from '../indexedDB/normalization';
+import { thresholdEcdsaChainTargetFromRequest } from '../signingEngine/session/signingSession/ecdsaChainTarget';
 
 export interface SyncAccountResult {
   success: boolean;
@@ -33,6 +42,105 @@ export interface SyncAccountResult {
   loginState?: {
     isLoggedIn: boolean;
   };
+}
+
+async function persistSyncedThresholdEcdsaAccountSigners(args: {
+  nearAccountId: AccountId;
+  signerSlot: number;
+  records: unknown[];
+}): Promise<void> {
+  const continuity = await resolveNearAccountProfileContinuity(
+    IndexedDBManager.clientDB,
+    args.nearAccountId,
+  );
+  const profileId = String(continuity?.profile.profileId || '').trim();
+  if (!profileId) return;
+
+  for (const rawRecord of args.records) {
+    if (!isObject(rawRecord)) continue;
+    if (String(rawRecord.status || '').trim() !== 'active') continue;
+    if (String(rawRecord.signerType || '').trim() !== 'threshold') continue;
+    const metadata = isObject(rawRecord.metadata) ? rawRecord.metadata : {};
+    let chainTarget;
+    try {
+      chainTarget = thresholdEcdsaChainTargetFromRequest(
+        isObject(metadata.chainTarget) ? metadata.chainTarget : {},
+      );
+    } catch {
+      continue;
+    }
+
+    const ecdsaThresholdKeyId = String(metadata.ecdsaThresholdKeyId || '').trim();
+    const relayerKeyId = String(metadata.relayerKeyId || '').trim();
+    const thresholdEcdsaPublicKeyB64u = String(metadata.thresholdEcdsaPublicKeyB64u || '').trim();
+    const signerId = normalizeIndexedDbAccountAddress(
+      rawRecord.signerId || metadata.ownerAddress,
+    );
+    const accountAddress = normalizeIndexedDbAccountAddress(
+      rawRecord.accountAddress || metadata.counterfactualAddress || metadata.ownerAddress,
+    );
+    if (
+      !ecdsaThresholdKeyId ||
+      !relayerKeyId ||
+      !thresholdEcdsaPublicKeyB64u ||
+      !signerId ||
+      !accountAddress
+    ) {
+      continue;
+    }
+
+    const metadataSignerSlot = Number(metadata.signerSlot);
+    const signerSlot =
+      Number.isSafeInteger(metadataSignerSlot) && metadataSignerSlot >= 1
+        ? metadataSignerSlot
+        : args.signerSlot;
+    const chainIdKey =
+      normalizeIndexedDbChainIdKey(rawRecord.chainIdKey) || toIndexedDbChainTargetKey(chainTarget);
+    const accountModel =
+      String(metadata.accountModel || '').trim() ||
+      (chainTarget.kind === 'evm' ? 'erc4337' : 'tempo-native');
+
+    await IndexedDBManager.clientDB.upsertChainAccount({
+      profileId,
+      chainIdKey,
+      accountAddress,
+      accountModel,
+      isPrimary: true,
+      ...(String(metadata.factory || '').trim() ? { factory: String(metadata.factory).trim() } : {}),
+      ...(String(metadata.entryPoint || '').trim()
+        ? { entryPoint: String(metadata.entryPoint).trim() }
+        : {}),
+      ...(String(metadata.salt || '').trim() ? { salt: String(metadata.salt).trim() } : {}),
+      ...(String(metadata.counterfactualAddress || '').trim()
+        ? { counterfactualAddress: String(metadata.counterfactualAddress).trim() }
+        : {}),
+    });
+
+    await IndexedDBManager.clientDB.upsertAccountSigner({
+      profileId,
+      chainIdKey,
+      accountAddress,
+      signerId,
+      signerSlot,
+      signerType: 'threshold',
+      signerKind: SIGNER_KINDS.thresholdEcdsa,
+      signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
+      signerSource: SIGNER_SOURCES.passkeyRegistration,
+      status: 'active',
+      metadata: {
+        ...metadata,
+        accountModel,
+        ownerAddress: signerId,
+        ecdsaThresholdKeyId,
+        relayerKeyId,
+        thresholdEcdsaPublicKeyB64u,
+        signerSlot,
+        chainTarget,
+        chainId: chainTarget.chainId,
+      },
+      mutation: { routeThroughOutbox: false },
+    });
+  }
 }
 
 export async function syncAccount(
@@ -269,6 +377,17 @@ export async function syncAccount(
       accountId: syncedAccountId,
       data: { signerSlot },
     });
+
+    const syncedSmartAccountSigners = Array.isArray(verifyJson.smartAccountSigners)
+      ? verifyJson.smartAccountSigners
+      : [];
+    if (syncedSmartAccountSigners.length) {
+      await persistSyncedThresholdEcdsaAccountSigners({
+        nearAccountId: normalizedAccountId,
+        signerSlot,
+        records: syncedSmartAccountSigners,
+      });
+    }
 
     // 3) Persist threshold key material when available.
     const thresholdEd25519 = isObject(verifyJson.thresholdEd25519)

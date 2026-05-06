@@ -37,8 +37,7 @@ export async function reportSmartAccountDeploymentObservation(
         },
         credentials: 'omit',
         body: JSON.stringify({
-          chain: input.chain,
-          chain_id: input.chainId,
+          chainTarget: input.chainTarget,
           account_address: String(input.account.accountAddress || '').trim(),
           account_model: String(input.account.accountModel || '').trim(),
           counterfactual_address: String(input.account.counterfactualAddress || '').trim(),

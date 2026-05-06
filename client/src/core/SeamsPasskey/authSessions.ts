@@ -2,9 +2,9 @@ import { toError } from '@shared/utils/errors';
 import type { NearClient } from '../rpcClients/near/NearClient';
 import type {
   SigningEnginePublic,
-  ThresholdEcdsaActivationChain,
   ThresholdEcdsaLoginPrefillResult,
 } from '../signingEngine/SigningEngine';
+import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
 import type { AccountId } from '../types/accountIds';
 import { toAccountId } from '../types/accountIds';
 import type { LoginHooksOptions } from '../types/sdkSentEvents';
@@ -151,21 +151,19 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
   deps: AuthSessionDomainDeps,
   args: {
     nearAccountId: string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;
     minRemainingUsesBeforePrefill?: number;
   },
 ): Promise<ThresholdEcdsaLoginPrefillResult> {
-  const chain = args.chain;
-
   if (deps.walletIframe.shouldUseWalletIframe()) {
     const router = await deps.walletIframe.requireRouter(args.nearAccountId);
     return await router.prefillThresholdEcdsaPresignPool({
       nearAccountId: args.nearAccountId,
       options: {
-        chain,
+        chainTarget: args.chainTarget,
         ...(typeof args.waitForPoolReady === 'boolean'
           ? { waitForPoolReady: args.waitForPoolReady }
           : {}),
@@ -183,14 +181,14 @@ export async function prefillThresholdEcdsaPresignPoolDomain(
   }
 
   const nearAccountId = toAccountId(args.nearAccountId);
-  const keyRef = deps.signingEngine.getThresholdEcdsaKeyRefForLookup({
+  const keyRef = deps.signingEngine.getThresholdEcdsaKeyRefForAccountTarget({
     nearAccountId,
-    chain,
+    chainTarget: args.chainTarget,
     source: 'login',
   });
   return await deps.signingEngine.scheduleThresholdEcdsaLoginPresignPrefill({
     nearAccountId,
-    chain,
+    chainTarget: keyRef.chainTarget,
     thresholdEcdsaKeyRef: keyRef,
     ...(typeof args.waitForPoolReady === 'boolean'
       ? { waitForPoolReady: args.waitForPoolReady }

@@ -138,7 +138,6 @@ export function resolveEcdsaAuthMaterial(
   const thresholdSessionJwt = String(record.thresholdSessionJwt || '').trim();
   return {
     capability: 'ecdsa',
-    chain: record.chain,
     record,
     ...(thresholdSessionJwt ? { thresholdSessionJwt } : {}),
     thresholdSessionJwtSource: thresholdSessionJwt ? 'ecdsa' : 'none',
@@ -283,6 +282,7 @@ export function resolveEcdsaSealTransport(args: {
   const shamirPrimeB64u = String(args.shamirPrimeB64u || '').trim();
   return {
     curve: 'ecdsa',
+    chainTarget: args.record.chainTarget,
     relayerUrl,
     ...(String(args.record.walletSigningSessionId || '').trim()
       ? { walletSigningSessionId: String(args.record.walletSigningSessionId || '').trim() }

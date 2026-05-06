@@ -1,6 +1,7 @@
 import { bootstrapEcdsaSession } from './bootstrapEcdsaSession';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { ThresholdIndexedDbPort, ThresholdWebAuthnPromptPort } from '../webauthn';
+import type { ThresholdEcdsaChainTarget } from '../../session/signingSession/ecdsaChainTarget';
 
 /**
  * Threshold-ecdsa (secp256k1) keygen helper (standard WebAuthn).
@@ -16,6 +17,7 @@ export async function keygenEcdsa(args: {
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   relayerUrl: string;
   userId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
   workerCtx: WorkerOperationContext;
 }): Promise<{
   ok: boolean;
@@ -42,6 +44,7 @@ export async function keygenEcdsa(args: {
     touchIdPrompt: args.touchIdPrompt,
     relayerUrl: args.relayerUrl,
     userId: String(args.userId || '').trim(),
+    chainTarget: args.chainTarget,
     workerCtx: args.workerCtx,
   });
   if (!bootstrap.ok) return bootstrap;

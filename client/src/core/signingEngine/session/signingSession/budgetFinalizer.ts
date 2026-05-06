@@ -100,7 +100,7 @@ export function createSigningSessionBudgetFinalizer(args: {
 function normalizeBudgetFinalizerLane(
   lane: SigningSessionBudgetFinalizerLane,
 ): SelectedSigningLaneContext {
-  if ('chain' in lane) {
+  if (!('keyKind' in lane)) {
     return selectedSigningLaneContextFromTransactionLane(lane);
   }
   return lane;

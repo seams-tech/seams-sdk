@@ -4,10 +4,12 @@ import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
 import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/profileAccountProjection';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../signingEngine/interfaces/signing';
-import type {
-  ThresholdEcdsaActivationChain,
-  ThresholdEcdsaSessionBootstrapResult,
-} from '../../signingEngine/orchestration/thresholdActivation';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../signingEngine/orchestration/thresholdActivation';
+import {
+  thresholdEcdsaChainTargetKey,
+  toWalletSubjectId,
+  type ThresholdEcdsaChainTarget,
+} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionStoreSource } from '../../signingEngine/api/thresholdLifecycle/thresholdSessionStore';
 import type { AccountId } from '../../types/accountIds';
 import { toAccountId } from '../../types/accountIds';
@@ -37,8 +39,7 @@ export type PreparedLinkDeviceThresholdEcdsa = {
 
 export type PreparedLinkDeviceLinkedAccount = {
   chainIdKey: string;
-  chain: ThresholdEcdsaActivationChain;
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   accountAddress: string;
   accountModel: 'erc4337' | 'tempo-native';
   factory?: string;
@@ -50,13 +51,13 @@ export type PreparedLinkDeviceLinkedAccount = {
 type LinkDeviceThresholdEcdsaSigningPort = {
   upsertThresholdEcdsaSessionFromBootstrap: (args: {
     nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     source: ThresholdEcdsaSessionStoreSource;
   }) => void;
   persistThresholdEcdsaBootstrapChainAccount: (args: {
     nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
     smartAccount?: {
       chainId: number;
@@ -78,7 +79,7 @@ function dedupeLinkedAccounts(
   const seen = new Set<string>();
   const out: PreparedLinkDeviceLinkedAccount[] = [];
   for (const account of linkedAccounts) {
-    const key = `${account.chainIdKey}::${account.accountAddress}`;
+    const key = `${account.chainIdKey}::${thresholdEcdsaChainTargetKey(account.chainTarget)}::${account.accountAddress}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(account);
@@ -89,6 +90,7 @@ function dedupeLinkedAccounts(
 function buildThresholdEcdsaBootstrap(args: {
   nearAccountId: AccountId | string;
   relayerUrl: string;
+  chainTarget: ThresholdEcdsaChainTarget;
   thresholdEcdsa: PreparedLinkDeviceThresholdEcdsa;
 }): ThresholdEcdsaSessionBootstrapResult {
   const nearAccountId = toAccountId(args.nearAccountId);
@@ -145,7 +147,7 @@ function buildThresholdEcdsaBootstrap(args: {
   if (sessionKind && sessionKind !== 'jwt') {
     throw new Error('link-device thresholdEcdsa sessionKind must be jwt');
   }
-  if (!sessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+  if (!sessionId || !walletSigningSessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error('link-device thresholdEcdsa payload missing session fields');
   }
   if (!Number.isFinite(remainingUses) || remainingUses <= 0) {
@@ -158,6 +160,8 @@ function buildThresholdEcdsaBootstrap(args: {
   const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
     userId: nearAccountId,
+    subjectId: toWalletSubjectId(nearAccountId),
+    chainTarget: args.chainTarget,
     relayerUrl: String(args.relayerUrl || '').trim(),
     ecdsaThresholdKeyId,
     signingRootId,
@@ -173,7 +177,7 @@ function buildThresholdEcdsaBootstrap(args: {
     relayerVerifyingShareB64u,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: sessionId,
-    ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+    walletSigningSessionId,
     ...(jwt ? { thresholdSessionJwt: jwt } : {}),
   };
 
@@ -193,7 +197,7 @@ function buildThresholdEcdsaBootstrap(args: {
     session: {
       ok: true,
       sessionId,
-      ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
+      walletSigningSessionId,
       expiresAtMs,
       remainingUses,
       jwt,
@@ -217,31 +221,50 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
   if (linkedAccounts.length === 0) return;
 
   const nearAccountId = toAccountId(args.nearAccountId);
-  const bootstrap = buildThresholdEcdsaBootstrap({
-    nearAccountId,
-    relayerUrl: args.relayerUrl,
-    thresholdEcdsa: args.thresholdEcdsa,
-  });
   const thresholdOwnerAddress = String(args.thresholdEcdsa.ethereumAddress || '').trim();
-  const uniqueChains = [...new Set(linkedAccounts.map((account) => account.chain))];
+  const uniqueTargetKeys = [
+    ...new Set(linkedAccounts.map((account) => thresholdEcdsaChainTargetKey(account.chainTarget))),
+  ];
+  const bootstrapByTargetKey = new Map<string, ThresholdEcdsaSessionBootstrapResult>();
+  const bootstrapForTarget = (
+    chainTarget: ThresholdEcdsaChainTarget,
+  ): ThresholdEcdsaSessionBootstrapResult => {
+    const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
+    const existing = bootstrapByTargetKey.get(targetKey);
+    if (existing) return existing;
+    const bootstrap = buildThresholdEcdsaBootstrap({
+      nearAccountId,
+      relayerUrl: args.relayerUrl,
+      chainTarget,
+      thresholdEcdsa: args.thresholdEcdsa,
+    });
+    bootstrapByTargetKey.set(targetKey, bootstrap);
+    return bootstrap;
+  };
   const signerSlot = Math.max(1, Math.floor(Number(args.signerSlot) || 1));
 
-  for (const chain of uniqueChains) {
+  for (const targetKey of uniqueTargetKeys) {
+    const account = linkedAccounts.find(
+      (candidate) => thresholdEcdsaChainTargetKey(candidate.chainTarget) === targetKey,
+    );
+    if (!account) continue;
+    const bootstrap = bootstrapForTarget(account.chainTarget);
     args.signingEngine.upsertThresholdEcdsaSessionFromBootstrap({
       nearAccountId,
-      chain,
+      chainTarget: account.chainTarget,
       bootstrap,
       source: 'manual-bootstrap',
     });
   }
 
   for (const account of linkedAccounts) {
+    const bootstrap = bootstrapForTarget(account.chainTarget);
     await args.signingEngine.persistThresholdEcdsaBootstrapChainAccount({
       nearAccountId,
-      chain: account.chain,
+      chainTarget: account.chainTarget,
       bootstrap,
       smartAccount: {
-        chainId: account.chainId,
+        chainId: account.chainTarget.chainId,
         ...(account.factory ? { factory: account.factory } : {}),
         ...(account.entryPoint ? { entryPoint: account.entryPoint } : {}),
         ...(account.salt ? { salt: account.salt } : {}),
@@ -261,6 +284,7 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
   }
 
   for (const account of linkedAccounts) {
+    const bootstrap = bootstrapForTarget(account.chainTarget);
     await args.indexedDB.stageAccountSigner({
       account: {
         profileId: nearContext.profileId,
@@ -286,8 +310,8 @@ export async function persistLinkDeviceThresholdEcdsaBootstrap(args: {
           signerSlot,
           credentialIdB64u: String(args.credentialIdB64u || '').trim(),
           rpId: String(args.rpId || '').trim(),
-          chain: account.chain,
-          chainId: account.chainId,
+          chainTarget: account.chainTarget,
+          chainId: account.chainTarget.chainId,
           ...(Array.isArray(bootstrap.keygen.participantIds)
             ? { participantIds: [...bootstrap.keygen.participantIds] }
             : {}),

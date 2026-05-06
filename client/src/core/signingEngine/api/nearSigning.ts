@@ -37,6 +37,7 @@ import {
   type ThresholdEd25519SessionStoreSource,
 } from './thresholdLifecycle/thresholdSessionStore';
 import type {
+  ReadSigningSessionSnapshotForSigningInput,
   SigningSessionSnapshot,
   SigningSessionSnapshotEd25519Lane,
 } from '../session/snapshotReader';
@@ -58,6 +59,7 @@ import {
   type SigningOperationId,
 } from '../session/signingSession/types';
 import { buildNearTransactionSigningLane } from '../session/signingSession/lanes';
+import { toWalletSubjectId, type WalletSubjectId } from '../session/signingSession/ecdsaChainTarget';
 import {
   isSigningSessionBudgetExhaustedError,
   SigningSessionCoordinator,
@@ -258,10 +260,9 @@ export type NearSigningApiDeps = {
     chain: 'near';
   }) => Promise<'email_otp' | 'passkey' | null>;
   signingSessionCoordinator: SigningSessionCoordinator;
-  readSigningSessionSnapshotForSigning: (args: {
-    walletId: AccountId | string;
-    authMethod?: 'email_otp' | 'passkey';
-  }) => Promise<SigningSessionSnapshot>;
+  readSigningSessionSnapshotForSigning: (
+    args: Extract<ReadSigningSessionSnapshotForSigningInput, { curve: 'ed25519' }>,
+  ) => Promise<SigningSessionSnapshot>;
   getWarmThresholdEd25519SessionStatusForSession?: (args: {
     nearAccountId: AccountId | string;
     thresholdSessionId: string;
@@ -1056,6 +1057,8 @@ async function readNearEd25519SigningSnapshot(args: {
   return await args.deps
     .readSigningSessionSnapshotForSigning({
       walletId: args.nearAccountId,
+      subjectId: toWalletSubjectId(args.nearAccountId),
+      curve: 'ed25519',
       ...(args.authMethod ? { authMethod: args.authMethod } : {}),
     })
     .catch((error) => {

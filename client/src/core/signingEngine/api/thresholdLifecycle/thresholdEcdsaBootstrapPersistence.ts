@@ -12,13 +12,14 @@ import { DEFAULT_CONFIRMATION_CONFIG } from '@/core/types/signer-worker';
 import {
   normalizeIndexedDbAccountAddress,
   normalizeIndexedDbOptionalChainIdNumber,
-  toIndexedDbChainIdKey,
+  toIndexedDbChainTargetKey,
 } from '@/core/indexedDB/normalization';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type {
-  ThresholdEcdsaActivationChain,
-  ThresholdEcdsaSessionBootstrapResult,
-} from '../../orchestration/thresholdActivation';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../../orchestration/thresholdActivation';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  type ThresholdEcdsaChainTarget,
+} from '../../session/signingSession/ecdsaChainTarget';
 
 export type ThresholdEcdsaSmartAccountBootstrapInput = {
   chainId: number;
@@ -49,37 +50,32 @@ export type ThresholdEcdsaBootstrapIndexedDbPort = {
   upsertChainAccount: (input: UpsertChainAccountInput) => Promise<ChainAccountRecord>;
 };
 
-function getUnknownChainIdKeyForActivationChain(chain: ThresholdEcdsaActivationChain): string {
-  return chain === 'evm' ? 'evm:unknown' : 'tempo:42431';
-}
-
 function resolveBootstrapTargetChainIdKey(args: {
-  chain: ThresholdEcdsaActivationChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
 }): string {
   const explicitChainId = normalizeIndexedDbOptionalChainIdNumber(args.smartAccount?.chainId);
-  if (typeof explicitChainId === 'number')
-    return toIndexedDbChainIdKey(args.chain, explicitChainId);
-  const keygenChainId = normalizeIndexedDbOptionalChainIdNumber(args.bootstrap.keygen.chainId);
-  if (typeof keygenChainId === 'number') return toIndexedDbChainIdKey(args.chain, keygenChainId);
-  return getUnknownChainIdKeyForActivationChain(args.chain);
-}
-
-function deriveMirrorChainDefaults(chain: ThresholdEcdsaActivationChain): {
-  chainIdKey: string;
-  accountModel: 'erc4337' | 'tempo-native';
-} {
-  if (chain === 'evm') {
-    return {
-      chainIdKey: 'tempo:42431',
-      accountModel: 'tempo-native',
-    };
+  if (typeof explicitChainId === 'number') {
+    return toIndexedDbChainTargetKey(
+      thresholdEcdsaChainTargetFromChainFamily({
+        chain: args.chainTarget.kind,
+        chainId: explicitChainId,
+        networkSlug: args.chainTarget.networkSlug,
+      }),
+    );
   }
-  return {
-    chainIdKey: 'evm:unknown',
-    accountModel: 'erc4337',
-  };
+  const keygenChainId = normalizeIndexedDbOptionalChainIdNumber(args.bootstrap.keygen.chainId);
+  if (typeof keygenChainId === 'number') {
+    return toIndexedDbChainTargetKey(
+      thresholdEcdsaChainTargetFromChainFamily({
+        chain: args.chainTarget.kind,
+        chainId: keygenChainId,
+        networkSlug: args.chainTarget.networkSlug,
+      }),
+    );
+  }
+  return toIndexedDbChainTargetKey(args.chainTarget);
 }
 
 export function buildThresholdEcdsaBootstrapUndeployedSignerSet(args: {
@@ -170,7 +166,7 @@ async function ensureEmailOtpNearProfileAccountMapping(args: {
 export async function persistThresholdEcdsaBootstrapChainAccount(args: {
   indexedDB: ThresholdEcdsaBootstrapIndexedDbPort;
   nearAccountId: AccountId;
-  chain: ThresholdEcdsaActivationChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   smartAccount?: ThresholdEcdsaSmartAccountBootstrapInput;
   deployment?: ThresholdEcdsaSmartAccountDeploymentInput;
@@ -203,7 +199,7 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
   }
 
   const chainIdKey = resolveBootstrapTargetChainIdKey({
-    chain: args.chain,
+    chainTarget: args.chainTarget,
     smartAccount: args.smartAccount,
     bootstrap: args.bootstrap,
   });
@@ -226,7 +222,7 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
     profileId: nearContext.profileId,
     chainIdKey,
     accountAddress,
-    accountModel: args.chain === 'evm' ? 'erc4337' : 'tempo-native',
+    accountModel: args.chainTarget.kind === 'evm' ? 'erc4337' : 'tempo-native',
     isPrimary: true,
     ...(factory ? { factory } : {}),
     ...(entryPoint ? { entryPoint } : {}),
@@ -240,26 +236,4 @@ export async function persistThresholdEcdsaBootstrapChainAccount(args: {
     lastDeploymentCheckAt: deploymentCheckedAt,
     undeployedSignerSet,
   });
-
-  // Provisioning once (tempo or evm) should still leave an "unknown" row for the
-  // counterpart chain so first-send deployment gates can resolve the account without
-  // forcing an extra WebAuthn bootstrap prompt.
-  const mirror = deriveMirrorChainDefaults(args.chain);
-  if (mirror.chainIdKey !== chainIdKey) {
-    await args.indexedDB.upsertChainAccount({
-      profileId: nearContext.profileId,
-      chainIdKey: mirror.chainIdKey,
-      accountAddress,
-      accountModel: mirror.accountModel,
-      isPrimary: true,
-      ...(factory ? { factory } : {}),
-      ...(entryPoint ? { entryPoint } : {}),
-      ...(salt ? { salt } : {}),
-      counterfactualAddress: accountAddress,
-      deployed: false,
-      deploymentTxHash: null,
-      lastDeploymentCheckAt: null,
-      undeployedSignerSet,
-    });
-  }
 }

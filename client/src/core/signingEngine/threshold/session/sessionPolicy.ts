@@ -5,6 +5,10 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../../session/signingSession/ecdsaChainTarget';
 
 export type ThresholdRuntimePolicyScope = RuntimePolicyScope;
 
@@ -76,8 +80,11 @@ export type Ed25519SessionPolicy = {
 export type EcdsaSessionPolicy = {
   version: typeof THRESHOLD_SESSION_POLICY_VERSION;
   userId: string;
+  subjectId: WalletSubjectId;
   rpId: string;
   relayerKeyId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId: string;
   sessionId: string;
   walletSigningSessionId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -193,8 +200,11 @@ export async function buildEd25519SessionPolicy(params: {
 
 export async function buildEcdsaSessionPolicy(params: {
   userId: string;
+  subjectId: WalletSubjectId;
   rpId: string;
   relayerKeyId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   participantIds?: number[];
   sessionId?: string;
@@ -218,8 +228,11 @@ export async function buildEcdsaSessionPolicy(params: {
   const policy: EcdsaSessionPolicy = {
     version: THRESHOLD_SESSION_POLICY_VERSION,
     userId: params.userId,
+    subjectId: params.subjectId,
     rpId: params.rpId,
     relayerKeyId: params.relayerKeyId,
+    chainTarget: params.chainTarget,
+    ecdsaThresholdKeyId: params.ecdsaThresholdKeyId,
     sessionId,
     walletSigningSessionId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),

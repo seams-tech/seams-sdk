@@ -39,6 +39,10 @@ import {
   type EvmFamilyEcdsaSessionReaderDeps,
 } from './ecdsaLanes';
 import type { EvmFamilyChain } from './types';
+import {
+  toWalletSubjectId,
+  type ThresholdEcdsaChainTarget,
+} from '../../session/signingSession/ecdsaChainTarget';
 
 export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps & {
   touchConfirm: TouchConfirmContextPort &
@@ -49,7 +53,7 @@ export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps &
     Partial<WarmSessionMaterialClearer>;
   markThresholdEcdsaEmailOtpSessionConsumedForAccount?: (args: {
     nearAccountId: string;
-    chain: EvmFamilyChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     uses?: number;
   }) => void;
   provisionThresholdEcdsaSession: (
@@ -81,29 +85,16 @@ export function createEvmFamilyWarmSessionServices(
     (async (sessionId: string): Promise<WarmSessionStatusResult> =>
       deps.touchConfirm.getWarmSessionStatus({ sessionId }));
   const clearEcdsaEphemeralMaterial = async (args: {
-    nearAccountId: AccountId | string;
-    chain: EvmFamilyChain;
+    record: ThresholdEcdsaSessionRecord;
     thresholdSessionId?: string;
-    source?: ThresholdEcdsaSessionStoreSource;
   }): Promise<void> => {
-    if (!args.source) {
-      throw new Error(
-        '[SigningEngine] ECDSA signing source is required for signing-artifact cleanup',
-      );
-    }
-    const record = getThresholdEcdsaSessionRecordForLane({
-      deps,
-      nearAccountId: String(args.nearAccountId),
-      chain: args.chain,
-      source: args.source,
-    });
     clearThresholdEcdsaClientPresignaturesForLane({
-      relayerUrl: record.relayerUrl,
-      ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
-      participantIds: record.participantIds,
+      relayerUrl: args.record.relayerUrl,
+      ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
+      participantIds: args.record.participantIds,
     });
     const thresholdSessionId = String(
-      args.thresholdSessionId || record.thresholdSessionId || '',
+      args.thresholdSessionId || args.record.thresholdSessionId || '',
     ).trim();
     if (thresholdSessionId && typeof deps.touchConfirm.clearWarmSessionMaterial === 'function') {
       await deps.touchConfirm
@@ -111,35 +102,13 @@ export function createEvmFamilyWarmSessionServices(
         .catch(() => undefined);
     }
   };
-  const listThresholdEcdsaSessionRecordsForLookup = ({
+  const listThresholdEcdsaKeyRefsForAccountTarget = ({
     nearAccountId,
-    chain,
-  }: {
-    nearAccountId: AccountId | string;
-    chain: EvmFamilyChain;
-  }): ThresholdEcdsaSessionRecord[] => {
-    const records: ThresholdEcdsaSessionRecord[] = [];
-    for (const source of THRESHOLD_ECDSA_SESSION_STORE_SOURCES) {
-      try {
-        records.push(
-          getThresholdEcdsaSessionRecordForLane({
-            deps,
-            nearAccountId: String(nearAccountId),
-            chain,
-            source,
-          }),
-        );
-      } catch {}
-    }
-    return records;
-  };
-  const listThresholdEcdsaKeyRefsForLookup = ({
-    nearAccountId,
-    chain,
+    chainTarget,
     source,
   }: {
     nearAccountId: AccountId | string;
-    chain: EvmFamilyChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => {
     const sources = source ? [source] : THRESHOLD_ECDSA_SESSION_STORE_SOURCES;
@@ -150,8 +119,8 @@ export function createEvmFamilyWarmSessionServices(
           source: candidateSource,
           keyRef: getThresholdEcdsaKeyRefForLane({
             deps,
-            nearAccountId: String(nearAccountId),
-            chain,
+            subjectId: toWalletSubjectId(String(nearAccountId)),
+            chainTarget,
             source: candidateSource,
           }),
         });
@@ -161,13 +130,11 @@ export function createEvmFamilyWarmSessionServices(
   };
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: deps.touchConfirm,
-    listThresholdEcdsaSessionRecordsForLookup,
     getEmailOtpWarmSessionStatus,
   });
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: deps.touchConfirm,
     getEmailOtpWarmSessionStatus,
-    listThresholdEcdsaSessionRecordsForLookup,
   });
   const provisionEcdsaCapability: WarmSessionProvisioner['provisionEcdsaCapability'] = (
     provisionArgs,
@@ -175,8 +142,9 @@ export function createEvmFamilyWarmSessionServices(
     provisionWarmEcdsaCapability(
       {
         getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
-        listThresholdEcdsaKeyRefsForLookup,
-        provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
+        listThresholdEcdsaKeyRefsForAccountTarget,
+        provisionThresholdEcdsaSession: (provisionRequest) =>
+          deps.provisionThresholdEcdsaSession(provisionRequest),
         claimPrfFirstByThresholdSessionId: (claimArgs) =>
           claimWarmSessionPrfFirst({
             touchConfirm: deps.touchConfirm,
@@ -185,7 +153,7 @@ export function createEvmFamilyWarmSessionServices(
             uses: claimArgs.uses,
             ...(typeof claimArgs.consume === 'boolean' ? { consume: claimArgs.consume } : {}),
             ...(claimArgs.curve ? { curve: claimArgs.curve } : {}),
-            ...(claimArgs.chain ? { chain: claimArgs.chain } : {}),
+            ...(claimArgs.chainTarget ? { chainTarget: claimArgs.chainTarget } : {}),
             restoreBeforeClaim: async () => {
               if (claimArgs.authMethod !== 'passkey') return;
               if (typeof deps.touchConfirm.restorePersistedSessionForSigning !== 'function') return;
@@ -193,14 +161,14 @@ export function createEvmFamilyWarmSessionServices(
               const walletSigningSessionId = String(claimArgs.walletSigningSessionId || '').trim();
               const thresholdSessionId = String(claimArgs.thresholdSessionId || '').trim();
               if (!walletId || !walletSigningSessionId || !thresholdSessionId) return;
+              const chainTarget =
+                claimArgs.chainTarget ||
+                provisionArgs.chainTarget;
               await deps.touchConfirm.restorePersistedSessionForSigning({
                 walletId,
                 authMethod: 'passkey',
                 curve: 'ecdsa',
-                chain:
-                  claimArgs.chain === 'tempo' || claimArgs.chain === 'evm'
-                    ? claimArgs.chain
-                    : provisionArgs.chain,
+                chainTarget,
                 walletSigningSessionId,
                 thresholdSessionId,
                 reason: 'transaction',
@@ -213,8 +181,8 @@ export function createEvmFamilyWarmSessionServices(
 
   return {
     getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
-    resolveEcdsaSealTransportByThresholdSessionId: (thresholdSessionId) =>
-      capabilityReader.resolveEcdsaSealTransportByThresholdSessionId(thresholdSessionId),
+    resolveEcdsaSealTransportByThresholdSessionId: (args) =>
+      capabilityReader.resolveEcdsaSealTransportByThresholdSessionId(args),
     assertEcdsaSigningSessionReady: (readyArgs) =>
       statusReader.assertEcdsaSigningSessionReady(readyArgs),
     getEcdsaSigningSessionStatus: (statusArgs) =>
@@ -223,7 +191,7 @@ export function createEvmFamilyWarmSessionServices(
       ensureWarmEcdsaCapabilityReady(
         {
           getWarmSession: (nearAccountId) => capabilityReader.getWarmSession(nearAccountId),
-          listThresholdEcdsaKeyRefsForLookup,
+          listThresholdEcdsaKeyRefsForAccountTarget,
           canProvisionEcdsaCapability: true,
           provisionEcdsaCapability,
           resolveCurrentEcdsaRecord: (recordArgs) =>

@@ -16,7 +16,7 @@ export async function signTempoWithTouchConfirm(
 ): Promise<TempoSignedResult> {
   return await signEvmFamilyWithTouchConfirm({
     config: {
-      chain: 'tempo',
+      targetKind: 'tempo',
       flowName: 'tempo',
       explicitAuthErrorLabel: 'Tempo',
       nonceErrorLabel: 'Tempo',

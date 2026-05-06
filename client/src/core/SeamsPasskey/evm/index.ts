@@ -1,7 +1,6 @@
 import { toAccountId } from '../../types/accountIds';
 import type { EvmSignerCapability } from '..';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
-import { requireThresholdEcdsaProvisionChainId } from '../thresholdEcdsaProvisioning';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
@@ -32,17 +31,14 @@ export class EvmSigner implements EvmSignerCapability {
             publishableKey: managedRegistration.publishableKey,
           }
         : undefined);
+    const chainTarget = args.options.chainTarget;
+    if (chainTarget.kind !== 'evm') {
+      throw new Error('[SeamsPasskey][evm] bootstrapEcdsaSession requires an EVM chainTarget');
+    }
     const options = {
       ...(args.options || {}),
-      chain: 'evm' as const,
       ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
     };
-    const chainId = requireThresholdEcdsaProvisionChainId({
-      chain: options.chain,
-      chains: context.configs.network.chains,
-      explicitChainId: options.chainId,
-      smartAccount: options.smartAccount,
-    });
 
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
@@ -56,8 +52,7 @@ export class EvmSigner implements EvmSignerCapability {
       local: async () => {
         return await context.signingEngine.bootstrapEcdsaSession({
           nearAccountId: toAccountId(args.nearAccountId),
-          chain: options.chain,
-          chainId,
+          chainTarget,
           relayerUrl: options.relayerUrl,
           participantIds: options.participantIds,
           sessionKind: options.sessionKind,

@@ -1,9 +1,9 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
-import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
 import type { EmailOtpAuthLane } from '../../emailOtp/authLane';
 import type { ThresholdSessionSealTransportAuthMaterial } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import {
   readWarmSessionCapabilityRecordsForAccount,
+  readWarmSessionEcdsaRecordByThresholdSessionIdForTarget,
   readWarmSessionEcdsaRecordByThresholdSessionId,
   readWarmSessionEd25519RecordByThresholdSessionId,
 } from './store';
@@ -17,6 +17,7 @@ import {
   type WarmSessionReadPorts,
 } from './readModel';
 import { assertWarmSessionEnvelopeInvariant } from './types';
+import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
 import type {
   WarmSessionEcdsaAuthMaterial,
   WarmSessionEcdsaCapabilityState,
@@ -55,7 +56,6 @@ export type WarmSessionCapabilityReaderCore = {
   resolveEmailOtpSigningSessionAuthLane: (args: {
     thresholdSessionId: string;
     curve: 'ed25519' | 'ecdsa';
-    chain?: ThresholdEcdsaActivationChain;
   }) => EmailOtpAuthLane | null;
   getEd25519CapabilityByThresholdSessionId: (
     thresholdSessionId: string,
@@ -64,7 +64,10 @@ export type WarmSessionCapabilityReaderCore = {
     thresholdSessionId: string,
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
   resolveEcdsaSealTransportByThresholdSessionId: (
-    thresholdSessionId: string,
+    args: {
+      thresholdSessionId: string;
+      chainTarget: ThresholdEcdsaChainTarget;
+    },
   ) => ThresholdSessionSealTransportAuthMaterial | null;
 };
 
@@ -103,7 +106,6 @@ export function createWarmSessionCapabilityReaderCore(
         ecdsa: {
           evm: {
             capability: 'ecdsa',
-            chain: 'evm',
             record: records.ecdsa.evm,
             auth: evmAuth,
             prfClaim: evmClaim,
@@ -119,7 +121,6 @@ export function createWarmSessionCapabilityReaderCore(
           },
           tempo: {
             capability: 'ecdsa',
-            chain: 'tempo',
             record: records.ecdsa.tempo,
             auth: tempoAuth,
             prfClaim: tempoClaim,
@@ -169,7 +170,6 @@ export function createWarmSessionCapabilityReaderCore(
   function resolveEmailOtpSigningSessionAuthLane(args: {
     thresholdSessionId: string;
     curve: 'ed25519' | 'ecdsa';
-    chain?: ThresholdEcdsaActivationChain;
   }): EmailOtpAuthLane | null {
     const thresholdSessionId = String(args.thresholdSessionId || '').trim();
     if (!thresholdSessionId) return null;
@@ -189,15 +189,14 @@ export function createWarmSessionCapabilityReaderCore(
     const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
     const jwt = String(record?.thresholdSessionJwt || '').trim();
     const walletSigningSessionId = String(record?.walletSigningSessionId || '').trim();
-    const chain = args.chain || record?.chain;
-    if (record?.source !== 'email_otp' || !jwt || !walletSigningSessionId || !chain) return null;
+    if (record?.source !== 'email_otp' || !jwt || !walletSigningSessionId) return null;
     return {
       kind: 'signing_session',
       jwt,
       thresholdSessionId,
       walletSigningSessionId,
       curve: 'ecdsa',
-      chain,
+      chainTarget: record.chainTarget,
     };
   }
 
@@ -234,7 +233,6 @@ export function createWarmSessionCapabilityReaderCore(
     const prfClaim = await deps.statusReader.readEcdsaWarmSessionClaimForRecord(record);
     return {
       capability: 'ecdsa',
-      chain: record.chain,
       record,
       auth,
       prfClaim,
@@ -248,10 +246,11 @@ export function createWarmSessionCapabilityReaderCore(
     };
   }
 
-  function resolveEcdsaSealTransportByThresholdSessionId(
-    thresholdSessionId: string,
-  ): ThresholdSessionSealTransportAuthMaterial | null {
-    const record = readWarmSessionEcdsaRecordByThresholdSessionId(thresholdSessionId);
+  function resolveEcdsaSealTransportByThresholdSessionId(args: {
+    thresholdSessionId: string;
+    chainTarget: ThresholdEcdsaChainTarget;
+  }): ThresholdSessionSealTransportAuthMaterial | null {
+    const record = readWarmSessionEcdsaRecordByThresholdSessionIdForTarget(args);
     if (!record) return null;
     const auth = resolveEcdsaAuthMaterial(record);
     return resolveEcdsaSealTransport({

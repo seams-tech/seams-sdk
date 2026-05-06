@@ -453,7 +453,7 @@ export class SigningSessionCoordinator
     operationUsesNeeded?: number;
   }): Promise<SigningSessionPreparedBudgetIdentity> {
     const lane =
-      'chain' in input.lane
+      !('keyKind' in input.lane)
         ? selectedSigningLaneContextFromTransactionLane(input.lane)
         : input.lane;
     const walletSigningSessionId = normalizeRequired(
@@ -774,7 +774,7 @@ export class SigningSessionCoordinator
 function hasWalletSigningSessionReadinessDeps(deps: SigningSessionCoordinatorDeps): boolean {
   return Boolean(
     deps.touchConfirm ||
-      deps.listThresholdEcdsaSessionRecordsForLookup ||
+      deps.listConcreteThresholdEcdsaSessionRecordsForSubject ||
       deps.getEmailOtpWarmSessionStatus,
   );
 }

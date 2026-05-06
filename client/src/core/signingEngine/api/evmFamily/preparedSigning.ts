@@ -5,8 +5,13 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../thresholdLifecycle/thresholdSessionStore';
 import type {
+  ReadSigningSessionSnapshotForSigningInput,
   SigningSessionSnapshot,
   SigningSessionSnapshotEcdsaLane,
+} from '../../session/snapshotReader';
+import {
+  ecdsaSnapshotCandidatesForTarget,
+  isConcreteSigningSessionSnapshotLane,
 } from '../../session/snapshotReader';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import type { RestorePersistedSessionForSigningInput } from '../../session/restoreCoordinator';
@@ -15,11 +20,17 @@ import {
   prepareTransactionSigningOperation,
   selectTransactionLane,
   type EvmFamilyEcdsaConcreteSnapshotLane,
+  type EvmFamilyEcdsaTransactionSigningIntent,
   type EvmFamilyEcdsaTransactionLane,
   type PreparedTransactionBudgetState,
   type PreparedTransactionOperation,
+  type TransactionAuthSelectionPolicy,
   type TransactionSigningIntent,
 } from '../../session/signingSession/transactionState';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type WalletSubjectId,
+} from '../../session/signingSession/ecdsaChainTarget';
 import {
   type PreparedThresholdSigningOperation,
 } from '../../session/signingSession/preparedOperation';
@@ -50,7 +61,32 @@ import {
   type EvmFamilyPreConfirmSigningDeps,
 } from './authPlanning';
 import { resolveEvmFamilyTransactionAccountAuth } from './accountAuth';
-import type { EvmFamilyChain } from './types';
+import type { EvmFamilySigningTarget } from './types';
+
+function buildEvmFamilyTransactionSigningIntent(args: {
+  walletId: string;
+  signingTarget: EvmFamilySigningTarget;
+  authSelectionPolicy: TransactionAuthSelectionPolicy;
+  operationUsesNeeded: number;
+}): EvmFamilyEcdsaTransactionSigningIntent {
+  const base = {
+    walletId: args.walletId,
+    curve: 'ecdsa' as const,
+    authSelectionPolicy: args.authSelectionPolicy,
+    operationUsesNeeded: args.operationUsesNeeded,
+  };
+  return args.signingTarget.chain === 'tempo'
+    ? {
+        ...base,
+        chain: 'tempo',
+        chainTarget: args.signingTarget.chainTarget,
+      }
+    : {
+        ...base,
+        chain: 'evm',
+        chainTarget: args.signingTarget.chainTarget,
+      };
+}
 
 function isRuntimeBackedEcdsaSnapshotLane(
   lane: SigningSessionSnapshotEcdsaLane | null | undefined,
@@ -58,21 +94,25 @@ function isRuntimeBackedEcdsaSnapshotLane(
   return (
     Boolean(lane) &&
     lane!.curve === 'ecdsa' &&
-    (lane!.chain === 'tempo' || lane!.chain === 'evm') &&
+    Boolean(lane!.chainTarget) &&
+    isConcreteSigningSessionSnapshotLane(lane!) &&
     (lane!.source === 'runtime_session_record' ||
       lane!.source === 'runtime_and_durable') &&
-    (lane!.authMethod === 'email_otp' || lane!.authMethod === 'passkey') &&
-    Boolean(String(lane!.walletSigningSessionId || '').trim()) &&
-    Boolean(String(lane!.thresholdSessionId || '').trim())
+    (lane!.authMethod === 'email_otp' || lane!.authMethod === 'passkey')
   );
 }
 
 function getSingleRuntimeBackedEcdsaSnapshotLane(args: {
   snapshot: SigningSessionSnapshot;
-  chain: EvmFamilyChain;
+  signingTarget: EvmFamilySigningTarget;
 }): EvmFamilyEcdsaConcreteSnapshotLane | null {
-  const runtimeCandidates = (args.snapshot.candidates.ecdsa[args.chain] || []).filter(
-    isRuntimeBackedEcdsaSnapshotLane,
+  const runtimeCandidates = ecdsaSnapshotCandidatesForTarget(
+    args.snapshot,
+    args.signingTarget.chainTarget,
+  ).filter(
+    (lane): lane is EvmFamilyEcdsaConcreteSnapshotLane =>
+      isRuntimeBackedEcdsaSnapshotLane(lane) &&
+      thresholdEcdsaChainTargetsEqual(lane.chainTarget, args.signingTarget.chainTarget),
   );
   if (runtimeCandidates.length === 1) return runtimeCandidates[0];
   // Multiple runtime lanes are not a single current-lane anchor; let the
@@ -84,11 +124,21 @@ function summarizeEcdsaSnapshotLane(
   lane: SigningSessionSnapshotEcdsaLane | null | undefined,
 ): Record<string, unknown> {
   if (!lane) return { present: false };
+  if (!isConcreteSigningSessionSnapshotLane(lane)) {
+    return {
+      present: true,
+      curve: lane.curve,
+      chain: lane.chainTarget.kind,
+      chainTarget: lane.chainTarget,
+      state: lane.state,
+    };
+  }
   return {
     present: true,
     authMethod: lane.authMethod,
     curve: lane.curve,
-    chain: lane.chain,
+    chain: lane.chainTarget?.kind,
+    chainTarget: lane.chainTarget,
     state: lane.state,
     source: lane.source,
     walletSigningSessionId: lane.walletSigningSessionId,
@@ -104,14 +154,13 @@ function assertSelectionMatchesSnapshotCandidate(args: {
   lane: ResolvedEvmFamilyEcdsaSigningLane;
 }): void {
   const candidate = args.candidate;
-  if (!candidate) return;
-  if (candidate.authMethod && candidate.authMethod !== args.lane.authMethod) {
+  if (!candidate || !isConcreteSigningSessionSnapshotLane(candidate)) return;
+  if (candidate.authMethod !== args.lane.authMethod) {
     throw new Error(
       `[SigningEngine][ecdsa] prepared restore auth method ${candidate.authMethod} did not match selected lane auth method ${args.lane.authMethod}`,
     );
   }
   if (
-    candidate.thresholdSessionId &&
     candidate.thresholdSessionId !== String(args.lane.thresholdSessionId)
   ) {
     throw new Error(
@@ -119,7 +168,6 @@ function assertSelectionMatchesSnapshotCandidate(args: {
     );
   }
   if (
-    candidate.walletSigningSessionId &&
     candidate.walletSigningSessionId !== String(args.lane.walletSigningSessionId)
   ) {
     throw new Error(
@@ -151,10 +199,9 @@ export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDep
     restorePersistedSessionForSigning: (
       args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,
     ) => Promise<unknown>;
-    readSigningSessionSnapshotForSigning: (args: {
-      walletId: string;
-      authMethod?: 'email_otp' | 'passkey';
-    }) => Promise<SigningSessionSnapshot>;
+    readSigningSessionSnapshotForSigning: (
+      args: Extract<ReadSigningSessionSnapshotForSigningInput, { curve: 'ecdsa' }>,
+    ) => Promise<SigningSessionSnapshot>;
     getEmailOtpThresholdEcdsaKeyRefForSigning: (
       args: EcdsaSigningLookupArgs,
     ) => ThresholdEcdsaSecp256k1KeyRef;
@@ -172,19 +219,20 @@ export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDep
 export async function prepareEvmFamilyEcdsaSigningSession(args: {
   deps: PrepareEvmFamilyEcdsaSigningDeps;
   nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  signingTarget: EvmFamilySigningTarget;
   diagnostics: Record<string, unknown>;
   signingSessionCoordinator: SigningSessionCoordinator;
   forceFreshAuth?: boolean;
 }): Promise<PreparedEvmFamilyEcdsaSigningSession> {
+  const { chain, chainTarget } = args.signingTarget;
   const preparedTransaction = await prepareTransactionSigningOperation({
-    intent: {
+    intent: buildEvmFamilyTransactionSigningIntent({
       walletId: args.nearAccountId,
-      curve: 'ecdsa',
-      chain: args.chain,
       authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' },
       operationUsesNeeded: 1,
-    },
+      signingTarget: args.signingTarget,
+    }),
     coordinator: args.signingSessionCoordinator,
     forceFreshAuth: args.forceFreshAuth === true,
     missingWhenExpiresAtMissing: true,
@@ -194,16 +242,23 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
       prepare: async () => {
         const candidateSnapshot = await args.deps.readSigningSessionSnapshotForSigning({
           walletId: args.nearAccountId,
+          subjectId: args.subjectId,
+          curve: 'ecdsa',
+          ecdsaChainTargets: [args.signingTarget.chainTarget],
         });
         const currentRuntimeLane = getSingleRuntimeBackedEcdsaSnapshotLane({
           snapshot: candidateSnapshot,
-          chain: args.chain,
+          signingTarget: args.signingTarget,
         });
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.snapshot_read',
           accountId: args.nearAccountId,
-          chain: args.chain,
-          candidateCount: candidateSnapshot.candidates.ecdsa[args.chain]?.length || 0,
+          chain,
+          chainTarget,
+          candidateCount: ecdsaSnapshotCandidatesForTarget(
+            candidateSnapshot,
+            args.signingTarget.chainTarget,
+          ).length,
           currentRuntimeLane: summarizeEcdsaSnapshotLane(currentRuntimeLane),
         });
         const accountAuth = await resolveEvmFamilyTransactionAccountAuth({
@@ -213,13 +268,12 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         });
         const primaryAuthMethod =
           accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
-        const transactionIntent: TransactionSigningIntent = {
+        const transactionIntent: TransactionSigningIntent = buildEvmFamilyTransactionSigningIntent({
           walletId: args.nearAccountId,
-          curve: 'ecdsa',
-          chain: args.chain,
           authSelectionPolicy: { kind: 'account_class', authMethod: primaryAuthMethod },
           operationUsesNeeded: 1,
-        };
+          signingTarget: args.signingTarget,
+        });
         const selectedLane = selectTransactionLane({
           intent: transactionIntent,
           snapshot: candidateSnapshot,
@@ -228,7 +282,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.lane_selected',
           accountId: args.nearAccountId,
-          chain: args.chain,
+          chain,
+          chainTarget,
           primaryAuthMethod,
           selectionOk: selectedLane.ok,
           ...(selectedLane.ok
@@ -245,7 +300,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             emitSigningSessionFlowFailure('evm-family', {
               stage: 'ecdsa_prepare.lane_selection_failed',
               accountId: args.nearAccountId,
-              chain: args.chain,
+              chain,
+              chainTarget,
               primaryAuthMethod,
               failure: selectedLane.failure,
             });
@@ -270,12 +326,16 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           emitSigningSessionFlowFailure('evm-family', {
             stage: 'ecdsa_prepare.exact_snapshot_lane_missing',
             accountId: args.nearAccountId,
-            chain: args.chain,
+            chain,
+            chainTarget,
             primaryAuthMethod,
-            candidateCount: candidateSnapshot.candidates.ecdsa[args.chain]?.length || 0,
+            candidateCount: ecdsaSnapshotCandidatesForTarget(
+              candidateSnapshot,
+              args.signingTarget.chainTarget,
+            ).length,
           });
           throw new Error(
-            `[SigningEngine][ecdsa] transaction restore requires an exact snapshot lane for ${args.chain}`,
+            `[SigningEngine][ecdsa] transaction restore requires an exact snapshot lane for ${chain}`,
           );
         }
         const authMethod = transactionLane.authMethod;
@@ -289,7 +349,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_prepare.restore_start',
             accountId: args.nearAccountId,
-            chain: args.chain,
+            chain,
+            chainTarget,
             authMethod,
             selectedSnapshotLane: summarizeEcdsaSnapshotLane(snapshotCandidate),
           });
@@ -304,7 +365,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               walletId: args.nearAccountId,
               authMethod,
               curve: 'ecdsa',
-              chain: args.chain,
+              chainTarget,
               walletSigningSessionId: snapshotCandidate.walletSigningSessionId,
               thresholdSessionId: snapshotCandidate.thresholdSessionId,
               reason: 'transaction',
@@ -316,7 +377,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             emitSigningSessionFlowFailure('evm-family', {
               stage: 'ecdsa_prepare.restore_failed',
               accountId: args.nearAccountId,
-              chain: args.chain,
+              chain,
+              chainTarget,
               authMethod,
               selectedSnapshotLane: summarizeEcdsaSnapshotLane(snapshotCandidate),
               error: message,
@@ -335,13 +397,14 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               },
             };
             throw new Error(
-              `[SigningEngine][ecdsa] exact transaction restore failed for ${args.chain} ${authMethod}: ${message}`,
+              `[SigningEngine][ecdsa] exact transaction restore failed for ${chain} ${authMethod}: ${message}`,
             );
           }
           emitSigningSessionFlowTrace('evm-family', {
             stage: 'ecdsa_prepare.restore_succeeded',
             accountId: args.nearAccountId,
-            chain: args.chain,
+            chain,
+            chainTarget,
             authMethod,
             selectedSnapshotLane: summarizeEcdsaSnapshotLane(snapshotCandidate),
           });
@@ -370,7 +433,9 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         const selection = await resolveEvmFamilyEcdsaSigningSelection({
           deps: args.deps,
           nearAccountId: args.nearAccountId,
-          chain: args.chain,
+          subjectId: transactionLane.subjectId,
+          chain,
+          chainTarget,
           senderSignatureAlgorithm: 'secp256k1',
           authMethod,
           transactionLane,
@@ -380,7 +445,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.material_selected',
           accountId: args.nearAccountId,
-          chain: args.chain,
+          chain,
+          chainTarget,
           authMethod: selection.authMethod,
           source: selection.source,
           lane: summarizeEvmFamilyEcdsaLane(selection.lane),
@@ -390,6 +456,9 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         });
         const snapshot = await args.deps.readSigningSessionSnapshotForSigning({
           walletId: args.nearAccountId,
+          subjectId: transactionLane.subjectId,
+          curve: 'ecdsa',
+          ecdsaChainTargets: [args.signingTarget.chainTarget],
           authMethod: selection.authMethod,
         });
         const signingLane = selection.lane;
@@ -408,7 +477,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           emitSigningSessionFlowFailure('evm-family', {
             stage: 'ecdsa_prepare.material_selection_missing_lane',
             accountId: args.nearAccountId,
-            chain: args.chain,
+            chain,
+            chainTarget,
             authMethod: selection.authMethod,
             source: selection.source,
             selectedSnapshotLane: summarizeEcdsaSnapshotLane(snapshotCandidate),
@@ -422,7 +492,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         }
         const resolvedLane = requireResolvedEvmFamilyEcdsaSigningLane({
           lane: signingLane,
-          chain: args.chain,
+          chain,
           context: 'EVM-family signing preparation',
           diagnostics: args.diagnostics,
         });
@@ -439,7 +509,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
         emitSigningSessionFlowTrace('evm-family', {
           stage: 'ecdsa_prepare.readiness',
           accountId: args.nearAccountId,
-          chain: args.chain,
+          chain,
+          chainTarget,
           authMethod: selection.authMethod,
           lane: summarizeEvmFamilyEcdsaLane(resolvedLane),
           readinessStatus: readiness.readiness.status,

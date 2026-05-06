@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { toWalletSubjectId } from '@seams/sdk';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 
@@ -16,6 +17,7 @@ import {
   waitForExpectedGreeting,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
+import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';
 import { handleSigningToastEvent } from './signingToast';
 
 type UseDemoArcSigningActionsArgs = {
@@ -58,7 +60,9 @@ export function useDemoArcSigningActions(args: UseDemoArcSigningActionsArgs) {
       const request = buildDemoEip1559Request(requestedGreeting, feeCaps);
       const execution = await seams.tempo.executeEvmFamilyTransaction({
         nearAccountId,
+        subjectId: toWalletSubjectId(nearAccountId),
         request,
+        chainTarget: resolveDemoThresholdEcdsaChainTarget('evm', FRONTEND_CONFIG.chains),
         finalization: {
           timeoutMs: EVM_GREETING_FINALITY_TIMEOUT_MS,
           pollIntervalMs: EVM_GREETING_FINALITY_POLL_INTERVAL_MS,

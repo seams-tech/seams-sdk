@@ -1,5 +1,9 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import {
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from '../../session/signingSession/ecdsaChainTarget';
+import {
   clearThresholdCommitQueue,
   withThresholdCommitQueue,
   type ThresholdCommitQueueByKey,
@@ -12,7 +16,7 @@ export type ThresholdEcdsaCommitQueueErrorCode = ThresholdCommitQueueErrorCode;
 export type ThresholdEcdsaCommitQueueError = ThresholdCommitQueueError;
 
 export type ThresholdEcdsaCommitQueueKeyInput = {
-  chain: 'tempo' | 'evm';
+  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
 };
 
@@ -60,14 +64,14 @@ export function createThresholdEcdsaCommitQueueCancelledError(
 }
 
 export function resolveThresholdEcdsaCommitQueueKey(args: ThresholdEcdsaCommitQueueKeyInput): string {
-  const chain = args.chain === 'evm' ? 'evm' : 'tempo';
+  const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
   const thresholdSessionId = String(args.thresholdSessionId).trim();
   if (!thresholdSessionId) {
     throw new Error(
       '[SigningEngine] threshold ECDSA commit queue requires non-empty thresholdSessionId',
     );
   }
-  return `session:${chain}:${thresholdSessionId}`;
+  return `session:${targetKey}:${thresholdSessionId}`;
 }
 
 export function clearThresholdEcdsaCommitQueue(

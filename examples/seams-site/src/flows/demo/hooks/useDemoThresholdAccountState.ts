@@ -4,13 +4,14 @@ import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG, type FrontendConfig } from '@/config';
 import { isEvmAddress, readTempoTokenBalanceRaw, readTempoUserFeeToken } from '../demoEvmHelpers';
+import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';
 import type { EvmAddress } from './demoThresholdTypes';
 
 type UseDemoThresholdAccountStateArgs = {
   isLoggedIn: boolean;
   nearAccountId?: string | null;
   seams: ReturnType<typeof useSeams>['seams'];
-  frontendConfig?: Pick<FrontendConfig, 'relayerUrl'>;
+  frontendConfig?: Pick<FrontendConfig, 'chains' | 'relayerUrl'>;
 };
 
 export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateArgs) {
@@ -40,12 +41,14 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
           ? await seams.tempo.bootstrapEcdsaSession({
               nearAccountId,
               options: {
+                chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', frontendConfig.chains),
                 ...(frontendConfig.relayerUrl ? { relayerUrl: frontendConfig.relayerUrl } : {}),
               },
             })
           : await seams.evm.bootstrapEcdsaSession({
               nearAccountId,
               options: {
+                chainTarget: resolveDemoThresholdEcdsaChainTarget('evm', frontendConfig.chains),
                 ...(frontendConfig.relayerUrl ? { relayerUrl: frontendConfig.relayerUrl } : {}),
               },
             });
@@ -62,7 +65,7 @@ export function useDemoThresholdAccountState(args: UseDemoThresholdAccountStateA
       setThresholdEvmFundingAddress(maybeAddress);
       return maybeAddress;
     },
-    [frontendConfig.relayerUrl, isLoggedIn, nearAccountId, seams],
+    [frontendConfig.chains, frontendConfig.relayerUrl, isLoggedIn, nearAccountId, seams],
   );
 
   const refreshThresholdEvmFundingAddress = useCallback(

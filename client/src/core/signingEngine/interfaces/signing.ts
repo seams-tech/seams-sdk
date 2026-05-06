@@ -1,4 +1,8 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../session/signingSession/ecdsaChainTarget';
 
 export type ChainNamespace = 'near' | 'evm' | 'tempo';
 
@@ -8,7 +12,7 @@ export type SignatureBytes = Uint8Array;
 
 export type ThresholdEcdsaCanonicalExportArtifact = {
   artifactKind: 'ecdsa-hss-secp256k1-key-v1';
-  chain: 'evm' | 'tempo';
+  chainTarget: ThresholdEcdsaChainTarget;
   signingRootId: string;
   signingRootVersion?: string;
   publicKeyHex: string;
@@ -47,10 +51,11 @@ export type ThresholdEcdsaBackendBinding = {
 };
 
 export type KeyRef =
-  | { type: 'local-secp256k1'; privateKey: Uint8Array }
   | {
       type: 'threshold-ecdsa-secp256k1';
       userId: string;
+      subjectId: WalletSubjectId;
+      chainTarget: ThresholdEcdsaChainTarget;
       relayerUrl: string;
       /**
        * Canonical product-facing identity for the integrated ecdsa-hss key.
@@ -66,8 +71,8 @@ export type KeyRef =
       relayerVerifyingShareB64u?: string;
       thresholdSessionKind?: 'jwt' | 'cookie';
       thresholdSessionJwt?: string;
-      thresholdSessionId?: string;
-      walletSigningSessionId?: string;
+      thresholdSessionId: string;
+      walletSigningSessionId: string;
       mpcSessionId?: string;
     }
   | {

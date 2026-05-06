@@ -1,5 +1,6 @@
 import type { AccountId } from '../types/accountIds';
 import type { ConfirmationConfig } from '../types/signer-worker';
+import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
 import type {
   SignerAuthMethod,
   SignerKind,
@@ -224,18 +225,11 @@ export interface ProfileRecoveryEmailRecord {
 
 export type NonceLaneLeaseStoreRecordState = 'reserved' | 'signed' | 'broadcast_accepted';
 
-export interface NonceLaneLeaseStoreRecord {
+interface NonceLaneLeaseStoreRecordBase {
   v: 1;
   leaseId: string;
   laneKey: string;
-  family: 'evm' | 'near';
-  chain?: 'evm' | 'tempo';
   networkKey: string;
-  chainId?: number;
-  sender?: `0x${string}` | string;
-  nonceKey?: string;
-  accountId?: string;
-  publicKey?: string;
   nonce: string;
   state: NonceLaneLeaseStoreRecordState;
   operationId: string;
@@ -248,6 +242,20 @@ export interface NonceLaneLeaseStoreRecord {
   batchId?: string;
   txIndex?: number;
 }
+
+export type NonceLaneLeaseStoreRecord =
+  | (NonceLaneLeaseStoreRecordBase & {
+      family: 'evm';
+      chainTarget: ThresholdEcdsaChainTarget;
+      sender: `0x${string}` | string;
+      nonceKey?: string;
+      accountId?: string;
+    })
+  | (NonceLaneLeaseStoreRecordBase & {
+      family: 'near';
+      accountId: string;
+      publicKey: string;
+    });
 
 export interface NonceLaneLockStoreRecord {
   lockKey: string;

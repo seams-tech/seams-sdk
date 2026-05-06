@@ -1,7 +1,10 @@
 import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import { chainFamilyFromNetwork } from '@/core/config/chains';
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
-import { normalizeIndexedDbAccountModel } from '@/core/indexedDB/normalization';
+import {
+  normalizeIndexedDbAccountModel,
+  toIndexedDbChainTargetKey,
+} from '@/core/indexedDB/normalization';
 import type { ChainAccountRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import { resolveProfileAccountContextFromCandidates } from '@/core/indexedDB/profileAccountProjection';
 import { toAccountId } from '@/core/types/accountIds';
@@ -129,8 +132,8 @@ export async function resolveManagedNonceSender(args: {
   }
 
   const target = deriveSmartAccountDeploymentTargetFromSigningRequest(args.request);
-  for (const chainId of target.chainIdCandidates) {
-    const chainIdKey = `${target.chain}:${String(chainId)}`;
+  for (const chainTarget of target.chainTargetCandidates) {
+    const chainIdKey = toIndexedDbChainTargetKey(chainTarget);
     const rows = await args.deps.indexedDB.clientDB
       .listChainAccountsByProfileAndChain(context.profileId, chainIdKey)
       .catch(() => []);
@@ -141,21 +144,6 @@ export async function resolveManagedNonceSender(args: {
     });
     const sender = toOptionalEvmAddress(selected?.accountAddress);
     if (sender) return sender;
-  }
-
-  if (typeof args.deps.indexedDB.clientDB.listChainAccountsByProfile === 'function') {
-    const allProfileRows = await args.deps.indexedDB.clientDB
-      .listChainAccountsByProfile(context.profileId)
-      .catch(() => []);
-    if (allProfileRows.length) {
-      const counterpartModels = target.chain === 'evm' ? ['tempo-native'] : ['erc4337'];
-      const selected = pickPreferredSmartAccountRow({
-        rows: allProfileRows,
-        accountModelCandidates: [...target.accountModelCandidates, ...counterpartModels],
-      });
-      const sender = toOptionalEvmAddress(selected?.accountAddress);
-      if (sender) return sender;
-    }
   }
 
   const contextMappedSender = toOptionalEvmAddress(context.accountRef.accountAddress);

@@ -1,4 +1,8 @@
 import { normalizeLowercaseString, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import {
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from '../signingEngine/session/signingSession/ecdsaChainTarget';
 
 export function normalizeLastUserScope(scope: unknown): string | null {
   const normalized = normalizeOptionalNonEmptyString(scope);
@@ -38,6 +42,6 @@ export function normalizeIndexedDbOptionalChainIdNumber(
   return parsed;
 }
 
-export function toIndexedDbChainIdKey(chain: 'evm' | 'tempo', chainId: number): string {
-  return `${chain}:${String(chainId)}`;
+export function toIndexedDbChainTargetKey(chainTarget: ThresholdEcdsaChainTarget): string {
+  return thresholdEcdsaChainTargetKey(chainTarget);
 }

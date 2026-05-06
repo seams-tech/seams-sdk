@@ -7,6 +7,7 @@ import {
   type EvmFamilyEcdsaSessionReaderDeps,
 } from './ecdsaLanes';
 import type { EvmFamilyChain } from './types';
+import type { ThresholdEcdsaChainTarget } from '../../session/signingSession/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
 
 export type EvmFamilyEmailOtpSigningRefreshDeps = EvmFamilyEcdsaSessionReaderDeps;
@@ -25,6 +26,7 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   deps: EvmFamilyEmailOtpSigningRefreshDeps;
   nearAccountId: string;
   chain: EvmFamilyChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   emailOtpSigning: EvmFamilyEmailOtpSigningCompleter;
   otpCode: string;
   challengeId?: string;
@@ -33,6 +35,7 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
   const completedLane = buildEvmFamilyEcdsaSigningLaneContext({
     nearAccountId: args.nearAccountId,
     chain: args.chain,
+    chainTarget: args.chainTarget,
     authMethod: SIGNER_AUTH_METHODS.emailOtp,
     source: SIGNER_AUTH_METHODS.emailOtp,
     keyRef,
@@ -46,6 +49,7 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
     const lane = buildEvmFamilyEcdsaSigningLaneContext({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
+      chainTarget: args.chainTarget,
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
       source: SIGNER_AUTH_METHODS.emailOtp,
       record,

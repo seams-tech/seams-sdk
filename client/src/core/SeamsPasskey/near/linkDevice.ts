@@ -40,6 +40,10 @@ import {
   THRESHOLD_SESSION_POLICY_VERSION,
   generateThresholdSessionId,
 } from '../../signingEngine/threshold/session/sessionPolicy';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
+} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 import { listThresholdEcdsaProvisionTargets } from '../thresholdEcdsaProvisioning';
 import {
   persistLinkDeviceThresholdEcdsaBootstrap,
@@ -84,23 +88,30 @@ function parsePreparedLinkedAccounts(raw: unknown): PreparedLinkDeviceLinkedAcco
   const out: PreparedLinkDeviceLinkedAccount[] = [];
   for (const value of raw) {
     if (!isObject(value)) continue;
-    const chain = String(value.chain || '')
-      .trim()
-      .toLowerCase();
     const chainIdKey = String(value.chainIdKey || '')
       .trim()
       .toLowerCase();
     const accountAddress = String(value.accountAddress || '').trim();
     const accountModel = String(value.accountModel || '').trim();
-    const chainId = Number(value.chainId);
-    if ((chain !== 'evm' && chain !== 'tempo') || !chainIdKey || !accountAddress) continue;
-    if (!Number.isFinite(chainId) || chainId <= 0) continue;
+    let chainTarget: ThresholdEcdsaChainTarget;
+    try {
+      chainTarget = thresholdEcdsaChainTargetFromRequest(
+        isObject(value.chainTarget)
+          ? (value.chainTarget as Record<string, unknown>)
+          : {
+              chain: value.chain,
+              chainId: value.chainId,
+            },
+      );
+    } catch {
+      continue;
+    }
+    if (!chainIdKey || !accountAddress) continue;
     if (accountModel !== 'erc4337' && accountModel !== 'tempo-native') continue;
     out.push({
-      chain,
+      chainTarget,
       chainIdKey,
       accountAddress,
-      chainId: Math.floor(chainId),
       accountModel,
       ...(typeof value.factory === 'string' && value.factory.trim()
         ? { factory: value.factory.trim() }
@@ -445,9 +456,10 @@ export class LinkDeviceFlow {
       rpId,
       requestedPolicy: thresholdWarmPolicy,
     });
-    const thresholdEcdsaProvisionTargets = listThresholdEcdsaProvisionTargets(
-      this.context.configs.signing.thresholdEcdsa.provisioningDefaults,
-    );
+    const thresholdEcdsaProvisionTargets = listThresholdEcdsaProvisionTargets({
+      signerOptions: this.context.configs.signing.thresholdEcdsa.provisioningDefaults,
+      chains: this.context.configs.network.chains,
+    });
     const thresholdEcdsaPrimaryProvisionTarget = thresholdEcdsaProvisionTargets[0] || null;
     let thresholdEcdsaClientRootShare32B64u: string | null = null;
     let thresholdEcdsaSessionPolicy: {

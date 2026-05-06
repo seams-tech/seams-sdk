@@ -20,6 +20,7 @@ import {
   deleteExactSealedSession,
   updateExactSealedSessionPolicy,
 } from '../../session/sealedSessionStore';
+import type { ThresholdEcdsaChainTarget } from '../../session/signingSession/ecdsaChainTarget';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 type EcdsaSessionChain = 'tempo' | 'evm';
@@ -51,6 +52,7 @@ async function claimEmailOtpWorkerEcdsaSigningShare(args: {
   sessionId: string;
   sealedThresholdSessionId: string;
   chain: EcdsaSessionChain;
+  chainTarget: ThresholdEcdsaChainTarget;
 }): Promise<{ clientSigningShare32: Uint8Array; remainingUses: number; expiresAtMs: number }> {
   const sessionId = String(args.sessionId || '').trim();
   if (!sessionId) {
@@ -74,7 +76,7 @@ async function claimEmailOtpWorkerEcdsaSigningShare(args: {
         {
           authMethod: 'email_otp',
           curve: 'ecdsa',
-          chain: args.chain,
+          chainTarget: args.chainTarget,
         },
         {
           deleteResolvedIdentity: result.code === 'not_found',
@@ -104,6 +106,7 @@ async function claimEmailOtpWorkerEcdsaSigningShare(args: {
 async function updateEmailOtpSealedRecordPolicyAfterEcdsaClaim(args: {
   thresholdSessionId: string;
   chain: EcdsaSessionChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   remainingUses: number;
   expiresAtMs: number;
 }): Promise<void> {
@@ -115,7 +118,7 @@ async function updateEmailOtpSealedRecordPolicyAfterEcdsaClaim(args: {
       {
         authMethod: 'email_otp',
         curve: 'ecdsa',
-        chain: args.chain,
+        chainTarget: args.chainTarget,
       },
       {
         deleteResolvedIdentity: false,
@@ -128,7 +131,7 @@ async function updateEmailOtpSealedRecordPolicyAfterEcdsaClaim(args: {
     filter: {
       authMethod: 'email_otp',
       curve: 'ecdsa',
-      chain: args.chain,
+      chainTarget: args.chainTarget,
     },
     remainingUses: args.remainingUses,
     expiresAtMs: args.expiresAtMs,
@@ -261,7 +264,7 @@ export class Secp256k1Engine implements Signer {
       const canonicalRecordMatchesKeyRefLane =
         !!canonicalRecord &&
         String(canonicalRecord.nearAccountId || '') === String(keyRef.userId || '') &&
-        (!requestChain || canonicalRecord.chain === requestChain) &&
+        (!requestChain || canonicalRecord.chainTarget.kind === requestChain) &&
         String(canonicalRecord.ecdsaThresholdKeyId || '') ===
           String(keyRef.ecdsaThresholdKeyId || '') &&
         String(canonicalRecord.relayerUrl || '') === String(keyRef.relayerUrl || '') &&
@@ -301,7 +304,7 @@ export class Secp256k1Engine implements Signer {
         Number(canonicalRecord.emailOtpAuthContext.consumedAtMs) > 0
       ) {
         throw new Error(
-          `[SigningEngine] ${requestChain || canonicalRecord.chain} signing requires fresh Email OTP verification with per_operation policy`,
+          `[SigningEngine] ${requestChain || canonicalRecord.chainTarget.kind} signing requires fresh Email OTP verification with per_operation policy`,
         );
       }
 
@@ -345,7 +348,7 @@ export class Secp256k1Engine implements Signer {
         );
       }
       const emailOtpWorkerShareSessionId = resolveEmailOtpShareHandleSessionId(keyRef);
-      const emailOtpWorkerShareChain = requestChain || canonicalRecord?.chain || null;
+      const emailOtpWorkerShareChain = requestChain || canonicalRecord?.chainTarget.kind || null;
       const usesEmailOtpWorkerSession = !!emailOtpWorkerShareSessionId;
       let emailOtpWorkerShareExhausted = false;
       const isSingleUseEmailOtpSession =
@@ -373,6 +376,7 @@ export class Secp256k1Engine implements Signer {
             sessionId: emailOtpWorkerShareSessionId,
             sealedThresholdSessionId: keyRefThresholdSessionId,
             chain: emailOtpWorkerShareChain,
+            chainTarget: keyRef.chainTarget,
           });
           clientSigningShare32 = claimedShare.clientSigningShare32;
           emailOtpWorkerShareExhausted =
@@ -380,6 +384,7 @@ export class Secp256k1Engine implements Signer {
           await updateEmailOtpSealedRecordPolicyAfterEcdsaClaim({
             thresholdSessionId: keyRefThresholdSessionId,
             chain: emailOtpWorkerShareChain,
+            chainTarget: keyRef.chainTarget,
             remainingUses: claimedShare.remainingUses,
             expiresAtMs: claimedShare.expiresAtMs,
           });

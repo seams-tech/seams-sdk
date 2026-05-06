@@ -1,6 +1,7 @@
 import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
 import { createSigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type { SigningExecutionTransitionEvent } from '../../session/signingSession/execution';
+import { thresholdEcdsaChainTargetFromChainFamily } from '../../session/signingSession/ecdsaChainTarget';
 import { emitNonceLifecycleMetric } from './nonceMetrics';
 import type {
   EvmFamilyLifecycleEvent,
@@ -13,7 +14,11 @@ export function toNonceLifecycleMetricBase(
   reservation: EvmFamilyManagedNonceReservation,
 ): Omit<Parameters<typeof emitNonceLifecycleMetric>[0], 'metric'> {
   const base = {
-    chain: reservation.chain,
+    chainTarget: thresholdEcdsaChainTargetFromChainFamily({
+      chain: reservation.chain,
+      chainId: reservation.chainId,
+      networkSlug: reservation.networkKey,
+    }),
     networkKey: reservation.networkKey,
     chainId: reservation.chainId,
     sender: reservation.sender,

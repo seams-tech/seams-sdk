@@ -19,7 +19,7 @@ type DemoPageTestOverrides = {
   useSetGreetingHook?: typeof useSetGreeting;
   frontendConfig?: Pick<
     FrontendConfig,
-    'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
+    'chains' | 'managedRegistration' | 'relayerUrl' | 'tempoExplorerUrl' | 'tempoRpcUrl'
   >;
 };
 

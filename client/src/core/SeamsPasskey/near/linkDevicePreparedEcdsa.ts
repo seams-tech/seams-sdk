@@ -6,6 +6,11 @@ import type { UnifiedIndexedDBManager } from '../../indexedDB';
 import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
 import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/profileAccountProjection';
 import { toAccountId } from '../../types/accountIds';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 
 type PreparedLinkDeviceThresholdEcdsa = {
   clientAdditiveShare32B64u: string;
@@ -17,8 +22,7 @@ type PreparedLinkDeviceThresholdEcdsa = {
 
 type PreparedLinkDeviceLinkedAccount = {
   chainIdKey: string;
-  chain: 'evm' | 'tempo';
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   accountAddress: string;
   accountModel: 'erc4337' | 'tempo-native';
   factory?: string;
@@ -78,23 +82,29 @@ function parsePreparedLinkedAccounts(raw: unknown): PreparedLinkDeviceLinkedAcco
     const chainIdKey = String(value.chainIdKey || '')
       .trim()
       .toLowerCase();
-    const chain = String(value.chain || '')
-      .trim()
-      .toLowerCase();
-    const chainId = Math.floor(Number(value.chainId));
     const accountAddress = String(value.accountAddress || '').trim();
     const accountModel = String(value.accountModel || '').trim();
+    let chainTarget: ThresholdEcdsaChainTarget;
+    try {
+      chainTarget = thresholdEcdsaChainTargetFromRequest(
+        isPlainObject(value.chainTarget)
+          ? (value.chainTarget as Record<string, unknown>)
+          : {
+              chain: value.chain,
+              chainId: value.chainId,
+            },
+      );
+    } catch {
+      continue;
+    }
     if (!chainIdKey || !accountAddress) continue;
-    if (chain !== 'evm' && chain !== 'tempo') continue;
-    if (!Number.isFinite(chainId) || chainId <= 0) continue;
     if (accountModel !== 'erc4337' && accountModel !== 'tempo-native') continue;
-    const key = `${chainIdKey}::${accountAddress}`;
+    const key = `${chainIdKey}::${thresholdEcdsaChainTargetKey(chainTarget)}::${accountAddress}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({
       chainIdKey,
-      chain,
-      chainId,
+      chainTarget,
       accountAddress,
       accountModel,
       ...(typeof value.factory === 'string' && value.factory.trim()
@@ -223,8 +233,8 @@ export async function persistPreparedLinkDeviceSmartAccountSigners(args: {
           relayerKeyId: prepared.preparedThresholdEcdsa.relayerKeyId,
           thresholdEcdsaPublicKeyB64u: prepared.preparedThresholdEcdsa.thresholdEcdsaPublicKeyB64u,
           signerSlot,
-          chain: account.chain,
-          chainId: account.chainId,
+          chainTarget: account.chainTarget,
+          chainId: account.chainTarget.chainId,
           ...(Array.isArray(prepared.preparedThresholdEcdsa.participantIds)
             ? { participantIds: [...prepared.preparedThresholdEcdsa.participantIds] }
             : {}),

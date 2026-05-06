@@ -45,14 +45,14 @@ export type EvmFamilyThresholdEcdsaPasskeyReconnect = {
   reconnect: (args: {
     credential: WebAuthnAuthenticationCredential;
     usesNeeded: number;
-    sessionId?: string;
-    walletSigningSessionId?: string;
+    sessionId: string;
+    walletSigningSessionId: string;
   }) => Promise<EvmFamilyThresholdEcdsaReauthResult>;
 };
 
 export type EvmFamilyThresholdEcdsaPasskeyReconnectPlan = {
-  sessionId?: string;
-  walletSigningSessionId?: string;
+  sessionId: string;
+  walletSigningSessionId: string;
   sessionPolicyDigest32?: string;
 };
 
@@ -75,7 +75,7 @@ export type EvmFamilyThresholdEcdsaAdmissionMode =
   | {
       kind: 'passkey_reconnect';
       passkeyEcdsaReconnect: EvmFamilyThresholdEcdsaPasskeyReconnect;
-      plannedPasskeyReconnect?: EvmFamilyThresholdEcdsaPasskeyReconnectPlan;
+      plannedPasskeyReconnect: EvmFamilyThresholdEcdsaPasskeyReconnectPlan;
       onThresholdReconnectStarted?: () => void;
     }
   | {
@@ -118,18 +118,13 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
     const result = await args.mode.passkeyEcdsaReconnect.reconnect({
       credential: args.confirmation.credential as WebAuthnAuthenticationCredential,
       usesNeeded: args.usesNeeded,
-      ...(args.mode.plannedPasskeyReconnect?.sessionId
-        ? { sessionId: args.mode.plannedPasskeyReconnect.sessionId }
-        : {}),
-      ...(args.mode.plannedPasskeyReconnect?.walletSigningSessionId
-        ? { walletSigningSessionId: args.mode.plannedPasskeyReconnect.walletSigningSessionId }
-        : {}),
+      sessionId: args.mode.plannedPasskeyReconnect.sessionId,
+      walletSigningSessionId: args.mode.plannedPasskeyReconnect.walletSigningSessionId,
     });
     if (!result?.keyRef || !result?.operation) {
       throw new Error('[chains] passkey ECDSA reconnect must return admitted operation');
     }
     if (
-      args.mode.plannedPasskeyReconnect?.sessionId &&
       String(result.keyRef.thresholdSessionId || '').trim() !==
         args.mode.plannedPasskeyReconnect.sessionId
     ) {
@@ -138,7 +133,6 @@ export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation(
       );
     }
     if (
-      args.mode.plannedPasskeyReconnect?.walletSigningSessionId &&
       String(result.keyRef.walletSigningSessionId || '').trim() !==
         args.mode.plannedPasskeyReconnect.walletSigningSessionId
     ) {

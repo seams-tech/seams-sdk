@@ -33,8 +33,7 @@ export async function ensureSmartAccountDeploymentReady(args: {
   const target = deriveSmartAccountDeploymentTargetFromSigningRequest(args.request);
   const deploymentMode = resolveSmartAccountDeploymentMode(args.deps.seamsPasskeyConfigs);
   const deploymentEventData = {
-    chain: target.chain,
-    chainIdCandidates: target.chainIdCandidates,
+    chainTargets: target.chainTargetCandidates,
     accountModelCandidates: target.accountModelCandidates,
     deploymentMode,
   };
@@ -49,8 +48,7 @@ export async function ensureSmartAccountDeploymentReady(args: {
     const deployment = await ensureSmartAccountDeployed({
       clientDB: args.deps.indexedDB.clientDB,
       nearAccountId: toAccountId(args.nearAccountId),
-      chain: target.chain,
-      chainIdCandidates: target.chainIdCandidates,
+      chainTargetCandidates: target.chainTargetCandidates,
       accountModelCandidates: target.accountModelCandidates,
       maxDeployAttempts: resolveSmartAccountDeploymentMaxAttempts(args.deps.seamsPasskeyConfigs),
       ...(deploymentMode === 'enforce'
@@ -128,7 +126,7 @@ export async function ensureSmartAccountDeploymentReady(args: {
       error: { message: details },
     });
     throw new Error(
-      `[SigningEngine] smart-account deployment must succeed before first ${target.chain.toUpperCase()} send: ${details}`,
+      `[SigningEngine] smart-account deployment must succeed before first ${args.request.chain.toUpperCase()} send: ${details}`,
     );
   }
 }

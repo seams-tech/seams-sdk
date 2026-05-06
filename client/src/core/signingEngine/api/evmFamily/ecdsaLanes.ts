@@ -24,19 +24,25 @@ import {
 import { toAccountId } from '@/core/types/accountIds';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { EvmFamilyChain } from './types';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type EcdsaLaneIdentity,
+  type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
+} from '../../session/signingSession/ecdsaChainTarget';
 
 export type PasskeyEcdsaSessionStoreSource = Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
 
 export type EcdsaSigningLookupArgs = {
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   signingRootId?: string;
   signingRootVersion?: string;
 };
 
 export type EcdsaSigningListLookupArgs = {
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   source?: ThresholdEcdsaSessionStoreSource;
   signingRootId?: string;
   signingRootVersion?: string;
@@ -65,6 +71,12 @@ export type EvmFamilyEcdsaSessionReaderDeps = {
   listThresholdEcdsaKeyRefsForSigning: (
     args: EcdsaSigningListLookupArgs,
   ) => ThresholdEcdsaKeyRefLookupResult[];
+  getThresholdEcdsaSessionRecordByIdentity: (
+    identity: EcdsaLaneIdentity,
+  ) => ThresholdEcdsaSessionRecord | null;
+  getThresholdEcdsaKeyRefByIdentity: (
+    identity: EcdsaLaneIdentity,
+  ) => ThresholdEcdsaKeyRefLookupResult | null;
 };
 
 export type EvmFamilyEcdsaAuthMethod =
@@ -76,6 +88,7 @@ export type ResolvedEvmFamilyEcdsaSigningLane = SigningLaneContext & {
   curve: 'ecdsa';
   keyKind: 'threshold_ecdsa_secp256k1';
   chainFamily: EvmFamilyChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   walletSigningSessionId: WalletSigningSessionId;
   thresholdSessionId: ThresholdEcdsaSessionId;
 } & ResolvedEcdsaSigningSessionIdentity;
@@ -87,7 +100,7 @@ export function summarizeEvmFamilyEcdsaSessionRecord(
   return {
     present: true,
     source: record.source,
-    chain: record.chain,
+    chain: record.chainTarget.kind,
     thresholdSessionId: record.thresholdSessionId,
     walletSigningSessionId: record.walletSigningSessionId,
     signingRootId: record.signingRootId,
@@ -204,6 +217,29 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     });
     throw new Error(`[SigningEngine][ecdsa] missing threshold session id for ${args.context}`);
   }
+  const chainTarget = (lane as { chainTarget?: ThresholdEcdsaChainTarget }).chainTarget;
+  if (!chainTarget || chainTarget.kind !== args.chain) {
+    logEvmFamilyEcdsaLaneDiagnostic('selected signing lane missing concrete chain target', {
+      context: args.context,
+      expectedChain: args.chain,
+      lane: summarizeEvmFamilyEcdsaLane(lane),
+      ...args.diagnostics,
+    });
+    throw new Error(`[SigningEngine][ecdsa] missing concrete chain target for ${args.context}`);
+  }
+  const subjectId = String(lane.subjectId || '').trim();
+  const ecdsaThresholdKeyId = String(lane.ecdsaThresholdKeyId || '').trim();
+  const signingRootId = String(lane.signingRootId || '').trim();
+  const signingRootVersion = String(lane.signingRootVersion || '').trim();
+  if (!subjectId || !ecdsaThresholdKeyId || !signingRootId || !signingRootVersion) {
+    logEvmFamilyEcdsaLaneDiagnostic('selected signing lane missing full ECDSA identity', {
+      context: args.context,
+      expectedChain: args.chain,
+      lane: summarizeEvmFamilyEcdsaLane(lane),
+      ...args.diagnostics,
+    });
+    throw new Error(`[SigningEngine][ecdsa] incomplete ECDSA lane identity for ${args.context}`);
+  }
 
   return {
     ...lane,
@@ -211,6 +247,11 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
     curve: 'ecdsa',
     keyKind: 'threshold_ecdsa_secp256k1',
     chainFamily: args.chain,
+    chainTarget,
+    subjectId: subjectId as WalletSubjectId,
+    ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
     walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId),
   };
@@ -262,6 +303,7 @@ export function requireEvmFamilyEcdsaAuthMethod(
 export function buildEvmFamilyEcdsaSigningLaneContext(args: {
   nearAccountId: string;
   chain: EvmFamilyChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   authMethod: EvmFamilyEcdsaAuthMethod;
   source: ThresholdEcdsaSessionStoreSource;
   record?: ThresholdEcdsaSessionRecord;
@@ -275,6 +317,10 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
   const keyRefSigningRootId = String(args.keyRef?.signingRootId || '').trim();
   const recordSigningRootVersion = String(args.record?.signingRootVersion || '').trim();
   const keyRefSigningRootVersion = String(args.keyRef?.signingRootVersion || '').trim();
+  const recordSubjectId = String(args.record?.subjectId || '').trim();
+  const keyRefSubjectId = String(args.keyRef?.subjectId || '').trim();
+  const recordThresholdKeyId = String(args.record?.ecdsaThresholdKeyId || '').trim();
+  const keyRefThresholdKeyId = String(args.keyRef?.ecdsaThresholdKeyId || '').trim();
   if (
     recordThresholdSessionId &&
     keyRefThresholdSessionId &&
@@ -283,6 +329,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
     logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef threshold ids', {
       nearAccountId: args.nearAccountId,
       chain: args.chain,
+      chainTarget: args.chainTarget,
       authMethod: args.authMethod,
       source: args.source,
       record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
@@ -298,6 +345,35 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
     logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef wallet session ids', {
       nearAccountId: args.nearAccountId,
       chain: args.chain,
+      chainTarget: args.chainTarget,
+      authMethod: args.authMethod,
+      source: args.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+      keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
+    });
+    return undefined;
+  }
+  if (recordSubjectId && keyRefSubjectId && recordSubjectId !== keyRefSubjectId) {
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef subject ids', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      chainTarget: args.chainTarget,
+      authMethod: args.authMethod,
+      source: args.source,
+      record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+      keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
+    });
+    return undefined;
+  }
+  if (
+    recordThresholdKeyId &&
+    keyRefThresholdKeyId &&
+    recordThresholdKeyId !== keyRefThresholdKeyId
+  ) {
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef threshold key ids', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      chainTarget: args.chainTarget,
       authMethod: args.authMethod,
       source: args.source,
       record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
@@ -309,6 +385,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
     logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef signing roots', {
       nearAccountId: args.nearAccountId,
       chain: args.chain,
+      chainTarget: args.chainTarget,
       authMethod: args.authMethod,
       source: args.source,
       record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
@@ -324,6 +401,7 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
     logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane from mismatched record/keyRef signing root versions', {
       nearAccountId: args.nearAccountId,
       chain: args.chain,
+      chainTarget: args.chainTarget,
       authMethod: args.authMethod,
       source: args.source,
       record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
@@ -361,61 +439,84 @@ export function buildEvmFamilyEcdsaSigningLaneContext(args: {
     });
     return undefined;
   }
+  const subjectId = String(recordSubjectId || keyRefSubjectId).trim();
+  const ecdsaThresholdKeyId = String(recordThresholdKeyId || keyRefThresholdKeyId).trim();
+  const signingRootId = String(recordSigningRootId || keyRefSigningRootId).trim();
+  const signingRootVersion = String(
+    recordSigningRootVersion || keyRefSigningRootVersion || 'default',
+  ).trim();
+  if (!subjectId || !ecdsaThresholdKeyId || !signingRootId || !signingRootVersion) {
+    logEvmFamilyEcdsaLaneDiagnostic('cannot build signing lane without full ECDSA material identity', {
+      nearAccountId: args.nearAccountId,
+      chain: args.chain,
+      authMethod: args.authMethod,
+      source: args.source,
+      walletSigningSessionId,
+      thresholdSessionId,
+      record: summarizeEvmFamilyEcdsaSessionRecord(args.record),
+      keyRef: summarizeEvmFamilyEcdsaKeyRef(args.keyRef),
+    });
+    return undefined;
+  }
 
   const base = {
     accountId: toAccountId(args.nearAccountId),
+    subjectId: subjectId as WalletSubjectId,
+    ecdsaThresholdKeyId,
     walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId),
-    ...(recordSigningRootId || keyRefSigningRootId
-      ? { signingRootId: recordSigningRootId || keyRefSigningRootId }
-      : {}),
-    ...(recordSigningRootVersion || keyRefSigningRootVersion
-      ? {
-          signingRootVersion: recordSigningRootVersion || keyRefSigningRootVersion,
-        }
-      : {}),
+    signingRootId,
+    signingRootVersion,
   };
   const buildLane =
-    args.chain === 'tempo' ? buildTempoTransactionSigningLane : buildEvmTransactionSigningLane;
+    args.chainTarget.kind === 'tempo' ? buildTempoTransactionSigningLane : buildEvmTransactionSigningLane;
 
   if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
-    return buildLane({
-      ...base,
-      authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      retention: args.record?.emailOtpAuthContext?.retention || 'session',
-      sessionOrigin:
-        args.record?.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
-    });
+    return {
+      ...buildLane({
+        ...base,
+        chainTarget: args.chainTarget,
+        authMethod: SIGNER_AUTH_METHODS.emailOtp,
+        retention: args.record?.emailOtpAuthContext?.retention || 'session',
+        sessionOrigin:
+          args.record?.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
+      }),
+      chainTarget: args.chainTarget,
+    } as SigningLaneContext;
   }
 
   if (args.source === SIGNER_AUTH_METHODS.emailOtp) return undefined;
-  return buildLane({
-    ...base,
-    authMethod: SIGNER_AUTH_METHODS.passkey,
-    storageSource: args.source,
-  });
+  return {
+    ...buildLane({
+      ...base,
+      chainTarget: args.chainTarget,
+      authMethod: SIGNER_AUTH_METHODS.passkey,
+      storageSource: args.source,
+    }),
+    chainTarget: args.chainTarget,
+  } as SigningLaneContext;
 }
 
 export function getThresholdEcdsaSessionRecordForLane(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
   signingRootId?: string;
   signingRootVersion?: string;
 }): ThresholdEcdsaSessionRecord {
   if (args.source === SIGNER_AUTH_METHODS.emailOtp) {
     return args.deps.getEmailOtpThresholdEcdsaSessionRecordForSigning({
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
+      subjectId: args.subjectId,
+      chainTarget: args.chainTarget,
       ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
       ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
     });
   }
   const passkeySource = args.source as PasskeyEcdsaSessionStoreSource;
   return args.deps.getPasskeyThresholdEcdsaSessionRecordForSigning({
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
+    subjectId: args.subjectId,
+    chainTarget: args.chainTarget,
     source: passkeySource,
     ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
     ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
@@ -424,24 +525,24 @@ export function getThresholdEcdsaSessionRecordForLane(args: {
 
 export function getThresholdEcdsaKeyRefForLane(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
   signingRootId?: string;
   signingRootVersion?: string;
 }): ThresholdEcdsaSecp256k1KeyRef {
   if (args.source === SIGNER_AUTH_METHODS.emailOtp) {
     return args.deps.getEmailOtpThresholdEcdsaKeyRefForSigning({
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
+      subjectId: args.subjectId,
+      chainTarget: args.chainTarget,
       ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
       ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
     });
   }
   const passkeySource = args.source as PasskeyEcdsaSessionStoreSource;
   return args.deps.getPasskeyThresholdEcdsaKeyRefForSigning({
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
+    subjectId: args.subjectId,
+    chainTarget: args.chainTarget,
     source: passkeySource,
     ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
     ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
@@ -450,8 +551,8 @@ export function getThresholdEcdsaKeyRefForLane(args: {
 
 export function tryGetThresholdEcdsaSessionRecordForLane(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
   signingRootId?: string;
   signingRootVersion?: string;
@@ -465,8 +566,8 @@ export function tryGetThresholdEcdsaSessionRecordForLane(args: {
 
 export function tryGetThresholdEcdsaKeyRefForLane(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   source: ThresholdEcdsaSessionStoreSource;
   signingRootId?: string;
   signingRootVersion?: string;
@@ -480,8 +581,8 @@ export function tryGetThresholdEcdsaKeyRefForLane(args: {
 
 export function tryGetEmailOtpThresholdEcdsaSessionRecordForSigning(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   signingRootId?: string;
   signingRootVersion?: string;
 }): ThresholdEcdsaSessionRecord | undefined {
@@ -493,8 +594,8 @@ export function tryGetEmailOtpThresholdEcdsaSessionRecordForSigning(args: {
 
 export function tryGetEmailOtpThresholdEcdsaKeyRefForSigning(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   signingRootId?: string;
   signingRootVersion?: string;
 }): ThresholdEcdsaSecp256k1KeyRef | undefined {
@@ -506,16 +607,16 @@ export function tryGetEmailOtpThresholdEcdsaKeyRefForSigning(args: {
 
 export function tryGetPasskeyThresholdEcdsaSessionRecordForSigning(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   source: PasskeyEcdsaSessionStoreSource;
   signingRootId?: string;
   signingRootVersion?: string;
 }): ThresholdEcdsaSessionRecord | undefined {
   const candidate = tryGetThresholdEcdsaSessionRecordForLane({
     deps: args.deps,
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
+    subjectId: args.subjectId,
+    chainTarget: args.chainTarget,
     source: args.source,
     ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
     ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
@@ -527,16 +628,16 @@ export function tryGetPasskeyThresholdEcdsaSessionRecordForSigning(args: {
 
 export function tryGetPasskeyThresholdEcdsaKeyRefForSigning(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
   source: PasskeyEcdsaSessionStoreSource;
   signingRootId?: string;
   signingRootVersion?: string;
 }): ThresholdEcdsaSecp256k1KeyRef | undefined {
   return tryGetThresholdEcdsaKeyRefForLane({
     deps: args.deps,
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
+    subjectId: args.subjectId,
+    chainTarget: args.chainTarget,
     source: args.source,
     ...(args.signingRootId ? { signingRootId: args.signingRootId } : {}),
     ...(args.signingRootVersion ? { signingRootVersion: args.signingRootVersion } : {}),
@@ -557,7 +658,6 @@ export function isEmailOtpThresholdEcdsaSigningContext(args: {
 
 export function emailOtpEcdsaAuthLaneFromRecord(
   record: ThresholdEcdsaSessionRecord | null | undefined,
-  chain: EvmFamilyChain,
 ): EmailOtpAuthLane | undefined {
   const jwt = String(record?.thresholdSessionJwt || '').trim();
   const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
@@ -576,7 +676,7 @@ export function emailOtpEcdsaAuthLaneFromRecord(
     thresholdSessionId,
     walletSigningSessionId,
     curve: 'ecdsa',
-    chain,
+    chainTarget: record.chainTarget,
   };
 }
 
@@ -640,136 +740,64 @@ function sortExactEcdsaRecords(
 
 export function findExactEcdsaSessionRecordForCandidate(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  candidate: {
-    authMethod: EvmFamilyEcdsaAuthMethod;
-    chain: EvmFamilyChain;
-    thresholdSessionId: string;
-    walletSigningSessionId: string;
-  };
+  candidate: EcdsaLaneIdentity;
 }): ThresholdEcdsaSessionRecord | undefined {
-  const source =
-    args.candidate.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? SIGNER_AUTH_METHODS.emailOtp
-      : undefined;
-  const records = args.deps
-    .listThresholdEcdsaSessionRecordsForSigning({
-      nearAccountId: args.nearAccountId,
-      chain: args.candidate.chain,
-      ...(source ? { source } : {}),
-    })
-    .filter((record) => {
-      if (record.chain !== args.candidate.chain) return false;
-      if (
-        !ecdsaSessionIdentityMatches({
-          thresholdSessionId: record.thresholdSessionId,
-          walletSigningSessionId: record.walletSigningSessionId,
-          expectedThresholdSessionId: args.candidate.thresholdSessionId,
-          expectedWalletSigningSessionId: args.candidate.walletSigningSessionId,
-        })
-      ) {
-        return false;
-      }
-      return ecdsaMaterialSourceMatchesAuth({
-        authMethod: args.candidate.authMethod,
-        source: record.source,
-        record,
-      });
-    });
-  return sortExactEcdsaRecords(records)[0];
+  return args.deps.getThresholdEcdsaSessionRecordByIdentity(args.candidate) || undefined;
 }
 
 export function findExactEcdsaKeyRefForCandidate(args: {
   deps: EvmFamilyEcdsaSessionReaderDeps;
-  nearAccountId: string;
-  candidate: {
-    authMethod: EvmFamilyEcdsaAuthMethod;
-    chain: EvmFamilyChain;
-    thresholdSessionId: string;
-    walletSigningSessionId: string;
-  };
+  candidate: EcdsaLaneIdentity;
 }): { source: ThresholdEcdsaSessionStoreSource; keyRef: ThresholdEcdsaSecp256k1KeyRef } | undefined {
-  const source =
-    args.candidate.authMethod === SIGNER_AUTH_METHODS.emailOtp
-      ? SIGNER_AUTH_METHODS.emailOtp
-      : undefined;
-  const matches = args.deps
-    .listThresholdEcdsaKeyRefsForSigning({
-      nearAccountId: args.nearAccountId,
-      chain: args.candidate.chain,
-      ...(source ? { source } : {}),
-    })
-    .filter(({ source, keyRef }) => {
-      if (
-        !ecdsaSessionIdentityMatches({
-          thresholdSessionId: keyRef.thresholdSessionId,
-          walletSigningSessionId: keyRef.walletSigningSessionId,
-          expectedThresholdSessionId: args.candidate.thresholdSessionId,
-          expectedWalletSigningSessionId: args.candidate.walletSigningSessionId,
-        })
-      ) {
-        return false;
-      }
-      return ecdsaMaterialSourceMatchesAuth({
-        authMethod: args.candidate.authMethod,
-        source,
-        keyRef,
-      });
-    })
-    .sort((a, b) =>
-      `${a.source}:${a.keyRef.thresholdSessionId}:${a.keyRef.walletSigningSessionId}`.localeCompare(
-        `${b.source}:${b.keyRef.thresholdSessionId}:${b.keyRef.walletSigningSessionId}`,
-      ),
-    );
-  return matches[0];
+  return args.deps.getThresholdEcdsaKeyRefByIdentity(args.candidate) || undefined;
 }
 
 export function createEvmFamilySigningCapabilityReader(deps: EvmFamilyEcdsaSessionReaderDeps) {
   return createSigningCapabilityReader({
-    readEmailOtpEcdsaSessionRecord: ({ accountId, chain, signingRootId, signingRootVersion }) =>
+    readEmailOtpEcdsaSessionRecord: ({ subjectId, chainTarget, signingRootId, signingRootVersion }) =>
       tryGetThresholdEcdsaSessionRecordForLane({
         deps,
-        nearAccountId: String(accountId),
-        chain,
+        subjectId,
+        chainTarget,
         source: SIGNER_AUTH_METHODS.emailOtp,
         ...(signingRootId ? { signingRootId } : {}),
         ...(signingRootVersion ? { signingRootVersion } : {}),
       }) || null,
     readPasskeyEcdsaSessionRecord: ({
-      accountId,
-      chain,
+      subjectId,
+      chainTarget,
       storageSource,
       signingRootId,
       signingRootVersion,
     }) =>
       tryGetThresholdEcdsaSessionRecordForLane({
         deps,
-        nearAccountId: String(accountId),
-        chain,
+        subjectId,
+        chainTarget,
         source: storageSource,
         ...(signingRootId ? { signingRootId } : {}),
         ...(signingRootVersion ? { signingRootVersion } : {}),
       }) || null,
-    readEmailOtpEcdsaKeyRef: ({ accountId, chain, signingRootId, signingRootVersion }) =>
+    readEmailOtpEcdsaKeyRef: ({ subjectId, chainTarget, signingRootId, signingRootVersion }) =>
       tryGetThresholdEcdsaKeyRefForLane({
         deps,
-        nearAccountId: String(accountId),
-        chain,
+        subjectId,
+        chainTarget,
         source: SIGNER_AUTH_METHODS.emailOtp,
         ...(signingRootId ? { signingRootId } : {}),
         ...(signingRootVersion ? { signingRootVersion } : {}),
       }) || null,
     readPasskeyEcdsaKeyRef: ({
-      accountId,
-      chain,
+      subjectId,
+      chainTarget,
       storageSource,
       signingRootId,
       signingRootVersion,
     }) =>
       tryGetThresholdEcdsaKeyRefForLane({
         deps,
-        nearAccountId: String(accountId),
-        chain,
+        subjectId,
+        chainTarget,
         source: storageSource,
         ...(signingRootId ? { signingRootId } : {}),
         ...(signingRootVersion ? { signingRootVersion } : {}),
@@ -880,7 +908,7 @@ function getSelectedEcdsaRecordLaneMismatchReason(args: {
   ) {
     return 'wallet signing session id mismatch';
   }
-  if (record.chain !== lane.chainFamily) {
+  if (record.chainTarget.kind !== lane.chainFamily) {
     return 'chain mismatch';
   }
   if (

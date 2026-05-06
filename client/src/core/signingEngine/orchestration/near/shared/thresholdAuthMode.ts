@@ -37,6 +37,7 @@ import {
   SigningSessionIds,
   type SigningLaneContext,
 } from '@/core/signingEngine/session/signingSession/types';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
 
 export type NearThresholdSigningAuthPlan = {
   sessionId: string;
@@ -66,7 +67,8 @@ async function restorePasskeySessionBeforeClaim(args: {
     walletId?: string;
     authMethod?: 'passkey' | 'email_otp';
     curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near' | 'tempo' | 'evm';
+    chain?: 'near';
+    chainTarget?: ThresholdEcdsaChainTarget;
     walletSigningSessionId?: string;
     thresholdSessionId: string;
   };
@@ -92,12 +94,14 @@ async function restorePasskeySessionBeforeClaim(args: {
     });
     return;
   }
-  if (curve !== 'ecdsa' || (chain !== 'tempo' && chain !== 'evm')) return;
+  if (curve !== 'ecdsa' || !args.claim.chainTarget) {
+    return;
+  }
   await args.touchConfirm.restorePersistedSessionForSigning({
     walletId,
     authMethod: 'passkey',
     curve: 'ecdsa',
-    chain,
+    chainTarget: args.claim.chainTarget,
     walletSigningSessionId,
     thresholdSessionId,
     reason: 'transaction',

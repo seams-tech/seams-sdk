@@ -8,25 +8,23 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
 import { WalletAuthPolicyError } from '../../auth';
-import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
+import type { ThresholdEcdsaChainTarget } from './ecdsaChainTarget';
 
 export type EcdsaPostSignPolicyMaterialClearer = (args: {
-  nearAccountId: AccountId;
-  chain: ThresholdEcdsaActivationChain;
-  thresholdSessionId: string;
-  source?: ThresholdEcdsaSessionStoreSource;
+  record: ThresholdEcdsaSessionRecord;
+  thresholdSessionId?: string;
 }) => Promise<void>;
 
 export async function applyEcdsaPostSignPolicy(args: {
   nearAccountId: AccountId;
-  chain: ThresholdEcdsaActivationChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId?: string;
   source?: ThresholdEcdsaSessionStoreSource;
   selectedRecord?: ThresholdEcdsaSessionRecord | null;
   secondaryRecord?: ThresholdEcdsaSessionRecord | null;
   markEmailOtpSessionConsumed?: (args: {
     nearAccountId: AccountId;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     uses?: number;
   }) => void;
   clearEcdsaEphemeralMaterial: EcdsaPostSignPolicyMaterialClearer;
@@ -38,14 +36,6 @@ export async function applyEcdsaPostSignPolicy(args: {
       ? selectedRecord
       : !args.source && secondaryRecord?.source === 'email_otp'
         ? secondaryRecord
-        : null;
-  const effectiveEmailOtpRecordChain: ThresholdEcdsaActivationChain | null =
-    selectedRecord?.source === 'email_otp'
-      ? args.chain
-      : !args.source && secondaryRecord?.source === 'email_otp'
-        ? args.chain === 'tempo'
-          ? 'evm'
-          : 'tempo'
         : null;
   if (!effectiveEmailOtpRecord) return;
 
@@ -63,32 +53,16 @@ export async function applyEcdsaPostSignPolicy(args: {
 
   if (effectiveEmailOtpRecord.emailOtpAuthContext?.retention !== 'single_use') return;
   args.markEmailOtpSessionConsumed?.({
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
+    nearAccountId: effectiveEmailOtpRecord.nearAccountId,
+    chainTarget: effectiveEmailOtpRecord.chainTarget,
     uses: 1,
   });
 
-  const selectedThresholdSessionId = String(
-    selectedRecord?.thresholdSessionId || args.thresholdSessionId || '',
-  ).trim();
+  const selectedThresholdSessionId = String(effectiveEmailOtpRecord.thresholdSessionId || '').trim();
   await args.clearEcdsaEphemeralMaterial({
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
-    thresholdSessionId: selectedThresholdSessionId,
-    ...(effectiveEmailOtpRecord.source ? { source: effectiveEmailOtpRecord.source } : {}),
+    record: effectiveEmailOtpRecord,
+    ...(selectedThresholdSessionId ? { thresholdSessionId: selectedThresholdSessionId } : {}),
   });
-
-  if (
-    effectiveEmailOtpRecordChain !== args.chain ||
-    String(effectiveEmailOtpRecord.thresholdSessionId || '').trim() !== selectedThresholdSessionId
-  ) {
-    await args.clearEcdsaEphemeralMaterial({
-      nearAccountId: args.nearAccountId,
-      chain: effectiveEmailOtpRecordChain || args.chain,
-      thresholdSessionId: effectiveEmailOtpRecord.thresholdSessionId,
-      source: effectiveEmailOtpRecord.source,
-    });
-  }
 }
 
 export function formatEmailOtpSensitiveOperationError(args: {
@@ -112,7 +86,7 @@ export function formatEmailOtpSensitiveOperationError(args: {
 }
 
 export function assertEcdsaOperationAllowed(args: {
-  chain: ThresholdEcdsaActivationChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   operationLabel: string;
   thresholdSessionId?: string;
   source?: ThresholdEcdsaSessionStoreSource;

@@ -5,6 +5,10 @@ import type { TempoSignedResult } from '../chainAdaptors/tempo/tempoAdapter';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
 import type { SigningOperationId } from '../session/signingSession/types';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../session/signingSession/ecdsaChainTarget';
 import {
   reconcileEvmFamilyNonceLane,
   reportEvmFamilyBroadcastAccepted,
@@ -33,7 +37,9 @@ export async function signTempo(
   deps: TempoSigningDeps,
   args: {
     nearAccountId: string;
+    subjectId: WalletSubjectId;
     request: TempoSigningRequest | EvmSigningRequest;
+    chainTarget: ThresholdEcdsaChainTarget;
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     shouldAbort?: () => boolean;
     onEvent?: (event: SigningFlowEvent) => void;

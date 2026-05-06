@@ -37,6 +37,11 @@ import type {
   EvmFamilyChain,
   EvmFamilySenderSignatureAlgorithm,
 } from './types';
+import {
+  thresholdEcdsaChainTargetsEqual,
+  type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
+} from '../../session/signingSession/ecdsaChainTarget';
 
 const PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY = [
   'login',
@@ -125,22 +130,33 @@ function ecdsaMaterialMatchesSnapshotCandidate(args: {
   record?: ThresholdEcdsaSessionRecord;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
 }): boolean {
+  const expectedSubjectId = String(args.candidate.subjectId || '').trim();
+  const expectedThresholdKeyId = String(args.candidate.ecdsaThresholdKeyId || '').trim();
+  const expectedSigningRootId = String(args.candidate.signingRootId || '').trim();
+  const expectedSigningRootVersion = String(args.candidate.signingRootVersion || '').trim();
   const expectedThresholdSessionId = String(args.candidate.thresholdSessionId || '').trim();
   const expectedWalletSigningSessionId = String(
     args.candidate.walletSigningSessionId || '',
   ).trim();
-  const recordThresholdSessionId = String(args.record?.thresholdSessionId || '').trim();
-  const keyRefThresholdSessionId = String(args.keyRef?.thresholdSessionId || '').trim();
-  const recordWalletSigningSessionId = String(args.record?.walletSigningSessionId || '').trim();
-  const keyRefWalletSigningSessionId = String(args.keyRef?.walletSigningSessionId || '').trim();
   const recordMatches =
-    recordThresholdSessionId === expectedThresholdSessionId &&
-    recordWalletSigningSessionId === expectedWalletSigningSessionId;
+    !!args.record &&
+    String(args.record.subjectId || '').trim() === expectedSubjectId &&
+    thresholdEcdsaChainTargetsEqual(args.record.chainTarget, args.candidate.chainTarget) &&
+    String(args.record.ecdsaThresholdKeyId || '').trim() === expectedThresholdKeyId &&
+    String(args.record.signingRootId || '').trim() === expectedSigningRootId &&
+    String(args.record.signingRootVersion || 'default').trim() === expectedSigningRootVersion &&
+    String(args.record.walletSigningSessionId || '').trim() === expectedWalletSigningSessionId &&
+    String(args.record.thresholdSessionId || '').trim() === expectedThresholdSessionId;
   const keyRefMatches =
-    keyRefThresholdSessionId === expectedThresholdSessionId &&
-    keyRefWalletSigningSessionId === expectedWalletSigningSessionId;
-  const recordChainMatches = !args.record?.chain || args.record.chain === args.candidate.chain;
-  return (recordMatches || keyRefMatches) && recordChainMatches;
+    !!args.keyRef &&
+    String(args.keyRef.subjectId || '').trim() === expectedSubjectId &&
+    thresholdEcdsaChainTargetsEqual(args.keyRef.chainTarget, args.candidate.chainTarget) &&
+    String(args.keyRef.ecdsaThresholdKeyId || '').trim() === expectedThresholdKeyId &&
+    String(args.keyRef.signingRootId || '').trim() === expectedSigningRootId &&
+    String(args.keyRef.signingRootVersion || 'default').trim() === expectedSigningRootVersion &&
+    String(args.keyRef.walletSigningSessionId || '').trim() === expectedWalletSigningSessionId &&
+    String(args.keyRef.thresholdSessionId || '').trim() === expectedThresholdSessionId;
+  return recordMatches || keyRefMatches;
 }
 
 function requireExactEcdsaCandidateMaterial(args: {
@@ -204,8 +220,16 @@ function assertTransactionLaneMatchesSnapshotCandidate(args: {
 }): void {
   if (!args.transactionLane || !args.candidate) return;
   if (
+    String(args.transactionLane.subjectId || '').trim() !==
+      String(args.candidate.subjectId || '').trim() ||
     args.transactionLane.authMethod !== args.candidate.authMethod ||
-    args.transactionLane.chain !== args.candidate.chain ||
+    !thresholdEcdsaChainTargetsEqual(args.transactionLane.chainTarget, args.candidate.chainTarget) ||
+    String(args.transactionLane.ecdsaThresholdKeyId || '').trim() !==
+      String(args.candidate.ecdsaThresholdKeyId || '').trim() ||
+    String(args.transactionLane.signingRootId || '').trim() !==
+      String(args.candidate.signingRootId || '').trim() ||
+    String(args.transactionLane.signingRootVersion || '').trim() !==
+      String(args.candidate.signingRootVersion || '').trim() ||
     String(args.transactionLane.walletSigningSessionId) !==
       String(args.candidate.walletSigningSessionId) ||
     String(args.transactionLane.thresholdSessionId) !== String(args.candidate.thresholdSessionId)
@@ -216,8 +240,8 @@ function assertTransactionLaneMatchesSnapshotCandidate(args: {
 
 function listPasskeyEcdsaSigningCandidates(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
-  nearAccountId: string;
-  chain: EvmFamilyChain;
+  subjectId: WalletSubjectId;
+  chainTarget: ThresholdEcdsaChainTarget;
 }): Array<{
   source: PasskeyEcdsaSessionStoreSource;
   record?: ThresholdEcdsaSessionRecord;
@@ -231,14 +255,14 @@ function listPasskeyEcdsaSigningCandidates(args: {
   for (const source of PASSKEY_ECDSA_SIGNING_SOURCE_PRIORITY) {
     const record = tryGetPasskeyThresholdEcdsaSessionRecordForSigning({
       deps: args.deps,
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
+      subjectId: args.subjectId,
+      chainTarget: args.chainTarget,
       source,
     });
     const keyRef = tryGetPasskeyThresholdEcdsaKeyRefForSigning({
       deps: args.deps,
-      nearAccountId: args.nearAccountId,
-      chain: args.chain,
+      subjectId: args.subjectId,
+      chainTarget: args.chainTarget,
       source,
     });
     if (!record && !keyRef) continue;
@@ -254,7 +278,9 @@ function listPasskeyEcdsaSigningCandidates(args: {
 export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   deps: EvmFamilyEcdsaSigningSelectionDeps;
   nearAccountId: string;
+  subjectId: WalletSubjectId;
   chain: EvmFamilyChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   senderSignatureAlgorithm: EvmFamilySenderSignatureAlgorithm;
   authMethod: typeof SIGNER_AUTH_METHODS.emailOtp | typeof SIGNER_AUTH_METHODS.passkey;
   transactionLane?: EvmFamilyEcdsaTransactionLane;
@@ -268,14 +294,12 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
   const exactRecordForCandidate = args.snapshotCandidate
     ? findExactEcdsaSessionRecordForCandidate({
         deps: args.deps,
-        nearAccountId: args.nearAccountId,
         candidate: args.snapshotCandidate,
       })
     : undefined;
   const exactKeyRefMatchForCandidate = args.snapshotCandidate
     ? findExactEcdsaKeyRefForCandidate({
         deps: args.deps,
-        nearAccountId: args.nearAccountId,
         candidate: args.snapshotCandidate,
       })
     : undefined;
@@ -283,13 +307,13 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
 
   const genericEmailOtpRecord = tryGetEmailOtpThresholdEcdsaSessionRecordForSigning({
     deps: args.deps,
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
+    subjectId: args.subjectId,
+    chainTarget: args.chainTarget,
   });
   const genericEmailOtpKeyRef = tryGetEmailOtpThresholdEcdsaKeyRefForSigning({
     deps: args.deps,
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
+    subjectId: args.subjectId,
+    chainTarget: args.chainTarget,
   });
   const emailOtpRecord =
     args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.emailOtp
@@ -302,8 +326,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
 
   const passkeyCandidates = listPasskeyEcdsaSigningCandidates({
     deps: args.deps,
-    nearAccountId: args.nearAccountId,
-    chain: args.chain,
+    subjectId: args.subjectId,
+    chainTarget: args.chainTarget,
   });
   const exactPasskeyCandidate =
     args.snapshotCandidate?.authMethod === SIGNER_AUTH_METHODS.passkey &&
@@ -340,7 +364,8 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       selectedSnapshotCandidate: args.snapshotCandidate
         ? {
             authMethod: args.snapshotCandidate.authMethod,
-            chain: args.snapshotCandidate.chain,
+            chain: args.snapshotCandidate.chainTarget.kind,
+            chainTarget: args.snapshotCandidate.chainTarget,
             state: args.snapshotCandidate.state,
             source: args.snapshotCandidate.source,
             walletSigningSessionId: args.snapshotCandidate.walletSigningSessionId,
@@ -430,6 +455,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
       buildEvmFamilyEcdsaSigningLaneContext({
         nearAccountId: args.nearAccountId,
         chain: args.chain,
+        chainTarget: args.chainTarget,
         authMethod: SIGNER_AUTH_METHODS.emailOtp,
         source: SIGNER_AUTH_METHODS.emailOtp,
         ...(selectedEmailOtpRecord ? { record: selectedEmailOtpRecord } : {}),
@@ -499,6 +525,7 @@ export async function resolveEvmFamilyEcdsaSigningSelection(args: {
     buildEvmFamilyEcdsaSigningLaneContext({
       nearAccountId: args.nearAccountId,
       chain: args.chain,
+      chainTarget: args.chainTarget,
       authMethod: SIGNER_AUTH_METHODS.passkey,
       source: passkeySource,
       ...(passkeyRecord ? { record: passkeyRecord } : {}),

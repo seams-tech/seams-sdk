@@ -5,10 +5,11 @@ import {
   WorkerRequestType,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../orchestration/thresholdActivation';
 import type {
-  ThresholdEcdsaActivationChain,
-  ThresholdEcdsaSessionBootstrapResult,
-} from '../orchestration/thresholdActivation';
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../session/signingSession/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../threshold/session/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpRoutePlan } from '../emailOtp/authLane';
@@ -311,8 +312,8 @@ export interface EmailOtpWorkerOperationMap {
       shamirPrimeB64u: string;
       otpChannel?: WalletEmailOtpChannel;
       rpId: string;
-      chain: ThresholdEcdsaActivationChain;
-      chainId: number;
+      chainTarget: ThresholdEcdsaChainTarget;
+      publicationChainTargets: ThresholdEcdsaChainTarget[];
       ecdsaThresholdKeyId?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
@@ -334,10 +335,10 @@ export interface EmailOtpWorkerOperationMap {
         unlockSignatureB64u: string;
         thresholdEd25519PrfFirstB64u: string;
       };
-      bootstrap: ThresholdEcdsaSessionBootstrapResult;
+      bootstraps: ThresholdEcdsaSessionBootstrapResult[];
       ecdsaHssExportArtifact?: {
         artifactKind: 'ecdsa-hss-secp256k1-key-v1';
-        chain: ThresholdEcdsaActivationChain;
+        chainTarget: ThresholdEcdsaChainTarget;
         signingRootId: string;
         signingRootVersion?: string;
         publicKeyHex: string;
@@ -358,8 +359,8 @@ export interface EmailOtpWorkerOperationMap {
       otpChannel?: WalletEmailOtpChannel;
       clientSecret32?: ArrayBuffer;
       rpId: string;
-      chain: ThresholdEcdsaActivationChain;
-      chainId: number;
+      chainTarget: ThresholdEcdsaChainTarget;
+      publicationChainTargets: ThresholdEcdsaChainTarget[];
       ecdsaThresholdKeyId?: string;
       participantIds?: number[];
       sessionKind?: 'jwt' | 'cookie';
@@ -381,7 +382,7 @@ export interface EmailOtpWorkerOperationMap {
         clientUnlockPublicKeyB64u: string;
         unlockKeyVersion: string;
       };
-      bootstrap: ThresholdEcdsaSessionBootstrapResult;
+      bootstraps: ThresholdEcdsaSessionBootstrapResult[];
     };
   };
   getEmailOtpWarmSessionStatus: {
@@ -447,8 +448,7 @@ export interface EmailOtpWorkerOperationMap {
         walletId: string;
         userId?: string;
         rpId: string;
-        chain: ThresholdEcdsaActivationChain;
-        chainId: number;
+        chainTarget: ThresholdEcdsaChainTarget;
         walletSigningSessionId: string;
         signingRootId: string;
         signingRootVersion?: string;
@@ -504,8 +504,9 @@ export interface EmailOtpWorkerOperationMap {
       rpId: string;
       thresholdSessionJwt?: string;
       sessionKind?: 'jwt' | 'cookie';
+      subjectId: WalletSubjectId;
       ecdsaThresholdKeyId: string;
-      chain: 'evm' | 'tempo';
+      chainTarget: ThresholdEcdsaChainTarget;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
     };
     result: {

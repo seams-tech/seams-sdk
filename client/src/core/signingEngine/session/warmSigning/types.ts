@@ -1,7 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
+import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { SigningSessionStatus } from '@/core/types/seams';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaSmartAccountBootstrapInput } from '../../api/thresholdLifecycle/thresholdEcdsaBootstrapPersistence';
 import type {
@@ -16,13 +16,13 @@ import type {
 import type { EmailOtpAuthLane } from '../../emailOtp/authLane';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 import type {
-  ThresholdEcdsaActivationChain,
   ThresholdEcdsaSessionBootstrapResult,
 } from '../../orchestration/thresholdActivation';
 import type { Ed25519SessionKind } from '../../threshold/session/ed25519SessionTypes';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/session/sessionPolicy';
 import type { WarmSessionStatusResult } from '../../touchConfirm';
 import type { SigningOperationIntent } from '../signingSession/types';
+import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
 
 export type WarmSessionCapability = 'ed25519' | 'ecdsa';
 export type WarmSessionPrfClaimState = 'missing' | 'warm' | 'expired' | 'exhausted' | 'unavailable';
@@ -44,7 +44,6 @@ export type WarmSessionEd25519AuthMaterial = {
 
 export type WarmSessionEcdsaAuthMaterial = {
   capability: 'ecdsa';
-  chain: ThresholdEcdsaActivationChain;
   record: ThresholdEcdsaSessionRecord;
   thresholdSessionJwt?: string;
   thresholdSessionJwtSource: Exclude<ThresholdEcdsaSessionJwtSource, 'ed25519'>;
@@ -61,7 +60,6 @@ export type WarmSessionEd25519CapabilityState = {
 
 export type WarmSessionEcdsaCapabilityState = {
   capability: 'ecdsa';
-  chain: ThresholdEcdsaActivationChain;
   record: ThresholdEcdsaSessionRecord | null;
   auth: WarmSessionEcdsaAuthMaterial | null;
   prfClaim: WarmSessionPrfClaim | null;
@@ -138,11 +136,6 @@ function assertCapabilityStateInvariant(args: {
     if (auth.capability !== capability.capability) {
       throw new Error(
         `[WarmSessionStore] invalid ${args.label} capability: auth capability does not match capability state`,
-      );
-    }
-    if (capability.capability === 'ecdsa' && 'chain' in auth && auth.chain !== capability.chain) {
-      throw new Error(
-        `[WarmSessionStore] invalid ${args.label} capability: auth chain does not match capability chain`,
       );
     }
   }
@@ -265,8 +258,7 @@ export type ProvisionWarmEd25519CapabilityResult = {
 
 export type EnsureWarmEcdsaCapabilityReadyArgs = {
   nearAccountId: AccountId | string;
-  chain: ThresholdEcdsaActivationChain;
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
   source?: ThresholdEcdsaSessionStoreSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -294,15 +286,15 @@ export type EnsureWarmEcdsaCapabilityReadyResult = {
 
 export type ApplyWarmEcdsaPostSignPolicyArgs = {
   nearAccountId: AccountId | string;
-  chain: ThresholdEcdsaActivationChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId?: string;
   source?: ThresholdEcdsaSessionStoreSource;
-  selectedRecord?: ThresholdEcdsaSessionRecord;
+  selectedRecord: ThresholdEcdsaSessionRecord;
 };
 
 export type AssertWarmEcdsaOperationAllowedArgs = {
   nearAccountId: AccountId | string;
-  chain: ThresholdEcdsaActivationChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   operationLabel: string;
   thresholdSessionId?: string;
   source?: ThresholdEcdsaSessionStoreSource;
@@ -311,8 +303,7 @@ export type AssertWarmEcdsaOperationAllowedArgs = {
 
 export type ResolveWarmEcdsaBootstrapRequestArgs = {
   nearAccountId: AccountId | string;
-  chain: ThresholdEcdsaActivationChain;
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
   ecdsaThresholdKeyId?: string;
@@ -320,7 +311,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   walletSigningSessionId?: string;
-  thresholdRouteAuth?: AppOrThresholdSessionAuth;
+  thresholdRouteAuth?: ThresholdEcdsaHssRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -334,8 +325,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
 
 export type WarmEcdsaBootstrapRequest = {
   nearAccountId: AccountId;
-  chain: ThresholdEcdsaActivationChain;
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
   ecdsaThresholdKeyId?: string;
@@ -343,7 +333,7 @@ export type WarmEcdsaBootstrapRequest = {
   sessionKind?: 'jwt' | 'cookie';
   sessionId?: string;
   walletSigningSessionId?: string;
-  thresholdRouteAuth?: AppOrThresholdSessionAuth;
+  thresholdRouteAuth?: ThresholdEcdsaHssRouteAuth;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   runtimeScopeBootstrap?: {
     environmentId: string;
@@ -372,19 +362,20 @@ export type ClaimWarmSessionPrfArgs = {
   walletId?: string;
   authMethod?: 'passkey' | 'email_otp';
   curve?: 'ed25519' | 'ecdsa';
-  chain?: 'near' | ThresholdEcdsaActivationChain;
+  chain?: 'near';
+  chainTarget?: ThresholdEcdsaChainTarget;
   walletSigningSessionId?: string;
 };
 
 export type WarmEcdsaSigningSessionStatus = SigningSessionStatus & {
-  chain: ThresholdEcdsaActivationChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   source?: ThresholdEcdsaSessionStoreSource;
   walletSigningSessionId?: string;
 };
 
 export type WarmSessionEcdsaCapabilityRef = {
   nearAccountId: AccountId | string;
-  chain: ThresholdEcdsaActivationChain;
+  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId?: string;
 };
 
@@ -412,7 +403,6 @@ export type WarmSessionCapabilityReader = {
   resolveEmailOtpSigningSessionAuthLane: (args: {
     thresholdSessionId: string;
     curve: 'ed25519' | 'ecdsa';
-    chain?: ThresholdEcdsaActivationChain;
   }) => EmailOtpAuthLane | null;
   getEd25519CapabilityByThresholdSessionId: (
     thresholdSessionId: string,
@@ -421,7 +411,10 @@ export type WarmSessionCapabilityReader = {
     thresholdSessionId: string,
   ) => Promise<WarmSessionEcdsaCapabilityState | null>;
   resolveEcdsaSealTransportByThresholdSessionId: (
-    thresholdSessionId: string,
+    args: {
+      thresholdSessionId: string;
+      chainTarget: ThresholdEcdsaChainTarget;
+    },
   ) => ThresholdSessionSealTransportAuthMaterial | null;
 };
 
@@ -438,7 +431,7 @@ export type ThresholdWarmSessionStatusReader = {
   ) => Promise<WarmEcdsaSigningSessionStatus | null>;
   listEcdsaSigningSessionStatuses: (args: {
     nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
   }) => Promise<WarmEcdsaSigningSessionStatus[]>;
   assertEcdsaSigningSessionReady: (
     args: Omit<WarmSessionEcdsaCapabilityRef, 'thresholdSessionId'> & {
@@ -460,7 +453,7 @@ export type WarmSessionProvisioner = {
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   tryReuseReadyEcdsaBootstrap: (args: {
     nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => Promise<ThresholdEcdsaSessionBootstrapResult | null>;
   ensureEcdsaCapabilityReady: (
@@ -468,7 +461,7 @@ export type WarmSessionProvisioner = {
   ) => Promise<EnsureWarmEcdsaCapabilityReadyResult>;
   claimPrfFirstByThresholdSessionId: (args: ClaimWarmSessionPrfArgs) => Promise<string>;
   ensureEcdsaPrfSealPersistedByThresholdSessionId: (args: {
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     thresholdSessionId: string;
     required?: boolean;
     errorContext?: string;

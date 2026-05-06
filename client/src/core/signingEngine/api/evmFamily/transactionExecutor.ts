@@ -19,6 +19,7 @@ import type {
   BudgetAdmittedOperation,
   EvmFamilyEcdsaTransactionLane,
 } from '../../session/signingSession/transactionState';
+import type { ThresholdEcdsaChainTarget } from '../../session/signingSession/ecdsaChainTarget';
 import type {
   EvmFamilyThresholdEcdsaAdmissionBoundary,
   EvmFamilyThresholdEcdsaAuthPlanInput,
@@ -46,7 +47,6 @@ import {
   reserveManagedEvmNonceForRequest,
 } from './evmNonceLifecycle';
 import { toOptionalEvmAddress } from './addresses';
-import type { EvmFamilyChain } from './types';
 import {
   loadSignEvmWithTouchConfirm,
   loadSignTempoWithTouchConfirm,
@@ -81,7 +81,7 @@ type EvmFamilyTransactionSigningExecutorArgs<
   ) => Promise<SigningSessionBudgetReservation | null>;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
-  applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
+  applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;
   deferSuccessfulSigningSessionFinalization?: boolean;
   deferFailedSigningSessionFinalization?: boolean;
   retryWithFreshEmailOtpAuth: (
@@ -91,7 +91,7 @@ type EvmFamilyTransactionSigningExecutorArgs<
 };
 
 type EvmFamilyTransactionSigningConfig<TRequest extends EvmFamilyTransactionSigningRequest> = {
-  chain: TRequest['chain'];
+  targetKind: ThresholdEcdsaChainTarget['kind'];
   loadSigner: () => Promise<EvmFamilyTouchConfirmSigner>;
   prepareRequestWithManagedNonce: (args: {
     deps: EvmFamilyTransactionExecutorDeps;
@@ -125,15 +125,14 @@ function resolveThresholdEcdsaSignerAddress(args: {
 
 async function runSuccessfulEvmFamilyPostSignCommands(args: {
   signingSessionPlan?: SigningSessionPlan;
-  chain: EvmFamilyChain;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
-  applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
+  applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;
 }): Promise<void> {
   // EVM/Tempo touch-confirm flows return a signed raw transaction, not a broadcast result.
   // Consume wallet-session budget here before the caller can dispatch and poll transaction status.
   if (!args.signingSessionPlan || args.signingSessionPlan.kind === SigningSessionPlanKind.NotReady) {
     await args.recordSuccessfulWalletSigningSessionSpend();
-    await args.applySuccessfulEcdsaPostSignPolicy(args.chain);
+    await args.applySuccessfulEcdsaPostSignPolicy();
     return;
   }
 
@@ -147,7 +146,7 @@ async function runSuccessfulEvmFamilyPostSignCommands(args: {
           return;
         }
         if (command.kind === SigningExecutionCommandKind.Cleanup) {
-          await args.applySuccessfulEcdsaPostSignPolicy(args.chain);
+          await args.applySuccessfulEcdsaPostSignPolicy();
           return;
         }
         throw new Error(`[SigningEngine] unexpected post-sign command: ${command.kind}`);
@@ -201,7 +200,6 @@ async function executeConfiguredEvmFamilyTransactionSigning<
     if (!args.deferSuccessfulSigningSessionFinalization) {
       await runSuccessfulEvmFamilyPostSignCommands({
         signingSessionPlan: args.signingSessionPlan,
-        chain: config.chain,
         recordSuccessfulWalletSigningSessionSpend: args.recordSuccessfulWalletSigningSessionSpend,
         applySuccessfulEcdsaPostSignPolicy: args.applySuccessfulEcdsaPostSignPolicy,
       });
@@ -212,7 +210,7 @@ async function executeConfiguredEvmFamilyTransactionSigning<
     if (retried) return retried;
     const finalError = mapToRetryableNonceStateError({
       error,
-      chain: config.chain,
+      chain: config.targetKind,
       networkKey: resolveNonceNetworkKeyForError({
         configs: args.deps.seamsPasskeyConfigs,
         request: args.request,
@@ -243,7 +241,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
   ) => Promise<SigningSessionBudgetReservation | null>;
   recordSuccessfulWalletSigningSessionSpend: () => Promise<void>;
   recordFailedWalletSigningSessionSpend: (error: unknown) => void;
-  applySuccessfulEcdsaPostSignPolicy: (chain: EvmFamilyChain) => Promise<void>;
+  applySuccessfulEcdsaPostSignPolicy: () => Promise<void>;
   deferSuccessfulSigningSessionFinalization?: boolean;
   deferFailedSigningSessionFinalization?: boolean;
   retryWithFreshEmailOtpAuth: (error: unknown) => Promise<TempoSignedResult | EvmSignedResult | null>;
@@ -273,7 +271,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
       ...args,
       request: args.request,
     }, {
-      chain: 'evm',
+      targetKind: 'evm',
       loadSigner: loadSignEvmWithTouchConfirm,
       reconcileNonceLane: (nonceArgs) => {
         void getReservationInput(nonceArgs)
@@ -299,7 +297,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
     ...args,
     request: args.request,
   }, {
-    chain: 'tempo',
+    targetKind: 'tempo',
     loadSigner: loadSignTempoWithTouchConfirm,
     prepareRequestWithManagedNonce: async (nonceArgs) =>
       await reserveManagedTempoNonceForRequest({

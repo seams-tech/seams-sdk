@@ -35,6 +35,7 @@ import type {
   RestorePersistedSessionsForAccountResult,
   RestorePersistedSessionForSigningInput,
 } from '../session/restoreCoordinator';
+import type { ThresholdEcdsaChainTarget } from '../session/signingSession/ecdsaChainTarget';
 
 export type RequestUserConfirmationOptions = {
   onProgress?: (progress: UserConfirmProgressEvent) => void;
@@ -103,7 +104,8 @@ export interface WarmSessionMaterialClaimer {
     uses?: number;
     consume?: boolean;
     curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near' | 'tempo' | 'evm';
+    chain?: 'near';
+    chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionClaimResult>;
 }
 
@@ -112,7 +114,8 @@ export interface WarmSessionMaterialConsumer {
     sessionId: string;
     uses?: number;
     curve?: 'ed25519' | 'ecdsa';
-    chain?: 'near' | 'tempo' | 'evm';
+    chain?: 'near';
+    chainTarget?: ThresholdEcdsaChainTarget;
   }): Promise<WarmSessionStatusResult>;
 }
 
@@ -130,14 +133,7 @@ export interface WarmSessionSealPersister {
   ): Promise<WarmSessionSealAndPersistResult>;
   persistSigningSessionSealForThresholdSession(args: {
     sessionId: string;
-    transport?: {
-      curve?: 'ed25519' | 'ecdsa';
-      relayerUrl?: string;
-      walletSigningSessionId?: string;
-      thresholdSessionJwt?: string;
-      keyVersion?: string;
-      shamirPrimeB64u?: string;
-    };
+    transport?: import('@/core/types/secure-confirm-worker').WarmSessionSealTransportInput;
   }): Promise<WarmSessionSealAndPersistResult>;
 }
 

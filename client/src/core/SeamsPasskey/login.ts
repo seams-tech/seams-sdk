@@ -50,12 +50,23 @@ import {
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
 import { shouldRequireThresholdWarmSession } from './thresholdWarmSessionDefaults';
 import { prewarmThresholdEd25519ClientBaseFromCredential } from './thresholdWarmSessionBootstrap';
-import { requireThresholdEcdsaProvisionChainId } from './thresholdEcdsaProvisioning';
+import {
+  listConfiguredThresholdEcdsaPublicationTargets,
+} from './thresholdEcdsaProvisioning';
 import type {
   SigningSessionSnapshot,
   SigningSessionSnapshotEcdsaLane,
   SigningSessionSnapshotEd25519Lane,
 } from '../signingEngine/session/snapshotReader';
+import {
+  ecdsaSnapshotLaneForTarget,
+  ecdsaSnapshotTargets,
+  isConcreteSigningSessionSnapshotLane,
+} from '../signingEngine/session/snapshotReader';
+import {
+  toWalletSubjectId,
+  type WalletSubjectId,
+} from '../signingEngine/session/signingSession/ecdsaChainTarget';
 
 type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
 
@@ -240,18 +251,14 @@ export async function unlock(
       }
 
       const participantIds = thresholdKeyMaterial.participants.map((participant) => participant.id);
-      const canonicalEcdsaContext = resolveCanonicalThresholdEcdsaWarmSessionContext(
-        signingEngine as unknown,
-        nearAccountId,
-      );
-      const existingThresholdEcdsaPublicKeyB64u = resolveThresholdEcdsaPublicKeyB64u(
+      const canonicalEcdsaContext = await resolveCanonicalThresholdEcdsaWarmSessionContext(
         context,
+        signingEngine as unknown,
         nearAccountId,
       );
       const signersToWarm = await resolveThresholdLoginWarmSigners({
         nearAccountId,
         canonicalEcdsaContext,
-        existingThresholdEcdsaPublicKeyB64u,
       });
       // Always mint a fresh shared threshold session id for login warm-up.
       // Reusing a stored ECDSA thresholdSessionId can point at an expired server auth session,
@@ -708,6 +715,19 @@ type ThresholdLoginWarmupTask = {
   run: () => Promise<void>;
 };
 
+type ThresholdLoginWarmEd25519State = {
+  sessionId: string;
+  walletSigningSessionId: string;
+  jwt: string;
+  ecdsaHssClientRootShare32B64u: string;
+};
+
+type ThresholdLoginWarmEcdsaBootstrapIdentity = {
+  ecdsaThresholdKeyId: string;
+  walletSigningSessionId: string;
+  routeAuth: AppOrThresholdSessionAuth;
+};
+
 function buildThresholdLoginWarmSignerSelection(
   signersToWarm: ThresholdLoginWarmSigner[] | undefined,
 ): ThresholdLoginWarmSigner[] {
@@ -754,6 +774,39 @@ async function runThresholdLoginWarmupTasks(tasks: ThresholdLoginWarmupTask[]): 
   }
 }
 
+function requireThresholdLoginWarmEcdsaBootstrapIdentity(args: {
+  canonicalEcdsaContext: CanonicalThresholdEcdsaWarmSessionContext;
+  ed25519State: ThresholdLoginWarmEd25519State;
+  appSessionJwt?: string;
+}): ThresholdLoginWarmEcdsaBootstrapIdentity {
+  const ecdsaThresholdKeyId = String(args.canonicalEcdsaContext.ecdsaThresholdKeyId || '').trim();
+  if (!ecdsaThresholdKeyId) {
+    throw new Error('[login] threshold ECDSA warm-up requires a canonical ecdsaThresholdKeyId');
+  }
+
+  const walletSigningSessionId = String(args.ed25519State.walletSigningSessionId || '').trim();
+  if (!walletSigningSessionId) {
+    throw new Error(
+      '[login] threshold ECDSA warm-up requires the wallet signing-session identity',
+    );
+  }
+
+  const appSessionJwt = String(args.appSessionJwt || '').trim();
+  const thresholdSessionJwt = String(args.ed25519State.jwt || '').trim();
+  const routeAuth: AppOrThresholdSessionAuth = appSessionJwt
+    ? { kind: 'app_session', jwt: appSessionJwt }
+    : { kind: 'threshold_session', jwt: thresholdSessionJwt };
+  if (!('jwt' in routeAuth) || !String(routeAuth.jwt || '').trim()) {
+    throw new Error('[login] threshold ECDSA warm-up requires route authorization');
+  }
+
+  return {
+    ecdsaThresholdKeyId,
+    walletSigningSessionId,
+    routeAuth,
+  };
+}
+
 async function primeThresholdLoginWarmSigners(args: {
   context: PasskeyManagerContext;
   signingEngine: PasskeyManagerContext['signingEngine'];
@@ -772,12 +825,7 @@ async function primeThresholdLoginWarmSigners(args: {
   useAppSessionCookie?: boolean;
 }): Promise<void> {
   const signersToWarm = buildThresholdLoginWarmSignerSelection(args.signersToWarm);
-  const warmState: {
-    sessionId: string;
-    walletSigningSessionId: string;
-    jwt: string;
-    ecdsaHssClientRootShare32B64u: string;
-  } = {
+  const warmState: ThresholdLoginWarmEd25519State = {
     sessionId: '',
     walletSigningSessionId: '',
     jwt: '',
@@ -826,6 +874,15 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error('[login] threshold Ed25519 warm-up did not return a JWT session token');
         }
 
+        const connectedWalletSigningSessionId = String(
+          connected.walletSigningSessionId || '',
+        ).trim();
+        if (!connectedWalletSigningSessionId) {
+          throw new Error(
+            '[login] threshold Ed25519 warm-up did not return a walletSigningSessionId',
+          );
+        }
+
         const connectedEcdsaHssClientRootShare32B64u = String(
           connected.ecdsaHssClientRootShare32B64u || '',
         ).trim();
@@ -836,7 +893,7 @@ async function primeThresholdLoginWarmSigners(args: {
         }
 
         warmState.sessionId = connectedSessionId;
-        warmState.walletSigningSessionId = String(connected.walletSigningSessionId || '').trim();
+        warmState.walletSigningSessionId = connectedWalletSigningSessionId;
         warmState.jwt = connectedJwt;
         warmState.ecdsaHssClientRootShare32B64u = connectedEcdsaHssClientRootShare32B64u;
       },
@@ -848,39 +905,29 @@ async function primeThresholdLoginWarmSigners(args: {
       dependencies: ['ed25519'],
       run: async () => {
         try {
-          const appSessionJwt = String(args.appSessionJwt || '').trim();
-          const useAppSessionBootstrapJwt =
-            !!appSessionJwt &&
-            !!String(args.canonicalEcdsaContext.ecdsaThresholdKeyId || '').trim();
-          const routeAuth: AppOrThresholdSessionAuth | undefined =
-            useAppSessionBootstrapJwt && appSessionJwt
-              ? { kind: 'app_session', jwt: appSessionJwt }
-              : warmState.jwt
-                ? { kind: 'threshold_session', jwt: warmState.jwt }
-                : undefined;
-          for (const chain of ['tempo', 'evm'] as const) {
-            const chainId = requireThresholdEcdsaProvisionChainId({
-              chain,
-              chains: args.context.configs.network.chains,
-            });
+          const bootstrapIdentity = requireThresholdLoginWarmEcdsaBootstrapIdentity({
+            canonicalEcdsaContext: args.canonicalEcdsaContext,
+            ed25519State: warmState,
+            appSessionJwt: args.appSessionJwt,
+          });
+          for (const target of listConfiguredThresholdEcdsaPublicationTargets(
+            args.context.configs.network.chains,
+          )) {
+            const sessionId = createThresholdLoginWarmSessionId('threshold-ecdsa-login');
             await args.signingEngine.bootstrapEcdsaSession({
               nearAccountId: args.nearAccountId,
-              chain,
-              chainId,
+              chainTarget: target.chainTarget,
               source: 'login',
               relayerUrl: args.relayerUrl,
-              ...(args.canonicalEcdsaContext.ecdsaThresholdKeyId
-                ? { ecdsaThresholdKeyId: args.canonicalEcdsaContext.ecdsaThresholdKeyId }
-                : {}),
+              ecdsaThresholdKeyId: bootstrapIdentity.ecdsaThresholdKeyId,
               participantIds: args.participantIds,
               sessionKind: 'jwt',
-              ...(warmState.walletSigningSessionId
-                ? { walletSigningSessionId: warmState.walletSigningSessionId }
-                : {}),
+              sessionId,
+              walletSigningSessionId: bootstrapIdentity.walletSigningSessionId,
               ttlMs: args.ttlMs,
               remainingUses: args.remainingUses,
               clientRootShare32B64u: warmState.ecdsaHssClientRootShare32B64u,
-              ...(routeAuth ? { thresholdRouteAuth: routeAuth } : {}),
+              thresholdRouteAuth: bootstrapIdentity.routeAuth,
               ...(args.canonicalEcdsaContext.runtimePolicyScope
                 ? { runtimePolicyScope: args.canonicalEcdsaContext.runtimePolicyScope }
                 : {}),
@@ -957,7 +1004,6 @@ function readWalletSessionNonceDiagnostics(
   }
 }
 
-const THRESHOLD_ECDSA_LOGIN_METADATA_CHAINS: ReadonlyArray<'tempo' | 'evm'> = ['tempo', 'evm'];
 const THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES: readonly ThresholdEcdsaSessionStoreSource[] = [
   'email_otp',
   'login',
@@ -969,42 +1015,23 @@ function readThresholdEcdsaLoginMetadataRecords(
   context: PasskeyManagerContext,
   nearAccountId: AccountId,
 ): ThresholdEcdsaSessionRecord[] {
-  const getRecord = (
-    context.signingEngine as {
-      getThresholdEcdsaSessionRecordForLookup?: (args: {
-        nearAccountId: AccountId | string;
-        chain: 'evm' | 'tempo';
-        source?: ThresholdEcdsaSessionStoreSource;
-      }) => ThresholdEcdsaSessionRecord;
-    }
-  )?.getThresholdEcdsaSessionRecordForLookup;
-  if (typeof getRecord !== 'function') return [];
-
-  const out: ThresholdEcdsaSessionRecord[] = [];
-  const seen = new Set<string>();
-  for (const chain of THRESHOLD_ECDSA_LOGIN_METADATA_CHAINS) {
-    for (const source of THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES) {
-      try {
-        const record = getRecord({
-          nearAccountId,
-          chain,
-          source,
-        });
-        const key = [
-          record.chain,
-          record.source,
-          record.thresholdSessionId,
-          record.ecdsaThresholdKeyId,
-          record.signingRootId,
-          record.signingRootVersion || '',
-        ].join('|');
-        if (seen.has(key)) continue;
-        seen.add(key);
-        out.push(record);
-      } catch {}
-    }
+  const signingEngine = context.signingEngine as {
+    listConcreteThresholdEcdsaSessionRecordsForSubject?: (args: {
+      subjectId: WalletSubjectId;
+    }) => ThresholdEcdsaSessionRecord[];
+  };
+  if (typeof signingEngine.listConcreteThresholdEcdsaSessionRecordsForSubject !== 'function') {
+    return [];
   }
-  return out;
+
+  const allowedSources = new Set<ThresholdEcdsaSessionStoreSource>(
+    THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES,
+  );
+  return signingEngine
+    .listConcreteThresholdEcdsaSessionRecordsForSubject({
+      subjectId: toWalletSubjectId(nearAccountId),
+    })
+    .filter((record) => allowedSources.has(record.source));
 }
 
 async function resolveThresholdEcdsaEthereumAddress(
@@ -1058,12 +1085,9 @@ async function resolveThresholdEcdsaEthereumAddress(
 async function resolveThresholdLoginWarmSigners(args: {
   nearAccountId: AccountId;
   canonicalEcdsaContext?: CanonicalThresholdEcdsaWarmSessionContext | null;
-  existingThresholdEcdsaPublicKeyB64u?: string | null;
 }): Promise<ThresholdLoginWarmSigner[]> {
-  const hasExistingThresholdEcdsaSession =
-    !!String(args.canonicalEcdsaContext?.thresholdSessionId || '').trim() ||
-    !!args.canonicalEcdsaContext?.runtimePolicyScope ||
-    !!String(args.existingThresholdEcdsaPublicKeyB64u || '').trim();
+  const hasExactThresholdEcdsaKeyIdentity =
+    !!String(args.canonicalEcdsaContext?.ecdsaThresholdKeyId || '').trim();
   try {
     const continuity = await resolveNearAccountProfileContinuity(
       IndexedDBManager.clientDB,
@@ -1075,62 +1099,93 @@ async function resolveThresholdLoginWarmSigners(args: {
         .trim()
         .toLowerCase();
       return accountModel === 'erc4337' || accountModel === 'tempo-native';
-    });
-    return hasThresholdEcdsaAccount || hasExistingThresholdEcdsaSession
+    }) || Boolean(await resolveProfileContinuityEcdsaThresholdKeyId(args.nearAccountId));
+    return hasThresholdEcdsaAccount && hasExactThresholdEcdsaKeyIdentity
       ? ['ed25519', 'ecdsa']
       : ['ed25519'];
   } catch {
-    return hasExistingThresholdEcdsaSession ? ['ed25519', 'ecdsa'] : ['ed25519'];
+    return hasExactThresholdEcdsaKeyIdentity ? ['ed25519', 'ecdsa'] : ['ed25519'];
   }
 }
 
 function createThresholdLoginWarmSessionId(prefix: string): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
+    return `${prefix}-${crypto.randomUUID()}`;
   }
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function resolveCanonicalThresholdEcdsaWarmSessionContext(
+async function resolveProfileContinuityEcdsaThresholdKeyId(
+  nearAccountId: AccountId,
+): Promise<string | null> {
+  const continuity = await resolveNearAccountProfileContinuity(
+    IndexedDBManager.clientDB,
+    nearAccountId,
+  ).catch(() => null);
+  const keyIds = new Set<string>();
+  for (const signer of continuity?.accountSigners || []) {
+    if (signer.status && signer.status !== 'active') continue;
+    const metadata = signer.metadata || {};
+    const keyId = String(metadata.ecdsaThresholdKeyId || '').trim();
+    if (keyId) keyIds.add(keyId);
+  }
+  if (keyIds.size === 1) return [...keyIds][0]!;
+  return null;
+}
+
+async function resolveCanonicalThresholdEcdsaWarmSessionContext(
+  context: PasskeyManagerContext,
   signingEngine: unknown,
   nearAccountId: AccountId,
-): CanonicalThresholdEcdsaWarmSessionContext {
-  const getRecord = (
-    signingEngine as {
-      getThresholdEcdsaSessionRecordForLookup?: (args: {
-        nearAccountId: AccountId | string;
-        chain: 'evm' | 'tempo';
-        source: ThresholdEcdsaSessionStoreSource;
-      }) => {
-        thresholdSessionId?: string;
-        ecdsaThresholdKeyId?: string;
-        runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      };
+): Promise<CanonicalThresholdEcdsaWarmSessionContext> {
+  const typedSigningEngine = signingEngine as {
+    listConcreteThresholdEcdsaSessionRecordsForSubject?: (args: {
+      subjectId: WalletSubjectId;
+    }) => ThresholdEcdsaSessionRecord[];
+  };
+  const allowedSources = new Set<ThresholdEcdsaSessionStoreSource>(
+    THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES,
+  );
+  if (typeof typedSigningEngine.listConcreteThresholdEcdsaSessionRecordsForSubject === 'function') {
+    for (const record of typedSigningEngine.listConcreteThresholdEcdsaSessionRecordsForSubject({
+      subjectId: toWalletSubjectId(nearAccountId),
+    })) {
+      if (!allowedSources.has(record.source)) continue;
+      const thresholdSessionId = String(record.thresholdSessionId || '').trim();
+      const ecdsaThresholdKeyId = String(record.ecdsaThresholdKeyId || '').trim();
+      if (thresholdSessionId || ecdsaThresholdKeyId || record.runtimePolicyScope) {
+        return {
+          thresholdSessionId: thresholdSessionId || null,
+          ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
+          ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+        };
+      }
     }
-  )?.getThresholdEcdsaSessionRecordForLookup;
-  if (typeof getRecord !== 'function') {
+  }
+  const snapshot = await readSigningSessionSnapshotForUi(context, nearAccountId).catch(() => null);
+  const ecdsaThresholdKeyIds = new Set<string>();
+  if (snapshot) {
+    for (const target of ecdsaSnapshotTargets(snapshot)) {
+      const lane = ecdsaSnapshotLaneForTarget(snapshot, target);
+      if (!isConcreteSigningSessionSnapshotLane(lane)) continue;
+      const ecdsaThresholdKeyId = String(lane.ecdsaThresholdKeyId || '').trim();
+      if (ecdsaThresholdKeyId) ecdsaThresholdKeyIds.add(ecdsaThresholdKeyId);
+    }
+  }
+  if (ecdsaThresholdKeyIds.size === 1) {
     return {
       thresholdSessionId: null,
+      ecdsaThresholdKeyId: [...ecdsaThresholdKeyIds][0],
     };
   }
-  const chains: Array<'tempo' | 'evm'> = ['tempo', 'evm'];
-  for (const chain of chains) {
-    for (const source of THRESHOLD_ECDSA_LOGIN_METADATA_SOURCES) {
-      try {
-        const record = getRecord({ nearAccountId, chain, source });
-        const thresholdSessionId = String(record?.thresholdSessionId || '').trim();
-        const ecdsaThresholdKeyId = String(record?.ecdsaThresholdKeyId || '').trim();
-        if (thresholdSessionId || ecdsaThresholdKeyId || record?.runtimePolicyScope) {
-          return {
-            thresholdSessionId: thresholdSessionId || null,
-            ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
-            ...(record?.runtimePolicyScope
-              ? { runtimePolicyScope: record.runtimePolicyScope }
-              : {}),
-          };
-        }
-      } catch {}
-    }
+  const profileEcdsaThresholdKeyId = await resolveProfileContinuityEcdsaThresholdKeyId(
+    nearAccountId,
+  );
+  if (profileEcdsaThresholdKeyId) {
+    return {
+      thresholdSessionId: null,
+      ecdsaThresholdKeyId: profileEcdsaThresholdKeyId,
+    };
   }
   return {
     thresholdSessionId: null,
@@ -1191,7 +1246,7 @@ async function resolveWarmSigningSessionStatusForUi(
   const signingEngine = context.signingEngine as typeof context.signingEngine & {
     listWarmThresholdEcdsaSessionStatuses?: (
       nearAccountId: AccountId | string,
-      chain: 'tempo' | 'evm',
+      chainTarget: ReturnType<typeof listConfiguredThresholdEcdsaPublicationTargets>[number]['chainTarget'],
     ) => Promise<SigningSessionStatus[]>;
   };
 
@@ -1202,14 +1257,14 @@ async function resolveWarmSigningSessionStatusForUi(
   const ecdsaStatuses =
     typeof signingEngine.listWarmThresholdEcdsaSessionStatuses === 'function'
       ? (
-          await Promise.all([
-            signingEngine
-              .listWarmThresholdEcdsaSessionStatuses(nearAccountId, 'tempo')
-              .catch(() => []),
-            signingEngine
-              .listWarmThresholdEcdsaSessionStatuses(nearAccountId, 'evm')
-              .catch(() => []),
-          ])
+          await Promise.all(
+            listConfiguredThresholdEcdsaPublicationTargets(context.configs.network.chains).map(
+              (target) =>
+                signingEngine
+                  .listWarmThresholdEcdsaSessionStatuses(nearAccountId, target.chainTarget)
+                  .catch(() => []),
+            ),
+          )
         ).flat()
       : [];
 
@@ -1242,6 +1297,7 @@ function selectSigningSessionStatusForUi(
 function snapshotLaneToSigningSessionStatus(
   lane: SigningSessionSnapshotLane,
 ): SigningSessionStatus | null {
+  if (!isConcreteSigningSessionSnapshotLane(lane)) return null;
   const sessionId = String(lane.thresholdSessionId || '').trim();
   if (!sessionId) return null;
   if (
@@ -1283,8 +1339,9 @@ function snapshotToSigningSessionStatusForUi(
   if (!snapshot) return null;
   return selectSigningSessionStatusForUi([
     snapshotLaneToSigningSessionStatus(snapshot.lanes.ed25519.near),
-    snapshotLaneToSigningSessionStatus(snapshot.lanes.ecdsa.tempo),
-    snapshotLaneToSigningSessionStatus(snapshot.lanes.ecdsa.evm),
+    ...ecdsaSnapshotTargets(snapshot).map((target) =>
+      snapshotLaneToSigningSessionStatus(ecdsaSnapshotLaneForTarget(snapshot, target)),
+    ),
   ]);
 }
 
@@ -1300,6 +1357,7 @@ async function readSigningSessionSnapshotForUi(
   }
   return await signingEngine.readPersistedSigningSessionSnapshot({
     walletId: nearAccountId,
+    subjectId: toWalletSubjectId(nearAccountId),
   });
 }
 

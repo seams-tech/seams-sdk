@@ -1,4 +1,5 @@
 import type { ThresholdSessionSealTransportAuthMaterial } from '../../api/thresholdLifecycle/thresholdSessionStore';
+import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
 import type {
   WarmSessionSealPersister,
   WarmSessionMaterialClaimer,
@@ -29,7 +30,8 @@ export async function claimWarmSessionPrfFirst(args: {
   uses?: number;
   consume?: boolean;
   curve?: 'ed25519' | 'ecdsa';
-  chain?: 'near' | 'tempo' | 'evm';
+  chain?: 'near';
+  chainTarget?: ThresholdEcdsaChainTarget;
   restoreBeforeClaim?: () => Promise<void>;
 }): Promise<string> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
@@ -58,6 +60,7 @@ export async function claimWarmSessionPrfFirst(args: {
     ...(typeof args.consume === 'boolean' ? { consume: args.consume } : {}),
     ...(args.curve ? { curve: args.curve } : {}),
     ...(args.chain ? { chain: args.chain } : {}),
+    ...(args.chainTarget ? { chainTarget: args.chainTarget } : {}),
   });
   if (!claimedMaterial.ok) {
     if (
@@ -111,21 +114,32 @@ export async function claimWarmSessionPrfFirst(args: {
 
 export async function ensureEcdsaPrfSealPersisted(args: {
   touchConfirm: WarmSessionRuntimePorts;
+  chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: string;
   required?: boolean;
   errorContext?: string;
   sealPersistInFlightBySessionId: Map<string, Promise<void>>;
   resolveSealTransport: (
-    thresholdSessionId: string,
+    args: {
+      thresholdSessionId: string;
+      chainTarget: ThresholdEcdsaChainTarget;
+    },
   ) => ThresholdSessionSealTransportAuthMaterial | null;
 }): Promise<void> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return;
-  let persistPromise = args.sealPersistInFlightBySessionId.get(thresholdSessionId);
+  const persistKey = `${thresholdSessionId}:${JSON.stringify(args.chainTarget)}`;
+  let persistPromise = args.sealPersistInFlightBySessionId.get(persistKey);
   if (!persistPromise) {
     persistPromise = (async (): Promise<void> => {
       const errorContext = String(args.errorContext || 'threshold session seal persistence').trim();
-      const sealTransport = args.resolveSealTransport(thresholdSessionId);
+      const sealTransport = args.resolveSealTransport({
+        thresholdSessionId,
+        chainTarget: args.chainTarget,
+      });
+      if (sealTransport && sealTransport.curve !== 'ecdsa') {
+        throw new Error('[WarmSessionStore] ECDSA seal persistence received non-ECDSA transport');
+      }
       const exactPersistFn = args.touchConfirm?.persistSigningSessionSealForThresholdSession;
       if (typeof exactPersistFn === 'function' && sealTransport) {
         // Use the high-level persist boundary after the ECDSA record exists; it
@@ -134,6 +148,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
           sessionId: thresholdSessionId,
           transport: {
             curve: sealTransport.curve,
+            chainTarget: sealTransport.chainTarget,
             relayerUrl: sealTransport.relayerUrl,
             ...(sealTransport.walletSigningSessionId
               ? { walletSigningSessionId: sealTransport.walletSigningSessionId }
@@ -160,6 +175,7 @@ export async function ensureEcdsaPrfSealPersisted(args: {
           sessionId: thresholdSessionId,
           transport: {
             curve: sealTransport.curve,
+            chainTarget: sealTransport.chainTarget,
             relayerUrl: sealTransport.relayerUrl,
             ...(sealTransport.walletSigningSessionId
               ? { walletSigningSessionId: sealTransport.walletSigningSessionId }
@@ -180,16 +196,16 @@ export async function ensureEcdsaPrfSealPersisted(args: {
         }
       }
     })();
-    args.sealPersistInFlightBySessionId.set(thresholdSessionId, persistPromise);
+    args.sealPersistInFlightBySessionId.set(persistKey, persistPromise);
     void persistPromise.then(
       () => {
-        if (args.sealPersistInFlightBySessionId.get(thresholdSessionId) === persistPromise) {
-          args.sealPersistInFlightBySessionId.delete(thresholdSessionId);
+        if (args.sealPersistInFlightBySessionId.get(persistKey) === persistPromise) {
+          args.sealPersistInFlightBySessionId.delete(persistKey);
         }
       },
       () => {
-        if (args.sealPersistInFlightBySessionId.get(thresholdSessionId) === persistPromise) {
-          args.sealPersistInFlightBySessionId.delete(thresholdSessionId);
+        if (args.sealPersistInFlightBySessionId.get(persistKey) === persistPromise) {
+          args.sealPersistInFlightBySessionId.delete(persistKey);
         }
       },
     );

@@ -1,3 +1,8 @@
+import {
+  thresholdEcdsaChainTargetKey,
+  type ThresholdEcdsaChainTarget,
+} from '../../session/signingSession/ecdsaChainTarget';
+
 export type NonceLifecycleMetricName =
   | 'broadcast_accepted'
   | 'broadcast_rejected'
@@ -9,7 +14,7 @@ export type NonceLifecycleMetricName =
 
 export type NonceLifecycleMetricEvent = {
   metric: NonceLifecycleMetricName;
-  chain: 'tempo' | 'evm';
+  chainTarget: ThresholdEcdsaChainTarget;
   networkKey: string;
   chainId: number;
   sender: `0x${string}`;
@@ -29,7 +34,7 @@ export function emitNonceLifecycleMetric(event: NonceLifecycleMetricEvent): void
 
     console.debug('[nonce-lifecycle-metrics]', {
       metric: event.metric,
-      chain: event.chain,
+      chainTarget: thresholdEcdsaChainTargetKey(event.chainTarget),
       networkKey,
       chainId: event.chainId,
       sender: String(event.sender || '').trim().toLowerCase(),

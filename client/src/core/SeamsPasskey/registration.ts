@@ -28,9 +28,99 @@ import {
   getPrfFirstB64uFromCredential,
   getPrfResultsFromCredential,
 } from '../signingEngine/signers/webauthn/credentials/credentialExtensions';
-import { requireThresholdEcdsaProvisionChainId } from './thresholdEcdsaProvisioning';
+import { listConfiguredThresholdEcdsaPublicationTargets } from './thresholdEcdsaProvisioning';
+import { IndexedDBManager } from '../indexedDB';
+import { resolveNearAccountProfileContinuity } from '../accountData/near/accountProjection';
+import {
+  normalizeIndexedDbAccountAddress,
+  toIndexedDbChainTargetKey,
+} from '../indexedDB/normalization';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/orchestration/thresholdActivation';
 
 // Registration forces a visible, clickable confirmation for cross‑origin safety
+
+function createThresholdRegistrationEcdsaSessionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `threshold-ecdsa-registration-${crypto.randomUUID()}`;
+  }
+  return `threshold-ecdsa-registration-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function persistRegistrationThresholdEcdsaProfileSigner(args: {
+  nearAccountId: AccountId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  bootstrap: ThresholdEcdsaSessionBootstrapResult;
+  signerSlot: number;
+}): Promise<void> {
+  const continuity = await resolveNearAccountProfileContinuity(
+    IndexedDBManager.clientDB,
+    args.nearAccountId,
+  );
+  const profileId = String(continuity?.profile.profileId || '').trim();
+  if (!profileId) {
+    throw new Error(`[Registration] missing profile continuity for ${String(args.nearAccountId)}`);
+  }
+
+  const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
+  const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
+  const ownerAddress = normalizeIndexedDbAccountAddress(
+    args.bootstrap.keygen.ethereumAddress || keyRef.ethereumAddress,
+  );
+  const accountAddress = normalizeIndexedDbAccountAddress(
+    args.bootstrap.keygen.counterfactualAddress ||
+      args.bootstrap.keygen.ethereumAddress ||
+      keyRef.ethereumAddress,
+  );
+  const relayerKeyId = String(
+    args.bootstrap.keygen.relayerKeyId || keyRef.backendBinding?.relayerKeyId || '',
+  ).trim();
+  const thresholdEcdsaPublicKeyB64u = String(
+    args.bootstrap.keygen.thresholdEcdsaPublicKeyB64u || keyRef.thresholdEcdsaPublicKeyB64u || '',
+  ).trim();
+  const participantIds = Array.isArray(args.bootstrap.keygen.participantIds)
+    ? args.bootstrap.keygen.participantIds
+    : keyRef.participantIds;
+  if (!ecdsaThresholdKeyId || !ownerAddress || !accountAddress || !relayerKeyId) {
+    throw new Error('[Registration] threshold ECDSA profile signer requires exact key material');
+  }
+
+  const signerSlot = Math.max(1, Math.floor(Number(args.signerSlot) || 1));
+  const accountModel = args.chainTarget.kind === 'evm' ? 'erc4337' : 'tempo-native';
+  await IndexedDBManager.clientDB.upsertAccountSigner({
+    profileId,
+    chainIdKey: toIndexedDbChainTargetKey(args.chainTarget),
+    accountAddress,
+    signerId: ownerAddress,
+    signerSlot,
+    signerType: 'threshold',
+    signerKind: SIGNER_KINDS.thresholdEcdsa,
+    signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
+    signerSource: SIGNER_SOURCES.passkeyRegistration,
+    status: 'active',
+    metadata: {
+      accountModel,
+      ownerAddress,
+      ecdsaThresholdKeyId,
+      relayerKeyId,
+      thresholdEcdsaPublicKeyB64u,
+      signerSlot,
+      chainTarget: args.chainTarget,
+      chainId: args.chainTarget.chainId,
+      ...(Array.isArray(participantIds) && participantIds.length
+        ? { participantIds: [...participantIds] }
+        : {}),
+      ...(args.bootstrap.keygen.factory ? { factory: args.bootstrap.keygen.factory } : {}),
+      ...(args.bootstrap.keygen.entryPoint ? { entryPoint: args.bootstrap.keygen.entryPoint } : {}),
+      ...(args.bootstrap.keygen.salt ? { salt: args.bootstrap.keygen.salt } : {}),
+      ...(args.bootstrap.keygen.counterfactualAddress
+        ? { counterfactualAddress: args.bootstrap.keygen.counterfactualAddress }
+        : {}),
+    },
+    mutation: { routeThroughOutbox: false },
+  });
+}
 
 type EmitRegistrationEventInput = Omit<
   CreateRegistrationFlowEventInput,
@@ -257,7 +347,7 @@ export async function registerPasskeyInternal(
       signingEngine,
       credential,
       nearAccountId,
-      completedThresholdEd25519Registration,
+      registrationContinuation: accountAndRegistrationResult.registrationContinuation,
       registrationSessionPolicy: thresholdEd25519Registration.registrationInput.sessionPolicy,
       onEvent,
     });
@@ -480,7 +570,9 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
   signingEngine: SigningEnginePublic;
   credential: WebAuthnRegistrationCredential;
   nearAccountId: AccountId;
-  completedThresholdEd25519Registration: CompletedThresholdEd25519Registration;
+  registrationContinuation?: Awaited<
+    ReturnType<typeof createAccountAndRegisterWithRelayServer>
+  >['registrationContinuation'];
   registrationSessionPolicy: ThresholdWarmSessionRequestEnvelope['session_policy'];
   onEvent?: RegistrationHooksOptions['onEvent'];
 }): Promise<void> {
@@ -502,9 +594,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
     });
   };
   const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
-  const thresholdSessionJwt = String(
-    args.completedThresholdEd25519Registration.registered.session?.jwt || '',
-  ).trim();
+  const registrationContinuationToken = String(args.registrationContinuation?.token || '').trim();
   const walletSigningSessionId = String(
     args.registrationSessionPolicy.walletSigningSessionId ||
       args.registrationSessionPolicy.sessionId ||
@@ -515,20 +605,18 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
     Math.floor(Number(args.registrationSessionPolicy.remainingUses) || 1),
   );
   const ttlMs = Math.max(1, Math.floor(Number(args.registrationSessionPolicy.ttlMs) || 1));
-  const runtimePolicyScope =
-    args.completedThresholdEd25519Registration.registered.session?.runtimePolicyScope;
 
-  if (!relayerUrl || !thresholdSessionJwt) {
+  if (!relayerUrl || !registrationContinuationToken) {
     emitRegistrationEvent(args.onEvent, args.nearAccountId, {
       phase: RegistrationEventPhase.STEP_10_ECDSA_SIGNER_PROVISION_SKIPPED,
       status: 'skipped',
       data: {
-        reason: 'missing_ed25519_session_auth',
+        reason: 'missing_registration_continuation_token',
       },
     });
     logTelemetry({
       outcome: 'skipped',
-      reason: 'missing_ed25519_session_auth',
+      reason: 'missing_registration_continuation_token',
     });
     return;
   }
@@ -545,16 +633,17 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
     }
 
     let canonicalEcdsaThresholdKeyId = '';
-    for (const chain of ['tempo', 'evm'] as const) {
-      const chainId = requireThresholdEcdsaProvisionChainId({
-        chain,
-        chains: args.context.configs.network.chains,
-      });
+    for (const target of listConfiguredThresholdEcdsaPublicationTargets(
+      args.context.configs.network.chains,
+    )) {
+      const publicationChain = target.chainTarget.kind;
       const bootstrapStartedAt = performance.now();
+      const existingKeyPublicationSessionId = canonicalEcdsaThresholdKeyId
+        ? createThresholdRegistrationEcdsaSessionId()
+        : '';
       const bootstrap = await args.signingEngine.bootstrapEcdsaSession({
         nearAccountId: args.nearAccountId,
-        chain,
-        chainId,
+        chainTarget: target.chainTarget,
         source: 'registration',
         relayerUrl,
         sessionKind: 'jwt',
@@ -562,32 +651,43 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         ...(canonicalEcdsaThresholdKeyId
           ? { ecdsaThresholdKeyId: canonicalEcdsaThresholdKeyId }
           : {}),
+        ...(existingKeyPublicationSessionId
+          ? { sessionId: existingKeyPublicationSessionId }
+          : {}),
         clientRootShare32B64u,
-        thresholdRouteAuth: { kind: 'threshold_session', jwt: thresholdSessionJwt },
+        thresholdRouteAuth: {
+          kind: 'registration_continuation',
+          token: registrationContinuationToken,
+        },
         ttlMs,
         remainingUses,
-        ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       });
-      timings[`bootstrapThresholdEcdsa${chain === 'tempo' ? 'Tempo' : 'Evm'}Ms`] = Math.round(
-        performance.now() - bootstrapStartedAt,
-      );
+      timings[`bootstrapThresholdEcdsa${publicationChain === 'tempo' ? 'Tempo' : 'Evm'}Ms`] =
+        Math.round(performance.now() - bootstrapStartedAt);
 
       const keyRef = bootstrap.thresholdEcdsaKeyRef;
       canonicalEcdsaThresholdKeyId =
         String(keyRef.ecdsaThresholdKeyId || canonicalEcdsaThresholdKeyId || '').trim();
+      await persistRegistrationThresholdEcdsaProfileSigner({
+        nearAccountId: args.nearAccountId,
+        chainTarget: target.chainTarget,
+        bootstrap,
+        signerSlot: 1,
+      });
       const thresholdSessionJwtSource = String(keyRef.thresholdSessionJwt || '').trim()
         ? 'ecdsa'
         : 'none';
       console.info('[Registration] threshold ECDSA background provisioned', {
         nearAccountId: args.nearAccountId,
-        chain,
+        chain: publicationChain,
         ecdsaThresholdKeyId: keyRef.ecdsaThresholdKeyId,
         relayerKeyId: keyRef.backendBinding?.relayerKeyId,
         thresholdSessionId: keyRef.thresholdSessionId,
         thresholdSessionJwtSource,
         accountAddress:
           bootstrap.keygen.counterfactualAddress || bootstrap.keygen.ethereumAddress || null,
-        durationMs: timings[`bootstrapThresholdEcdsa${chain === 'tempo' ? 'Tempo' : 'Evm'}Ms`],
+        durationMs:
+          timings[`bootstrapThresholdEcdsa${publicationChain === 'tempo' ? 'Tempo' : 'Evm'}Ms`],
       });
     }
     emitRegistrationEvent(args.onEvent, args.nearAccountId, {

@@ -5,13 +5,9 @@ import type {
   NearEd25519SignOutput,
   NearSigningRequest,
 } from '@/core/signingEngine/interfaces/near';
-import type { SignerMap } from '@/core/signingEngine/interfaces/signing';
-import { executeSigningIntent } from '@/core/signingEngine/orchestration/executeSigningIntent';
 import {
   NearEd25519Engine,
-  NEAR_ED25519_KEY_REF,
   type NearEd25519OperationHandlers,
-  type NearEd25519KeyRef,
 } from '@/core/signingEngine/signers/algorithms/ed25519';
 import { signTransactionsWithActions } from './transactionsFlow';
 import { signDelegateAction } from './delegateFlow';
@@ -27,18 +23,11 @@ export async function signNearWithTouchConfirm<TRequest extends NearSigningReque
     signDelegateAction,
     signNep413Message,
   };
-  const engines: SignerMap<NearEd25519SignRequest, NearEd25519KeyRef, NearEd25519SignOutput> = {
-    ed25519: new NearEd25519Engine(handlers),
-  };
+  const engine = new NearEd25519Engine(handlers);
+  const signatures: NearEd25519SignOutput[] = [];
+  for (const signReq of intent.signRequests) {
+    signatures.push(await engine.sign(signReq));
+  }
 
-  return (await executeSigningIntent({
-    intent,
-    engines,
-    resolveSignInput: async (
-      signReq: NearEd25519SignRequest,
-    ): Promise<{ signReq: NearEd25519SignRequest; keyRef: NearEd25519KeyRef }> => ({
-      signReq,
-      keyRef: NEAR_ED25519_KEY_REF,
-    }),
-  })) as NearIntentResult<TRequest>;
+  return (await intent.finalize(signatures)) as NearIntentResult<TRequest>;
 }

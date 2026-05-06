@@ -5,6 +5,7 @@ import type {
   WarmSessionEnvelope,
   WarmSessionPrfClaim,
 } from './types';
+import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
 
 export type WarmSessionTransitionCapabilitySnapshot = {
   state: WarmSessionEd25519CapabilityState['state'] | WarmSessionEcdsaCapabilityState['state'];
@@ -38,7 +39,7 @@ export type WarmSessionTransitionEvent =
   | {
       type: 'ecdsa_capability_provisioned' | 'ecdsa_capability_reconnected';
       accountId: AccountId;
-      chain: 'evm' | 'tempo';
+      chainTarget: ThresholdEcdsaChainTarget;
       thresholdSessionId: string;
       before: WarmSessionTransitionSnapshot;
       after: WarmSessionTransitionSnapshot;

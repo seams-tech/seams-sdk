@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { toWalletSubjectId } from '@seams/sdk';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 
@@ -18,6 +19,7 @@ import {
   resolveClickTimeEip1559FeeCaps,
   type Eip1559FeeCaps,
 } from '../demoEvmHelpers';
+import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';
 import type { EvmAddress, TempoFeeTokenConfigTarget } from './demoThresholdTypes';
 import { handleSigningToastEvent } from './signingToast';
 
@@ -111,7 +113,9 @@ export function useDemoTempoFeeTokenActions(args: UseDemoTempoFeeTokenActionsArg
         })().catch(() => undefined);
         const execution = await seams.tempo.executeEvmFamilyTransaction({
           nearAccountId,
+          subjectId: toWalletSubjectId(nearAccountId),
           request,
+          chainTarget: resolveDemoThresholdEcdsaChainTarget('tempo', FRONTEND_CONFIG.chains),
           finalization: {
             timeoutMs: EVM_SET_USER_TOKEN_FINALITY_TIMEOUT_MS,
             pollIntervalMs: EVM_SET_USER_TOKEN_POLL_INTERVAL_MS,

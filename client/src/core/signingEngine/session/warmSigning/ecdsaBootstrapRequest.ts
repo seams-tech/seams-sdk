@@ -27,7 +27,7 @@ export function resolveWarmEcdsaBootstrapRequestFromSession(args: {
   const { primary: primaryCapability, secondary: secondaryCapability } =
     getPrimaryAndSecondaryEcdsaCapabilities({
       warmSession: args.warmSession,
-      chain: request.chain,
+      chainTarget: request.chainTarget,
     });
   const primaryWarmCapability =
     primaryCapability.prfClaim?.state === 'warm' ? primaryCapability : null;
@@ -67,8 +67,7 @@ export function resolveWarmEcdsaBootstrapRequestFromSession(args: {
 
   return {
     nearAccountId,
-    chain: request.chain,
-    chainId: request.chainId,
+    chainTarget: request.chainTarget,
     ...(request.emailOtpAuthContext ? { emailOtpAuthContext: request.emailOtpAuthContext } : {}),
     ...(explicitRelayerUrl
       ? { relayerUrl: explicitRelayerUrl }

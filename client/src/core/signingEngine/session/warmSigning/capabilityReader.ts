@@ -35,7 +35,10 @@ export function createWarmSessionCapabilityReader(
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: deps.touchConfirm,
     getEmailOtpWarmSessionStatus,
-    listThresholdEcdsaSessionRecordsForLookup: deps.listThresholdEcdsaSessionRecordsForLookup,
+    listConcreteThresholdEcdsaSessionRecordsForSubject:
+      deps.listConcreteThresholdEcdsaSessionRecordsForSubject,
+    getThresholdEcdsaSessionRecordByThresholdSessionId:
+      deps.getThresholdEcdsaSessionRecordByThresholdSessionId,
   });
   return createWarmSessionCapabilityReaderCore({
     touchConfirm: deps.touchConfirm,

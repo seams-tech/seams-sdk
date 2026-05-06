@@ -15,6 +15,10 @@ import type {
   SigningOperationFingerprint,
   SigningOperationId,
 } from '../session/signingSession/types';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  type ThresholdEcdsaChainTarget,
+} from '../session/signingSession/ecdsaChainTarget';
 
 export const NonceLeaseState = {
   Reserved: 'reserved',
@@ -193,17 +197,11 @@ export type NonceCoordinatorSameOriginLockPort = {
   withLock<T>(key: string, task: () => Promise<T>): Promise<T>;
 };
 
-export type NonceLaneCoordinationRecord = {
+type NonceLaneCoordinationRecordBase = {
   v: 1;
   laneKey: string;
   leaseId: string;
-  family: 'evm' | 'near';
-  chain?: EvmNonceChain;
   networkKey: string;
-  chainId?: number;
-  sender?: `0x${string}` | string;
-  nonceKey?: string;
-  publicKey?: string;
   nonce: string;
   state: NonceDurableLeaseState;
   operationId: string;
@@ -217,6 +215,19 @@ export type NonceLaneCoordinationRecord = {
   batchId?: string;
   txIndex?: number;
 };
+
+export type NonceLaneCoordinationRecord =
+  | (NonceLaneCoordinationRecordBase & {
+      family: 'evm';
+      chainTarget: ThresholdEcdsaChainTarget;
+      sender: `0x${string}` | string;
+      nonceKey?: string;
+    })
+  | (NonceLaneCoordinationRecordBase & {
+      family: 'near';
+      accountId: string;
+      publicKey: string;
+    });
 
 export type NonceLaneCoordinationStore = {
   readLane(laneKey: string): Promise<NonceLaneCoordinationRecord[]>;
@@ -790,20 +801,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       return;
     }
     const laneKey = nonceLaneKey(lease.lane);
-    const record: NonceLaneCoordinationRecord = {
+    const baseRecord = {
       v: 1,
       laneKey,
       leaseId: lease.leaseId,
-      family: lease.lane.family,
       networkKey: lease.lane.networkKey,
-      ...(lease.lane.family === 'evm'
-        ? {
-            chain: lease.lane.chain,
-            chainId: lease.lane.chainId,
-            sender: lease.lane.sender,
-            ...(lease.lane.nonceKey != null ? { nonceKey: lease.lane.nonceKey.toString() } : {}),
-          }
-        : { publicKey: lease.lane.publicKey }),
       nonce: String(lease.nonce),
       state,
       operationId: String(lease.operationId),
@@ -815,7 +817,26 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       runtimeId,
       ...(lease.batchId ? { batchId: lease.batchId } : {}),
       ...(Number.isSafeInteger(lease.txIndex) ? { txIndex: lease.txIndex } : {}),
-    };
+    } as const;
+    const record: NonceLaneCoordinationRecord =
+      lease.lane.family === 'evm'
+        ? {
+            ...baseRecord,
+            family: 'evm',
+            chainTarget: thresholdEcdsaChainTargetFromChainFamily({
+              chain: lease.lane.chain,
+              chainId: lease.lane.chainId,
+              networkSlug: lease.lane.networkKey,
+            }),
+            sender: lease.lane.sender,
+            ...(lease.lane.nonceKey != null ? { nonceKey: lease.lane.nonceKey.toString() } : {}),
+          }
+        : {
+            ...baseRecord,
+            family: 'near',
+            accountId: lease.lane.accountId,
+            publicKey: lease.lane.publicKey,
+          };
     try {
       await nonceLaneCoordinationStore.upsert(record);
     } catch {
@@ -2429,14 +2450,14 @@ function createDefaultSameOriginLock(): NonceCoordinatorSameOriginLockPort | nul
 
 function nonceLaneFromCoordinationRecord(record: NonceLaneCoordinationRecord): NonceLane | null {
   if (record.family === 'evm') {
-    if ((record.chain !== 'evm' && record.chain !== 'tempo') || !record.chainId || !record.sender) {
+    if (!record.chainTarget || !record.sender) {
       return null;
     }
     return {
       family: 'evm',
-      chain: record.chain,
+      chain: record.chainTarget.kind,
       networkKey: normalizeRequiredString(record.networkKey, 'networkKey'),
-      chainId: record.chainId,
+      chainId: record.chainTarget.chainId,
       sender: normalizeRequiredString(record.sender, 'sender').toLowerCase() as `0x${string}`,
       ...(record.nonceKey ? { nonceKey: normalizeBigint(record.nonceKey, 'nonceKey') } : {}),
       ...(record.accountId ? { accountId: record.accountId } : {}),

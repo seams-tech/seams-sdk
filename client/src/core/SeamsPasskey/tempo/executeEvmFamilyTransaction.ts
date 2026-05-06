@@ -1,6 +1,10 @@
 import { chainFamilyFromNetwork } from '@/core/config/chains';
 import { createEvmClient } from '@/core/rpcClients/evm/EvmClient';
 import type { SeamsChainConfig } from '@/core/types/seams';
+import {
+  thresholdEcdsaChainTargetFromConfig,
+  thresholdEcdsaChainTargetKey,
+} from '@/core/signingEngine/session/signingSession/ecdsaChainTarget';
 import type {
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,
@@ -161,46 +165,30 @@ function normalizeHexData(value: unknown): `0x${string}` | null {
 
 function resolveRpcUrlForRequest(args: {
   chains: readonly SeamsChainConfig[];
-  request: ExecuteEvmFamilyTransactionArgs['request'];
+  chainTarget: ExecuteEvmFamilyTransactionArgs['chainTarget'];
 }): string {
-  const targetChainId = Number(args.request.tx.chainId);
-  if (!Number.isSafeInteger(targetChainId) || targetChainId <= 0) {
-    throw new Error(`[TempoSigner] invalid request chainId: ${String(args.request.tx.chainId)}`);
-  }
-  const withChainId = args.chains.filter(
-    (chain): chain is SeamsChainConfig & { chainId: number } =>
-      'chainId' in chain && typeof chain.chainId === 'number' && chain.chainId === targetChainId,
-  );
-  const compatible = withChainId.filter((chain) => {
+  const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
+  const compatible = args.chains.filter((chain) => {
     const family = chainFamilyFromNetwork(chain.network);
-    if (args.request.chain === 'tempo') return family === 'tempo';
-    return family === 'evm' || family === 'tempo';
+    if (family !== 'evm' && family !== 'tempo') return false;
+    return thresholdEcdsaChainTargetKey(thresholdEcdsaChainTargetFromConfig(chain)) === targetKey;
   });
   if (compatible.length === 1) {
     const rpcUrl = String(compatible[0]!.rpcUrl || '').trim();
     if (!rpcUrl) {
       throw new Error(
-        `[TempoSigner] missing rpcUrl for ${compatible[0]!.network} chainId=${String(targetChainId)}`,
+        `[TempoSigner] missing rpcUrl for ${compatible[0]!.network} ${targetKey}`,
       );
     }
     return rpcUrl;
   }
-  if (compatible.length > 1 && args.request.chain === 'evm') {
-    const evmOnly = compatible.filter((chain) => chainFamilyFromNetwork(chain.network) === 'evm');
-    if (evmOnly.length === 1) {
-      const rpcUrl = String(evmOnly[0]!.rpcUrl || '').trim();
-      if (rpcUrl) return rpcUrl;
-    }
-  }
   if (compatible.length > 1) {
     const candidates = compatible.map((chain) => chain.network).join(', ');
     throw new Error(
-      `[TempoSigner] ambiguous RPC routing for ${args.request.chain} chainId=${String(targetChainId)} across [${candidates}]`,
+      `[TempoSigner] ambiguous RPC routing for ${targetKey} across [${candidates}]`,
     );
   }
-  throw new Error(
-    `[TempoSigner] unable to resolve RPC URL for ${args.request.chain} chainId=${String(targetChainId)}`,
-  );
+  throw new Error(`[TempoSigner] unable to resolve RPC URL for ${targetKey}`);
 }
 
 function extractManagedNonceHints(signedResult: TempoSignedResult | EvmSignedResult): {
@@ -404,13 +392,15 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
     const request = args.input.request;
     const rpcUrl = resolveRpcUrlForRequest({
       chains: args.chains,
-      request,
+      chainTarget: args.input.chainTarget,
     });
     const client = createEvmClient({ rpcUrl });
 
     signedResult = await args.capability.signTempo({
       nearAccountId: args.input.nearAccountId,
+      subjectId: args.input.subjectId,
       request,
+      chainTarget: args.input.chainTarget,
       options: args.input.options
         ? {
             ...(args.input.options.confirmationConfig

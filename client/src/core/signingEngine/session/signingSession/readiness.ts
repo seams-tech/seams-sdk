@@ -8,6 +8,7 @@ import type {
 } from '../../touchConfirm';
 import {
   clearStoredThresholdEd25519SessionRecordForAccount,
+  ConcreteThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionRecord,
   ThresholdEcdsaSessionStoreSource,
   ThresholdEd25519SessionRecord,
@@ -21,7 +22,6 @@ import {
   readWarmSessionCapabilityRecordsForAccount,
   readWarmSessionEd25519RecordByThresholdSessionId,
 } from '../warmSigning/store';
-import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
 import type { WarmSessionPrfClaim } from '../warmSigning/types';
 import {
   readWarmSessionClaims,
@@ -30,10 +30,17 @@ import {
 } from '../warmSigning/readModel';
 import type { SigningSessionBudgetStatusAuth } from './budget';
 import type { SigningSessionReadiness } from './planner';
+import {
+  thresholdEcdsaChainTargetKey,
+  toWalletSubjectId,
+  type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
+} from './ecdsaChainTarget';
 
 export type SigningSessionLane = {
   curve: 'ed25519' | 'ecdsa';
   chain?: 'near' | 'tempo' | 'evm';
+  chainTarget?: ThresholdEcdsaChainTarget;
   source: 'passkey' | 'email_otp';
   thresholdSessionId: string;
   walletSigningSessionId: string;
@@ -67,10 +74,9 @@ export type WalletSigningSessionReadinessDeps = {
       | 'clearWarmSessionMaterial'
     >
   >;
-  listThresholdEcdsaSessionRecordsForLookup?: (args: {
-    nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
-  }) => ThresholdEcdsaSessionRecord[];
+  listConcreteThresholdEcdsaSessionRecordsForSubject?: (args: {
+    subjectId: WalletSubjectId;
+  }) => ConcreteThresholdEcdsaSessionRecord[];
   getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
   consumeEmailOtpWarmSessionUses?: (args: {
     sessionId: string;
@@ -78,8 +84,8 @@ export type WalletSigningSessionReadinessDeps = {
   }) => Promise<WarmSessionStatusResult>;
   clearEmailOtpWarmSessionMaterial?: (args: { sessionId: string }) => Promise<void>;
   clearThresholdEcdsaSessionRecordForLane?: (args: {
-    nearAccountId: AccountId | string;
-    chain: ThresholdEcdsaActivationChain;
+    subjectId: WalletSubjectId;
+    chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => void;
   updateExactSealedSessionPolicy?: typeof updateExactSealedSessionPolicy;
@@ -264,46 +270,42 @@ export function discoverLanesForAccount(
     });
   }
 
-  for (const chain of ['evm', 'tempo'] as const) {
-    const candidateRecords: ThresholdEcdsaSessionRecord[] = [];
-    const addCandidateRecord = (record: ThresholdEcdsaSessionRecord | null | undefined): void => {
-      if (!record) return;
-      if (record.chain !== chain) return;
-      candidateRecords.push(record);
-    };
-    if (typeof deps.listThresholdEcdsaSessionRecordsForLookup === 'function') {
-      try {
-        for (const record of deps.listThresholdEcdsaSessionRecordsForLookup({
-          nearAccountId,
-          chain,
-        })) {
-          addCandidateRecord(record);
-        }
-      } catch {}
-    }
-    addCandidateRecord(records.ecdsa[chain]);
-
-    const seen = new Set<string>();
-    for (const record of candidateRecords) {
-      const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
-      const key = `${chain}:${record.source}:${thresholdSessionId}`;
-      if (!thresholdSessionId || seen.has(key)) continue;
-      seen.add(key);
-      const source = toLaneSource(record);
-      addLane(lanes, {
-        curve: 'ecdsa',
-        chain,
-        source,
-        thresholdSessionId,
-        walletSigningSessionId: resolveWalletSigningSessionId(record),
-        backingMaterialSessionId:
-          source === 'email_otp'
-            ? resolveEmailOtpEcdsaWorkerSessionId(record)
-            : normalizeNonEmpty(record.thresholdSessionId),
-        backing: source === 'email_otp' ? 'email_otp_worker' : 'touch_confirm',
-        record,
-      });
-    }
+  const candidateRecords: ThresholdEcdsaSessionRecord[] =
+    deps.listConcreteThresholdEcdsaSessionRecordsForSubject?.({
+      subjectId: toWalletSubjectId(nearAccountId),
+    }) ||
+    [records.ecdsa.evm, records.ecdsa.tempo].filter(
+      (record): record is ThresholdEcdsaSessionRecord => Boolean(record),
+    );
+  const seen = new Set<string>();
+  for (const record of candidateRecords) {
+    const thresholdSessionId = normalizeNonEmpty(record.thresholdSessionId);
+    const chainTarget = record.chainTarget;
+    const key = [
+      record.subjectId,
+      thresholdEcdsaChainTargetKey(chainTarget),
+      record.source,
+      record.ecdsaThresholdKeyId,
+      record.walletSigningSessionId,
+      thresholdSessionId,
+    ].join(':');
+    if (!thresholdSessionId || seen.has(key)) continue;
+    seen.add(key);
+    const source = toLaneSource(record);
+    addLane(lanes, {
+      curve: 'ecdsa',
+      chain: chainTarget.kind,
+      chainTarget,
+      source,
+      thresholdSessionId,
+      walletSigningSessionId: resolveWalletSigningSessionId(record),
+      backingMaterialSessionId:
+        source === 'email_otp'
+          ? resolveEmailOtpEcdsaWorkerSessionId(record)
+          : normalizeNonEmpty(record.thresholdSessionId),
+      backing: source === 'email_otp' ? 'email_otp_worker' : 'touch_confirm',
+      record,
+    });
   }
   return lanes;
 }
@@ -824,7 +826,11 @@ export async function consumeWalletSigningSessionUse(args: {
         sessionId: lane.backingMaterialSessionId,
         uses,
         curve: lane.curve,
-        ...(lane.chain ? { chain: lane.chain } : {}),
+        ...(lane.curve === 'ecdsa' && lane.chainTarget
+          ? { chainTarget: lane.chainTarget }
+          : lane.curve === 'ed25519' && lane.chain === 'near'
+            ? { chain: lane.chain }
+            : {}),
       });
       if (result) consumeResults.push({ lane, result, laneIsExplicitTarget });
       assertConsumeResult({
@@ -914,15 +920,18 @@ export async function clearWalletSigningSession(args: {
   let clearEd25519Record = false;
   const ecdsaLanesToClear = new Map<
     string,
-    { chain: ThresholdEcdsaActivationChain; source: ThresholdEcdsaSessionStoreSource }
+    {
+      chainTarget: ThresholdEcdsaChainTarget;
+      source: ThresholdEcdsaSessionStoreSource;
+    }
   >();
   await Promise.all(
     lanes.map(async (lane) => {
       if (lane.curve === 'ed25519') clearEd25519Record = true;
-      if (lane.curve === 'ecdsa' && (lane.chain === 'evm' || lane.chain === 'tempo')) {
+      if (lane.curve === 'ecdsa' && lane.chainTarget) {
         const source = (lane.record as ThresholdEcdsaSessionRecord).source;
-        ecdsaLanesToClear.set(`${lane.chain}:${source}`, {
-          chain: lane.chain,
+        ecdsaLanesToClear.set(`${thresholdEcdsaChainTargetKey(lane.chainTarget)}:${source}`, {
+          chainTarget: lane.chainTarget,
           source,
         });
       }
@@ -944,8 +953,8 @@ export async function clearWalletSigningSession(args: {
   }
   for (const lane of ecdsaLanesToClear.values()) {
     args.deps.clearThresholdEcdsaSessionRecordForLane?.({
-      nearAccountId: args.nearAccountId,
-      chain: lane.chain,
+      subjectId: toWalletSubjectId(args.nearAccountId),
+      chainTarget: lane.chainTarget,
       source: lane.source,
     });
   }
@@ -962,8 +971,9 @@ export async function syncSealedRefreshPolicyForLanes(args: {
     lane: DiscoveredSigningSessionLane,
   ): SigningSessionSealedRecordFilter | null => {
     if (lane.curve === 'ecdsa') {
-      if (lane.chain !== 'tempo' && lane.chain !== 'evm') return null;
-      return { authMethod: lane.source, curve: 'ecdsa', chain: lane.chain };
+      const chainTarget = lane.chainTarget;
+      if (!chainTarget) return null;
+      return { authMethod: lane.source, curve: 'ecdsa', chainTarget };
     }
     return { authMethod: lane.source, curve: 'ed25519' };
   };
@@ -971,7 +981,11 @@ export async function syncSealedRefreshPolicyForLanes(args: {
     .filter((lane) => lane.thresholdSessionId)
     .filter((lane) => Boolean(filterForLane(lane)))
     .filter((lane) => {
-      const key = `${lane.source}:${lane.curve}:${lane.chain || 'near'}:${lane.thresholdSessionId}`;
+      const laneTarget =
+        lane.curve === 'ecdsa' && lane.chainTarget
+          ? thresholdEcdsaChainTargetKey(lane.chainTarget)
+          : 'near';
+      const key = `${lane.source}:${lane.curve}:${laneTarget}:${lane.thresholdSessionId}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;

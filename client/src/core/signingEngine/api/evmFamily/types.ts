@@ -2,6 +2,11 @@ import type { EvmSignedResult } from '../../chainAdaptors/evm/evmAdapter';
 import type { EvmSigningRequest } from '../../chainAdaptors/evm/types';
 import type { TempoSignedResult } from '../../chainAdaptors/tempo/tempoAdapter';
 import type { TempoSigningRequest } from '../../chainAdaptors/tempo/types';
+import {
+  type EvmEip155ChainTarget,
+  type TempoChainTarget,
+  type ThresholdEcdsaChainTarget,
+} from '../../session/signingSession/ecdsaChainTarget';
 import type {
   CreateSigningFlowEventInput,
   SigningFlowEvent,
@@ -12,6 +17,37 @@ export type EvmFamilySenderSignatureAlgorithm =
   | TempoSigningRequest['senderSignatureAlgorithm'];
 
 export type EvmFamilyChain = 'tempo' | 'evm';
+
+export type TempoEcdsaSigningTarget = {
+  chain: 'tempo';
+  chainTarget: TempoChainTarget;
+};
+
+export type EvmEcdsaSigningTarget = {
+  chain: 'evm';
+  chainTarget: EvmEip155ChainTarget;
+};
+
+export type EvmFamilySigningTarget = TempoEcdsaSigningTarget | EvmEcdsaSigningTarget;
+
+export function evmFamilySigningTargetFromExplicitTarget(args: {
+  request: TempoSigningRequest | EvmSigningRequest;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): EvmFamilySigningTarget {
+  const requestChainId = Number(args.request.tx.chainId);
+  if (!Number.isSafeInteger(requestChainId) || requestChainId <= 0) {
+    throw new Error('[SigningEngine][ecdsa] transaction request requires a concrete chainId');
+  }
+  if (requestChainId !== args.chainTarget.chainId) {
+    throw new Error('[SigningEngine][ecdsa] transaction request chainId does not match chainTarget');
+  }
+  if (args.request.chain === 'tempo' && args.chainTarget.kind !== 'tempo') {
+    throw new Error('[SigningEngine][ecdsa] Tempo transaction request requires a Tempo target');
+  }
+  return args.chainTarget.kind === 'tempo'
+    ? { chain: 'tempo', chainTarget: args.chainTarget }
+    : { chain: 'evm', chainTarget: args.chainTarget };
+}
 
 export type EvmFamilyLifecycleEvent = Omit<
   CreateSigningFlowEventInput,

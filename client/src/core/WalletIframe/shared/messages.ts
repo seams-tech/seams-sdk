@@ -13,6 +13,11 @@ import type {
   ThresholdEd25519HssPreparedSessionEnvelope,
 } from '../../signingEngine/signers/wasm/hssClientSignerWasm';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/session/sessionPolicy';
+import type {
+  NearAccountRef,
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '../../types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
@@ -124,8 +129,7 @@ export interface PMRegisterPayload {
 export interface PMBootstrapThresholdEcdsaSessionPayload {
   nearAccountId: string;
   options: {
-    chain: 'evm' | 'tempo';
-    chainId: number;
+    chainTarget: ThresholdEcdsaChainTarget;
     relayerUrl?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -223,7 +227,9 @@ export interface PMSignNep413Payload {
 
 export interface PMSignTempoPayload {
   nearAccountId: string;
+  subjectId: WalletSubjectId;
   request: MultichainSigningRequest;
+  chainTarget: ThresholdEcdsaChainTarget;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
   };
@@ -258,12 +264,26 @@ export interface PMReportTempoDroppedOrReplacedPayload extends PMTempoNonceLifec
 
 export interface PMReconcileTempoNonceLanePayload extends PMTempoNonceLifecyclePayloadBase {}
 
-export interface PMExportKeypairUiPayload {
-  nearAccountId: string;
-  chain: 'near' | 'evm' | 'tempo';
-  variant?: 'modal' | 'drawer';
-  theme?: 'dark' | 'light';
-}
+export type PMExportKeypairUiPayload =
+  | {
+      kind: 'near';
+      nearAccount: NearAccountRef;
+      options: {
+        chain: 'near';
+        variant?: 'modal' | 'drawer';
+        theme?: 'dark' | 'light';
+      };
+    }
+  | {
+      kind: 'ecdsa';
+      subjectId: WalletSubjectId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      walletSessionUserId: string;
+      options: {
+        variant?: 'modal' | 'drawer';
+        theme?: 'dark' | 'light';
+      };
+    };
 
 export interface PMExportThresholdEd25519SeedFromHssReportUiPayload {
   nearAccountId: string;
@@ -297,7 +317,7 @@ export interface PMEmailOtpChallengePayload {
 
 export interface PMEmailOtpSigningSessionChallengePayload {
   nearAccountId: string;
-  chain: 'tempo' | 'evm';
+  chainTarget: ThresholdEcdsaChainTarget;
 }
 
 export interface PMExchangeGoogleEmailOtpSessionPayload {
@@ -319,8 +339,7 @@ export interface PMEnrollEmailOtpPayload {
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
   nearAccountId: string;
-  chain: 'tempo' | 'evm';
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
   challengeId?: string;
@@ -339,8 +358,7 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
 
 export interface PMRefreshEmailOtpSigningSessionPayload {
   nearAccountId: string;
-  chain: 'tempo' | 'evm';
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;
   ttlMs?: number;
@@ -353,7 +371,7 @@ export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload
 export interface PMPrefillThresholdEcdsaPresignPoolPayload {
   nearAccountId: string;
   options: {
-    chain: 'tempo' | 'evm';
+    chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;

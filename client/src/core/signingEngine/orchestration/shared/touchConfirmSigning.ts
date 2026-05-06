@@ -4,8 +4,7 @@ import {
   type SigningAuthPlan,
 } from '@/core/signingEngine/touchConfirm/shared/confirmTypes';
 import { WalletAuthPlanKind, type WalletAuthPlan } from '@/core/signingEngine/auth';
-import type { KeyRef, SignRequest } from '@/core/signingEngine/interfaces/signing';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
+import type { SignRequest } from '@/core/signingEngine/interfaces/signing';
 import type {
   SigningOperationIntent,
   SigningSessionPlan,
@@ -30,15 +29,6 @@ export function makeRequestId(prefix: string): string {
 
 export function inferDigest32FromSignRequest(req: SignRequest): Uint8Array {
   return req.kind === 'digest' ? req.digest32 : req.challenge32;
-}
-
-export function asThresholdEcdsaKeyRef(
-  value: KeyRef | undefined,
-): ThresholdEcdsaSecp256k1KeyRef | null {
-  if (!value || typeof value !== 'object') return null;
-  return value.type === 'threshold-ecdsa-secp256k1'
-    ? (value as ThresholdEcdsaSecp256k1KeyRef)
-    : null;
 }
 
 export function signingAuthPlanFromWalletAuthPlan(
@@ -272,17 +262,6 @@ export function mapTouchConfirmSigningProgress(
     };
   }
   return null;
-}
-
-export function resolveKeyRefForSignRequest(args: {
-  signReq: SignRequest;
-  keyRefsByAlgorithm?: Partial<Record<SignRequest['algorithm'], KeyRef>>;
-}): { signReq: SignRequest; keyRef: KeyRef } {
-  const keyRef = args.keyRefsByAlgorithm?.[args.signReq.algorithm];
-  if (!keyRef) {
-    throw new Error(`[chains] missing keyRef for algorithm: ${args.signReq.algorithm}`);
-  }
-  return { signReq: args.signReq, keyRef };
 }
 
 function toEventData(value: unknown): Record<string, unknown> | undefined {

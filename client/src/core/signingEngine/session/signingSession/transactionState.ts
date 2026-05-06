@@ -3,10 +3,14 @@ import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type {
   ConcreteSigningSessionSnapshotLane,
   SigningSessionSnapshot,
+  SigningSessionSnapshotConcreteEcdsaLane,
   SigningSessionSnapshotEcdsaLane,
   SigningSessionSnapshotEd25519Lane,
 } from '../snapshotReader';
-import { isConcreteSigningSessionSnapshotLane } from '../snapshotReader';
+import {
+  ecdsaSnapshotCandidatesForTarget,
+  isConcreteSigningSessionSnapshotLane,
+} from '../snapshotReader';
 import {
   SigningSessionIds,
   type SigningAuthMethod,
@@ -35,15 +39,41 @@ import {
   buildNearTransactionSigningLane,
   buildTempoTransactionSigningLane,
 } from './lanes';
+import type {
+  EvmEip155ChainTarget,
+  TempoChainTarget,
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from './ecdsaChainTarget';
+import { thresholdEcdsaChainTargetsEqual } from './ecdsaChainTarget';
 
-export type TransactionSigningIntent = {
+type TransactionSigningIntentBase = {
   operationId?: SigningOperationId;
   walletId: AccountId | string;
-  curve: 'ed25519' | 'ecdsa';
-  chain: 'near' | 'tempo' | 'evm';
   authSelectionPolicy: TransactionAuthSelectionPolicy;
   operationUsesNeeded: number;
 };
+
+export type NearEd25519TransactionSigningIntent = TransactionSigningIntentBase & {
+  curve: 'ed25519';
+  chain: 'near';
+};
+
+export type EvmFamilyEcdsaTransactionSigningIntent =
+  | (TransactionSigningIntentBase & {
+      curve: 'ecdsa';
+      chain: 'tempo';
+      chainTarget: TempoChainTarget;
+    })
+  | (TransactionSigningIntentBase & {
+      curve: 'ecdsa';
+      chain: 'evm';
+      chainTarget: EvmEip155ChainTarget;
+    });
+
+export type TransactionSigningIntent =
+  | NearEd25519TransactionSigningIntent
+  | EvmFamilyEcdsaTransactionSigningIntent;
 
 export type TransactionAuthSelectionPolicy =
   | { kind: 'explicit'; authMethod: SigningAuthMethod }
@@ -60,9 +90,13 @@ export type NearEd25519TransactionLane = {
 
 export type EvmFamilyEcdsaTransactionLane = {
   accountId: AccountId;
+  subjectId: WalletSubjectId;
   authMethod: SigningAuthMethod;
   curve: 'ecdsa';
-  chain: 'tempo' | 'evm';
+  chainTarget: ThresholdEcdsaChainTarget;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
   walletSigningSessionId: WalletSigningSessionId;
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
@@ -185,11 +219,7 @@ export type NearEd25519ConcreteSnapshotLane = SigningSessionSnapshotEd25519Lane 
     chain: 'near';
   };
 
-export type EvmFamilyEcdsaConcreteSnapshotLane = SigningSessionSnapshotEcdsaLane &
-  ConcreteSigningSessionSnapshotLane & {
-    curve: 'ecdsa';
-    chain: 'tempo' | 'evm';
-  };
+export type EvmFamilyEcdsaConcreteSnapshotLane = SigningSessionSnapshotConcreteEcdsaLane;
 
 export type TransactionConcreteSnapshotLane =
   | NearEd25519ConcreteSnapshotLane
@@ -326,7 +356,7 @@ function isConcreteEvmFamilyEcdsaLane(
   return (
     Boolean(lane) &&
     lane!.curve === 'ecdsa' &&
-    (lane!.chain === 'tempo' || lane!.chain === 'evm') &&
+    Boolean(lane!.chainTarget) &&
     isConcreteSigningSessionSnapshotLane(lane!)
   );
 }
@@ -336,13 +366,13 @@ function missingConcreteFields(
 ): string[] {
   if (!lane) return ['lane'];
   const missing: string[] = [];
-  if (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey') {
+  if (!('authMethod' in lane) || (lane.authMethod !== 'email_otp' && lane.authMethod !== 'passkey')) {
     missing.push('authMethod');
   }
-  if (!String(lane.walletSigningSessionId || '').trim()) {
+  if (!('walletSigningSessionId' in lane) || !String(lane.walletSigningSessionId || '').trim()) {
     missing.push('walletSigningSessionId');
   }
-  if (!String(lane.thresholdSessionId || '').trim()) {
+  if (!('thresholdSessionId' in lane) || !String(lane.thresholdSessionId || '').trim()) {
     missing.push('thresholdSessionId');
   }
   return missing;
@@ -368,13 +398,21 @@ function buildNearEd25519TransactionLane(args: {
 
 function buildEvmFamilyEcdsaTransactionLane(args: {
   walletId: AccountId | string;
+  intent: EvmFamilyEcdsaTransactionSigningIntent;
   lane: EvmFamilyEcdsaConcreteSnapshotLane;
 }): EvmFamilyEcdsaTransactionLane {
+  if (!thresholdEcdsaChainTargetsEqual(args.lane.chainTarget, args.intent.chainTarget)) {
+    throw new Error('[SigningSessionTransactionState] ECDSA snapshot lane target mismatch');
+  }
   return {
     accountId: toAccountId(args.walletId),
+    subjectId: args.lane.subjectId,
     authMethod: args.lane.authMethod,
     curve: 'ecdsa',
-    chain: args.lane.chain,
+    chainTarget: args.intent.chainTarget,
+    ecdsaThresholdKeyId: args.lane.ecdsaThresholdKeyId,
+    signingRootId: args.lane.signingRootId,
+    signingRootVersion: args.lane.signingRootVersion,
     walletSigningSessionId: SigningSessionIds.walletSigningSession(
       args.lane.walletSigningSessionId,
     ),
@@ -492,18 +530,15 @@ export function selectTransactionLane(
   if (intent.curve === 'ed25519' && intent.chain === 'near') {
     return selectNearEd25519TransactionLane(input);
   }
-  if (
-    intent.curve === 'ecdsa' &&
-    (intent.chain === 'tempo' || intent.chain === 'evm')
-  ) {
-    return selectEvmFamilyEcdsaTransactionLane(input);
+  if (intent.curve === 'ecdsa') {
+    return selectEvmFamilyEcdsaTransactionLane({ ...input, intent });
   }
   return {
     ok: false,
     failure: {
       kind: 'unsupported_intent',
-      curve: intent.curve,
-      chain: intent.chain,
+      curve: (intent as { curve?: string }).curve || 'unknown',
+      chain: (intent as { chain?: string }).chain || 'unknown',
     },
   };
 }
@@ -564,7 +599,7 @@ function selectNearEd25519TransactionLane(
 }
 
 function selectEvmFamilyEcdsaTransactionLane(
-  input: SelectTransactionLaneInput,
+  input: SelectTransactionLaneInput & { intent: EvmFamilyEcdsaTransactionSigningIntent },
 ): TransactionLaneSelectionResult {
   const intent = input.intent;
   const runtimeLane = input.currentRuntimeLane || null;
@@ -580,6 +615,15 @@ function selectEvmFamilyEcdsaTransactionLane(
 
   const ecdsaRuntimeLane = runtimeLane as EvmFamilyEcdsaConcreteSnapshotLane | null;
   if (ecdsaRuntimeLane) {
+    if (!thresholdEcdsaChainTargetsEqual(ecdsaRuntimeLane.chainTarget, intent.chainTarget)) {
+      return {
+        ok: false,
+        failure: {
+          kind: 'policy_blocked',
+          reason: 'current runtime lane chain does not match requested chain target',
+        },
+      };
+    }
     if (
       intent.authSelectionPolicy.kind === 'explicit' &&
       ecdsaRuntimeLane.authMethod !== intent.authSelectionPolicy.authMethod
@@ -596,21 +640,26 @@ function selectEvmFamilyEcdsaTransactionLane(
       ok: true,
       lane: buildEvmFamilyEcdsaTransactionLane({
         walletId: intent.walletId,
+        intent,
         lane: ecdsaRuntimeLane,
       }),
       snapshotLane: ecdsaRuntimeLane,
     };
   }
 
-  const chain = intent.chain === 'tempo' || intent.chain === 'evm' ? intent.chain : 'evm';
   const concreteCandidates =
-    input.snapshot?.candidates?.ecdsa?.[chain]?.filter(isConcreteEvmFamilyEcdsaLane) || [];
+    input.snapshot
+      ? ecdsaSnapshotCandidatesForTarget(input.snapshot, intent.chainTarget).filter(
+          isConcreteEvmFamilyEcdsaLane,
+        )
+      : [];
   return selectConcreteTransactionCandidate({
     intent,
     candidates: concreteCandidates,
     buildLane: (lane) =>
       buildEvmFamilyEcdsaTransactionLane({
         walletId: intent.walletId,
+        intent,
         lane,
       }),
   });
@@ -972,12 +1021,19 @@ export function selectedSigningLaneContextFromTransactionLane(
   }
 
   const buildLane =
-    lane.chain === 'tempo' ? buildTempoTransactionSigningLane : buildEvmTransactionSigningLane;
+    lane.chainTarget.kind === 'tempo'
+      ? buildTempoTransactionSigningLane
+      : buildEvmTransactionSigningLane;
   const signingLane = buildLane(
     lane.authMethod === 'email_otp'
       ? {
           accountId: lane.accountId,
           authMethod: 'email_otp',
+          chainTarget: lane.chainTarget,
+          subjectId: lane.subjectId,
+          ecdsaThresholdKeyId: lane.ecdsaThresholdKeyId,
+          signingRootId: lane.signingRootId,
+          signingRootVersion: lane.signingRootVersion,
           walletSigningSessionId: lane.walletSigningSessionId,
           thresholdSessionId: lane.thresholdSessionId,
           retention: 'session',
@@ -986,6 +1042,11 @@ export function selectedSigningLaneContextFromTransactionLane(
       : {
           accountId: lane.accountId,
           authMethod: 'passkey',
+          chainTarget: lane.chainTarget,
+          subjectId: lane.subjectId,
+          ecdsaThresholdKeyId: lane.ecdsaThresholdKeyId,
+          signingRootId: lane.signingRootId,
+          signingRootVersion: lane.signingRootVersion,
           walletSigningSessionId: lane.walletSigningSessionId,
           thresholdSessionId: lane.thresholdSessionId,
           storageSource: 'manual-bootstrap',
@@ -993,5 +1054,12 @@ export function selectedSigningLaneContextFromTransactionLane(
           sessionOrigin: 'per_operation',
         },
   );
-  return signingLane as SelectedSigningLaneContext;
+  return {
+    ...signingLane,
+    chainTarget: lane.chainTarget,
+    subjectId: lane.subjectId,
+    ecdsaThresholdKeyId: lane.ecdsaThresholdKeyId,
+    signingRootId: lane.signingRootId,
+    signingRootVersion: lane.signingRootVersion,
+  } as SelectedSigningLaneContext;
 }

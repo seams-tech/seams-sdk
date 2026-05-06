@@ -1,13 +1,14 @@
 import type { AccountId } from '@/core/types/accountIds';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
+  getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
-  getStoredThresholdSessionRecordForAccount,
+  listStoredThresholdEcdsaSessionRecordsForAccount,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEd25519SessionRecord,
 } from '../../api/thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaActivationChain } from '../../orchestration/thresholdActivation';
+import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
 
 export type WarmSessionStoredCapabilityRecords = {
   ed25519: ThresholdEd25519SessionRecord | null;
@@ -20,12 +21,9 @@ export type WarmSessionStoredCapabilityRecords = {
 export function readWarmSessionCapabilityRecordsForAccount(
   nearAccountId: AccountId | string,
 ): WarmSessionStoredCapabilityRecords {
-  const readEcdsa = (chain: ThresholdEcdsaActivationChain): ThresholdEcdsaSessionRecord | null =>
-    getStoredThresholdSessionRecordForAccount({
-      curve: 'ecdsa',
-      nearAccountId,
-      chain,
-    });
+  const ecdsaRecords = listStoredThresholdEcdsaSessionRecordsForAccount(nearAccountId);
+  const readEcdsa = (kind: 'evm' | 'tempo'): ThresholdEcdsaSessionRecord | null =>
+    ecdsaRecords.find((record) => record.chainTarget.kind === kind) || null;
 
   return {
     ed25519: getStoredThresholdEd25519SessionRecordForAccount(nearAccountId),
@@ -46,4 +44,11 @@ export function readWarmSessionEcdsaRecordByThresholdSessionId(
   thresholdSessionId: string,
 ): ThresholdEcdsaSessionRecord | null {
   return getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+}
+
+export function readWarmSessionEcdsaRecordByThresholdSessionIdForTarget(args: {
+  thresholdSessionId: string;
+  chainTarget: ThresholdEcdsaChainTarget;
+}): ThresholdEcdsaSessionRecord | null {
+  return getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget(args);
 }

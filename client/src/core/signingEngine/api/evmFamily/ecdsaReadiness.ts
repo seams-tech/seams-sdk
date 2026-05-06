@@ -22,6 +22,7 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '../thresholdLifecycle/thresholdSessionStore';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import { thresholdEcdsaChainTargetFromChainFamily } from '../../session/signingSession/ecdsaChainTarget';
 
 export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilyWarmSessionServicesDeps & {
   seamsPasskeyConfigs: SeamsConfigsReadonly;
@@ -72,6 +73,10 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
   throwIfEvmFamilySigningCancelled(args.shouldAbort);
 
   const chain = args.lane.chainFamily;
+  const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
+    chain,
+    chainId: args.chainId,
+  });
   const source = requireEcdsaStoreSource(args.lane);
   const nearAccountId = String(args.lane.accountId);
   const thresholdSessionId = String(args.reconnectSessionIdentity.thresholdSessionId || '').trim();
@@ -125,8 +130,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
 
   const readyCapability = await warmSessionServices.ensureEcdsaCapabilityReady({
     nearAccountId,
-    chain,
-    chainId: args.chainId,
+    chainTarget,
     keyRef: resolvedKeyRef,
     source,
     runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.seamsPasskeyConfigs),

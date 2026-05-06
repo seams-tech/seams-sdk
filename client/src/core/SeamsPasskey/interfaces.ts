@@ -1,10 +1,14 @@
 import type {
   EmailOtpBootstrapRecovery,
   SigningEnginePublic,
-  ThresholdEcdsaActivationChain,
-  ThresholdEcdsaLoginPrefillResult,
   ThresholdEcdsaSessionBootstrapResult,
+  ThresholdEcdsaLoginPrefillResult,
 } from '../signingEngine/SigningEngine';
+import type {
+  NearAccountRef,
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../signingEngine/session/signingSession/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
 import type { WarmSessionEcdsaCapabilityState } from '../signingEngine/session/warmSigning/types';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
@@ -76,7 +80,9 @@ import type {
 
 export type SignTempoArgs = {
   nearAccountId: string;
+  subjectId: WalletSubjectId;
   request: MultichainSigningRequest;
+  chainTarget: ThresholdEcdsaChainTarget;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
     /** Internal host-only cancellation probe; ignored in wallet-router calls. */
@@ -133,7 +139,9 @@ export type FinalizedEvmTxPayloadVerification = {
 
 export type ExecuteEvmFamilyTransactionArgs = {
   nearAccountId: string;
+  subjectId: WalletSubjectId;
   request: MultichainSigningRequest;
+  chainTarget: ThresholdEcdsaChainTarget;
   payloadExpectation?: {
     to?: `0x${string}`;
     input?: `0x${string}`;
@@ -161,8 +169,7 @@ export type ExecuteEvmFamilyTransactionResult = {
 export type BootstrapThresholdEcdsaSessionArgs = {
   nearAccountId: string;
   options: {
-    chain: ThresholdEcdsaActivationChain;
-    chainId: number;
+    chainTarget: ThresholdEcdsaChainTarget;
     relayerUrl?: string;
     participantIds?: number[];
     sessionKind?: 'jwt' | 'cookie';
@@ -236,8 +243,7 @@ export type GoogleEmailOtpSessionExchangeResult = {
 
 export type EmailOtpEcdsaCapabilityArgs = {
   nearAccountId: string;
-  chain: ThresholdEcdsaActivationChain;
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
   challengeId?: string;
@@ -281,7 +287,7 @@ export interface AuthCapability {
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
   prefillThresholdEcdsaPresignPool(args: {
     nearAccountId: string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     waitForPoolReady?: boolean;
     poolReadyTimeoutMs?: number;
     poolReadyPollIntervalMs?: number;
@@ -302,13 +308,12 @@ export interface AuthCapability {
   }): Promise<EmailOtpChallengeResult>;
   requestEmailOtpSigningSessionChallenge(args: {
     nearAccountId: string;
-    chain: ThresholdEcdsaActivationChain;
+    chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>>;
   refreshEmailOtpSigningSession(args: {
     nearAccountId: string;
-    chain: ThresholdEcdsaActivationChain;
-    chainId: number;
+    chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
     ttlMs?: number;
@@ -473,23 +478,31 @@ export interface RecoveryCapability {
   ): Promise<LinkDeviceResult>;
 }
 
-export type ExportKeypairChain = 'near' | 'evm' | 'tempo';
 export type ThresholdEd25519SeedExportUiOptions = {
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
   onEvent?: KeyExportHooksOptions['onEvent'];
 };
 
+export type ExportKeypairWithUIInput =
+  | {
+      kind: 'near';
+      nearAccount: NearAccountRef;
+      options: ThresholdEd25519SeedExportUiOptions & {
+        chain: 'near';
+      };
+    }
+  | {
+      kind: 'ecdsa';
+      subjectId: WalletSubjectId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      // This is UI/auth-session context only. It must not be used as ECDSA lane identity.
+      walletSessionUserId: string;
+      options: ThresholdEd25519SeedExportUiOptions;
+    };
+
 export interface KeyExportCapability {
-  exportKeypairWithUI(
-    nearAccountId: string,
-    options: {
-      chain: ExportKeypairChain;
-      variant?: 'drawer' | 'modal';
-      theme?: 'dark' | 'light';
-      onEvent?: KeyExportHooksOptions['onEvent'];
-    },
-  ): Promise<void>;
+  exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void>;
   exportThresholdEd25519SeedFromHssReport(args: {
     nearAccountId: string;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;

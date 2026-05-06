@@ -28,6 +28,11 @@ import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/
 import { isObject } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import type { RegistrationErrorCode } from '../../types/seams';
+import { listConfiguredThresholdEcdsaPublicationTargets } from '../thresholdEcdsaProvisioning';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
+} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 
 function utf8Bytes(value: string): number {
   return new TextEncoder().encode(value).length;
@@ -778,6 +783,12 @@ export type CreateAccountAndRegisterThresholdEd25519Response = {
   };
 };
 
+export type CreateAccountAndRegisterRegistrationContinuationResponse = {
+  token: string;
+  expiresAtMs: number;
+  thresholdEcdsaChainTargets: ThresholdEcdsaChainTarget[];
+};
+
 export type ThresholdEd25519RegistrationHssFinalizeResult = {
   publicKey: string;
   relayerKeyId: string;
@@ -837,6 +848,27 @@ function normalizeThresholdEd25519RegistrationResult(
   };
 }
 
+function normalizeRegistrationContinuationResult(
+  registrationContinuation: CreateAccountAndRegisterResult['registrationContinuation'],
+): CreateAccountAndRegisterRegistrationContinuationResponse | undefined {
+  if (!registrationContinuation) return undefined;
+  const token = String(registrationContinuation.token || '').trim();
+  const expiresAtMs = Number(registrationContinuation.expiresAtMs);
+  const targets = Array.isArray(registrationContinuation.thresholdEcdsaChainTargets)
+    ? registrationContinuation.thresholdEcdsaChainTargets.map((target) =>
+        thresholdEcdsaChainTargetFromRequest(target),
+      )
+    : [];
+  if (!token || !Number.isFinite(expiresAtMs) || targets.length < 1) {
+    throw new Error('Atomic registration returned incomplete registration continuation token');
+  }
+  return {
+    token,
+    expiresAtMs,
+    thresholdEcdsaChainTargets: targets,
+  };
+}
+
 export interface CreateAccountAndRegisterUserRequest {
   new_account_id: string;
   signer_slot: number;
@@ -850,6 +882,9 @@ export interface CreateAccountAndRegisterUserRequest {
   };
   rp_id: string;
   webauthn_registration: WebAuthnRegistrationCredential;
+  registration_continuation?: {
+    threshold_ecdsa_chain_targets: ThresholdEcdsaChainTarget[];
+  };
   authenticator_options?: AuthenticatorOptions;
 }
 
@@ -871,6 +906,7 @@ export async function createAccountAndRegisterWithRelayServer(
   success: boolean;
   transactionId?: string;
   thresholdEd25519?: CreateAccountAndRegisterThresholdEd25519Response;
+  registrationContinuation?: CreateAccountAndRegisterRegistrationContinuationResponse;
   error?: string;
   errorCode?: RegistrationErrorCode;
 }> {
@@ -906,11 +942,21 @@ export async function createAccountAndRegisterWithRelayServer(
     const thresholdEd25519Request = buildThresholdEd25519RegistrationRequest(
       opts?.thresholdEd25519,
     );
+    const registrationContinuationTargets = listConfiguredThresholdEcdsaPublicationTargets(
+      context.configs.network.chains,
+    ).map((target) => target.chainTarget);
 
     const requestData: CreateAccountAndRegisterUserRequest = {
       new_account_id: nearAccountId,
       signer_slot: 1,
       ...(thresholdEd25519Request ? { threshold_ed25519: thresholdEd25519Request } : {}),
+      ...(registrationContinuationTargets.length > 0
+        ? {
+            registration_continuation: {
+              threshold_ecdsa_chain_targets: registrationContinuationTargets,
+            },
+          }
+        : {}),
       rp_id: String(rpId || '').trim(),
       webauthn_registration: serializedCredential,
       authenticator_options: cloneAuthenticatorOptions(
@@ -1004,6 +1050,9 @@ export async function createAccountAndRegisterWithRelayServer(
     const normalizedThresholdEd25519 = normalizeThresholdEd25519RegistrationResult(
       result.thresholdEd25519,
     );
+    const registrationContinuation = normalizeRegistrationContinuationResult(
+      result.registrationContinuation,
+    );
 
     emitRelayRegistrationEvent(onEvent, nearAccountId, {
       phase: RegistrationEventPhase.STEP_06_RELAY_BOOTSTRAP_SUCCEEDED,
@@ -1017,6 +1066,7 @@ export async function createAccountAndRegisterWithRelayServer(
       success: true,
       transactionId: result.transactionHash,
       thresholdEd25519: normalizedThresholdEd25519,
+      ...(registrationContinuation ? { registrationContinuation } : {}),
     };
   } catch (error: unknown) {
     console.error('Atomic registration failed:', error);

@@ -219,9 +219,9 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const { nearAccountId, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
 
-      const chain = options.chain;
+      const chainKind = options.chainTarget.kind;
       const result =
-        chain === 'evm'
+        chainKind === 'evm'
           ? await pm.evm.bootstrapEcdsaSession({
               nearAccountId,
               options,
@@ -327,11 +327,13 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_SIGN_TEMPO: async (req: Req<'PM_SIGN_TEMPO'>) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, request, options } = req.payload!;
+      const { nearAccountId, subjectId, request, chainTarget, options } = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.tempo.signTempo({
         nearAccountId,
+        subjectId,
         request,
+        chainTarget,
         options: {
           confirmationConfig: options?.confirmationConfig,
           shouldAbort: () => isCancelled(req.requestId),
@@ -439,15 +441,31 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_EXPORT_KEYPAIR_UI: async (req: Req<'PM_EXPORT_KEYPAIR_UI'>) => {
       const pm = getSeamsPasskey();
-      const { nearAccountId, chain, variant, theme } = req.payload!;
+      const payload = req.payload!;
       if (respondIfCancelled(req.requestId)) return;
       try {
-        await pm.keys.exportKeypairWithUI(nearAccountId, {
-          chain,
-          variant,
-          theme,
-          onEvent: (event) => postProgress(req.requestId, event),
-        });
+        await pm.keys.exportKeypairWithUI(
+          payload.kind === 'near'
+            ? {
+                kind: 'near',
+                nearAccount: payload.nearAccount,
+                options: {
+                  ...payload.options,
+                  chain: 'near',
+                  onEvent: (event) => postProgress(req.requestId, event),
+                },
+              }
+            : {
+                kind: 'ecdsa',
+                subjectId: payload.subjectId,
+                chainTarget: payload.chainTarget,
+                walletSessionUserId: payload.walletSessionUserId,
+                options: {
+                  ...payload.options,
+                  onEvent: (event) => postProgress(req.requestId, event),
+                },
+              },
+        );
       } catch (err: unknown) {
         if (isTouchIdCancellationError(err)) {
           if (respondIfCancelled(req.requestId)) return;
@@ -511,7 +529,7 @@ export function createWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       if (respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.prefillThresholdEcdsaPresignPool({
         nearAccountId,
-        chain: options.chain,
+        chainTarget: options.chainTarget,
         ...(typeof options.waitForPoolReady === 'boolean'
           ? { waitForPoolReady: options.waitForPoolReady }
           : {}),

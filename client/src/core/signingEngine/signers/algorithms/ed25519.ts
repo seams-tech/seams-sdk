@@ -1,4 +1,3 @@
-import type { Signer } from '../../interfaces/signing';
 import type {
   NearDelegateActionPayload,
   NearEd25519SignRequest,
@@ -6,14 +5,6 @@ import type {
   NearNep413Payload,
   NearTransactionsWithActionsPayload,
 } from '../../interfaces/near';
-
-export type NearEd25519KeyRef = {
-  type: 'near-ed25519-runtime';
-};
-
-export const NEAR_ED25519_KEY_REF: NearEd25519KeyRef = {
-  type: 'near-ed25519-runtime',
-};
 
 export type NearEd25519OperationHandlers = {
   signTransactionsWithActions: (
@@ -29,23 +20,12 @@ export type NearEd25519OperationHandlers = {
   ) => Promise<Extract<NearEd25519SignOutput, { kind: 'near-nep413-message' }>['result']>;
 };
 
-export class NearEd25519Engine implements Signer<
-  NearEd25519SignRequest,
-  NearEd25519KeyRef,
-  NearEd25519SignOutput
-> {
+export class NearEd25519Engine {
   readonly algorithm = 'ed25519' as const;
 
   constructor(private readonly handlers: NearEd25519OperationHandlers) {}
 
-  async sign(
-    req: NearEd25519SignRequest,
-    keyRef: NearEd25519KeyRef,
-  ): Promise<NearEd25519SignOutput> {
-    if (keyRef.type !== 'near-ed25519-runtime') {
-      throw new Error('[NearEd25519Engine] keyRef must be near-ed25519-runtime');
-    }
-
+  async sign(req: NearEd25519SignRequest): Promise<NearEd25519SignOutput> {
     if (req.kind === 'near-transactions-with-actions') {
       return {
         kind: 'near-transactions-with-actions',

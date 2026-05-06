@@ -104,6 +104,16 @@ export type {
 // === AccountID Types ===
 export type { AccountId } from './core/types/accountIds';
 export { toAccountId } from './core/types/accountIds';
+export {
+  nearAccountRefFromAccountId,
+  thresholdEcdsaChainTargetFromConfig,
+  toWalletSubjectId,
+} from './core/signingEngine/session/signingSession/ecdsaChainTarget';
+export type {
+  NearAccountRef,
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from './core/signingEngine/session/signingSession/ecdsaChainTarget';
 
 export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/SeamsPasskey/near';
 

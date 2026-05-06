@@ -421,6 +421,8 @@ const configs = [
       '../client/src/core/indexedDB/accountKeyMaterialDB/manager.ts',
       // Keep Email OTP device-local escrow store as a stable deep import for worker wiring/tests.
       '../client/src/core/signingEngine/api/session/emailOtpDeviceEnrollmentEscrowStore.ts',
+      // Keep threshold session store internals as stable deep imports for lane-boundary tests/tools.
+      '../client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts',
       // Keep worker-facing WASM wrapper exports stable for deep imports used by tests/tools.
       '../client/src/core/signingEngine/signers/wasm/ethSignerWasm.ts',
     ],

@@ -3,6 +3,7 @@ import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/
 import { toError } from '@shared/utils/errors';
 import { toAccountId } from '../../types/accountIds';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
+import { thresholdEcdsaChainTargetFromRequest } from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 import type {
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,
@@ -16,7 +17,6 @@ import type {
   TempoSignerCapability,
 } from '..';
 import { executeEvmFamilyTransactionLifecycle } from './executeEvmFamilyTransaction';
-import { requireThresholdEcdsaProvisionChainId } from '../thresholdEcdsaProvisioning';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
@@ -62,13 +62,16 @@ export class TempoSigner implements TempoSignerCapability {
   }
 
   async signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
+    const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
       nearAccountId: args.nearAccountId,
       remote: async (router) =>
         await router.signTempo({
           nearAccountId: args.nearAccountId,
+          subjectId: args.subjectId,
           request: args.request,
+          chainTarget,
           options: {
             confirmationConfig: args.options?.confirmationConfig,
             onEvent: args.options?.onEvent,
@@ -80,7 +83,9 @@ export class TempoSigner implements TempoSignerCapability {
       local: async () => {
         return await this.getContext().signingEngine.signTempo({
           nearAccountId: args.nearAccountId,
+          subjectId: args.subjectId,
           request: args.request,
+          chainTarget,
           confirmationConfigOverride: args.options?.confirmationConfig,
           shouldAbort: args.options?.shouldAbort,
           onEvent: args.options?.onEvent,
@@ -92,10 +97,11 @@ export class TempoSigner implements TempoSignerCapability {
   async executeEvmFamilyTransaction(
     args: ExecuteEvmFamilyTransactionArgs,
   ): Promise<ExecuteEvmFamilyTransactionResult> {
+    const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
     return await executeEvmFamilyTransactionLifecycle({
       capability: this,
       chains: this.getContext().configs.network.chains,
-      input: args,
+      input: { ...args, chainTarget },
     });
   }
 
@@ -253,17 +259,14 @@ export class TempoSigner implements TempoSignerCapability {
             publishableKey: managedRegistration.publishableKey,
           }
         : undefined);
+    const chainTarget = args.options.chainTarget;
+    if (chainTarget.kind !== 'tempo') {
+      throw new Error('[SeamsPasskey][tempo] bootstrapEcdsaSession requires a Tempo chainTarget');
+    }
     const options = {
       ...(args.options || {}),
-      chain: 'tempo' as const,
       ...(runtimeScopeBootstrap ? { runtimeScopeBootstrap } : {}),
     };
-    const chainId = requireThresholdEcdsaProvisionChainId({
-      chain: options.chain,
-      chains: context.configs.network.chains,
-      explicitChainId: options.chainId,
-      smartAccount: options.smartAccount,
-    });
 
     return await routeWalletIframeOrLocal({
       walletIframe: this.walletIframe,
@@ -277,8 +280,7 @@ export class TempoSigner implements TempoSignerCapability {
       local: async () => {
         return await context.signingEngine.bootstrapEcdsaSession({
           nearAccountId: toAccountId(args.nearAccountId),
-          chain: options.chain,
-          chainId,
+          chainTarget,
           relayerUrl: options.relayerUrl,
           participantIds: options.participantIds,
           sessionKind: options.sessionKind,
