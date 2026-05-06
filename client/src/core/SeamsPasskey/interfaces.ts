@@ -309,11 +309,13 @@ export interface AuthCapability {
   }): Promise<EmailOtpChallengeResult>;
   requestEmailOtpSigningSessionChallenge(args: {
     nearAccountId: string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>>;
   refreshEmailOtpSigningSession(args: {
     nearAccountId: string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;

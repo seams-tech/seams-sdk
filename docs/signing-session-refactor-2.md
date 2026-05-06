@@ -2290,7 +2290,7 @@ Implementation steps:
     - Update architecture guards so they forbid the old abstraction paths
       instead of requiring old helper names such as `executeSigningIntent(...)`
       in production flow files.
-15. [ ] Replace public ECDSA export/signing inputs with explicit subject-based
+15. [x] Replace public ECDSA export/signing inputs with explicit subject-based
     discriminated arguments.
     - [x] Add `ExportKeypairWithUIInput` with `kind: 'near'` and `kind: 'ecdsa'`
       variants.

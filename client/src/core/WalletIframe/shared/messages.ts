@@ -317,6 +317,7 @@ export interface PMEmailOtpChallengePayload {
 
 export interface PMEmailOtpSigningSessionChallengePayload {
   nearAccountId: string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
 }
 
@@ -359,6 +360,7 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
 
 export interface PMRefreshEmailOtpSigningSessionPayload {
   nearAccountId: string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   challengeId: string;
   otpCode: string;

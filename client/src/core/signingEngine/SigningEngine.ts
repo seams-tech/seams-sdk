@@ -3573,13 +3573,14 @@ export class SigningEngine {
 
   private resolveEmailOtpEcdsaSigningSessionAuth(args: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
   }): {
     record: ThresholdEcdsaSessionRecord;
     authLane: EmailOtpAuthLane;
   } {
     const record = this.getThresholdEcdsaSessionRecordForTarget({
-      subjectId: toWalletSubjectId(args.nearAccountId),
+      subjectId: args.subjectId,
       chainTarget: args.chainTarget,
       source: 'email_otp',
     });
@@ -3622,10 +3623,12 @@ export class SigningEngine {
 
   async requestEmailOtpSigningSessionChallenge(args: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
   }): Promise<{ challengeId: string; emailHint?: string }> {
     const { authLane } = this.resolveEmailOtpEcdsaSigningSessionAuth({
       nearAccountId: args.nearAccountId,
+      subjectId: args.subjectId,
       chainTarget: args.chainTarget,
     });
     return await this.emailOtpSessions.requestTransactionSigningChallenge({
@@ -3637,6 +3640,7 @@ export class SigningEngine {
 
   async refreshEmailOtpSigningSession(args: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -3649,6 +3653,7 @@ export class SigningEngine {
   }> {
     const { record, authLane } = this.resolveEmailOtpEcdsaSigningSessionAuth({
       nearAccountId: args.nearAccountId,
+      subjectId: args.subjectId,
       chainTarget: args.chainTarget,
     });
     const routePlan = buildEmailOtpRoutePlan({

@@ -999,6 +999,7 @@ export class WalletIframeRouter {
 
   async requestEmailOtpSigningSessionChallenge(payload: {
     nearAccountId: string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (ev: UnlockFlowEvent) => void;
   }): Promise<Pick<EmailOtpChallengeResult, 'challengeId' | 'emailHint'>> {
@@ -1079,6 +1080,7 @@ export class WalletIframeRouter {
 
   async refreshEmailOtpSigningSession(payload: {
     nearAccountId: string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;

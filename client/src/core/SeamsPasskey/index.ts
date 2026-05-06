@@ -76,6 +76,7 @@ import type { ThresholdEcdsaLoginPrefillResult } from '../signingEngine/SigningE
 import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
 } from '../signingEngine/session/signingSession/ecdsaChainTarget';
 import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
 import { EmailRecoveryDomain } from './near/emailRecovery';
@@ -851,6 +852,7 @@ export class SeamsPasskey {
 
   async requestEmailOtpSigningSessionChallenge(args: {
     nearAccountId: string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<{ challengeId: string; emailHint?: string }> {
@@ -867,6 +869,7 @@ export class SeamsPasskey {
         const router = await this.walletIframe.requireRouter(args.nearAccountId);
         const result = await router.requestEmailOtpSigningSessionChallenge({
           nearAccountId: args.nearAccountId,
+          subjectId: args.subjectId,
           chainTarget: args.chainTarget,
         });
         this.emitEmailOtpUnlockEvent(args.onEvent, {
@@ -881,6 +884,7 @@ export class SeamsPasskey {
       }
       const result = await this.signingEngine.requestEmailOtpSigningSessionChallenge({
         nearAccountId: toAccountId(args.nearAccountId),
+        subjectId: args.subjectId,
         chainTarget: args.chainTarget,
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
@@ -1238,6 +1242,7 @@ export class SeamsPasskey {
 
   async refreshEmailOtpSigningSession(args: {
     nearAccountId: string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -1265,6 +1270,7 @@ export class SeamsPasskey {
             await this.walletIframe.requireRouter(args.nearAccountId)
           ).refreshEmailOtpSigningSession({
             nearAccountId: args.nearAccountId,
+            subjectId: args.subjectId,
             chainTarget,
             challengeId: args.challengeId,
             otpCode: args.otpCode,
@@ -1275,6 +1281,7 @@ export class SeamsPasskey {
           })
         : await this.signingEngine.refreshEmailOtpSigningSession({
             nearAccountId: toAccountId(args.nearAccountId),
+            subjectId: args.subjectId,
             chainTarget,
             challengeId: args.challengeId,
             otpCode: args.otpCode,

@@ -206,11 +206,19 @@ const WALLET_STUB_EMAIL_OTP_SCRIPT = String.raw`
           clientSecret32: secretSentinel,
         });
       }
+      if (data.type === 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE') {
+        respond({ challengeId: 'signing-session-challenge-1', emailHint: 'alice@example.com' });
+      }
       if (data.type === 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY') {
         if (data.payload?.otpCode === '000000') {
           reject('invalid_email_otp', 'Invalid Email OTP code');
           return;
         }
+        rememberAccount(data.payload?.nearAccountId || '');
+        setWarmCapabilityActive(true);
+        respond({ recovery: loginRecovery, bootstrap: bootstrapResult, warmCapability });
+      }
+      if (data.type === 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION') {
         rememberAccount(data.payload?.nearAccountId || '');
         setWarmCapabilityActive(true);
         respond({ recovery: loginRecovery, bootstrap: bootstrapResult, warmCapability });
@@ -754,6 +762,70 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           actions: [{ action_type: 'Transfer', deposit: '1' }],
         },
       ],
+    });
+  });
+
+  test('routes Email OTP signing-session refresh with explicit ECDSA subject', async ({ page }) => {
+    const result = await page.evaluate(
+      async ({ walletOrigin }) => {
+        const mod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const { SeamsPasskey } = mod as any;
+        const nearAccountId = 'alice.testnet';
+        const subjectId = 'alice.testnet';
+        const chainTarget = {
+          kind: 'tempo',
+          chainId: 42431,
+          networkSlug: 'tempo-moderato',
+        };
+        const pm = new SeamsPasskey({
+          relayer: { url: 'https://relay.example' },
+          iframeWallet: {
+            walletOrigin,
+            walletServicePath: '/wallet-service',
+            sdkBasePath: '/sdk',
+          },
+        });
+
+        const challenge = await pm.auth.requestEmailOtpSigningSessionChallenge({
+          nearAccountId,
+          subjectId,
+          chainTarget,
+        });
+        await pm.auth.refreshEmailOtpSigningSession({
+          nearAccountId,
+          subjectId,
+          chainTarget,
+          challengeId: challenge.challengeId,
+          otpCode: '123456',
+        });
+        return { challengeId: challenge.challengeId };
+      },
+      { walletOrigin: WALLET_ORIGIN },
+    );
+
+    expect(result).toEqual({ challengeId: 'signing-session-challenge-1' });
+    const walletFrame = page.frames().find((frame) => {
+      const url = frame.url();
+      return url.startsWith(WALLET_ORIGIN) && url.includes('/wallet-service');
+    });
+    expect(walletFrame, 'wallet iframe should be mounted').toBeTruthy();
+
+    const messages = await walletFrame!.evaluate(() => (window as any).__emailOtpMessages || []);
+    const signingChallenge = messages.find(
+      (message: { type: string }) =>
+        message.type === 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE',
+    );
+    const refresh = messages.find(
+      (message: { type: string }) => message.type === 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION',
+    );
+    expect(signingChallenge?.payload).toMatchObject({
+      nearAccountId: 'alice.testnet',
+      subjectId: 'alice.testnet',
+    });
+    expect(refresh?.payload).toMatchObject({
+      nearAccountId: 'alice.testnet',
+      subjectId: 'alice.testnet',
+      challengeId: 'signing-session-challenge-1',
     });
   });
 

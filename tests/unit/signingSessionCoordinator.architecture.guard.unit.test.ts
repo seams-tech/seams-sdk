@@ -696,9 +696,25 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       iframeMessages.indexOf('export interface PMEmailOtpEcdsaCapabilityPayload'),
       iframeMessages.indexOf('export interface PMRefreshEmailOtpSigningSessionPayload'),
     );
+    const pmEmailOtpSigningSessionChallengePayload = iframeMessages.slice(
+      iframeMessages.indexOf('export interface PMEmailOtpSigningSessionChallengePayload'),
+      iframeMessages.indexOf('export interface PMExchangeGoogleEmailOtpSessionPayload'),
+    );
+    const pmRefreshEmailOtpSigningSessionPayload = iframeMessages.slice(
+      iframeMessages.indexOf('export interface PMRefreshEmailOtpSigningSessionPayload'),
+      iframeMessages.indexOf('export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload'),
+    );
     const emailOtpEcdsaCapabilityArgs = seamsInterfaces.slice(
       seamsInterfaces.indexOf('export type EmailOtpEcdsaCapabilityArgs ='),
       seamsInterfaces.indexOf('export type EmailOtpEcdsaCapabilityResult ='),
+    );
+    const emailOtpChallengeArgs = seamsInterfaces.slice(
+      seamsInterfaces.indexOf('requestEmailOtpSigningSessionChallenge(args: {'),
+      seamsInterfaces.indexOf('refreshEmailOtpSigningSession(args: {'),
+    );
+    const emailOtpRefreshArgs = seamsInterfaces.slice(
+      seamsInterfaces.indexOf('refreshEmailOtpSigningSession(args: {'),
+      seamsInterfaces.indexOf('exchangeGoogleEmailOtpSession(args: {'),
     );
     expect(exportInputType).toContain("kind: 'ecdsa';");
     expect(exportInputType).toContain('subjectId: WalletSubjectId;');
@@ -710,7 +726,11 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(pmSignTempoPayload).toContain('subjectId: WalletSubjectId;');
     expect(pmExportPayload).toContain('subjectId: WalletSubjectId;');
     expect(pmEmailOtpEcdsaPayload).toContain('subjectId: WalletSubjectId;');
+    expect(pmEmailOtpSigningSessionChallengePayload).toContain('subjectId: WalletSubjectId;');
+    expect(pmRefreshEmailOtpSigningSessionPayload).toContain('subjectId: WalletSubjectId;');
     expect(emailOtpEcdsaCapabilityArgs).toContain('subjectId: WalletSubjectId;');
+    expect(emailOtpChallengeArgs).toContain('subjectId: WalletSubjectId;');
+    expect(emailOtpRefreshArgs).toContain('subjectId: WalletSubjectId;');
     expect(walletIframeRouter).not.toContain('EmailOtpEcdsaCapabilityArgs & { subjectId');
     expect(
       seamsPasskeyIndex.match(/const iframeArgs = \{ \.\.\.args, subjectId, chainTarget \};/g) ??
@@ -737,6 +757,14 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     );
     expect(thresholdEcdsaHssPrepareExportBody).toContain('subjectId: args.exportLane.subjectId');
     expect(thresholdEcdsaHssPrepareExportBody).not.toContain('userId: String(args.nearAccountId)');
+    const resolveEmailOtpEcdsaSigningSessionAuthBody = signingEngine.slice(
+      signingEngine.indexOf('private resolveEmailOtpEcdsaSigningSessionAuth'),
+      signingEngine.indexOf('private configuredEcdsaChainTargets'),
+    );
+    expect(resolveEmailOtpEcdsaSigningSessionAuthBody).toContain('subjectId: args.subjectId');
+    expect(resolveEmailOtpEcdsaSigningSessionAuthBody).not.toContain(
+      'subjectId: toWalletSubjectId(args.nearAccountId)',
+    );
     const ecdsaAdmission = readRepoSource(
       'client/src/core/signingEngine/orchestration/shared/thresholdEcdsaTransactionAdmission.ts',
     );
