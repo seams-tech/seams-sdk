@@ -886,9 +886,46 @@ Exit criteria:
 - [ ] The root signing-engine README no longer presents the old architecture as
   current target architecture.
 - [ ] Import direction, deleted-path, and no-barrel guardrails are ready before
-  the first vertical slice moves.
+  canonical state types or the first vertical slice move.
 
-### Phase 1: First Complete Vertical Slice
+### Phase 1: Promote Canonical Internal State Types
+
+Purpose: define the narrow state model before moving operation flows. This
+prevents the first vertical slice from preserving ambiguous lane/session shapes
+under cleaner folder names.
+
+Todo:
+
+- [ ] Add `session/identity.ts`.
+- [ ] Define `SigningCurve`, `SigningAuthMethod`, `SelectedEd25519Lane`,
+  `SelectedEcdsaLane`, and `SelectedLane`.
+- [ ] Add branded or exact id types for wallet signing session id, threshold
+  session id, ECDSA key id, signing root id, and signing root version if they
+  are not already exact enough.
+- [ ] Add `operations/shared/operationState.ts`.
+- [ ] Define `ReadyLane`, `ReauthRequired`, `LaneReadiness`,
+  `PreparedOperation`, `BudgetAdmittedOperation`, and `SignedOperation`.
+- [ ] Keep raw persistence and worker response structs in their boundary
+  modules.
+- [ ] Add compile-time guards or focused tests proving selected lanes do not
+  expose optional identity, auth, restore, budget, or signing fields.
+- [ ] Replace local duplicate auth/session-kind aliases with one canonical type
+  where this can be done without moving a full operation path.
+- [ ] Add a temporary mapping note that states which current shapes are allowed
+  only as raw/candidate compatibility inputs during the first slice:
+  `SigningLaneContext`, `EcdsaLaneIdentity`, `ThresholdEcdsaRuntimeLane`,
+  transaction lanes, and snapshot lanes.
+
+Exit criteria:
+
+- [ ] New operation-state types compile.
+- [ ] Internal operation-state types do not contain optional lifecycle fields.
+- [ ] Duplicate local `EcdsaSessionKind` aliases are gone or scheduled with a
+  single owning file.
+- [ ] The first vertical slice has canonical target types to depend on before
+  files move.
+
+### Phase 2: First Complete Vertical Slice
 
 Purpose: prove the target call graph with one real operation before broad folder
 moves. Start with one EVM-family path, preferably Tempo if it has the smallest
@@ -912,6 +949,9 @@ Todo:
 - [ ] Move that public method's implementation to one operation entry module:
   `operations/signEvmFamily/signTempo.ts` or
   `operations/signEvmFamily/signEvm.ts`.
+- [ ] Use `SelectedEcdsaLane` and shared operation-state types at the new
+  operation boundary. Old lane/session shapes may enter only through explicit
+  raw/candidate conversion points.
 - [ ] Make the public `SigningEngine` method delegate to that operation module
   within one hop.
 - [ ] Move only the chain-specific serialization/display/worker-payload code
@@ -933,39 +973,13 @@ Exit criteria:
   hop.
 - [ ] The operation module does not import `SigningEngine.ts`.
 - [ ] No child module imports `operations/*`.
+- [ ] The operation boundary accepts canonical selected lane or operation state,
+  not broad `SigningLaneContext` or transaction lane identity.
 - [ ] The selected slice uses `operations/shared/signingStateMachine.ts`, not
   `session/signingSession/execution.ts`.
 - [ ] The old folder/file path for the moved slice is deleted.
 - [ ] An architecture guard enforces the deleted import path.
 - [ ] No broad internal `index.ts` file is introduced.
-
-### Phase 2: Promote Canonical Internal State Types
-
-Purpose: define the narrow state model before rewriting flows around it.
-
-Todo:
-
-- [ ] Add `session/identity.ts`.
-- [ ] Define `SigningCurve`, `SigningAuthMethod`, `SelectedEd25519Lane`,
-  `SelectedEcdsaLane`, and `SelectedLane`.
-- [ ] Add branded or exact id types for wallet signing session id, threshold
-  session id, ECDSA key id, signing root id, and signing root version if they
-  are not already exact enough.
-- [ ] Add `operations/shared/operationState.ts`.
-- [ ] Define `ReadyLane`, `ReauthRequired`, `LaneReadiness`,
-  `PreparedOperation`, `BudgetAdmittedOperation`, and `SignedOperation`.
-- [ ] Keep raw persistence and worker response structs in their boundary
-  modules.
-- [ ] Add compile-time guards or focused tests proving selected lanes do not
-  expose optional identity, auth, restore, budget, or signing fields.
-- [ ] Replace local duplicate auth/session-kind aliases with one canonical type.
-
-Exit criteria:
-
-- [ ] New operation-state types compile.
-- [ ] Internal operation-state types do not contain optional lifecycle fields.
-- [ ] Duplicate local `EcdsaSessionKind` aliases are gone or scheduled with a
-  single owning file.
 
 ### Phase 3: Normalize Session Records At Explicit Boundaries
 
@@ -1251,9 +1265,9 @@ Exit criteria:
 
 1. Inventory, import-direction guardrails, deleted-path guardrails, and
    ownership README template.
-2. First complete EVM-family vertical slice, preferably Tempo if smaller.
-3. Canonical identity and operation-state types generalized from the first
-   slice.
+2. Canonical identity and operation-state types.
+3. First complete EVM-family vertical slice, preferably Tempo if smaller, using
+   the canonical state types at the operation boundary.
 4. Shared signing state machine under `operations/shared`.
 5. Complete EVM/Tempo state-machine port.
 6. NEAR state-machine port.

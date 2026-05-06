@@ -50,6 +50,59 @@ Without it, the WASM signer has only local signing material and transaction
 data. The relayer would have no authenticated proof that the worker is operating
 inside the selected threshold session.
 
+## Threshold Signing Protocol Session
+
+This is a threshold-signing-specific session. It exists because threshold
+signing is an interactive protocol, not a single stateless HTTP request.
+
+For one transaction, the client and relayer may need several network round
+trips:
+
+1. authorize the selected signing lane and digest
+2. exchange signing commitments
+3. exchange signature shares and finalize the signature
+
+The threshold session gives those requests one shared authorization boundary.
+The relayer can check that every round belongs to the same selected lane,
+session id, wallet signing-session id, budget state, purpose, and digest.
+
+The app session says the user can use the wallet. The threshold session says
+this exact threshold signer can perform this exact signing operation under the
+current signing-session constraints.
+
+Warm sessions may already have valid threshold-session authority, so signing can
+reuse it until the session expires or its budget is exhausted. After exhaustion,
+step-up authentication creates fresh threshold-session authority before signing
+continues.
+
+## Latency And Prefetching
+
+For a warm session that already has `thresholdSessionAuthToken`, the token adds
+one lightweight relayer round trip before the threshold signing rounds:
+
+1. call `/threshold-ed25519/authorize` to get a per-operation `mpcSessionId`
+2. run `/threshold-ed25519/sign/init`
+3. run `/threshold-ed25519/sign/finalize`
+
+That added request is mostly network latency plus a server-side claim, session,
+and budget check. Cold, missing, expired, or exhausted sessions are slower
+because the flow must first perform step-up auth and mint fresh threshold-session
+authority.
+
+The safe optimization is intent-triggered prefetch. For example, the UI can
+start threshold-session readiness work when the user hovers, focuses, or presses
+near a transaction-signing button:
+
+- read current status without restoring or minting sessions
+- prepare the exact transaction signing intent
+- mint or refresh threshold-session authority only when the user is clearly
+  entering the signing command path
+- discard prefetched authority if the user leaves the flow or the prepared
+  transaction identity changes
+
+This should not become passive polling. Status reads should not unseal durable
+material, mint threshold sessions, consume budget, or prompt the user.
+
 ## How It Differs From `appSessionJwt`
 
 `appSessionJwt` is app/session boundary auth.
@@ -269,4 +322,3 @@ With Serde camelCase, that field is read from JavaScript as
 
 If the Rust side expects the old field name, the WASM signer receives no token
 and fails before it can authorize threshold signing.
-
