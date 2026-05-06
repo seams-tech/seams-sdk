@@ -321,6 +321,13 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           appSessionJwt: 'app-session-jwt',
           onEvent: captureEvent(unlockEvents),
         });
+        const subjectId = nearAccountId;
+        const chainTarget = {
+          kind: 'evm',
+          namespace: 'eip155',
+          chainId: 5042002,
+          networkSlug: 'arc-testnet',
+        };
         const enrollmentChallenge = await pm.auth.requestEmailOtpEnrollmentChallenge({
           nearAccountId,
           appSessionJwt: 'app-session-jwt',
@@ -341,7 +348,8 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         });
         const login = await pm.auth.loginWithEmailOtpEcdsaCapability({
           nearAccountId,
-          chain: 'evm',
+          subjectId,
+          chainTarget,
           emailOtpAuthPolicy: 'session',
           challengeId: challenge.challengeId,
           otpCode: '123456',
@@ -353,7 +361,8 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         });
         const perOperationLogin = await pm.auth.loginWithEmailOtpEcdsaCapability({
           nearAccountId,
-          chain: 'evm',
+          subjectId,
+          chainTarget,
           emailOtpAuthPolicy: 'per_operation',
           challengeId: challenge.challengeId,
           otpCode: '123456',
@@ -366,7 +375,8 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         const failedUnlockMessage = await pm.auth
           .loginWithEmailOtpEcdsaCapability({
             nearAccountId,
-            chain: 'evm',
+            subjectId,
+            chainTarget,
             emailOtpAuthPolicy: 'session',
             challengeId: challenge.challengeId,
             otpCode: '000000',
@@ -380,7 +390,8 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
           .catch((error: unknown) => String((error as Error)?.message || error));
         const enrollAndLogin = await pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
           nearAccountId,
-          chain: 'evm',
+          subjectId,
+          chainTarget,
           emailOtpAuthPolicy: 'session',
           challengeId: enrollmentChallenge.challengeId,
           otpCode: '123456',
@@ -418,6 +429,8 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         };
         const sessionSigned = await pm.tempo.signTempo({
           nearAccountId,
+          subjectId,
+          chainTarget,
           request: signRequest,
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
@@ -434,11 +447,19 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         const walletSession = await pm.auth.getWalletSession(nearAccountId);
         const perOperationSigned = await pm.tempo.signTempo({
           nearAccountId,
+          subjectId,
+          chainTarget,
           request: { ...signRequest, tx: { ...signRequest.tx, nonce: 1n } },
           options: { confirmationConfig: { uiMode: 'modal' } },
         });
         const tempoSigned = await pm.tempo.signTempo({
           nearAccountId,
+          subjectId,
+          chainTarget: {
+            kind: 'tempo',
+            chainId: 42431,
+            networkSlug: 'tempo-moderato',
+          },
           request: {
             chain: 'tempo',
             kind: 'tempoTransaction',
@@ -758,7 +779,13 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
 
         await pm.auth.loginWithEmailOtpEcdsaCapability({
           nearAccountId,
-          chain: 'evm',
+          subjectId: nearAccountId,
+          chainTarget: {
+            kind: 'evm',
+            namespace: 'eip155',
+            chainId: 5042002,
+            networkSlug: 'arc-testnet',
+          },
           emailOtpAuthPolicy: 'session',
           challengeId: 'challenge-1',
           otpCode: '123456',
@@ -821,6 +848,13 @@ test.describe('SeamsPasskey Email OTP wallet iframe ownership', () => {
         const signResult = await pm.tempo
           .signTempo({
             nearAccountId,
+            subjectId: nearAccountId,
+            chainTarget: {
+              kind: 'evm',
+              namespace: 'eip155',
+              chainId: 5042002,
+              networkSlug: 'arc-testnet',
+            },
             request: signRequest,
             options: { confirmationConfig: { uiMode: 'modal' } },
           })

@@ -22,7 +22,7 @@ import type { Ed25519SessionKind } from '../../threshold/session/ed25519SessionT
 import type { ThresholdRuntimePolicyScope } from '../../threshold/session/sessionPolicy';
 import type { WarmSessionStatusResult } from '../../touchConfirm';
 import type { SigningOperationIntent } from '../signingSession/types';
-import type { ThresholdEcdsaChainTarget } from '../signingSession/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget, WalletSubjectId } from '../signingSession/ecdsaChainTarget';
 
 export type WarmSessionCapability = 'ed25519' | 'ecdsa';
 export type WarmSessionPrfClaimState = 'missing' | 'warm' | 'expired' | 'exhausted' | 'unavailable';
@@ -258,6 +258,7 @@ export type ProvisionWarmEd25519CapabilityResult = {
 
 export type EnsureWarmEcdsaCapabilityReadyArgs = {
   nearAccountId: AccountId | string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyRef?: ThresholdEcdsaSecp256k1KeyRef;
   source?: ThresholdEcdsaSessionStoreSource;
@@ -303,6 +304,7 @@ export type AssertWarmEcdsaOperationAllowedArgs = {
 
 export type ResolveWarmEcdsaBootstrapRequestArgs = {
   nearAccountId: AccountId | string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;
@@ -325,6 +327,7 @@ export type ResolveWarmEcdsaBootstrapRequestArgs = {
 
 export type WarmEcdsaBootstrapRequest = {
   nearAccountId: AccountId;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
   relayerUrl?: string;

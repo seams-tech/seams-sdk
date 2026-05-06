@@ -130,6 +130,7 @@ export async function ensureEvmFamilyThresholdEcdsaKeyRefReady(args: {
 
   const readyCapability = await warmSessionServices.ensureEcdsaCapabilityReady({
     nearAccountId,
+    subjectId: args.lane.subjectId,
     chainTarget,
     keyRef: resolvedKeyRef,
     source,

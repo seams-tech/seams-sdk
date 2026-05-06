@@ -916,6 +916,7 @@ async function primeThresholdLoginWarmSigners(args: {
             const sessionId = createThresholdLoginWarmSessionId('threshold-ecdsa-login');
             await args.signingEngine.bootstrapEcdsaSession({
               nearAccountId: args.nearAccountId,
+              subjectId: toWalletSubjectId(args.nearAccountId),
               chainTarget: target.chainTarget,
               source: 'login',
               relayerUrl: args.relayerUrl,

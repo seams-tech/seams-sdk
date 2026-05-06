@@ -160,7 +160,12 @@ async function mountVisibleEmailOtpUnlockPrompt(
                         try {
                           const loginResult = await pm.auth.loginWithEmailOtpEcdsaCapability({
                             nearAccountId: accountId,
-                            chain: 'tempo',
+                            subjectId: accountId,
+                            chainTarget: {
+                              kind: 'tempo',
+                              chainId: 42431,
+                              networkSlug: 'tempo-moderato',
+                            },
                             emailOtpAuthPolicy: 'session',
                             challengeId: String(challenge.challengeId || ''),
                             otpCode,

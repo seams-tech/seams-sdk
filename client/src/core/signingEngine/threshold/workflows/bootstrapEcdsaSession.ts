@@ -39,8 +39,8 @@ import {
 } from '../../signers/wasm/hssClientSignerWasm';
 import { resolveThresholdEcdsaClientRootShare } from './thresholdClientSecretSource';
 import {
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
 } from '../../session/signingSession/ecdsaChainTarget';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
@@ -163,6 +163,7 @@ type BootstrapEcdsaSessionBaseArgs = {
   prfFirstCache?: WarmSessionMaterialWriter;
   relayerUrl: string;
   userId: string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   chainId?: number;
   participantIds?: number[];
@@ -346,7 +347,7 @@ export async function bootstrapEcdsaSession(args: BootstrapEcdsaSessionArgs): Pr
     const sessionPolicy = {
       version: THRESHOLD_SESSION_POLICY_VERSION,
       userId,
-      subjectId: toWalletSubjectId(userId),
+      subjectId: args.subjectId,
       rpId,
       chainTarget: args.chainTarget,
       ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),

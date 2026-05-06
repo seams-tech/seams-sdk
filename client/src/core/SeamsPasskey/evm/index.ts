@@ -1,6 +1,7 @@
 import { toAccountId } from '../../types/accountIds';
 import type { EvmSignerCapability } from '..';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
+import { toWalletSubjectId } from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 
 type ChainSignerDeps = {
   getContext: () => import('../index').PasskeyManagerContext;
@@ -52,6 +53,7 @@ export class EvmSigner implements EvmSignerCapability {
       local: async () => {
         return await context.signingEngine.bootstrapEcdsaSession({
           nearAccountId: toAccountId(args.nearAccountId),
+          subjectId: toWalletSubjectId(args.nearAccountId),
           chainTarget,
           relayerUrl: options.relayerUrl,
           participantIds: options.participantIds,

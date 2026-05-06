@@ -219,6 +219,7 @@ export type ProvisionEmailOtpThresholdEd25519CapabilityArgs = {
 
 export type LoginEmailOtpEcdsaCapabilityArgs = {
   nearAccountId: AccountId | string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   emailOtpAuthReason?: 'login' | 'sign';
@@ -248,6 +249,7 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
 
 export type EnrollAndLoginEmailOtpEcdsaCapabilityArgs = {
   nearAccountId: AccountId | string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   otpCode: string;
@@ -1983,6 +1985,7 @@ export class EmailOtpThresholdSessionCoordinator {
 
   async exportEcdsaKeyWithFreshEmailOtpLane(args: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -2007,6 +2010,7 @@ export class EmailOtpThresholdSessionCoordinator {
     });
     const result = await this.loginWithEcdsaCapabilityInternal({
       nearAccountId: args.nearAccountId,
+      subjectId: args.subjectId,
       relayUrl,
       chainTarget: args.chainTarget,
       emailOtpAuthPolicy: 'per_operation',
@@ -2031,6 +2035,7 @@ export class EmailOtpThresholdSessionCoordinator {
 
   async loginWithEcdsaCapabilityForSigning(args: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -2058,6 +2063,7 @@ export class EmailOtpThresholdSessionCoordinator {
       });
       const result = await this.loginWithEcdsaCapabilityInternal({
         nearAccountId: args.nearAccountId,
+        subjectId: args.subjectId,
         relayUrl,
         chainTarget: args.chainTarget,
         emailOtpAuthPolicy,
@@ -2085,6 +2091,7 @@ export class EmailOtpThresholdSessionCoordinator {
     });
     const result = await this.loginWithEcdsaCapabilityInternal({
       nearAccountId: args.nearAccountId,
+      subjectId: record.subjectId,
       chainTarget: record.chainTarget,
       emailOtpAuthPolicy,
       emailOtpAuthReason: 'sign',
@@ -2106,6 +2113,7 @@ export class EmailOtpThresholdSessionCoordinator {
     args: LoginEmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpThresholdEcdsaLoginResult> {
     const nearAccountId = toAccountId(args.nearAccountId);
+    const subjectId = args.subjectId;
     const chainTarget = args.chainTarget;
     const emailOtpAuthPolicy: EmailOtpAuthPolicy =
       args.emailOtpAuthPolicy || this.deps.configs.signing.emailOtp.authPolicy;
@@ -2161,6 +2169,7 @@ export class EmailOtpThresholdSessionCoordinator {
         payload: {
           relayUrl,
           walletId: String(nearAccountId),
+          subjectId,
           userId: String(args.authSubjectId || nearAccountId),
           ...(args.challengeId ? { challengeId: args.challengeId } : {}),
           otpCode: args.otpCode,
@@ -2252,6 +2261,7 @@ export class EmailOtpThresholdSessionCoordinator {
     args: EnrollAndLoginEmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpThresholdEcdsaEnrollmentResult> {
     const nearAccountId = toAccountId(args.nearAccountId);
+    const subjectId = args.subjectId;
     const chainTarget = args.chainTarget;
     const emailOtpAuthPolicy: EmailOtpAuthPolicy =
       args.emailOtpAuthPolicy || this.deps.configs.signing.emailOtp.authPolicy;
@@ -2306,6 +2316,7 @@ export class EmailOtpThresholdSessionCoordinator {
           payload: {
             relayUrl,
             walletId: String(nearAccountId),
+            subjectId,
             userId: String(nearAccountId),
             ...(args.challengeId ? { challengeId: args.challengeId } : {}),
             otpCode: args.otpCode,
@@ -2705,6 +2716,7 @@ export class EmailOtpThresholdSessionCoordinator {
       ecdsaRecord?.ecdsaThresholdKeyId || ecdsaRestore?.ecdsaThresholdKeyId;
     const restoreRelayerKeyId = ecdsaRecord?.relayerKeyId || ecdsaRestore?.relayerKeyId;
     const restoreParticipantIds = ecdsaRecord?.participantIds || ecdsaRestore?.participantIds;
+    const restoreSubjectId = toWalletSubjectId(ecdsaRecord?.subjectId || sealedRecord.subjectId);
     const restoreSessionKind =
       ecdsaRecord?.thresholdSessionKind || ecdsaRestore?.sessionKind || 'jwt';
     const restoreRuntimePolicyScope =
@@ -2747,6 +2759,7 @@ export class EmailOtpThresholdSessionCoordinator {
           restore: {
             sessionId: thresholdSessionId,
             walletId: sealedRecord.walletId || String(ecdsaRecord?.nearAccountId || ''),
+            subjectId: restoreSubjectId,
             userId:
               sealedRecord.userId ||
               String(ecdsaRecord?.nearAccountId || sealedRecord.walletId || ''),
@@ -2898,6 +2911,7 @@ export class EmailOtpThresholdSessionCoordinator {
     }
     const ecdsaLogin = await this.loginWithEcdsaCapabilityInternal({
       nearAccountId,
+      subjectId: ecdsaRecord.subjectId,
       relayUrl,
       chainTarget: ecdsaRecord.chainTarget,
       emailOtpAuthPolicy: 'per_operation',

@@ -36,7 +36,10 @@ import {
   toIndexedDbChainTargetKey,
 } from '../indexedDB/normalization';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
-import type { ThresholdEcdsaChainTarget } from '../signingEngine/session/signingSession/ecdsaChainTarget';
+import {
+  toWalletSubjectId,
+  type ThresholdEcdsaChainTarget,
+} from '../signingEngine/session/signingSession/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../signingEngine/orchestration/thresholdActivation';
 
 // Registration forces a visible, clickable confirmation for cross‑origin safety
@@ -643,6 +646,7 @@ async function provisionThresholdEcdsaAfterRegistration(args: {
         : '';
       const bootstrap = await args.signingEngine.bootstrapEcdsaSession({
         nearAccountId: args.nearAccountId,
+        subjectId: toWalletSubjectId(args.nearAccountId),
         chainTarget: target.chainTarget,
         source: 'registration',
         relayerUrl,

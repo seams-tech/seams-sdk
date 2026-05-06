@@ -541,6 +541,48 @@ function runtimeRecordToEd25519Lane(args: {
   };
 }
 
+function isRuntimeOwnedSnapshotLane(
+  lane: SigningSessionSnapshotEcdsaLane | SigningSessionSnapshotEd25519Lane,
+): boolean {
+  const source = 'source' in lane ? lane.source : undefined;
+  return (
+    lane.state === 'ready' ||
+    source === 'runtime_and_durable' ||
+    source === 'runtime_session_record'
+  );
+}
+
+function snapshotLaneUpdatedAtMs(
+  lane: SigningSessionSnapshotEcdsaLane | SigningSessionSnapshotEd25519Lane,
+): number {
+  return Math.floor(Number('updatedAtMs' in lane ? lane.updatedAtMs : 0) || 0);
+}
+
+function collapseExactDuplicateSnapshotLanes<TLane extends SigningSessionSnapshotEcdsaLane | SigningSessionSnapshotEd25519Lane>(
+  lanes: TLane[],
+  laneIdentityKey: (lane: TLane) => string | null,
+): TLane[] {
+  const keyedGroups = new Map<string, TLane[]>();
+  const unkeyed: TLane[] = [];
+  for (const lane of lanes) {
+    const key = laneIdentityKey(lane);
+    if (!key) {
+      unkeyed.push(lane);
+      continue;
+    }
+    keyedGroups.set(key, [...(keyedGroups.get(key) || []), lane]);
+  }
+  const normalized = [...keyedGroups.values()].map((group) =>
+    [...group].sort((left, right) => {
+      const runtimeDelta =
+        Number(isRuntimeOwnedSnapshotLane(right)) - Number(isRuntimeOwnedSnapshotLane(left));
+      if (runtimeDelta) return runtimeDelta;
+      return snapshotLaneUpdatedAtMs(right) - snapshotLaneUpdatedAtMs(left);
+    })[0]!,
+  );
+  return [...normalized, ...unkeyed];
+}
+
 export async function readSigningSessionSnapshot(
   input: ReadSigningSessionSnapshotInput,
   ports: ReadSigningSessionSnapshotPorts,
@@ -717,7 +759,10 @@ export async function readSigningSessionSnapshot(
       candidatesByTarget: Object.fromEntries(
         Object.entries(ecdsaCandidatesByTarget).map(([targetKey, candidates]) => [
           targetKey,
-          candidates.sort(byNewestCandidate),
+          collapseExactDuplicateSnapshotLanes(
+            candidates,
+            ecdsaSnapshotLaneIdentityKey,
+          ).sort(byNewestCandidate),
         ]),
       ),
     },
@@ -728,7 +773,10 @@ export async function readSigningSessionSnapshot(
     },
     candidates: {
       ed25519: {
-        near: ed25519Candidates.sort(byNewestCandidate),
+        near: collapseExactDuplicateSnapshotLanes(
+          ed25519Candidates,
+          ed25519SnapshotLaneIdentityKey,
+        ).sort(byNewestCandidate),
       },
     },
   };

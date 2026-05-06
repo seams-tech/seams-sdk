@@ -361,6 +361,8 @@ export async function thresholdEcdsaHssFinalize(
       counterfactualAddress: json.counterfactualAddress,
       sessionId: json.sessionId,
       walletSigningSessionId: json.walletSigningSessionId,
+      subjectId: json.subjectId,
+      chainTarget: json.chainTarget,
       expiresAtMs: json.expiresAtMs,
       expiresAt: json.expiresAt,
       remainingUses: json.remainingUses,

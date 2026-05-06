@@ -3,7 +3,10 @@ import type { TempoSignedResult } from '../../signingEngine/chainAdaptors/tempo/
 import { toError } from '@shared/utils/errors';
 import { toAccountId } from '../../types/accountIds';
 import { routeWalletIframeOrLocal, type WalletIframeRouteDeps } from '../walletIframeRoute';
-import { thresholdEcdsaChainTargetFromRequest } from '../../signingEngine/session/signingSession/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromRequest,
+  toWalletSubjectId,
+} from '../../signingEngine/session/signingSession/ecdsaChainTarget';
 import type {
   ExecuteEvmFamilyTransactionArgs,
   ExecuteEvmFamilyTransactionResult,
@@ -280,6 +283,7 @@ export class TempoSigner implements TempoSignerCapability {
       local: async () => {
         return await context.signingEngine.bootstrapEcdsaSession({
           nearAccountId: toAccountId(args.nearAccountId),
+          subjectId: toWalletSubjectId(args.nearAccountId),
           chainTarget,
           relayerUrl: options.relayerUrl,
           participantIds: options.participantIds,

@@ -2802,13 +2802,6 @@ export class ThresholdSigningService {
         message: 'threshold_ecdsa.session_policy.userId mismatch',
       };
     }
-    if (policyIdentity.subjectId !== userId) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'threshold_ecdsa.session_policy.subjectId mismatch',
-      };
-    }
     const policyEcdsaThresholdKeyId = String(policy.ecdsaThresholdKeyId || '').trim();
     if (policyEcdsaThresholdKeyId && policyEcdsaThresholdKeyId !== canonicalEcdsaThresholdKeyId) {
       return {

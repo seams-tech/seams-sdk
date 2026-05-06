@@ -151,15 +151,12 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
         relativePath === 'client/src/core/signingEngine/orchestration/near/nep413Flow.ts'
       ) {
         expect(source, relativePath).toContain('planSigningSession(');
-      } else if (
-        relativePath === 'client/src/core/signingEngine/api/nearSigning.ts'
-      ) {
+      } else if (relativePath === 'client/src/core/signingEngine/api/nearSigning.ts') {
         expect(source, relativePath).toContain('prepareTransactionSigningOperation');
         expect(source, relativePath).not.toContain('signingSession/planner');
         expect(source, relativePath).not.toContain('planSigningSession(');
       } else if (
-        relativePath ===
-        'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts'
+        relativePath === 'client/src/core/signingEngine/orchestration/near/transactionsFlow.ts'
       ) {
         expect(source, relativePath).toContain(
           'ed25519SigningBoundary: NearEd25519TransactionSigningBoundary',
@@ -171,7 +168,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
         expect(source, relativePath).not.toContain('signingSession/planner');
         expect(source, relativePath).not.toContain('planSigningSession(');
       } else if (relativePath === 'client/src/core/signingEngine/api/evmFamily/authPlanning.ts') {
-        expect(source, relativePath).toContain('preparedOperation: PreparedThresholdSigningOperation');
+        expect(source, relativePath).toContain(
+          'preparedOperation: PreparedThresholdSigningOperation',
+        );
         expect(source, relativePath).not.toContain('prepareThresholdSigningOperation');
         expect(source, relativePath).not.toContain('signingSession/planner');
         expect(source, relativePath).not.toContain('planSigningSession(');
@@ -188,9 +187,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       const source = readRepoSource(relativePath);
 
       expect(source, relativePath).not.toContain('new SigningSessionCoordinator(');
-      expect(source, relativePath).not.toMatch(
-        /import\s+\{\s*SigningSessionCoordinator\b/,
-      );
+      expect(source, relativePath).not.toMatch(/import\s+\{\s*SigningSessionCoordinator\b/);
     }
   });
 
@@ -206,8 +203,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
   });
 
   test('only production assembly constructs SigningSessionCoordinator', () => {
-    const allowedPath =
-      'client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts';
+    const allowedPath = 'client/src/core/signingEngine/bootstrap/orchestrationDependencyFactory.ts';
     for (const relativePath of listProductionTypeScriptFiles(
       path.join(repoRoot, 'client/src/core/signingEngine'),
     )) {
@@ -445,7 +441,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
   });
 
   test('ECDSA snapshot adapters dedupe runtime records by exact lane identity', () => {
-    const snapshotReader = readRepoSource('client/src/core/signingEngine/session/snapshotReader.ts');
+    const snapshotReader = readRepoSource(
+      'client/src/core/signingEngine/session/snapshotReader.ts',
+    );
     const transactionState = readRepoSource(
       'client/src/core/signingEngine/session/signingSession/transactionState.ts',
     );
@@ -458,7 +456,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     );
     const signingEngineSnapshotBody = signingEngine.slice(
       signingEngine.indexOf('async readPersistedSigningSessionSnapshot'),
-      signingEngine.indexOf('private async ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap'),
+      signingEngine.indexOf(
+        'private async ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap',
+      ),
     );
     const signingEngineEcdsaRuntimeBody = signingEngineSnapshotBody.slice(
       signingEngineSnapshotBody.indexOf('listRuntimeEcdsaLanesForSubject'),
@@ -505,7 +505,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     const source = readRepoSource(
       'client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionStore.ts',
     );
-    const snapshotReader = readRepoSource('client/src/core/signingEngine/session/snapshotReader.ts');
+    const snapshotReader = readRepoSource(
+      'client/src/core/signingEngine/session/snapshotReader.ts',
+    );
     const transactionState = readRepoSource(
       'client/src/core/signingEngine/session/signingSession/transactionState.ts',
     );
@@ -518,6 +520,8 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     );
     const signingInterfaces = readRepoSource('client/src/core/signingEngine/interfaces/signing.ts');
     const seamsInterfaces = readRepoSource('client/src/core/SeamsPasskey/interfaces.ts');
+    const seamsPasskeyIndex = readRepoSource('client/src/core/SeamsPasskey/index.ts');
+    const walletIframeRouter = readRepoSource('client/src/core/WalletIframe/client/router.ts');
     const iframeMessages = readRepoSource('client/src/core/WalletIframe/shared/messages.ts');
     const evmSigning = readRepoSource('client/src/core/signingEngine/api/evmSigning.ts');
     const preparedSigning = readRepoSource(
@@ -621,9 +625,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     const serverThresholdService = readRepoSource(
       'server/src/core/ThresholdService/ThresholdSigningService.ts',
     );
-    const serverClaimValidation = readRepoSource(
-      'server/src/core/ThresholdService/validation.ts',
-    );
+    const serverClaimValidation = readRepoSource('server/src/core/ThresholdService/validation.ts');
     const serverRouterUtils = readRepoSource('server/src/router/commonRouterUtils.ts');
     const hssPrepareRequestType = thresholdEcdsaRpc.slice(
       thresholdEcdsaRpc.indexOf('type ThresholdEcdsaHssPrepareRequest ='),
@@ -653,12 +655,22 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(serverClaimValidation).toContain('chainTarget: ThresholdEcdsaChainTarget;');
     expect(serverClaimValidation).toContain('ecdsaThresholdKeyId: string;');
     expect(serverClaimValidation).toContain('thresholdEcdsaChainTargetFromValue');
-    expect(serverRouterUtils).toContain("const subjectId = String(args.sessionInfo?.subjectId || '').trim();");
-    expect(serverRouterUtils).toContain("const ecdsaThresholdKeyId = String(args.sessionInfo?.ecdsaThresholdKeyId || '').trim();");
-    expect(serverRouterUtils).toContain('thresholdEcdsaChainTargetFromValue(args.sessionInfo?.chainTarget)');
+    expect(serverRouterUtils).toContain(
+      "const subjectId = String(args.sessionInfo?.subjectId || '').trim();",
+    );
+    expect(serverRouterUtils).toContain(
+      "const ecdsaThresholdKeyId = String(args.sessionInfo?.ecdsaThresholdKeyId || '').trim();",
+    );
+    expect(serverRouterUtils).toContain(
+      'thresholdEcdsaChainTargetFromValue(args.sessionInfo?.chainTarget)',
+    );
     expect(serverThresholdService).toContain('function thresholdEcdsaClaimsMatchIdentity');
-    expect(serverThresholdService).toContain('session_bootstrap threshold-ecdsa lane identity mismatch');
-    expect(serverThresholdService).toContain('explicit_key_export threshold-ecdsa lane identity mismatch');
+    expect(serverThresholdService).toContain(
+      'session_bootstrap threshold-ecdsa lane identity mismatch',
+    );
+    expect(serverThresholdService).toContain(
+      'explicit_key_export threshold-ecdsa lane identity mismatch',
+    );
     expect(serverThresholdService).toContain('walletSessionUserId');
     const exportInputType = seamsInterfaces.slice(
       seamsInterfaces.indexOf('export type ExportKeypairWithUIInput ='),
@@ -680,6 +692,14 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       iframeMessages.indexOf('export type PMExportKeypairUiPayload ='),
       iframeMessages.indexOf('export interface PMExportThresholdEd25519SeedFromHssReportUiPayload'),
     );
+    const pmEmailOtpEcdsaPayload = iframeMessages.slice(
+      iframeMessages.indexOf('export interface PMEmailOtpEcdsaCapabilityPayload'),
+      iframeMessages.indexOf('export interface PMRefreshEmailOtpSigningSessionPayload'),
+    );
+    const emailOtpEcdsaCapabilityArgs = seamsInterfaces.slice(
+      seamsInterfaces.indexOf('export type EmailOtpEcdsaCapabilityArgs ='),
+      seamsInterfaces.indexOf('export type EmailOtpEcdsaCapabilityResult ='),
+    );
     expect(exportInputType).toContain("kind: 'ecdsa';");
     expect(exportInputType).toContain('subjectId: WalletSubjectId;');
     expect(exportInputType).toContain('chainTarget: ThresholdEcdsaChainTarget;');
@@ -689,6 +709,13 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(executeEvmArgsType).toContain('subjectId: WalletSubjectId;');
     expect(pmSignTempoPayload).toContain('subjectId: WalletSubjectId;');
     expect(pmExportPayload).toContain('subjectId: WalletSubjectId;');
+    expect(pmEmailOtpEcdsaPayload).toContain('subjectId: WalletSubjectId;');
+    expect(emailOtpEcdsaCapabilityArgs).toContain('subjectId: WalletSubjectId;');
+    expect(walletIframeRouter).not.toContain('EmailOtpEcdsaCapabilityArgs & { subjectId');
+    expect(
+      seamsPasskeyIndex.match(/const iframeArgs = \{ \.\.\.args, subjectId, chainTarget \};/g) ??
+        [],
+    ).toHaveLength(0);
     expect(evmSigning).toContain('subjectId: args.subjectId');
     expect(evmSigning).not.toContain('subjectId: toWalletSubjectId(args.nearAccountId)');
     expect(preparedSigning).toContain('subjectId: WalletSubjectId;');
@@ -702,7 +729,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       signingEngine.indexOf('if (!prepare.ok)'),
     );
     expect(exportKeypairInternalBody).toContain('subjectId: args.subjectId');
-    expect(exportKeypairInternalBody).not.toContain('subjectId: toWalletSubjectId(args.nearAccountId)');
+    expect(exportKeypairInternalBody).not.toContain(
+      'subjectId: toWalletSubjectId(args.nearAccountId)',
+    );
     expect(thresholdEcdsaHssPrepareExportBody).toContain(
       'walletSessionUserId: String(args.nearAccountId)',
     );
@@ -722,9 +751,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
   });
 
   test('sealed session store stays storage-only', () => {
-    const source = readRepoSource(
-      'client/src/core/signingEngine/session/sealedSessionStore.ts',
-    );
+    const source = readRepoSource('client/src/core/signingEngine/session/sealedSessionStore.ts');
     const imports = Array.from(source.matchAll(/from\s+['"]([^'"]+)['"]/g)).map(
       (match) => match[1],
     );
@@ -1021,7 +1048,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     );
 
     expect(restoreBody).not.toContain('exact_purpose_metadata_mismatch');
-    expect(restoreBody).not.toContain("reason: sealedRecord.remainingUses <= 0 ? 'exhausted' : 'expired'");
+    expect(restoreBody).not.toContain(
+      "reason: sealedRecord.remainingUses <= 0 ? 'exhausted' : 'expired'",
+    );
     expect(restoreBody).toContain('sealed refresh restore deferred by durable policy hint');
     expect(restoreBody).toContain('sealed refresh restore deferred by store metadata mismatch');
   });
@@ -1079,9 +1108,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     const budgetFinalizer = readRepoSource(
       'client/src/core/signingEngine/session/signingSession/budgetFinalizer.ts',
     );
-    const budget = readRepoSource(
-      'client/src/core/signingEngine/session/signingSession/budget.ts',
-    );
+    const budget = readRepoSource('client/src/core/signingEngine/session/signingSession/budget.ts');
     const coordinator = readRepoSource(
       'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
     );
@@ -1138,11 +1165,11 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(evmSigning).not.toContain('budgetIdentity: prepared.budgetIdentity!');
     expect(nearSigning).toContain('prepareTransactionSigningOperation');
     expect(nearSigning).toContain('prepareBudgetIdentity: true');
-    expect(nearSigning).toContain('const transactionOperation = preparedTransaction.transactionOperation');
-    expect(nearSigning).toContain('const budget = preparedTransaction.budget');
-    expect(nearTransactions).toContain(
-      'ed25519SigningBoundary.initialBudgetAdmittedOperation',
+    expect(nearSigning).toContain(
+      'const transactionOperation = preparedTransaction.transactionOperation',
     );
+    expect(nearSigning).toContain('const budget = preparedTransaction.budget');
+    expect(nearTransactions).toContain('ed25519SigningBoundary.initialBudgetAdmittedOperation');
     expect(nearTransactions).toContain('let activeBudgetAdmittedOperation =');
     expect(nearTransactions).toContain('budgetAdmission.budgetIdentity');
     expect(nearTransactions).not.toContain('providedBudgetIdentity');
@@ -1239,9 +1266,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
 
     expect(exactEcdsaRestoreBody).toContain('args.record');
     expect(exactEcdsaRestoreBody).toContain('args.purpose');
-    expect(exactEcdsaRestoreBody).not.toContain(
-      'tryRestoreEcdsaWarmSessionStatusFromSealedRecord',
-    );
+    expect(exactEcdsaRestoreBody).not.toContain('tryRestoreEcdsaWarmSessionStatusFromSealedRecord');
   });
 
   test('Phase 14 keeps Email OTP signing-session lanes fully identified', () => {
@@ -1281,7 +1306,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(ecdsaSelection).not.toContain('fallbackPasskey');
     expect(ecdsaLanes).toContain('recordThresholdSessionId !== keyRefThresholdSessionId');
     expect(ecdsaLanes).toContain('recordWalletSigningSessionId !== keyRefWalletSigningSessionId');
-    expect(ecdsaLanes).not.toContain('args.record?.thresholdSessionId || args.keyRef?.thresholdSessionId');
+    expect(ecdsaLanes).not.toContain(
+      'args.record?.thresholdSessionId || args.keyRef?.thresholdSessionId',
+    );
     expect(ecdsaLanes).not.toContain(
       'args.record?.walletSigningSessionId || args.keyRef?.walletSigningSessionId',
     );
@@ -1293,7 +1320,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     const preparedSigning = readRepoSource(
       'client/src/core/signingEngine/api/evmFamily/preparedSigning.ts',
     );
-    const accountAuth = readRepoSource('client/src/core/signingEngine/api/evmFamily/accountAuth.ts');
+    const accountAuth = readRepoSource(
+      'client/src/core/signingEngine/api/evmFamily/accountAuth.ts',
+    );
     const nearSigning = readRepoSource('client/src/core/signingEngine/api/nearSigning.ts');
     const signingEngine = readRepoSource('client/src/core/signingEngine/SigningEngine.ts');
 
@@ -1310,6 +1339,8 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(signingEngine).toContain('assertNearEd25519ExportRecordMatchesLane');
     expect(signingEngine).toContain('exact lane selection failed: no_candidate');
     expect(signingEngine).toContain('exact lane selection failed: ambiguous_candidates');
+    expect(signingEngine).toContain('const key = exportSnapshotLaneExactKey(candidate);');
+    expect(signingEngine).not.toContain('exportSnapshotLaneLogicalKey');
     expect(signingEngine).toContain('this.touchConfirm.restorePersistedSessionForSigning({');
     expect(signingEngine).not.toContain('resolveNearEd25519ExportAuthMethod');
     expect(signingEngine).not.toContain('resolveEcdsaExportAuthMethod');
@@ -1405,7 +1436,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       nearSigning.indexOf('async function restoreNearEd25519SelectedSigningSession'),
       nearSigning.indexOf('async function prepareNearEd25519TransactionSigningSession'),
     );
-    const evmSigningBody = evmSigning.slice(evmSigning.indexOf('async function signEvmFamilyAttempt'));
+    const evmSigningBody = evmSigning.slice(
+      evmSigning.indexOf('async function signEvmFamilyAttempt'),
+    );
 
     expect(preparedOperation).toContain('prepareThresholdSigningOperation');
     expect(preparedOperation).toContain('lifecycleAdapter: ThresholdSigningLifecycleAdapter');
@@ -1466,7 +1499,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(nearSigning).not.toContain('discardInvalidNearEd25519RuntimeHint');
     expect(nearSigning).not.toContain('clearStoredThresholdEd25519SessionRecordForAccount');
     expect(nearSigning).not.toContain('getStoredThresholdEd25519SessionRecordForAccount');
-    expect(nearSigning).toContain('const transactionOperation = preparedTransaction.transactionOperation');
+    expect(nearSigning).toContain(
+      'const transactionOperation = preparedTransaction.transactionOperation',
+    );
     expect(nearSigning).toContain('initialBudgetAdmittedOperation');
     expect(transactionsFlow).toContain('activeBudgetAdmittedOperation');
     expect(transactionsFlow).toContain('replacePreparedTransactionLane(');
@@ -1487,7 +1522,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(evmPreparedSigning).toContain('currentRuntimeLane');
     expect(evmPreparedSigning).not.toContain('lane.authMethod === args.authMethod');
     expect(nearEd25519RestoreBody).toContain('authMethod: identity.authMethod');
-    expect(nearEd25519RestoreBody).toContain('walletSigningSessionId: identity.walletSigningSessionId');
+    expect(nearEd25519RestoreBody).toContain(
+      'walletSigningSessionId: identity.walletSigningSessionId',
+    );
     expect(nearEd25519RestoreBody).toContain('thresholdSessionId: identity.thresholdSessionId');
     expect(nearSigning).not.toContain('resolveNearEd25519PreferredAuthMethod');
     expect(nearSigning).not.toContain('restoreNearEd25519SigningSessionBeforeSelection');
@@ -1507,9 +1544,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(evmSigning).not.toContain('admitThresholdEcdsaOperation');
     expect(evmSigning).not.toContain('resolveThresholdEcdsaOperation');
     expect(evmSigning).not.toContain('() => {}');
-    expect(evmFamilyTransactionExecutor).toContain(
-      'executeConfiguredEvmFamilyTransactionSigning',
-    );
+    expect(evmFamilyTransactionExecutor).toContain('executeConfiguredEvmFamilyTransactionSigning');
     expect(evmFamilyTransactionExecutor).not.toContain(
       'async function executeEvmTransactionSigning',
     );
@@ -1552,11 +1587,15 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
       'client/src/core/signingEngine/orchestration/shared/thresholdEcdsaTransactionAdmission.ts',
     );
     const admissionFunctionBody = admissionHelper.slice(
-      admissionHelper.indexOf('export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation'),
+      admissionHelper.indexOf(
+        'export async function completeEvmFamilyThresholdEcdsaAdmissionAfterConfirmation',
+      ),
       admissionHelper.length,
     );
     expect(admissionHelper).toContain('export type EvmFamilyThresholdEcdsaAdmissionMode');
-    expect(admissionHelper).not.toContain('export function resolveEvmFamilyThresholdEcdsaAdmissionMode');
+    expect(admissionHelper).not.toContain(
+      'export function resolveEvmFamilyThresholdEcdsaAdmissionMode',
+    );
     expect(admissionFunctionBody).toContain('mode: EvmFamilyThresholdEcdsaAdmissionMode');
     expect(admissionFunctionBody).not.toContain('emailOtpSigning?:');
     expect(admissionFunctionBody).not.toContain('passkeyEcdsaReconnect?:');
@@ -1577,9 +1616,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(evmPreparedSigning.indexOf('readSigningSessionSnapshotForSigning')).toBeLessThan(
       evmPreparedSigning.indexOf('restorePersistedSessionForSigning({'),
     );
-    expect(evmPreparedSigning).toContain(
-      'transaction restore requires an exact snapshot lane',
-    );
+    expect(evmPreparedSigning).toContain('transaction restore requires an exact snapshot lane');
     expect(evmPreparedSigning).toContain("reason: 'selected_snapshot_candidate_ready'");
     expect(evmPreparedSigning).not.toContain("reason: 'no_exact_snapshot_candidate'");
     expect(evmPreparedSigning).not.toContain('let lane selection prove the runtime identity');
@@ -1603,7 +1640,9 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
   test('Phase 12 smart-account deployment carries concrete chain targets past boundaries', () => {
     const serverTypes = readRepoSource('server/src/core/types.ts');
     const serverChainTarget = readRepoSource('server/src/core/smartAccountChainTarget.ts');
-    const registrationRecords = readRepoSource('server/src/core/smartAccountRegistrationRecords.ts');
+    const registrationRecords = readRepoSource(
+      'server/src/core/smartAccountRegistrationRecords.ts',
+    );
     const deploymentManifest = readRepoSource('server/src/core/smartAccountDeploymentManifest.ts');
     const deploymentRequest = readRepoSource('server/src/router/smartAccountDeploymentRequest.ts');
     const deploymentSync = readRepoSource(
@@ -1650,7 +1689,7 @@ test.describe('SigningSessionCoordinator architecture guards', () => {
     expect(serverChainTarget).toContain("kind: 'evm'");
     expect(serverChainTarget).toContain("namespace: 'eip155'");
     expect(serverChainTarget).toContain('export function smartAccountChainTargetKey');
-    expect(serverChainTarget).toContain("return `evm:eip155:${target.chainId}`");
+    expect(serverChainTarget).toContain('return `evm:eip155:${target.chainId}`');
     expect(serverTypes).toContain(
       "chainTarget: import('./smartAccountChainTarget').SmartAccountChainTarget;",
     );

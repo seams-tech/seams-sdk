@@ -640,6 +640,9 @@ function sealedRecordsHaveSamePurpose(
   if (!sealedRecordsShareAccount(left, right)) return false;
   if (left.authMethod !== right.authMethod || left.curve !== right.curve) return false;
   if (left.curve === 'ecdsa') {
+    const leftSubjectId = normalizeOptionalNonEmptyString(left.subjectId);
+    const rightSubjectId = normalizeOptionalNonEmptyString(right.subjectId);
+    if (!leftSubjectId || !rightSubjectId || leftSubjectId !== rightSubjectId) return false;
     const leftTarget = left.ecdsaRestore?.chainTarget;
     const rightTarget = right.ecdsaRestore?.chainTarget;
     if (!leftTarget || !rightTarget) return false;

@@ -15,7 +15,6 @@ import type {
   ThemeName,
   SeamsConfigsReadonly,
   SeamsConfigsInput,
-  EmailOtpAuthPolicy,
 } from '../types/seams';
 import type {
   ActionHooksOptions,
@@ -43,7 +42,6 @@ import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
 import { isUserCancellationError, toError } from '@shared/utils/errors';
 import { coerceThemeName } from '@shared/utils/theme';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import { buildConfigsFromEnv } from '../config/defaultConfigs';
 import { resolvePrimaryNearRpcUrl } from '../config/chains';
 import { WalletIframeCoordinator } from './walletIframeCoordinator';
@@ -59,6 +57,8 @@ import {
 import type {
   AuthCapability,
   EmailOtpChallengeResult,
+  EmailOtpEcdsaCapabilityArgs,
+  EmailOtpEcdsaEnrollmentCapabilityArgs,
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
@@ -72,14 +72,11 @@ import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
   ThresholdEd25519HssPreparedSessionEnvelope,
 } from '../signingEngine/signers/wasm/hssClientSignerWasm';
-import type {
-  ThresholdEcdsaLoginPrefillResult,
-} from '../signingEngine/SigningEngine';
+import type { ThresholdEcdsaLoginPrefillResult } from '../signingEngine/SigningEngine';
 import {
   thresholdEcdsaChainTargetFromRequest,
   type ThresholdEcdsaChainTarget,
 } from '../signingEngine/session/signingSession/ecdsaChainTarget';
-import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/session/sessionPolicy';
 import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
 import { EmailRecoveryDomain } from './near/emailRecovery';
 import {
@@ -204,8 +201,7 @@ export class SeamsPasskey {
         await this.requestEmailOtpEnrollmentChallenge(args),
       requestEmailOtpSigningSessionChallenge: async (args) =>
         await this.requestEmailOtpSigningSessionChallenge(args),
-      refreshEmailOtpSigningSession: async (args) =>
-        await this.refreshEmailOtpSigningSession(args),
+      refreshEmailOtpSigningSession: async (args) => await this.refreshEmailOtpSigningSession(args),
       exchangeGoogleEmailOtpSession: async (args) => await this.exchangeGoogleEmailOtpSession(args),
       enrollEmailOtp: async (args) => await this.enrollEmailOtp(args),
       loginWithEmailOtpEcdsaCapability: async (args) =>
@@ -238,8 +234,7 @@ export class SeamsPasskey {
         await deviceLinking.linkDeviceWithScannedQRData(qrData, options),
     };
     this.keys = {
-      exportKeypairWithUI: async (input) =>
-        await this.exportKeypairWithUIDomain(input),
+      exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
       exportThresholdEd25519SeedFromHssReport: async (args) =>
         await this.exportThresholdEd25519SeedFromHssReportDomain(args),
     };
@@ -1133,30 +1128,11 @@ export class SeamsPasskey {
     }
   }
 
-  async loginWithEmailOtpEcdsaCapability(args: {
-    nearAccountId: string;
-    chainTarget: ThresholdEcdsaChainTarget;
-    emailOtpAuthPolicy?: EmailOtpAuthPolicy;
-    relayUrl?: string;
-    challengeId?: string;
-    otpCode: string;
-    shamirPrimeB64u?: string;
-    appSessionJwt?: string;
-    routeAuth?: AppOrThresholdSessionAuth;
-    ecdsaThresholdKeyId?: string;
-    participantIds?: number[];
-    sessionKind?: 'jwt' | 'cookie';
-    sessionId?: string;
-    ttlMs?: number;
-    remainingUses?: number;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
-    onEvent?: (event: UnlockFlowEvent) => void;
-  }): Promise<Awaited<ReturnType<SigningEngine['loginWithEmailOtpEcdsaCapabilityInternal']>>> {
+  async loginWithEmailOtpEcdsaCapability(
+    args: EmailOtpEcdsaCapabilityArgs,
+  ): Promise<Awaited<ReturnType<SigningEngine['loginWithEmailOtpEcdsaCapabilityInternal']>>> {
     const flowId = this.emailOtpUnlockFlowId(args.nearAccountId, args.challengeId);
-    const chainTarget = requireConcreteEcdsaChainTarget(
-      args.chainTarget,
-      'Email OTP ECDSA unlock',
-    );
+    const chainTarget = requireConcreteEcdsaChainTarget(args.chainTarget, 'Email OTP ECDSA unlock');
     this.emitEmailOtpUnlockEvent(args.onEvent, {
       flowId,
       accountId: args.nearAccountId,
@@ -1347,27 +1323,9 @@ export class SeamsPasskey {
     }
   }
 
-  async enrollAndLoginWithEmailOtpEcdsaCapability(args: {
-    nearAccountId: string;
-    chainTarget: ThresholdEcdsaChainTarget;
-    emailOtpAuthPolicy?: EmailOtpAuthPolicy;
-    otpCode: string;
-    relayUrl?: string;
-    challengeId?: string;
-    shamirPrimeB64u?: string;
-    appSessionJwt?: string;
-    routeAuth?: AppOrThresholdSessionAuth;
-    ecdsaThresholdKeyId?: string;
-    participantIds?: number[];
-    sessionKind?: 'jwt' | 'cookie';
-    sessionId?: string;
-    ttlMs?: number;
-    remainingUses?: number;
-    clientSecret32?: Uint8Array;
-    registrationAttemptId?: string;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
-    onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
-  }): Promise<
+  async enrollAndLoginWithEmailOtpEcdsaCapability(
+    args: EmailOtpEcdsaEnrollmentCapabilityArgs,
+  ): Promise<
     Awaited<ReturnType<SigningEngine['enrollAndLoginWithEmailOtpEcdsaCapabilityInternal']>>
   > {
     const flowId = this.emailOtpRegistrationFlowId(args.nearAccountId, args.challengeId);

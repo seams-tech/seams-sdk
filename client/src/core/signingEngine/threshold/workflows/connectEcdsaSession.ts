@@ -5,7 +5,10 @@ import type {
 } from '../webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { bootstrapEcdsaSession } from './bootstrapEcdsaSession';
-import type { ThresholdEcdsaChainTarget } from '../../session/signingSession/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../../session/signingSession/ecdsaChainTarget';
 
 type EcdsaSessionKind = 'jwt' | 'cookie';
 
@@ -21,6 +24,7 @@ export async function connectEcdsaSession(args: {
   relayerUrl: string;
   relayerKeyId: string;
   userId: string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   participantIds?: number[];
   sessionKind?: EcdsaSessionKind;
@@ -49,6 +53,7 @@ export async function connectEcdsaSession(args: {
     prfFirstCache: args.prfFirstCache,
     relayerUrl: args.relayerUrl,
     userId: String(args.userId || '').trim(),
+    subjectId: args.subjectId,
     chainTarget: args.chainTarget,
     participantIds: args.participantIds,
     sessionKind: args.sessionKind as EcdsaSessionKind | undefined,

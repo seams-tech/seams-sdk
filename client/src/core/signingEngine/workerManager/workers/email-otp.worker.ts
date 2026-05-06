@@ -271,6 +271,7 @@ type EmailOtpWorkerRequest =
       payload: {
         relayUrl: string;
         walletId: string;
+        subjectId: WalletSubjectId;
         userId?: string;
         challengeId?: string;
         otpCode: string;
@@ -297,6 +298,7 @@ type EmailOtpWorkerRequest =
       payload: {
         relayUrl: string;
         walletId: string;
+        subjectId: WalletSubjectId;
         userId?: string;
         challengeId?: string;
         otpCode: string;
@@ -370,6 +372,7 @@ type EmailOtpWorkerRequest =
         restore: {
           sessionId: string;
           walletId: string;
+          subjectId: WalletSubjectId;
           userId?: string;
           rpId: string;
           chainTarget: ThresholdEcdsaChainTarget;
@@ -1095,6 +1098,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   restore: {
     sessionId: string;
     walletId: string;
+    subjectId: WalletSubjectId;
     userId?: string;
     rpId: string;
     chainTarget: ThresholdEcdsaChainTarget;
@@ -1195,6 +1199,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
       const userId =
         String(args.restore.userId || args.restore.walletId || '').trim() ||
         readString(args.restore.walletId, 'walletId');
+      const subjectId = toWalletSubjectId(args.restore.subjectId);
       const ed25519RestoreSeedB64u = args.restore.ed25519
         ? await deriveEmailOtpEd25519RestoreSeedB64u({
             signingSessionSecret32,
@@ -1236,6 +1241,7 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
       const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
         relayUrl: readString(args.transport.relayerUrl, 'relayerUrl'),
         userId,
+        subjectId,
         rpId: readString(args.restore.rpId, 'rpId'),
         clientRootShare32,
         operation: 'session_bootstrap',
@@ -2338,6 +2344,7 @@ async function loginWithEmailOtpAndRecoverClientRootShare(args: {
 type ThresholdEcdsaEmailOtpBootstrapFromClientRootShareArgs = {
   relayUrl: string;
   userId: string;
+  subjectId: WalletSubjectId;
   rpId: string;
   clientRootShare32: Uint8Array;
   participantIds?: number[];
@@ -2369,6 +2376,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   await ensureHssClientSignerWasm();
   const relayerUrl = readString(args.relayUrl, 'relayUrl');
   const userId = readString(args.userId, 'userId');
+  const subjectId = toWalletSubjectId(args.subjectId);
   const rpId = readString(args.rpId, 'rpId');
   const chainId = Math.floor(Number(args.chainTarget.chainId));
   if (!Number.isSafeInteger(chainId) || chainId < 0) {
@@ -2407,7 +2415,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
   const sessionPolicy = {
     version: THRESHOLD_SESSION_POLICY_VERSION,
     userId,
-    subjectId: toWalletSubjectId(userId),
+    subjectId,
     rpId,
     chainTarget: args.chainTarget,
     ...(ecdsaThresholdKeyId ? { ecdsaThresholdKeyId } : {}),
@@ -2528,7 +2536,10 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     bootstrap.ecdsaThresholdKeyId,
     'ecdsaThresholdKeyId',
   );
-  const responseSubjectId = toWalletSubjectId(bootstrap.subjectId || userId);
+  const responseSubjectId = toWalletSubjectId(readString(bootstrap.subjectId, 'subjectId'));
+  if (responseSubjectId !== subjectId) {
+    throw new Error('Threshold bootstrap response subjectId does not match request');
+  }
   const responseChainTarget = bootstrap.chainTarget
     ? thresholdEcdsaChainTargetFromRequest(bootstrap.chainTarget)
     : args.chainTarget;
@@ -2660,6 +2671,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
 async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
   relayUrl: string;
   userId: string;
+  subjectId: WalletSubjectId;
   rpId: string;
   clientRootShare32: Uint8Array;
   publicationChainTargets: ThresholdEcdsaChainTarget[];
@@ -2690,6 +2702,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
     const workerBootstrap = await runThresholdEcdsaAuthorizationBootstrapFromClientRootShare({
       relayUrl: args.relayUrl,
       userId: args.userId,
+      subjectId: args.subjectId,
       rpId: args.rpId,
       clientRootShare32: args.clientRootShare32,
       operation: 'email_otp_bootstrap',
@@ -3017,6 +3030,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const bootstraps = await runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare({
             relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
             userId: walletId,
+            subjectId: toWalletSubjectId(msg.payload.subjectId),
             rpId: readString(msg.payload.rpId, 'rpId'),
             clientRootShare32,
             publicationChainTargets,
@@ -3224,6 +3238,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
           const bootstraps = await runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare({
             relayUrl: relayerUrl,
             userId: walletId,
+            subjectId: toWalletSubjectId(msg.payload.subjectId),
             rpId,
             clientRootShare32: result.clientRootShare32,
             publicationChainTargets,

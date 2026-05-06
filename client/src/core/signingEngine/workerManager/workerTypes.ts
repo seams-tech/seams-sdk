@@ -306,6 +306,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
+      subjectId: WalletSubjectId;
       userId?: string;
       challengeId?: string;
       otpCode: string;
@@ -351,6 +352,7 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       relayUrl: string;
       walletId: string;
+      subjectId: WalletSubjectId;
       userId?: string;
       challengeId?: string;
       otpCode: string;
@@ -446,6 +448,7 @@ export interface EmailOtpWorkerOperationMap {
       restore: {
         sessionId: string;
         walletId: string;
+        subjectId: WalletSubjectId;
         userId?: string;
         rpId: string;
         chainTarget: ThresholdEcdsaChainTarget;

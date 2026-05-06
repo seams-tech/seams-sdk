@@ -40,8 +40,8 @@ import {
 } from './ecdsaLanes';
 import type { EvmFamilyChain } from './types';
 import {
-  toWalletSubjectId,
   type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
 } from '../../session/signingSession/ecdsaChainTarget';
 
 export type EvmFamilyWarmSessionServicesDeps = EvmFamilyEcdsaSessionReaderDeps & {
@@ -103,11 +103,12 @@ export function createEvmFamilyWarmSessionServices(
     }
   };
   const listThresholdEcdsaKeyRefsForAccountTarget = ({
-    nearAccountId,
+    subjectId,
     chainTarget,
     source,
   }: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => {
@@ -119,7 +120,7 @@ export function createEvmFamilyWarmSessionServices(
           source: candidateSource,
           keyRef: getThresholdEcdsaKeyRefForLane({
             deps,
-            subjectId: toWalletSubjectId(String(nearAccountId)),
+            subjectId,
             chainTarget,
             source: candidateSource,
           }),

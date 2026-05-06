@@ -28,7 +28,10 @@ import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/si
 import type { PreparedThresholdSigningOperation } from '../../session/signingSession/preparedOperation';
 import { signingAuthPlanFromSigningSessionPlan } from '../../orchestration/shared/touchConfirmSigning';
 import type { ThresholdEcdsaSessionRecord } from '../thresholdLifecycle/thresholdSessionStore';
-import type { ThresholdEcdsaChainTarget } from '../../session/signingSession/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSubjectId,
+} from '../../session/signingSession/ecdsaChainTarget';
 import {
   emailOtpEcdsaAuthLaneFromRecord,
   isEmailOtpThresholdEcdsaSigningContext,
@@ -62,6 +65,7 @@ export type EvmFamilyConfirmedEmailOtpDeps = {
   }) => EmailOtpAuthLane | null | Promise<EmailOtpAuthLane | null>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     nearAccountId: string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -288,8 +292,12 @@ export async function resolveEvmFamilyTransactionWalletAuth(
       const authLane = emailOtpRecord
         ? resolvedAuthLane || emailOtpEcdsaAuthLaneFromRecord(emailOtpRecord)
         : undefined;
+      if (!preparedEcdsaLane?.subjectId) {
+        throw new Error('[SigningEngine] Email OTP ECDSA reauth requires selected subject');
+      }
       const refreshed = await confirmedEmailOtpDeps.loginWithEmailOtpEcdsaCapabilityForSigning({
         nearAccountId: args.nearAccountId,
+        subjectId: preparedEcdsaLane.subjectId,
         chainTarget: args.chainTarget,
         challengeId,
         otpCode: code,

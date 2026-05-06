@@ -14,7 +14,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
-  toWalletSubjectId,
+  type WalletSubjectId,
   type EvmEip155ChainTarget,
   type TempoChainTarget,
   type ThresholdEcdsaChainTarget as CanonicalThresholdEcdsaChainTarget,
@@ -55,6 +55,7 @@ export type ActivateEcdsaSessionDeps = {
 
 export type ActivateEcdsaSessionRequest = {
   nearAccountId: AccountId | string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
   ecdsaThresholdKeyId?: string;
@@ -80,6 +81,7 @@ export async function activateEcdsaSession(
   args: ActivateEcdsaSessionRequest,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const nearAccountId = toAccountId(args.nearAccountId);
+  const subjectId = args.subjectId;
   const chainTarget = args.chainTarget;
 
   const requestedSessionId = String(args.sessionId || '').trim();
@@ -93,6 +95,7 @@ export async function activateEcdsaSession(
     chainTarget,
     chainId: chainTarget.chainId,
     userId: nearAccountId,
+    subjectId,
     participantIds: args.participantIds,
     sessionKind: args.sessionKind,
     clientRootShare32: args.clientRootShare32,
@@ -204,7 +207,7 @@ export async function activateEcdsaSession(
   const thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
     userId: nearAccountId,
-    subjectId: toWalletSubjectId(nearAccountId),
+    subjectId,
     chainTarget,
     relayerUrl: args.relayerUrl,
     ecdsaThresholdKeyId,

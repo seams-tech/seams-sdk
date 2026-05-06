@@ -159,6 +159,45 @@ The same operation can pass through facade wrappers, dependency bundles,
 adapter classes, engine classes, and helper functions before reaching the real
 boundary. This makes the SDK harder to debug and makes refactors risky.
 
+## Current Rescan Findings
+
+Rescanned on 2026-05-06.
+
+The plan still needs to be implemented; the current codebase is still largely
+in the pre-refactor shape:
+
+1. Old top-level folders still exist: `api/`, `orchestration/`,
+   `chainAdaptors/`, `signers/`, `bootstrap/`, `threshold/session/`,
+   `touchConfirm/shared/`, and `workerManager/`.
+2. Broad internal barrel files still exist, including
+   `signingEngine/index.ts`, `api/index.ts`, `chainAdaptors/index.ts`,
+   `signers/index.ts`, `signers/wasm/index.ts`, `workerManager/index.ts`,
+   and per-chain orchestration/index files.
+3. `client/src/core/signingEngine/README.md` describes the old architecture
+   around `api/`, `orchestration/executeSigningIntent`, `chainAdaptors/`, and
+   `signers/algorithms`. It should be replaced or marked stale in Phase 0.
+4. The existing architecture guard test is useful but encodes the old folder
+   layout. It currently checks files under `api/*`, `orchestration/*`, and
+   `session/signingSession/*`; it must be replaced with import-direction and
+   deleted-path guards as slices move.
+5. EVM/Tempo already have a partial execution-machine path. The command/state
+   definitions live in `session/signingSession/execution.ts`, EVM-family command
+   wrappers live in `api/evmFamily/signingFlowRuntime.ts`, post-sign execution
+   uses `runSigningExecutionSteps` in `api/evmFamily/transactionExecutor.ts`,
+   and actual transaction signing still runs through
+   `orchestration/shared/evmFamilySigningFlow.ts`.
+6. `api/tempoSigning.ts` is already a thin alias over `signEvmFamily`, so the
+   first vertical slice should not be a cosmetic move of that file alone. The
+   first slice must include the underlying EVM-family operation path it calls.
+7. NEAR is not on the newer execution-machine path yet. It still uses
+   `api/nearSigning.ts`, `orchestration/near/*`, transaction lane structs, and
+   request-kind-specific flow files.
+8. Duplicate lifecycle shapes are still live: `SigningLaneContext`,
+   `EcdsaLaneIdentity`, `ThresholdEcdsaRuntimeLane`,
+   `ThresholdEd25519SessionLane`, `NearEd25519TransactionLane`,
+   `EvmFamilyEcdsaTransactionLane`, and
+   `ConcreteThresholdEcdsaSessionRecord`.
+
 ## Recommended Folder Structure
 
 Organize by call depth rather than noun category.
@@ -825,16 +864,26 @@ Todo:
 - [ ] Add architecture guard checks only if they prevent new imports from old
   folders during the refactor.
 - [ ] Add an import-direction guard matching the import direction contract.
+- [ ] Replace or split the existing
+  `tests/unit/signingSessionCoordinator.architecture.guard.unit.test.ts`
+  checks that hard-code old `api/*`, `orchestration/*`, and
+  `session/signingSession/*` locations.
 - [ ] Add a folder ownership README template with `Owns`, `May import`,
   `Must not import`, and `Entrypoints`.
 - [ ] Add a no-internal-barrels guard for broad `index.ts` files under
   `client/src/core/signingEngine`.
+- [ ] Replace or clearly mark the root `client/src/core/signingEngine/README.md`
+  as stale until the target ownership READMEs exist.
+- [ ] Inventory existing internal `index.ts` files and classify them as public
+  package API, UI component-local exports, or internal barrels to delete.
 
 Exit criteria:
 
 - [ ] There is a file-by-file inventory for the signing engine.
 - [ ] Every remaining abstraction has a stated reason to exist.
 - [ ] The refactor has a known build/test command set.
+- [ ] The root signing-engine README no longer presents the old architecture as
+  current target architecture.
 - [ ] Import direction, deleted-path, and no-barrel guardrails are ready before
   the first vertical slice moves.
 
@@ -848,6 +897,14 @@ Todo:
 
 - [ ] Choose exactly one public method as the first slice:
   `SigningEngine.signTempo*` or one concrete `SigningEngine.signEvm*` path.
+- [ ] Treat `api/tempoSigning.ts` as an alias only. If Tempo is chosen, the
+  slice must include the underlying `api/evmSigning.ts` and `api/evmFamily/*`
+  path that actually performs the work.
+- [ ] Use the current partial state-machine code as the source of truth:
+  `session/signingSession/execution.ts`,
+  `api/evmFamily/signingFlowRuntime.ts`,
+  `api/evmFamily/transactionExecutor.ts`, and
+  `orchestration/shared/evmFamilySigningFlow.ts`.
 - [ ] Create only the target folders needed by that slice.
 - [ ] Add ownership `README.md` files for every new top-level folder touched by
   the slice.
@@ -860,8 +917,11 @@ Todo:
   used by the slice to `chains/tempo/*` or `chains/evm/*`.
 - [ ] Move only the session, confirmation, threshold, worker, and nonce helpers
   needed by the slice to their target folders.
-- [ ] Introduce the shared state-machine runner only as far as needed for this
+- [ ] Extract the existing signing execution machine into
+  `operations/shared/signingStateMachine.ts` only as far as needed for this
   slice to execute through it.
+- [ ] Collapse EVM-family runtime command wrappers into the shared machine port
+  contract instead of adding another wrapper layer.
 - [ ] Delete the old internal path for the moved slice in the same PR.
 - [ ] Add an architecture guard that rejects importing the deleted path.
 - [ ] Do not move unrelated files just to populate the target folders.
@@ -872,6 +932,8 @@ Exit criteria:
   hop.
 - [ ] The operation module does not import `SigningEngine.ts`.
 - [ ] No child module imports `operations/*`.
+- [ ] The selected slice uses `operations/shared/signingStateMachine.ts`, not
+  `session/signingSession/execution.ts`.
 - [ ] The old folder/file path for the moved slice is deleted.
 - [ ] An architecture guard enforces the deleted import path.
 - [ ] No broad internal `index.ts` file is introduced.
@@ -942,6 +1004,11 @@ Todo:
 
 - [ ] Move `session/signingSession/execution.ts` to
   `operations/shared/signingStateMachine.ts`.
+- [ ] Move or merge the EVM-family runtime command wrappers from
+  `api/evmFamily/signingFlowRuntime.ts` into explicit machine command
+  executors.
+- [ ] Move post-sign execution from `api/evmFamily/transactionExecutor.ts`
+  behind the shared machine finalization commands.
 - [ ] Remove session-specific naming from the machine where it is operation
   sequencing rather than session state.
 - [ ] Define `operationPorts.ts` for the machine executor contract.
@@ -960,6 +1027,7 @@ Exit criteria:
 
 - [ ] There is one state-machine runner for signing operations.
 - [ ] The runner lives under `operations/shared`.
+- [ ] No production file imports `session/signingSession/execution.ts`.
 - [ ] It does not import chain-specific operation modules.
 - [ ] It does not accept raw snapshot lanes, raw records, broad account ids, or
   key refs as identity.
@@ -978,6 +1046,10 @@ Todo:
   facade methods only.
 - [ ] Delete `api/tempoSigning.ts` as an internal alias once its callers enter
   `operations/signEvmFamily`.
+- [ ] Delete the dynamic signer-loader dependency on
+  `orchestration/evm/evmSigningFlow` and
+  `orchestration/tempo/tempoSigningFlow`; load concrete chain adapters from the
+  target folders or call them directly from the operation plan.
 - [ ] Move EVM serialization, display, and worker payload assembly to
   `chains/evm/*`.
 - [ ] Move Tempo serialization, display, and worker payload assembly to
@@ -999,6 +1071,8 @@ Exit criteria:
 - [ ] Tempo-specific code is only chain serialization, display, worker payload,
   nonce behavior, or public facade naming.
 - [ ] No internal `tempoSigning` alias module remains.
+- [ ] No EVM-family file imports from `orchestration/evm/*`,
+  `orchestration/tempo/*`, or `orchestration/shared/evmFamilySigningFlow.ts`.
 - [ ] ECDSA signing does not use key refs as operation identity.
 
 ### Phase 6: Port NEAR To The Shared Machine
@@ -1017,6 +1091,12 @@ Todo:
   `chains/near/*`.
 - [ ] Replace `NearAdapter`, `NearEd25519Engine`, or equivalent redispatch
   layers with typed operation plans.
+- [ ] Port `orchestration/near/transactionsFlow.ts`,
+  `orchestration/near/delegateFlow.ts`, and
+  `orchestration/near/nep413Flow.ts` to shared-machine command executors rather
+  than moving them as a second runner.
+- [ ] Move `orchestration/near/shared/workerRequestAssembly.ts` to
+  `chains/near/workerRequest.ts` when the first NEAR operation uses it.
 - [ ] Represent NEAR signing identity as `SelectedEd25519Lane`.
 - [ ] Resolve Ed25519 threshold protocol material only after lane selection.
 - [ ] Run NEAR through `operations/shared/signingStateMachine.ts`.
@@ -1122,6 +1202,11 @@ Todo:
 - [ ] Delete `threshold/session/*`.
 - [ ] Delete `touchConfirm/shared/*` if generic contracts moved to
   `confirmation/*`.
+- [ ] Delete broad internal barrels after their callers import concrete files:
+  `api/index.ts`, `chainAdaptors/index.ts`, `chainAdaptors/*/index.ts`,
+  `signers/index.ts`, `signers/algorithms/index.ts`, `signers/wasm/index.ts`,
+  `signers/webauthn/index.ts`, `orchestration/*/index.ts`,
+  `touchConfirm/index.ts`, and `workerManager/index.ts`.
 - [ ] Add or update architecture tests that reject imports from deleted
   folders.
 - [ ] Run the full signing engine test set.
@@ -1129,6 +1214,8 @@ Todo:
 Exit criteria:
 
 - [ ] Deleted folders are not recreated as compatibility barrels.
+- [ ] Remaining `index.ts` files under `signingEngine/` are limited to public
+  package API or UI component-local exports documented in an ownership README.
 - [ ] Architecture tests enforce target import direction.
 - [ ] The full targeted signing test set passes.
 

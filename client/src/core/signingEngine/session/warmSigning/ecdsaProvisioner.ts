@@ -11,6 +11,7 @@ import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
+  type WalletSubjectId,
 } from '../signingSession/ecdsaChainTarget';
 import {
   emitWarmSessionTransition,
@@ -35,6 +36,7 @@ export type WarmSessionEcdsaProvisionerDeps = {
   getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
   listThresholdEcdsaKeyRefsForAccountTarget?: (args: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => EcdsaKeyRefCandidate[];
@@ -49,6 +51,7 @@ export type WarmSessionEcdsaReconnectDeps = {
   getWarmSession: (nearAccountId: AccountId | string) => Promise<WarmSessionEnvelope>;
   listThresholdEcdsaKeyRefsForAccountTarget?: (args: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   }) => EcdsaKeyRefCandidate[];
@@ -249,6 +252,7 @@ function readEcdsaKeyRefCandidates(
   deps: Pick<WarmSessionEcdsaProvisionerDeps, 'listThresholdEcdsaKeyRefsForAccountTarget'>,
   args: {
     nearAccountId: AccountId;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   },
@@ -260,6 +264,7 @@ function readEcdsaKeyRefCandidates(
   try {
     listed = deps.listThresholdEcdsaKeyRefsForAccountTarget({
       nearAccountId: args.nearAccountId,
+      subjectId: args.subjectId,
       chainTarget: args.chainTarget,
       ...(args.source ? { source: args.source } : {}),
     });
@@ -288,6 +293,7 @@ export async function tryReuseReadyWarmEcdsaBootstrap(
   deps: WarmSessionEcdsaProvisionerDeps,
   args: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     source?: ThresholdEcdsaSessionStoreSource;
   },
@@ -295,6 +301,7 @@ export async function tryReuseReadyWarmEcdsaBootstrap(
   const nearAccountId = toAccountId(args.nearAccountId);
   const keyRefCandidates = readEcdsaKeyRefCandidates(deps, {
     nearAccountId,
+    subjectId: args.subjectId,
     chainTarget: args.chainTarget,
     ...(args.source ? { source: args.source } : {}),
   });
@@ -343,6 +350,7 @@ export async function provisionWarmEcdsaCapability(
   ) {
     const reusableBootstrap = await tryReuseReadyWarmEcdsaBootstrap(deps, {
       nearAccountId,
+      subjectId: args.subjectId,
       chainTarget,
       source: args.source,
     });
@@ -354,6 +362,7 @@ export async function provisionWarmEcdsaCapability(
   const resolvedBootstrapRequest = resolveWarmEcdsaBootstrapRequestFromSession({
     request: {
       nearAccountId,
+      subjectId: args.subjectId,
       chainTarget,
       relayerUrl: args.relayerUrl,
       ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
@@ -505,6 +514,7 @@ export async function ensureWarmEcdsaCapabilityReady(
     ? [{ source: args.source || 'manual-bootstrap', keyRef: args.keyRef }]
     : readEcdsaKeyRefCandidates(deps, {
         nearAccountId,
+        subjectId: args.subjectId,
         chainTarget,
         ...(args.source ? { source: args.source } : {}),
       });
@@ -734,6 +744,7 @@ export async function ensureWarmEcdsaCapabilityReady(
       } catch {}
       const provisioned = await deps.provisionEcdsaCapability({
         nearAccountId,
+        subjectId: args.subjectId,
         chainTarget,
         source: inheritedEmailOtpRecord ? 'email_otp' : keyRefSource || args.source || 'login',
         // Reconnect starts from a selected key ref when worker memory was lost.

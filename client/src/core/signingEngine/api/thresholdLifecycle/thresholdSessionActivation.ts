@@ -18,9 +18,11 @@ import type { ThresholdRuntimePolicyScope } from '../../threshold/session/sessio
 import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { SigningOperationIntent } from '../../session/signingSession/types';
+import type { WalletSubjectId } from '../../session/signingSession/ecdsaChainTarget';
 
 export type BootstrapEcdsaSessionArgs = {
   nearAccountId: AccountId | string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   source?: ThresholdEcdsaSessionStoreSource;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
@@ -125,6 +127,7 @@ export async function bootstrapEcdsaSessionValue(
 
   const bootstrap = await activateEcdsaSession(activationDeps, {
     nearAccountId,
+    subjectId: args.subjectId,
     chainTarget,
     relayerUrl,
     ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,

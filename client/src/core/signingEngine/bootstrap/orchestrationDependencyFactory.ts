@@ -168,6 +168,7 @@ export type CreateOrchestrationDependencyBundleArgs = {
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
   loginWithEmailOtpEcdsaCapabilityForSigning?: (args: {
     nearAccountId: AccountId | string;
+    subjectId: WalletSubjectId;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeId: string;
     otpCode: string;
@@ -479,6 +480,7 @@ export function createOrchestrationDependencyBundle(
         }).resolveEmailOtpSigningSessionAuthLane({ thresholdSessionId, curve }),
       loginWithEmailOtpEcdsaCapabilityForSigning: ({
         nearAccountId,
+        subjectId,
         chainTarget,
         challengeId,
         otpCode,
@@ -487,6 +489,7 @@ export function createOrchestrationDependencyBundle(
       }) =>
         args.loginWithEmailOtpEcdsaCapabilityForSigning?.({
           nearAccountId,
+          subjectId,
           chainTarget,
           challengeId,
           otpCode,

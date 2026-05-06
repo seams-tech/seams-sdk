@@ -339,6 +339,7 @@ export interface PMEnrollEmailOtpPayload {
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
   nearAccountId: string;
+  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
@@ -365,8 +366,7 @@ export interface PMRefreshEmailOtpSigningSessionPayload {
   remainingUses?: number;
 }
 
-export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload
-  extends PMEmailOtpEcdsaCapabilityPayload {}
+export interface PMEmailOtpEcdsaEnrollmentCapabilityPayload extends PMEmailOtpEcdsaCapabilityPayload {}
 
 export interface PMPrefillThresholdEcdsaPresignPoolPayload {
   nearAccountId: string;
